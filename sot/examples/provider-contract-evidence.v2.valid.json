@@ -1,0 +1,198 @@
+{
+  "schema_version": "kar-provider-contract-evidence.v2",
+  "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
+  "gate_a2": {
+    "schema_version": "kar-gate-a2.v1",
+    "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/gates/gate-a2.json",
+    "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
+    "nonce": "provider-contract-evidence-v2-example"
+  },
+  "runtime_contract": {
+    "schema_version": "kar-provider-runtime-contract.v1",
+    "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-runtime-contract.v1.json",
+    "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "provider": {
+    "family": "kimi",
+    "tuple_key": [
+      "kimi",
+      "local-default",
+      "initial-contract",
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "kimi-default"
+    ],
+    "wrapper_argv_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+    "probe_runner": {
+      "argv": [
+        "/usr/bin/env",
+        "python3",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/tools/provider_probe.py",
+        "run",
+        "--family",
+        "kimi",
+        "--probe-manifest",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-probes.json",
+        "--runtime-contract",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-runtime-contract.v1.json",
+        "--gate-receipt",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/gates/gate-a2.json"
+      ],
+      "argv_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+      "cwd": "REPOSITORY_ROOT"
+    },
+    "secure_writer_index": {
+      "contract": "kar-secure-writer/v1",
+      "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/candidates/0123456789abcdef0123456789abcdef01234567/providers/kimi/secure-writer-index.json",
+      "file_sha256": null,
+      "root_sha256": null
+    },
+    "probes": [
+      {
+        "probe_id": "PV-VERSION",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-NONINTERACTIVE",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-PROMPT-TRANSPORT",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-JSON-ONLY",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-STDOUT-STDERR",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-CANCELLATION",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-OUTPUT-CAP",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-AUTH-CACHE-CONCURRENCY",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-EXIT-CLASSIFICATION",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-CWD-ISOLATION",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-logic",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-security",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-maintainability",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-product",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-documentation",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-testing",
+        "status": "NOT_RUN",
+        "reason": "not_run",
+        "raw_evidence_uri": null,
+        "raw_evidence_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "secure_writer_receipt_sha256": null
+      }
+    ]
+  },
+  "generated_at": "2026-07-13T00:00:00Z"
+}

@@ -1,0 +1,137 @@
+{
+  "schema_version": "kar-doctor-result.v1",
+  "checked_at": "2026-07-13T03:11:00.000Z",
+  "project_root": ".",
+  "intended_provider_ids": [
+    "kimi",
+    "zcode",
+    "agy"
+  ],
+  "unverified_provider_ids": [
+    "kimi",
+    "zcode",
+    "agy"
+  ],
+  "provider_evidence": [
+    {
+      "provider_id": "kimi",
+      "intended": true,
+      "assignment_state": "intended_but_unverified",
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "provider_probe_not_run"
+      ]
+    },
+    {
+      "provider_id": "zcode",
+      "intended": true,
+      "assignment_state": "intended_but_unverified",
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "provider_probe_not_run"
+      ]
+    },
+    {
+      "provider_id": "agy",
+      "intended": true,
+      "assignment_state": "intended_but_unverified",
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "provider_probe_not_run"
+      ]
+    }
+  ],
+  "platform_evidence": [
+    {
+      "cell": "linux-amd64",
+      "native": false,
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "platform_probe_not_run"
+      ]
+    },
+    {
+      "cell": "linux-arm64",
+      "native": false,
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "platform_probe_not_run"
+      ]
+    },
+    {
+      "cell": "darwin-amd64",
+      "native": false,
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "platform_probe_not_run"
+      ]
+    },
+    {
+      "cell": "darwin-arm64",
+      "native": false,
+      "evidence_state": "unverified",
+      "evidence_uri": null,
+      "evidence_sha256": null,
+      "reason_codes": [
+        "platform_probe_not_run"
+      ]
+    }
+  ],
+  "tools_lock": {
+    "state": "locked",
+    "uri": ".gjc/session/evidence/g0/tools.lock.json",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tools": [
+      {
+        "name": "python3",
+        "resolved_path": "/usr/bin/python3",
+        "version": "Python 3.12.0",
+        "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "name": "git",
+        "resolved_path": "/usr/bin/git",
+        "version": "git version 2.45.0",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ]
+  },
+  "readiness": {
+    "state": "unverified",
+    "exit_code": 4,
+    "reason_codes": [
+      "provider_probe_not_run",
+      "platform_probe_not_run"
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "provider_probe_not_run",
+      "category": "readiness",
+      "message": "Intended providers are unverified; run doctor after recording provider evidence.",
+      "redacted": true,
+      "credential_bytes_persisted": false,
+      "artifact_uri": ".gjc/session/diagnostics/doctor.json"
+    },
+    {
+      "code": "platform_probe_not_run",
+      "category": "readiness",
+      "message": "No complete native platform evidence is recorded for the required cells.",
+      "redacted": true,
+      "credential_bytes_persisted": false,
+      "artifact_uri": ".gjc/session/diagnostics/doctor.json"
+    }
+  ]
+}

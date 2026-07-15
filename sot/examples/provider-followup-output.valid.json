@@ -1,0 +1,17 @@
+{
+  "schema_version": "kar-provider-followup-output.v1",
+  "summary": "The original fallback condition has been corrected.",
+  "resolution": "resolved",
+  "rationale": "The coordinator now checks the typed failure class before scheduling fallback, and a valid request-change result completes the role task.",
+  "evidence": [
+    {
+      "path": "internal/app/coordinator.go",
+      "side": "new",
+      "line_start": 120,
+      "line_end": 131,
+      "quote": "if result.Failure != nil && policy.FallbackEligible(result.Failure.Class) {"
+    }
+  ],
+  "new_findings": [],
+  "limitations": []
+}

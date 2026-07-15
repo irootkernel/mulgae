@@ -1,0 +1,715 @@
+{
+  "schema_version": "kar-g0-file-catalog.v1",
+  "files": [
+    {
+      "path": "sot/CHECKSUMS.sha256",
+      "disposition": "GENERATED_SELF_EXCLUDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["integrity-validator"],
+      "checksum_inclusion": false,
+      "exclusion_reason": "self_excluded_checksum"
+    },
+    {
+      "path": "sot/IMPLEMENTATION_CHECKLIST.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["implementation-planning"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/README.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["sot-reader"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/SPEC_VERSION",
+      "disposition": "CHANGED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["release-metadata"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/VALIDATION_REPORT.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["validation-reporting"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/01-product-contract.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["product-contract"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/02-domain-and-state-model.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["domain-model"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/03-cli-workflows.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["cli-workflows"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/04-configuration.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["configuration"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/05-provider-runtime-and-scheduling.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["provider-runtime"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/06-prompt-contract.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["prompt-contract"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/07-output-validation-and-repair.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["output-validation"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/08-artifacts-lineage-and-storage.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["artifact-storage"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/09-security-and-trust.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["security-and-trust"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/10-reporting-ci-and-exit-codes.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["reporting-and-ci"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/11-go-architecture.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["go-architecture"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/12-testing-strategy.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["testing-strategy"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/13-delivery-roadmap.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["delivery-roadmap"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/14-decision-log.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["decision-log"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/15-glossary.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["glossary"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/16-field-ownership-matrix.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["field-ownership"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/artifact-tree.txt",
+      "disposition": "CHANGED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["artifact-layout-reference"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/clean-plan.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-clean-plan.v1.schema.json",
+      "pair": "sot/schemas/kar-clean-plan.v1.schema.json",
+      "consumers": ["clean-plan-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/command-result.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
+      "pair": "sot/schemas/kar-command-result.v1.schema.json",
+      "consumers": ["command-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/doctor-result.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-doctor-result.v1.schema.json",
+      "pair": "sot/schemas/kar-doctor-result.v1.schema.json",
+      "consumers": ["doctor-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/export-manifest.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-export-manifest.v1.schema.json",
+      "pair": "sot/schemas/kar-export-manifest.v1.schema.json",
+      "consumers": ["export-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/g0-file-catalog.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json",
+      "pair": "sot/schemas/kar-g0-file-catalog.v1.schema.json",
+      "consumers": ["checksum-generator", "integrity-validator", "trace-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/global-config.yaml",
+      "disposition": "CHANGED",
+      "media_type": "application/yaml",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["global-configuration"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/platform-contract-evidence.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json",
+      "pair": "sot/schemas/kar-platform-contract-evidence.v1.schema.json",
+      "consumers": ["platform-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/platform-contract-evidence.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json",
+      "pair": "sot/schemas/kar-platform-contract-evidence.v2.schema.json",
+      "consumers": ["platform-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/project-config.yaml",
+      "disposition": "CHANGED",
+      "media_type": "application/yaml",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["project-configuration"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/prompt-manifest.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
+      "pair": "sot/schemas/kar-prompt-manifest.v1.schema.json",
+      "consumers": ["prompt-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-contract-evidence.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json",
+      "pair": "sot/schemas/kar-provider-contract-evidence.v1.schema.json",
+      "consumers": ["provider-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-contract-evidence.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json",
+      "pair": "sot/schemas/kar-provider-contract-evidence.v2.schema.json",
+      "consumers": ["provider-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-followup-output.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json",
+      "pair": "sot/schemas/kar-provider-followup-output.v2.schema.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-followup-output.valid.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:provider-followup-output:v1",
+      "pair": "sot/schemas/kar-provider-followup-output.v1.schema.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-review-output.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-output.v2.schema.json",
+      "pair": "sot/schemas/kar-provider-review-output.v2.schema.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-review-output.valid.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:provider-review-output:v1",
+      "pair": "sot/schemas/kar-provider-review-output.v1.schema.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/repair-patch.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:repair-patch:v1",
+      "pair": "sot/schemas/kar-repair-patch.v1.schema.json",
+      "consumers": ["repair-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/repair-request.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:repair-request:v1",
+      "pair": "sot/schemas/kar-repair-request.v1.schema.json",
+      "consumers": ["repair-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/review-artifact.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
+      "pair": "sot/schemas/kar-review-artifact.v2.schema.json",
+      "consumers": ["review-artifact-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/review-artifact.valid.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:review-artifact:v1",
+      "pair": "sot/schemas/kar-review-artifact.v1.schema.json",
+      "consumers": ["review-artifact-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/run-manifest.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-run-manifest.v2.schema.json",
+      "pair": "sot/schemas/kar-run-manifest.v2.schema.json",
+      "consumers": ["run-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/run-manifest.valid.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:run-manifest:v1",
+      "pair": "sot/schemas/kar-run-manifest.v1.schema.json",
+      "consumers": ["run-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/validation-receipt.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-validation-receipt.v1.schema.json",
+      "pair": "sot/schemas/kar-validation-receipt.v1.schema.json",
+      "consumers": ["validation-receipt-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/validation-result.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-validation-result.v2.schema.json",
+      "pair": "sot/schemas/kar-validation-result.v2.schema.json",
+      "consumers": ["validation-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/validation-result.valid.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/json",
+      "schema_id": "urn:kar:schema:validation-result:v1",
+      "pair": "sot/schemas/kar-validation-result.v1.schema.json",
+      "consumers": ["validation-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/README.md",
+      "disposition": "CHANGED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": ["schema-reader"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-clean-plan.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-clean-plan.v1.schema.json",
+      "pair": "sot/examples/clean-plan.v1.valid.json",
+      "consumers": ["clean-plan-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-command-result.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
+      "pair": "sot/examples/command-result.v1.valid.json",
+      "consumers": ["command-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-doctor-result.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-doctor-result.v1.schema.json",
+      "pair": "sot/examples/doctor-result.v1.valid.json",
+      "consumers": ["doctor-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-export-manifest.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-export-manifest.v1.schema.json",
+      "pair": "sot/examples/export-manifest.v1.valid.json",
+      "consumers": ["export-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-g0-file-catalog.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json",
+      "pair": "sot/examples/g0-file-catalog.v1.valid.json",
+      "consumers": ["checksum-generator", "integrity-validator", "trace-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-platform-contract-evidence.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json",
+      "pair": "sot/examples/platform-contract-evidence.v1.valid.json",
+      "consumers": ["platform-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-platform-contract-evidence.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json",
+      "pair": "sot/examples/platform-contract-evidence.v2.valid.json",
+      "consumers": ["platform-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-prompt-manifest.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
+      "pair": "sot/examples/prompt-manifest.v1.valid.json",
+      "consumers": ["prompt-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-contract-evidence.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json",
+      "pair": "sot/examples/provider-contract-evidence.v1.valid.json",
+      "consumers": ["provider-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-contract-evidence.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json",
+      "pair": "sot/examples/provider-contract-evidence.v2.valid.json",
+      "consumers": ["provider-evidence-validator", "doctor"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-followup-output.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:provider-followup-output:v1",
+      "pair": "sot/examples/provider-followup-output.valid.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-followup-output.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json",
+      "pair": "sot/examples/provider-followup-output.v2.valid.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-review-output.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:provider-review-output:v1",
+      "pair": "sot/examples/provider-review-output.valid.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-review-output.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-output.v2.schema.json",
+      "pair": "sot/examples/provider-review-output.v2.valid.json",
+      "consumers": ["provider-output-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-repair-patch.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:repair-patch:v1",
+      "pair": "sot/examples/repair-patch.json",
+      "consumers": ["repair-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-repair-request.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:repair-request:v1",
+      "pair": "sot/examples/repair-request.json",
+      "consumers": ["repair-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-review-artifact.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:review-artifact:v1",
+      "pair": "sot/examples/review-artifact.valid.json",
+      "consumers": ["review-artifact-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-review-artifact.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
+      "pair": "sot/examples/review-artifact.v2.valid.json",
+      "consumers": ["review-artifact-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-run-manifest.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:run-manifest:v1",
+      "pair": "sot/examples/run-manifest.valid.json",
+      "consumers": ["run-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-run-manifest.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-run-manifest.v2.schema.json",
+      "pair": "sot/examples/run-manifest.v2.valid.json",
+      "consumers": ["run-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-validation-receipt.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-validation-receipt.v1.schema.json",
+      "pair": "sot/examples/validation-receipt.v1.valid.json",
+      "consumers": ["validation-receipt-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-validation-result.v1.schema.json",
+      "disposition": "UNCHANGED_VALIDATED",
+      "media_type": "application/schema+json",
+      "schema_id": "urn:kar:schema:validation-result:v1",
+      "pair": "sot/examples/validation-result.valid.json",
+      "consumers": ["validation-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-validation-result.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-validation-result.v2.schema.json",
+      "pair": "sot/examples/validation-result.v2.valid.json",
+      "consumers": ["validation-result-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    }
+  ]
+}

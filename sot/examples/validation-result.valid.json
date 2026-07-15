@@ -1,0 +1,14 @@
+{
+  "schema_version": "kar-validation-result.v1",
+  "stage": "final",
+  "status": "repaired_valid",
+  "repair_count": 1,
+  "errors": [],
+  "warnings": [],
+  "evidence_summary": {
+    "verified": 1,
+    "partially_verified": 0,
+    "unverified": 0,
+    "invalid": 0
+  }
+}

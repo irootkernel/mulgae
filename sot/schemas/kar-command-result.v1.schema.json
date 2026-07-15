@@ -1,0 +1,833 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
+  "title": "KAR Command Result v1",
+  "description": "The common command envelope. Application requests are the 17 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "request",
+    "completed_at",
+    "exit",
+    "reasons",
+    "result"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-command-result.v1"
+    },
+    "command": {
+      "$ref": "#/$defs/command"
+    },
+    "request": {
+      "oneOf": [
+        { "$ref": "#/$defs/requests/init" },
+        { "$ref": "#/$defs/requests/doctor" },
+        { "$ref": "#/$defs/requests/review" },
+        { "$ref": "#/$defs/requests/followup" },
+        { "$ref": "#/$defs/requests/delta" },
+        { "$ref": "#/$defs/requests/rerun" },
+        { "$ref": "#/$defs/requests/status" },
+        { "$ref": "#/$defs/requests/report" },
+        { "$ref": "#/$defs/requests/findings" },
+        { "$ref": "#/$defs/requests/excerpt" },
+        { "$ref": "#/$defs/requests/providers" },
+        { "$ref": "#/$defs/requests/config" },
+        { "$ref": "#/$defs/requests/prompt" },
+        { "$ref": "#/$defs/requests/schema" },
+        { "$ref": "#/$defs/requests/clean" },
+        { "$ref": "#/$defs/requests/export" },
+        { "$ref": "#/$defs/requests/help" }
+      ]
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit": {
+      "$ref": "#/$defs/exit"
+    },
+    "reasons": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason"
+      }
+    },
+    "result": {
+      "oneOf": [
+        { "$ref": "#/$defs/results/init" },
+        { "$ref": "#/$defs/results/doctor" },
+        { "$ref": "#/$defs/results/review" },
+        { "$ref": "#/$defs/results/followup" },
+        { "$ref": "#/$defs/results/delta" },
+        { "$ref": "#/$defs/results/rerun" },
+        { "$ref": "#/$defs/results/status" },
+        { "$ref": "#/$defs/results/report" },
+        { "$ref": "#/$defs/results/findings" },
+        { "$ref": "#/$defs/results/excerpt" },
+        { "$ref": "#/$defs/results/providers" },
+        { "$ref": "#/$defs/results/config" },
+        { "$ref": "#/$defs/results/prompt" },
+        { "$ref": "#/$defs/results/schema" },
+        { "$ref": "#/$defs/results/clean" },
+        { "$ref": "#/$defs/results/export" },
+        { "$ref": "#/$defs/results/help" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "command": { "const": "init" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/init" },
+          "result": { "$ref": "#/$defs/results/init" },
+          "exit": { "$ref": "#/$defs/exits/init" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "doctor" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/doctor" },
+          "result": { "$ref": "#/$defs/results/doctor" },
+          "exit": { "$ref": "#/$defs/exits/doctor" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "review" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/review" },
+          "result": { "$ref": "#/$defs/results/review" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "followup" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/followup" },
+          "result": { "$ref": "#/$defs/results/followup" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "delta" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/delta" },
+          "result": { "$ref": "#/$defs/results/delta" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "rerun" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/rerun" },
+          "result": { "$ref": "#/$defs/results/rerun" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/status" },
+          "result": { "$ref": "#/$defs/results/status" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/report" },
+          "result": { "$ref": "#/$defs/results/report" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/findings" },
+          "result": { "$ref": "#/$defs/results/findings" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/excerpt" },
+          "result": { "$ref": "#/$defs/results/excerpt" },
+          "exit": { "$ref": "#/$defs/exits/excerpt" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "providers" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/providers" },
+          "result": { "$ref": "#/$defs/results/providers" },
+          "exit": { "$ref": "#/$defs/exits/readiness" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "config" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/config" },
+          "result": { "$ref": "#/$defs/results/config" },
+          "exit": { "$ref": "#/$defs/exits/config" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "prompt" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/prompt" },
+          "result": { "$ref": "#/$defs/results/prompt" },
+          "exit": { "$ref": "#/$defs/exits/prompt" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "schema" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/schema" },
+          "result": { "$ref": "#/$defs/results/schema" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "clean" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/clean" },
+          "result": { "$ref": "#/$defs/results/clean" },
+          "exit": { "$ref": "#/$defs/exits/maintenance" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "export" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/export" },
+          "result": { "$ref": "#/$defs/results/export" },
+          "exit": { "$ref": "#/$defs/exits/maintenance" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "help" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/help" },
+          "result": { "$ref": "#/$defs/results/help" },
+          "exit": { "$ref": "#/$defs/exits/help" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "string",
+      "enum": [
+        "init",
+        "doctor",
+        "review",
+        "followup",
+        "delta",
+        "rerun",
+        "status",
+        "report",
+        "findings",
+        "excerpt",
+        "providers",
+        "config",
+        "prompt",
+        "schema",
+        "clean",
+        "export",
+        "help"
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "artifact_uri": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "provider_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+    },
+    "output_format": {
+      "type": "string",
+      "enum": ["json", "human"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["diff", "patch", "stdin"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        }
+      }
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "code", "message", "retryable", "artifact_uri"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "policy",
+            "usage",
+            "configuration",
+            "readiness",
+            "coverage",
+            "evidence",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "artifact_uri": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "kind"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "enum": [0, 1, 2, 4, 7, 8, 9, 10]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "success",
+            "policy",
+            "usage",
+            "readiness",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "code": { "const": 0 } } }, "then": { "properties": { "kind": { "const": "success" } } } },
+        { "if": { "properties": { "code": { "const": 1 } } }, "then": { "properties": { "kind": { "const": "policy" } } } },
+        { "if": { "properties": { "code": { "const": 2 } } }, "then": { "properties": { "kind": { "const": "usage" } } } },
+        { "if": { "properties": { "code": { "const": 4 } } }, "then": { "properties": { "kind": { "const": "readiness" } } } },
+        { "if": { "properties": { "code": { "const": 7 } } }, "then": { "properties": { "kind": { "const": "artifact" } } } },
+        { "if": { "properties": { "code": { "const": 8 } } }, "then": { "properties": { "kind": { "const": "security" } } } },
+        { "if": { "properties": { "code": { "const": 9 } } }, "then": { "properties": { "kind": { "const": "cancellation" } } } },
+        { "if": { "properties": { "code": { "const": 10 } } }, "then": { "properties": { "kind": { "const": "internal" } } } }
+      ]
+    },
+    "exits": {
+      "init": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7] } } }] },
+      "doctor": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
+      "run": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 1, 2, 4, 7, 8, 9, 10] } } }] },
+      "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7] } } }] },
+      "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7] } } }] },
+      "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
+      "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 8] } } }] },
+      "prompt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 10] } } }] },
+      "maintenance": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8] } } }] },
+      "help": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2] } } }] }
+    },
+    "requests": {
+      "init": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "intended_provider_ids", "overwrite", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "init" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "intended_provider_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/provider_id" }
+          },
+          "overwrite": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "doctor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "check_providers", "check_platform", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "doctor" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "check_providers": { "type": "boolean" },
+          "check_platform": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "target", "objective", "roles", "session_id", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "review" },
+          "target": { "$ref": "#/$defs/target" },
+          "objective": { "type": ["string", "null"], "maxLength": 12000, "pattern": "^[^\\u0000\\r\\n]+$", "description": "Semantic validation enforces at most 12000 UTF-8 bytes; maxLength is only a conservative code-point bound.", "x-kar-maxUtf8Bytes": 12000 },
+          "roles": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/role" } },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "followup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "finding_id", "target", "objective", "role", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "followup" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "finding_id": { "$ref": "#/$defs/finding_id" },
+          "target": { "$ref": "#/$defs/target" },
+          "objective": { "type": ["string", "null"], "maxLength": 12000, "pattern": "^[^\\u0000\\r\\n]+$", "description": "Semantic validation enforces at most 12000 UTF-8 bytes; maxLength is only a conservative code-point bound.", "x-kar-maxUtf8Bytes": 12000 },
+          "role": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/role" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "delta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "target", "roles", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "delta" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "target": { "$ref": "#/$defs/target" },
+          "roles": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/role" } },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "rerun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "source_attempt_id", "replay_mode", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "rerun" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "source_attempt_id": { "$ref": "#/$defs/attempt_id" },
+          "replay_mode": { "type": "string", "enum": ["exact", "recompose"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "status" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_path", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "report" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_path": { "$ref": "#/$defs/path" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "findings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "minimum_severity", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "findings" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "minimum_severity": { "type": "string", "enum": ["low", "medium", "high", "critical", "blocker"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "excerpt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "finding_id", "current_target_sha256", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "excerpt" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "finding_id": { "$ref": "#/$defs/finding_id" },
+          "current_target_sha256": { "$ref": "#/$defs/sha256" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "providers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "include_unverified", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "providers" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "include_unverified": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "config": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "mode", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "config" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "mode": { "type": "string", "enum": ["effective", "provenance"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "prompt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "attempt_id", "include_guarded_bytes", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "prompt" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "attempt_id": { "$ref": "#/$defs/attempt_id" },
+          "include_guarded_bytes": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "schema_id", "export_path", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "schema" },
+          "schema_id": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^https://kar\\.local/schemas/[a-z0-9.-]+\\.schema\\.json$" },
+          "export_path": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "clean": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "mode", "expected_plan_sha256", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "clean" },
+          "mode": { "type": "string", "enum": ["plan", "apply", "explain"] },
+          "expected_plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "export": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_path", "redacted", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "export" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_path": { "$ref": "#/$defs/path" },
+          "redacted": { "const": true },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "help": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "topic", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "help" },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "roles", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      }
+    },
+    "results": {
+      "init": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "project_config_uri", "intended_provider_ids"],
+        "properties": {
+          "kind": { "const": "initialized" },
+          "project_config_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "intended_provider_ids": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/provider_id" } }
+        }
+      },
+      "doctor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "doctor_result_uri", "readiness"],
+        "properties": {
+          "kind": { "const": "diagnosed" },
+          "doctor_result_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "readiness": { "type": "string", "enum": ["ready", "unverified"] }
+        }
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "run_manifest_uri", "review_artifact_uri"],
+        "properties": {
+          "kind": { "const": "review_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "run_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "followup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "followup_artifact_uri"],
+        "properties": {
+          "kind": { "const": "followup_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "followup_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "delta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "review_artifact_uri"],
+        "properties": {
+          "kind": { "const": "delta_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "rerun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "prompt_manifest_uri"],
+        "properties": {
+          "kind": { "const": "rerun_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "prompt_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "run_id", "run_state", "publication_status"],
+        "properties": {
+          "kind": { "const": "status_read" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "run_state": { "type": "string", "enum": ["pending", "running", "completed", "degraded", "failed", "cancelled"] },
+          "publication_status": { "type": "string", "enum": ["not_published", "staged", "installed", "committed", "corrupt"] }
+        }
+      },
+      "report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "report_uri"],
+        "properties": {
+          "kind": { "const": "report_rendered" },
+          "report_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "findings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "run_id", "finding_count", "review_artifact_uri"],
+        "properties": {
+          "kind": { "const": "findings_listed" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "finding_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "excerpt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "evidence_state", "excerpt_uri"],
+        "properties": {
+          "kind": { "const": "excerpt_rendered" },
+          "evidence_state": { "type": "string", "enum": ["verified", "stale", "invalid", "unverifiable"] },
+          "excerpt_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "providers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "provider_evidence_uri", "ready_provider_count"],
+        "properties": {
+          "kind": { "const": "providers_listed" },
+          "provider_evidence_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 1024 }
+        }
+      },
+      "config": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "resolved_policy_uri", "policy_sha256"],
+        "properties": {
+          "kind": { "const": "configuration_resolved" },
+          "resolved_policy_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "policy_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+        }
+      },
+      "prompt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "prompt_manifest_uri", "complete_stdin_sha256", "guarded_bytes_included"],
+        "properties": {
+          "kind": { "const": "prompt_inspected" },
+          "prompt_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "complete_stdin_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "guarded_bytes_included": { "type": "boolean" }
+        }
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "schema_id", "export_uri"],
+        "properties": {
+          "kind": { "const": "schema_inspected" },
+          "schema_id": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^https://kar\\.local/schemas/[a-z0-9.-]+\\.schema\\.json$" },
+          "export_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "clean": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "clean_plan_uri", "plan_sha256", "applied"],
+        "properties": {
+          "kind": { "const": "clean_completed" },
+          "clean_plan_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "applied": { "type": "boolean" }
+        }
+      },
+      "export": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "export_manifest_uri", "bundle_uri", "redacted"],
+        "properties": {
+          "kind": { "const": "export_created" },
+          "export_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "bundle_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "redacted": { "const": true }
+        }
+      },
+      "help": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "topic", "rendered"],
+        "properties": {
+          "kind": { "const": "help_rendered" },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "roles", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "rendered": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

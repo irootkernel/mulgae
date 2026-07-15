@@ -1,0 +1,114 @@
+{
+  "schema_version": "kar-review-artifact.v1",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+  "run_type": "review",
+  "created_at": "2026-07-13T03:00:00.500Z",
+  "kar": {
+    "version": "0.1.0",
+    "commit": "0123456789abcdef"
+  },
+  "lineage": {
+    "parent_run_id": null,
+    "source_run_id": null,
+    "source_finding_ref": null,
+    "replay_mode": null
+  },
+  "target": {
+    "kind": "git_snapshot",
+    "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "previous_content_sha256": null,
+    "base_oid": "1111111111111111111111111111111111111111",
+    "head_oid": "2222222222222222222222222222222222222222",
+    "head_tree_oid": "3333333333333333333333333333333333333333",
+    "index_tree_oid": null,
+    "include_untracked": false,
+    "manifest_path": "target/target-manifest.json"
+  },
+  "validation": {
+    "status": "repaired_valid",
+    "repair_count": 1,
+    "schema_validation": "passed",
+    "semantic_validation": "passed",
+    "evidence_validation": "passed"
+  },
+  "coverage": {
+    "selected_roles": [
+      "logic",
+      "security"
+    ],
+    "required_roles": [
+      "logic",
+      "security"
+    ],
+    "completed_roles": [
+      "logic",
+      "security"
+    ],
+    "degraded_roles": [],
+    "missing_roles": []
+  },
+  "assessment": {
+    "verdict": "request_changes",
+    "summary": "One high-severity logic finding requires a code change before merge."
+  },
+  "role_results": [
+    {
+      "role": "logic",
+      "provider_instance": "codex-work",
+      "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+      "selected_via": "primary",
+      "summary": "One high-severity coordinator issue was identified.",
+      "completeness": "complete",
+      "limitations": [],
+      "validation_status": "repaired_valid",
+      "finding_ids": [
+        "F001"
+      ]
+    },
+    {
+      "role": "security",
+      "provider_instance": "claude-main",
+      "attempt_id": "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e",
+      "selected_via": "primary",
+      "summary": "No material security issue was identified in the captured target.",
+      "completeness": "complete",
+      "limitations": [],
+      "validation_status": "valid",
+      "finding_ids": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "F001",
+      "fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "role": "logic",
+      "provider_instance": "codex-work",
+      "severity": "high",
+      "title": "Fallback is triggered after a valid negative review",
+      "description": "The coordinator treats a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping.",
+      "evidence": [
+        {
+          "path": "internal/app/coordinator.go",
+          "side": "new",
+          "line_start": 120,
+          "line_end": 128,
+          "quote": "if result.RequestChanges {\n    queueFallback(task)\n}",
+          "verification": "verified",
+          "excerpt_ref": "excerpts/F001.md"
+        }
+      ],
+      "recommendation": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results.",
+      "confidence": "high",
+      "lifecycle": "open"
+    }
+  ],
+  "followup": null,
+  "limitations": [],
+  "provenance": {
+    "target_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aggregation_path": "aggregation.json",
+    "final_validation_path": "validation/final-validation.json"
+  }
+}

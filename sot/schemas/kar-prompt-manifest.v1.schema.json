@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
+  "title": "KAR Prompt Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "prompt_manifest_id",
+    "session_id",
+    "run_id",
+    "role_task_id",
+    "attempt_id",
+    "source_invocation_id",
+    "execution_invocation_id",
+    "trusted_template",
+    "framed_sections",
+    "complete_stdin_byte_length",
+    "complete_stdin_sha256",
+    "wire_identity",
+    "secure_writer_receipt",
+    "replay"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-prompt-manifest.v1"
+    },
+    "prompt_manifest_id": {
+      "$ref": "#/$defs/prompt_manifest_id"
+    },
+    "session_id": {
+      "$ref": "#/$defs/session_id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/run_id"
+    },
+    "role_task_id": {
+      "$ref": "#/$defs/role_task_id"
+    },
+    "attempt_id": {
+      "$ref": "#/$defs/attempt_id"
+    },
+    "source_invocation_id": {
+      "$ref": "#/$defs/source_invocation_id"
+    },
+    "execution_invocation_id": {
+      "$ref": "#/$defs/uuidv7"
+    },
+    "trusted_template": {
+      "$ref": "#/$defs/trusted_template"
+    },
+    "framed_sections": {
+      "$ref": "#/$defs/framed_sections"
+    },
+    "complete_stdin_byte_length": {
+      "$ref": "#/$defs/canonical_byte_length"
+    },
+    "complete_stdin_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "wire_identity": {
+      "$ref": "#/$defs/sha256"
+    },
+    "secure_writer_receipt": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/secure_writer_receipt"
+        },
+        {
+          "properties": {
+            "channel": {
+              "const": "prompt_stdin"
+            }
+          }
+        }
+      ]
+    },
+    "replay": {
+      "$ref": "#/$defs/replay"
+    }
+  },
+  "$defs": {
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "prompt_manifest_id": {
+      "type": "string",
+      "pattern": "^pm_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "role_task_id": {
+      "type": "string",
+      "pattern": "^rt_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "source_invocation_id": {
+      "type": "string",
+      "pattern": "^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canonical_byte_length": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,19})$"
+    },
+    "artifact_uri": {
+      "type": "string",
+      "format": "uri",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "trusted_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id",
+        "template_version",
+        "template_sha256",
+        "template_byte_length",
+        "template_uri",
+        "trust",
+        "ends_with_lf"
+      ],
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "template_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "template_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "template_byte_length": {
+          "$ref": "#/$defs/canonical_byte_length"
+        },
+        "template_uri": {
+          "$ref": "#/$defs/artifact_uri"
+        },
+        "trust": {
+          "const": "KAR_TRUSTED"
+        },
+        "ends_with_lf": {
+          "const": false
+        }
+      }
+    },
+    "secure_writer_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "writer_id",
+        "channel",
+        "outcome",
+        "artifact_uri",
+        "artifact_sha256",
+        "byte_length",
+        "receipt_uri",
+        "receipt_sha256"
+      ],
+      "properties": {
+        "writer_id": {
+          "const": "kar-secure-writer/v1"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "prompt_stdin",
+            "prompt_frame"
+          ]
+        },
+        "outcome": {
+          "const": "PERSISTED"
+        },
+        "artifact_uri": {
+          "$ref": "#/$defs/artifact_uri"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
+          "$ref": "#/$defs/canonical_byte_length"
+        },
+        "receipt_uri": {
+          "$ref": "#/$defs/artifact_uri"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "kind",
+        "payload_byte_length",
+        "payload_sha256",
+        "framed_section_sha256",
+        "frame_uri",
+        "secure_writer_receipt"
+      ],
+      "properties": {
+        "section_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "project_context",
+            "review_target",
+            "prior_provider_output",
+            "prior_finding",
+            "prior_report",
+            "external_log"
+          ]
+        },
+        "payload_byte_length": {
+          "$ref": "#/$defs/canonical_byte_length"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "framed_section_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "frame_uri": {
+          "$ref": "#/$defs/artifact_uri"
+        },
+        "secure_writer_receipt": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/secure_writer_receipt"
+            },
+            {
+              "properties": {
+                "channel": {
+                  "const": "prompt_frame"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "project_context_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "project_context"
+            }
+          }
+        }
+      ]
+    },
+    "review_target_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "review_target"
+            }
+          }
+        }
+      ]
+    },
+    "prior_provider_output_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "prior_provider_output"
+            }
+          }
+        }
+      ]
+    },
+    "prior_finding_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "prior_finding"
+            }
+          }
+        }
+      ]
+    },
+    "prior_report_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "prior_report"
+            }
+          }
+        }
+      ]
+    },
+    "external_log_section": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/section"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "external_log"
+            }
+          }
+        }
+      ]
+    },
+    "framed_sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "uniqueItems": true,
+      "contains": {
+        "$ref": "#/$defs/review_target_section"
+      },
+      "minContains": 1,
+      "maxContains": 1,
+      "anyOf": [
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        },
+        {
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/project_context_section"
+            },
+            {
+              "$ref": "#/$defs/review_target_section"
+            },
+            {
+              "$ref": "#/$defs/prior_provider_output_section"
+            },
+            {
+              "$ref": "#/$defs/prior_finding_section"
+            },
+            {
+              "$ref": "#/$defs/prior_report_section"
+            }
+          ],
+          "items": {
+            "$ref": "#/$defs/external_log_section"
+          }
+        }
+      ]
+    },
+    "replay": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "replayed_source_invocation_id",
+            "source_prompt_manifest_uri",
+            "source_prompt_manifest_sha256"
+          ],
+          "properties": {
+            "mode": {
+              "const": "NOT_REPLAY"
+            },
+            "replayed_source_invocation_id": {
+              "const": null
+            },
+            "source_prompt_manifest_uri": {
+              "const": null
+            },
+            "source_prompt_manifest_sha256": {
+              "const": null
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "replayed_source_invocation_id",
+            "source_prompt_manifest_uri",
+            "source_prompt_manifest_sha256"
+          ],
+          "properties": {
+            "mode": {
+              "const": "EXACT_REPLAY"
+            },
+            "replayed_source_invocation_id": {
+              "$ref": "#/$defs/source_invocation_id"
+            },
+            "source_prompt_manifest_uri": {
+              "$ref": "#/$defs/artifact_uri"
+            },
+            "source_prompt_manifest_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

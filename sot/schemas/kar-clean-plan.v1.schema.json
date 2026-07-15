@@ -1,0 +1,573 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kar.local/schemas/kar-clean-plan.v1.schema.json",
+  "title": "KAR Clean Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mode",
+    "now",
+    "store_epoch",
+    "input_policy_sha256",
+    "policy",
+    "retention_protection",
+    "run_decisions",
+    "delete_sets",
+    "ordered_actions",
+    "byte_accounting",
+    "outcome_reasons",
+    "plan_hash",
+    "apply_identity"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-clean-plan.v1"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "dry_run",
+        "apply"
+      ]
+    },
+    "now": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "store_epoch": {
+      "$ref": "#/$defs/storeEpoch"
+    },
+    "input_policy_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retention_age_seconds",
+        "min_age_for_size_seconds",
+        "target_bytes",
+        "explicit_keep_run_ids"
+      ],
+      "properties": {
+        "retention_age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_age_for_size_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "explicit_keep_run_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/runId"
+          }
+        }
+      }
+    },
+    "retention_protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retained_seed_run_ids",
+        "transitive_ancestor_protection",
+        "graph_anomaly_components"
+      ],
+      "properties": {
+        "retained_seed_run_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/runId"
+          }
+        },
+        "transitive_ancestor_protection": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ancestor_run_id",
+              "retained_descendant_run_id",
+              "lineage_edge_refs"
+            ],
+            "properties": {
+              "ancestor_run_id": {
+                "$ref": "#/$defs/runId"
+              },
+              "retained_descendant_run_id": {
+                "$ref": "#/$defs/runId"
+              },
+              "lineage_edge_refs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/lineageEdgeRef"
+                }
+              }
+            }
+          }
+        },
+        "graph_anomaly_components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "affected_run_ids",
+              "lineage_edge_refs"
+            ],
+            "properties": {
+              "affected_run_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/runId"
+                }
+              },
+              "lineage_edge_refs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/lineageEdgeRef"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "run_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_id",
+          "decision",
+          "reasons"
+        ],
+        "properties": {
+          "run_id": {
+            "$ref": "#/$defs/runId"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "protected",
+              "eligible_age",
+              "eligible_size",
+              "selected_age",
+              "selected_size",
+              "not_selected"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/reason"
+            }
+          }
+        }
+      }
+    },
+    "delete_sets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "age_delete_set",
+        "size_delete_set"
+      ],
+      "properties": {
+        "age_delete_set": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ageDeleteSetEntry"
+          }
+        },
+        "size_delete_set": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sizeDeleteSetEntry"
+          }
+        }
+      }
+    },
+    "ordered_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/orderedAction"
+      }
+    },
+    "byte_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_regular_file_bytes",
+        "age_delete_bytes",
+        "size_delete_bytes",
+        "planned_delete_bytes",
+        "projected_regular_file_bytes",
+        "target_bytes",
+        "target_reached"
+      ],
+      "properties": {
+        "initial_regular_file_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "age_delete_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size_delete_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planned_delete_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "projected_regular_file_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_reached": {
+          "type": "boolean"
+        }
+      }
+    },
+    "outcome_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason"
+      }
+    },
+    "plan_hash": {
+      "$ref": "#/$defs/sha256",
+      "description": "Domain-separated SHA-256 of RFC 8785 canonical plan content after removing top-level mode, plan_hash, and apply_identity."
+    },
+    "apply_identity": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/applyIdentity"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "dry_run"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "apply_identity": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "apply_identity": {
+            "$ref": "#/$defs/applyIdentity"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "canonicalPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+    },
+    "storeEpoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "sha256"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "lineageEdgeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_run_id",
+        "child_run_id",
+        "edge_path",
+        "sha256"
+      ],
+      "properties": {
+        "parent_run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "child_run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "edge_path": {
+          "$ref": "#/$defs/canonicalPath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "protected_explicit",
+        "active",
+        "uncommitted",
+        "corrupt",
+        "newest_session",
+        "ancestor",
+        "graph_anomaly",
+        "missing_time",
+        "young",
+        "eligible_age",
+        "eligible_size",
+        "deleted_age",
+        "deleted_size",
+        "target_not_reached_protected",
+        "stale_epoch",
+        "partial_delete_resume"
+      ]
+    },
+    "deleteSetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "completed_at",
+        "regular_file_bytes",
+        "reason"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "regular_file_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        }
+      }
+    },
+    "ageDeleteSetEntry": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/deleteSetEntry"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "const": "eligible_age"
+            }
+          }
+        }
+      ]
+    },
+    "sizeDeleteSetEntry": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/deleteSetEntry"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "const": "eligible_size"
+            }
+          }
+        }
+      ]
+    },
+    "orderedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "phase",
+        "action",
+        "run_id",
+        "reason",
+        "bytes_released"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "age",
+            "size",
+            "recovery"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "tombstone",
+            "delete",
+            "resume"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/runId"
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "bytes_released": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "phase": {
+                "const": "age"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "enum": [
+                  "tombstone",
+                  "delete"
+                ]
+              },
+              "reason": {
+                "const": "deleted_age"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "phase": {
+                "const": "size"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "enum": [
+                  "tombstone",
+                  "delete"
+                ]
+              },
+              "reason": {
+                "const": "deleted_size"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "phase": {
+                "const": "recovery"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "resume"
+              },
+              "reason": {
+                "const": "partial_delete_resume"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "applyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dry_run_plan_hash",
+        "expected_store_epoch",
+        "expected_input_policy_sha256"
+      ],
+      "properties": {
+        "dry_run_plan_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_store_epoch": {
+          "$ref": "#/$defs/storeEpoch"
+        },
+        "expected_input_policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "schema_version": "kar-platform-contract-evidence.v2",
+  "candidate_oid": "a9f3c1d8e5b60472c8da1f9453b6e02a7c9d1f48",
+  "platforms": [
+    {
+      "cell_id": "linux-amd64",
+      "contract_scope": "intended_future",
+      "blocking_for_external_readiness": false,
+      "native_execution": false,
+      "observed_os": null,
+      "observed_arch": null,
+      "filesystem_class": "unknown",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCAL-FS", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SAME-DEVICE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCK-STALE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PERMISSION", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SYMLINK", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RENAME", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-FILE-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-DIR-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RECOVERY", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null}
+      ],
+      "provenance": {
+        "tool_lock_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+        "probe_manifest_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e",
+        "argv_sha256": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520",
+        "argv_bundle_sha256": "b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b",
+        "receipt_sha256": "c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7",
+        "evidence_write_manifest_sha256": "d75fee7aa533f2342cc52f39b8d8ea679af5837357aa68e84f9819a9cbe365eb",
+        "gate_a2_sha256": "d133f4bd328830055a05d3ac43b9a8d941b9d5fc4bc86589602896b187ed4a6a"
+      }
+    },
+    {
+      "cell_id": "linux-arm64",
+      "contract_scope": "intended_future",
+      "blocking_for_external_readiness": false,
+      "native_execution": false,
+      "observed_os": null,
+      "observed_arch": null,
+      "filesystem_class": "unknown",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCAL-FS", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SAME-DEVICE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCK-STALE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PERMISSION", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SYMLINK", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RENAME", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-FILE-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-DIR-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RECOVERY", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null}
+      ],
+      "provenance": {
+        "tool_lock_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+        "probe_manifest_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e",
+        "argv_sha256": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520",
+        "argv_bundle_sha256": "b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b",
+        "receipt_sha256": "c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7",
+        "evidence_write_manifest_sha256": "d75fee7aa533f2342cc52f39b8d8ea679af5837357aa68e84f9819a9cbe365eb",
+        "gate_a2_sha256": "d133f4bd328830055a05d3ac43b9a8d941b9d5fc4bc86589602896b187ed4a6a"
+      }
+    },
+    {
+      "cell_id": "darwin-amd64",
+      "contract_scope": "intended_future",
+      "blocking_for_external_readiness": false,
+      "native_execution": false,
+      "observed_os": null,
+      "observed_arch": null,
+      "filesystem_class": "unknown",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCAL-FS", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SAME-DEVICE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCK-STALE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PERMISSION", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SYMLINK", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RENAME", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-FILE-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-DIR-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RECOVERY", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null}
+      ],
+      "provenance": {
+        "tool_lock_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+        "probe_manifest_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e",
+        "argv_sha256": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520",
+        "argv_bundle_sha256": "b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b",
+        "receipt_sha256": "c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7",
+        "evidence_write_manifest_sha256": "d75fee7aa533f2342cc52f39b8d8ea679af5837357aa68e84f9819a9cbe365eb",
+        "gate_a2_sha256": "d133f4bd328830055a05d3ac43b9a8d941b9d5fc4bc86589602896b187ed4a6a"
+      }
+    },
+    {
+      "cell_id": "darwin-arm64",
+      "contract_scope": "required",
+      "blocking_for_external_readiness": true,
+      "native_execution": false,
+      "observed_os": null,
+      "observed_arch": null,
+      "filesystem_class": "unknown",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCAL-FS", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SAME-DEVICE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-LOCK-STALE", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-PERMISSION", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-SYMLINK", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RENAME", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-FILE-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-DIR-FSYNC", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null},
+        {"probe_id": "PL-RECOVERY", "status": "NOT_RUN", "reason": "not_run", "raw_evidence_uri": null, "raw_evidence_sha256": null, "secure_writer_receipt_uri": null, "secure_writer_receipt_sha256": null}
+      ],
+      "provenance": {
+        "tool_lock_sha256": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129",
+        "probe_manifest_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e",
+        "argv_sha256": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520",
+        "argv_bundle_sha256": "b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b",
+        "receipt_sha256": "c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7",
+        "evidence_write_manifest_sha256": "d75fee7aa533f2342cc52f39b8d8ea679af5837357aa68e84f9819a9cbe365eb",
+        "gate_a2_sha256": "d133f4bd328830055a05d3ac43b9a8d941b9d5fc4bc86589602896b187ed4a6a"
+      }
+    }
+  ],
+  "generated_at": "2026-07-13T00:00:00Z"
+}

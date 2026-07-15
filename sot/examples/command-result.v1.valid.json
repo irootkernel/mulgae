@@ -1,0 +1,29 @@
+{
+  "schema_version": "kar-command-result.v1",
+  "command": "followup",
+  "request": {
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "command": "followup",
+    "source_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "finding_id": "F003",
+    "target": {
+      "kind": "diff",
+      "value": "origin/main...HEAD"
+    },
+    "objective": "Verify whether the source finding is resolved.",
+    "role": "logic",
+    "output_format": "json"
+  },
+  "completed_at": "2026-07-13T03:10:00.000Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "result": {
+    "kind": "followup_started",
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "run_id": "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e",
+    "followup_artifact_uri": ".kar/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e/followup.json"
+  }
+}

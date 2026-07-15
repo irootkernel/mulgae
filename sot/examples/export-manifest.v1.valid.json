@@ -1,0 +1,68 @@
+{
+  "schema_version": "kar-export-manifest.v1",
+  "export_id": "x_019f596a-e1b2-7cd3-8efa-7149158243ba",
+  "created_at": "2026-07-13T12:05:00Z",
+  "immutable_source": {
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+    "run_manifest_ref": {
+      "artifact_path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/manifest.json",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "review_artifact_ref": {
+      "artifact_path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/review_019f596a-d174-7321-b920-c2d312c82cc2.json",
+      "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "source_identity": {
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+    "finding_id": "F001",
+    "source_target_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "source_excerpt_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "current_identity": {
+    "target_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "path": "internal/queue/fallback.go",
+    "side": "worktree",
+    "line_start": 120,
+    "line_end": 128,
+    "verification": "verified"
+  },
+  "secure_writer": {
+    "contract": "kar-secure-writer/v1",
+    "scan_before_write": true,
+    "redaction_policy": "redacted_export",
+    "redaction_status": "complete",
+    "secret_block_evidence": {
+      "scan_status": "clear",
+      "on_detection": "abort_export",
+      "secret_persisted": false,
+      "blocked_content_hash_persisted": false
+    },
+    "receipt_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "bundle": {
+    "member_count": 2,
+    "size_bytes": 3072,
+    "sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "members": [
+    {
+      "member_path": "run/run-manifest.json",
+      "sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "size_bytes": 1024,
+      "media_type": "application/json",
+      "redaction_status": "not_required"
+    },
+    {
+      "member_path": "review/review-artifact.json",
+      "sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "size_bytes": 2048,
+      "media_type": "application/json",
+      "redaction_status": "applied"
+    }
+  ]
+}

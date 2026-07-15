@@ -1,0 +1,116 @@
+{
+  "schema_version": "kar-review-artifact.v2",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+  "run_type": "review",
+  "created_at": "2026-07-13T03:00:00.500Z",
+  "kar": {
+    "version": "0.1.0",
+    "commit": "0123456789abcdef"
+  },
+  "immutable_lineage": {
+    "parent_run_id": null,
+    "source_run_id": null,
+    "source_review_id": null,
+    "source_finding_ref": null,
+    "replay_mode": null,
+    "lineage_edge_path": "lineage/edge_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "lineage_edge_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "target": {
+    "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_path": "target/target-manifest.json",
+    "base_oid": "1111111111111111111111111111111111111111",
+    "head_oid": "2222222222222222222222222222222222222222"
+  },
+  "validation": {
+    "status": "repaired_valid",
+    "schema_validation": "passed",
+    "semantic_validation": "passed",
+    "evidence_validation": "passed"
+  },
+  "content_verdict": "request_changes",
+  "coverage_status": "incomplete",
+  "publication_status": "committed",
+  "ci_decision": "fail",
+  "ci_reason_codes": [
+    "request_changes_threshold",
+    "required_role_incomplete"
+  ],
+  "severity_threshold": {
+    "request_changes_at_or_above": "high",
+    "policy_source": "trusted_base"
+  },
+  "role_outcomes": [
+    {
+      "role": "logic",
+      "required": true,
+      "outcome": "completed",
+      "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+      "provider_instance": "kimi-logic",
+      "selected_via": "primary",
+      "valid_finding_ids": [
+        "F001"
+      ],
+      "failure_reason": null,
+      "limitations": []
+    },
+    {
+      "role": "security",
+      "required": true,
+      "outcome": "failed",
+      "attempt_id": "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e",
+      "provider_instance": "agy-security",
+      "selected_via": "primary",
+      "valid_finding_ids": [],
+      "failure_reason": "timeout",
+      "limitations": [
+        "The required security role exhausted its permitted attempts after a timeout."
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F001",
+      "fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "role": "logic",
+      "provider_instance": "kimi-logic",
+      "severity": "high",
+      "title": "Fallback is triggered after a valid negative review",
+      "description": "The coordinator treats a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping.",
+      "evidence": [
+        {
+          "source": {
+            "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+            "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+            "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+            "finding_id": "F001",
+            "source_target_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_excerpt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "current": {
+            "target_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "side": "head",
+            "path": "internal/app/coordinator.go",
+            "line_start": 120,
+            "line_end": 128,
+            "quote": "if result.RequestChanges {\n    queueFallback(task)\n}",
+            "verification": "verified"
+          }
+        }
+      ],
+      "recommendation": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results.",
+      "confidence": "high",
+      "lifecycle": "open"
+    }
+  ],
+  "limitations": [
+    "Coverage is incomplete because the required security role exhausted its attempts."
+  ],
+  "provenance": {
+    "aggregation_path": "aggregation.json",
+    "final_validation_path": "validation/final-validation.json",
+    "manifest_path": "manifest.json"
+  }
+}

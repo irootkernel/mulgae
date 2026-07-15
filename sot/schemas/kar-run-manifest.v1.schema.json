@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kar:schema:run-manifest:v1",
+  "title": "KAR Run Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "run_id",
+    "run_type",
+    "state",
+    "sealed",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "kar_version",
+    "lineage",
+    "target",
+    "selected_roles",
+    "required_roles",
+    "attempts",
+    "final_review",
+    "failures",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-run-manifest.v1"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "review",
+        "followup",
+        "delta",
+        "rerun"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "degraded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "sealed": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "kar_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_run_id",
+        "source_run_id",
+        "source_finding_ref",
+        "replay_mode"
+      ],
+      "properties": {
+        "parent_run_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          ]
+        },
+        "source_run_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          ]
+        },
+        "source_finding_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "replay_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "exact",
+            "recompose",
+            null
+          ]
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "content_sha256"
+      ],
+      "properties": {
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "selected_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      }
+    },
+    "required_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt_id",
+          "role",
+          "provider_instance",
+          "selected_as",
+          "state",
+          "parse_state",
+          "validation_state",
+          "path",
+          "invocation_count"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "provider_instance": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "selected_as": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "fallback"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "validating",
+              "repairing",
+              "succeeded",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "blocked"
+            ]
+          },
+          "parse_state": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "valid",
+              "invalid_json",
+              "empty_output",
+              "output_too_large"
+            ]
+          },
+          "validation_state": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "valid",
+              "repaired_valid",
+              "invalid",
+              "repair_exhausted",
+              "internal_error"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "invocation_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    "final_review": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "review_id",
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "review_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "failures": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "class",
+          "stage",
+          "message",
+          "attempt_id"
+        ],
+        "properties": {
+          "class": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "attempt_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    }
+  }
+}

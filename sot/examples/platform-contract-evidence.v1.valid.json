@@ -1,0 +1,106 @@
+{
+  "schema_version": "kar-platform-contract-evidence.v1",
+  "external_contract_readiness": "UNVERIFIED",
+  "filesystem_scope": {
+    "kind": "LOCAL_POSIX",
+    "network_filesystems_supported": false
+  },
+  "cells": [
+    {
+      "cell_id": "linux-amd64",
+      "operating_system": "linux",
+      "architecture": "amd64",
+      "native_required": true,
+      "native_observed": null,
+      "execution_state": "NOT_EXECUTED",
+      "status": "INCONCLUSIVE",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCAL-FS", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SAME-DEVICE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCK-STALE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PERMISSION", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SYMLINK", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RENAME", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-FILE-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-DIR-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RECOVERY", "status": "INCONCLUSIVE", "reason": "not_executed"}
+      ],
+      "evidence_uri": null,
+      "unverified_reason": "The required native platform probe has not been executed."
+    },
+    {
+      "cell_id": "linux-arm64",
+      "operating_system": "linux",
+      "architecture": "arm64",
+      "native_required": true,
+      "native_observed": null,
+      "execution_state": "NOT_EXECUTED",
+      "status": "INCONCLUSIVE",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCAL-FS", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SAME-DEVICE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCK-STALE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PERMISSION", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SYMLINK", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RENAME", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-FILE-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-DIR-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RECOVERY", "status": "INCONCLUSIVE", "reason": "not_executed"}
+      ],
+      "evidence_uri": null,
+      "unverified_reason": "The required native platform probe has not been executed."
+    },
+    {
+      "cell_id": "darwin-amd64",
+      "operating_system": "darwin",
+      "architecture": "amd64",
+      "native_required": true,
+      "native_observed": null,
+      "execution_state": "NOT_EXECUTED",
+      "status": "INCONCLUSIVE",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCAL-FS", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SAME-DEVICE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCK-STALE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PERMISSION", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SYMLINK", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RENAME", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-FILE-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-DIR-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RECOVERY", "status": "INCONCLUSIVE", "reason": "not_executed"}
+      ],
+      "evidence_uri": null,
+      "unverified_reason": "The required native platform probe has not been executed."
+    },
+    {
+      "cell_id": "darwin-arm64",
+      "operating_system": "darwin",
+      "architecture": "arm64",
+      "native_required": true,
+      "native_observed": null,
+      "execution_state": "NOT_EXECUTED",
+      "status": "INCONCLUSIVE",
+      "probes": [
+        {"probe_id": "PL-IDENTITY-NATIVE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCAL-FS", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SAME-DEVICE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PROCESS-GROUP", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-LOCK-STALE", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-PERMISSION", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-SYMLINK", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RENAME", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-FILE-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-DIR-FSYNC", "status": "INCONCLUSIVE", "reason": "not_executed"},
+        {"probe_id": "PL-RECOVERY", "status": "INCONCLUSIVE", "reason": "not_executed"}
+      ],
+      "evidence_uri": null,
+      "unverified_reason": "The required native platform probe has not been executed."
+    }
+  ]
+}

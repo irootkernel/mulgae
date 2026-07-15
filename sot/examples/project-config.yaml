@@ -1,0 +1,76 @@
+version: 1
+
+# This proposal is read from the trusted target base and is accepted atomically
+# only when every setting preserves or strengthens the resolved global policy.
+trusted_base: true
+
+project:
+  name: my-project
+  root: .
+  context: .kar/context.md
+
+execution:
+  # Intersection with the global readonly_snapshot boundary.
+  workspace_access: none
+
+review:
+  # This is an additive requirement set; it cannot remove the logic/security floor.
+  required_roles:
+    - logic
+    - security
+    - maintainability
+    - product
+    - documentation
+    - testing
+  # Lowering the threshold from high to medium is stricter.
+  request_changes_on:
+    - medium
+    - high
+    - critical
+    - blocker
+
+roles:
+  logic:
+    enabled: true
+    guide: builtin:roles/logic@1
+  security:
+    enabled: true
+    guide: builtin:roles/security@1
+  maintainability:
+    enabled: true
+    guide: builtin:roles/maintainability@1
+  product:
+    enabled: true
+    guide: builtin:roles/product@1
+  documentation:
+    enabled: true
+    guide: builtin:roles/documentation@1
+  testing:
+    enabled: true
+    guide: builtin:roles/testing@1
+
+validation:
+  evidence:
+    require_verified_for:
+      - medium
+      - high
+      - critical
+      - blocker
+
+resources:
+  # Project limits may decrease trusted global caps only.
+  role_max_invocations: 3
+  run_max_invocations: 18
+  run_total_output_cap: 48MiB
+
+ci:
+  fail_on_severity:
+    - medium
+    - high
+    - critical
+    - blocker
+  degraded_review_fails: true
+  # Incomplete coverage remains the fixed readiness outcome (exit 4).
+
+# Provider definitions, provider commands, shell enablement, and shell commands
+# intentionally do not appear in project configuration.

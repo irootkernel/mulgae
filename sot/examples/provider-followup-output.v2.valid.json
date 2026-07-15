@@ -1,0 +1,31 @@
+{
+  "schema_version": "kar-provider-followup-output.v2",
+  "summary": "The followup identifies a changed current-target location that KAR must verify against the immutable source finding.",
+  "resolution": "still_open",
+  "rationale": "The source finding remains a valid immutable reference. The provider supplies only a current location and excerpt claim; KAR owns the later stale, verified, invalid, or unverifiable result.",
+  "evidence": [
+    {
+      "source": {
+        "session_id": "s_018f3d50-0ba5-7d2a-8e63-111111111111",
+        "run_id": "r_018f3d50-0bae-7b19-9f24-222222222222",
+        "review_id": "018f3d50-0bb7-7c3d-9a84-333333333333",
+        "finding_id": "F001",
+        "source_target_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "source_excerpt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "current": {
+        "target_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "path": "internal/app/coordinator.go",
+        "line_start": 120,
+        "line_end": 131,
+        "side": "head",
+        "quote": "if result.IsExecutionFailure() {\n    queueFallback(task)\n}",
+        "verification": "claimed"
+      }
+    }
+  ],
+  "new_findings": [],
+  "limitations": [
+    "KAR must compare the claimed current excerpt with captured target bytes before the source finding can be verified or resolved."
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "schema_version": "kar-run-manifest.v2",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "run_type": "review",
+  "state": "completed",
+  "sealed": true,
+  "created_at": "2026-07-13T03:00:00.100Z",
+  "started_at": "2026-07-13T03:00:00.150Z",
+  "completed_at": "2026-07-13T03:00:00.600Z",
+  "kar_version": "0.1.0",
+  "immutable_lineage": {
+    "parent_run_id": null,
+    "source_run_id": null,
+    "source_review_id": null,
+    "source_finding_ref": null,
+    "replay_mode": null,
+    "lineage_edge_path": "lineage/edge_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "lineage_edge_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "target": {
+    "manifest_path": "target/target-manifest.json",
+    "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "selected_roles": [
+    "logic",
+    "security"
+  ],
+  "required_roles": [
+    "logic",
+    "security"
+  ],
+  "attempts": [
+    {
+      "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+      "role": "logic",
+      "provider_instance": "kimi-logic",
+      "selected_as": "primary",
+      "state": "succeeded",
+      "parse_state": "valid",
+      "validation_state": "repaired_valid",
+      "path": "attempts/a_019f596a-d048-79e7-b2b7-59822f012273",
+      "invocation_count": 2
+    },
+    {
+      "attempt_id": "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e",
+      "role": "security",
+      "provider_instance": "agy-security",
+      "selected_as": "primary",
+      "state": "timed_out",
+      "parse_state": "not_started",
+      "validation_state": "repair_exhausted",
+      "path": "attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e",
+      "invocation_count": 4
+    }
+  ],
+  "content_verdict": "request_changes",
+  "coverage_status": "incomplete",
+  "publication_status": "committed",
+  "ci_decision": "fail",
+  "ci_reason_codes": [
+    "request_changes_threshold",
+    "required_role_incomplete"
+  ],
+  "persisted_journal_state": "manifest_committed",
+  "durable_observation_class": "P2_COMMITTED",
+  "derived_publication_status": "committed",
+  "publication_authority": "P2",
+  "recovery_journal": {
+    "expected_staged": null,
+    "expected_final": {
+      "path": "review_019f596a-d174-7321-b920-c2d312c82cc2.json",
+      "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "validated_candidate_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "composite_identity": {
+    "manifest": {
+      "path": "manifest.json"
+    },
+    "lineage_edge": {
+      "path": "lineage/edge_019f596a-d174-7321-b920-c2d312c82cc2.json",
+      "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "epoch": {
+      "path": "epochs/epoch_000001.json"
+    }
+  },
+  "recovery_action": "reconstruct_completed_status",
+  "final_review": {
+    "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+    "path": "review_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "failures": [
+    {
+      "class": "provider_timeout",
+      "stage": "invocation",
+      "reason_code": "timeout",
+      "attempt_id": "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e"
+    }
+  ],
+  "warnings": [
+    "The persisted journal state lagged a valid committed composite epoch."
+  ],
+  "exit_code": 4
+}

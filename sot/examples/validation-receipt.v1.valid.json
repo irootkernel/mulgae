@@ -1,0 +1,61 @@
+{
+  "schema_version": "kar-validation-receipt.v1",
+  "operation": "publication",
+  "argv": [
+    "/usr/bin/env",
+    "python3",
+    ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/tools/g0_validate.py",
+    "publication",
+    "--fixture",
+    ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/publication-cases.json",
+    "--receipt",
+    ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/publication/receipt.json"
+  ],
+  "argv_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validator": {
+    "script_path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/tools/g0_validate.py",
+    "script_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "interpreter_path": "/usr/local/bin/python3",
+    "interpreter_version": "Python 3.12.0",
+    "interpreter_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "fixtures": [
+    {
+      "fixture_id": "publication_cases",
+      "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/publication-cases.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "inputs": [
+    {
+      "name": "publication_cases",
+      "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/publication-cases.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "byte_length": 18432
+    }
+  ],
+  "status": "passed",
+  "typed_exit": {
+    "code": 0,
+    "kind": "success",
+    "reason_codes": [
+      "PUBLICATION_OK"
+    ]
+  },
+  "artifact_refs": [
+    {
+      "kind": "fixture",
+      "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/publication-cases.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "byte_length": 18432
+    }
+  ],
+  "assertion_counts": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0
+  },
+  "started_at": "2026-07-13T00:00:00Z",
+  "completed_at": "2026-07-13T00:00:01Z"
+}

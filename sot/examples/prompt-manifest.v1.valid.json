@@ -1,0 +1,94 @@
+{
+  "schema_version": "kar-prompt-manifest.v1",
+  "prompt_manifest_id": "pm_019f5a09-5eec-7000-84df-094fcc21b1ce",
+  "session_id": "s_019f5a09-5eec-7000-84df-094fcc21b1ce",
+  "run_id": "r_019f5a09-5eec-7001-9cde-094fcc21b1ce",
+  "role_task_id": "rt_019f5a09-5eec-7002-acde-094fcc21b1ce",
+  "attempt_id": "a_019f5a09-5eec-7003-bdef-094fcc21b1ce",
+  "source_invocation_id": "i_019f5a09-5eec-7004-8abc-094fcc21b1ce",
+  "execution_invocation_id": "019f5a09-5eec-7005-9abc-094fcc21b1ce",
+  "trusted_template": {
+    "template_id": "builtin:review-provider",
+    "template_version": "1",
+    "template_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "template_byte_length": "642",
+    "template_uri": "kar://builtin/prompts/review-provider/1",
+    "trust": "KAR_TRUSTED",
+    "ends_with_lf": false
+  },
+  "framed_sections": [
+    {
+      "section_id": "00112233445566778899aabbccddeeff",
+      "kind": "project_context",
+      "payload_byte_length": "144",
+      "payload_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "framed_section_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "frame_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/00112233445566778899aabbccddeeff.bin",
+      "secure_writer_receipt": {
+        "writer_id": "kar-secure-writer/v1",
+        "channel": "prompt_frame",
+        "outcome": "PERSISTED",
+        "artifact_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/00112233445566778899aabbccddeeff.bin",
+        "artifact_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "byte_length": "144",
+        "receipt_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/receipts/00112233445566778899aabbccddeeff.json",
+        "receipt_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    },
+    {
+      "section_id": "102132435465768798a9bacbdcedfe0f",
+      "kind": "review_target",
+      "payload_byte_length": "512",
+      "payload_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "framed_section_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "frame_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/102132435465768798a9bacbdcedfe0f.bin",
+      "secure_writer_receipt": {
+        "writer_id": "kar-secure-writer/v1",
+        "channel": "prompt_frame",
+        "outcome": "PERSISTED",
+        "artifact_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/102132435465768798a9bacbdcedfe0f.bin",
+        "artifact_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "byte_length": "512",
+        "receipt_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/receipts/102132435465768798a9bacbdcedfe0f.json",
+        "receipt_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      }
+    },
+    {
+      "section_id": "fedcba98765432100123456789abcdef",
+      "kind": "prior_provider_output",
+      "payload_byte_length": "238",
+      "payload_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "framed_section_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "frame_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/fedcba98765432100123456789abcdef.bin",
+      "secure_writer_receipt": {
+        "writer_id": "kar-secure-writer/v1",
+        "channel": "prompt_frame",
+        "outcome": "PERSISTED",
+        "artifact_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/frames/fedcba98765432100123456789abcdef.bin",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byte_length": "238",
+        "receipt_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/receipts/fedcba98765432100123456789abcdef.json",
+        "receipt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ],
+  "complete_stdin_byte_length": "1829",
+  "complete_stdin_sha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  "wire_identity": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  "secure_writer_receipt": {
+    "writer_id": "kar-secure-writer/v1",
+    "channel": "prompt_stdin",
+    "outcome": "PERSISTED",
+    "artifact_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/composed-stdin.bin",
+    "artifact_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "byte_length": "1829",
+    "receipt_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/receipts/composed-stdin.json",
+    "receipt_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "replay": {
+    "mode": "EXACT_REPLAY",
+    "replayed_source_invocation_id": "i_019f5a09-5eec-7004-8abc-094fcc21b1ce",
+    "source_prompt_manifest_uri": "artifact://kar-runs/s_019f5a09-5eec-7000-84df-094fcc21b1ce/prompt/prompt-manifest.json",
+    "source_prompt_manifest_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+}

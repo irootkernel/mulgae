@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kar.local/schemas/kar-provider-review-output.v2.schema.json",
+  "title": "KAR Provider Review Output v2",
+  "description": "Provider-owned review output. Evidence source identity and current verification identity are distinct; only current.verification may be verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "summary",
+    "completeness",
+    "limitations",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-provider-review-output.v2"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "completeness": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "incomplete"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^F[0-9]{3,}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*//)(?!.*\\/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$"
+    },
+    "source": {
+      "description": "KAR-injected immutable source identity for the normalized provider result; the provider does not generate these fields and source has no current verification state.",
+      "readOnly": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "run_id",
+        "review_id",
+        "finding_id",
+        "source_target_sha256",
+        "source_excerpt_sha256"
+      ],
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/session_id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "finding_id": {
+          "$ref": "#/$defs/finding_id"
+        },
+        "source_target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_excerpt_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "current": {
+      "description": "Current verification identity. A verified state applies only to this object, never to source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_sha256",
+        "path",
+        "line_start",
+        "line_end",
+        "side",
+        "quote",
+        "verification"
+      ],
+      "properties": {
+        "target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "base",
+            "head",
+            "worktree"
+          ]
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "const": "claimed",
+          "description": "Provider output may only claim a location. KAR computes verified, stale, invalid, or unverifiable in validation/final artifacts."
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/source",
+          "description": "Required by application semantics for delta/rerun or any source-bearing review; omitted for a root review."
+        },
+        "current": {
+          "$ref": "#/$defs/current"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "title",
+        "description",
+        "evidence",
+        "recommendation",
+        "confidence"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "blocker"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      }
+    }
+  }
+}

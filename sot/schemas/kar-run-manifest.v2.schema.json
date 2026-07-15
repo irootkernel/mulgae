@@ -1,0 +1,885 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kar.local/schemas/kar-run-manifest.v2.schema.json",
+  "title": "KAR Run Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "run_id",
+    "run_type",
+    "state",
+    "sealed",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "kar_version",
+    "immutable_lineage",
+    "target",
+    "selected_roles",
+    "required_roles",
+    "attempts",
+    "content_verdict",
+    "coverage_status",
+    "publication_status",
+    "ci_decision",
+    "ci_reason_codes",
+    "persisted_journal_state",
+    "durable_observation_class",
+    "derived_publication_status",
+    "publication_authority",
+    "recovery_journal",
+    "composite_identity",
+    "recovery_action",
+    "final_review",
+    "failures",
+    "warnings",
+    "exit_code"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kar-run-manifest.v2"
+    },
+    "session_id": {
+      "$ref": "#/$defs/session_id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/run_id"
+    },
+    "run_type": {
+      "$ref": "#/$defs/run_type"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "degraded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "sealed": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "kar_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "immutable_lineage": {
+      "$ref": "#/$defs/immutable_lineage"
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "selected_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/role"
+      }
+    },
+    "required_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/role"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/attempt"
+      }
+    },
+    "content_verdict": {
+      "$ref": "#/$defs/content_verdict"
+    },
+    "coverage_status": {
+      "$ref": "#/$defs/coverage_status"
+    },
+    "publication_status": {
+      "$ref": "#/$defs/publication_status"
+    },
+    "ci_decision": {
+      "$ref": "#/$defs/ci_decision"
+    },
+    "ci_reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason_code"
+      }
+    },
+    "persisted_journal_state": {
+      "$ref": "#/$defs/persisted_journal_state"
+    },
+    "durable_observation_class": {
+      "$ref": "#/$defs/durable_observation_class"
+    },
+    "derived_publication_status": {
+      "$ref": "#/$defs/publication_status"
+    },
+    "publication_authority": {
+      "type": "string",
+      "enum": [
+        "none",
+        "P0",
+        "P1",
+        "P2"
+      ]
+    },
+    "recovery_journal": {
+      "$ref": "#/$defs/recovery_journal"
+    },
+    "composite_identity": {
+      "$ref": "#/$defs/composite_identity"
+    },
+    "recovery_action": {
+      "type": "string",
+      "enum": [
+        "none",
+        "resume_collection",
+        "restage_validated_candidate",
+        "install_staged_final",
+        "commit_composite_epoch",
+        "reconstruct_completed_status",
+        "emit_immutable_corruption_diagnostic"
+      ]
+    },
+    "final_review": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/final_review"
+        }
+      ]
+    },
+    "failures": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/failure"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        4,
+        7,
+        8,
+        9,
+        10
+      ]
+    }
+  },
+  "$defs": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "review",
+        "followup",
+        "delta",
+        "rerun"
+      ]
+    },
+    "content_verdict": {
+      "type": "string",
+      "enum": [
+        "no_findings",
+        "findings_present",
+        "request_changes"
+      ]
+    },
+    "coverage_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "degraded",
+        "incomplete"
+      ]
+    },
+    "publication_status": {
+      "type": "string",
+      "enum": [
+        "not_published",
+        "staged",
+        "installed",
+        "committed",
+        "corrupt"
+      ]
+    },
+    "ci_decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "persisted_journal_state": {
+      "type": "string",
+      "enum": [
+        "collecting",
+        "content_validated",
+        "final_staged",
+        "final_file_installed",
+        "manifest_committed",
+        "completed"
+      ]
+    },
+    "durable_observation_class": {
+      "type": "string",
+      "enum": [
+        "P2_COMMITTED",
+        "P1_INSTALLED",
+        "P0_STAGED",
+        "P0_NONE",
+        "AMBIGUOUS_OR_MISMATCH"
+      ]
+    },
+    "immutable_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_run_id",
+        "source_run_id",
+        "source_review_id",
+        "source_finding_ref",
+        "replay_mode",
+        "lineage_edge_path",
+        "lineage_edge_sha256"
+      ],
+      "properties": {
+        "parent_run_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/run_id"
+            }
+          ]
+        },
+        "source_run_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/run_id"
+            }
+          ]
+        },
+        "source_review_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/review_id"
+            }
+          ]
+        },
+        "source_finding_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^F[0-9]{3,}$"
+        },
+        "replay_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "exact",
+            "recompose",
+            null
+          ]
+        },
+        "lineage_edge_path": {
+          "$ref": "#/$defs/path"
+        },
+        "lineage_edge_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "content_sha256"
+      ],
+      "properties": {
+        "manifest_path": {
+          "$ref": "#/$defs/path"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "role",
+        "provider_instance",
+        "selected_as",
+        "state",
+        "parse_state",
+        "validation_state",
+        "path",
+        "invocation_count"
+      ],
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/attempt_id"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "provider_instance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "selected_as": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "fallback"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "validating",
+            "repairing",
+            "succeeded",
+            "failed",
+            "timed_out",
+            "cancelled",
+            "blocked"
+          ]
+        },
+        "parse_state": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "valid",
+            "invalid_json",
+            "empty_output",
+            "output_too_large"
+          ]
+        },
+        "validation_state": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "valid",
+            "repaired_valid",
+            "invalid",
+            "repair_exhausted",
+            "internal_error"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "invocation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "recovery_journal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_staged",
+        "expected_final",
+        "validated_candidate_sha256"
+      ],
+      "properties": {
+        "expected_staged": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/artifact_identity"
+            }
+          ]
+        },
+        "expected_final": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/artifact_identity"
+            }
+          ]
+        },
+        "validated_candidate_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        }
+      }
+    },
+    "artifact_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "composite_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "lineage_edge",
+        "epoch"
+      ],
+      "properties": {
+        "manifest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/path_pointer"
+            }
+          ]
+        },
+        "lineage_edge": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/artifact_identity"
+            }
+          ]
+        },
+        "epoch": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/path_pointer"
+            }
+          ]
+        }
+      }
+    },
+    "path_pointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "final_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_id",
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "stage",
+        "reason_code",
+        "attempt_id"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason_code": {
+          "$ref": "#/$defs/reason_code"
+        },
+        "attempt_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attempt_id"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "not_published"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "not_published"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "staged"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "staged"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "installed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "installed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "committed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "committed"
+          },
+          "publication_authority": {
+            "const": "P2"
+          },
+          "composite_identity": {
+            "properties": {
+              "manifest": {
+                "type": "object"
+              },
+              "lineage_edge": {
+                "type": "object"
+              },
+              "epoch": {
+                "type": "object"
+              }
+            }
+          },
+          "final_review": {
+            "type": "object"
+          },
+          "exit_code": {
+            "enum": [
+              0,
+              1,
+              4
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "corrupt"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "corrupt"
+          },
+          "publication_authority": {
+            "const": "none"
+          },
+          "recovery_action": {
+            "const": "emit_immutable_corruption_diagnostic"
+          },
+          "exit_code": {
+            "const": 7
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "P2_COMMITTED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "committed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "P1_INSTALLED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "installed"
+          },
+          "publication_authority": {
+            "const": "P1"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "P0_STAGED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "staged"
+          },
+          "publication_authority": {
+            "const": "P0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "P0_NONE"
+          },
+          "persisted_journal_state": {
+            "enum": [
+              "collecting",
+              "content_validated",
+              "final_staged"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "not_published"
+          },
+          "publication_authority": {
+            "const": "P0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "P0_NONE"
+          },
+          "persisted_journal_state": {
+            "enum": [
+              "final_file_installed",
+              "manifest_committed",
+              "completed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "corrupt"
+          },
+          "publication_authority": {
+            "const": "none"
+          },
+          "recovery_action": {
+            "const": "emit_immutable_corruption_diagnostic"
+          },
+          "exit_code": {
+            "const": 7
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "durable_observation_class": {
+            "const": "AMBIGUOUS_OR_MISMATCH"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "derived_publication_status": {
+            "const": "corrupt"
+          }
+        }
+      }
+    }
+  ]
+}

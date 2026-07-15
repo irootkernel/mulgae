@@ -1,0 +1,138 @@
+{
+  "schema_version": "kar-validation-result.v2",
+  "status": "repaired_valid",
+  "failure_condition": "ai_owned_invalid",
+  "typed_exit": {
+    "code": 0,
+    "kind": "success",
+    "reason_codes": [
+      "validation_complete"
+    ]
+  },
+  "schema_validation": {
+    "state": "passed",
+    "schema_ids": [
+      "https://kar.local/schemas/kar-provider-review-output.v2.schema.json"
+    ],
+    "assertion_count": 42,
+    "failure_count": 0,
+    "reason_codes": [
+      "schema_valid"
+    ]
+  },
+  "semantic_validation": {
+    "state": "passed",
+    "assertion_count": 18,
+    "failure_count": 0,
+    "reason_codes": [
+      "semantic_valid"
+    ]
+  },
+  "evidence_validation": {
+    "state": "passed",
+    "assertion_count": 12,
+    "failure_count": 0,
+    "reason_codes": [
+      "evidence_valid"
+    ]
+  },
+  "source_verification": {
+    "state": "verified",
+    "checked": 1,
+    "verified": 1,
+    "invalid": 0,
+    "unverifiable": 0,
+    "reason_codes": [
+      "source_verified"
+    ]
+  },
+  "current_verification": {
+    "state": "verified",
+    "checked": 1,
+    "claimed": 0,
+    "verified": 1,
+    "stale": 0,
+    "invalid": 0,
+    "unverifiable": 0,
+    "reason_codes": [
+      "current_verified"
+    ]
+  },
+  "trust_validation": {
+    "state": "passed",
+    "assertion_count": 9,
+    "failure_count": 0,
+    "requested_effective_consistent": true,
+    "tainted": false,
+    "ci_proof_eligible": true,
+    "reason_codes": [
+      "trusted_policy_applied"
+    ]
+  },
+  "publication_validation": {
+    "state": "passed",
+    "persisted_journal_state": "completed",
+    "durable_observation_class": "P2_COMMITTED",
+    "derived_publication_status": "committed",
+    "authority": "P2",
+    "reason_codes": [
+      "publication_committed"
+    ]
+  },
+  "repair": {
+    "eligibility": "allowed",
+    "max_attempts": 1,
+    "attempted": true,
+    "attempts_used": 1,
+    "reason_codes": [
+      "ai_owned_invalid"
+    ]
+  },
+  "fallback": {
+    "eligibility": "allowed",
+    "scheduled": false,
+    "reason_codes": [
+      "fallback_not_needed"
+    ]
+  },
+  "publication_eligibility": "allowed",
+  "content_verdict": "no_findings",
+  "coverage_status": "complete",
+  "publication_status": "committed",
+  "ci_decision": "pass",
+  "ci_reason_codes": [
+    "no_findings"
+  ],
+  "artifact_refs": [
+    {
+      "kind": "provider_output",
+      "path": ".kar/s_019f5a09-5eec-7000-84df-094fcc21b1ce/r_019f5a09-5eec-7000-84df-094fcc21b1ce/attempts/a_019f5a09-5eec-7000-84df-094fcc21b1ce/provider-output.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byte_length": 1592
+    },
+    {
+      "kind": "repair_request",
+      "path": ".kar/s_019f5a09-5eec-7000-84df-094fcc21b1ce/r_019f5a09-5eec-7000-84df-094fcc21b1ce/validation/repair-request.001.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "byte_length": 1048
+    },
+    {
+      "kind": "repair_response",
+      "path": ".kar/s_019f5a09-5eec-7000-84df-094fcc21b1ce/r_019f5a09-5eec-7000-84df-094fcc21b1ce/validation/repair-response.001.raw",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "byte_length": 826
+    },
+    {
+      "kind": "normalized_output",
+      "path": ".kar/s_019f5a09-5eec-7000-84df-094fcc21b1ce/r_019f5a09-5eec-7000-84df-094fcc21b1ce/validation/candidate.repaired.001.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "byte_length": 1488
+    },
+    {
+      "kind": "evidence",
+      "path": ".kar/s_019f5a09-5eec-7000-84df-094fcc21b1ce/r_019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/current-verification.json",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "byte_length": 672
+    }
+  ]
+}

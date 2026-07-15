@@ -1,0 +1,9 @@
+{
+  "schema_version": "kar-repair-patch.v1",
+  "repairs": [
+    {
+      "path": "/findings/0/recommendation",
+      "value": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results."
+    }
+  ]
+}

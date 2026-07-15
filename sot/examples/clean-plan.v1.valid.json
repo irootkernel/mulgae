@@ -1,0 +1,142 @@
+{
+  "schema_version": "kar-clean-plan.v1",
+  "mode": "dry_run",
+  "now": "2026-07-13T12:00:00Z",
+  "store_epoch": {
+    "value": 42,
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "input_policy_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "policy": {
+    "retention_age_seconds": 2592000,
+    "min_age_for_size_seconds": 604800,
+    "target_bytes": 8192,
+    "explicit_keep_run_ids": [
+      "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+    ]
+  },
+  "retention_protection": {
+    "retained_seed_run_ids": [
+      "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+      "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+    ],
+    "transitive_ancestor_protection": [
+      {
+        "ancestor_run_id": "r_019f596a-d174-7321-b920-c2d312c82cc2",
+        "retained_descendant_run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+        "lineage_edge_refs": [
+          {
+            "parent_run_id": "r_019f596a-d174-7321-b920-c2d312c82cc2",
+            "child_run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+            "edge_path": "lineage/edges/r_019f596a-cf80-7c67-b265-f37053d51ccf.json",
+            "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ]
+      }
+    ],
+    "graph_anomaly_components": []
+  },
+  "run_decisions": [
+    {
+      "run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+      "decision": "protected",
+      "reasons": [
+        "protected_explicit"
+      ]
+    },
+    {
+      "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+      "decision": "protected",
+      "reasons": [
+        "newest_session"
+      ]
+    },
+    {
+      "run_id": "r_019f596a-d174-7321-b920-c2d312c82cc2",
+      "decision": "protected",
+      "reasons": [
+        "ancestor"
+      ]
+    },
+    {
+      "run_id": "r_019f596a-df90-7ab1-9cde-7149158243ba",
+      "decision": "selected_age",
+      "reasons": [
+        "eligible_age",
+        "deleted_age"
+      ]
+    },
+    {
+      "run_id": "r_019f596a-e0a1-7bc2-8def-7149158243ba",
+      "decision": "selected_size",
+      "reasons": [
+        "eligible_size",
+        "deleted_size"
+      ]
+    }
+  ],
+  "delete_sets": {
+    "age_delete_set": [
+      {
+        "run_id": "r_019f596a-df90-7ab1-9cde-7149158243ba",
+        "completed_at": "2026-05-01T00:00:00Z",
+        "regular_file_bytes": 8192,
+        "reason": "eligible_age"
+      }
+    ],
+    "size_delete_set": [
+      {
+        "run_id": "r_019f596a-e0a1-7bc2-8def-7149158243ba",
+        "completed_at": "2026-06-01T00:00:00Z",
+        "regular_file_bytes": 4096,
+        "reason": "eligible_size"
+      }
+    ]
+  },
+  "ordered_actions": [
+    {
+      "sequence": 1,
+      "phase": "age",
+      "action": "tombstone",
+      "run_id": "r_019f596a-df90-7ab1-9cde-7149158243ba",
+      "reason": "deleted_age",
+      "bytes_released": 0
+    },
+    {
+      "sequence": 2,
+      "phase": "age",
+      "action": "delete",
+      "run_id": "r_019f596a-df90-7ab1-9cde-7149158243ba",
+      "reason": "deleted_age",
+      "bytes_released": 8192
+    },
+    {
+      "sequence": 3,
+      "phase": "size",
+      "action": "tombstone",
+      "run_id": "r_019f596a-e0a1-7bc2-8def-7149158243ba",
+      "reason": "deleted_size",
+      "bytes_released": 0
+    },
+    {
+      "sequence": 4,
+      "phase": "size",
+      "action": "delete",
+      "run_id": "r_019f596a-e0a1-7bc2-8def-7149158243ba",
+      "reason": "deleted_size",
+      "bytes_released": 4096
+    }
+  ],
+  "byte_accounting": {
+    "initial_regular_file_bytes": 20480,
+    "age_delete_bytes": 8192,
+    "size_delete_bytes": 4096,
+    "planned_delete_bytes": 12288,
+    "projected_regular_file_bytes": 8192,
+    "target_bytes": 8192,
+    "target_reached": true
+  },
+  "outcome_reasons": [],
+  "plan_hash": "sha256:686664cab41917a5924d73b9f6cfc47d696cdd104da2d0c68a95332ec709d4fb",
+  "apply_identity": null
+}

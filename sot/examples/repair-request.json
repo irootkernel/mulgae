@@ -1,0 +1,55 @@
+{
+  "schema_version": "kar-repair-request.v1",
+  "mode": "fill_missing_fields",
+  "provider_output_schema": "kar-provider-review-output.v1",
+  "role": "logic",
+  "run_type": "review",
+  "validation_errors": [
+    {
+      "path": "/findings/0/recommendation",
+      "code": "required",
+      "message": "A non-empty recommendation is required."
+    }
+  ],
+  "allowed_paths": [
+    "/findings/0/recommendation"
+  ],
+  "original_output": {
+    "schema_version": "kar-provider-review-output.v1",
+    "summary": "One high-severity coordinator issue was identified.",
+    "completeness": "complete",
+    "limitations": [],
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Fallback is triggered after a valid negative review",
+        "description": "A valid negative result incorrectly queues the fallback provider.",
+        "evidence": [
+          {
+            "path": "internal/app/coordinator.go",
+            "side": "new",
+            "line_start": 120,
+            "line_end": 128,
+            "quote": "if result.RequestChanges {\n    queueFallback(task)\n}"
+          }
+        ],
+        "confidence": "high"
+      }
+    ]
+  },
+  "constraints": {
+    "json_only": true,
+    "preserve_existing_values": true,
+    "preserve_finding_count": true,
+    "prohibit_system_fields": true
+  },
+  "relevant_evidence": [
+    {
+      "path": "internal/app/coordinator.go",
+      "side": "new",
+      "line_start": 120,
+      "line_end": 128,
+      "quote": "if result.RequestChanges {\n    queueFallback(task)\n}"
+    }
+  ]
+}

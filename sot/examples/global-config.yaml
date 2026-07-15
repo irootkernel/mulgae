@@ -1,0 +1,142 @@
+version: 1
+
+runtime:
+  home: /Users/example
+  path:
+    inherit: true
+    prepend:
+      - /Users/example/.local/bin
+      - /opt/homebrew/bin
+  env_allowlist:
+    - HOME
+    - PATH
+    - LANG
+    - LC_ALL
+  max_active_lanes: 3
+
+execution:
+  strategy: primary_with_fallback
+  workspace_access: readonly_snapshot
+  cross_process_lane_lock: true
+
+providers:
+  kimi-main:
+    driver: kimi
+    status: unverified
+    bin: kimi
+    concurrency_key: kimi-main
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+
+  zcode-main:
+    driver: zcode
+    status: unverified
+    bin: zcode
+    concurrency_key: zcode-main
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+
+  agy-main:
+    driver: agy
+    status: unverified
+    bin: agy
+    concurrency_key: agy-main
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+
+  # Definitions only: neither optional provider is intended or assigned by default.
+  codex-optional:
+    driver: codex
+    optional: true
+    bin: codex
+    concurrency_key: codex-optional
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+
+  claude-optional:
+    driver: claude
+    optional: true
+    bin: claude
+    concurrency_key: claude-optional
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+
+roles:
+  logic:
+    enabled: true
+  security:
+    enabled: true
+  maintainability:
+    enabled: true
+  product:
+    enabled: true
+  documentation:
+    enabled: true
+  testing:
+    enabled: true
+
+# No static role-to-provider mapping is authoritative here.
+# After provider base and role-fit probes PASS, KAR freezes exactly six rows
+# with the built-in hard-constraint, exhaustive lexical reducer.
+
+review:
+  request_changes_on:
+    - high
+    - critical
+    - blocker
+
+validation:
+  reject_unknown_fields: true
+  reject_empty_strings: true
+  reject_placeholder_values: true
+  evidence:
+    require_verified_for:
+      - high
+      - critical
+      - blocker
+  repair:
+    enabled: true
+    max_attempts: 1
+    same_provider: true
+
+trust:
+  required_roles:
+    - logic
+    - security
+  project_config: trusted_base_only
+  project_prompt_overrides: false
+  project_prompt_source: target_base
+  allow_project_provider_commands: false
+  allow_project_shell: false
+
+resources:
+  primary_repair_attempts: 1
+  fallback_repair_attempts: 1
+  role_max_invocations: 4
+  run_max_invocations: 24
+  run_total_output_cap: 64MiB
+  # Derived lane and run deadlines must not exceed 30m.
+
+ci:
+  fail_on_severity:
+    - high
+    - critical
+    - blocker
+  degraded_review_fails: true
+  # Incomplete coverage is a fixed readiness outcome (exit 4), not an override.
+
+artifacts:
+  root: .kar
+  directory_mode: "0700"
+  file_mode: "0600"
+  preserve_raw_output: true
+
+safety:
+  redact_secrets: true
+  secret_output_policy: block
+  mutation_detection: true
