@@ -2,7 +2,7 @@
 
 ## 0. G0 Contract Boundary
 
-This document describes the post-authorization product architecture; it does not authorize its implementation. G0 freezes the SOT contract and its evidence only. Decision Readiness is `READY`, Implementation Readiness is `CONDITIONAL`, and External Contract Readiness is `UNVERIFIED`.
+This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G005 implement the domain/ports, trusted foundation, fake-review, and coordinator/runtime/evidence boundary. G006–G009 remain separately gated and pending.
 
 No coordinator, publisher, provider adapter, lineage service, product tool, actual product/release CI job, or release asset may be implemented before both the authoritative SOT post-verification records `g0_complete` and a separate session-bound implementation approval is granted. Gate A, candidate review, promotion authorization, and the authority-ref compare-and-swap are distinct prerequisites; cached approval data is not authority.
 

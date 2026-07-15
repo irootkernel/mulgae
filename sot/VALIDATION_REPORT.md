@@ -1,9 +1,9 @@
 # Package Validation Report
 
-**Specification version:** 1.1.0
-**Baseline date:** 2026-07-13
+**Specification version:** 1.2.0
+**Status date:** 2026-07-15
 
-## G0 Contract Baseline
+## G0 Contract and Implementation Baseline
 
 | Baseline property | Declared state |
 |---|---|
@@ -13,11 +13,11 @@
 | Checksummed payloads | 70; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 23; 16 are G0-required |
 | Decision Readiness | **READY** |
-| Implementation Readiness | **CONDITIONAL** |
-| External Contract Readiness | **UNVERIFIED** |
-The current SOT oracle is 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs.
+| Implementation Status | **G001–G005 COMPLETE; G006–G009 PENDING** |
+| External Contract Readiness | **G0 EVIDENCE VERIFIED; PRODUCT LIVE ADAPTERS PENDING G007** |
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs.
 
-This report records the Revision 13 SOT contract baseline; it is not evidence of a completed provider, platform, authority, release, or product implementation. Gate A1 authorization is limited to selected G0 contract paths and does not authorize authority-ref mutation, promotion, `g0_complete`, product code, or actual product/release CI jobs or assets.
+This SOT 1.2.0 report records both the preserved Revision 13 contract and the verified implementation boundary through G005. It is not a release approval and does not authorize G006 or later work.
 
 ## G0 Evidence Status
 
@@ -33,17 +33,31 @@ When collected, evidence receipts are stored outside the SOT under `.gjc/_sessio
 | Publication | Total classifier with `unmapped=0`, `ambiguous=0`, ten cross-boundary cases, and three P2 exit variants | **CONTRACT MODEL PASS** — `PUBLICATION_OK`; no product publication occurs |
 | Canonical argv and failure | Four byte-exact canonical probe argv arrays and corrected repair/fallback rows | **CONTRACT MODEL PASS** — `CANONICAL_ARGV_OK`, `FAILURE_MATRIX_OK` |
 | Integrity | 71-path catalog, 70 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=70` |
-| Provider probes | All 48 probes for the required `kimi`, `zcode`, and `agy` runtime-contract tuples, three secure-writer indexes, and live six-role assignment | **INCONCLUSIVE** — no provider prerequisite is complete; no provider PASS is asserted |
-| Required platform probes | All 11 `darwin-arm64` predicates on a native local POSIX filesystem | **INCONCLUSIVE** — no required native platform PASS is asserted |
-| Intended-future platform inventory | `linux-amd64`, `linux-arm64`, and `darwin-amd64` | **UNSUPPORTED** — fixed NOT_RUN contract rows; non-blocking and release-ineligible, with no G0 native execution or PASS evidence required |
-| Authority | Runtime Gate A and negative promotion/CAS models | **PARTIAL** — candidate review, promotion authorization, authority CAS, and post-verification are not performed |
+| Provider probes | All 48 probes for the required `kimi`, `zcode`, and `agy` runtime-contract tuples, three secure-writer indexes, and live six-role assignment | **PASS** — completed by G001; product live-adapter implementation remains pending G007 |
+| Required platform probes | All 11 `darwin-arm64` predicates on a native local POSIX filesystem | **PASS** — completed by G001; `darwin-arm64` is the sole G0 supported platform |
+| Intended-future platform inventory | `linux-amd64`, `linux-arm64`, and `darwin-amd64` | **UNSUPPORTED** — fixed intended-future, non-blocking, and release-ineligible |
+| Authority | Candidate review, promotion authorization, authority CAS, post-verification, support derivation, and `g0_complete` | **PASS** — completed by G001 before product implementation |
 
-External Contract Readiness remains **UNVERIFIED** because the 48 provider probes, three secure-writer indexes, live assignment, and 11 required `darwin-arm64` probes have not completed with PASS. The staged contract does not permit intended-future inventory cells to substitute for those prerequisites or to establish support, release eligibility, promotion, or `g0_complete`.
+The G0 external join and authority prerequisites are complete. This does not imply product live-adapter availability: exact opt-in adapter implementation and revalidation remain G007 work.
+
+## Goal Implementation Status
+
+| Goal | Verified delivered boundary | Status | Repository marker |
+|---|---|---|---|
+| G001 | Authority promotion, post-verification, `g0_complete`, support derivation | **COMPLETE** | `1439c3d` |
+| G002 | Domain and ports foundation | **COMPLETE** | `64ac360` |
+| G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
+| G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
+| G005 | Coordinator lanes, direct process runtime, evidence, independent axes | **COMPLETE** | `da1939f` |
+| G006 | Publication recovery, reporting, query commands | **PENDING** | — |
+| G007 | Opt-in live provider adapters | **PENDING** | — |
+| G008 | Child workflows, cleanup, export | **PENDING** | — |
+| G009 | Integrated v0.1 release gate | **PENDING** | — |
 
 ## Readiness and Product Boundary
 
-Decision readiness means the Revision 13 SOT contract is frozen. Implementation readiness remains conditional on the G0 evidence and approval sequence. `g0_complete` requires the promotion and post-verification path; it is not established here. Product implementation, actual product/release CI jobs or assets, and any release additionally require a separate session-bound implementation approval and remain prohibited until that approval exists.
+The G001 authority and implementation prerequisites were completed before G002 product code. G001–G005 are verified implementation facts, while G006–G009 remain outside the completed boundary. No release asset or release claim is authorized by this report.
 
 ## Historical Documentation Validation
 
-The 1.0.0 report's assertions are not carried forward as execution evidence for 1.1.0. Any Markdown, schema, example, checksum, or runtime validation for this baseline must be recorded only by its corresponding post-Gate-A evidence receipt.
+The 1.0.0 and 1.1.0 reports remain historical baselines. SOT 1.2.0 carries forward their contract assertions while adding the verified G001–G005 implementation status; current checksums and repository tests are authoritative for this revision.

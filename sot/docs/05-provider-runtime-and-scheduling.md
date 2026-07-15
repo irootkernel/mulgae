@@ -203,7 +203,7 @@ An assignment is ineligible when this value exceeds 64 MiB. For each normalized 
 
 ## 11. Provider and platform contract evidence
 
-Provider and platform evidence v1 is byte-identical compatibility-only input and cannot enter readiness. Only `kar-provider-contract-evidence.v2` and `kar-platform-contract-evidence.v2` are readiness authority; an unknown, missing, mismatched, or v1 evidence identity fails closed. Implementation Readiness remains `CONDITIONAL` and External Contract Readiness remains `UNVERIFIED`.
+Provider and platform evidence v1 is byte-identical compatibility-only input and cannot enter readiness. Only `kar-provider-contract-evidence.v2` and `kar-platform-contract-evidence.v2` are readiness authority; an unknown, missing, mismatched, or v1 evidence identity fails closed. G001 satisfied the complete v2 G0 evidence conjunction and authority chain; product live-adapter implementation remains pending G007.
 
 G0 provider readiness is evidence, not an assertion from configuration. Runtime and canonical label order is exactly `kimi`, `zcode`, `agy`; lexical sorting is forbidden. Each family has the same exact 16 probes:
 
@@ -221,7 +221,7 @@ The platform inventory and G0 execution scope are:
 
 | Cell | `contract_scope` | Blocking for external readiness | Current support/release state |
 |---|---|---:|---|
-| `darwin-arm64` | `required` | Yes | Requires native local-POSIX evidence for all 11 probes; it is not supported or release-eligible until the complete readiness and authority chain closes |
+| `darwin-arm64` | `required` | Yes | G0 supported by the completed G001 native/local-POSIX evidence and authority chain; release assets remain pending G009 |
 | `linux-amd64` | `intended_future` | No | Unsupported and release-ineligible |
 | `linux-arm64` | `intended_future` | No | Unsupported and release-ineligible |
 | `darwin-amd64` | `intended_future` | No | Unsupported and release-ineligible |
@@ -236,7 +236,7 @@ PL-DIR-FSYNC, PL-RECOVERY
 
 Each future row is fixed as `native_execution=false`, `observed_os=null`, `observed_arch=null`, `filesystem_class=unknown`, and all 11 probes `NOT_RUN` with `reason=not_run` and null references. Future inventory rows are non-blocking and must not be executed, promoted to support, or made release-eligible by this G0 contract.
 
-`external_contract_readiness` remains `UNVERIFIED` until the required `darwin-arm64` platform evidence and the complete provider readiness conjunction PASS. Public support is derived only after those inputs plus promotion, authority compare-and-swap, and post-verification; configuration intent, partial evidence, a future row, or a non-native result does not promote readiness.
+`external_contract_readiness` remains `UNVERIFIED` until the required `darwin-arm64` platform evidence and complete provider readiness conjunction PASS. G001 satisfied those inputs plus promotion, authority compare-and-swap, and post-verification, so the G0 evidence state is verified. Configuration intent, partial evidence, a future row, or a non-native result still cannot promote readiness.
 
 ### 11.1 Canonical G0 probe argv
 

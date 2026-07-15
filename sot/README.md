@@ -1,7 +1,7 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.1.0**
-**Date:** 2026-07-13
+**Development Specification v1.2.0**
+**Date:** 2026-07-15
 **Primary binary:** `kar`
 **Implementation target:** Go
 
@@ -9,23 +9,23 @@ KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It
 
 KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
 
-## SOT 1.1.0 G0 Contract Baseline
+## SOT 1.2.0 Contract and Implementation Baseline
 
-This package freezes the SOT 1.1.0 G0 contract. It contains **71 catalog paths** and **70 checksummed regular-file payloads**; `CHECKSUMS.sha256` is cataloged but excluded from its own payload.
+This package preserves the 71-path/70-payload SOT contract and records the verified implementation boundary through G005. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload.
 
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |
-| Implementation | **CONDITIONAL** |
-| External contract | **UNVERIFIED** |
+| Implementation | **G001–G005 COMPLETE; G006–G009 PENDING** |
+| External contract | **G0 EVIDENCE VERIFIED; PRODUCT LIVE ADAPTERS PENDING G007** |
 
-This package is not an approval artifact and does not grant authority promotion, `g0_complete`, product implementation, actual product/release CI jobs, or release assets. They remain prohibited until `g0_complete` and a separate session-bound implementation approval are both recorded.
+The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. This status record does not authorize G006 or later work, actual product/release CI jobs, or release assets; each remaining goal retains its own acceptance gate.
 
-Revision 13 makes `darwin-arm64` the sole G0 `required`/blocking native platform. The inventory retains `linux-amd64`, `linux-arm64`, and `darwin-amd64` as `intended_future`, non-blocking, unsupported, and release-ineligible; no future cell is a current support or release claim.
+Revision 13 keeps `darwin-arm64` as the sole G0 `required`/blocking native platform. G001 completed the G0 support derivation for that platform. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain `intended_future`, unsupported, and release-ineligible.
 
-Provider and platform evidence v1 remains byte-identical compatibility-only input. Only provider/platform evidence v2 may enter readiness. Provider readiness is the conjunction of all three runtime-order families (`kimi`, `zcode`, `agy`) × all 16 probes (**48 PASS**), three secure-writer indexes (**3 PASS**), and a live assignment receipt (**PASS**); any missing or non-PASS input keeps External Contract Readiness **UNVERIFIED**.
+Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for `kimi`, `zcode`, and `agy`; product live-adapter implementation and opt-in tuple support remain pending G007.
 
-Current independent oracles are: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **71/70**; schema/example relationships **23**; and G0-required pairs **16**. Gate A1 authorizes only the exact SOT-path mutation; it does not grant candidate evidence, promotion, `g0_complete`, implementation, CI, or release authorization.
+Current independent oracles remain: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **71/70**; schema/example relationships **23**; and G0-required pairs **16**.
 
 
 ## Canonical Artifact Contract
@@ -105,11 +105,11 @@ flowchart LR
 | [Decision Log and Verification Items](docs/14-decision-log.md) | Accepted design decisions and the small set of provider-specific items to verify |
 | [Glossary](docs/15-glossary.md) | Canonical terminology used throughout the specification |
 | [Mandatory Field and Ownership Matrix](docs/16-field-ownership-matrix.md) | Field-by-field ownership, required-value, repair, and publication rules |
-| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Conditional post-G0 implementation gates and handoff checklist |
+| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Completed G001–G005 items and pending G006–G009 gates |
 
 ## Machine-Readable Contracts
 
-All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compatibility contracts; provider/platform v1 evidence is compatibility-only and cannot enter readiness. The v2 contracts and v2 provider/platform evidence define the SOT 1.1.0 baseline and the only readiness authority.
+All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compatibility contracts; provider/platform v1 evidence is compatibility-only and cannot enter readiness. The v2 contracts and v2 provider/platform evidence define the SOT 1.2.0 baseline and the only G0 readiness authority.
 
 | Contract | File |
 |---|---|
@@ -187,21 +187,24 @@ kar followup --run latest --finding F001 \
   --objective "Verify only whether the original issue is resolved."
 ```
 
-## Conditional Implementation Entry Point
+## Recorded Implementation Progress
 
-After `g0_complete` and a separate session-bound implementation approval, the first implementation slice should stop before real provider integration:
+The repository records the following verified implementation boundary. These commits reconstruct goal-sized history from the accepted final tree; intermediate commits are organizational boundaries, while the G005 tree is the fully verified build.
 
-1. Domain types and state transitions.
-2. Strict configuration loading and trust policy.
-3. Immutable Git target capture.
-4. Atomic artifact store using the canonical `.kar/{session_id}/{run_id}` layout.
-5. Prompt compiler and JSON Schema embedding.
-6. Central coordinator and fake provider lanes.
-7. Output validation, constrained repair simulation, evidence verification, and final artifact publication.
-8. Real provider adapters only after the fake-provider acceptance suite passes.
+| Goal | Scope | Status | Repository marker |
+|---|---|---|---|
+| G001 | Authority promotion, post-verification, `g0_complete`, SOT baseline | **COMPLETE** | `1439c3d` |
+| G002 | Domain and ports foundation | **COMPLETE** | `64ac360` |
+| G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
+| G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
+| G005 | Coordinator lanes, process runtime, evidence, completion axes | **COMPLETE** | `da1939f` |
+| G006 | Publication recovery, reporting, query commands | **PENDING** | — |
+| G007 | Opt-in live provider adapters | **PENDING** | — |
+| G008 | Child workflows, cleanup, export | **PENDING** | — |
+| G009 | Integrated v0.1 release gate | **PENDING** | — |
 
-The detailed sequence and acceptance gates are in [Delivery Roadmap](docs/13-delivery-roadmap.md).
+The G005 tree passed the full Go test suite, `go vet`, the race detector, repeated coordinator/runtime tests, immutable SOT checksum verification, and independent architecture/QA review. Detailed remaining sequencing and acceptance gates are in [Delivery Roadmap](docs/13-delivery-roadmap.md).
 
 ## Status of Provider Support
 
-`zcode`, `kimi`, and `agy` are intended provider families. `codex` and `claude` are optional post-G0 configuration only; they are not intended defaults, assignment candidates, or automatic fallbacks. Exact non-interactive command lines and compatible versions must be verified by contract probes and `kar doctor`; until a tuple passes, it remains `unverified` or `unsupported`, never silently supported.
+G001 established the required G0 provider/platform readiness evidence. The product still exposes no live provider adapter support until G007 implements and revalidates exact opt-in tuples. `codex`, `claude`, and every unlisted family remain disabled, non-default, and ineligible for automatic fallback.

@@ -2,14 +2,23 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 13 Option B, the staged-support SOT 1.1.0 contract, and separates G0 contract freeze from G1 through G6 product delivery. Decision Readiness is **READY**. Implementation Readiness is **CONDITIONAL**. External Contract Readiness is **UNVERIFIED**.
+This roadmap records Revision 13 Option B under SOT 1.2.0 and the verified delivery boundary through G3A. Decision Readiness is **READY**; G001–G005 are **COMPLETE**; G006–G009 are **PENDING**.
 
-G0 has one required and blocking native platform: `darwin-arm64`. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain exact intended-future inventory cells with fixed NOT_RUN G0 contract rows: non-blocking, unsupported, and release-ineligible. The only listed G0 provider families are `kimi`, `zcode`, and `agy`. Every unlisted provider family, including `codex` and `claude`, is disabled, and strict configuration must reject it until a separately approved SOT extension lists it.
+| Ultragoal | Roadmap phase | Status |
+|---|---|---|
+| G001 | G0 authority promotion and completion | **COMPLETE** |
+| G002 | G1A domain and ports foundation | **COMPLETE** |
+| G003 | G1B trusted adapters and foundation CLI | **COMPLETE** |
+| G004 | G2 prompt validation, repair, fake review | **COMPLETE** |
+| G005 | G3A coordinator, runtime, evidence, axes | **COMPLETE** |
+| G006 | G3B publication, recovery, reporting | **PENDING** |
+| G007 | G4 opt-in provider adapters | **PENDING** |
+| G008 | G5 lineage, cleanup, export | **PENDING** |
+| G009 | Integrated v0.1 release gate | **PENDING** |
 
-`G0_EXTERNAL_JOIN_ORACLE` is the sole G0 external-readiness predicate. It passes only when all 48 provider probes PASS, all three secure-writer indexes PASS, the live six-role assignment PASS, and all 11 required `darwin-arm64` probes PASS. The intended-future platform cells are non-blocking inputs to this oracle and remain unsupported and release-ineligible. No provider or platform PASS is asserted by this roadmap, so External Contract Readiness remains `UNVERIFIED` until `G0_EXTERNAL_JOIN_ORACLE` passes.
+G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle is 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs.
-G0 does not authorize product implementation, actual product/release CI jobs or assets, or a release. Before any coordinator, publisher, provider adapter, lineage service, or product tool is implemented, the authoritative SOT must be post-verified as `g0_complete` and a separate session-bound implementation approval must be granted. Gate A, candidate review, promotion authorization, authority-ref CAS, `g0_complete`, and implementation approval are distinct steps. Exported or cached approval JSON is not authority.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. G001 completion authorized G002–G005 only through their separately accepted stories; it does not authorize pending G006–G009 work or a release.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 

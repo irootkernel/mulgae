@@ -43,11 +43,11 @@
 | D-037 | A valid committed manifest/lineage epoch is publication authority and publication recovery is derived from durable observations | Accepted | Persisted journal state is a hint; precedence is ambiguity/mismatch, P2 committed, P1 installed, P0 staged, P0-none hint recovery, then corrupt default |
 | D-038 | Untrusted prompt sections and referenced evidence carry canonical identity, length, hash, and lineage | Accepted | Prompt wire identity is byte exact; source and current evidence keep separate target and excerpt identities and source evidence cannot become current verification |
 
-## 1.1 G0 Decision Status
+## 1.1 Current Decision and Implementation Status
 
-D-030 through D-038 extend D-001 through D-029. Revision 13 explicitly supersedes D-030's prior four-cell G0-blocking requirement with the staged-support contract above; it freezes SOT contract semantics only. Decision Readiness is `READY`; Implementation Readiness is `CONDITIONAL`; External Contract Readiness is `UNVERIFIED`. Gate A, promotion, `g0_complete`, and implementation approval are not complete by virtue of these decisions.
+D-030 through D-038 extend D-001 through D-029 and remain the frozen Revision 13 contract decisions. SOT 1.2.0 records that G001 completed Gate A, required provider/platform evidence, promotion, authority CAS, post-verification `g0_complete`, support derivation, and separate implementation approval.
 
-The current SOT oracle is 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. D-030 does not claim a `darwin-arm64` native platform PASS. D-031 does not claim a provider tuple PASS. External readiness cannot advance until all 48 provider probes, three secure-writer indexes, live assignment, and 11 required `darwin-arm64` probes PASS. Product code and actual product/release CI jobs or assets remain out of scope until post-CAS verification records `g0_complete` and a separate session-bound implementation approval is granted.
+G002 through G005 then completed the domain/ports foundation, trusted adapters and foundation CLI, prompt/validation/fake-review slice, and coordinator/runtime/evidence/axes boundary. G006 through G009 remain pending. The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. No pending goal, product live-adapter support, release CI, or release asset is authorized by the completed boundary.
 
 
 ## 2. Superseded Draft Decisions

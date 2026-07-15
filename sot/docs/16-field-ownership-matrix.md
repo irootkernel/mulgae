@@ -2,7 +2,7 @@
 
 This document is the implementation checklist for mandatory values, field ownership, repair eligibility, and validation responsibility. JSON Schema files remain the machine-readable source for structural requirements.
 
-The v1 tables below remain frozen compatibility contracts. SOT 1.1.0 adds the v2 and G0 ownership rules in Sections 2 through 4; those rules do not permit a provider to create system-owned fields.
+The v1 tables below remain frozen compatibility contracts. SOT 1.2.0 preserves the v2 and G0 ownership rules in Sections 2 through 4; those rules do not permit a provider to create system-owned fields.
 
 
 ## 1. Ownership Rules

@@ -6,12 +6,13 @@ KAR makes evidence-backed AI review portable across repositories and organizatio
 
 The product is designed for local development, CI, pre-merge checks, remediation verification, and review provenance. It is not a substitute for code ownership, legal approval, security authorization, or release governance.
 
-## 1.1 SOT 1.1.0 G0 Contract Status
+## 1.1 SOT 1.2.0 Contract and Implementation Status
 
-This document records the G0 contract freeze. `decision_readiness=READY`, `implementation_readiness=CONDITIONAL`, and `external_contract_readiness=UNVERIFIED`. The specification itself does not grant Gate A, authority promotion, `g0_complete`, or product implementation. Implementation remains prohibited until `g0_complete` and a separate session-bound implementation approval.
+This document preserves the G0 contract and records `decision_readiness=READY`, the verified G001–G005 implementation boundary, and pending G006–G009 work. G001 completed Gate A, authority promotion, post-verification `g0_complete`, support derivation, and the separate implementation approval prerequisite.
 
-Decisions D-030 through D-038 are normative here: four native platform cells are evidence-only, only `kimi`, `zcode`, and `agy` are G0 provider-probe families, the six roles are fixed, severity direction is strict, outcomes are independent, retention is deterministic, trust and assignment are fail-closed, and prompt/evidence provenance is byte- and identity-bound.
-The G0 approval contract is a one-way, session-bound runtime sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. Only the GJC runtime approval event is authoritative; exported or cached approval JSON is diagnostic only. No step authorizes product code before the final independent approval.
+Decisions D-030 through D-038 remain normative: four native platform cells are evidence-only, only `kimi`, `zcode`, and `agy` are G0 provider-probe families, the six roles are fixed, severity direction is strict, outcomes are independent, retention is deterministic, trust and assignment are fail-closed, and prompt/evidence provenance is byte- and identity-bound.
+
+The G0 approval contract remains a one-way, session-bound sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. G001 completed that sequence before G002 product code. This recorded completion does not authorize G006 or later work, product live-adapter support, release CI, or release assets.
 ## 2. Primary User Outcomes
 
 A successful KAR run gives the user:
