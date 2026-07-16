@@ -1,7 +1,7 @@
 # Package Validation Report
 
-**Specification version:** 1.2.0
-**Status date:** 2026-07-15
+**Specification version:** 1.3.0
+**Status date:** 2026-07-16
 
 ## G0 Contract and Implementation Baseline
 
@@ -13,11 +13,11 @@
 | Checksummed payloads | 70; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 23; 16 are G0-required |
 | Decision Readiness | **READY** |
-| Implementation Status | **G001–G005 COMPLETE; G006–G009 PENDING** |
+| Implementation Status | **G001–G006 COMPLETE; G007–G009 PENDING** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; PRODUCT LIVE ADAPTERS PENDING G007** |
 The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs.
 
-This SOT 1.2.0 report records both the preserved Revision 13 contract and the verified implementation boundary through G005. It is not a release approval and does not authorize G006 or later work.
+This SOT 1.3.0 report records both the preserved Revision 13 contract and the verified implementation boundary through G006. It is not a release approval and does not authorize G007 or later work.
 
 ## G0 Evidence Status
 
@@ -30,7 +30,7 @@ When collected, evidence receipts are stored outside the SOT under `.gjc/_sessio
 | Trust and command | Frozen trust reducer and literal request/output/exit contracts | **CONTRACT MODEL PASS** — `TRUST_OK`, `COMMAND_OK`; no product implementation is exercised |
 | Prompt and evidence | Byte-exact framing/replay and separate source/current provenance | **CONTRACT MODEL PASS** — `PROMPT_OK`, `EVIDENCE_OK` |
 | Cleanup and assignment model | Transitive retention, deterministic age/size sets, six-role lexical assignment, and budgets | **CONTRACT MODEL PASS** — `CLEANUP_OK`, `ASSIGNMENT_OK`; a model assignment is not the required live assignment |
-| Publication | Total classifier with `unmapped=0`, `ambiguous=0`, ten cross-boundary cases, and three P2 exit variants | **CONTRACT MODEL PASS** — `PUBLICATION_OK`; no product publication occurs |
+| Publication | Total classifier with `unmapped=0`, `ambiguous=0`, ten cross-boundary cases, and three P2 exit variants | **PASS** — the contract model remains valid and G006 now implements product publication, recovery, reporting, and committed query surfaces |
 | Canonical argv and failure | Four byte-exact canonical probe argv arrays and corrected repair/fallback rows | **CONTRACT MODEL PASS** — `CANONICAL_ARGV_OK`, `FAILURE_MATRIX_OK` |
 | Integrity | 71-path catalog, 70 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=70` |
 | Provider probes | All 48 probes for the required `kimi`, `zcode`, and `agy` runtime-contract tuples, three secure-writer indexes, and live six-role assignment | **PASS** — completed by G001; product live-adapter implementation remains pending G007 |
@@ -49,15 +49,19 @@ The G0 external join and authority prerequisites are complete. This does not imp
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
 | G005 | Coordinator lanes, direct process runtime, evidence, independent axes | **COMPLETE** | `da1939f` |
-| G006 | Publication recovery, reporting, query commands | **PENDING** | — |
+| G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
 | G007 | Opt-in live provider adapters | **PENDING** | — |
 | G008 | Child workflows, cleanup, export | **PENDING** | — |
 | G009 | Integrated v0.1 release gate | **PENDING** | — |
 
+## G006 Verification Status
+
+The current G006 tree passed the complete Go test suite, `go vet`, the full race detector, 20-run focused publication/query/report/filesystem/CLI suites, 50-run publication recovery and atomicity scenarios, real JSON-schema filesystem-to-P2-to-query/report recovery E2E, built-binary human/JSON smoke checks, formatting, and diff checks. Publication authority remains limited to a validated final + committed manifest + lineage edge + epoch P2 composite. G007 provider adapters, G008 child workflows/cleanup/export, and G009 release integration remain pending.
+
 ## Readiness and Product Boundary
 
-The G001 authority and implementation prerequisites were completed before G002 product code. G001–G005 are verified implementation facts, while G006–G009 remain outside the completed boundary. No release asset or release claim is authorized by this report.
+The G001 authority and implementation prerequisites were completed before G002 product code. G001–G006 are verified implementation facts, while G007–G009 remain outside the completed boundary. No release asset or release claim is authorized by this report.
 
 ## Historical Documentation Validation
 
-The 1.0.0 and 1.1.0 reports remain historical baselines. SOT 1.2.0 carries forward their contract assertions while adding the verified G001–G005 implementation status; current checksums and repository tests are authoritative for this revision.
+The 1.0.0, 1.1.0, and 1.2.0 reports remain historical baselines. SOT 1.3.0 carries forward their contract assertions while adding the verified G006 implementation status; current checksums and repository tests are authoritative for this revision.

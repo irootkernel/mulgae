@@ -249,6 +249,173 @@
           "exit": { "$ref": "#/$defs/exits/help" }
         }
       }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "status_read" },
+              "publication_status": { "type": "string" },
+              "recovery_action": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "status_failed" },
+                "run_state": { "type": "null" },
+                "publication_status": { "type": "null" },
+                "recovery_action": { "type": "null" },
+                "final_artifact_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "report_rendered" },
+              "report_uri": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "report_failed" },
+                "report_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "findings_listed" },
+              "finding_count": { "type": "integer" },
+              "review_artifact_uri": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "findings_failed" },
+                "finding_count": { "type": "null" },
+                "review_artifact_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "excerpt_rendered" },
+              "evidence_state": { "const": "verified" },
+              "excerpt_base64": { "type": "string", "minLength": 4 },
+              "excerpt_sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "excerpt_failed" },
+                "evidence_state": { "const": "unverifiable" },
+                "excerpt_uri": { "type": "null" },
+                "excerpt_base64": { "type": "null" },
+                "excerpt_sha256": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -418,8 +585,8 @@
       "init": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7] } } }] },
       "doctor": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
       "run": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 1, 2, 4, 7, 8, 9, 10] } } }] },
-      "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7] } } }] },
-      "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7] } } }] },
+      "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 9, 10] } } }] },
+      "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
       "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 8] } } }] },
       "prompt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 10] } } }] },
@@ -717,20 +884,106 @@
       "status": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "run_id", "run_state", "publication_status"],
+        "required": ["kind", "run_id", "run_state", "publication_status", "recovery_action", "final_artifact_uri"],
         "properties": {
-          "kind": { "const": "status_read" },
+          "kind": { "type": "string", "enum": ["status_read", "status_failed"] },
           "run_id": { "$ref": "#/$defs/run_id" },
-          "run_state": { "type": "string", "enum": ["pending", "running", "completed", "degraded", "failed", "cancelled"] },
-          "publication_status": { "type": "string", "enum": ["not_published", "staged", "installed", "committed", "corrupt"] }
-        }
+          "run_state": {
+            "type": ["string", "null"],
+            "enum": ["pending", "running", "completed", "degraded", "failed", "cancelled", null]
+          },
+          "publication_status": {
+            "type": ["string", "null"],
+            "enum": ["not_published", "staged", "installed", "committed", "corrupt", null]
+          },
+          "recovery_action": {
+            "type": ["string", "null"],
+            "enum": [
+              "none",
+              "resume_collection",
+              "restage_validated_candidate",
+              "install_staged_final",
+              "commit_composite_epoch",
+              "reconstruct_completed_status",
+              "emit_immutable_corruption_diagnostic",
+              null
+            ]
+          },
+          "final_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "content_verdict": { "type": "string", "enum": ["no_findings", "findings_present", "request_changes"] },
+          "coverage_status": { "type": "string", "enum": ["complete", "degraded", "incomplete"] },
+          "ci_decision": { "type": "string", "enum": ["pass", "fail"] }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "kind": { "const": "status_failed" },
+              "run_state": { "type": "null" },
+              "publication_status": { "type": "null" },
+              "recovery_action": { "type": "null" },
+              "final_artifact_uri": { "type": "null" }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["content_verdict"] },
+                { "required": ["coverage_status"] },
+                { "required": ["ci_decision"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "kind": { "const": "status_read" },
+              "run_state": { "type": "null" },
+              "publication_status": { "enum": ["not_published", "staged", "installed"] },
+              "final_artifact_uri": { "type": "null" }
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "publication_status": { "const": "not_published" },
+                  "recovery_action": { "enum": ["resume_collection", "restage_validated_candidate"] }
+                }
+              },
+              {
+                "properties": {
+                  "publication_status": { "const": "staged" },
+                  "recovery_action": { "const": "install_staged_final" }
+                }
+              },
+              {
+                "properties": {
+                  "publication_status": { "const": "installed" },
+                  "recovery_action": { "const": "commit_composite_epoch" }
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["content_verdict"] },
+                { "required": ["coverage_status"] },
+                { "required": ["ci_decision"] }
+              ]
+            }
+          },
+          {
+            "required": ["content_verdict", "coverage_status", "ci_decision"],
+            "properties": {
+              "kind": { "const": "status_read" },
+              "run_state": { "type": "string", "enum": ["completed", "degraded", "failed"] },
+              "publication_status": { "const": "committed" },
+              "recovery_action": { "const": "reconstruct_completed_status" },
+              "final_artifact_uri": { "type": "string" }
+            }
+          }
+        ]
       },
       "report": {
         "type": "object",
         "additionalProperties": false,
         "required": ["kind", "report_uri"],
         "properties": {
-          "kind": { "const": "report_rendered" },
+          "kind": { "type": "string", "enum": ["report_rendered", "report_failed"] },
           "report_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
         }
       },
@@ -739,21 +992,45 @@
         "additionalProperties": false,
         "required": ["kind", "run_id", "finding_count", "review_artifact_uri"],
         "properties": {
-          "kind": { "const": "findings_listed" },
+          "kind": { "type": "string", "enum": ["findings_listed", "findings_failed"] },
           "run_id": { "$ref": "#/$defs/run_id" },
-          "finding_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+          "finding_count": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000000 },
           "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
         }
       },
       "excerpt": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "evidence_state", "excerpt_uri"],
+        "required": ["kind", "evidence_state", "excerpt_uri", "excerpt_base64", "excerpt_sha256"],
         "properties": {
-          "kind": { "const": "excerpt_rendered" },
+          "kind": { "type": "string", "enum": ["excerpt_rendered", "excerpt_failed"] },
           "evidence_state": { "type": "string", "enum": ["verified", "stale", "invalid", "unverifiable"] },
-          "excerpt_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
-        }
+          "excerpt_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "excerpt_base64": { "type": ["string", "null"], "maxLength": 44739244, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$" },
+          "excerpt_sha256": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/sha256" }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "evidence_state": { "const": "verified" } }, "required": ["evidence_state"] },
+            "then": {
+              "properties": {
+                "excerpt_base64": { "type": "string", "minLength": 4 },
+                "excerpt_sha256": { "$ref": "#/$defs/sha256" }
+              }
+            },
+            "else": {
+              "properties": {
+                "excerpt_base64": { "type": "null" },
+                "excerpt_sha256": { "type": "null" }
+              }
+            }
+          }
+        ]
       },
       "providers": {
         "type": "object",

@@ -1,7 +1,7 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.2.0**
-**Date:** 2026-07-15
+**Development Specification v1.3.0**
+**Date:** 2026-07-16
 **Primary binary:** `kar`
 **Implementation target:** Go
 
@@ -9,17 +9,17 @@ KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It
 
 KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
 
-## SOT 1.2.0 Contract and Implementation Baseline
+## SOT 1.3.0 Contract and Implementation Baseline
 
-This package preserves the 71-path/70-payload SOT contract and records the verified implementation boundary through G005. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload.
+This package preserves the 71-path/70-payload SOT contract and records the verified implementation boundary through G006. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload.
 
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |
-| Implementation | **G001–G005 COMPLETE; G006–G009 PENDING** |
+| Implementation | **G001–G006 COMPLETE; G007–G009 PENDING** |
 | External contract | **G0 EVIDENCE VERIFIED; PRODUCT LIVE ADAPTERS PENDING G007** |
 
-The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. This status record does not authorize G006 or later work, actual product/release CI jobs, or release assets; each remaining goal retains its own acceptance gate.
+The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. This status record does not authorize G007 or later work, actual product/release CI jobs, or release assets; each remaining goal retains its own acceptance gate.
 
 Revision 13 keeps `darwin-arm64` as the sole G0 `required`/blocking native platform. G001 completed the G0 support derivation for that platform. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain `intended_future`, unsupported, and release-ineligible.
 
@@ -105,11 +105,11 @@ flowchart LR
 | [Decision Log and Verification Items](docs/14-decision-log.md) | Accepted design decisions and the small set of provider-specific items to verify |
 | [Glossary](docs/15-glossary.md) | Canonical terminology used throughout the specification |
 | [Mandatory Field and Ownership Matrix](docs/16-field-ownership-matrix.md) | Field-by-field ownership, required-value, repair, and publication rules |
-| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Completed G001–G005 items and pending G006–G009 gates |
+| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Completed G001–G006 items and pending G007–G009 gates |
 
 ## Machine-Readable Contracts
 
-All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compatibility contracts; provider/platform v1 evidence is compatibility-only and cannot enter readiness. The v2 contracts and v2 provider/platform evidence define the SOT 1.2.0 baseline and the only G0 readiness authority.
+All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compatibility contracts; provider/platform v1 evidence is compatibility-only and cannot enter readiness. The v2 contracts and v2 provider/platform evidence define the SOT 1.3.0 baseline and the only G0 readiness authority.
 
 | Contract | File |
 |---|---|
@@ -189,7 +189,7 @@ kar followup --run latest --finding F001 \
 
 ## Recorded Implementation Progress
 
-The repository records the following verified implementation boundary. These commits reconstruct goal-sized history from the accepted final tree; intermediate commits are organizational boundaries, while the G005 tree is the fully verified build.
+The repository records the following verified implementation boundary. These commits reconstruct goal-sized history from the accepted final tree; intermediate commits are organizational boundaries, while the G006 tree is the fully verified build.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|
@@ -198,12 +198,12 @@ The repository records the following verified implementation boundary. These com
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
 | G005 | Coordinator lanes, process runtime, evidence, completion axes | **COMPLETE** | `da1939f` |
-| G006 | Publication recovery, reporting, query commands | **PENDING** | — |
+| G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
 | G007 | Opt-in live provider adapters | **PENDING** | — |
 | G008 | Child workflows, cleanup, export | **PENDING** | — |
 | G009 | Integrated v0.1 release gate | **PENDING** | — |
 
-The G005 tree passed the full Go test suite, `go vet`, the race detector, repeated coordinator/runtime tests, immutable SOT checksum verification, and independent architecture/QA review. Detailed remaining sequencing and acceptance gates are in [Delivery Roadmap](docs/13-delivery-roadmap.md).
+The G006 tree passed the full Go test suite, `go vet`, the race detector, repeated publication/recovery/filesystem/query/report/CLI tests, real filesystem-to-P2-to-query/report recovery E2E, immutable SOT checksum verification, and independent architecture/QA review. Detailed remaining sequencing and acceptance gates are in [Delivery Roadmap](docs/13-delivery-roadmap.md).
 
 ## Status of Provider Support
 

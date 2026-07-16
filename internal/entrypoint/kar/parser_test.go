@@ -7,13 +7,16 @@ import (
 	"testing"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
 
 const (
-	testProjectRoot = "/work/project"
-	testRequestID   = "i_01234567-89ab-7cde-8f01-23456789abcd"
-	testSchemaID    = "https://kar.local/schemas/kar-command-result.v1.schema.json"
-	testCommitID    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testProjectRoot         = "/work/project"
+	testRequestID           = "i_01234567-89ab-7cde-8f01-23456789abcd"
+	testSchemaID            = "https://kar.local/schemas/kar-command-result.v1.schema.json"
+	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 )
 
 func TestParseHelpForms(t *testing.T) {
@@ -154,6 +157,38 @@ func TestParseSchemaForms(t *testing.T) {
 	}
 	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://kar.local/schemas/kar-command-result.v1.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
 }
+func TestParsePublicationQueryForms(t *testing.T) {
+	status := mustParse(t, []string{"status", "--run", testRunID, "--output", "json"})
+	statusRequest, ok := status.Status()
+	if !ok || statusRequest.RunID() != testRunID {
+		t.Fatalf("status request = %#v, %t; want %q", statusRequest, ok, testRunID)
+	}
+	assertRequestJSON(t, status, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"status","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
+
+	report := mustParse(t, []string{"report", "--run", testRunID, "--output-path", "reports/run.json"})
+	reportRequest, ok := report.Report()
+	if !ok || reportRequest.RunID() != testRunID || reportRequest.OutputPath() != "reports/run.json" {
+		t.Fatalf("report request = %#v, %t; want run and output path", reportRequest, ok)
+	}
+	assertRequestJSON(t, report, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"report","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"reports/run.json","output_format":"human"}`)
+
+	findings := mustParse(t, []string{"findings", "--run", testRunID, "--severity", "critical", "--output", "json"})
+	findingsRequest, ok := findings.Findings()
+	if !ok || findingsRequest.RunID() != testRunID || findingsRequest.MinimumSeverity() != domain.SeverityCritical {
+		t.Fatalf("findings request = %#v, %t; want critical threshold", findingsRequest, ok)
+	}
+	assertRequestJSON(t, findings, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"findings","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","minimum_severity":"critical","output_format":"json"}`)
+
+	excerpt := mustParse(t, []string{"excerpt", "--run", testRunID, "--finding", "F003", "--current-target-sha256", testCurrentTargetSHA256})
+	excerptRequest, ok := excerpt.Excerpt()
+	if !ok ||
+		excerptRequest.RunID() != testRunID ||
+		excerptRequest.FindingID() != "F003" ||
+		excerptRequest.CurrentTargetSHA256() != testCurrentTargetSHA256 {
+		t.Fatalf("excerpt request = %#v, %t; want immutable excerpt fields", excerptRequest, ok)
+	}
+	assertRequestJSON(t, excerpt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"excerpt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","current_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_format":"human"}`)
+}
 
 func TestParseRejectsJSONOptionsOutsideFrozenRequestVariants(t *testing.T) {
 	for _, arguments := range [][]string{
@@ -190,11 +225,15 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 		app.CommandHelp,
 	}
 	foundation := map[app.CommandName][]string{
-		app.CommandInit:   {"init"},
-		app.CommandDoctor: {"doctor"},
-		app.CommandConfig: {"config"},
-		app.CommandSchema: {"schema", "list"},
-		app.CommandHelp:   {"help"},
+		app.CommandInit:     {"init"},
+		app.CommandDoctor:   {"doctor"},
+		app.CommandStatus:   {"status", "--run", testRunID},
+		app.CommandReport:   {"report", "--run", testRunID, "--output-path", "reports/run.json"},
+		app.CommandFindings: {"findings", "--run", testRunID, "--severity", "low"},
+		app.CommandExcerpt:  {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
+		app.CommandConfig:   {"config"},
+		app.CommandSchema:   {"schema", "list"},
+		app.CommandHelp:     {"help"},
 	}
 	for _, command := range commands {
 		arguments, executable := foundation[command]
@@ -218,6 +257,32 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 		}
 	}
 }
+func TestParseKeepsG007ThroughG009CommandsUnavailable(t *testing.T) {
+	futureCommands := []app.CommandName{
+		app.CommandReview,
+		app.CommandFollowup,
+		app.CommandDelta,
+		app.CommandRerun,
+		app.CommandProviders,
+		app.CommandPrompt,
+		app.CommandClean,
+		app.CommandExport,
+	}
+	for _, command := range futureCommands {
+		t.Run(string(command), func(t *testing.T) {
+			invocation := mustParse(t, []string{string(command)})
+			if !invocation.FutureMilestone() || invocation.Availability() != AvailabilityFutureMilestone {
+				t.Fatalf("%q availability = %q, future = %t; want future milestone", command, invocation.Availability(), invocation.FutureMilestone())
+			}
+			if _, available := invocation.RequestJSON(); available {
+				t.Fatalf("future command %q supplied a request JSON object", command)
+			}
+			if _, err := Parse([]string{string(command), "extra"}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+				t.Fatalf("Parse(%q with arguments) error = %v, want usage error", command, err)
+			}
+		})
+	}
+}
 
 func TestParseRejectsMalformedInput(t *testing.T) {
 	tests := []struct {
@@ -228,6 +293,22 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 	}{
 		{name: "unknown command", arguments: []string{"unknown"}},
 		{name: "future command arguments", arguments: []string{"review", "extra"}},
+		{name: "status missing run", arguments: []string{"status"}},
+		{name: "status missing run value", arguments: []string{"status", "--run"}},
+		{name: "status duplicate run", arguments: []string{"status", "--run", testRunID, "--run", testRunID}},
+		{name: "status extra positional", arguments: []string{"status", "--run", testRunID, "extra"}},
+		{name: "status extra option", arguments: []string{"status", "--run", testRunID, "--project-root", testProjectRoot}},
+		{name: "status noncanonical run", arguments: []string{"status", "--run", "r_019f596a-cf80-6c67-b265-f37053d51ccf"}},
+		{name: "status zero-form run", arguments: []string{"status", "--run", "r_00000000-0000-7000-8000-000000000000"}},
+		{name: "report missing output path", arguments: []string{"report", "--run", testRunID}},
+		{name: "report traversal output path", arguments: []string{"report", "--run", testRunID, "--output-path", "../report.json"}},
+		{name: "report backslash output path", arguments: []string{"report", "--run", testRunID, "--output-path", "reports\\report.json"}},
+		{name: "findings missing severity", arguments: []string{"findings", "--run", testRunID}},
+		{name: "findings unsupported severity", arguments: []string{"findings", "--run", testRunID, "--severity", "info"}},
+		{name: "excerpt missing finding", arguments: []string{"excerpt", "--run", testRunID, "--current-target-sha256", testCurrentTargetSHA256}},
+		{name: "excerpt invalid finding", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F03", "--current-target-sha256", testCurrentTargetSHA256}},
+		{name: "excerpt invalid digest", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F003", "--current-target-sha256", "sha256:" + strings.Repeat("A", 64)}},
+		{name: "excerpt unsupported output", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F003", "--current-target-sha256", testCurrentTargetSHA256, "--output", "yaml"}},
 		{name: "duplicate flag", arguments: []string{"doctor", "--output", "json", "--output", "human"}},
 		{name: "unknown flag", arguments: []string{"doctor", "--verbose", "true"}},
 		{name: "single dash unknown flag", arguments: []string{"doctor", "-v"}},

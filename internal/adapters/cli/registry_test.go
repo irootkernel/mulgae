@@ -26,10 +26,10 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		{app.CommandFollowup, AvailabilityFutureMilestone, "internal/app/followup", "StartFollowupRun", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/followup", []string{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "https://kar.local/schemas/kar-run-manifest.v2.schema.json", "https://kar.local/schemas/kar-review-artifact.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandDelta, AvailabilityFutureMilestone, "internal/app/delta", "StartDeltaRun", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/delta", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", "https://kar.local/schemas/kar-review-artifact.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandRerun, AvailabilityFutureMilestone, "internal/app/rerun", "StartRerun", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/rerun", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", "https://kar.local/schemas/kar-review-artifact.v2.schema.json", "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
-		{app.CommandStatus, AvailabilityFutureMilestone, "internal/app/query", "ReadRunStatus", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/status", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
-		{app.CommandReport, AvailabilityFutureMilestone, "internal/app/report", "RenderReport", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/report", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
-		{app.CommandFindings, AvailabilityFutureMilestone, "internal/app/query", "ListFindings", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/findings", []string{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
-		{app.CommandExcerpt, AvailabilityFutureMilestone, "internal/app/query", "RenderExcerpt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/excerpt", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact}},
+		{app.CommandStatus, AvailabilityFoundation, "internal/app/query", "ReadRunStatus", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/status", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
+		{app.CommandReport, AvailabilityFoundation, "internal/app/report", "RenderReport", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/report", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
+		{app.CommandFindings, AvailabilityFoundation, "internal/app/query", "ListFindings", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/findings", []string{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
+		{app.CommandExcerpt, AvailabilityFoundation, "internal/app/query", "RenderExcerpt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/excerpt", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandProviders, AvailabilityFutureMilestone, "internal/app/providers", "ListProviderProfiles", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/providers", []string{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}},
 		{app.CommandConfig, AvailabilityFoundation, "internal/app/config", "ResolveConfiguration", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/config", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeSecurity}},
 		{app.CommandPrompt, AvailabilityFutureMilestone, "internal/app/prompt", "InspectPrompt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/prompt", []string{"https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}},
@@ -56,6 +56,30 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		}
 		if !slices.Equal(spec.TypedExits(), expected.exits) {
 			t.Fatalf("spec %q exits = %v, want %v", spec.Command(), spec.TypedExits(), expected.exits)
+		}
+	}
+}
+func TestG007ThroughG009CommandSpecsRemainFuture(t *testing.T) {
+	specifications := make(map[app.CommandName]CommandSpec)
+	for _, specification := range CommandSpecs() {
+		specifications[specification.Command()] = specification
+	}
+	for _, command := range []app.CommandName{
+		app.CommandReview,
+		app.CommandFollowup,
+		app.CommandDelta,
+		app.CommandRerun,
+		app.CommandProviders,
+		app.CommandPrompt,
+		app.CommandClean,
+		app.CommandExport,
+	} {
+		specification, present := specifications[command]
+		if !present {
+			t.Fatalf("CommandSpecs omitted future command %q", command)
+		}
+		if got, want := specification.Availability(), AvailabilityFutureMilestone; got != want {
+			t.Errorf("CommandSpecs(%q) availability = %q, want %q", command, got, want)
 		}
 	}
 }
@@ -187,6 +211,10 @@ func testFoundationHandlers(t *testing.T) map[app.CommandName]Handler {
 		app.CommandInit,
 		app.CommandDoctor,
 		app.CommandConfig,
+		app.CommandStatus,
+		app.CommandReport,
+		app.CommandFindings,
+		app.CommandExcerpt,
 		app.CommandSchema,
 		app.CommandHelp,
 	} {

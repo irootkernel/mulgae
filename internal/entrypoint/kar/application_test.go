@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -402,6 +403,963 @@ func TestApplicationDoctorPersistsValidatedUnverifiedResult(t *testing.T) {
 	if err := fixture.validator.Validate(context.Background(), doctorSchema, contents); err != nil {
 		t.Fatalf("persisted doctor result is not schema-valid: %v", err)
 	}
+}
+
+const (
+	g006SessionID         = "s_019f596a-cfe4-7c9c-b82e-7149158243ba"
+	g006ReviewArtifactURI = ".kar/s_019f596a-cfe4-7c9c-b82e-7149158243ba/r_019f596a-cf80-7c67-b265-f37053d51ccf/review_019f596a-d048-79e7-b2b7-59822f012273.json"
+)
+
+type g006QueryFake struct {
+	status       RunStatusView
+	statusErr    error
+	findings     FindingsView
+	findingsErr  error
+	excerpt      []byte
+	excerptErr   error
+	resolveErr   error
+	resolveRoots []ports.AnchoredRoot
+}
+
+func (fake *g006QueryFake) ResolveRun(_ context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
+	fake.resolveRoots = append(fake.resolveRoots, root)
+	if fake.resolveErr != nil {
+		return ports.PublicationRun{}, fake.resolveErr
+	}
+	sessionID, err := domain.ParseSessionID(g006SessionID)
+	if err != nil {
+		return ports.PublicationRun{}, err
+	}
+	return ports.NewPublicationRun(root, sessionID, runID)
+}
+
+func (fake *g006QueryFake) ReadRunStatus(_ context.Context, _ ports.PublicationRun) (RunStatusView, error) {
+	return fake.status, fake.statusErr
+}
+
+func (fake *g006QueryFake) ListFindings(_ context.Context, _ ports.PublicationRun, _ domain.Severity) (FindingsView, error) {
+	return fake.findings, fake.findingsErr
+}
+
+func (fake *g006QueryFake) RenderExcerpt(_ context.Context, _ ports.PublicationRun, _ string, _ string) ([]byte, error) {
+	return cloneApplicationBytes(fake.excerpt), fake.excerptErr
+}
+
+type g006ReportFake struct {
+	rendered RenderedReport
+	err      error
+	calls    int
+}
+
+func (fake *g006ReportFake) Render(_ context.Context, _ ports.PublicationRun) (RenderedReport, error) {
+	fake.calls++
+	return RenderedReport{
+		Markdown:  cloneApplicationBytes(fake.rendered.Markdown),
+		RunID:     fake.rendered.RunID,
+		SourceIDs: cloneApplicationStrings(fake.rendered.SourceIDs),
+	}, fake.err
+}
+
+func TestApplicationG006CommandsHumanAndJSON(t *testing.T) {
+	query := newG006QueryFake()
+	report := newG006ReportFake()
+	fixture := newG006Fixture(t, query, report)
+	root := testAnchoredRoot(t)
+
+	human := []struct {
+		name string
+		argv []string
+		want []byte
+	}{
+		{
+			name: "status",
+			argv: []string{"status", "--run", testRunID},
+			want: expectedTextOutput([]byte(
+				"run_id: " + testRunID +
+					"\nrun_state: completed" +
+					"\npublication_status: committed" +
+					"\nrecovery_action: reconstruct_completed_status" +
+					"\nfinal_artifact_uri: " + g006ReviewArtifactURI +
+					"\ncontent_verdict: request_changes" +
+					"\ncoverage_status: complete" +
+					"\nci_decision: fail",
+			)),
+		},
+		{
+			name: "report",
+			argv: []string{"report", "--run", testRunID, "--output-path", "reports/human.md"},
+			want: expectedTextOutput([]byte("report rendered: reports/human.md")),
+		},
+		{
+			name: "findings",
+			argv: []string{"findings", "--run", testRunID, "--severity", "high"},
+			want: expectedTextOutput([]byte(
+				"review_artifact_uri: " + g006ReviewArtifactURI +
+					"\nfinding_count: 2" +
+					"\nF002 [high] Second in query order" +
+					"\nF001 [critical] First in query order",
+			)),
+		},
+		{
+			name: "excerpt",
+			argv: []string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
+			want: []byte("line one\nline two\n\n"),
+		},
+	}
+	for _, test := range human {
+		t.Run(test.name+"_human", func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			if result.ExitCode() != app.ExitCodeSuccess || len(result.Stderr()) != 0 || !bytes.Equal(result.Stdout(), test.want) {
+				t.Fatalf("%s human result = exit %d stdout %q stderr %q", test.name, result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+		})
+	}
+
+	machine := []struct {
+		name string
+		argv []string
+		kind string
+	}{
+		{name: "status", argv: []string{"status", "--run", testRunID, "--output", "json"}, kind: "status_read"},
+		{name: "report", argv: []string{"report", "--run", testRunID, "--output-path", "reports/machine.md", "--output", "json"}, kind: "report_rendered"},
+		{name: "findings", argv: []string{"findings", "--run", testRunID, "--severity", "high", "--output", "json"}, kind: "findings_listed"},
+		{name: "excerpt", argv: []string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256, "--output", "json"}, kind: "excerpt_rendered"},
+	}
+	for _, test := range machine {
+		t.Run(test.name+"_json", func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+			if got := commandResultKind(t, result.Stdout()); got != test.kind {
+				t.Fatalf("%s JSON kind = %q, want %q", test.name, got, test.kind)
+			}
+			if test.name == "status" {
+				assertG006StatusAxes(t, result.Stdout())
+			}
+			if test.name == "excerpt" {
+				assertG006ExcerptBytes(t, result.Stdout(), []byte("line one\nline two\n\n"))
+			}
+		})
+	}
+
+	for _, artifactRoot := range query.resolveRoots {
+		if got, want := artifactRoot.String(), filepath.Join(root, ".kar"); got != want {
+			t.Fatalf("publication root = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {
+	tests := []struct {
+		name   string
+		status RunStatusView
+		err    error
+		exit   app.ExitCode
+	}{
+		{
+			name: "P0 staged",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationStaged,
+				RecoveryAction: domain.RecoveryActionInstallStagedFinal,
+			},
+			exit: app.ExitCodeSuccess,
+		},
+		{
+			name: "P1 installed",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationInstalled,
+				RecoveryAction: domain.RecoveryActionCommitCompositeEpoch,
+			},
+			exit: app.ExitCodeSuccess,
+		},
+		{
+			name: "corrupt",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationCorrupt,
+				RecoveryAction: domain.RecoveryActionEmitImmutableCorruptionDiagnostic,
+			},
+			err:  mustG006ArtifactFailure(t),
+			exit: app.ExitCodeArtifact,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query := newG006QueryFake()
+			query.status = test.status
+			query.statusErr = test.err
+			fixture := newG006Fixture(t, query, newG006ReportFake())
+			root := testAnchoredRoot(t)
+
+			human := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID}, root)
+			if human.ExitCode() != test.exit || strings.Contains(string(human.Stdout()), "review_") ||
+				strings.Contains(string(human.Stdout()), "content_verdict") {
+				t.Fatalf("human status = exit %d stdout %q", human.ExitCode(), human.Stdout())
+			}
+			machine := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID, "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, machine, test.exit)
+			if strings.Contains(string(machine.Stdout()), "review_") || strings.Contains(string(machine.Stdout()), "content_verdict") {
+				t.Fatalf("JSON status disclosed P2 data: %q", machine.Stdout())
+			}
+			if test.err != nil {
+				assertG006StatusFailureHasNoAuthority(t, machine.Stdout())
+			}
+		})
+	}
+}
+
+func TestStatusResultDataRejectsIncoherentPublicationPairs(t *testing.T) {
+	invocation := mustParse(t, []string{"status", "--run", testRunID})
+	request, ok := invocation.Status()
+	if !ok {
+		t.Fatal("parsed invocation omitted status request")
+	}
+	committedCancelled := newG006QueryFake().status
+	committedCancelled.RunState = domain.RunCancelled
+	tests := []struct {
+		name   string
+		status RunStatusView
+	}{
+		{
+			name: "not published with none",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationNotPublished,
+				RecoveryAction: domain.RecoveryActionNone,
+			},
+		},
+		{
+			name: "staged with resume",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationStaged,
+				RecoveryAction: domain.RecoveryActionResumeCollection,
+			},
+		},
+		{
+			name: "installed with none",
+			status: RunStatusView{
+				RunID: testRunID, PublicationState: domain.PublicationInstalled,
+				RecoveryAction: domain.RecoveryActionNone,
+			},
+		},
+		{name: "committed cancelled run", status: committedCancelled},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := statusResultData(request, test.status); err == nil {
+				t.Fatal("statusResultData accepted an incoherent publication projection")
+			}
+		})
+	}
+}
+
+func TestApplicationG006ReportWritesOnceAndDoesNotReplace(t *testing.T) {
+	query := newG006QueryFake()
+	report := newG006ReportFake()
+	fixture := newG006Fixture(t, query, report)
+	root := testAnchoredRoot(t)
+	argv := []string{"report", "--run", testRunID, "--output-path", "reports/review.md"}
+
+	first := fixture.application.Run(context.Background(), argv, root)
+	if first.ExitCode() != app.ExitCodeSuccess {
+		t.Fatalf("first report = exit %d stdout %q stderr %q", first.ExitCode(), first.Stdout(), first.Stderr())
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "reports", "review.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(contents, report.rendered.Markdown) {
+		t.Fatalf("report bytes = %q, want %q", contents, report.rendered.Markdown)
+	}
+	if len(fixture.writer.requests) != 1 || len(fixture.writer.receipts) != 1 {
+		t.Fatalf("first report writes = requests %d receipts %d", len(fixture.writer.requests), len(fixture.writer.receipts))
+	}
+
+	second := fixture.application.Run(context.Background(), argv, root)
+	if second.ExitCode() != app.ExitCodeArtifact || len(second.Stdout()) != 0 || len(second.Stderr()) == 0 {
+		t.Fatalf("second report = exit %d stdout %q stderr %q", second.ExitCode(), second.Stdout(), second.Stderr())
+	}
+	if len(fixture.writer.requests) != 2 || len(fixture.writer.receipts) != 1 {
+		t.Fatalf("replacement report writes = requests %d receipts %d", len(fixture.writer.requests), len(fixture.writer.receipts))
+	}
+}
+
+func TestApplicationG006ReportRejectsReservedControlNamespaces(t *testing.T) {
+	for _, outputPath := range []string{
+		".kar/reports/review.md",
+		".KAR/reports/review.md",
+		".git/reports/review.md",
+		".Git/reports/review.md",
+		".gjc/reports/review.md",
+		".GJC/reports/review.md",
+		".kar.yaml",
+		".KAR.YML",
+		".kar.yaml/reports/review.md",
+		".KAR.YML/reports/review.md",
+	} {
+		t.Run(outputPath, func(t *testing.T) {
+			query := newG006QueryFake()
+			report := newG006ReportFake()
+			fixture := newG006Fixture(t, query, report)
+
+			result := fixture.application.Run(
+				context.Background(),
+				[]string{"report", "--run", testRunID, "--output-path", outputPath},
+				testAnchoredRoot(t),
+			)
+			if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || len(result.Stderr()) == 0 {
+				t.Fatalf("reserved report destination = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+			if report.calls != 0 || len(fixture.writer.requests) != 0 {
+				t.Fatalf("reserved report destination invoked report=%d writes=%d", report.calls, len(fixture.writer.requests))
+			}
+		})
+	}
+}
+
+func TestPersistReportMarkdownRejectsReservedDestinationWithoutWriterIO(t *testing.T) {
+	fixture := newG006Fixture(t, newG006QueryFake(), newG006ReportFake())
+	root, err := ports.NewAnchoredRoot(testAnchoredRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := ports.NewSafeRelativePath(".KAR.YAML/reports/review.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fixture.application.persistReportMarkdown(
+		context.Background(),
+		root,
+		destination,
+		[]string{"report:test"},
+		[]byte("# report\n"),
+	)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+		t.Fatalf("reserved direct report failure = %v", err)
+	}
+	if len(fixture.writer.requests) != 0 {
+		t.Fatalf("reserved direct report writes = %d, want 0", len(fixture.writer.requests))
+	}
+}
+
+func TestPersistReportMarkdownPreservesDualWriterFailurePrecedence(t *testing.T) {
+	sourceIDs := []string{"report:test"}
+	drop, err := ports.NewDropMetadata("report_markdown", "test_rejection", 1, sourceIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := &controlledFoundationWriter{
+		drop:        &drop,
+		writeErr:    mustG006Failure(t, domain.FailureArtifact),
+		abortCause:  mustG006Failure(t, domain.FailureInternal),
+		invokeAbort: true,
+	}
+	fixture := newFoundationFixtureWithWriter(t, writer)
+	root, err := ports.NewAnchoredRoot(testAnchoredRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := ports.NewSafeRelativePath("reports/review.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fixture.application.persistReportMarkdown(
+		context.Background(),
+		root,
+		destination,
+		sourceIDs,
+		[]byte("# report\n"),
+	)
+	projected := executionFailureFor(app.CommandReport, err, domain.FailureArtifact)
+	if projected.class != domain.FailureInternal || projected.exit != app.ExitCodeInternal {
+		t.Fatalf("dual writer failure = %s/exit %d, want internal/10", projected.class, projected.exit)
+	}
+}
+
+func TestG006OperationalFailureExitsAreNotCoerced(t *testing.T) {
+	cases := []struct {
+		command app.CommandName
+		class   domain.FailureClass
+		exit    app.ExitCode
+	}{
+		{command: app.CommandStatus, class: domain.FailureSecurityPolicy, exit: app.ExitCodeSecurity},
+		{command: app.CommandReport, class: domain.FailureCancelled, exit: app.ExitCodeCancellation},
+		{command: app.CommandFindings, class: domain.FailureInternal, exit: app.ExitCodeInternal},
+		{command: app.CommandExcerpt, class: domain.FailureSecurityPolicy, exit: app.ExitCodeSecurity},
+	}
+	for _, test := range cases {
+		t.Run(string(test.command), func(t *testing.T) {
+			err, createErr := domain.NewFailure("test.G006", test.class, "operational failure", nil)
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			if failure := executionFailureFor(test.command, err, domain.FailureArtifact); failure.exit != test.exit {
+				t.Fatalf("executionFailureFor(%s, %s) exit = %d, want %d", test.command, test.class, failure.exit, test.exit)
+			}
+		})
+	}
+}
+
+func TestG006OperationalFailureExitPrecedence(t *testing.T) {
+	internal := mustG006Failure(t, domain.FailureInternal)
+	artifact := mustG006Failure(t, domain.FailureArtifact)
+	security := mustG006Failure(t, domain.FailureSecurityPolicy)
+	configuration := mustG006Failure(t, domain.FailureConfiguration)
+	readiness := mustG006Failure(t, domain.FailureProviderUnavailable)
+	tests := []struct {
+		name string
+		err  error
+		exit app.ExitCode
+	}{
+		{name: "internal over all", err: errors.Join(context.Canceled, security, artifact, internal), exit: app.ExitCodeInternal},
+		{name: "artifact over security and cancellation", err: errors.Join(context.Canceled, security, artifact), exit: app.ExitCodeArtifact},
+		{name: "raw cleanup observation over cancellation", err: errors.Join(context.Canceled, errors.New("temporary cleanup durability observation failed")), exit: app.ExitCodeArtifact},
+		{name: "security over cancellation", err: errors.Join(context.Canceled, security), exit: app.ExitCodeSecurity},
+		{name: "cancellation over configuration", err: errors.Join(configuration, context.Canceled), exit: app.ExitCodeCancellation},
+		{name: "configuration over readiness", err: errors.Join(readiness, configuration), exit: app.ExitCodeUsage},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := executionFailureFor(app.CommandExcerpt, test.err, domain.FailureArtifact)
+			if failure.exit != test.exit {
+				t.Fatalf("exit = %d, want %d", failure.exit, test.exit)
+			}
+		})
+	}
+}
+func TestApplicationG006FailureParityAcrossCommands(t *testing.T) {
+	failures := []struct {
+		name  string
+		class domain.FailureClass
+		err   func(*testing.T) error
+		exit  app.ExitCode
+	}{
+		{
+			name:  "artifact",
+			class: domain.FailureArtifact,
+			err: func(t *testing.T) error {
+				return mustG006Failure(t, domain.FailureArtifact)
+			},
+			exit: app.ExitCodeArtifact,
+		},
+		{
+			name:  "security",
+			class: domain.FailureSecurityPolicy,
+			err: func(t *testing.T) error {
+				return mustG006Failure(t, domain.FailureSecurityPolicy)
+			},
+			exit: app.ExitCodeSecurity,
+		},
+		{
+			name:  "cancellation",
+			class: domain.FailureCancelled,
+			err: func(*testing.T) error {
+				return context.Canceled
+			},
+			exit: app.ExitCodeCancellation,
+		},
+		{
+			name:  "joined_internal",
+			class: domain.FailureInternal,
+			err: func(t *testing.T) error {
+				return errors.Join(context.Canceled, mustG006Failure(t, domain.FailureInternal))
+			},
+			exit: app.ExitCodeInternal,
+		},
+	}
+	commands := []struct {
+		name           string
+		command        app.CommandName
+		argv           []string
+		failedKind     string
+		redactedFields []string
+		inject         func(*g006QueryFake, *g006ReportFake, error)
+	}{
+		{
+			name:           "status",
+			command:        app.CommandStatus,
+			argv:           []string{"status", "--run", testRunID},
+			failedKind:     "status_failed",
+			redactedFields: []string{"run_state", "publication_status", "recovery_action", "final_artifact_uri"},
+			inject: func(query *g006QueryFake, _ *g006ReportFake, err error) {
+				query.statusErr = err
+			},
+		},
+		{
+			name:           "report",
+			command:        app.CommandReport,
+			argv:           []string{"report", "--run", testRunID, "--output-path", "reports/failure.md"},
+			failedKind:     "report_failed",
+			redactedFields: []string{"report_uri"},
+			inject: func(_ *g006QueryFake, report *g006ReportFake, err error) {
+				report.err = err
+			},
+		},
+		{
+			name:           "findings",
+			command:        app.CommandFindings,
+			argv:           []string{"findings", "--run", testRunID, "--severity", "high"},
+			failedKind:     "findings_failed",
+			redactedFields: []string{"finding_count", "review_artifact_uri"},
+			inject: func(query *g006QueryFake, _ *g006ReportFake, err error) {
+				query.findingsErr = err
+			},
+		},
+		{
+			name:           "excerpt",
+			command:        app.CommandExcerpt,
+			argv:           []string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
+			failedKind:     "excerpt_failed",
+			redactedFields: []string{"excerpt_uri", "excerpt_base64", "excerpt_sha256"},
+			inject: func(query *g006QueryFake, _ *g006ReportFake, err error) {
+				query.excerptErr = err
+			},
+		},
+	}
+	for _, command := range commands {
+		for _, failure := range failures {
+			t.Run(command.name+"_"+failure.name, func(t *testing.T) {
+				query := newG006QueryFake()
+				report := newG006ReportFake()
+				command.inject(query, report, failure.err(t))
+				fixture := newG006Fixture(t, query, report)
+				root := testAnchoredRoot(t)
+
+				human := fixture.application.Run(context.Background(), command.argv, root)
+				if human.ExitCode() != failure.exit || len(human.Stdout()) != 0 ||
+					!bytes.Equal(human.Stderr(), terminalOutput([]byte(humanFailureMessage(failure.class)))) {
+					t.Fatalf("human failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+				}
+
+				jsonArguments := append(cloneApplicationStrings(command.argv), "--output", "json")
+				machine := fixture.application.Run(context.Background(), jsonArguments, root)
+				assertFoundationEnvelope(t, fixture, machine, failure.exit)
+				if len(machine.Stderr()) != 0 {
+					t.Fatalf("JSON failure stderr = %q, want empty", machine.Stderr())
+				}
+				if got := commandResultKind(t, machine.Stdout()); got != command.failedKind {
+					t.Fatalf("failure kind = %q, want %q", got, command.failedKind)
+				}
+				assertG006FailureProjectionRedacted(t, machine.Stdout(), command.redactedFields)
+				if !permittedFailureExit(command.command, machine.ExitCode()) {
+					t.Fatalf("exit %d is not permitted for %s", machine.ExitCode(), command.command)
+				}
+			})
+		}
+	}
+}
+
+func TestApplicationG006ResolveRunPreservesTypedFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		exit app.ExitCode
+	}{
+		{name: "cancellation", err: context.Canceled, exit: app.ExitCodeCancellation},
+		{name: "security", err: mustG006Failure(t, domain.FailureSecurityPolicy), exit: app.ExitCodeSecurity},
+		{name: "configuration", err: mustG006Failure(t, domain.FailureConfiguration), exit: app.ExitCodeUsage},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query := newG006QueryFake()
+			query.resolveErr = test.err
+			fixture := newG006Fixture(t, query, newG006ReportFake())
+			root := testAnchoredRoot(t)
+
+			human := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID}, root)
+			if human.ExitCode() != test.exit {
+				t.Fatalf("human exit = %d, want %d", human.ExitCode(), test.exit)
+			}
+			machine := fixture.application.Run(
+				context.Background(),
+				[]string{"status", "--run", testRunID, "--output", "json"},
+				root,
+			)
+			assertFoundationEnvelope(t, fixture, machine, test.exit)
+			if got := commandResultKind(t, machine.Stdout()); got != "status_failed" {
+				t.Fatalf("failure kind = %q, want status_failed", got)
+			}
+		})
+	}
+}
+
+func TestApplicationG006ReportWriteCancellationUsesExitNine(t *testing.T) {
+	writer := &controlledFoundationWriter{
+		writeErr:    errors.Join(context.Canceled, filesystem.ErrContextCancelled),
+		abortCause:  context.Canceled,
+		invokeAbort: true,
+	}
+	fixture := newG006FixtureWithWriter(t, newG006QueryFake(), newG006ReportFake(), writer)
+	root := testAnchoredRoot(t)
+	for _, test := range []struct {
+		name string
+		argv []string
+		json bool
+	}{
+		{name: "human", argv: []string{"report", "--run", testRunID, "--output-path", "reports/cancelled.md"}},
+		{name: "json", argv: []string{"report", "--run", testRunID, "--output-path", "reports/cancelled.md", "--output", "json"}, json: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			if result.ExitCode() != app.ExitCodeCancellation {
+				t.Fatalf("exit = %d, want %d; stdout = %q; stderr = %q", result.ExitCode(), app.ExitCodeCancellation, result.Stdout(), result.Stderr())
+			}
+			if test.json {
+				assertFoundationEnvelope(t, fixture, result, app.ExitCodeCancellation)
+				if got := commandResultKind(t, result.Stdout()); got != "report_failed" {
+					t.Fatalf("failure kind = %q, want report_failed", got)
+				}
+			}
+		})
+	}
+	if writer.abortCalls != 2 {
+		t.Fatalf("abort calls = %d, want 2", writer.abortCalls)
+	}
+}
+func TestApplicationG006ReportWriteCancellationWithCleanupFailureUsesExitSeven(t *testing.T) {
+	writer := &controlledFoundationWriter{
+		writeErr:    errors.Join(context.Canceled, errors.New("temporary cleanup durability observation failed")),
+		abortCause:  context.Canceled,
+		invokeAbort: true,
+	}
+	fixture := newG006FixtureWithWriter(t, newG006QueryFake(), newG006ReportFake(), writer)
+	root := testAnchoredRoot(t)
+	for _, test := range []struct {
+		name string
+		argv []string
+		json bool
+	}{
+		{name: "human", argv: []string{"report", "--run", testRunID, "--output-path", "reports/cleanup-failed.md"}},
+		{name: "json", argv: []string{"report", "--run", testRunID, "--output-path", "reports/cleanup-failed.md", "--output", "json"}, json: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			if result.ExitCode() != app.ExitCodeArtifact {
+				t.Fatalf("exit = %d, want %d; stdout = %q; stderr = %q", result.ExitCode(), app.ExitCodeArtifact, result.Stdout(), result.Stderr())
+			}
+			if test.json {
+				assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+				if got := commandResultKind(t, result.Stdout()); got != "report_failed" {
+					t.Fatalf("failure kind = %q, want report_failed", got)
+				}
+			}
+		})
+	}
+	if writer.abortCalls != 2 {
+		t.Fatalf("abort calls = %d, want 2", writer.abortCalls)
+	}
+}
+
+func TestG006CommandSchemaRejectsAuthorityAndBase64Lies(t *testing.T) {
+	query := newG006QueryFake()
+	fixture := newG006Fixture(t, query, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	committedStatus := fixture.application.Run(
+		context.Background(),
+		[]string{"status", "--run", testRunID, "--output", "json"},
+		root,
+	)
+	assertFoundationEnvelope(t, fixture, committedStatus, app.ExitCodeSuccess)
+	query.status = RunStatusView{
+		RunID:            testRunID,
+		PublicationState: domain.PublicationStaged,
+		RecoveryAction:   domain.RecoveryActionInstallStagedFinal,
+	}
+	status := fixture.application.Run(
+		context.Background(),
+		[]string{"status", "--run", testRunID, "--output", "json"},
+		root,
+	)
+	assertFoundationEnvelope(t, fixture, status, app.ExitCodeSuccess)
+	excerpt := fixture.application.Run(
+		context.Background(),
+		[]string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256, "--output", "json"},
+		root,
+	)
+	assertFoundationEnvelope(t, fixture, excerpt, app.ExitCodeSuccess)
+	schema := mustFoundationAssetID(t, commandSchemaID)
+
+	mutate := func(raw []byte, change func(map[string]any)) []byte {
+		t.Helper()
+		var document map[string]any
+		if err := json.Unmarshal(raw, &document); err != nil {
+			t.Fatal(err)
+		}
+		change(document["result"].(map[string]any))
+		changed, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed
+	}
+	cases := []struct {
+		name string
+		raw  []byte
+	}{
+		{
+			name: "non-P2 final URI",
+			raw: mutate(status.Stdout(), func(result map[string]any) {
+				result["final_artifact_uri"] = g006ReviewArtifactURI
+			}),
+		},
+		{
+			name: "exit-zero corrupt status",
+			raw: mutate(status.Stdout(), func(result map[string]any) {
+				result["publication_status"] = string(domain.PublicationCorrupt)
+				result["recovery_action"] = string(domain.RecoveryActionEmitImmutableCorruptionDiagnostic)
+			}),
+		},
+		{
+			name: "staged with resume action",
+			raw: mutate(status.Stdout(), func(result map[string]any) {
+				result["recovery_action"] = string(domain.RecoveryActionResumeCollection)
+			}),
+		},
+		{
+			name: "installed with none action",
+			raw: mutate(status.Stdout(), func(result map[string]any) {
+				result["publication_status"] = string(domain.PublicationInstalled)
+				result["recovery_action"] = string(domain.RecoveryActionNone)
+			}),
+		},
+		{
+			name: "not published with commit action",
+			raw: mutate(status.Stdout(), func(result map[string]any) {
+				result["publication_status"] = string(domain.PublicationNotPublished)
+				result["recovery_action"] = string(domain.RecoveryActionCommitCompositeEpoch)
+			}),
+		},
+		{
+			name: "committed cancelled run",
+			raw: mutate(committedStatus.Stdout(), func(result map[string]any) {
+				result["run_state"] = string(domain.RunCancelled)
+			}),
+		},
+	}
+	for _, malformed := range []string{"A===", "AAAA=", "AA=A", "AB==", "AAB="} {
+		cases = append(cases, struct {
+			name string
+			raw  []byte
+		}{
+			name: "malformed base64 " + malformed,
+			raw: mutate(excerpt.Stdout(), func(result map[string]any) {
+				result["excerpt_base64"] = malformed
+			}),
+		})
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if err := fixture.validator.Validate(context.Background(), schema, test.raw); err == nil {
+				t.Fatal("command result schema accepted a false G006 projection")
+			}
+		})
+	}
+}
+func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	if fixture.application == nil {
+		t.Fatal("all-absent G006 dependency group was rejected")
+	}
+	reader, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{
+		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:   fixedFoundationRequestIDs{},
+		Catalog:              fixture.catalog,
+		JSONSchemaValidator:  fixture.validator,
+		SecureWriter:         fixture.writer,
+		TrustedProjectReader: reader,
+		EnvironmentInspector: environment.NewInspector(),
+	}
+	query := newG006QueryFake()
+	report := newG006ReportFake()
+	dependencies.PublicationQueries = query
+	if _, err := NewApplication(dependencies); err == nil {
+		t.Fatal("NewApplication accepted a partial G006 query dependency group")
+	}
+	dependencies.PublicationQueries = nil
+	dependencies.PublicationReports = report
+	if _, err := NewApplication(dependencies); err == nil {
+		t.Fatal("NewApplication accepted a partial G006 report dependency group")
+	}
+}
+
+func newG006QueryFake() *g006QueryFake {
+	return &g006QueryFake{
+		status: RunStatusView{
+			RunID: testRunID, RunState: domain.RunCompleted, HasRunState: true, PublicationState: domain.PublicationCommitted,
+			RecoveryAction:   domain.RecoveryActionReconstructCompletedStatus,
+			FinalArtifactURI: g006ReviewArtifactURI, HasFinalArtifact: true,
+			ContentVerdict: domain.ContentRequestChanges, CoverageStatus: domain.CoverageComplete,
+			CIDecision: domain.CIFail, HasAxes: true,
+		},
+		findings: FindingsView{
+			RunID:             testRunID,
+			ReviewArtifactURI: g006ReviewArtifactURI,
+			Findings: []FindingView{
+				{ID: "F002", Severity: domain.SeverityHigh, Title: "Second in query order"},
+				{ID: "F001", Severity: domain.SeverityCritical, Title: "First in query order"},
+			},
+		},
+		excerpt: []byte("line one\nline two\n\n"),
+	}
+}
+
+func newG006ReportFake() *g006ReportFake {
+	return &g006ReportFake{
+		rendered: RenderedReport{
+			Markdown: []byte("# Review report\n"),
+			RunID:    testRunID,
+			SourceIDs: []string{
+				"report:review:019f596a-d048-79e7-b2b7-59822f012273",
+				"report:final:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"report:manifest:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"report:lineage:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+				"report:epoch:1",
+			},
+		},
+	}
+}
+
+func newG006Fixture(t *testing.T, query PublicationQueryService, report PublicationReportService) foundationFixture {
+	t.Helper()
+	return newG006FixtureWithWriter(t, query, report, filesystem.NewSecureWriter())
+}
+
+func newG006FixtureWithWriter(
+	t *testing.T,
+	query PublicationQueryService,
+	report PublicationReportService,
+	writer ports.SecureFileWriter,
+) foundationFixture {
+	t.Helper()
+	fixture := newFoundationFixtureWithWriter(t, writer)
+	reader, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := NewApplication(Dependencies{
+		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:   fixedFoundationRequestIDs{},
+		Catalog:              fixture.catalog,
+		JSONSchemaValidator:  fixture.validator,
+		SecureWriter:         fixture.writer,
+		TrustedProjectReader: reader,
+		EnvironmentInspector: environment.NewInspector(),
+		PublicationQueries:   query,
+		PublicationReports:   report,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application = application
+	return fixture
+}
+
+func commandResultKind(t *testing.T, envelope []byte) string {
+	t.Helper()
+	var document struct {
+		Result struct {
+			Kind string `json:"kind"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(envelope, &document); err != nil {
+		t.Fatal(err)
+	}
+	return document.Result.Kind
+}
+func assertG006FailureProjectionRedacted(t *testing.T, envelope []byte, fields []string) {
+	t.Helper()
+	var document struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(envelope, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range fields {
+		value, present := document.Result[field]
+		if !present || value != nil {
+			t.Fatalf("failure result disclosed %s = %#v", field, value)
+		}
+	}
+}
+
+func assertG006StatusAxes(t *testing.T, envelope []byte) {
+	t.Helper()
+	var document struct {
+		Result struct {
+			ContentVerdict string `json:"content_verdict"`
+			CoverageStatus string `json:"coverage_status"`
+			CIDecision     string `json:"ci_decision"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(envelope, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Result.ContentVerdict != string(domain.ContentRequestChanges) ||
+		document.Result.CoverageStatus != string(domain.CoverageComplete) ||
+		document.Result.CIDecision != string(domain.CIFail) {
+		t.Fatalf("P2 status axes = %#v", document.Result)
+	}
+}
+
+func assertG006ExcerptBytes(t *testing.T, envelope, expected []byte) {
+	t.Helper()
+	var document struct {
+		Result struct {
+			EvidenceState string  `json:"evidence_state"`
+			ExcerptURI    *string `json:"excerpt_uri"`
+			ExcerptBase64 *string `json:"excerpt_base64"`
+			ExcerptSHA256 *string `json:"excerpt_sha256"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(envelope, &document); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(expected)
+	expectedSHA256 := "sha256:" + hex.EncodeToString(digest[:])
+	expectedBase64 := base64.StdEncoding.EncodeToString(expected)
+	if document.Result.EvidenceState != "verified" || document.Result.ExcerptURI != nil ||
+		document.Result.ExcerptBase64 == nil || *document.Result.ExcerptBase64 != expectedBase64 ||
+		document.Result.ExcerptSHA256 == nil || *document.Result.ExcerptSHA256 != expectedSHA256 {
+		t.Fatalf("excerpt projection = %#v", document.Result)
+	}
+}
+
+func assertG006StatusFailureHasNoAuthority(t *testing.T, envelope []byte) {
+	t.Helper()
+	var document struct {
+		Result struct {
+			RunState          *string `json:"run_state"`
+			PublicationStatus *string `json:"publication_status"`
+			RecoveryAction    *string `json:"recovery_action"`
+			FinalArtifactURI  *string `json:"final_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(envelope, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Result.RunState != nil || document.Result.PublicationStatus != nil ||
+		document.Result.RecoveryAction != nil || document.Result.FinalArtifactURI != nil {
+		t.Fatalf("errored status exposed authority = %#v", document.Result)
+	}
+}
+
+func mustG006Failure(t *testing.T, class domain.FailureClass) error {
+	t.Helper()
+	failure, err := domain.NewFailure("test.G006", class, "failure", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failure
+}
+func mustG006ArtifactFailure(t *testing.T) error {
+	t.Helper()
+	failure, err := domain.NewFailure("test.G006", domain.FailureArtifact, "corrupt publication", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failure
 }
 
 func newFoundationFixture(t *testing.T) foundationFixture {

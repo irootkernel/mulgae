@@ -45,9 +45,9 @@
 
 ## 1.1 Current Decision and Implementation Status
 
-D-030 through D-038 extend D-001 through D-029 and remain the frozen Revision 13 contract decisions. SOT 1.2.0 records that G001 completed Gate A, required provider/platform evidence, promotion, authority CAS, post-verification `g0_complete`, support derivation, and separate implementation approval.
+D-030 through D-038 extend D-001 through D-029 and remain the frozen Revision 13 contract decisions. SOT 1.3.0 records that G001 completed Gate A, required provider/platform evidence, promotion, authority CAS, post-verification `g0_complete`, support derivation, and separate implementation approval.
 
-G002 through G005 then completed the domain/ports foundation, trusted adapters and foundation CLI, prompt/validation/fake-review slice, and coordinator/runtime/evidence/axes boundary. G006 through G009 remain pending. The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. No pending goal, product live-adapter support, release CI, or release asset is authorized by the completed boundary.
+G002 through G006 then completed the domain/ports foundation, trusted adapters and foundation CLI, prompt/validation/fake-review slice, coordinator/runtime/evidence/axes boundary, and publication/recovery/reporting/query boundary. G007 through G009 remain pending. The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. No pending goal, product live-adapter support, release CI, or release asset is authorized by the completed boundary.
 
 
 ## 2. Superseded Draft Decisions

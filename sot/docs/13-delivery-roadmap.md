@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 13 Option B under SOT 1.2.0 and the verified delivery boundary through G3A. Decision Readiness is **READY**; G001–G005 are **COMPLETE**; G006–G009 are **PENDING**.
+This roadmap records Revision 13 Option B under SOT 1.3.0 and the verified delivery boundary through G3B. Decision Readiness is **READY**; G001–G006 are **COMPLETE**; G007–G009 are **PENDING**.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -11,14 +11,14 @@ This roadmap records Revision 13 Option B under SOT 1.2.0 and the verified deliv
 | G003 | G1B trusted adapters and foundation CLI | **COMPLETE** |
 | G004 | G2 prompt validation, repair, fake review | **COMPLETE** |
 | G005 | G3A coordinator, runtime, evidence, axes | **COMPLETE** |
-| G006 | G3B publication, recovery, reporting | **PENDING** |
+| G006 | G3B publication, recovery, reporting | **COMPLETE** |
 | G007 | G4 opt-in provider adapters | **PENDING** |
 | G008 | G5 lineage, cleanup, export | **PENDING** |
 | G009 | Integrated v0.1 release gate | **PENDING** |
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. G001 completion authorized G002–G005 only through their separately accepted stories; it does not authorize pending G006–G009 work or a release.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G006 stories are complete; this boundary does not authorize pending G007–G009 work or a release.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 

@@ -43,7 +43,7 @@
 | Publication status | Store-derived publication axis: `not_published`, `staged`, `installed`, `committed`, or `corrupt` |
 | CI decision | Trusted CI policy axis: `pass` or `fail`, accompanied by reason codes |
 | Decision Readiness | Whether the SOT contract is settled; G0 records this as `READY` |
-| Implementation Readiness | Whether product implementation is authorized; G001 completed the prerequisite, G002–G005 are implemented, and G006–G009 remain separately gated |
+| Implementation Readiness | Whether product implementation is authorized; G001 completed the prerequisite, G002–G006 are implemented, and G007–G009 remain separately gated |
 | External Contract Readiness | Whether required provider tuples and native platform cells passed; G001 verified the G0 evidence state while product live-adapter support remains pending G007 |
 | Gate A | Session-bound GJC runtime approval that permits G0 contract/evidence work; it is not implementation approval |
 | G0 complete | Post-promotion, post-verification authority record that closes G0; spelled `g0_complete` in authority records |

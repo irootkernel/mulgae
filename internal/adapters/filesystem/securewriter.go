@@ -7,10 +7,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -26,8 +28,9 @@ var (
 	ErrMaxBytesExceeded = errors.New("secure write exceeded maximum bytes")
 	// ErrSourceRead reports a source read that cannot safely be persisted.
 	ErrSourceRead = errors.New("secure write source read failed")
-	// ErrContextCancelled reports that the caller cancelled the stream.
-	ErrContextCancelled = errors.New("secure write context cancelled")
+	// ErrContextCancelled aliases the standard cancellation sentinel so reducers
+	// do not mistake this compatibility marker for an independent artifact error.
+	ErrContextCancelled = context.Canceled
 )
 
 // TemporaryCleanupError reports that removal of a temporary file could not be
@@ -49,33 +52,40 @@ func (err *TemporaryCleanupError) Unwrap() error {
 	return err.cause
 }
 
-// InstalledButUndurableError reports that no-replace installation succeeded but
-// the destination directory could not be synced. Receipt identifies the
-// prevalidated installed bytes for recovery and must not be treated as a retry.
+// InstalledButUndurableError reports an installation whose durable namespace or
+// post-install observation cannot be proven. A zero receipt means no installed
+// bytes remain authoritative.
 type InstalledButUndurableError struct {
 	receipt ports.SecureWriteReceipt
 	cause   error
 }
 
 func (err *InstalledButUndurableError) Error() string {
-	return fmt.Sprintf("secure write installed but directory sync failed: %v", err.cause)
+	return fmt.Sprintf("secure write installed but post-effect durability is uncertain: %v", err.cause)
 }
 
-// Unwrap returns the directory-sync failure after installation.
+// Unwrap returns the post-install durability or cleanup failure.
 func (err *InstalledButUndurableError) Unwrap() error {
 	return err.cause
 }
 
-// Receipt returns the prevalidated receipt for the bytes that were installed.
+// Receipt returns the verified installed receipt, or zero when the installed
+// path or bytes could not be proven.
 func (err *InstalledButUndurableError) Receipt() ports.SecureWriteReceipt {
 	return err.receipt
 }
 
 type secureWriterOperations struct {
-	fsync       func(int) error
-	close       func(int) error
-	unlinkat    func(int, string, int) error
-	renameatxNp func(int, string, int, string, uint32) error
+	fsync         func(int) error
+	close         func(int) error
+	unlinkat      func(int, string, int) error
+	renameatxNp   func(int, string, int, string, uint32) error
+	afterEOF      func()
+	beforeInstall func(int, string)
+}
+type secureFileIdentity struct {
+	device uint64
+	inode  uint64
 }
 
 func defaultSecureWriterOperations() secureWriterOperations {
@@ -123,8 +133,8 @@ func (writer *SecureWriter) operationSet() secureWriterOperations {
 }
 
 // EnsurePrivateDir creates a 0700 directory path beneath root without following
-// symlinks and syncs each parent after it creates a child. Existing components
-// must already be private current-user directories.
+// symlinks and syncs each parent before advancing. Create-mode retries sync
+// existing components so a prior parent-sync failure is reproven.
 func (writer *SecureWriter) EnsurePrivateDir(root ports.AnchoredRoot, directory ports.SafeRelativePath) error {
 	if !root.Valid() || !directory.Valid() {
 		return fmt.Errorf("ensure private directory: invalid root or directory")
@@ -194,12 +204,17 @@ func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWrite
 		}
 		return ports.SecureWriteReceipt{}, metadata, errors.Join(cause, cleanupErr, abortErr)
 	}
+	cancel := func(cause error) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+		cleanupErr := purgeTemporaryFile(operations, directoryFD, &temporaryFD, &temporaryName)
+		abortErr := invokeAbort(request.Abort(), cause)
+		return ports.SecureWriteReceipt{}, nil, errors.Join(cause, ErrContextCancelled, cleanupErr, abortErr)
+	}
 
 	hash := sha256.New()
 	var size int64
 	for {
 		if err := ctx.Err(); err != nil {
-			return reject("context_cancelled", ErrContextCancelled)
+			return cancel(err)
 		}
 
 		readSize := int64(len(buffer))
@@ -213,7 +228,7 @@ func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWrite
 		}
 		if err := ctx.Err(); err != nil {
 			zeroBytes(buffer[:readN])
-			return reject("context_cancelled", ErrContextCancelled)
+			return cancel(err)
 		}
 		if int64(readN) > remaining {
 			zeroBytes(buffer[:readN])
@@ -243,6 +258,12 @@ func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWrite
 			return reject("source_read_error", ErrSourceRead)
 		}
 	}
+	if operations.afterEOF != nil {
+		operations.afterEOF()
+	}
+	if err := ctx.Err(); err != nil {
+		return cancel(err)
+	}
 
 	sum := hash.Sum(nil)
 	defer zeroBytes(sum)
@@ -260,37 +281,67 @@ func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWrite
 	if err := operations.fsync(temporaryFD); err != nil {
 		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(fmt.Errorf("secure write sync temporary file: %w", err))
 	}
-	if err := operations.close(temporaryFD); err != nil {
-		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(fmt.Errorf("secure write close temporary file: %w", err))
+	temporaryIdentity, err := secureFileIdentityForFD(temporaryFD)
+	if err != nil {
+		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(fmt.Errorf("secure write identify temporary file: %w", err))
 	}
-	temporaryFD = -1
 	if err := revalidatePrivateDirectory(request.Root(), parents, directoryIdentity, operations); err != nil {
 		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(
 			fmt.Errorf("secure write destination directory changed before install: %w", err),
 		)
 	}
+	if operations.beforeInstall != nil {
+		operations.beforeInstall(directoryFD, temporaryName)
+	}
+	if err := validateSecureFileAt(directoryFD, temporaryName, temporaryIdentity); err != nil {
+		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(
+			fmt.Errorf("secure write temporary file changed before install: %w", err),
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return cancel(err)
+	}
 	if err := operations.renameatxNp(directoryFD, temporaryName, directoryFD, name, unix.RENAME_EXCL); err != nil {
 		return ports.SecureWriteReceipt{}, nil, cleanupBeforeReturn(fmt.Errorf("secure write install: %w", err))
 	}
 	temporaryName = ""
-	if err := revalidatePrivateDirectory(request.Root(), parents, directoryIdentity, operations); err != nil {
-		cause := fmt.Errorf("secure write destination directory changed after install: %w", err)
-		unlinkErr := operations.unlinkat(directoryFD, name, 0)
-		var syncErr error
-		if unlinkErr == nil {
-			syncErr = operations.fsync(directoryFD)
+	discardInstalled := func(cause error) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+		if cleanupErr := removeInstalledFile(operations, directoryFD, name, temporaryIdentity); cleanupErr != nil {
+			cause = errors.Join(cause, cleanupErr)
 		}
-		return ports.SecureWriteReceipt{}, nil, errors.Join(
-			cause,
-			wrapSecureWriteCleanupError("remove misdirected installed file", unlinkErr),
-			wrapSecureWriteCleanupError("sync misdirected installed file removal", syncErr),
-		)
+		if cleanupErr := purgeTemporaryFile(operations, directoryFD, &temporaryFD, &temporaryName); cleanupErr != nil {
+			cause = errors.Join(cause, cleanupErr)
+		}
+		return ports.SecureWriteReceipt{}, nil, &InstalledButUndurableError{cause: cause}
 	}
-	if err := operations.fsync(directoryFD); err != nil {
+	if err := verifyInstalledFileAt(directoryFD, name, temporaryIdentity, sum, size); err != nil {
+		return discardInstalled(fmt.Errorf("secure write verify installed file: %w", err))
+	}
+	if err := operations.close(temporaryFD); err != nil {
+		return discardInstalled(fmt.Errorf("secure write close installed temporary file: %w", err))
+	}
+	temporaryFD = -1
+	if err := revalidatePrivateDirectory(request.Root(), parents, directoryIdentity, operations); err != nil {
+		return discardInstalled(fmt.Errorf("secure write destination directory changed after install: %w", err))
+	}
+	if syncErr := operations.fsync(directoryFD); syncErr != nil {
+		cause := fmt.Errorf("secure write sync directory: %w", syncErr)
+		if revalidationErr := revalidatePrivateDirectory(request.Root(), parents, directoryIdentity, operations); revalidationErr != nil {
+			return discardInstalled(errors.Join(cause, fmt.Errorf("secure write destination directory changed after sync: %w", revalidationErr)))
+		}
+		if verificationErr := verifyInstalledFileAt(directoryFD, name, temporaryIdentity, sum, size); verificationErr != nil {
+			return discardInstalled(errors.Join(cause, fmt.Errorf("secure write verify installed file after sync: %w", verificationErr)))
+		}
 		return receipt, nil, &InstalledButUndurableError{
 			receipt: receipt,
-			cause:   fmt.Errorf("secure write sync directory: %w", err),
+			cause:   cause,
 		}
+	}
+	if err := revalidatePrivateDirectory(request.Root(), parents, directoryIdentity, operations); err != nil {
+		return discardInstalled(fmt.Errorf("secure write destination directory changed after sync: %w", err))
+	}
+	if err := verifyInstalledFileAt(directoryFD, name, temporaryIdentity, sum, size); err != nil {
+		return discardInstalled(fmt.Errorf("secure write verify installed file after sync: %w", err))
 	}
 	return receipt, nil, nil
 }
@@ -354,18 +405,31 @@ func createPrivateTempFile(operations secureWriterOperations, directoryFD int) (
 func purgeTemporaryFile(operations secureWriterOperations, directoryFD int, temporaryFD *int, temporaryName *string) error {
 	operations = operations.withDefaults()
 	var cleanupErrors []error
+	if *temporaryName != "" {
+		canUnlink := true
+		if *temporaryFD >= 0 {
+			temporaryIdentity, identityErr := secureFileIdentityForFD(*temporaryFD)
+			if identityErr != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("identify temporary file before cleanup: %w", identityErr))
+				canUnlink = false
+			} else if identityErr := validateSecureFileAt(directoryFD, *temporaryName, temporaryIdentity); identityErr != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("verify temporary file before cleanup: %w", identityErr))
+				canUnlink = false
+			}
+		}
+		if canUnlink {
+			if err := operations.unlinkat(directoryFD, *temporaryName, 0); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("unlink temporary file: %w", err))
+			} else {
+				*temporaryName = ""
+			}
+		}
+	}
 	if *temporaryFD >= 0 {
 		if err := operations.close(*temporaryFD); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("close temporary file: %w", err))
 		} else {
 			*temporaryFD = -1
-		}
-	}
-	if *temporaryName != "" {
-		if err := operations.unlinkat(directoryFD, *temporaryName, 0); err != nil {
-			cleanupErrors = append(cleanupErrors, fmt.Errorf("unlink temporary file: %w", err))
-		} else {
-			*temporaryName = ""
 		}
 	}
 	if err := operations.fsync(directoryFD); err != nil {
@@ -379,6 +443,124 @@ func purgeTemporaryFile(operations secureWriterOperations, directoryFD int, temp
 		temporaryFD:   *temporaryFD,
 		temporaryName: *temporaryName,
 	}
+}
+
+func secureFileIdentityForFD(fd int) (secureFileIdentity, error) {
+	if err := verifyPrivateRegularFile(fd); err != nil {
+		return secureFileIdentity{}, err
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return secureFileIdentity{}, fmt.Errorf("stat private file: %w", err)
+	}
+	return secureFileIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}, nil
+}
+
+func validateSecureFileAt(directoryFD int, name string, expected secureFileIdentity) error {
+	var stat unix.Stat_t
+	if err := unix.Fstatat(directoryFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return fmt.Errorf("stat installed file: %w", err)
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return errors.New("installed file is not regular")
+	}
+	if stat.Uid != uint32(os.Geteuid()) || stat.Mode&0o7777 != privateFileMode {
+		return errors.New("installed file owner or mode changed")
+	}
+	if actual := (secureFileIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}); actual != expected {
+		return errors.New("installed file identity changed")
+	}
+	return nil
+}
+func verifyInstalledFileAt(
+	directoryFD int,
+	name string,
+	expected secureFileIdentity,
+	expectedSum []byte,
+	expectedSize int64,
+) error {
+	if expectedSize < 0 {
+		return errors.New("installed file expected size is negative")
+	}
+	if err := validateSecureFileAt(directoryFD, name, expected); err != nil {
+		return err
+	}
+
+	installedFD, err := unix.Openat(directoryFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("open installed file: %w", err)
+	}
+	defer closeFD(installedFD)
+
+	installedIdentity, err := secureFileIdentityForFD(installedFD)
+	if err != nil {
+		return fmt.Errorf("identify installed file: %w", err)
+	}
+	if installedIdentity != expected {
+		return errors.New("installed file identity changed")
+	}
+
+	buffer := make([]byte, streamBufferSize)
+	defer zeroBytes(buffer)
+	hash := sha256.New()
+	var size int64
+	for {
+		count, readErr := unix.Read(installedFD, buffer)
+		if count < 0 || count > len(buffer) {
+			return errors.New("invalid installed file read count")
+		}
+		if count > 0 {
+			if int64(count) > expectedSize-size {
+				zeroBytes(buffer[:count])
+				return errors.New("installed file exceeds expected size")
+			}
+			size += int64(count)
+			if _, err := hash.Write(buffer[:count]); err != nil {
+				zeroBytes(buffer[:count])
+				return fmt.Errorf("hash installed file: %w", err)
+			}
+			zeroBytes(buffer[:count])
+		}
+		if errors.Is(readErr, unix.EINTR) {
+			continue
+		}
+		if readErr != nil {
+			return fmt.Errorf("read installed file: %w", readErr)
+		}
+		if count == 0 {
+			break
+		}
+	}
+	if size != expectedSize {
+		return errors.New("installed file size changed")
+	}
+	actualSum := hash.Sum(nil)
+	defer zeroBytes(actualSum)
+	if subtle.ConstantTimeCompare(actualSum, expectedSum) != 1 {
+		return errors.New("installed file bytes changed")
+	}
+	if err := validateSecureFileAt(directoryFD, name, expected); err != nil {
+		return err
+	}
+	return nil
+}
+
+func removeInstalledFile(
+	operations secureWriterOperations,
+	directoryFD int,
+	name string,
+	expected secureFileIdentity,
+) error {
+	if err := validateSecureFileAt(directoryFD, name, expected); err != nil {
+		return fmt.Errorf("secure write verify installed file before cleanup: %w", err)
+	}
+	if err := operations.unlinkat(directoryFD, name, 0); err != nil {
+		return wrapSecureWriteCleanupError("remove misdirected installed file", err)
+	}
+	if err := operations.fsync(directoryFD); err != nil {
+		return wrapSecureWriteCleanupError("sync misdirected installed file removal", err)
+	}
+	return nil
 }
 
 func writeAll(fd int, data []byte) error {

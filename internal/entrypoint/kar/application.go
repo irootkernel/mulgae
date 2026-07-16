@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
+	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -21,9 +24,192 @@ type RequestIDGenerator interface {
 	NewRequestID(time.Time) (string, error)
 }
 
+// PublicationQueryService is the command-facing projection of the durable
+// G006 query API. It deliberately accepts an already anchored artifact root so
+// command handlers cannot discover publication files themselves.
+type PublicationQueryService interface {
+	ResolveRun(context.Context, ports.AnchoredRoot, domain.RunID) (ports.PublicationRun, error)
+	ReadRunStatus(context.Context, ports.PublicationRun) (RunStatusView, error)
+	ListFindings(context.Context, ports.PublicationRun, domain.Severity) (FindingsView, error)
+	RenderExcerpt(context.Context, ports.PublicationRun, string, string) ([]byte, error)
+}
+
+// RunStatusView is the safe status projection returned by PublicationQueryService.
+// FinalArtifactURI and the independent outcome axes are present only after a P2
+// committed read. HasAxes makes the three axes an all-or-none projection.
+type RunStatusView struct {
+	RunID            string
+	RunState         domain.RunState
+	HasRunState      bool
+	PublicationState domain.PublicationStatus
+	RecoveryAction   domain.RecoveryAction
+	FinalArtifactURI string
+	HasFinalArtifact bool
+	ContentVerdict   domain.ContentVerdict
+	CoverageStatus   domain.CoverageStatus
+	CIDecision       domain.CIDecision
+	HasAxes          bool
+}
+
+// FindingView is one finding in the query service's preserved final order.
+type FindingView struct {
+	ID       string
+	Severity domain.Severity
+	Title    string
+}
+
+// FindingsView is a committed finding selection and its committed review URI.
+type FindingsView struct {
+	RunID             string
+	Findings          []FindingView
+	ReviewArtifactURI string
+}
+
+// PublicationReportService is the command-facing projection of the G006 report
+// renderer. SourceIDs bind a persisted report to its committed inputs.
+type PublicationReportService interface {
+	Render(context.Context, ports.PublicationRun) (RenderedReport, error)
+}
+
+// RenderedReport is an immutable report projection for one committed run.
+type RenderedReport struct {
+	Markdown  []byte
+	RunID     string
+	SourceIDs []string
+}
+
+// NewPublicationQueryService adapts the existing query service to the narrow
+// command boundary. A nil service remains nil so optional-group validation can
+// distinguish an absent service from a complete G006 dependency group.
+func NewPublicationQueryService(service *appquery.Service) PublicationQueryService {
+	if service == nil {
+		return nil
+	}
+	return publicationQueryAdapter{service: service}
+}
+
+type publicationQueryAdapter struct {
+	service *appquery.Service
+}
+
+func (adapter publicationQueryAdapter) ResolveRun(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	runID domain.RunID,
+) (ports.PublicationRun, error) {
+	return adapter.service.ResolveRun(ctx, root, runID)
+}
+
+func (adapter publicationQueryAdapter) ReadRunStatus(
+	ctx context.Context,
+	run ports.PublicationRun,
+) (RunStatusView, error) {
+	status, err := adapter.service.ReadRunStatus(ctx, run)
+	if err != nil {
+		return RunStatusView{}, err
+	}
+	view := RunStatusView{
+		RunID:            status.RunID().String(),
+		PublicationState: status.PublicationStatus(),
+		RecoveryAction:   status.RecoveryAction(),
+	}
+	if runState, available := status.RunState(); available {
+		view.RunState = runState
+		view.HasRunState = true
+	}
+	if status.PublicationStatus() == domain.PublicationCommitted {
+		if finalPath, available := status.FinalPath(); available {
+			view.FinalArtifactURI = ".kar/" + finalPath.String()
+			view.HasFinalArtifact = true
+		}
+		content, hasContent := status.ContentVerdict()
+		coverage, hasCoverage := status.CoverageStatus()
+		ci, hasCI := status.CIDecision()
+		if hasContent && hasCoverage && hasCI && content.Valid() && coverage.Valid() && ci.Valid() {
+			view.ContentVerdict = content
+			view.CoverageStatus = coverage
+			view.CIDecision = ci
+			view.HasAxes = true
+		}
+	}
+	return view, nil
+}
+
+func (adapter publicationQueryAdapter) ListFindings(
+	ctx context.Context,
+	run ports.PublicationRun,
+	minimum domain.Severity,
+) (FindingsView, error) {
+	review, err := adapter.service.ReadCommitted(ctx, run)
+	if err != nil {
+		return FindingsView{}, err
+	}
+	findings, err := adapter.service.ListFindings(ctx, run, minimum)
+	if err != nil {
+		return FindingsView{}, err
+	}
+	view := FindingsView{
+		RunID:             review.RunID().String(),
+		Findings:          make([]FindingView, len(findings)),
+		ReviewArtifactURI: ".kar/" + review.FinalPath().String(),
+	}
+	for index, finding := range findings {
+		view.Findings[index] = FindingView{
+			ID:       finding.ID(),
+			Severity: finding.Severity(),
+			Title:    finding.Title(),
+		}
+	}
+	return view, nil
+}
+
+func (adapter publicationQueryAdapter) RenderExcerpt(
+	ctx context.Context,
+	run ports.PublicationRun,
+	findingID string,
+	targetSHA256 string,
+) ([]byte, error) {
+	return adapter.service.RenderExcerpt(ctx, run, findingID, targetSHA256)
+}
+
+// NewPublicationReportService adapts the existing report service to the narrow
+// command boundary. A nil service remains nil so optional-group validation can
+// distinguish an absent service from a complete G006 dependency group.
+func NewPublicationReportService(service *appreport.Service) PublicationReportService {
+	if service == nil {
+		return nil
+	}
+	return publicationReportAdapter{service: service}
+}
+
+type publicationReportAdapter struct {
+	service *appreport.Service
+}
+
+func (adapter publicationReportAdapter) Render(
+	ctx context.Context,
+	run ports.PublicationRun,
+) (RenderedReport, error) {
+	rendered, err := adapter.service.Render(ctx, run)
+	if err != nil {
+		return RenderedReport{}, err
+	}
+	return RenderedReport{
+		Markdown: cloneApplicationBytes(rendered.Bytes()),
+		RunID:    rendered.RunID().String(),
+		SourceIDs: []string{
+			"report:review:" + rendered.ReviewID().String(),
+			"report:final:" + rendered.FinalSHA256(),
+			"report:manifest:" + rendered.ManifestSHA256(),
+			"report:lineage:" + rendered.LineageEdgeSHA256(),
+			"report:epoch:" + strconv.FormatUint(rendered.Epoch(), 10),
+		},
+	}, nil
+}
+
 // Dependencies are the explicit inward dependencies required by Application.
-// All are required so every foundation command retains the same trusted
-// boundaries regardless of which command happens to be invoked.
+// The G006 query/report pair is optional for source compatibility, but it must
+// be supplied as one complete pair.
 type Dependencies struct {
 	Clock                ports.Clock
 	RequestIDGenerator   RequestIDGenerator
@@ -32,20 +218,24 @@ type Dependencies struct {
 	SecureWriter         ports.SecureFileWriter
 	TrustedProjectReader ports.TrustedProjectReader
 	EnvironmentInspector ports.EnvironmentInspector
+	PublicationQueries   PublicationQueryService
+	PublicationReports   PublicationReportService
 }
 
 // Application is the executable foundation command surface. It owns no mutable
 // process state and only reaches the filesystem, Git, and environment through
 // the injected ports.
 type Application struct {
-	clock         ports.Clock
-	requestIDs    RequestIDGenerator
-	catalog       ports.ContractCatalog
-	validator     cli.SchemaValidator
-	writer        ports.SecureFileWriter
-	projectReader ports.TrustedProjectReader
-	inspector     ports.EnvironmentInspector
-	renderer      *cli.EnvelopeRenderer
+	clock              ports.Clock
+	requestIDs         RequestIDGenerator
+	catalog            ports.ContractCatalog
+	validator          cli.SchemaValidator
+	writer             ports.SecureFileWriter
+	projectReader      ports.TrustedProjectReader
+	inspector          ports.EnvironmentInspector
+	publicationQueries PublicationQueryService
+	publicationReports PublicationReportService
+	renderer           *cli.EnvelopeRenderer
 }
 
 // Result is the complete process projection of one invocation. Stdout and
@@ -67,7 +257,8 @@ func (result Result) Stderr() []byte { return cloneApplicationBytes(result.stder
 func (result Result) ExitCode() app.ExitCode { return result.exit }
 
 // NewApplication constructs the foundation CLI application. Missing or typed
-// nil dependencies are rejected before any command can execute.
+// nil required dependencies, and partial G006 dependency groups, are rejected
+// before any command can execute.
 func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.Clock) {
 		return nil, fmt.Errorf("kar application: nil clock")
@@ -90,20 +281,25 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.EnvironmentInspector) {
 		return nil, fmt.Errorf("kar application: nil environment inspector")
 	}
+	if nilApplicationDependency(dependencies.PublicationQueries) != nilApplicationDependency(dependencies.PublicationReports) {
+		return nil, fmt.Errorf("kar application: incomplete G006 service dependencies")
+	}
 
 	renderer, err := cli.NewEnvelopeRenderer(dependencies.Clock, dependencies.JSONSchemaValidator)
 	if err != nil {
 		return nil, fmt.Errorf("kar application: command envelope renderer: %w", err)
 	}
 	return &Application{
-		clock:         dependencies.Clock,
-		requestIDs:    dependencies.RequestIDGenerator,
-		catalog:       dependencies.Catalog,
-		validator:     dependencies.JSONSchemaValidator,
-		writer:        dependencies.SecureWriter,
-		projectReader: dependencies.TrustedProjectReader,
-		inspector:     dependencies.EnvironmentInspector,
-		renderer:      renderer,
+		clock:              dependencies.Clock,
+		requestIDs:         dependencies.RequestIDGenerator,
+		catalog:            dependencies.Catalog,
+		validator:          dependencies.JSONSchemaValidator,
+		writer:             dependencies.SecureWriter,
+		projectReader:      dependencies.TrustedProjectReader,
+		inspector:          dependencies.EnvironmentInspector,
+		publicationQueries: dependencies.PublicationQueries,
+		publicationReports: dependencies.PublicationReports,
+		renderer:           renderer,
 	}, nil
 }
 
@@ -145,7 +341,7 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 		})
 	}
 
-	execution := application.execute(ctx, invocation)
+	execution := application.execute(ctx, invocation, canonicalDefaultRoot)
 	if execution.failure != nil {
 		return application.renderFailure(ctx, invocation, execution)
 	}
@@ -178,6 +374,7 @@ type execution struct {
 	data        []byte
 	failureData []byte
 	failure     *executionFailure
+	verbatim    bool
 }
 
 type executionFailure struct {
@@ -189,6 +386,9 @@ type executionFailure struct {
 
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
 	if invocation.OutputFormat() == OutputFormatHuman {
+		if run.verbatim {
+			return newResult(run.human, nil, app.ExitCodeSuccess)
+		}
 		return newResult(terminalOutput(run.human), nil, app.ExitCodeSuccess)
 	}
 
@@ -301,22 +501,50 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			SchemaID  string  `json:"schema_id"`
 			ExportURI *string `json:"export_uri"`
 		}{"schema_inspected", schemaID, nil})
+	case app.CommandStatus:
+		request, available := invocation.Status()
+		if !available {
+			return nil, errors.New("missing status request")
+		}
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			RunID             string  `json:"run_id"`
+			RunState          *string `json:"run_state"`
+			PublicationStatus *string `json:"publication_status"`
+			RecoveryAction    *string `json:"recovery_action"`
+			FinalArtifactURI  *string `json:"final_artifact_uri"`
+		}{"status_failed", request.RunID(), nil, nil, nil, nil})
+	case app.CommandReport:
+		return json.Marshal(struct {
+			Kind      string  `json:"kind"`
+			ReportURI *string `json:"report_uri"`
+		}{"report_failed", nil})
+	case app.CommandFindings:
+		request, available := invocation.Findings()
+		if !available {
+			return nil, errors.New("missing findings request")
+		}
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			RunID             string  `json:"run_id"`
+			FindingCount      *int    `json:"finding_count"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		}{"findings_failed", request.RunID(), nil, nil})
+	case app.CommandExcerpt:
+		return json.Marshal(struct {
+			Kind          string  `json:"kind"`
+			EvidenceState string  `json:"evidence_state"`
+			ExcerptURI    *string `json:"excerpt_uri"`
+			ExcerptBase64 *string `json:"excerpt_base64"`
+			ExcerptSHA256 *string `json:"excerpt_sha256"`
+		}{"excerpt_failed", "unverifiable", nil, nil, nil})
 	default:
 		return nil, errors.New("missing command failure projection")
 	}
 }
 
 func executionFailureFor(command app.CommandName, err error, fallback domain.FailureClass) *executionFailure {
-	class := fallback
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		class = domain.FailureCancelled
-	} else {
-		var typed *domain.Failure
-		if errors.As(err, &typed) && typed != nil && typed.Class().Valid() {
-			class = typed.Class()
-		}
-	}
-
+	class := reducedFailureClass(err, fallback)
 	failure := &executionFailure{
 		class: class,
 		stage: "cli." + string(command),
@@ -341,6 +569,85 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	return failure
 }
 
+func reducedFailureClass(err error, fallback domain.FailureClass) domain.FailureClass {
+	classes := make([]domain.FailureClass, 0, 3)
+	var visit func(error, bool)
+	visit = func(current error, suppressRawFallback bool) {
+		if current == nil {
+			return
+		}
+		if typed, ok := current.(*domain.Failure); ok && typed != nil && typed.Class().Valid() {
+			classes = append(classes, typed.Class())
+			visit(typed.Unwrap(), true)
+			return
+		}
+		switch unwrapped := current.(type) {
+		case interface{ Unwrap() []error }:
+			nested := unwrapped.Unwrap()
+			if len(nested) == 0 {
+				if !suppressRawFallback {
+					classes = append(classes, fallback)
+				}
+				return
+			}
+			for _, child := range nested {
+				// Every errors.Join child is an independent observation, even
+				// when the join is the cause of a typed wrapper.
+				visit(child, false)
+			}
+		case interface{ Unwrap() error }:
+			nested := unwrapped.Unwrap()
+			if nested == nil {
+				if !suppressRawFallback {
+					classes = append(classes, fallback)
+				}
+				return
+			}
+			visit(nested, suppressRawFallback)
+		default:
+			if errors.Is(current, context.Canceled) || errors.Is(current, context.DeadlineExceeded) {
+				classes = append(classes, domain.FailureCancelled)
+				return
+			}
+			if !suppressRawFallback {
+				classes = append(classes, fallback)
+			}
+		}
+	}
+	visit(err, false)
+	if len(classes) == 0 {
+		classes = append(classes, fallback)
+	}
+	selected := domain.FailureInternal
+	selectedRank := -1
+	for _, class := range classes {
+		if rank := failurePrecedence(class); rank > selectedRank {
+			selected = class
+			selectedRank = rank
+		}
+	}
+	return selected
+}
+
+func failurePrecedence(class domain.FailureClass) int {
+	switch class {
+	case domain.FailureInternal:
+		return 7
+	case domain.FailureArtifact:
+		return 6
+	case domain.FailureSecurityPolicy:
+		return 5
+	case domain.FailureCancelled:
+		return 4
+	case domain.FailureConfiguration:
+		return 3
+	case domain.FailureProviderUnavailable, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
+		return 2
+	default:
+		return 7
+	}
+}
+
 func requestedExit(class domain.FailureClass) app.ExitCode {
 	switch class {
 	case domain.FailureConfiguration:
@@ -358,28 +665,32 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 	}
 }
 
-func permittedFailureExit(command app.CommandName, requested app.ExitCode) (app.ExitCode, bool) {
+func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool {
 	allowed := map[app.CommandName]map[app.ExitCode]bool{
-		app.CommandInit:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandDoctor: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandConfig: {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
-		app.CommandSchema: {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandHelp:   {app.ExitCodeUsage: true},
+		app.CommandInit:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
+		app.CommandDoctor:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandStatus:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandReport:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandFindings: {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandExcerpt:  {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandConfig:   {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
+		app.CommandSchema:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
+		app.CommandHelp:     {app.ExitCodeUsage: true},
 	}
-	return requested, allowed[command][requested]
+	return allowed[command][requested]
 }
 
-// projectedFailureExit keeps every foundation-mode result inside the command's
-// frozen exhaustive exit contract. The projection is output-format independent.
+// projectedFailureExit preserves the expanded G006 operational exits while
+// keeping older foundation commands inside their frozen command-result schema.
 func projectedFailureExit(command app.CommandName, requested app.ExitCode) app.ExitCode {
-	if exit, permitted := permittedFailureExit(command, requested); permitted {
-		return exit
+	if permittedFailureExit(command, requested) {
+		return requested
 	}
 	switch command {
-	case app.CommandConfig:
-		return app.ExitCodeSecurity
 	case app.CommandInit, app.CommandDoctor, app.CommandSchema:
 		return app.ExitCodeArtifact
+	case app.CommandConfig:
+		return app.ExitCodeSecurity
 	case app.CommandHelp:
 		return app.ExitCodeUsage
 	default:

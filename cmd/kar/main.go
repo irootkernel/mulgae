@@ -15,6 +15,8 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
 	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
+	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
+	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/entrypoint/kar"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -40,14 +42,34 @@ func main() {
 		fmt.Fprint(os.Stderr, "kar: trusted project reader is unavailable\n")
 		os.Exit(10)
 	}
+	clock := runtimeadapter.SystemClock{}
+	ids := runtimeadapter.NewUUIDv7Generator()
+	writer := filesystem.NewSecureWriter()
+	publicationStore, err := filesystem.NewPublicationStore(validator, clock, ids, writer)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: publication store is unavailable\n")
+		os.Exit(10)
+	}
+	queryService, err := appquery.NewService(publicationStore, validator, nil, 8<<20)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: publication query service is unavailable\n")
+		os.Exit(10)
+	}
+	reportService, err := appreport.NewService(queryService)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: publication report service is unavailable\n")
+		os.Exit(10)
+	}
 	application, err := kar.NewApplication(kar.Dependencies{
-		Clock:                runtimeadapter.SystemClock{},
-		RequestIDGenerator:   runtimeadapter.NewUUIDv7Generator(),
+		Clock:                clock,
+		RequestIDGenerator:   ids,
 		Catalog:              catalog,
 		JSONSchemaValidator:  validator,
-		SecureWriter:         filesystem.NewSecureWriter(),
+		SecureWriter:         writer,
 		TrustedProjectReader: gitAdapter,
 		EnvironmentInspector: environment.NewInspector(),
+		PublicationQueries:   kar.NewPublicationQueryService(queryService),
+		PublicationReports:   kar.NewPublicationReportService(reportService),
 	})
 	if err != nil {
 		fmt.Fprint(os.Stderr, "kar: application is unavailable\n")

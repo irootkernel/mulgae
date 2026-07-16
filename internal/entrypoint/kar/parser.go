@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
 
 const (
@@ -51,6 +52,14 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseInit(remaining, defaultProjectRoot, requestID)
 	case app.CommandDoctor:
 		return parseDoctor(remaining, defaultProjectRoot, requestID)
+	case app.CommandStatus:
+		return parseStatus(remaining, requestID)
+	case app.CommandReport:
+		return parseReport(remaining, requestID)
+	case app.CommandFindings:
+		return parseFindings(remaining, requestID)
+	case app.CommandExcerpt:
+		return parseExcerpt(remaining, requestID)
 	case app.CommandConfig:
 		return parseConfig(remaining, defaultProjectRoot, requestID)
 	case app.CommandSchema:
@@ -293,6 +302,239 @@ func parseDoctor(arguments []string, defaultProjectRoot, requestID string) (Invo
 		doctor:         &request,
 	}, nil
 }
+func parseStatus(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run":    true,
+		"--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("status accepts no positional arguments")
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := StatusRequest{runID: runID}
+	requestJSON, err := marshalRequest(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		RunID        string       `json:"run_id"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{
+		RequestID:    requestID,
+		Command:      string(app.CommandStatus),
+		RunID:        request.runID,
+		OutputFormat: outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command:        app.CommandStatus,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+		status:         &request,
+	}, nil
+}
+
+func parseReport(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run":         true,
+		"--output-path": true,
+		"--output":      true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("report accepts no positional arguments")
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputPath, present := options["--output-path"]
+	if !present {
+		return Invocation{}, usageError("report requires --output-path")
+	}
+	if !validRelativePath(outputPath) {
+		return Invocation{}, usageError("report output path is not a safe relative path")
+	}
+	if reportOutputUsesControlNamespace(outputPath) {
+		return Invocation{}, usageError("report output path is reserved")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ReportRequest{
+		runID:      runID,
+		outputPath: outputPath,
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		RunID        string       `json:"run_id"`
+		OutputPath   string       `json:"output_path"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{
+		RequestID:    requestID,
+		Command:      string(app.CommandReport),
+		RunID:        request.runID,
+		OutputPath:   request.outputPath,
+		OutputFormat: outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command:        app.CommandReport,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+		report:         &request,
+	}, nil
+}
+
+func parseFindings(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run":      true,
+		"--severity": true,
+		"--output":   true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("findings accepts no positional arguments")
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	severity, present := options["--severity"]
+	if !present {
+		return Invocation{}, usageError("findings requires --severity")
+	}
+	minimumSeverity := domain.Severity(severity)
+	if !validMinimumSeverity(minimumSeverity) {
+		return Invocation{}, usageError("unsupported minimum severity")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := FindingsRequest{
+		runID:           runID,
+		minimumSeverity: minimumSeverity,
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID       string          `json:"request_id"`
+		Command         string          `json:"command"`
+		RunID           string          `json:"run_id"`
+		MinimumSeverity domain.Severity `json:"minimum_severity"`
+		OutputFormat    OutputFormat    `json:"output_format"`
+	}{
+		RequestID:       requestID,
+		Command:         string(app.CommandFindings),
+		RunID:           request.runID,
+		MinimumSeverity: request.minimumSeverity,
+		OutputFormat:    outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command:        app.CommandFindings,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+		findings:       &request,
+	}, nil
+}
+
+func parseExcerpt(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run":                   true,
+		"--finding":               true,
+		"--current-target-sha256": true,
+		"--output":                true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("excerpt accepts no positional arguments")
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	findingID, present := options["--finding"]
+	if !present {
+		return Invocation{}, usageError("excerpt requires --finding")
+	}
+	if !validFindingID(findingID) {
+		return Invocation{}, usageError("finding ID must match Fddd+")
+	}
+	currentTargetSHA256, present := options["--current-target-sha256"]
+	if !present {
+		return Invocation{}, usageError("excerpt requires --current-target-sha256")
+	}
+	if !validSHA256Identifier(currentTargetSHA256) {
+		return Invocation{}, usageError("current target SHA-256 is not canonical")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ExcerptRequest{
+		runID:               runID,
+		findingID:           findingID,
+		currentTargetSHA256: currentTargetSHA256,
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID           string       `json:"request_id"`
+		Command             string       `json:"command"`
+		RunID               string       `json:"run_id"`
+		FindingID           string       `json:"finding_id"`
+		CurrentTargetSHA256 string       `json:"current_target_sha256"`
+		OutputFormat        OutputFormat `json:"output_format"`
+	}{
+		RequestID:           requestID,
+		Command:             string(app.CommandExcerpt),
+		RunID:               request.runID,
+		FindingID:           request.findingID,
+		CurrentTargetSHA256: request.currentTargetSHA256,
+		OutputFormat:        outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command:        app.CommandExcerpt,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+		excerpt:        &request,
+	}, nil
+}
 
 func parseConfig(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
@@ -501,6 +743,18 @@ func parseOptions(arguments []string, allowed map[string]bool) ([]string, map[st
 	return positionals, options, nil
 }
 
+func optionRunID(options map[string]string) (string, error) {
+	value, present := options["--run"]
+	if !present {
+		return "", usageError("command requires --run")
+	}
+	runID, err := domain.ParseRunID(value)
+	if err != nil {
+		return "", usageError("run ID is not a canonical UUIDv7")
+	}
+	return runID.String(), nil
+}
+
 func optionProjectRoot(options map[string]string, defaultProjectRoot string) (string, error) {
 	projectRoot := defaultProjectRoot
 	if value, present := options["--project-root"]; present {
@@ -634,6 +888,45 @@ func lowerAlphaNumeric(character byte) bool {
 	return character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
 }
 
+func validMinimumSeverity(value domain.Severity) bool {
+	switch value {
+	case domain.SeverityLow,
+		domain.SeverityMedium,
+		domain.SeverityHigh,
+		domain.SeverityCritical,
+		domain.SeverityBlocker:
+		return true
+	default:
+		return false
+	}
+}
+
+func validFindingID(value string) bool {
+	if len(value) < 4 || len(value) > 64 || value[0] != 'F' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validSHA256Identifier(value string) bool {
+	const prefix = "sha256:"
+	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
+		return false
+	}
+	for _, character := range value[len(prefix):] {
+		if character < '0' || character > '9' {
+			if character < 'a' || character > 'f' {
+				return false
+			}
+		}
+	}
+	return true
+}
 func validGitObjectID(value string) bool {
 	if len(value) != 40 && len(value) != 64 {
 		return false

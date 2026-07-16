@@ -262,20 +262,37 @@ func TestSecureWriterDropsCrossChunkSecretAndCleansTemporaryFile(t *testing.T) {
 	root := privateTempRoot(t)
 	writer := NewSecureWriter()
 	var aborts int
-	request := secureWriteRequest(t, root, "nested/blocked", &chunkReader{chunks: [][]byte{[]byte("before pass"), []byte("word=value after")}}, 1024, func(error) { aborts++ })
+	var abortCause error
+	secret := "KKACHI_SECRET_password=value_7f20c84d"
+	request := secureWriteRequest(
+		t,
+		root,
+		"nested/blocked",
+		&chunkReader{chunks: [][]byte{[]byte("before KKACHI_SECRET_pass"), []byte("word=value_7f20c84d after")}},
+		1024,
+		func(cause error) {
+			aborts++
+			abortCause = cause
+		},
+	)
 
 	receipt, drop, err := writer.Write(context.Background(), request)
 	if !errors.Is(err, ErrSecretDetected) {
 		t.Fatalf("Write() error = %v, want ErrSecretDetected", err)
 	}
 	assertBlockedWrite(t, receipt, drop, "credential_assignment", aborts)
+	if abortCause == nil || strings.Contains(abortCause.Error(), secret) ||
+		strings.Contains(err.Error(), secret) ||
+		strings.Contains(drop.Channel()+" "+drop.Detector()+" "+strings.Join(drop.SourceIDs(), " "), secret) {
+		t.Fatal("secret rejection exposed triggering bytes or omitted the abort cause")
+	}
 	if _, statErr := os.Stat(filepath.Join(root, "nested", "blocked")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("blocked destination stat error = %v, want not exist", statErr)
 	}
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
 
-func TestSecureWriterDropsOverflowAndReadOrContextErrorsOnce(t *testing.T) {
+func TestSecureWriterDropsOverflowAndReadErrorsOnce(t *testing.T) {
 	tests := []struct {
 		name     string
 		source   io.Reader
@@ -300,18 +317,6 @@ func TestSecureWriterDropsOverflowAndReadOrContextErrorsOnce(t *testing.T) {
 			detector: "source_read_error",
 			wantErr:  ErrSourceRead,
 		},
-		{
-			name:     "cancelled context",
-			source:   strings.NewReader("clean"),
-			maxBytes: 1024,
-			context: func() (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				return ctx, func() {}
-			},
-			detector: "context_cancelled",
-			wantErr:  ErrContextCancelled,
-		},
 	}
 
 	for _, test := range tests {
@@ -332,6 +337,124 @@ func TestSecureWriterDropsOverflowAndReadOrContextErrorsOnce(t *testing.T) {
 			assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 		})
 	}
+
+}
+
+func TestSecureWriterCancellationPurgesWithoutSecurityDrop(t *testing.T) {
+	root := privateTempRoot(t)
+	writer := NewSecureWriter()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	aborts := 0
+
+	receipt, drop, err := writer.Write(
+		ctx,
+		secureWriteRequest(t, root, "nested/cancelled", strings.NewReader("clean"), 1024, func(cause error) {
+			aborts++
+			if !errors.Is(cause, context.Canceled) {
+				t.Errorf("abort cause = %v, want context cancellation", cause)
+			}
+		}),
+	)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrContextCancelled) {
+		t.Fatalf("Write() error = %v, want context.Canceled and ErrContextCancelled", err)
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("cancelled write = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if aborts != 1 {
+		t.Fatalf("abort calls = %d, want 1", aborts)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "nested", "cancelled")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("cancelled destination stat error = %v, want not exist", statErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+func TestSecureWriterCancellationAfterEOFPurgesAndAborts(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	aborts := 0
+	renameCalls := 0
+	eofObserved := false
+	syncsAfterEOF := 0
+	operations := writer.operationSet()
+	operations.afterEOF = func() {
+		eofObserved = true
+		cancel()
+	}
+	operations.fsync = func(fd int) error {
+		if eofObserved {
+			syncsAfterEOF++
+		}
+		return unix.Fsync(fd)
+	}
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		renameCalls++
+		return unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		ctx,
+		secureWriteRequest(t, root, "nested/post-eof-cancelled", strings.NewReader("clean"), 1024, func(cause error) {
+			aborts++
+			if !errors.Is(cause, context.Canceled) {
+				t.Errorf("abort cause = %v, want context cancellation", cause)
+			}
+		}),
+	)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrContextCancelled) {
+		t.Fatalf("Write() error = %v, want cancellation", err)
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("post-EOF cancellation result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if aborts != 1 || renameCalls != 0 || syncsAfterEOF != 1 {
+		t.Fatalf("post-EOF transitions = (aborts %d, renames %d, syncs %d), want (1, 0, 1 durable purge)", aborts, renameCalls, syncsAfterEOF)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "nested", "post-eof-cancelled")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("post-EOF cancellation installed destination: %v", statErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+
+func TestSecureWriterCancellationImmediatelyBeforeInstallPurgesAndAborts(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	aborts := 0
+	renameCalls := 0
+	operations := writer.operationSet()
+	operations.beforeInstall = func(int, string) {
+		cancel()
+	}
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		renameCalls++
+		return unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		ctx,
+		secureWriteRequest(t, root, "nested/pre-install-cancelled", strings.NewReader("clean"), 1024, func(cause error) {
+			aborts++
+			if !errors.Is(cause, context.Canceled) {
+				t.Errorf("abort cause = %v, want context cancellation", cause)
+			}
+		}),
+	)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrContextCancelled) {
+		t.Fatalf("Write() error = %v, want cancellation", err)
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("pre-install cancellation result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if aborts != 1 || renameCalls != 0 {
+		t.Fatalf("pre-install transitions = (aborts %d, renames %d), want (1, 0)", aborts, renameCalls)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "nested", "pre-install-cancelled")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("pre-install cancellation installed destination: %v", statErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
 func TestEnsurePrivateDirSyncsEveryNewParentBeforeAdvance(t *testing.T) {
 	root := privateTempRoot(t)
@@ -357,6 +480,32 @@ func TestEnsurePrivateDirSyncsEveryNewParentBeforeAdvance(t *testing.T) {
 		t.Fatalf("advanced after unsynced parent: %v", statErr)
 	}
 }
+func TestEnsurePrivateDirRetryAfterParentSyncFailureReprovesExistingChild(t *testing.T) {
+	root := privateTempRoot(t)
+	writer := NewSecureWriter()
+	syncErr := errors.New("parent sync failed")
+	syncCalls := 0
+	operations := writer.operationSet()
+	operations.fsync = func(fd int) error {
+		syncCalls++
+		if syncCalls == 1 {
+			return syncErr
+		}
+		return unix.Fsync(fd)
+	}
+	writer.operations = operations
+
+	if err := writer.EnsurePrivateDir(mustRoot(t, root), mustRelativePath(t, "nested")); !errors.Is(err, syncErr) {
+		t.Fatalf("first EnsurePrivateDir() error = %v, want parent sync error", err)
+	}
+	assertPrivateDirectory(t, filepath.Join(root, "nested"))
+	if err := writer.EnsurePrivateDir(mustRoot(t, root), mustRelativePath(t, "nested")); err != nil {
+		t.Fatalf("retry EnsurePrivateDir() error = %v", err)
+	}
+	if syncCalls != 2 {
+		t.Fatalf("parent sync calls = %d, want retry to reprove durability", syncCalls)
+	}
+}
 
 func TestSecureWriterTempSyncFailurePurgesOnce(t *testing.T) {
 	writer, root := secureWriterWithPrivateNestedDir(t)
@@ -365,7 +514,11 @@ func TestSecureWriterTempSyncFailurePurgesOnce(t *testing.T) {
 	operations := writer.operationSet()
 	operations.fsync = func(fd int) error {
 		syncCalls++
-		if syncCalls == 1 {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			t.Fatalf("stat sync target: %v", err)
+		}
+		if stat.Mode&unix.S_IFMT == unix.S_IFREG {
 			return tempSyncErr
 		}
 		return unix.Fsync(fd)
@@ -379,8 +532,8 @@ func TestSecureWriterTempSyncFailurePurgesOnce(t *testing.T) {
 	if drop != nil || !zeroReceipt(receipt) {
 		t.Fatalf("Write() result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
 	}
-	if syncCalls != 2 {
-		t.Fatalf("sync calls = %d, want temporary and cleanup sync", syncCalls)
+	if syncCalls != 3 {
+		t.Fatalf("sync calls = %d, want parent, temporary, and cleanup sync", syncCalls)
 	}
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
@@ -484,9 +637,12 @@ func TestSecureWriterCleanupSyncFailureIsTyped(t *testing.T) {
 	syncErr := errors.New("cleanup directory sync failed")
 	syncCalls := 0
 	operations := writer.operationSet()
-	operations.fsync = func(int) error {
+	operations.fsync = func(fd int) error {
 		syncCalls++
-		return syncErr
+		if syncCalls == 2 {
+			return syncErr
+		}
+		return unix.Fsync(fd)
 	}
 	writer.operations = operations
 
@@ -503,8 +659,8 @@ func TestSecureWriterCleanupSyncFailureIsTyped(t *testing.T) {
 	if cleanupErr.temporaryFD != -1 || cleanupErr.temporaryName != "" {
 		t.Fatalf("cleanup state = (fd %d, name %q), want removed temporary file", cleanupErr.temporaryFD, cleanupErr.temporaryName)
 	}
-	if syncCalls != 1 {
-		t.Fatalf("cleanup sync calls = %d, want 1", syncCalls)
+	if syncCalls != 2 {
+		t.Fatalf("sync calls = %d, want parent and cleanup sync", syncCalls)
 	}
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
@@ -535,6 +691,117 @@ func TestSecureWriterRenameFailureDoesNotRetryOrInstall(t *testing.T) {
 	}
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
+func TestSecureWriterRejectsTempNameSubstitutionBeforeInstall(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	data := []byte("clean")
+	temporaryName := ""
+	renameCalls := 0
+	aborts := 0
+	operations := writer.operationSet()
+	operations.beforeInstall = func(directoryFD int, name string) {
+		temporaryName = name
+		replaceSecureWriterTempName(t, directoryFD, name, data)
+	}
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		renameCalls++
+		return unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/substituted-before-install", strings.NewReader(string(data)), 1024, func(error) {
+			aborts++
+		}),
+	)
+	if err == nil {
+		t.Fatal("Write() succeeded after temporary-name substitution")
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("substitution result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if aborts != 0 || renameCalls != 0 {
+		t.Fatalf("substitution transitions = (aborts %d, renames %d), want (0, 0)", aborts, renameCalls)
+	}
+	var cleanupErr *TemporaryCleanupError
+	if !errors.As(err, &cleanupErr) || cleanupErr.temporaryName != temporaryName {
+		t.Fatalf("Write() cleanup error = %#v, want retained substituted temporary name %q", cleanupErr, temporaryName)
+	}
+	retained, readErr := os.ReadFile(filepath.Join(root, "nested", temporaryName))
+	if readErr != nil || string(retained) != string(data) {
+		t.Fatalf("retained substituted temporary bytes = %q, %v", retained, readErr)
+	}
+	if removeErr := os.Remove(filepath.Join(root, "nested", temporaryName)); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+
+func TestSecureWriterRejectsTempNameSubstitutionDuringRename(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	data := []byte("clean")
+	renameCalls := 0
+	operations := writer.operationSet()
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		renameCalls++
+		replaceSecureWriterTempName(t, oldDirectoryFD, oldName, data)
+		return unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/substituted-during-rename", strings.NewReader(string(data)), 1024, func(error) {}),
+	)
+	if err == nil {
+		t.Fatal("Write() succeeded after rename-time temporary-name substitution")
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("rename-time substitution result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if renameCalls != 1 {
+		t.Fatalf("rename calls = %d, want 1", renameCalls)
+	}
+	destination := filepath.Join(root, "nested", "substituted-during-rename")
+	retained, readErr := os.ReadFile(destination)
+	if readErr != nil || string(retained) != string(data) {
+		t.Fatalf("substituted installed bytes = %q, %v", retained, readErr)
+	}
+	if removeErr := os.Remove(destination); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+
+func TestSecureWriterRejectsInstalledByteMutation(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	source := []byte("original")
+	mutation := []byte("altered!")
+	operations := writer.operationSet()
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		if err := unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags); err != nil {
+			return err
+		}
+		overwriteSecureWriterFile(t, newDirectoryFD, newName, mutation)
+		return nil
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/mutated-after-rename", strings.NewReader(string(source)), 1024, func(error) {}),
+	)
+	if err == nil {
+		t.Fatal("Write() succeeded after installed-byte mutation")
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("installed-byte mutation result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "nested", "mutated-after-rename")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("mutated installed file remains: %v", statErr)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
 
 func TestSecureWriterPostRenameSyncFailureReturnsExactInstalledReceipt(t *testing.T) {
 	writer, root := secureWriterWithPrivateNestedDir(t)
@@ -545,7 +812,7 @@ func TestSecureWriterPostRenameSyncFailureReturnsExactInstalledReceipt(t *testin
 	operations := writer.operationSet()
 	operations.fsync = func(fd int) error {
 		syncCalls++
-		if syncCalls == 2 {
+		if syncCalls == 3 {
 			return postRenameSyncErr
 		}
 		return unix.Fsync(fd)
@@ -569,8 +836,8 @@ func TestSecureWriterPostRenameSyncFailureReturnsExactInstalledReceipt(t *testin
 	}
 	assertReceiptLineage(t, receipt, root, "nested/installed", data)
 	assertReceiptLineage(t, undurable.Receipt(), root, "nested/installed", data)
-	if syncCalls != 2 || renameCalls != 1 {
-		t.Fatalf("transition calls = (sync %d, rename %d), want (2, 1)", syncCalls, renameCalls)
+	if syncCalls != 3 || renameCalls != 1 {
+		t.Fatalf("transition calls = (sync %d, rename %d), want (3, 1)", syncCalls, renameCalls)
 	}
 	installed, readErr := os.ReadFile(filepath.Join(root, "nested", "installed"))
 	if readErr != nil {
@@ -578,6 +845,50 @@ func TestSecureWriterPostRenameSyncFailureReturnsExactInstalledReceipt(t *testin
 	}
 	if string(installed) != string(data) {
 		t.Fatalf("installed bytes = %q, want %q", installed, data)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+func TestSecureWriterWithholdsReceiptWhenDirectorySyncFailureSeesSubstitution(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	data := []byte("clean")
+	destinationName := "substituted-after-sync"
+	syncErr := errors.New("directory sync failed")
+	syncCalls := 0
+	operations := writer.operationSet()
+	operations.fsync = func(fd int) error {
+		syncCalls++
+		if syncCalls == 3 {
+			replaceSecureWriterTempName(t, fd, destinationName, data)
+			return syncErr
+		}
+		return unix.Fsync(fd)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/"+destinationName, strings.NewReader(string(data)), 1024, func(error) {}),
+	)
+	if !errors.Is(err, syncErr) {
+		t.Fatalf("Write() error = %v, want directory sync error", err)
+	}
+	if drop != nil || !zeroReceipt(receipt) {
+		t.Fatalf("sync substitution result = (receipt %#v, drop %#v), want zero receipt and nil drop", receipt, drop)
+	}
+	var undurable *InstalledButUndurableError
+	if !errors.As(err, &undurable) || !zeroReceipt(undurable.Receipt()) {
+		t.Fatalf("sync substitution error = %#v, want undurable error with zero receipt", err)
+	}
+	destination := filepath.Join(root, "nested", destinationName)
+	retained, readErr := os.ReadFile(destination)
+	if readErr != nil || string(retained) != string(data) {
+		t.Fatalf("substituted post-sync bytes = %q, %v", retained, readErr)
+	}
+	if removeErr := os.Remove(destination); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	if syncCalls != 4 {
+		t.Fatalf("sync calls = %d, want parent, temporary, failed directory, and cleanup sync", syncCalls)
 	}
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 }
@@ -764,6 +1075,109 @@ func TestSecureWriterRemovesInstallWhenDestinationDirectoryNamespaceChanges(t *t
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
 	assertNoSecureWriterTemps(t, detached)
 }
+func TestSecureWriterWithholdsReceiptWhenPostInstallCleanupIsUncertain(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	replacement := filepath.Join(root, "replacement")
+	detached := filepath.Join(root, "detached")
+	if err := os.Mkdir(replacement, privateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	cleanupSyncErr := errors.New("post-install cleanup sync failed")
+	syncCalls := 0
+	operations := writer.operationSet()
+	operations.fsync = func(fd int) error {
+		syncCalls++
+		if syncCalls == 3 {
+			return cleanupSyncErr
+		}
+		return unix.Fsync(fd)
+	}
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		if err := os.Rename(filepath.Join(root, "nested"), detached); err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, filepath.Join(root, "nested")); err != nil {
+			return err
+		}
+		return unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags)
+	}
+	writer.operations = operations
+
+	data := []byte("clean")
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/artifact", strings.NewReader(string(data)), 1024, func(error) {}),
+	)
+	if !errors.Is(err, cleanupSyncErr) || drop != nil {
+		t.Fatalf("cleanup-uncertain result = (receipt %#v, drop %#v, error %v)", receipt, drop, err)
+	}
+	var undurable *InstalledButUndurableError
+	if !errors.As(err, &undurable) {
+		t.Fatalf("cleanup-uncertain error = %v, want InstalledButUndurableError", err)
+	}
+	if !zeroReceipt(receipt) || !zeroReceipt(undurable.Receipt()) {
+		t.Fatalf("cleanup-uncertain result exposed receipt: %#v, %#v", receipt, undurable.Receipt())
+	}
+	for _, path := range []string{
+		filepath.Join(root, "nested", "artifact"),
+		filepath.Join(detached, "artifact"),
+	} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("post-install cleanup retained artifact at %q: %v", path, statErr)
+		}
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+	assertNoSecureWriterTemps(t, detached)
+}
+func TestSecureWriterDoesNotDeleteReplacementDuringPostInstallCleanup(t *testing.T) {
+	writer, root := secureWriterWithPrivateNestedDir(t)
+	replacement := filepath.Join(root, "replacement")
+	detached := filepath.Join(root, "detached")
+	if err := os.Mkdir(replacement, privateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+		if err := os.Rename(filepath.Join(root, "nested"), detached); err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, filepath.Join(root, "nested")); err != nil {
+			return err
+		}
+		if err := unix.RenameatxNp(oldDirectoryFD, oldName, newDirectoryFD, newName, flags); err != nil {
+			return err
+		}
+		artifact := filepath.Join(detached, "artifact")
+		if err := os.Remove(artifact); err != nil {
+			return err
+		}
+		return os.WriteFile(artifact, []byte("replacement"), privateFileMode)
+	}
+	writer.operations = operations
+
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/artifact", strings.NewReader("clean"), 1024, func(error) {}),
+	)
+	if drop != nil {
+		t.Fatalf("replacement result drop = %#v", drop)
+	}
+	var undurable *InstalledButUndurableError
+	if !errors.As(err, &undurable) {
+		t.Fatalf("replacement result error = %v, want InstalledButUndurableError", err)
+	}
+	if !zeroReceipt(receipt) || !zeroReceipt(undurable.Receipt()) {
+		t.Fatalf("replacement result exposed receipt: %#v, %#v", receipt, undurable.Receipt())
+	}
+	if retained, readErr := os.ReadFile(filepath.Join(detached, "artifact")); readErr != nil || string(retained) != "replacement" {
+		t.Fatalf("replacement artifact = %q, %v", retained, readErr)
+	}
+	if err := os.Remove(filepath.Join(detached, "artifact")); err != nil {
+		t.Fatal(err)
+	}
+	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+	assertNoSecureWriterTemps(t, detached)
+}
 func TestSecureWriterRemovesInstallWhenAnchoredRootNamespaceChanges(t *testing.T) {
 	base := privateTempRoot(t)
 	root := filepath.Join(base, "root")
@@ -861,6 +1275,49 @@ func mustRelativePath(t *testing.T, value string) ports.SafeRelativePath {
 		t.Fatalf("NewSafeRelativePath(%q) error = %v", value, err)
 	}
 	return path
+}
+func replaceSecureWriterTempName(t *testing.T, directoryFD int, name string, data []byte) {
+	t.Helper()
+
+	if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
+		t.Fatalf("unlink temporary file for substitution: %v", err)
+	}
+	temporaryFD, err := unix.Openat(
+		directoryFD,
+		name,
+		unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+		privateFileMode,
+	)
+	if err != nil {
+		t.Fatalf("open substituted temporary file: %v", err)
+	}
+	if err := writeAll(temporaryFD, data); err != nil {
+		t.Fatalf("write substituted temporary file: %v", err)
+	}
+	if err := unix.Fsync(temporaryFD); err != nil {
+		t.Fatalf("sync substituted temporary file: %v", err)
+	}
+	if err := unix.Close(temporaryFD); err != nil {
+		t.Fatalf("close substituted temporary file: %v", err)
+	}
+}
+
+func overwriteSecureWriterFile(t *testing.T, directoryFD int, name string, data []byte) {
+	t.Helper()
+
+	installedFD, err := unix.Openat(directoryFD, name, unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatalf("open installed file for mutation: %v", err)
+	}
+	if err := writeAll(installedFD, data); err != nil {
+		t.Fatalf("write installed mutation: %v", err)
+	}
+	if err := unix.Fsync(installedFD); err != nil {
+		t.Fatalf("sync installed mutation: %v", err)
+	}
+	if err := unix.Close(installedFD); err != nil {
+		t.Fatalf("close installed mutation: %v", err)
+	}
 }
 
 func assertBlockedWrite(t *testing.T, receipt ports.SecureWriteReceipt, drop *ports.DropMetadata, detector string, aborts int) {

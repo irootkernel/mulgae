@@ -89,6 +89,7 @@ func walkPrivateDirectoryWithOperations(root ports.AnchoredRoot, components []st
 			return -1, fmt.Errorf("walk private directory: invalid component")
 		}
 
+		created := false
 		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if errors.Is(openErr, unix.ENOENT) && create {
 			mkdirErr := unix.Mkdirat(fd, component, privateDirectoryMode)
@@ -97,6 +98,7 @@ func walkPrivateDirectoryWithOperations(root ports.AnchoredRoot, components []st
 				return -1, fmt.Errorf("create private directory: %w", mkdirErr)
 			}
 			if mkdirErr == nil {
+				created = true
 				if syncErr := operations.fsync(fd); syncErr != nil {
 					closeFD(fd)
 					return -1, fmt.Errorf("sync private directory parent: %w", syncErr)
@@ -112,6 +114,13 @@ func walkPrivateDirectoryWithOperations(root ports.AnchoredRoot, components []st
 			closeFD(next)
 			closeFD(fd)
 			return -1, fmt.Errorf("open private directory component: %w", verifyErr)
+		}
+		if create && !created {
+			if syncErr := operations.fsync(fd); syncErr != nil {
+				closeFD(next)
+				closeFD(fd)
+				return -1, fmt.Errorf("sync private directory parent: %w", syncErr)
+			}
 		}
 		closeFD(fd)
 		fd = next

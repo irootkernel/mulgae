@@ -1,7 +1,10 @@
 // Package kar parses the fixed KAR command line into immutable invocations.
 package kar
 
-import "github.com/irootkernel/kkachi-agent-review/internal/app"
+import (
+	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+)
 
 // OutputFormat controls the CLI rendering selected by an invocation.
 type OutputFormat string
@@ -58,6 +61,10 @@ type Invocation struct {
 	doctor         *DoctorRequest
 	config         *ConfigRequest
 	schema         *SchemaRequest
+	status         *StatusRequest
+	report         *ReportRequest
+	findings       *FindingsRequest
+	excerpt        *ExcerptRequest
 }
 
 // Command returns the exact recognized command name.
@@ -108,6 +115,38 @@ func (invocation Invocation) Doctor() (DoctorRequest, bool) {
 		return DoctorRequest{}, false
 	}
 	return *invocation.doctor, true
+}
+
+// Status returns the parsed status fields when this is a status invocation.
+func (invocation Invocation) Status() (StatusRequest, bool) {
+	if invocation.status == nil {
+		return StatusRequest{}, false
+	}
+	return *invocation.status, true
+}
+
+// Report returns the parsed report fields when this is a report invocation.
+func (invocation Invocation) Report() (ReportRequest, bool) {
+	if invocation.report == nil {
+		return ReportRequest{}, false
+	}
+	return *invocation.report, true
+}
+
+// Findings returns the parsed findings fields when this is a findings invocation.
+func (invocation Invocation) Findings() (FindingsRequest, bool) {
+	if invocation.findings == nil {
+		return FindingsRequest{}, false
+	}
+	return *invocation.findings, true
+}
+
+// Excerpt returns the parsed excerpt fields when this is an excerpt invocation.
+func (invocation Invocation) Excerpt() (ExcerptRequest, bool) {
+	if invocation.excerpt == nil {
+		return ExcerptRequest{}, false
+	}
+	return *invocation.excerpt, true
 }
 
 // Config returns the parsed config fields when this is a config invocation.
@@ -185,6 +224,58 @@ func (request DoctorRequest) CheckProviders() bool { return request.checkProvide
 
 // CheckPlatform reports the fixed platform-check selection.
 func (request DoctorRequest) CheckPlatform() bool { return request.checkPlatform }
+
+// StatusRequest contains the immutable run selected for status lookup.
+type StatusRequest struct {
+	runID string
+}
+
+// RunID returns the selected canonical review-run ID.
+func (request StatusRequest) RunID() string { return request.runID }
+
+// ReportRequest contains the immutable report-rendering fields.
+type ReportRequest struct {
+	runID      string
+	outputPath string
+}
+
+// RunID returns the selected canonical review-run ID.
+func (request ReportRequest) RunID() string { return request.runID }
+
+// OutputPath returns the selected safe relative report path.
+func (request ReportRequest) OutputPath() string { return request.outputPath }
+
+// FindingsRequest contains the immutable finding-query fields.
+type FindingsRequest struct {
+	runID           string
+	minimumSeverity domain.Severity
+}
+
+// RunID returns the selected canonical review-run ID.
+func (request FindingsRequest) RunID() string { return request.runID }
+
+// MinimumSeverity returns the inclusive severity threshold for the query.
+func (request FindingsRequest) MinimumSeverity() domain.Severity {
+	return request.minimumSeverity
+}
+
+// ExcerptRequest contains the immutable evidence-excerpt fields.
+type ExcerptRequest struct {
+	runID               string
+	findingID           string
+	currentTargetSHA256 string
+}
+
+// RunID returns the selected canonical review-run ID.
+func (request ExcerptRequest) RunID() string { return request.runID }
+
+// FindingID returns the selected canonical run-scoped finding ID.
+func (request ExcerptRequest) FindingID() string { return request.findingID }
+
+// CurrentTargetSHA256 returns the immutable current-target integrity identifier.
+func (request ExcerptRequest) CurrentTargetSHA256() string {
+	return request.currentTargetSHA256
+}
 
 // ConfigRequest contains the executable configuration-selection fields.
 type ConfigRequest struct {

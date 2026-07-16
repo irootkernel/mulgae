@@ -1,0 +1,1964 @@
+package query
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
+	"strings"
+	"testing"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+)
+
+func TestNewServiceRequiresStoreValidatorAndPositiveLimit(t *testing.T) {
+	t.Parallel()
+	store := &queryStore{}
+	validator := &queryValidator{}
+	reader := &queryTargetReader{}
+	for name, call := range map[string]func() error{
+		"nil store": func() error {
+			_, err := NewService(nil, validator, reader, 1)
+			return err
+		},
+		"nil validator": func() error {
+			_, err := NewService(store, nil, reader, 1)
+			return err
+		},
+		"zero limit": func() error {
+			_, err := NewService(store, validator, reader, 0)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := call(); err == nil {
+				t.Fatal("NewService accepted an invalid dependency set")
+			}
+		})
+	}
+}
+
+func TestNewServiceAllowsAbsentImmutableTargetReader(t *testing.T) {
+	t.Parallel()
+	store := &queryStore{}
+	validator := &queryValidator{}
+	var typedNilReader *queryTargetReader
+	for name, reader := range map[string]evidence.ImmutableTargetReader{
+		"nil":       nil,
+		"typed nil": typedNilReader,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := NewService(store, validator, reader, 1); err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
+		})
+	}
+}
+func TestResolveRunUsesPublicationStoreBoundary(t *testing.T) {
+	t.Parallel()
+	run, _, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	store := &queryStore{resolved: run}
+	service := mustQueryService(t, store, &queryValidator{}, &queryTargetReader{})
+
+	resolved, err := service.ResolveRun(context.Background(), run.Root(), run.RunID())
+	if err != nil {
+		t.Fatalf("ResolveRun() error = %v", err)
+	}
+	if resolved != run || store.resolveCalls != 1 {
+		t.Fatalf("ResolveRun() = %#v, calls=%d", resolved, store.resolveCalls)
+	}
+}
+
+func TestReadCommittedListFindingsAndRenderExcerpt(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	path := mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/excerpts/F001_1.md")
+	store := &queryStore{
+		observation:       observation,
+		snapshot:          snapshot,
+		auxiliaryArtifact: mustQueryArtifact(t, path, []byte("line one\nline two")),
+	}
+	validator := &queryValidator{}
+	service := mustQueryService(t, store, validator, &queryTargetReader{})
+
+	review, err := service.ReadCommitted(context.Background(), run)
+	if err != nil {
+		t.Fatalf("ReadCommitted() error = %v", err)
+	}
+	if review.PublicationStatus() != domain.PublicationCommitted || review.CIDecision() != domain.CIFail {
+		t.Fatalf("committed axes = (%q, %q)", review.PublicationStatus(), review.CIDecision())
+	}
+	if got := len(review.Findings()); got != 1 {
+		t.Fatalf("finding count = %d, want 1", got)
+	}
+	final := review.FinalBytes()
+	final[0] = '!'
+	if review.FinalBytes()[0] == '!' {
+		t.Fatal("ReadCommitted exposed mutable final bytes")
+	}
+
+	findings, err := service.ListFindings(context.Background(), run, domain.SeverityHigh)
+	if err != nil || len(findings) != 1 || findings[0].ID() != "F001" {
+		t.Fatalf("ListFindings(high) = %#v, %v", findings, err)
+	}
+	findings, err = service.ListFindings(context.Background(), run, domain.SeverityCritical)
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("ListFindings(critical) = %#v, %v", findings, err)
+	}
+
+	excerpt, err := service.RenderExcerpt(context.Background(), run, "F001", review.TargetSHA256())
+	if err != nil || string(excerpt) != "line one\nline two" {
+		t.Fatalf("RenderExcerpt() = %q, %v", excerpt, err)
+	}
+	if store.auxiliaryReads != 1 {
+		t.Fatalf("RenderExcerpt auxiliary reads = %d, want 1", store.auxiliaryReads)
+	}
+}
+
+func TestRenderExcerptUsesPersistedArtifactAfterRestart(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	path := mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/excerpts/F001_1.md")
+	store := &queryStore{
+		observation:       observation,
+		snapshot:          snapshot,
+		auxiliaryArtifact: mustQueryArtifact(t, path, []byte("line one\nline two")),
+	}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+
+	excerpt, err := service.RenderExcerpt(
+		context.Background(),
+		run,
+		"F001",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	)
+	if err != nil || string(excerpt) != "line one\nline two" {
+		t.Fatalf("RenderExcerpt() = %q, %v", excerpt, err)
+	}
+	if store.auxiliaryReads != 1 {
+		t.Fatalf("auxiliary reads = %d, want 1", store.auxiliaryReads)
+	}
+	if store.auxiliaryRequest.Path() != path {
+		t.Fatalf("auxiliary path = %q, want %q", store.auxiliaryRequest.Path().String(), path.String())
+	}
+	if hash, ok := store.auxiliaryRequest.ExpectedSHA256(); ok || hash != "" {
+		t.Fatalf("auxiliary expected hash = (%q, %t), want (empty, false)", hash, ok)
+	}
+
+	excerpt[0] = '!'
+	reloaded, err := service.RenderExcerpt(
+		context.Background(),
+		run,
+		"F001",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	)
+	if err != nil || string(reloaded) != "line one\nline two" {
+		t.Fatalf("defensive RenderExcerpt() = %q, %v", reloaded, err)
+	}
+}
+
+func TestRenderExcerptFailsClosedWhenPersistedArtifactIsMissing(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	reader := &queryTargetReader{
+		availability: evidence.ImmutableTargetAvailable,
+		bytes:        []byte("line one\nline two"),
+	}
+	store := &queryStore{observation: observation, snapshot: snapshot}
+	service := mustQueryService(t, store, &queryValidator{}, reader)
+
+	_, err := service.RenderExcerpt(
+		context.Background(),
+		run,
+		"F001",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+	}
+	if store.auxiliaryReads != 1 || reader.calls != 0 {
+		t.Fatalf("reads = auxiliary %d, target %d; want one durable read and no fallback", store.auxiliaryReads, reader.calls)
+	}
+}
+
+func TestRenderExcerptRejectsPersistedArtifactCorruption(t *testing.T) {
+	t.Parallel()
+	expectedDigest := querySourceExcerptSHA256(t)
+	cases := []struct {
+		name         string
+		sourceDigest string
+		pathSuffix   string
+		bytes        []byte
+		zeroArtifact bool
+	}{
+		{
+			name:         "tampered bytes",
+			sourceDigest: expectedDigest,
+			pathSuffix:   "F001_1.md",
+			bytes:        []byte("tampered excerpt"),
+		},
+		{
+			name:         "trailing bytes",
+			sourceDigest: expectedDigest,
+			pathSuffix:   "F001_1.md",
+			bytes:        []byte("line one\nline two\ntrailing"),
+		},
+		{
+			name:         "source digest mismatch",
+			sourceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			pathSuffix:   "F001_1.md",
+			bytes:        []byte("line one\nline two"),
+		},
+		{
+			name:         "unexpected canonical path",
+			sourceDigest: expectedDigest,
+			pathSuffix:   "F001_2.md",
+			bytes:        []byte("line one\nline two"),
+		},
+		{
+			name:         "invalid artifact identity",
+			sourceDigest: expectedDigest,
+			zeroArtifact: true,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			run, snapshot, observation := queryCommittedFixtureWithSourceExcerptSHA256(
+				t,
+				domain.ExitCommittedCIRejected,
+				test.sourceDigest,
+			)
+			store := &queryStore{observation: observation, snapshot: snapshot}
+			if test.zeroArtifact {
+				store.returnZeroAuxiliaryArtifact = true
+			} else {
+				path := mustQueryPath(
+					t,
+					run.SessionID().String()+"/"+run.RunID().String()+"/excerpts/"+test.pathSuffix,
+				)
+				store.auxiliaryArtifact = mustQueryArtifact(t, path, test.bytes)
+			}
+			service := mustQueryService(t, store, &queryValidator{}, nil)
+			_, err := service.RenderExcerpt(
+				context.Background(),
+				run,
+				"F001",
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			)
+			if failureClass(t, err) != domain.FailureArtifact {
+				t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+			}
+		})
+	}
+}
+
+func TestReadRunStatusNeverExposesFinalBeforeP2(t *testing.T) {
+	t.Parallel()
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	p1 := queryP1StatusObservation(t, run, snapshot)
+	p0, err := ports.NewPublicationObservation(domain.JournalCollecting, domain.DurableObservationP0None, nil, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, observation := range map[string]ports.PublicationObservation{"P0": p0, "P1": p1} {
+		t.Run(name, func(t *testing.T) {
+			store := &queryStore{observation: observation, snapshot: snapshot}
+			service := mustQueryService(t, store, &queryValidator{}, &queryTargetReader{})
+			status, err := service.ReadRunStatus(context.Background(), run)
+			if err != nil {
+				t.Fatalf("ReadRunStatus() error = %v", err)
+			}
+			if _, ok := status.FinalPath(); ok || store.snapshotReads != 0 {
+				t.Fatalf("%s exposed or read final before P2", name)
+			}
+		})
+	}
+}
+func TestP0AndP1CommittedQueriesRejectWithoutDisclosureOrFallback(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	p1 := queryP1StatusObservation(t, run, snapshot)
+	p0, err := ports.NewPublicationObservation(domain.JournalCollecting, domain.DurableObservationP0None, nil, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]func(*Service) error{
+		"ReadCommitted": func(service *Service) error {
+			_, err := service.ReadCommitted(context.Background(), run)
+			return err
+		},
+		"ListFindings": func(service *Service) error {
+			_, err := service.ListFindings(context.Background(), run, "")
+			return err
+		},
+		"RenderExcerpt": func(service *Service) error {
+			_, err := service.RenderExcerpt(
+				context.Background(),
+				run,
+				"F001",
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			)
+			return err
+		},
+	}
+	for observationName, observation := range map[string]ports.PublicationObservation{"P0": p0, "P1": p1} {
+		for callName, call := range calls {
+			t.Run(observationName+"/"+callName, func(t *testing.T) {
+				reader := &queryTargetReader{}
+				store := &queryStore{observation: observation, snapshot: snapshot}
+				err := call(mustQueryService(t, store, &queryValidator{}, reader))
+				if failureClass(t, err) != domain.FailureArtifact {
+					t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+				}
+				if store.snapshotReads != 0 || store.auxiliaryReads != 0 || reader.calls != 0 {
+					t.Fatalf(
+						"%s disclosed or fell back before P2 (snapshot=%d auxiliary=%d target=%d)",
+						callName,
+						store.snapshotReads,
+						store.auxiliaryReads,
+						reader.calls,
+					)
+				}
+			})
+		}
+	}
+}
+
+func queryP1StatusObservation(
+	t *testing.T,
+	run ports.PublicationRun,
+	snapshot ports.CommittedPublicationSnapshot,
+) ports.PublicationObservation {
+	t.Helper()
+	final := snapshot.Final()
+	journalBytes := []byte(`{"state":"final_file_installed"}`)
+	journal, err := ports.NewObservedMutablePublicationDocument(
+		ports.MutablePublicationJournal,
+		mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/publication/journal.json"),
+		querySHA(journalBytes),
+		journalBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composite, err := ports.NewCommitCompositeRequest(
+		run,
+		final.Identity(),
+		snapshot.Manifest(),
+		snapshot.LineageEdge(),
+		snapshot.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewPrepareCompositeRequest(composite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := []ports.ImmutablePublicationArtifact{
+		composite.Manifest(),
+		composite.LineageEdge(),
+		composite.Epoch().Record(),
+	}
+	paths := []ports.SafeRelativePath{
+		request.StagedManifestPath(),
+		request.StagedLineageEdgePath(),
+		request.StagedEpochPath(),
+	}
+	staged := make([]ports.ImmutablePublicationArtifact, len(canonical))
+	receipts := make([]ports.SecureWriteReceipt, len(canonical))
+	for index := range canonical {
+		staged[index], err = ports.NewImmutablePublicationArtifact(paths[index], canonical[index].SHA256(), canonical[index].Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipts[index], err = ports.NewSecureWriteReceipt(
+			run.Root(),
+			paths[index],
+			staged[index].SHA256(),
+			int64(len(staged[index].Bytes())),
+			"publication_prepare",
+			[]string{"prepared"},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepared, err := ports.NewPreparedComposite(
+		request,
+		staged[0],
+		staged[1],
+		staged[2],
+		receipts,
+		ports.CompositePreparationDurable,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewPublicationRecoveryMaterialWithPrepared(
+		final,
+		nil,
+		journal,
+		nil,
+		final,
+		prepared,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewPublicationObservationWithRecovery(
+		domain.JournalFinalFileInstalled,
+		domain.DurableObservationP1Installed,
+		nil,
+		nil,
+		1,
+		material,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+func TestReadCommittedRejectsArtifactAndSchemaCorruption(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	for name, configure := range map[string]func(*queryStore, *queryValidator){
+		"snapshot read failure": func(store *queryStore, _ *queryValidator) {
+			store.readErr = errors.New("unavailable")
+		},
+		"schema failure": func(_ *queryStore, validator *queryValidator) {
+			validator.err = errors.New("schema rejected")
+		},
+		"semantic final mismatch": func(store *queryStore, _ *queryValidator) {
+			badFinalBytes := []byte(`{"schema_version":"kar-review-artifact.v2"}`)
+			identity := snapshot.Final().Identity()
+			badIdentity, err := ports.NewFinalReviewIdentity(identity.ReviewID(), identity.Path(), querySHA(badFinalBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			badFinal, err := ports.NewFinalReviewArtifact(badIdentity, badFinalBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			badSnapshot, err := ports.NewCommittedPublicationSnapshot(badFinal, snapshot.Manifest(), snapshot.LineageEdge(), snapshot.Epoch())
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.snapshot = badSnapshot
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &queryStore{observation: observation, snapshot: snapshot}
+			validator := &queryValidator{}
+			configure(store, validator)
+			service := mustQueryService(t, store, validator, &queryTargetReader{})
+			if _, err := service.ReadCommitted(context.Background(), run); failureClass(t, err) != domain.FailureArtifact {
+				t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+			}
+		})
+	}
+}
+
+func TestBuildRolesAcceptsAndValidatesSkippedOutcomes(t *testing.T) {
+	t.Parallel()
+	attempt := "a_019f596a-d048-79e7-b2b7-59822f012273"
+	provider := "logic-provider"
+	selectedVia := "primary"
+	empty := ""
+	cases := []struct {
+		name      string
+		value     finalRoleDTO
+		wantError bool
+	}{
+		{
+			name: "valid skipped",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+			},
+		},
+		{
+			name: "attempt binding",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+				AttemptID: &attempt,
+			},
+			wantError: true,
+		},
+		{
+			name: "provider binding",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+				ProviderInstance: &provider,
+			},
+			wantError: true,
+		},
+		{
+			name: "selection binding",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+				SelectedVia: &selectedVia,
+			},
+			wantError: true,
+		},
+		{
+			name: "finding reference",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+				ValidFindingIDs: []string{"F001"},
+			},
+			wantError: true,
+		},
+		{
+			name: "empty failure reason",
+			value: finalRoleDTO{
+				Role: string(domain.RoleLogic), Required: true, Outcome: "skipped",
+				FailureReason: &empty,
+			},
+			wantError: true,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			values := []finalRoleDTO{test.value}
+			if !test.wantError {
+				values = append(values, finalRoleDTO{
+					Role: string(domain.RoleSecurity), Required: true, Outcome: "skipped",
+				})
+			}
+			roles, _, err := buildRoles(values)
+			if (err != nil) != test.wantError {
+				t.Fatalf("buildRoles() error = %v, want error %t", err, test.wantError)
+			}
+			if !test.wantError {
+				if _, present := roles[0].AttemptID(); present {
+					t.Fatal("skipped role exposed an attempt")
+				}
+				if _, present := roles[0].ProviderInstance(); present {
+					t.Fatal("skipped role exposed a provider")
+				}
+				if len(roles[0].ValidFindingIDs()) != 0 {
+					t.Fatal("skipped role exposed findings")
+				}
+			}
+		})
+	}
+}
+
+func TestBuildFindingsRejectsOrphanRolesAndProviderMismatches(t *testing.T) {
+	t.Parallel()
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	final, err := decodeFinalDTO(snapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := domain.ParseReviewID(final.ReviewID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, expected, err := buildRoles(final.RoleOutcomes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildFindings(final.Findings, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, expected, roles); err != nil {
+		t.Fatalf("buildFindings() rejected valid fixture: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*finalFindingDTO)
+	}{
+		{
+			name: "orphan role",
+			mutate: func(value *finalFindingDTO) {
+				value.Role = string(domain.RoleTesting)
+			},
+		},
+		{
+			name: "provider mismatch",
+			mutate: func(value *finalFindingDTO) {
+				value.ProviderInstance = "other-provider"
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := append([]finalFindingDTO(nil), final.Findings...)
+			test.mutate(&values[0])
+			if _, err := buildFindings(values, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, expected, roles); err == nil {
+				t.Fatal("buildFindings() accepted invalid finding ownership")
+			}
+		})
+	}
+}
+
+func TestSkippedRolesDetermineCoverageAndRunState(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		roles    []Role
+		coverage domain.CoverageStatus
+		state    domain.RunState
+	}{
+		{
+			name: "required skipped",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "skipped"},
+				{role: domain.RoleSecurity, required: true, outcome: "completed"},
+			},
+			coverage: domain.CoverageIncomplete,
+			state:    domain.RunFailed,
+		},
+		{
+			name: "optional skipped",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "completed"},
+				{role: domain.RoleSecurity, required: true, outcome: "completed"},
+				{role: domain.RoleTesting, outcome: "skipped"},
+			},
+			coverage: domain.CoverageDegraded,
+			state:    domain.RunDegraded,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if !consistentCommittedRunState(test.state, test.roles, test.coverage) {
+				t.Fatalf("consistentCommittedRunState(%q) rejected skipped-role state", test.state)
+			}
+		})
+	}
+}
+
+func TestSyntheticExcerptLayoutCapsAggregateAllocation(t *testing.T) {
+	t.Parallel()
+	layout, err := syntheticExcerptLayout(5, []byte("1234"), 8)
+	if err != nil || len(layout) != 8 {
+		t.Fatalf("syntheticExcerptLayout() = %q, %v", layout, err)
+	}
+	if _, err := syntheticExcerptLayout(5, []byte("12345"), 8); err == nil {
+		t.Fatal("syntheticExcerptLayout accepted aggregate bytes over the cap")
+	}
+}
+func TestValidateOutcomeProjectionCoversPassFailAndIncomplete(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		roles    []Role
+		findings []Finding
+		content  domain.ContentVerdict
+		coverage domain.CoverageStatus
+		ci       domain.CIDecision
+		reasons  []string
+		exit     domain.OperationalExitCode
+	}{
+		{
+			name: "pass",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "completed"},
+				{role: domain.RoleSecurity, required: true, outcome: "completed"},
+			},
+			content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass,
+			reasons: []string{"policy_evaluated"}, exit: domain.ExitCommittedPass,
+		},
+		{
+			name: "CI fail",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "completed"},
+				{role: domain.RoleSecurity, required: true, outcome: "completed"},
+			},
+			findings: []Finding{{severity: domain.SeverityHigh}},
+			content:  domain.ContentRequestChanges, coverage: domain.CoverageComplete, ci: domain.CIFail,
+			reasons: []string{"request_changes_threshold"}, exit: domain.ExitCommittedCIRejected,
+		},
+		{
+			name: "incomplete",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "completed"},
+				{role: domain.RoleSecurity, required: true, outcome: "failed"},
+			},
+			content: domain.ContentNoFindings, coverage: domain.CoverageIncomplete, ci: domain.CIFail,
+			reasons: []string{"required_role_incomplete"}, exit: domain.ExitIncompleteCoverage,
+		},
+		{
+			name: "skipped required",
+			roles: []Role{
+				{role: domain.RoleLogic, required: true, outcome: "skipped"},
+				{role: domain.RoleSecurity, required: true, outcome: "completed"},
+			},
+			content: domain.ContentNoFindings, coverage: domain.CoverageIncomplete, ci: domain.CIFail,
+			reasons: []string{"required_role_incomplete"}, exit: domain.ExitIncompleteCoverage,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			exit := test.exit
+			decision, err := domain.NewPublicationDecision(
+				domain.PublicationCommitted,
+				domain.PublicationAuthorityP2,
+				domain.RecoveryActionReconstructCompletedStatus,
+				&exit,
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			final := finalDTO{
+				SeverityThreshold: severityThresholdDTO{
+					RequestChangesAtOrAbove: "high",
+					PolicySource:            "trusted_base",
+				},
+				CIReasonCodes: append([]string(nil), test.reasons...),
+			}
+			manifest := manifestDTO{
+				CIReasonCodes: append([]string(nil), test.reasons...),
+				ExitCode:      int(test.exit),
+			}
+			if err := validateOutcomeProjection(
+				final,
+				manifest,
+				test.roles,
+				test.findings,
+				test.content,
+				test.coverage,
+				test.ci,
+				decision,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestBuildCommittedReviewRejectsMandatoryRoleAndAttemptProvenanceGaps(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		mutate func(*finalDTO, *manifestDTO)
+	}{
+		{
+			name: "missing logic role",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.RoleOutcomes = final.RoleOutcomes[1:]
+			},
+		},
+		{
+			name: "missing security role",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.RoleOutcomes = final.RoleOutcomes[:1]
+			},
+		},
+		{
+			name: "mandatory role is not required",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.RoleOutcomes[0].Required = false
+			},
+		},
+		{
+			name: "missing selected attempt",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts = manifest.Attempts[1:]
+			},
+		},
+		{
+			name: "attempt ID mismatch",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts[0].AttemptID = "a_019f596a-d049-79e7-b2b7-59822f012273"
+				manifest.Attempts[0].Path = "attempts/a_019f596a-d049-79e7-b2b7-59822f012273/status.json"
+			},
+		},
+		{
+			name: "attempt role mismatch",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts[0].Role = string(domain.RoleTesting)
+			},
+		},
+		{
+			name: "attempt provider mismatch",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts[0].ProviderInstance = "other-provider"
+			},
+		},
+		{
+			name: "attempt selection mismatch",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts[0].SelectedAs = "fallback"
+			},
+		},
+		{
+			name: "successful role terminal state mismatch",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts[0].State = string(domain.AttemptFailed)
+			},
+		},
+		{
+			name: "cancelled attempt before later success",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts = append([]manifestAttemptDTO{{
+					AttemptID:        "a_019f596a-d047-79e7-b2b7-59822f012273",
+					Role:             string(domain.RoleLogic),
+					ProviderInstance: "logic-provider",
+					SelectedAs:       "primary",
+					State:            string(domain.AttemptCancelled),
+					ParseState:       string(domain.ParseNotStarted),
+					ValidationState:  string(domain.ValidationNotStarted),
+					Path:             "attempts/a_019f596a-d047-79e7-b2b7-59822f012273/status.json",
+					InvocationCount:  1,
+				}}, manifest.Attempts...)
+			},
+		},
+		{
+			name: "unrecorded failed attempt before later success",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.Attempts = append([]manifestAttemptDTO{{
+					AttemptID:        "a_019f596a-d046-79e7-b2b7-59822f012273",
+					Role:             string(domain.RoleLogic),
+					ProviderInstance: "logic-provider",
+					SelectedAs:       "primary",
+					State:            string(domain.AttemptFailed),
+					ParseState:       string(domain.ParseValid),
+					ValidationState:  string(domain.ValidationValid),
+					Path:             "attempts/a_019f596a-d046-79e7-b2b7-59822f012273/status.json",
+					InvocationCount:  1,
+				}}, manifest.Attempts...)
+			},
+		},
+		{
+			name: "selected attempt for skipped role",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.RoleOutcomes[0].Outcome = "skipped"
+				final.RoleOutcomes[0].AttemptID = nil
+				final.RoleOutcomes[0].ProviderInstance = nil
+				final.RoleOutcomes[0].SelectedVia = nil
+				final.RoleOutcomes[0].ValidFindingIDs = nil
+				final.Findings = nil
+			},
+		},
+		{
+			name: "multiple evidence identities",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.Findings[0].Evidence = append(final.Findings[0].Evidence, final.Findings[0].Evidence[0])
+			},
+		},
+		{
+			name: "final lineage identity mutation",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.ImmutableLineage.LineageEdgeSHA = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+		},
+		{
+			name: "manifest final identity mutation",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.FinalReview.SHA256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+		},
+		{
+			name: "source evidence identity mutation",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.Findings[0].Evidence[0].Source.SourceExcerptSHA256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+		},
+		{
+			name: "current evidence quote mutation",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.Findings[0].Evidence[0].Current.Quote = "different quote"
+			},
+		},
+		{
+			name: "manifest failure for successful role",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				attemptID := manifest.Attempts[0].AttemptID
+				manifest.Failures = append(manifest.Failures, manifestFailureDTO{
+					Class:      string(domain.FailureProviderUnavailable),
+					Stage:      "review",
+					ReasonCode: "provider_unavailable",
+					AttemptID:  &attemptID,
+				})
+			},
+		},
+		{
+			name: "validated candidate digest missing",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				manifest.RecoveryJournal.ValidatedCandidateSHA256 = nil
+			},
+		},
+		{
+			name: "validated candidate digest invalid",
+			mutate: func(_ *finalDTO, manifest *manifestDTO) {
+				digest := "sha256:invalid"
+				manifest.RecoveryJournal.ValidatedCandidateSHA256 = &digest
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+			final, err := decodeFinalDTO(snapshot.Final().Bytes())
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := decodeManifestDTO(snapshot.Manifest().Bytes())
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision, err := domain.ClassifyPublication(observation.ClassifierInput())
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&final, &manifest)
+			if _, err := buildCommittedReview(run, decision, snapshot, final, manifest); err == nil {
+				t.Fatal("buildCommittedReview accepted incomplete role or attempt provenance")
+			}
+		})
+	}
+}
+
+func TestBuildRolesRejectsFindingsOwnedByFailedRole(t *testing.T) {
+	t.Parallel()
+
+	_, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	final, err := decodeFinalDTO(snapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := "provider_unavailable"
+	final.RoleOutcomes[0].Outcome = "failed"
+	final.RoleOutcomes[0].FailureReason = &reason
+	if _, _, err := buildRoles(final.RoleOutcomes); err == nil {
+		t.Fatal("buildRoles accepted finding IDs on a failed role")
+	}
+}
+
+func TestValidateManifestFailuresBindsPublishableFailedRoles(t *testing.T) {
+	t.Parallel()
+
+	attemptID := "a_019f596a-d048-79e7-b2b7-59822f012273"
+	attempts := []manifestAttemptDTO{{
+		AttemptID:        attemptID,
+		Role:             string(domain.RoleLogic),
+		ProviderInstance: "logic-provider",
+		SelectedAs:       "primary",
+		State:            string(domain.AttemptFailed),
+		ParseState:       string(domain.ParseValid),
+		ValidationState:  string(domain.ValidationValid),
+		Path:             "attempts/" + attemptID + "/status.json",
+		InvocationCount:  1,
+	}}
+	roles := []Role{{
+		role:          domain.RoleLogic,
+		outcome:       "failed",
+		attemptID:     attemptID,
+		failureReason: "provider_unavailable",
+	}}
+	valid := manifestFailureDTO{
+		Class:      string(domain.FailureProviderUnavailable),
+		Stage:      "review",
+		ReasonCode: "provider_unavailable",
+		AttemptID:  &attemptID,
+	}
+	if err := validateManifestFailures([]manifestFailureDTO{valid}, attempts, roles); err != nil {
+		t.Fatalf("valid manifest failure rejected: %v", err)
+	}
+	otherAttempt := "a_019f596a-d049-79e7-b2b7-59822f012273"
+	tests := []struct {
+		name     string
+		failures []manifestFailureDTO
+	}{
+		{name: "missing", failures: nil},
+		{name: "extra", failures: []manifestFailureDTO{valid, valid}},
+		{
+			name: "wrong attempt",
+			failures: []manifestFailureDTO{{
+				Class: string(domain.FailureProviderUnavailable), Stage: "review",
+				ReasonCode: "provider_unavailable", AttemptID: &otherAttempt,
+			}},
+		},
+		{
+			name: "wrong reason",
+			failures: []manifestFailureDTO{{
+				Class: string(domain.FailureProviderUnavailable), Stage: "review",
+				ReasonCode: "different_reason", AttemptID: &attemptID,
+			}},
+		},
+		{
+			name: "timeout fact for failed attempt",
+			failures: []manifestFailureDTO{{
+				Class: string(domain.FailureTimeout), Stage: "review",
+				ReasonCode: "provider_unavailable", AttemptID: &attemptID,
+			}},
+		},
+		{
+			name: "non-publishable class",
+			failures: []manifestFailureDTO{{
+				Class: string(domain.FailureInternal), Stage: "review",
+				ReasonCode: "provider_unavailable", AttemptID: &attemptID,
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateManifestFailures(test.failures, attempts, roles); err == nil {
+				t.Fatal("validateManifestFailures accepted an invalid failure projection")
+			}
+		})
+	}
+}
+func TestValidateManifestFailuresRetainsFailedPrimaryBeforeSuccessfulFallback(t *testing.T) {
+	t.Parallel()
+
+	failedAttemptID := "a_019f596a-d046-79e7-b2b7-59822f012273"
+	successfulAttemptID := "a_019f596a-d048-79e7-b2b7-59822f012273"
+	attempts := []manifestAttemptDTO{
+		{
+			AttemptID:        failedAttemptID,
+			Role:             string(domain.RoleLogic),
+			ProviderInstance: "logic-primary",
+			SelectedAs:       "primary",
+			State:            string(domain.AttemptFailed),
+			ParseState:       string(domain.ParseValid),
+			ValidationState:  string(domain.ValidationValid),
+			Path:             "attempts/" + failedAttemptID + "/status.json",
+			InvocationCount:  1,
+		},
+		{
+			AttemptID:        successfulAttemptID,
+			Role:             string(domain.RoleLogic),
+			ProviderInstance: "logic-fallback",
+			SelectedAs:       "fallback",
+			State:            string(domain.AttemptSucceeded),
+			ParseState:       string(domain.ParseValid),
+			ValidationState:  string(domain.ValidationValid),
+			Path:             "attempts/" + successfulAttemptID + "/status.json",
+			InvocationCount:  1,
+		},
+	}
+	roles := []Role{{
+		role:             domain.RoleLogic,
+		outcome:          "completed",
+		attemptID:        successfulAttemptID,
+		providerInstance: "logic-fallback",
+		selectedVia:      "fallback",
+	}}
+	failures := []manifestFailureDTO{{
+		Class:      string(domain.FailureProviderUnavailable),
+		Stage:      "review",
+		ReasonCode: "provider_unavailable",
+		AttemptID:  &failedAttemptID,
+	}}
+	if err := validateManifestFailures(failures, attempts, roles); err != nil {
+		t.Fatalf("validateManifestFailures() rejected retained failure provenance: %v", err)
+	}
+}
+func TestValidateManifestFailuresRequiresCanonicalFailedAttemptOrder(t *testing.T) {
+	t.Parallel()
+
+	failedAttempt := func(
+		attemptID string,
+		role domain.Role,
+		provider string,
+		selectedAs string,
+	) manifestAttemptDTO {
+		return manifestAttemptDTO{
+			AttemptID:        attemptID,
+			Role:             string(role),
+			ProviderInstance: provider,
+			SelectedAs:       selectedAs,
+			State:            string(domain.AttemptFailed),
+			ParseState:       string(domain.ParseValid),
+			ValidationState:  string(domain.ValidationValid),
+			Path:             "attempts/" + attemptID + "/status.json",
+			InvocationCount:  1,
+		}
+	}
+	failure := func(attemptID, reason string) manifestFailureDTO {
+		return manifestFailureDTO{
+			Class:      string(domain.FailureProviderUnavailable),
+			Stage:      "review",
+			ReasonCode: reason,
+			AttemptID:  &attemptID,
+		}
+	}
+
+	logicPrimaryID := "a_019f596a-d046-79e7-b2b7-59822f012273"
+	logicFallbackID := "a_019f596a-d047-79e7-b2b7-59822f012273"
+	securityPrimaryID := "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e"
+	cases := []struct {
+		name      string
+		attempts  []manifestAttemptDTO
+		roles     []Role
+		failures  []manifestFailureDTO
+		wantError bool
+	}{
+		{
+			name: "cross-role canonical order",
+			attempts: []manifestAttemptDTO{
+				failedAttempt(logicPrimaryID, domain.RoleLogic, "logic-provider", "primary"),
+				failedAttempt(securityPrimaryID, domain.RoleSecurity, "security-provider", "primary"),
+			},
+			roles: []Role{
+				{role: domain.RoleLogic, outcome: "failed", attemptID: logicPrimaryID, failureReason: "logic_unavailable"},
+				{role: domain.RoleSecurity, outcome: "failed", attemptID: securityPrimaryID, failureReason: "security_unavailable"},
+			},
+			failures: []manifestFailureDTO{
+				failure(logicPrimaryID, "logic_unavailable"),
+				failure(securityPrimaryID, "security_unavailable"),
+			},
+		},
+		{
+			name: "cross-role reordered",
+			attempts: []manifestAttemptDTO{
+				failedAttempt(logicPrimaryID, domain.RoleLogic, "logic-provider", "primary"),
+				failedAttempt(securityPrimaryID, domain.RoleSecurity, "security-provider", "primary"),
+			},
+			roles: []Role{
+				{role: domain.RoleLogic, outcome: "failed", attemptID: logicPrimaryID, failureReason: "logic_unavailable"},
+				{role: domain.RoleSecurity, outcome: "failed", attemptID: securityPrimaryID, failureReason: "security_unavailable"},
+			},
+			failures: []manifestFailureDTO{
+				failure(securityPrimaryID, "security_unavailable"),
+				failure(logicPrimaryID, "logic_unavailable"),
+			},
+			wantError: true,
+		},
+		{
+			name: "primary fallback canonical order",
+			attempts: []manifestAttemptDTO{
+				failedAttempt(logicPrimaryID, domain.RoleLogic, "logic-primary", "primary"),
+				failedAttempt(logicFallbackID, domain.RoleLogic, "logic-fallback", "fallback"),
+			},
+			roles: []Role{
+				{role: domain.RoleLogic, outcome: "failed", attemptID: logicFallbackID, failureReason: "fallback_unavailable"},
+			},
+			failures: []manifestFailureDTO{
+				failure(logicPrimaryID, "primary_unavailable"),
+				failure(logicFallbackID, "fallback_unavailable"),
+			},
+		},
+		{
+			name: "primary fallback reordered",
+			attempts: []manifestAttemptDTO{
+				failedAttempt(logicPrimaryID, domain.RoleLogic, "logic-primary", "primary"),
+				failedAttempt(logicFallbackID, domain.RoleLogic, "logic-fallback", "fallback"),
+			},
+			roles: []Role{
+				{role: domain.RoleLogic, outcome: "failed", attemptID: logicFallbackID, failureReason: "fallback_unavailable"},
+			},
+			failures: []manifestFailureDTO{
+				failure(logicFallbackID, "fallback_unavailable"),
+				failure(logicPrimaryID, "primary_unavailable"),
+			},
+			wantError: true,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateManifestFailures(test.failures, test.attempts, test.roles)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateManifestFailures() error = %v, want error %t", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestValidateManifestRoleAttemptBindingsRequiresCanonicalCoordinatorSequence(t *testing.T) {
+	t.Parallel()
+
+	_, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	final, err := decodeFinalDTO(snapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifestDTO(snapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, _, err := buildRoles(final.RoleOutcomes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback := func(state domain.AttemptState) manifestAttemptDTO {
+		attempt := manifest.Attempts[0]
+		attempt.AttemptID = "a_019f596a-d047-79e7-b2b7-59822f012273"
+		attempt.ProviderInstance = "logic-fallback"
+		attempt.SelectedAs = "fallback"
+		attempt.State = string(state)
+		attempt.Path = "attempts/" + attempt.AttemptID + "/status.json"
+		return attempt
+	}
+	insertFallback := func(value *manifestDTO, attempt manifestAttemptDTO) {
+		value.Attempts = append(
+			append([]manifestAttemptDTO(nil), value.Attempts[:1]...),
+			append([]manifestAttemptDTO{attempt}, value.Attempts[1:]...)...,
+		)
+	}
+	cases := []struct {
+		name      string
+		mutate    func(*manifestDTO, []Role)
+		wantError bool
+	}{
+		{
+			name:   "canonical primary-only sequence",
+			mutate: func(*manifestDTO, []Role) {},
+		},
+		{
+			name: "fixed role order",
+			mutate: func(value *manifestDTO, _ []Role) {
+				value.Attempts[0], value.Attempts[1] = value.Attempts[1], value.Attempts[0]
+			},
+			wantError: true,
+		},
+		{
+			name: "fallback cannot precede primary",
+			mutate: func(value *manifestDTO, _ []Role) {
+				value.Attempts[0].SelectedAs = "fallback"
+			},
+			wantError: true,
+		},
+		{
+			name: "extra attempt after successful primary",
+			mutate: func(value *manifestDTO, _ []Role) {
+				insertFallback(value, fallback(domain.AttemptFailed))
+			},
+			wantError: true,
+		},
+		{
+			name: "fallback provider duplicates primary",
+			mutate: func(value *manifestDTO, _ []Role) {
+				value.Attempts[0].State = string(domain.AttemptFailed)
+				attempt := fallback(domain.AttemptSucceeded)
+				attempt.ProviderInstance = value.Attempts[0].ProviderInstance
+				insertFallback(value, attempt)
+			},
+			wantError: true,
+		},
+		{
+			name: "later success cannot follow selected failure",
+			mutate: func(value *manifestDTO, views []Role) {
+				value.Attempts[0].State = string(domain.AttemptFailed)
+				insertFallback(value, fallback(domain.AttemptSucceeded))
+				views[0].outcome = "failed"
+				views[0].failureReason = "provider_unavailable"
+			},
+			wantError: true,
+		},
+		{
+			name: "configured fallback deterministically selects fallback",
+			mutate: func(value *manifestDTO, views []Role) {
+				value.Attempts[0].State = string(domain.AttemptFailed)
+				insertFallback(value, fallback(domain.AttemptSucceeded))
+				views[0].attemptID = "a_019f596a-d047-79e7-b2b7-59822f012273"
+				views[0].providerInstance = "logic-fallback"
+				views[0].selectedVia = "fallback"
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := manifest
+			candidate.Attempts = append([]manifestAttemptDTO(nil), manifest.Attempts...)
+			views := cloneRoles(roles)
+			test.mutate(&candidate, views)
+			err := validateManifestRoleAttemptBindings(candidate.Attempts, views)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateManifestRoleAttemptBindings() error = %v, want error %t", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestReadCommittedBindsSnapshotToStableP2Epoch(t *testing.T) {
+	t.Parallel()
+	run, snapshot, initial := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	exit := domain.ExitCommittedCIRejected
+	epochTwo := querySnapshotAtEpoch(t, snapshot, 2)
+	nextEpoch := queryP2Observation(t, run, epochTwo, domain.JournalCompleted, exit, 2)
+	mutableHintOnly := queryP2Observation(t, run, snapshot, domain.JournalManifestCommitted, exit, 1)
+	swappedSnapshot := querySnapshotWithManifestMutation(t, snapshot)
+	swappedObservation := queryP2Observation(t, run, swappedSnapshot, domain.JournalCompleted, exit, 1)
+	cases := []struct {
+		name              string
+		observations      []ports.PublicationObservation
+		wantArtifactError bool
+		wantObserveCalls  int
+	}{
+		{
+			name:              "same epoch immutable identity swap",
+			observations:      []ports.PublicationObservation{swappedObservation},
+			wantArtifactError: true,
+			wantObserveCalls:  1,
+		},
+		{
+			name:              "same epoch immutable identity swap on confirmation",
+			observations:      []ports.PublicationObservation{initial, swappedObservation},
+			wantArtifactError: true,
+			wantObserveCalls:  2,
+		},
+		{
+			name:              "snapshot epoch differs from initial observation",
+			observations:      []ports.PublicationObservation{nextEpoch},
+			wantArtifactError: true,
+			wantObserveCalls:  1,
+		},
+		{
+			name:              "P2 epoch changes after snapshot read",
+			observations:      []ports.PublicationObservation{initial, nextEpoch},
+			wantArtifactError: true,
+			wantObserveCalls:  2,
+		},
+		{
+			name:             "mutable journal hint changes at same P2 epoch",
+			observations:     []ports.PublicationObservation{initial, mutableHintOnly},
+			wantObserveCalls: 2,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			store := &queryStore{observations: test.observations, snapshot: snapshot}
+			service := mustQueryService(t, store, &queryValidator{}, nil)
+			_, err := service.ReadCommitted(context.Background(), run)
+			if test.wantArtifactError {
+				if failureClass(t, err) != domain.FailureArtifact {
+					t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+				}
+			} else if err != nil {
+				t.Fatalf("ReadCommitted() error = %v", err)
+			}
+			if store.observeCalls != test.wantObserveCalls {
+				t.Fatalf("ObserveRun calls = %d, want %d", store.observeCalls, test.wantObserveCalls)
+			}
+		})
+	}
+}
+
+func TestReadCommittedRejectsConfirmationDecisionExitMismatch(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, initial := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	confirmation := queryP2Observation(
+		t,
+		run,
+		snapshot,
+		domain.JournalCompleted,
+		domain.ExitCommittedPass,
+		1,
+	)
+	store := &queryStore{
+		observations: []ports.PublicationObservation{initial, confirmation},
+		snapshot:     snapshot,
+	}
+
+	_, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+	}
+	if store.observeCalls != 2 {
+		t.Fatalf("ObserveRun calls = %d, want 2", store.observeCalls)
+	}
+}
+
+func TestReadCommittedRejectsRehashedAlternateManifestPath(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	alternatePath := mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/alternate/manifest.json")
+	alternateSnapshot := querySnapshotWithManifestPath(t, snapshot, alternatePath)
+	observation := queryP2Observation(
+		t,
+		run,
+		alternateSnapshot,
+		domain.JournalCompleted,
+		domain.ExitCommittedCIRejected,
+		1,
+	)
+	store := &queryStore{observation: observation, snapshot: alternateSnapshot}
+
+	_, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+	}
+	if store.observeCalls != 1 {
+		t.Fatalf("ObserveRun calls = %d, want 1", store.observeCalls)
+	}
+}
+
+func TestReadRunStatusFailsClosedWhenP2EpochChangesDuringSnapshotRead(t *testing.T) {
+	t.Parallel()
+	run, snapshot, initial := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	exit := domain.ExitCommittedCIRejected
+	changed := queryP2Observation(t, run, querySnapshotAtEpoch(t, snapshot, 2), domain.JournalCompleted, exit, 2)
+	store := &queryStore{
+		observations: []ports.PublicationObservation{initial, changed},
+		snapshot:     snapshot,
+	}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+	status, err := service.ReadRunStatus(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+	}
+	if status.PublicationStatus() != domain.PublicationCorrupt {
+		t.Fatalf("status = %q, want corrupt", status.PublicationStatus())
+	}
+	if _, present := status.FinalPath(); present {
+		t.Fatal("ReadRunStatus exposed a final path from a changed P2 epoch")
+	}
+}
+func TestQueryArgumentValidationDefersToDependencyAndCancellationPreflight(t *testing.T) {
+	t.Parallel()
+	run, _, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	store := &queryStore{observation: observation}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := service.ListFindings(cancelled, run, domain.Severity("invalid")); failureClass(t, err) != domain.FailureCancelled {
+		t.Fatalf("ListFindings cancellation precedence class = %q, want cancelled", failureClass(t, err))
+	}
+	if _, err := service.RenderExcerpt(cancelled, run, "bad", "bad"); failureClass(t, err) != domain.FailureCancelled {
+		t.Fatalf("RenderExcerpt cancellation precedence class = %q, want cancelled", failureClass(t, err))
+	}
+	if store.observeCalls != 0 {
+		t.Fatalf("argument validation preflight called ObserveRun %d times", store.observeCalls)
+	}
+
+	unavailable := &Service{}
+	if _, err := unavailable.ListFindings(cancelled, run, domain.Severity("invalid")); failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("ListFindings dependency precedence class = %q, want artifact", failureClass(t, err))
+	}
+	if _, err := unavailable.RenderExcerpt(cancelled, run, "bad", "bad"); failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("RenderExcerpt dependency precedence class = %q, want artifact", failureClass(t, err))
+	}
+}
+
+func TestQueryPreservesDependencyFailureOverConcurrentCancellation(t *testing.T) {
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+
+	t.Run("snapshot artifact", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		store := &queryStore{
+			observation:   observation,
+			snapshot:      snapshot,
+			readErr:       errors.New("snapshot read failed"),
+			afterSnapshot: cancel,
+		}
+		_, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(ctx, run)
+		if failureClass(t, err) != domain.FailureArtifact {
+			t.Fatalf("snapshot failure class = %q, want artifact", failureClass(t, err))
+		}
+	})
+	t.Run("snapshot invalid output", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		invalidOutput, err := domain.NewFailure(
+			"query.test",
+			domain.FailureInvalidOutput,
+			"provider output is invalid",
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store := &queryStore{
+			observation:   observation,
+			snapshot:      snapshot,
+			readErr:       invalidOutput,
+			afterSnapshot: cancel,
+		}
+		_, err = mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(ctx, run)
+		if failureClass(t, err) != domain.FailureCancelled {
+			t.Fatalf("snapshot failure class = %q, want cancelled", failureClass(t, err))
+		}
+	})
+
+	t.Run("excerpt artifact", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		store := &queryStore{
+			observation:    observation,
+			snapshot:       snapshot,
+			auxiliaryErr:   errors.New("excerpt read failed"),
+			afterAuxiliary: cancel,
+		}
+		_, err := mustQueryService(t, store, &queryValidator{}, nil).RenderExcerpt(
+			ctx,
+			run,
+			"F001",
+			"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		)
+		if failureClass(t, err) != domain.FailureArtifact {
+			t.Fatalf("excerpt failure class = %q, want artifact", failureClass(t, err))
+		}
+	})
+}
+
+func TestQueryDependencyCancellationNeverReturnsNilOrHidesHigherPrecedence(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	store := &queryStore{
+		observation: observation,
+		snapshot:    snapshot,
+		readErr:     context.Canceled,
+	}
+	if _, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(context.Background(), run); err == nil {
+		t.Fatal("live-context dependency cancellation returned nil")
+	} else if failureClass(t, err) != domain.FailureCancelled {
+		t.Fatalf("live-context dependency cancellation class = %q, want cancelled", failureClass(t, err))
+	}
+
+	newFailure := func(class domain.FailureClass) error {
+		failure, err := domain.NewFailure("query.test", class, "dependency failure", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	internal := newFailure(domain.FailureInternal)
+	artifact := newFailure(domain.FailureArtifact)
+	security := newFailure(domain.FailureSecurityPolicy)
+	tests := []struct {
+		name string
+		err  error
+		want domain.FailureClass
+	}{
+		{
+			name: "internal over artifact security cancellation",
+			err:  errors.Join(context.Canceled, security, artifact, internal),
+			want: domain.FailureInternal,
+		},
+		{
+			name: "artifact over security cancellation",
+			err:  errors.Join(context.Canceled, security, artifact),
+			want: domain.FailureArtifact,
+		},
+		{
+			name: "security over cancellation",
+			err:  errors.Join(context.Canceled, security),
+			want: domain.FailureSecurityPolicy,
+		},
+		{
+			name: "cancellation over invalid output",
+			err:  errors.Join(context.Canceled, newFailure(domain.FailureInvalidOutput)),
+			want: domain.FailureCancelled,
+		},
+		{
+			name: "untyped leaf over cancellation",
+			err:  errors.Join(context.Canceled, errors.New("raw dependency failure")),
+			want: domain.FailureArtifact,
+		},
+		{
+			name: "untyped leaf over cancellation and lower typed failure",
+			err:  errors.Join(context.Canceled, newFailure(domain.FailureInvalidOutput), errors.New("raw dependency failure")),
+			want: domain.FailureArtifact,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := reduceDependencyFailureClass(context.Background(), test.err, domain.FailureArtifact); got != test.want {
+				t.Fatalf("class = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+type queryStore struct {
+	observation                 ports.PublicationObservation
+	observations                []ports.PublicationObservation
+	snapshot                    ports.CommittedPublicationSnapshot
+	resolved                    ports.PublicationRun
+	auxiliaryArtifact           ports.ImmutablePublicationArtifact
+	observeErr                  error
+	readErr                     error
+	resolveErr                  error
+	auxiliaryErr                error
+	returnZeroAuxiliaryArtifact bool
+	snapshotReads               int
+	resolveCalls                int
+	observeCalls                int
+	auxiliaryReads              int
+	auxiliaryRequest            ports.ReadAuxiliaryArtifactRequest
+	afterSnapshot               func()
+	afterAuxiliary              func()
+}
+
+func (store *queryStore) IssueReviewID(context.Context, ports.IssueReviewIDRequest) (ports.IssuedReviewID, error) {
+	return ports.IssuedReviewID{}, errors.New("not implemented")
+}
+func (store *queryStore) ResolveRun(context.Context, ports.ResolvePublicationRunRequest) (ports.PublicationRun, error) {
+	store.resolveCalls++
+	return store.resolved, store.resolveErr
+}
+
+func (store *queryStore) ObserveRun(context.Context, ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+	index := store.observeCalls
+	store.observeCalls++
+	if len(store.observations) != 0 {
+		if index >= len(store.observations) {
+			index = len(store.observations) - 1
+		}
+		return store.observations[index], store.observeErr
+	}
+	return store.observation, store.observeErr
+}
+
+func (store *queryStore) PersistValidatedCandidate(context.Context, ports.PersistValidatedCandidateRequest) (ports.PersistValidatedCandidateResult, error) {
+	return ports.PersistValidatedCandidateResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) PersistAuxiliaryArtifact(context.Context, ports.PersistAuxiliaryArtifactRequest) (ports.PersistAuxiliaryArtifactResult, error) {
+	return ports.PersistAuxiliaryArtifactResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+	store.auxiliaryReads++
+	store.auxiliaryRequest = request
+	if store.afterAuxiliary != nil {
+		store.afterAuxiliary()
+	}
+	if store.auxiliaryErr != nil {
+		return ports.ImmutablePublicationArtifact{}, store.auxiliaryErr
+	}
+	if store.returnZeroAuxiliaryArtifact {
+		return ports.ImmutablePublicationArtifact{}, nil
+	}
+	if !store.auxiliaryArtifact.Valid() {
+		return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
+	}
+	return store.auxiliaryArtifact, nil
+}
+
+func (store *queryStore) PrepareComposite(context.Context, ports.PrepareCompositeRequest) (ports.PreparedComposite, error) {
+	return ports.PreparedComposite{}, errors.New("not implemented")
+}
+
+func (store *queryStore) StageFinal(context.Context, ports.StageFinalRequest) (ports.StageFinalResult, error) {
+	return ports.StageFinalResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) AdoptStagedFinal(context.Context, ports.AdoptStagedFinalRequest) (ports.StageFinalResult, error) {
+	return ports.StageFinalResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) InstallFinal(context.Context, ports.InstallFinalRequest) (ports.InstallFinalResult, error) {
+	return ports.InstallFinalResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) ReplaceMutable(context.Context, ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
+	return ports.MutableReplaceResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) CommitPreparedComposite(context.Context, ports.PreparedComposite) (ports.CompositeCommitResult, error) {
+	return ports.CompositeCommitResult{}, errors.New("not implemented")
+}
+
+func (store *queryStore) ReadCommittedSnapshot(context.Context, ports.ReadCommittedSnapshotRequest) (ports.CommittedPublicationSnapshot, error) {
+	store.snapshotReads++
+	if store.afterSnapshot != nil {
+		store.afterSnapshot()
+	}
+	return store.snapshot, store.readErr
+}
+
+func (store *queryStore) WriteCorruptionDiagnostic(context.Context, ports.CorruptionDiagnosticRequest) (ports.CorruptionDiagnosticResult, error) {
+	return ports.CorruptionDiagnosticResult{}, errors.New("not implemented")
+}
+
+type queryValidator struct {
+	err   error
+	calls int
+}
+
+func (validator *queryValidator) Validate(context.Context, ports.AssetID, []byte) error {
+	validator.calls++
+	return validator.err
+}
+
+type queryTargetReader struct {
+	availability evidence.ImmutableTargetAvailability
+	bytes        []byte
+	err          error
+	calls        int
+}
+
+func (reader *queryTargetReader) ReadImmutableTarget(context.Context, string, evidence.Side, ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
+	reader.calls++
+	return reader.availability, append([]byte(nil), reader.bytes...), reader.err
+}
+
+func mustQueryService(t *testing.T, store ports.PublicationStore, validator SchemaValidator, reader evidence.ImmutableTargetReader) *Service {
+	t.Helper()
+	service, err := NewService(store, validator, reader, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func queryCommittedFixture(t *testing.T, exit domain.OperationalExitCode) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation) {
+	t.Helper()
+	return queryCommittedFixtureWithSourceExcerptSHA256(t, exit, querySourceExcerptSHA256(t))
+}
+
+func queryCommittedFixtureWithSourceExcerptSHA256(
+	t *testing.T,
+	exit domain.OperationalExitCode,
+	sourceExcerptSHA256 string,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation) {
+	t.Helper()
+	root, err := ports.NewAnchoredRoot("/private/query-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := ports.NewPublicationRun(root, sessionID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := sessionID.String() + "/" + runID.String()
+	finalPath := mustQueryPath(t, prefix+"/review_"+reviewID.String()+".json")
+	manifestPath := mustQueryPath(t, prefix+"/manifest.json")
+	edgePath := mustQueryPath(t, "store/lineage-edges/e_"+reviewID.String()+".json")
+	epochPath := mustQueryPath(t, "store/epochs/epoch_00000000000000000001.json")
+	edgeBytes := []byte(`{"schema_version":"kar-lineage-edge.v1"}`)
+	epochBytes := []byte(`{"schema_version":"kar-publication-epoch.v1"}`)
+	edge := mustQueryArtifact(t, edgePath, edgeBytes)
+	epochRecord := mustQueryArtifact(t, epochPath, epochBytes)
+	epoch, err := ports.NewPublicationEpoch(1, epochRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalBytes := []byte(fmt.Sprintf(`{
+		"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"kar":{"version":"0.1.0","commit":null},
+		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
+		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},
+		"validation":{"status":"valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed"},
+		"content_verdict":"request_changes","coverage_status":"complete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],
+		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"trusted_base"},
+		"role_outcomes":[
+			{"role":"logic","required":true,"outcome":"completed","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","provider_instance":"logic-provider","selected_via":"primary","valid_finding_ids":["F001"],"failure_reason":null,"limitations":[]},
+			{"role":"security","required":true,"outcome":"completed","attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","provider_instance":"security-provider","selected_via":"primary","valid_finding_ids":[],"failure_reason":null,"limitations":[]}
+		],
+		"findings":[{"id":"F001","fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","role":"logic","provider_instance":"logic-provider","severity":"high","title":"title","description":"description","evidence":[{"source":{"session_id":%q,"run_id":%q,"review_id":%q,"finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","verification":"verified"}}],"recommendation":"recommendation","confidence":"high","lifecycle":"open"}],
+		"limitations":[],"provenance":{"aggregation_path":"aggregation.json","final_validation_path":"validation/final.json","manifest_path":"manifest.json"}
+	}`, sessionID.String(), runID.String(), reviewID.String(), edgePath.String(), edge.SHA256(), sessionID.String(), runID.String(), reviewID.String(), sourceExcerptSHA256))
+	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBytes := []byte(fmt.Sprintf(`{
+		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"completed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
+		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
+		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security"],"required_roles":["logic","security"],"attempts":[
+			{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},
+			{"attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","role":"security","provider_instance":"security-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1}
+		],
+		"content_verdict":"request_changes","coverage_status":"complete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
+		"recovery_journal":{"expected_staged":null,"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q},
+		"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"recovery_action":"reconstruct_completed_status",
+		"final_review":{"review_id":%q,"path":%q,"sha256":%q},"failures":[],"warnings":[],"exit_code":1
+	}`, sessionID.String(), runID.String(), edgePath.String(), edge.SHA256(), finalPath.String(), finalIdentity.SHA256(), finalIdentity.SHA256(), manifestPath.String(), edgePath.String(), edge.SHA256(), epochPath.String(), reviewID.String(), finalPath.String(), finalIdentity.SHA256()))
+	manifest := mustQueryArtifact(t, manifestPath, manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, edge, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, exit, 1)
+	return run, snapshot, observation
+}
+
+func queryP2Observation(
+	t *testing.T,
+	run ports.PublicationRun,
+	snapshot ports.CommittedPublicationSnapshot,
+	journalState domain.PersistedJournalState,
+	exit domain.OperationalExitCode,
+	epoch uint64,
+) ports.PublicationObservation {
+	t.Helper()
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	journalPath := mustQueryPath(t, prefix+"/publication/journal.json")
+	journal, err := ports.NewMissingMutablePublicationDocument(ports.MutablePublicationJournal, journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusPath := mustQueryPath(t, prefix+"/status.json")
+	status, err := ports.NewMissingMutablePublicationDocument(ports.MutablePublicationStatus, statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewPublicationRecoveryMaterialWithCommittedSnapshot(
+		snapshot.Final(),
+		journal,
+		status,
+		snapshot,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewPublicationObservationWithRecovery(
+		journalState,
+		domain.DurableObservationP2Committed,
+		&exit,
+		nil,
+		epoch,
+		material,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+func querySnapshotAtEpoch(
+	t *testing.T,
+	snapshot ports.CommittedPublicationSnapshot,
+	epochValue uint64,
+) ports.CommittedPublicationSnapshot {
+	t.Helper()
+	path := mustQueryPath(t, fmt.Sprintf("store/epochs/epoch_%020d.json", epochValue))
+	epochBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-publication-epoch.v1","store_epoch":%d}`, epochValue))
+	record := mustQueryArtifact(t, path, epochBytes)
+	epoch, err := ports.NewPublicationEpoch(epochValue, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := ports.NewCommittedPublicationSnapshot(
+		snapshot.Final(),
+		snapshot.Manifest(),
+		snapshot.LineageEdge(),
+		epoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return updated
+}
+
+func querySnapshotWithManifestMutation(
+	t *testing.T,
+	snapshot ports.CommittedPublicationSnapshot,
+) ports.CommittedPublicationSnapshot {
+	t.Helper()
+	mutatedBytes := append(snapshot.Manifest().Bytes(), '\n')
+	mutated, err := ports.NewImmutablePublicationArtifact(
+		snapshot.Manifest().Path(),
+		querySHA(mutatedBytes),
+		mutatedBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := ports.NewCommittedPublicationSnapshot(
+		snapshot.Final(),
+		mutated,
+		snapshot.LineageEdge(),
+		snapshot.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return updated
+}
+func querySnapshotWithManifestPath(
+	t *testing.T,
+	snapshot ports.CommittedPublicationSnapshot,
+	path ports.SafeRelativePath,
+) ports.CommittedPublicationSnapshot {
+	t.Helper()
+	manifest := snapshot.Manifest()
+	manifestPath := manifest.Path().String()
+	if strings.Count(string(manifest.Bytes()), manifestPath) != 1 {
+		t.Fatalf("manifest fixture references %q an unexpected number of times", manifestPath)
+	}
+	manifestBytes := []byte(strings.ReplaceAll(string(manifest.Bytes()), manifestPath, path.String()))
+	updatedManifest := mustQueryArtifact(t, path, manifestBytes)
+	updated, err := ports.NewCommittedPublicationSnapshot(
+		snapshot.Final(),
+		updatedManifest,
+		snapshot.LineageEdge(),
+		snapshot.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return updated
+}
+
+func querySourceExcerptSHA256(t *testing.T) string {
+	t.Helper()
+	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+		TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Side:         evidence.SideWorktree,
+		Path:         "internal/example.go",
+		LineStart:    1,
+		LineEnd:      2,
+		Quote:        "line one\nline two",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := evidence.NewVerifier(&queryTargetReader{
+		availability: evidence.ImmutableTargetAvailable,
+		bytes:        []byte("line one\nline two"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := verifier.VerifyCurrent(context.Background(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status() != evidence.ReceiptVerified {
+		t.Fatalf("source receipt status = %q", receipt.Status())
+	}
+	return receipt.ExcerptSHA256()
+}
+
+func mustQueryPath(t *testing.T, value string) ports.SafeRelativePath {
+	t.Helper()
+	path, err := ports.NewSafeRelativePath(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func mustQueryArtifact(t *testing.T, path ports.SafeRelativePath, bytes []byte) ports.ImmutablePublicationArtifact {
+	t.Helper()
+	artifact, err := ports.NewImmutablePublicationArtifact(path, querySHA(bytes), bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return artifact
+}
+
+func querySHA(bytes []byte) string {
+	sum := sha256.Sum256(bytes)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func failureClass(t *testing.T, err error) domain.FailureClass {
+	t.Helper()
+	var failure *domain.Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("error %v is not a domain failure", err)
+	}
+	return failure.Class()
+}

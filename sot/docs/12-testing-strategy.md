@@ -15,7 +15,7 @@
 Standard CI must not require provider credentials or network access.
 ## 1.1 G0 Contract-Freeze Validation
 
-G0 contract validators produce contract-model receipts, while the candidate-bound provider/platform branch separately establishes external PASS evidence. G001 completed both required branches and the authority gate; G002–G005 then passed their product unit, integration, race, and adversarial suites. The G0 validator set remains exact and complete:
+G0 contract validators produce contract-model receipts, while the candidate-bound provider/platform branch separately establishes external PASS evidence. G001 completed both required branches and the authority gate; G002–G006 then passed their product unit, integration, race, and adversarial suites. The G0 validator set remains exact and complete:
 
 | Operation | Required fixture or input | Required success assertion | Receipt |
 |---|---|---|---|

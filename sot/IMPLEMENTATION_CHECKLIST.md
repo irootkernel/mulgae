@@ -1,6 +1,6 @@
 # KAR Implementation Status Checklist
 
-SOT 1.2.0 records the authorized implementation boundary after `g0_complete`: G001 through G005 are complete and verified; G006 through G009 remain pending and unauthorized until their own execution gates are opened.
+SOT 1.3.0 records the authorized implementation boundary after `g0_complete`: G001 through G006 are complete and verified; G007 through G009 remain pending and unauthorized until their own execution gates are opened.
 
 ## Goal Completion Snapshot
 
@@ -11,12 +11,12 @@ SOT 1.2.0 records the authorized implementation boundary after `g0_complete`: G0
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
 | G005 | Coordinator lanes, direct process runtime, evidence, outcome axes | **COMPLETE** | `da1939f` |
-| G006 | Publication recovery, reporting, query commands | **PENDING** | — |
+| G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
 | G007 | Opt-in provider adapters | **PENDING** | — |
 | G008 | Child workflows, cleanup, export | **PENDING** | — |
 | G009 | Integrated v0.1 release gate | **PENDING** | — |
 
-A checked item below means its implementation or prerequisite is covered by the completed G001–G005 boundary. Unchecked items belong to G006 or later work.
+A checked item below means its implementation or prerequisite is covered by the completed G001–G006 boundary. Unchecked items belong to G007 or later work.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -42,10 +42,10 @@ A checked item below means its implementation or prerequisite is covered by the 
 
 - [x] Implement separate domain states for run, role task, attempt, parse, validation, evidence, verdict, and finding lifecycle. See [Domain and State Model](docs/02-domain-and-state-model.md).
 - [x] Implement canonical UUIDv7 ID types and prefix validation.
-- [ ] Implement `.kar/{session_id}/{run_id}/review_{uuidv7}.json` as the only final publication path. See [Artifacts](docs/08-artifacts-lineage-and-storage.md).
-- [ ] Enforce at most one final review per run.
-- [ ] Record final file SHA-256 in `manifest.json`.
-- [ ] Keep completed runs immutable.
+- [x] Implement `.kar/{session_id}/{run_id}/review_{uuidv7}.json` as the only final publication path. See [Artifacts](docs/08-artifacts-lineage-and-storage.md).
+- [x] Enforce at most one final review per run.
+- [x] Record final file SHA-256 in `manifest.json`.
+- [x] Keep completed runs immutable.
 - [x] Reject project-controlled executable provider configuration. See [Configuration](docs/04-configuration.md).
 - [x] Default provider workspace access to `none`. See [Security](docs/09-security-and-trust.md).
 - [x] Implement a central coordinator for dynamic fallback and terminal state.
@@ -88,9 +88,9 @@ A checked item below means its implementation or prerequisite is covered by the 
 ## Artifacts
 
 - [x] Use secure directory and file permissions.
-- [ ] Use atomic replacement for mutable run status and manifest files.
-- [ ] Use write, validate, fsync, and atomic rename for final review publication.
-- [ ] Detect hash mismatch and multiple final files as corruption.
+- [x] Use atomic replacement for mutable run status and publication journal files; install the committed manifest immutably with no replacement.
+- [x] Use write, validate, fsync, and atomic rename for final review publication.
+- [x] Detect hash mismatch and multiple final files as corruption.
 - [ ] Add safe cleanup and redacted export paths.
 
 ## CLI and CI
@@ -98,7 +98,7 @@ A checked item below means its implementation or prerequisite is covered by the 
 - [ ] Implement distinct review, followup, delta, and rerun application services.
 - [ ] Make rerun create a child run, not mutate the source run.
 - [x] Keep review verdict separate from CI decision.
-- [ ] Implement documented exit-code precedence.
+- [x] Implement documented exit-code precedence.
 - [x] Add all required help topics and golden tests.
 - [x] Ensure product text never implies approval authority.
 
@@ -106,8 +106,8 @@ A checked item below means its implementation or prerequisite is covered by the 
 
 - [x] All JSON examples pass their schemas.
 - [x] Race detector passes coordinator and lane tests.
-- [ ] Crash tests show no partial final artifact.
+- [x] Crash tests show no partial final artifact.
 - [x] Security tests show no fallback after security violation.
 - [ ] Fake-provider end-to-end tests cover all four run types.
 - [ ] At least one provider/version adapter contract passes in an opt-in environment.
-- [ ] No P0 issue remains in trust, cancellation, fallback, evidence, or publication.
+- [x] No P0 issue remains in trust, cancellation, fallback, evidence, or publication through the G006 boundary.

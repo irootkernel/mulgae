@@ -1,0 +1,1563 @@
+package query
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+)
+
+const (
+	resolveRunStage    = "query.resolve_run"
+	readCommittedStage = "query.read_committed"
+	readStatusStage    = "query.read_run_status"
+	listFindingsStage  = "query.list_findings"
+	renderExcerptStage = "query.render_excerpt"
+
+	finalReviewSchemaURI = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	runManifestSchemaURI = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
+)
+
+var (
+	finalReviewSchemaAsset = requiredSchemaAsset(finalReviewSchemaURI)
+	runManifestSchemaAsset = requiredSchemaAsset(runManifestSchemaURI)
+)
+
+// Service reads only physically safe P2 snapshots, then independently verifies
+// their schema and semantic identities before exposing consumer-facing views.
+type Service struct {
+	store        ports.PublicationStore
+	validator    SchemaValidator
+	maxReadBytes int64
+}
+
+type observedRun struct {
+	decision   domain.PublicationDecision
+	storeEpoch uint64
+	snapshot   ports.CommittedPublicationSnapshot
+}
+
+// NewService constructs the shared committed-read service. The immutable target
+// reader remains an accepted dependency for source compatibility, but v2
+// publications require their own durable excerpts and never fall back to it.
+func NewService(
+	store ports.PublicationStore,
+	validator SchemaValidator,
+	_ evidence.ImmutableTargetReader,
+	maxReadBytes int64,
+) (*Service, error) {
+	if missingDependency(store) {
+		return nil, fmt.Errorf("query service: publication store is required")
+	}
+	if missingDependency(validator) {
+		return nil, fmt.Errorf("query service: schema validator is required")
+	}
+	if maxReadBytes <= 0 {
+		return nil, fmt.Errorf("query service: max read bytes must be positive")
+	}
+	return &Service{
+		store: store, validator: validator, maxReadBytes: maxReadBytes,
+	}, nil
+}
+
+// ResolveRun resolves a caller-selected canonical run ID beneath an approved
+// artifact root through the store boundary. It never scans artifact directories.
+func (service *Service) ResolveRun(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	runID domain.RunID,
+) (ports.PublicationRun, error) {
+	if missingDependency(service) || missingDependency(service.store) {
+		return ports.PublicationRun{}, typedFailure(
+			resolveRunStage,
+			domain.FailureArtifact,
+			"publication store is unavailable",
+			nil,
+		)
+	}
+	if err := contextFailure(ctx, resolveRunStage); err != nil {
+		return ports.PublicationRun{}, err
+	}
+	request, err := ports.NewResolvePublicationRunRequest(root, runID, service.maxReadBytes)
+	if err != nil {
+		return ports.PublicationRun{}, typedFailure(
+			resolveRunStage,
+			domain.FailureConfiguration,
+			"publication run resolution request is invalid",
+			err,
+		)
+	}
+	run, err := service.store.ResolveRun(ctx, request)
+	if err != nil {
+		return ports.PublicationRun{}, dependencyFailure(
+			ctx,
+			resolveRunStage,
+			domain.FailureArtifact,
+			"publication run resolution failed",
+			err,
+		)
+	}
+	if !run.Valid() || run.Root() != root || run.RunID() != runID {
+		return ports.PublicationRun{}, typedFailure(
+			resolveRunStage,
+			domain.FailureArtifact,
+			"publication run resolution returned an invalid scope",
+			nil,
+		)
+	}
+	return run, nil
+}
+
+// ReadCommitted returns a defensive view only when the observed P2 epoch binds
+// the snapshot and remains unchanged under P2 re-observation.
+func (service *Service) ReadCommitted(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
+	if err := service.preflight(ctx, readCommittedStage); err != nil {
+		return CommittedReview{}, err
+	}
+	observation, err := service.observe(ctx, run, readCommittedStage)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if observation.decision.Status() != domain.PublicationCommitted ||
+		observation.decision.Authority() != domain.PublicationAuthorityP2 {
+		return CommittedReview{}, typedFailure(
+			readCommittedStage,
+			domain.FailureArtifact,
+			"committed review is unavailable without P2 authority",
+			nil,
+		)
+	}
+	return service.readCommittedSnapshot(ctx, run, observation, readCommittedStage)
+}
+
+// ReadRunStatus returns classifier-derived status for every valid observation.
+// P0 and P1 never cause a final snapshot read or expose a final path. A corrupt
+// durable or semantic result returns a safe corrupt status with an artifact
+// failure so callers can still render the non-sensitive status projection.
+func (service *Service) ReadRunStatus(ctx context.Context, run ports.PublicationRun) (RunStatus, error) {
+	observation, err := service.observe(ctx, run, readStatusStage)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	decision := observation.decision
+	status := statusFromDecision(run, decision)
+	if decision.Status() == domain.PublicationCorrupt {
+		return status, typedFailure(
+			readStatusStage,
+			domain.FailureArtifact,
+			"publication observation is corrupt",
+			nil,
+		)
+	}
+	if decision.Status() != domain.PublicationCommitted || decision.Authority() != domain.PublicationAuthorityP2 {
+		return status, nil
+	}
+
+	review, err := service.readCommittedSnapshot(ctx, run, observation, readStatusStage)
+	if err != nil {
+		return corruptStatus(run), err
+	}
+	status.runState = review.RunState()
+	status.hasRunState = true
+	status.content = review.ContentVerdict()
+	status.coverage = review.CoverageStatus()
+	status.ci = review.CIDecision()
+	status.hasAxes = true
+	status.finalPath = review.FinalPath()
+	status.hasFinalPath = true
+	return status, nil
+}
+
+// ListFindings returns final-order findings at or above minimum severity. An
+// empty minimum returns every committed finding, including informational ones.
+func (service *Service) ListFindings(
+	ctx context.Context,
+	run ports.PublicationRun,
+	minimum domain.Severity,
+) ([]Finding, error) {
+	if err := service.preflight(ctx, listFindingsStage); err != nil {
+		return nil, err
+	}
+	if minimum != "" && !minimum.Valid() {
+		return nil, typedFailure(
+			listFindingsStage,
+			domain.FailureConfiguration,
+			"finding severity filter is invalid",
+			nil,
+		)
+	}
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	findings := review.Findings()
+	if minimum == "" {
+		return findings, nil
+	}
+	filtered := make([]Finding, 0, len(findings))
+	for _, finding := range findings {
+		if finding.Severity().Rank() >= minimum.Rank() {
+			filtered = append(filtered, finding)
+		}
+	}
+	return filtered, nil
+}
+
+// RenderExcerpt returns a committed evidence excerpt only after its durable P2
+// excerpt artifact independently reproduces the committed source-excerpt
+// identity.
+func (service *Service) RenderExcerpt(
+	ctx context.Context,
+	run ports.PublicationRun,
+	findingID string,
+	targetSHA256 string,
+) ([]byte, error) {
+	if err := service.preflight(ctx, renderExcerptStage); err != nil {
+		return nil, err
+	}
+	if !validFindingID(findingID) {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureConfiguration,
+			"finding ID is invalid",
+			nil,
+		)
+	}
+	canonicalTarget, ok := canonicalSHA256(targetSHA256)
+	if !ok {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureConfiguration,
+			"target SHA-256 is invalid",
+			nil,
+		)
+	}
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	var finding Finding
+	found := false
+	for _, candidate := range review.Findings() {
+		if candidate.ID() == findingID {
+			finding = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"finding is not bound to the requested run",
+			nil,
+		)
+	}
+	if canonicalTarget != review.TargetSHA256() {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureConfiguration,
+			"target SHA-256 does not match the committed finding",
+			nil,
+		)
+	}
+	claims := finding.Evidence()
+	if len(claims) == 0 {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"finding has no committed current evidence",
+			nil,
+		)
+	}
+	current := claims[0]
+	if current.TargetSHA256() != canonicalTarget || current.Verification() != evidence.ReceiptVerified {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"finding current evidence is not bound to the committed target",
+			nil,
+		)
+	}
+	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+		TargetSHA256: current.TargetSHA256(),
+		Side:         current.Side(),
+		Path:         current.Path().String(),
+		LineStart:    current.LineStart(),
+		LineEnd:      current.LineEnd(),
+		Quote:        current.quote,
+	})
+	if err != nil {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed current evidence is invalid",
+			err,
+		)
+	}
+	if err := contextFailure(ctx, renderExcerptStage); err != nil {
+		return nil, err
+	}
+	artifactPath, err := excerptArtifactPath(run, findingID, 1)
+	if err != nil {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact path is invalid",
+			err,
+		)
+	}
+	request, err := ports.NewReadAuxiliaryArtifactRequest(run, artifactPath, "", service.maxReadBytes)
+	if err != nil {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact request is invalid",
+			err,
+		)
+	}
+	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
+	if err != nil {
+		return nil, dependencyFailure(
+			ctx,
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact read failed",
+			err,
+		)
+	}
+	return service.verifyPersistedExcerpt(ctx, claim, current.SourceExcerptSHA256(), artifactPath, artifact)
+}
+
+func (service *Service) verifyPersistedExcerpt(
+	ctx context.Context,
+	claim evidence.CurrentClaim,
+	sourceExcerptSHA256 string,
+	expectedPath ports.SafeRelativePath,
+	artifact ports.ImmutablePublicationArtifact,
+) ([]byte, error) {
+	if !artifact.Valid() {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact is invalid",
+			nil,
+		)
+	}
+	if artifact.Path() != expectedPath {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact path does not match the finding",
+			nil,
+		)
+	}
+	artifactBytes := artifact.Bytes()
+	targetBytes, err := syntheticExcerptLayout(claim.LineStart(), artifactBytes, service.maxReadBytes)
+	if err != nil {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact cannot satisfy the committed range",
+			err,
+		)
+	}
+	verifier, err := evidence.NewVerifier(persistedExcerptReader{
+		targetSHA256: claim.TargetSHA256(),
+		side:         claim.Side(),
+		path:         claim.Path(),
+		bytes:        targetBytes,
+	})
+	if err != nil {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt verifier is unavailable",
+			err,
+		)
+	}
+	receipt, err := verifier.VerifyCurrent(ctx, claim)
+	if err != nil {
+		return nil, dependencyFailure(
+			ctx,
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact verification failed",
+			err,
+		)
+	}
+	if receipt.Status() != evidence.ReceiptVerified {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact does not match the finding",
+			nil,
+		)
+	}
+	verifiedExcerpt := receipt.Excerpt()
+	if !bytes.Equal(verifiedExcerpt, artifactBytes) {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact bytes do not match the finding",
+			nil,
+		)
+	}
+	if receipt.ExcerptSHA256() != sourceExcerptSHA256 {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureArtifact,
+			"committed excerpt artifact does not match the source excerpt identity",
+			nil,
+		)
+	}
+	return verifiedExcerpt, nil
+}
+
+func excerptArtifactPath(
+	run ports.PublicationRun,
+	findingID string,
+	evidenceIndex int,
+) (ports.SafeRelativePath, error) {
+	return ports.NewSafeRelativePath(
+		fmt.Sprintf(
+			"%s/%s/excerpts/%s_%d.md",
+			run.SessionID().String(),
+			run.RunID().String(),
+			findingID,
+			evidenceIndex,
+		),
+	)
+}
+
+func syntheticExcerptLayout(lineStart int, excerpt []byte, maxReadBytes int64) ([]byte, error) {
+	if lineStart <= 0 {
+		return nil, fmt.Errorf("line start is invalid")
+	}
+	prefixLength := lineStart - 1
+	excerptLength := int64(len(excerpt))
+	if excerptLength > maxReadBytes || int64(prefixLength) > maxReadBytes-excerptLength {
+		return nil, fmt.Errorf("synthetic excerpt layout exceeds read cap")
+	}
+	maxInt := int(^uint(0) >> 1)
+	if prefixLength > maxInt-len(excerpt) {
+		return nil, fmt.Errorf("synthetic excerpt layout overflows")
+	}
+	target := make([]byte, prefixLength+len(excerpt))
+	for index := 0; index < prefixLength; index++ {
+		target[index] = '\n'
+	}
+	copy(target[prefixLength:], excerpt)
+	return target, nil
+}
+
+type persistedExcerptReader struct {
+	targetSHA256 string
+	side         evidence.Side
+	path         ports.SafeRelativePath
+	bytes        []byte
+}
+
+func (reader persistedExcerptReader) ReadImmutableTarget(
+	_ context.Context,
+	targetSHA256 string,
+	side evidence.Side,
+	path ports.SafeRelativePath,
+) (evidence.ImmutableTargetAvailability, []byte, error) {
+	if targetSHA256 != reader.targetSHA256 || side != reader.side || path != reader.path {
+		return evidence.ImmutableTargetUnavailable, nil, nil
+	}
+	return evidence.ImmutableTargetAvailable, cloneBytes(reader.bytes), nil
+}
+
+func (service *Service) observe(
+	ctx context.Context,
+	run ports.PublicationRun,
+	stage string,
+) (observedRun, error) {
+	if missingDependency(service) || missingDependency(service.store) {
+		return observedRun{}, typedFailure(stage, domain.FailureArtifact, "publication store is unavailable", nil)
+	}
+	if err := contextFailure(ctx, stage); err != nil {
+		return observedRun{}, err
+	}
+	if !run.Valid() {
+		return observedRun{}, typedFailure(stage, domain.FailureConfiguration, "publication run is invalid", nil)
+	}
+	request, err := ports.NewObserveRunRequest(run, service.maxReadBytes)
+	if err != nil {
+		return observedRun{}, typedFailure(stage, domain.FailureConfiguration, "publication observation request is invalid", err)
+	}
+	observation, err := service.store.ObserveRun(ctx, request)
+	if err != nil {
+		return observedRun{}, dependencyFailure(
+			ctx,
+			stage,
+			domain.FailureArtifact,
+			"publication observation failed",
+			err,
+		)
+	}
+	if !observation.Valid() {
+		return observedRun{}, typedFailure(stage, domain.FailureArtifact, "publication observation is invalid", nil)
+	}
+	decision, err := domain.ClassifyPublication(observation.ClassifierInput())
+	if err != nil || !decision.Valid() {
+		return observedRun{}, typedFailure(stage, domain.FailureArtifact, "publication classification failed", err)
+	}
+	result := observedRun{decision: decision, storeEpoch: observation.StoreEpoch()}
+	if decision.Authority() == domain.PublicationAuthorityP2 {
+		material, present := observation.RecoveryMaterial()
+		if !present {
+			return observedRun{}, typedFailure(stage, domain.FailureArtifact, "P2 observation omitted immutable identities", nil)
+		}
+		snapshot, present := material.CommittedSnapshot()
+		if !present || !snapshot.Valid() || snapshot.Epoch().Value() != observation.StoreEpoch() {
+			return observedRun{}, typedFailure(stage, domain.FailureArtifact, "P2 observation immutable identities are invalid", nil)
+		}
+		result.snapshot = snapshot
+	}
+	return result, nil
+}
+
+func (service *Service) readCommittedSnapshot(
+	ctx context.Context,
+	run ports.PublicationRun,
+	observation observedRun,
+	stage string,
+) (CommittedReview, error) {
+	if missingDependency(service) || missingDependency(service.store) || missingDependency(service.validator) {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed read dependency is unavailable", nil)
+	}
+	if err := contextFailure(ctx, stage); err != nil {
+		return CommittedReview{}, err
+	}
+	if observation.decision.Status() != domain.PublicationCommitted ||
+		observation.decision.Authority() != domain.PublicationAuthorityP2 {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot was requested without P2 authority", nil)
+	}
+	request, err := ports.NewReadCommittedSnapshotRequest(run, service.maxReadBytes)
+	if err != nil {
+		return CommittedReview{}, typedFailure(stage, domain.FailureConfiguration, "committed snapshot request is invalid", err)
+	}
+	snapshot, err := service.store.ReadCommittedSnapshot(ctx, request)
+	if err != nil {
+		return CommittedReview{}, dependencyFailure(
+			ctx,
+			stage,
+			domain.FailureArtifact,
+			"committed snapshot read failed",
+			err,
+		)
+	}
+	if !snapshot.Valid() {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot is invalid", nil)
+	}
+	final := snapshot.Final()
+	manifest := snapshot.Manifest()
+	if !final.Valid() || !manifest.Valid() || !snapshot.LineageEdge().Valid() || !snapshot.Epoch().Valid() {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot members are invalid", nil)
+	}
+	if !sameCommittedSnapshot(observation.snapshot, snapshot) {
+		return CommittedReview{}, typedFailure(
+			stage,
+			domain.FailureArtifact,
+			"committed snapshot identities do not match the observed P2 authority",
+			nil,
+		)
+	}
+	if observation.storeEpoch != snapshot.Epoch().Value() {
+		return CommittedReview{}, typedFailure(
+			stage,
+			domain.FailureArtifact,
+			"committed snapshot epoch does not match the observed P2 authority",
+			nil,
+		)
+	}
+	finalBytes := final.Bytes()
+	manifestBytes := manifest.Bytes()
+	if err := service.validator.Validate(ctx, finalReviewSchemaAsset, cloneBytes(finalBytes)); err != nil {
+		return CommittedReview{}, dependencyFailure(
+			ctx,
+			stage,
+			domain.FailureArtifact,
+			"final review schema validation failed",
+			err,
+		)
+	}
+	if err := service.validator.Validate(ctx, runManifestSchemaAsset, cloneBytes(manifestBytes)); err != nil {
+		return CommittedReview{}, dependencyFailure(
+			ctx,
+			stage,
+			domain.FailureArtifact,
+			"run manifest schema validation failed",
+			err,
+		)
+	}
+	finalRecord, err := decodeFinalDTO(finalBytes)
+	if err != nil {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "final review strict JSON decoding failed", err)
+	}
+	manifestRecord, err := decodeManifestDTO(manifestBytes)
+	if err != nil {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "run manifest strict JSON decoding failed", err)
+	}
+	review, err := buildCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
+	if err != nil {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed publication semantic validation failed", err)
+	}
+	confirmation, err := service.observe(ctx, run, stage)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if confirmation.decision.Status() != domain.PublicationCommitted ||
+		confirmation.decision.Authority() != domain.PublicationAuthorityP2 ||
+		!samePublicationDecision(confirmation.decision, observation.decision) ||
+		confirmation.storeEpoch != observation.storeEpoch ||
+		!sameCommittedSnapshot(confirmation.snapshot, observation.snapshot) {
+		return CommittedReview{}, typedFailure(
+			stage,
+			domain.FailureArtifact,
+			"committed snapshot is not stable under P2 re-observation",
+			nil,
+		)
+	}
+	return review, nil
+}
+
+func buildCommittedReview(
+	run ports.PublicationRun,
+	decision domain.PublicationDecision,
+	snapshot ports.CommittedPublicationSnapshot,
+	final finalDTO,
+	manifest manifestDTO,
+) (CommittedReview, error) {
+	if decision.Status() != domain.PublicationCommitted || decision.Authority() != domain.PublicationAuthorityP2 {
+		return CommittedReview{}, fmt.Errorf("snapshot was read without P2 authority")
+	}
+	finalArtifact := snapshot.Final()
+	finalIdentity := finalArtifact.Identity()
+	manifestArtifact := snapshot.Manifest()
+	lineageArtifact := snapshot.LineageEdge()
+	epoch := snapshot.Epoch()
+	expectedFinalPath := run.SessionID().String() + "/" + run.RunID().String() + "/review_" + finalIdentity.ReviewID().String() + ".json"
+	if finalIdentity.Path().String() != expectedFinalPath {
+		return CommittedReview{}, fmt.Errorf("final path is not canonical")
+	}
+	expectedManifestPath := run.SessionID().String() + "/" + run.RunID().String() + "/manifest.json"
+	if manifestArtifact.Path().String() != expectedManifestPath {
+		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
+	}
+
+	if final.SchemaVersion != "kar-review-artifact.v2" || manifest.SchemaVersion != "kar-run-manifest.v2" {
+		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
+	}
+	sessionID, err := domain.ParseSessionID(final.SessionID)
+	if err != nil || sessionID != run.SessionID() {
+		return CommittedReview{}, fmt.Errorf("final session identity does not match run")
+	}
+	runID, err := domain.ParseRunID(final.RunID)
+	if err != nil || runID != run.RunID() {
+		return CommittedReview{}, fmt.Errorf("final run identity does not match run")
+	}
+	reviewID, err := domain.ParseReviewID(final.ReviewID)
+	if err != nil || reviewID != finalIdentity.ReviewID() {
+		return CommittedReview{}, fmt.Errorf("final review identity does not match artifact")
+	}
+	if !domain.RunType(final.RunType).Valid() || final.RunType != manifest.RunType {
+		return CommittedReview{}, fmt.Errorf("run type binding is invalid")
+	}
+	if final.Validation.Status != "valid" && final.Validation.Status != "repaired_valid" ||
+		final.Validation.SchemaValidation != "passed" ||
+		final.Validation.SemanticValidation != "passed" ||
+		(final.Validation.EvidenceValidation != "passed" && final.Validation.EvidenceValidation != "passed_with_warnings") {
+		return CommittedReview{}, fmt.Errorf("final validation summary is invalid")
+	}
+	if !validSHA256(final.Target.ContentSHA256) || !validSHA256(manifest.Target.ContentSHA256) ||
+		final.Target.ContentSHA256 != manifest.Target.ContentSHA256 || final.Target.ManifestPath != manifest.Target.ManifestPath {
+		return CommittedReview{}, fmt.Errorf("target binding is invalid")
+	}
+	if _, err := ports.NewSafeRelativePath(final.Target.ManifestPath); err != nil {
+		return CommittedReview{}, fmt.Errorf("target manifest path is invalid")
+	}
+	if !matchesArtifactPath(final.ImmutableLineage.LineageEdgePath, lineageArtifact.Path(), run) ||
+		final.ImmutableLineage.LineageEdgeSHA != lineageArtifact.SHA256() {
+		return CommittedReview{}, fmt.Errorf("final lineage edge binding is invalid")
+	}
+	if !sameLineage(final.ImmutableLineage, manifest.ImmutableLineage) ||
+		!matchesArtifactPath(manifest.ImmutableLineage.LineageEdgePath, lineageArtifact.Path(), run) ||
+		manifest.ImmutableLineage.LineageEdgeSHA != lineageArtifact.SHA256() {
+		return CommittedReview{}, fmt.Errorf("manifest lineage edge binding is invalid")
+	}
+	if !domain.RunState(manifest.State).Valid() ||
+		(domain.RunState(manifest.State) != domain.RunCompleted && domain.RunState(manifest.State) != domain.RunDegraded && domain.RunState(manifest.State) != domain.RunFailed) ||
+		!manifest.Sealed {
+		return CommittedReview{}, fmt.Errorf("committed run state is invalid")
+	}
+	if manifest.SessionID != final.SessionID || manifest.RunID != final.RunID {
+		return CommittedReview{}, fmt.Errorf("manifest identity does not match final")
+	}
+	if manifest.FinalReview == nil || manifest.FinalReview.ReviewID != reviewID.String() ||
+		!matchesArtifactPath(manifest.FinalReview.Path, finalIdentity.Path(), run) ||
+		manifest.FinalReview.SHA256 != finalIdentity.SHA256() {
+		return CommittedReview{}, fmt.Errorf("manifest final identity does not match final artifact")
+	}
+	if manifest.RecoveryJournal.ExpectedFinal == nil ||
+		!matchesArtifactPath(manifest.RecoveryJournal.ExpectedFinal.Path, finalIdentity.Path(), run) ||
+		manifest.RecoveryJournal.ExpectedFinal.SHA256 != finalIdentity.SHA256() ||
+		manifest.RecoveryJournal.ValidatedCandidateSHA256 == nil ||
+		!validSHA256(*manifest.RecoveryJournal.ValidatedCandidateSHA256) {
+		return CommittedReview{}, fmt.Errorf("manifest recovery final identity is invalid")
+	}
+	issued, err := ports.NewIssuedReviewID(reviewID, *manifest.RecoveryJournal.ValidatedCandidateSHA256)
+	if err != nil {
+		return CommittedReview{}, fmt.Errorf("manifest issuance candidate binding is invalid")
+	}
+	binding, err := ports.NewIssuedFinalBinding(issued, finalIdentity)
+	if err != nil ||
+		binding.ValidatedCandidateSHA256() != *manifest.RecoveryJournal.ValidatedCandidateSHA256 ||
+		binding.Final() != finalIdentity {
+		return CommittedReview{}, fmt.Errorf("manifest issuance-to-final binding is invalid")
+	}
+	if manifest.CompositeIdentity.Manifest == nil || manifest.CompositeIdentity.LineageEdge == nil || manifest.CompositeIdentity.Epoch == nil ||
+		!matchesArtifactPath(manifest.CompositeIdentity.Manifest.Path, manifestArtifact.Path(), run) ||
+		!matchesArtifactPath(manifest.CompositeIdentity.LineageEdge.Path, lineageArtifact.Path(), run) ||
+		manifest.CompositeIdentity.LineageEdge.SHA256 != lineageArtifact.SHA256() ||
+		!matchesArtifactPath(manifest.CompositeIdentity.Epoch.Path, epoch.Record().Path(), run) {
+		return CommittedReview{}, fmt.Errorf("manifest composite identity is invalid")
+	}
+	if manifest.DurableObservationClass != string(domain.DurableObservationP2Committed) ||
+		manifest.DerivedPublicationStatus != string(domain.PublicationCommitted) ||
+		manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) ||
+		manifest.RecoveryAction != string(domain.RecoveryActionReconstructCompletedStatus) {
+		return CommittedReview{}, fmt.Errorf("manifest publication authority is invalid")
+	}
+	content := domain.ContentVerdict(final.ContentVerdict)
+	coverage := domain.CoverageStatus(final.CoverageStatus)
+	publication := domain.PublicationStatus(final.PublicationStatus)
+	ci := domain.CIDecision(final.CIDecision)
+	if !content.Valid() || !coverage.Valid() || publication != domain.PublicationCommitted || !ci.Valid() ||
+		manifest.ContentVerdict != final.ContentVerdict || manifest.CoverageStatus != final.CoverageStatus ||
+		manifest.PublicationStatus != final.PublicationStatus || manifest.CIDecision != final.CIDecision {
+		return CommittedReview{}, fmt.Errorf("independent outcome axes are invalid")
+	}
+	roles, expectedRoleFindingIDs, err := buildRoles(final.RoleOutcomes)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	findings, err := buildFindings(
+		final.Findings,
+		sessionID,
+		runID,
+		reviewID,
+		final.Target.ContentSHA256,
+		expectedRoleFindingIDs,
+		roles,
+	)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if !sameRoles(manifest.SelectedRoles, roles, false) || !sameRoles(manifest.RequiredRoles, roles, true) {
+		return CommittedReview{}, fmt.Errorf("manifest role binding is invalid")
+	}
+	if err := validateManifestRoleAttemptBindings(manifest.Attempts, roles); err != nil {
+		return CommittedReview{}, err
+	}
+	if err := validateManifestFailures(manifest.Failures, manifest.Attempts, roles); err != nil {
+		return CommittedReview{}, err
+	}
+	if !consistentCommittedRunState(domain.RunState(manifest.State), roles, coverage) {
+		return CommittedReview{}, fmt.Errorf("committed run state does not match role outcomes")
+	}
+	if err := validateOutcomeProjection(final, manifest, roles, findings, content, coverage, ci, decision); err != nil {
+		return CommittedReview{}, err
+	}
+	return CommittedReview{
+		sessionID: sessionID, runID: runID, reviewID: reviewID, runState: domain.RunState(manifest.State),
+		finalPath: finalIdentity.Path(), finalSHA256: finalIdentity.SHA256(),
+		manifestPath: manifestArtifact.Path(), manifestSHA256: manifestArtifact.SHA256(),
+		lineageEdgePath: lineageArtifact.Path(), lineageEdgeSHA: lineageArtifact.SHA256(),
+		epoch: epoch.Value(), epochPath: epoch.Record().Path(), targetSHA256: final.Target.ContentSHA256,
+		content: content, coverage: coverage, publication: publication, ci: ci,
+		roles: cloneRoles(roles), findings: cloneFindings(findings),
+		finalBytes: finalArtifact.Bytes(), manifestBytes: manifestArtifact.Bytes(),
+	}, nil
+}
+
+func buildRoles(values []finalRoleDTO) ([]Role, map[domain.Role][]string, error) {
+	if len(values) == 0 {
+		return nil, nil, fmt.Errorf("final has no role outcomes")
+	}
+	roles := make([]Role, len(values))
+	findingIDs := make(map[domain.Role][]string, len(values))
+	seen := make(map[domain.Role]struct{}, len(values))
+	previous := -1
+	for index, value := range values {
+		role := domain.Role(value.Role)
+		ordinal := roleOrdinal(role)
+		if !role.Valid() || ordinal <= previous {
+			return nil, nil, fmt.Errorf("final role order is invalid")
+		}
+		if _, duplicate := seen[role]; duplicate {
+			return nil, nil, fmt.Errorf("final role is duplicated")
+		}
+		seen[role] = struct{}{}
+		previous = ordinal
+		if (role == domain.RoleLogic || role == domain.RoleSecurity) && !value.Required {
+			return nil, nil, fmt.Errorf("required role floor is missing")
+		}
+		switch value.Outcome {
+		case "completed", "degraded", "failed", "skipped":
+		default:
+			return nil, nil, fmt.Errorf("final role outcome is invalid")
+		}
+		ids := append([]string(nil), value.ValidFindingIDs...)
+		seenIDs := make(map[string]struct{}, len(ids))
+		for _, findingID := range ids {
+			if !validFindingID(findingID) {
+				return nil, nil, fmt.Errorf("role finding reference is invalid")
+			}
+			if _, duplicate := seenIDs[findingID]; duplicate {
+				return nil, nil, fmt.Errorf("role finding reference is duplicated")
+			}
+			seenIDs[findingID] = struct{}{}
+		}
+		attemptID := ""
+		providerInstance := ""
+		selectedVia := ""
+		if value.Outcome == "skipped" {
+			if value.AttemptID != nil || value.ProviderInstance != nil || value.SelectedVia != nil {
+				return nil, nil, fmt.Errorf("skipped role has an attempt binding")
+			}
+			if len(ids) != 0 {
+				return nil, nil, fmt.Errorf("skipped role has findings")
+			}
+			if value.FailureReason != nil && *value.FailureReason == "" {
+				return nil, nil, fmt.Errorf("skipped role failure reason is invalid")
+			}
+		} else {
+			if value.AttemptID == nil || value.ProviderInstance == nil || value.SelectedVia == nil ||
+				*value.ProviderInstance == "" || (*value.SelectedVia != "primary" && *value.SelectedVia != "fallback") {
+				return nil, nil, fmt.Errorf("final role attempt binding is invalid")
+			}
+			if _, err := domain.ParseAttemptID(*value.AttemptID); err != nil {
+				return nil, nil, fmt.Errorf("final role attempt identity is invalid")
+			}
+			attemptID = *value.AttemptID
+			providerInstance = *value.ProviderInstance
+			selectedVia = *value.SelectedVia
+			if value.Outcome == "failed" {
+				if value.FailureReason == nil || *value.FailureReason == "" {
+					return nil, nil, fmt.Errorf("failed role is missing a failure reason")
+				}
+				if len(ids) != 0 {
+					return nil, nil, fmt.Errorf("failed role has findings")
+				}
+			} else if value.FailureReason != nil {
+				return nil, nil, fmt.Errorf("successful role has a failure reason")
+			}
+		}
+		findingIDs[role] = ids
+		roles[index] = Role{
+			role: role, required: value.Required, outcome: value.Outcome, attemptID: attemptID,
+			providerInstance: providerInstance, selectedVia: selectedVia,
+			findingIDs: ids, limitations: append([]string(nil), value.Limitations...),
+		}
+		if value.FailureReason != nil {
+			roles[index].failureReason = *value.FailureReason
+		}
+	}
+	for _, mandatory := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
+		if _, present := seen[mandatory]; !present {
+			return nil, nil, fmt.Errorf("mandatory role outcome is missing")
+		}
+	}
+	return roles, findingIDs, nil
+}
+
+func validateManifestRoleAttemptBindings(attempts []manifestAttemptDTO, roles []Role) error {
+	roleIndexes := make(map[domain.Role]int, len(roles))
+	for index, role := range roles {
+		roleIndexes[role.Name()] = index
+	}
+	attemptsByRole := make(map[domain.Role][]manifestAttemptDTO, len(roles))
+	seenAttemptIDs := make(map[string]struct{}, len(attempts))
+	previousRoleIndex := -1
+	for _, attempt := range attempts {
+		role := domain.Role(attempt.Role)
+		state := domain.AttemptState(attempt.State)
+		if _, err := domain.ParseAttemptID(attempt.AttemptID); err != nil ||
+			!role.Valid() ||
+			strings.TrimSpace(attempt.ProviderInstance) == "" ||
+			!terminalManifestAttemptState(state) ||
+			state == domain.AttemptCancelled ||
+			!domain.ParseState(attempt.ParseState).Valid() ||
+			!domain.ValidationState(attempt.ValidationState).Valid() ||
+			attempt.Path != "attempts/"+attempt.AttemptID+"/status.json" ||
+			attempt.InvocationCount < 1 {
+			return fmt.Errorf("manifest attempt is invalid")
+		}
+		roleIndex, selected := roleIndexes[role]
+		if !selected || roleIndex < previousRoleIndex {
+			return fmt.Errorf("manifest attempts are not in selected fixed-role order")
+		}
+		if _, duplicate := seenAttemptIDs[attempt.AttemptID]; duplicate {
+			return fmt.Errorf("manifest attempt identity is duplicated")
+		}
+		roleAttempts := attemptsByRole[role]
+		switch len(roleAttempts) {
+		case 0:
+			if attempt.SelectedAs != "primary" {
+				return fmt.Errorf("role attempt sequence must begin with primary")
+			}
+		case 1:
+			if attempt.SelectedAs != "fallback" {
+				return fmt.Errorf("role fallback attempt is invalid")
+			}
+			if roleAttempts[0].State == string(domain.AttemptSucceeded) {
+				return fmt.Errorf("role has an attempt after successful primary")
+			}
+			if roleAttempts[0].ProviderInstance == attempt.ProviderInstance {
+				return fmt.Errorf("role fallback provider duplicates primary")
+			}
+		default:
+			return fmt.Errorf("role has more than primary and fallback attempts")
+		}
+		seenAttemptIDs[attempt.AttemptID] = struct{}{}
+		attemptsByRole[role] = append(roleAttempts, attempt)
+		previousRoleIndex = roleIndex
+	}
+	for _, role := range roles {
+		roleAttempts := attemptsByRole[role.Name()]
+		if role.Outcome() == "skipped" {
+			if len(roleAttempts) != 0 {
+				return fmt.Errorf("skipped role has a selected manifest attempt")
+			}
+			continue
+		}
+		if len(roleAttempts) == 0 {
+			return fmt.Errorf("non-skipped role has no manifest attempt")
+		}
+		selected := roleAttempts[len(roleAttempts)-1]
+		attemptID, present := role.AttemptID()
+		provider, providerPresent := role.ProviderInstance()
+		selectedVia, selectionPresent := role.SelectedVia()
+		if !present || !providerPresent || !selectionPresent ||
+			selected.AttemptID != attemptID.String() ||
+			selected.ProviderInstance != provider ||
+			selected.SelectedAs != selectedVia {
+			return fmt.Errorf("role does not bind to the deterministic terminal manifest attempt")
+		}
+		if (role.Outcome() == "completed" || role.Outcome() == "degraded") &&
+			selected.State != string(domain.AttemptSucceeded) {
+			return fmt.Errorf("successful role has a non-successful manifest attempt")
+		}
+		if (role.Outcome() == "completed" || role.Outcome() == "degraded") &&
+			(selected.ParseState != string(domain.ParseValid) ||
+				(selected.ValidationState != string(domain.ValidationValid) &&
+					selected.ValidationState != string(domain.ValidationRepairedValid))) {
+			return fmt.Errorf("successful role has an invalid manifest attempt result")
+		}
+		if role.Outcome() == "failed" && selected.State == string(domain.AttemptSucceeded) {
+			return fmt.Errorf("failed role has a successful deterministic terminal attempt")
+		}
+	}
+	return nil
+}
+
+func validateManifestFailures(
+	failures []manifestFailureDTO,
+	attempts []manifestAttemptDTO,
+	roles []Role,
+) error {
+	terminalFailures := make(map[string]domain.AttemptState, len(attempts))
+	failedAttemptIDs := make([]string, 0, len(attempts))
+	for _, attempt := range attempts {
+		state := domain.AttemptState(attempt.State)
+		if state == domain.AttemptSucceeded {
+			continue
+		}
+		if state == domain.AttemptCancelled {
+			return fmt.Errorf("committed manifest contains a cancelled attempt")
+		}
+		terminalFailures[attempt.AttemptID] = state
+		failedAttemptIDs = append(failedAttemptIDs, attempt.AttemptID)
+	}
+
+	failedRoleReasons := make(map[string]string, len(roles))
+	for _, role := range roles {
+		if role.Outcome() != "failed" {
+			continue
+		}
+		attemptID, attemptPresent := role.AttemptID()
+		reason, reasonPresent := role.FailureReason()
+		if !attemptPresent || !reasonPresent {
+			return fmt.Errorf("failed role has no terminal failure binding")
+		}
+		failedRoleReasons[attemptID.String()] = reason
+	}
+
+	if len(failures) != len(terminalFailures) {
+		return fmt.Errorf("manifest failure count does not match failed terminal attempts")
+	}
+	seen := make(map[string]struct{}, len(failures))
+	for index, failure := range failures {
+		class := domain.FailureClass(failure.Class)
+		if failure.AttemptID == nil || failure.Stage != "review" ||
+			!publishableQueryFailureClass(class) || failure.ReasonCode == "" {
+			return fmt.Errorf("manifest failure is invalid or non-publishable")
+		}
+		if *failure.AttemptID != failedAttemptIDs[index] {
+			return fmt.Errorf("manifest failures are not in canonical failed-attempt order")
+		}
+		state, present := terminalFailures[*failure.AttemptID]
+		if !present {
+			return fmt.Errorf("manifest failure does not bind a failed terminal attempt")
+		}
+		if _, duplicate := seen[*failure.AttemptID]; duplicate {
+			return fmt.Errorf("manifest failure duplicates a failed terminal attempt")
+		}
+		if state == domain.AttemptTimedOut && class != domain.FailureTimeout {
+			return fmt.Errorf("timed out manifest attempt has a non-timeout failure fact")
+		}
+		if state != domain.AttemptTimedOut && class == domain.FailureTimeout {
+			return fmt.Errorf("non-timeout manifest attempt has a timeout failure fact")
+		}
+		if reason, selected := failedRoleReasons[*failure.AttemptID]; selected && failure.ReasonCode != reason {
+			return fmt.Errorf("manifest failure reason does not match failed role")
+		}
+		seen[*failure.AttemptID] = struct{}{}
+	}
+	return nil
+}
+
+func publishableQueryFailureClass(class domain.FailureClass) bool {
+	if !class.Valid() {
+		return false
+	}
+	switch class {
+	case domain.FailureSecurityPolicy,
+		domain.FailureConfiguration,
+		domain.FailureArtifact,
+		domain.FailureInternal,
+		domain.FailureCancelled:
+		return false
+	default:
+		return true
+	}
+}
+
+func terminalManifestAttemptState(state domain.AttemptState) bool {
+	switch state {
+	case domain.AttemptSucceeded,
+		domain.AttemptFailed,
+		domain.AttemptTimedOut,
+		domain.AttemptCancelled,
+		domain.AttemptBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func buildFindings(
+	values []finalFindingDTO,
+	sessionID domain.SessionID,
+	runID domain.RunID,
+	reviewID domain.ReviewID,
+	targetSHA256 string,
+	expectedRoleFindingIDs map[domain.Role][]string,
+	roles []Role,
+) ([]Finding, error) {
+	findings := make([]Finding, len(values))
+	actualRoleFindingIDs := make(map[domain.Role][]string, len(expectedRoleFindingIDs))
+	roleOutcomes := make(map[domain.Role]Role, len(roles))
+	for _, role := range roles {
+		roleOutcomes[role.Name()] = role
+	}
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		expectedID := fmt.Sprintf("F%03d", index+1)
+		if value.ID != expectedID || !validFindingID(value.ID) {
+			return nil, fmt.Errorf("final finding order is invalid")
+		}
+		if _, duplicate := seen[value.ID]; duplicate {
+			return nil, fmt.Errorf("final finding identity is duplicated")
+		}
+		seen[value.ID] = struct{}{}
+		role := domain.Role(value.Role)
+		severity := domain.Severity(value.Severity)
+		confidence := domain.Confidence(value.Confidence)
+		lifecycle := domain.FindingLifecycle(value.Lifecycle)
+		if _, selected := expectedRoleFindingIDs[role]; !selected {
+			return nil, fmt.Errorf("finding role has no committed role outcome")
+		}
+		roleOutcome, present := roleOutcomes[role]
+		if !present ||
+			(roleOutcome.Outcome() != "completed" && roleOutcome.Outcome() != "degraded") {
+			return nil, fmt.Errorf("finding role has no successful producing attempt")
+		}
+		providerInstance, available := roleOutcome.ProviderInstance()
+		if !available || providerInstance != value.ProviderInstance {
+			return nil, fmt.Errorf("finding provider does not match role outcome")
+		}
+		if _, available := roleOutcome.AttemptID(); !available {
+			return nil, fmt.Errorf("finding role has no producing attempt")
+		}
+		if !role.Valid() || !severity.Valid() || !confidence.Valid() || !lifecycle.Valid() ||
+			!validSHA256(value.Fingerprint) || value.ProviderInstance == "" || value.Title == "" ||
+			value.Description == "" || value.Recommendation == "" || len(value.Evidence) != 1 {
+			return nil, fmt.Errorf("final finding fields or evidence identity are invalid")
+		}
+		evidenceViews := make([]Evidence, len(value.Evidence))
+		for evidenceIndex, item := range value.Evidence {
+			sourceSessionID, err := domain.ParseSessionID(item.Source.SessionID)
+			if err != nil || sourceSessionID != sessionID {
+				return nil, fmt.Errorf("source evidence session binding is invalid")
+			}
+			sourceRunID, err := domain.ParseRunID(item.Source.RunID)
+			if err != nil || sourceRunID != runID {
+				return nil, fmt.Errorf("source evidence run binding is invalid")
+			}
+			sourceReviewID, err := domain.ParseReviewID(item.Source.ReviewID)
+			if err != nil || sourceReviewID != reviewID || item.Source.FindingID != value.ID ||
+				!validSHA256(item.Source.SourceTargetSHA256) ||
+				!validSHA256(item.Source.SourceExcerptSHA256) ||
+				item.Source.SourceTargetSHA256 != targetSHA256 {
+				return nil, fmt.Errorf("source evidence finding binding is invalid")
+			}
+			if item.Current.Verification != string(evidence.ReceiptVerified) || item.Current.TargetSHA256 != targetSHA256 {
+				return nil, fmt.Errorf("current evidence binding is invalid")
+			}
+			claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+				TargetSHA256: item.Current.TargetSHA256,
+				Side:         evidence.Side(item.Current.Side),
+				Path:         item.Current.Path,
+				LineStart:    item.Current.LineStart,
+				LineEnd:      item.Current.LineEnd,
+				Quote:        item.Current.Quote,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("current evidence claim is invalid")
+			}
+			excerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+			if err != nil || excerptSHA256 != item.Source.SourceExcerptSHA256 {
+				return nil, fmt.Errorf("current evidence excerpt identity is invalid")
+			}
+			evidenceViews[evidenceIndex] = Evidence{
+				sourceSessionID: sourceSessionID, sourceRunID: sourceRunID, sourceReviewID: sourceReviewID,
+				sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256,
+				sourceExcerptSHA256: item.Source.SourceExcerptSHA256, targetSHA256: claim.TargetSHA256(),
+				side: claim.Side(), path: claim.Path(), lineStart: claim.LineStart(), lineEnd: claim.LineEnd(),
+				quote: claim.Quote(), verification: evidence.ReceiptVerified,
+			}
+		}
+		actualRoleFindingIDs[role] = append(actualRoleFindingIDs[role], value.ID)
+		findings[index] = Finding{
+			id: value.ID, fingerprint: value.Fingerprint, role: role, providerInstance: value.ProviderInstance,
+			severity: severity, title: value.Title, description: value.Description,
+			recommendation: value.Recommendation, confidence: confidence, lifecycle: lifecycle,
+			evidence: evidenceViews,
+		}
+	}
+	for role, expected := range expectedRoleFindingIDs {
+		actual := actualRoleFindingIDs[role]
+		if len(actual) != len(expected) {
+			return nil, fmt.Errorf("role finding binding is incomplete")
+		}
+		for index := range expected {
+			if actual[index] != expected[index] {
+				return nil, fmt.Errorf("role finding binding order is invalid")
+			}
+		}
+	}
+	return findings, nil
+}
+
+func validateOutcomeProjection(
+	final finalDTO,
+	manifest manifestDTO,
+	roles []Role,
+	findings []Finding,
+	content domain.ContentVerdict,
+	coverage domain.CoverageStatus,
+	ci domain.CIDecision,
+	decision domain.PublicationDecision,
+) error {
+	threshold := domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove)
+	if !threshold.Valid() || (final.SeverityThreshold.PolicySource != "trusted_base" &&
+		final.SeverityThreshold.PolicySource != "trusted_project_strengthening") {
+		return fmt.Errorf("severity threshold is invalid")
+	}
+	expectedContent := domain.ContentNoFindings
+	if len(findings) > 0 {
+		expectedContent = domain.ContentFindingsPresent
+		for _, finding := range findings {
+			if finding.Severity().Rank() >= threshold.Rank() {
+				expectedContent = domain.ContentRequestChanges
+			}
+		}
+	}
+	if content != expectedContent {
+		return fmt.Errorf("content axis does not match findings")
+	}
+	expectedCoverage := domain.CoverageComplete
+	for _, role := range roles {
+		switch role.Outcome() {
+		case "failed", "skipped":
+			if role.Required() {
+				expectedCoverage = domain.CoverageIncomplete
+			} else if expectedCoverage == domain.CoverageComplete {
+				expectedCoverage = domain.CoverageDegraded
+			}
+		case "degraded":
+			if expectedCoverage == domain.CoverageComplete {
+				expectedCoverage = domain.CoverageDegraded
+			}
+		}
+	}
+	if coverage != expectedCoverage {
+		return fmt.Errorf("coverage axis does not match role outcomes")
+	}
+	expectedCI := domain.CIPass
+	if expectedContent == domain.ContentRequestChanges || expectedCoverage == domain.CoverageDegraded || expectedCoverage == domain.CoverageIncomplete {
+		expectedCI = domain.CIFail
+	}
+	if ci != expectedCI {
+		return fmt.Errorf("CI axis does not match trusted projection")
+	}
+	expectedReasons := make([]string, 0, 2)
+	if expectedContent == domain.ContentRequestChanges {
+		expectedReasons = append(expectedReasons, "request_changes_threshold")
+	}
+	if expectedCoverage == domain.CoverageIncomplete {
+		expectedReasons = append(expectedReasons, "required_role_incomplete")
+	} else if expectedCoverage == domain.CoverageDegraded {
+		expectedReasons = append(expectedReasons, "degraded_coverage")
+	}
+	if len(expectedReasons) == 0 {
+		expectedReasons = append(expectedReasons, "policy_evaluated")
+	}
+	if !sameStrings(final.CIReasonCodes, expectedReasons) || !sameStrings(manifest.CIReasonCodes, expectedReasons) {
+		return fmt.Errorf("CI reason codes do not match trusted projection")
+	}
+	expectedExit := domain.ExitCommittedPass
+	if expectedCoverage == domain.CoverageIncomplete {
+		expectedExit = domain.ExitIncompleteCoverage
+	} else if expectedCI == domain.CIFail {
+		expectedExit = domain.ExitCommittedCIRejected
+	}
+	storedExit, ok := decision.ExitCode()
+	if !ok || storedExit != expectedExit || manifest.ExitCode != int(expectedExit) {
+		return fmt.Errorf("committed exit projection is invalid")
+	}
+	return nil
+}
+
+func sameRoles(values []string, roles []Role, requiredOnly bool) bool {
+	expected := make([]string, 0, len(roles))
+	for _, role := range roles {
+		if !requiredOnly || role.Required() {
+			expected = append(expected, string(role.Name()))
+		}
+	}
+	return sameStrings(values, expected)
+}
+func consistentCommittedRunState(state domain.RunState, roles []Role, coverage domain.CoverageStatus) bool {
+	failedAny := false
+	failedRequired := false
+	for _, role := range roles {
+		if role.Outcome() == "failed" || role.Outcome() == "skipped" {
+			failedAny = true
+			failedRequired = failedRequired || role.Required()
+		}
+	}
+	switch state {
+	case domain.RunCompleted:
+		return !failedAny
+	case domain.RunDegraded:
+		return failedAny && !failedRequired
+	case domain.RunFailed:
+		return failedRequired && coverage == domain.CoverageIncomplete
+	default:
+		return false
+	}
+}
+func matchesArtifactPath(reference string, actual ports.SafeRelativePath, run ports.PublicationRun) bool {
+	if _, err := ports.NewSafeRelativePath(reference); err != nil {
+		return false
+	}
+	if reference == actual.String() {
+		return true
+	}
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	return strings.HasPrefix(actual.String(), prefix) && reference == strings.TrimPrefix(actual.String(), prefix)
+}
+
+func sameLineage(first, second lineageDTO) bool {
+	return sameOptionalString(first.ParentRunID, second.ParentRunID) &&
+		sameOptionalString(first.SourceRunID, second.SourceRunID) &&
+		sameOptionalString(first.SourceReviewID, second.SourceReviewID) &&
+		sameOptionalString(first.SourceFindingRef, second.SourceFindingRef) &&
+		sameOptionalString(first.ReplayMode, second.ReplayMode) &&
+		first.LineageEdgePath == second.LineageEdgePath && first.LineageEdgeSHA == second.LineageEdgeSHA
+}
+
+func sameOptionalString(first, second *string) bool {
+	if first == nil || second == nil {
+		return first == nil && second == nil
+	}
+	return *first == *second
+}
+
+func sameStrings(first, second []string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func roleOrdinal(role domain.Role) int {
+	for index, candidate := range domain.FixedRoleOrder() {
+		if role == candidate {
+			return index
+		}
+	}
+	return -1
+}
+
+func statusFromDecision(run ports.PublicationRun, decision domain.PublicationDecision) RunStatus {
+	return RunStatus{
+		sessionID: run.SessionID(), runID: run.RunID(), publication: decision.Status(),
+		authority: decision.Authority(), action: decision.Action(),
+	}
+}
+
+func corruptStatus(run ports.PublicationRun) RunStatus {
+	return RunStatus{
+		sessionID: run.SessionID(), runID: run.RunID(), publication: domain.PublicationCorrupt,
+		authority: domain.PublicationAuthorityNone, action: domain.RecoveryActionEmitImmutableCorruptionDiagnostic,
+	}
+}
+func (service *Service) preflight(ctx context.Context, stage string) error {
+	if missingDependency(service) || missingDependency(service.store) || missingDependency(service.validator) {
+		return typedFailure(stage, domain.FailureArtifact, "query dependencies are unavailable", nil)
+	}
+	return contextFailure(ctx, stage)
+}
+
+func dependencyFailure(
+	ctx context.Context,
+	stage string,
+	fallback domain.FailureClass,
+	reason string,
+	cause error,
+) error {
+	class := reduceDependencyFailureClass(ctx, cause, fallback)
+	if ctx != nil && ctx.Err() != nil {
+		cause = errors.Join(cause, ctx.Err())
+	}
+	return typedFailure(stage, class, reason, cause)
+}
+
+func reduceDependencyFailureClass(
+	ctx context.Context,
+	cause error,
+	fallback domain.FailureClass,
+) domain.FailureClass {
+	classes := make([]domain.FailureClass, 0, 4)
+	var visit func(error, bool)
+	visit = func(current error, classifiedByAncestor bool) {
+		if current == nil {
+			return
+		}
+		classified := false
+		if failure, ok := current.(*domain.Failure); ok && failure.Class().Valid() {
+			classes = append(classes, failure.Class())
+			classified = true
+		}
+		if carrier, ok := current.(interface {
+			PublicationFailureClass() domain.FailureClass
+		}); ok && carrier.PublicationFailureClass().Valid() {
+			classes = append(classes, carrier.PublicationFailureClass())
+			classified = true
+		}
+
+		hasChildren := false
+		switch unwrapped := current.(type) {
+		case interface{ Unwrap() []error }:
+			hasChildren = true
+			for _, nested := range unwrapped.Unwrap() {
+				visit(nested, classifiedByAncestor || classified)
+			}
+		case interface{ Unwrap() error }:
+			if nested := unwrapped.Unwrap(); nested != nil {
+				hasChildren = true
+				visit(nested, classifiedByAncestor || classified)
+			}
+		}
+		if hasChildren {
+			return
+		}
+		if errors.Is(current, context.Canceled) || errors.Is(current, context.DeadlineExceeded) {
+			classes = append(classes, domain.FailureCancelled)
+			return
+		}
+		if !classified && !classifiedByAncestor {
+			classes = append(classes, fallback)
+		}
+	}
+	visit(cause, false)
+	if ctx != nil && ctx.Err() != nil {
+		classes = append(classes, domain.FailureCancelled)
+	}
+	if len(classes) == 0 {
+		classes = append(classes, fallback)
+	}
+	selected := fallback
+	selectedRank := -1
+	for _, class := range classes {
+		if rank := queryFailurePrecedence(class); rank > selectedRank {
+			selected = class
+			selectedRank = rank
+		}
+	}
+	return selected
+}
+
+func queryFailurePrecedence(class domain.FailureClass) int {
+	switch class {
+	case domain.FailureInternal:
+		return 7
+	case domain.FailureArtifact:
+		return 6
+	case domain.FailureSecurityPolicy:
+		return 5
+	case domain.FailureCancelled:
+		return 4
+	case domain.FailureConfiguration:
+		return 3
+	case domain.FailureProviderUnavailable,
+		domain.FailureTimeout,
+		domain.FailureAuthentication,
+		domain.FailureQuota,
+		domain.FailureRateLimit:
+		return 2
+	case domain.FailureInvalidOutput:
+		return 1
+	default:
+		return 0
+	}
+}
+func samePublicationDecision(first, second domain.PublicationDecision) bool {
+	if first.Status() != second.Status() ||
+		first.Authority() != second.Authority() ||
+		first.Action() != second.Action() {
+		return false
+	}
+	firstExit, firstHasExit := first.ExitCode()
+	secondExit, secondHasExit := second.ExitCode()
+	if firstHasExit != secondHasExit || (firstHasExit && firstExit != secondExit) {
+		return false
+	}
+	return sameStrings(first.Reasons(), second.Reasons())
+}
+
+func sameCommittedSnapshot(left, right ports.CommittedPublicationSnapshot) bool {
+	if !left.Valid() || !right.Valid() ||
+		left.Final().Identity() != right.Final().Identity() ||
+		left.Manifest().Path() != right.Manifest().Path() ||
+		left.Manifest().SHA256() != right.Manifest().SHA256() ||
+		left.LineageEdge().Path() != right.LineageEdge().Path() ||
+		left.LineageEdge().SHA256() != right.LineageEdge().SHA256() ||
+		left.Epoch().Value() != right.Epoch().Value() ||
+		left.Epoch().Record().Path() != right.Epoch().Record().Path() ||
+		left.Epoch().Record().SHA256() != right.Epoch().Record().SHA256() {
+		return false
+	}
+	return bytes.Equal(left.Final().Bytes(), right.Final().Bytes()) &&
+		bytes.Equal(left.Manifest().Bytes(), right.Manifest().Bytes()) &&
+		bytes.Equal(left.LineageEdge().Bytes(), right.LineageEdge().Bytes()) &&
+		bytes.Equal(left.Epoch().Record().Bytes(), right.Epoch().Record().Bytes())
+}
+func contextFailure(ctx context.Context, stage string) error {
+	if ctx == nil {
+		return typedFailure(stage, domain.FailureConfiguration, "query context is nil", nil)
+	}
+	if err := ctx.Err(); err != nil {
+		return typedFailure(stage, domain.FailureCancelled, "query request was cancelled", err)
+	}
+	return nil
+}
+
+func typedFailure(stage string, class domain.FailureClass, reason string, cause error) error {
+	failure, err := domain.NewFailure(stage, class, reason, cause)
+	if err != nil {
+		return err
+	}
+	return failure
+}
+
+func missingDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}
+
+func requiredSchemaAsset(value string) ports.AssetID {
+	asset, err := ports.ParseAssetID(value)
+	if err != nil {
+		panic(err)
+	}
+	return asset
+}
+
+func validFindingID(value string) bool {
+	if len(value) < 4 || value[0] != 'F' {
+		return false
+	}
+	nonzero := false
+	for _, character := range value[1:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+		nonzero = nonzero || character != '0'
+	}
+	return nonzero
+}
+
+func validSHA256(value string) bool {
+	_, ok := canonicalSHA256(value)
+	return ok && strings.HasPrefix(value, "sha256:")
+}
+
+func canonicalSHA256(value string) (string, bool) {
+	value = strings.TrimPrefix(value, "sha256:")
+	if len(value) != 64 {
+		return "", false
+	}
+	for _, character := range value {
+		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f') {
+			return "", false
+		}
+	}
+	return "sha256:" + value, true
+}

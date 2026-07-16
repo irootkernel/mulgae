@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
@@ -24,7 +26,7 @@ const (
 	doctorResultSchema  = "https://kar.local/schemas/kar-doctor-result.v1.schema.json"
 )
 
-func (application *Application) execute(ctx context.Context, invocation Invocation) execution {
+func (application *Application) execute(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
 	switch invocation.Command() {
 	case app.CommandHelp:
 		return application.handleHelp(ctx, invocation)
@@ -36,6 +38,14 @@ func (application *Application) execute(ctx context.Context, invocation Invocati
 		return application.handleConfig(ctx, invocation)
 	case app.CommandDoctor:
 		return application.handleDoctor(ctx, invocation)
+	case app.CommandStatus:
+		return application.handleStatus(ctx, invocation, canonicalProjectRoot)
+	case app.CommandReport:
+		return application.handleReport(ctx, invocation, canonicalProjectRoot)
+	case app.CommandFindings:
+		return application.handleFindings(ctx, invocation, canonicalProjectRoot)
+	case app.CommandExcerpt:
+		return application.handleExcerpt(ctx, invocation, canonicalProjectRoot)
 	default:
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unsupported foundation dispatch"), domain.FailureInternal)}
 	}
@@ -364,6 +374,356 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 	}
 }
 
+const maxReportMarkdownBytes int64 = 8 << 20
+
+func (application *Application) handleStatus(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Status()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	status, err := application.publicationQueries.ReadRunStatus(ctx, run)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	data, err := statusResultData(request, status)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	return execution{human: statusHumanOutput(status), data: data}
+}
+
+func (application *Application) handleReport(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Report()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	destination, err := ports.NewSafeRelativePath(request.OutputPath())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	if reportOutputUsesControlNamespace(destination.String()) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("report output path is reserved"), domain.FailureConfiguration)}
+	}
+	projectRoot, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	if nilApplicationDependency(application.publicationReports) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("G006 report service is unavailable"), domain.FailureArtifact)}
+	}
+	rendered, err := application.publicationReports.Render(ctx, run)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	if rendered.RunID != request.RunID() || len(rendered.Markdown) == 0 || int64(len(rendered.Markdown)) > maxReportMarkdownBytes {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("rendered report is not bound to the selected run"), domain.FailureArtifact)}
+	}
+	receipt, err := application.persistReportMarkdown(ctx, projectRoot, destination, rendered.SourceIDs, rendered.Markdown)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	uri := receipt.Destination().String()
+	data, err := json.Marshal(struct {
+		Kind      string `json:"kind"`
+		ReportURI string `json:"report_uri"`
+	}{"report_rendered", uri})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: []byte("report rendered: " + uri), data: data}
+}
+
+func (application *Application) handleFindings(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Findings()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	findings, err := application.publicationQueries.ListFindings(ctx, run, request.MinimumSeverity())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	if err := validateFindingsView(request, findings); err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	data, err := json.Marshal(struct {
+		Kind              string `json:"kind"`
+		RunID             string `json:"run_id"`
+		FindingCount      int    `json:"finding_count"`
+		ReviewArtifactURI string `json:"review_artifact_uri"`
+	}{"findings_listed", findings.RunID, len(findings.Findings), findings.ReviewArtifactURI})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: findingsHumanOutput(findings), data: data}
+}
+
+func (application *Application) handleExcerpt(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Excerpt()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	excerpt, err := application.publicationQueries.RenderExcerpt(ctx, run, request.FindingID(), request.CurrentTargetSHA256())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	if len(excerpt) == 0 {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("verified excerpt is empty"), domain.FailureArtifact)}
+	}
+	encoded := base64.StdEncoding.EncodeToString(excerpt)
+	digest := sha256.Sum256(excerpt)
+	checksum := "sha256:" + hex.EncodeToString(digest[:])
+	data, err := json.Marshal(struct {
+		Kind          string  `json:"kind"`
+		EvidenceState string  `json:"evidence_state"`
+		ExcerptURI    *string `json:"excerpt_uri"`
+		ExcerptBase64 *string `json:"excerpt_base64"`
+		ExcerptSHA256 *string `json:"excerpt_sha256"`
+	}{"excerpt_rendered", "verified", nil, &encoded, &checksum})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: excerpt, data: data, verbatim: true}
+}
+
+func (application *Application) resolvePublicationRun(
+	ctx context.Context,
+	canonicalProjectRoot string,
+	rawRunID string,
+) (ports.AnchoredRoot, ports.PublicationRun, error) {
+	projectRoot, artifactRoot, err := publicationRoots(canonicalProjectRoot)
+	if err != nil {
+		return ports.AnchoredRoot{}, ports.PublicationRun{}, err
+	}
+	if nilApplicationDependency(application.publicationQueries) {
+		return ports.AnchoredRoot{}, ports.PublicationRun{}, typedHandlerFailure("cli.query", domain.FailureArtifact, "G006 query service is unavailable", nil)
+	}
+	runID, err := domain.ParseRunID(rawRunID)
+	if err != nil {
+		return ports.AnchoredRoot{}, ports.PublicationRun{}, err
+	}
+	run, err := application.publicationQueries.ResolveRun(ctx, artifactRoot, runID)
+	if err != nil {
+		return ports.AnchoredRoot{}, ports.PublicationRun{}, classifyHandlerFailure(
+			"cli.query",
+			domain.FailureArtifact,
+			"publication run resolution failed",
+			err,
+		)
+	}
+	if !run.Valid() || run.Root() != artifactRoot || run.RunID() != runID {
+		return ports.AnchoredRoot{}, ports.PublicationRun{}, typedHandlerFailure("cli.query", domain.FailureArtifact, "publication run resolution returned an invalid scope", nil)
+	}
+	return projectRoot, run, nil
+}
+
+func publicationRoots(canonicalProjectRoot string) (ports.AnchoredRoot, ports.AnchoredRoot, error) {
+	projectRoot, err := ports.NewAnchoredRoot(canonicalProjectRoot)
+	if err != nil {
+		return ports.AnchoredRoot{}, ports.AnchoredRoot{}, err
+	}
+	artifactPath := projectRoot.String() + "/.kar"
+	if projectRoot.String() == "/" {
+		artifactPath = "/.kar"
+	}
+	artifactRoot, err := ports.NewAnchoredRoot(artifactPath)
+	if err != nil {
+		return ports.AnchoredRoot{}, ports.AnchoredRoot{}, err
+	}
+	return projectRoot, artifactRoot, nil
+}
+
+func validateStatusPublicationPair(status RunStatusView) error {
+	switch status.PublicationState {
+	case domain.PublicationNotPublished:
+		if status.RecoveryAction != domain.RecoveryActionResumeCollection &&
+			status.RecoveryAction != domain.RecoveryActionRestageValidatedCandidate {
+			return errors.New("not-published status has an invalid recovery action")
+		}
+	case domain.PublicationStaged:
+		if status.RecoveryAction != domain.RecoveryActionInstallStagedFinal {
+			return errors.New("staged status has an invalid recovery action")
+		}
+	case domain.PublicationInstalled:
+		if status.RecoveryAction != domain.RecoveryActionCommitCompositeEpoch {
+			return errors.New("installed status has an invalid recovery action")
+		}
+	case domain.PublicationCommitted:
+		if status.RecoveryAction != domain.RecoveryActionReconstructCompletedStatus {
+			return errors.New("committed status has an invalid recovery action")
+		}
+		switch status.RunState {
+		case domain.RunCompleted, domain.RunDegraded, domain.RunFailed:
+		default:
+			return errors.New("committed status has a non-publishable run state")
+		}
+		return nil
+	default:
+		return errors.New("status does not represent a readable publication state")
+	}
+	if status.HasRunState || status.RunState != "" || status.HasFinalArtifact ||
+		status.FinalArtifactURI != "" || status.HasAxes ||
+		status.ContentVerdict != "" || status.CoverageStatus != "" || status.CIDecision != "" {
+		return errors.New("non-P2 status exposed committed authority fields")
+	}
+	return nil
+}
+
+func statusResultData(request StatusRequest, status RunStatusView) ([]byte, error) {
+	if status.RunID != request.RunID() || !status.PublicationState.Valid() || !status.RecoveryAction.Valid() {
+		return nil, errors.New("status projection is invalid")
+	}
+	if err := validateStatusPublicationPair(status); err != nil {
+		return nil, err
+	}
+	if status.HasRunState {
+		if !status.RunState.Valid() {
+			return nil, errors.New("status run state is invalid")
+		}
+	} else if status.RunState != "" {
+		return nil, errors.New("status run state presence is inconsistent")
+	}
+	if status.HasFinalArtifact {
+		if status.PublicationState != domain.PublicationCommitted {
+			return nil, errors.New("non-P2 status exposed a final artifact path")
+		}
+		path, err := ports.NewSafeRelativePath(status.FinalArtifactURI)
+		if err != nil || path.String() != status.FinalArtifactURI || !strings.HasPrefix(status.FinalArtifactURI, ".kar/") {
+			return nil, errors.New("status final artifact path is invalid")
+		}
+	} else if status.FinalArtifactURI != "" {
+		return nil, errors.New("status final artifact presence is inconsistent")
+	}
+	if status.HasAxes {
+		if status.PublicationState != domain.PublicationCommitted || !status.HasFinalArtifact ||
+			!status.ContentVerdict.Valid() || !status.CoverageStatus.Valid() || !status.CIDecision.Valid() {
+			return nil, errors.New("status outcome axes are not an all-or-none P2 projection")
+		}
+	} else if status.ContentVerdict != "" || status.CoverageStatus != "" || status.CIDecision != "" {
+		return nil, errors.New("status outcome axes are present without P2 authority")
+	}
+	if status.PublicationState == domain.PublicationCommitted &&
+		(!status.HasRunState || !status.HasFinalArtifact || !status.HasAxes) {
+		return nil, errors.New("P2 status omitted committed authority fields")
+	}
+	var contentVerdict *string
+	var coverageStatus *string
+	var ciDecision *string
+	if status.HasAxes {
+		content := string(status.ContentVerdict)
+		coverage := string(status.CoverageStatus)
+		ci := string(status.CIDecision)
+		contentVerdict = &content
+		coverageStatus = &coverage
+		ciDecision = &ci
+	}
+	var runState *string
+	if status.HasRunState {
+		value := string(status.RunState)
+		runState = &value
+	}
+	recoveryAction := string(status.RecoveryAction)
+	var finalArtifactURI *string
+	if status.HasFinalArtifact {
+		finalArtifactURI = &status.FinalArtifactURI
+	}
+	return json.Marshal(struct {
+		Kind              string  `json:"kind"`
+		RunID             string  `json:"run_id"`
+		RunState          *string `json:"run_state"`
+		PublicationStatus string  `json:"publication_status"`
+		RecoveryAction    string  `json:"recovery_action"`
+		FinalArtifactURI  *string `json:"final_artifact_uri"`
+		ContentVerdict    *string `json:"content_verdict,omitempty"`
+		CoverageStatus    *string `json:"coverage_status,omitempty"`
+		CIDecision        *string `json:"ci_decision,omitempty"`
+	}{
+		Kind:              "status_read",
+		RunID:             status.RunID,
+		RunState:          runState,
+		PublicationStatus: string(status.PublicationState),
+		RecoveryAction:    recoveryAction,
+		FinalArtifactURI:  finalArtifactURI,
+		ContentVerdict:    contentVerdict,
+		CoverageStatus:    coverageStatus,
+		CIDecision:        ciDecision,
+	})
+}
+
+func statusHumanOutput(status RunStatusView) []byte {
+	var output strings.Builder
+	output.WriteString("run_id: ")
+	output.WriteString(status.RunID)
+	if status.HasRunState {
+		output.WriteString("\nrun_state: ")
+		output.WriteString(string(status.RunState))
+	} else {
+		output.WriteString("\nrun_state: unavailable")
+	}
+	output.WriteString("\npublication_status: ")
+	output.WriteString(string(status.PublicationState))
+	output.WriteString("\nrecovery_action: ")
+	output.WriteString(string(status.RecoveryAction))
+	if status.HasFinalArtifact {
+		output.WriteString("\nfinal_artifact_uri: ")
+		output.WriteString(status.FinalArtifactURI)
+	}
+	if status.HasAxes {
+		output.WriteString("\ncontent_verdict: ")
+		output.WriteString(string(status.ContentVerdict))
+		output.WriteString("\ncoverage_status: ")
+		output.WriteString(string(status.CoverageStatus))
+		output.WriteString("\nci_decision: ")
+		output.WriteString(string(status.CIDecision))
+	}
+	return []byte(output.String())
+}
+
+func validateFindingsView(request FindingsRequest, findings FindingsView) error {
+	if findings.RunID != request.RunID() || len(findings.Findings) > 1_000_000 {
+		return errors.New("findings projection is not bound to the selected run")
+	}
+	path, err := ports.NewSafeRelativePath(findings.ReviewArtifactURI)
+	if err != nil || path.String() != findings.ReviewArtifactURI || !strings.HasPrefix(findings.ReviewArtifactURI, ".kar/") {
+		return errors.New("findings projection omitted the committed review artifact URI")
+	}
+	for _, finding := range findings.Findings {
+		if !validFindingID(finding.ID) || !finding.Severity.Valid() ||
+			finding.Title == "" || strings.ContainsAny(finding.Title, "\x00\r\n") {
+			return errors.New("findings projection contains an invalid finding")
+		}
+	}
+	return nil
+}
+
+func findingsHumanOutput(findings FindingsView) []byte {
+	var output strings.Builder
+	output.WriteString("review_artifact_uri: ")
+	output.WriteString(findings.ReviewArtifactURI)
+	output.WriteString("\nfinding_count: ")
+	output.WriteString(strconv.Itoa(len(findings.Findings)))
+	for _, finding := range findings.Findings {
+		output.WriteByte('\n')
+		output.WriteString(finding.ID)
+		output.WriteString(" [")
+		output.WriteString(string(finding.Severity))
+		output.WriteString("] ")
+		output.WriteString(finding.Title)
+	}
+	return []byte(output.String())
+}
+
 type configurationOutput struct {
 	Mode              ConfigMode                      `json:"mode"`
 	Policy            json.RawMessage                 `json:"policy"`
@@ -440,10 +800,20 @@ func (application *Application) persistJSON(
 	}
 	receipt, drop, writeErr := application.writer.Write(ctx, request)
 	if drop != nil {
-		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.persist", domain.FailureSecurityPolicy, "secure writer rejected output", firstHandlerError(writeErr, abortCause))
+		return ports.SecureWriteReceipt{}, typedHandlerFailure(
+			"cli.persist",
+			domain.FailureSecurityPolicy,
+			"secure writer rejected output",
+			errors.Join(writeErr, abortCause),
+		)
 	}
 	if writeErr != nil {
-		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.persist", domain.FailureArtifact, "output write failed", writeErr)
+		return ports.SecureWriteReceipt{}, typedHandlerFailure(
+			"cli.persist",
+			domain.FailureArtifact,
+			"output write failed",
+			errors.Join(writeErr, abortCause),
+		)
 	}
 	if aborted {
 		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.persist", domain.FailureInternal, "secure writer abort callback was not accompanied by a rejection", abortCause)
@@ -459,6 +829,100 @@ func (application *Application) persistJSON(
 	}
 	return receipt, nil
 }
+func (application *Application) persistReportMarkdown(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	destination ports.SafeRelativePath,
+	sourceIDs []string,
+	contents []byte,
+) (ports.SecureWriteReceipt, error) {
+	if len(contents) == 0 || int64(len(contents)) > maxReportMarkdownBytes {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "report bytes exceed the write limit", nil)
+	}
+	if reportOutputUsesControlNamespace(destination.String()) {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureConfiguration, "report output path is reserved", nil)
+	}
+	if parent, present, err := reportParentDirectory(destination); err != nil {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "report output parent is invalid", err)
+	} else if present {
+		if err := application.writer.EnsurePrivateDir(root, parent); err != nil {
+			return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "private report output directory unavailable", err)
+		}
+	}
+	aborted := false
+	var abortCause error
+	request, err := ports.NewSecureWriteRequest(
+		root,
+		destination,
+		"report_markdown",
+		bytes.NewReader(contents),
+		maxReportMarkdownBytes,
+		cloneApplicationStrings(sourceIDs),
+		func(cause error) {
+			aborted = true
+			abortCause = cause
+		},
+	)
+	if err != nil {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "report write request is invalid", err)
+	}
+	receipt, drop, writeErr := application.writer.Write(ctx, request)
+	if drop != nil {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure(
+			"cli.report",
+			domain.FailureSecurityPolicy,
+			"secure writer rejected report output",
+			errors.Join(writeErr, abortCause),
+		)
+	}
+	if writeErr != nil {
+		return ports.SecureWriteReceipt{}, classifyHandlerFailure(
+			"cli.report",
+			domain.FailureArtifact,
+			"report output write failed",
+			errors.Join(writeErr, abortCause),
+		)
+	}
+	if aborted {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureInternal, "secure writer abort callback was not accompanied by a rejection", abortCause)
+	}
+	expected := sha256.Sum256(contents)
+	if receipt.Root() != root ||
+		receipt.Destination() != destination ||
+		receipt.ByteLength() != int64(len(contents)) ||
+		receipt.SHA256() != "sha256:"+hex.EncodeToString(expected[:]) ||
+		receipt.Channel() != "report_markdown" ||
+		!sameStrings(receipt.SourceIDs(), sourceIDs) {
+		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "report output receipt did not bind accepted bytes and lineage", nil)
+	}
+	return receipt, nil
+}
+
+func reportParentDirectory(destination ports.SafeRelativePath) (ports.SafeRelativePath, bool, error) {
+	index := strings.LastIndexByte(destination.String(), '/')
+	if index < 0 {
+		return ports.SafeRelativePath{}, false, nil
+	}
+	parent, err := ports.NewSafeRelativePath(destination.String()[:index])
+	if err != nil {
+		return ports.SafeRelativePath{}, false, err
+	}
+	return parent, true, nil
+}
+
+func reportOutputUsesControlNamespace(outputPath string) bool {
+	namespace, _, _ := strings.Cut(outputPath, "/")
+	switch {
+	case strings.EqualFold(namespace, ".kar"),
+		strings.EqualFold(namespace, ".git"),
+		strings.EqualFold(namespace, ".gjc"),
+		strings.EqualFold(namespace, ".kar.yaml"),
+		strings.EqualFold(namespace, ".kar.yml"):
+		return true
+	default:
+		return false
+	}
+}
 func sameStrings(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
@@ -471,13 +935,17 @@ func sameStrings(left, right []string) bool {
 	return true
 }
 
-func firstHandlerError(primary, fallback error) error {
-	if primary != nil {
-		return primary
+func classifyHandlerFailure(stage string, fallback domain.FailureClass, reason string, cause error) error {
+	if cause != nil {
+		var failure *domain.Failure
+		if errors.As(cause, &failure) ||
+			errors.Is(cause, context.Canceled) ||
+			errors.Is(cause, context.DeadlineExceeded) {
+			return cause
+		}
 	}
-	return fallback
+	return typedHandlerFailure(stage, fallback, reason, cause)
 }
-
 func typedHandlerFailure(stage string, class domain.FailureClass, reason string, cause error) error {
 	failure, err := domain.NewFailure(stage, class, reason, cause)
 	if err != nil {

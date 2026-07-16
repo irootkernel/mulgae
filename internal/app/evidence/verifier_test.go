@@ -99,6 +99,13 @@ func TestVerifyCurrentPreservesLFAndFinalNonLFBytes(t *testing.T) {
 			if got, want := receipt.ExcerptSHA256(), test.wantDigest; got != want {
 				t.Fatalf("ExcerptSHA256() = %q, want %q", got, want)
 			}
+			computed, err := claim.ExcerptSHA256(receipt.Excerpt())
+			if err != nil {
+				t.Fatalf("ExcerptSHA256() helper error = %v", err)
+			}
+			if computed != receipt.ExcerptSHA256() {
+				t.Fatalf("ExcerptSHA256() helper = %q, receipt = %q", computed, receipt.ExcerptSHA256())
+			}
 		})
 	}
 }

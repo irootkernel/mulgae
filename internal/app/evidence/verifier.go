@@ -153,6 +153,20 @@ func (claim CurrentClaim) Quote() string { return string(claim.quote) }
 // QuoteBytes returns a defensive copy of the exact quote bytes.
 func (claim CurrentClaim) QuoteBytes() []byte { return append([]byte(nil), claim.quote...) }
 
+// ExcerptSHA256 computes the canonical source/current excerpt identity for
+// exact bytes under this claim. It does not assert that the bytes were read from
+// an immutable target; callers must retain a verifier-owned receipt for that
+// authority.
+func (claim CurrentClaim) ExcerptSHA256(excerpt []byte) (string, error) {
+	if claim.validationReason() != ReasonVerified {
+		return "", fmt.Errorf("current evidence claim is invalid")
+	}
+	if len(excerpt) == 0 {
+		return "", fmt.Errorf("excerpt must be non-empty")
+	}
+	return excerptSHA256(claim, excerpt), nil
+}
+
 func (claim CurrentClaim) validationReason() ReasonCode {
 	targetSHA256, targetDigest, err := canonicalTargetSHA256(claim.targetSHA256)
 	if err != nil || targetSHA256 != claim.targetSHA256 || targetDigest != claim.targetDigest {
