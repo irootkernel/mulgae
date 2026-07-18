@@ -2,7 +2,7 @@
 
 ## 0. G0 Contract Boundary
 
-This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G006 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and committed-query boundaries. G007–G009 remain separately gated and pending.
+This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G006 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and committed-query boundaries; and G007 completes the authority-gated provider adapters for exactly `kimi`, `zcode`, and `agy`. G008 and G009 remain separately gated and pending.
 
 No coordinator, publisher, provider adapter, lineage service, product tool, actual product/release CI job, or release asset may be implemented before both the authoritative SOT post-verification records `g0_complete` and a separate session-bound implementation approval is granted. Gate A, candidate review, promotion authorization, and the authority-ref compare-and-swap are distinct prerequisites; cached approval data is not authority.
 
@@ -17,7 +17,7 @@ The product boundary uses four independently serialized outcome axes:
 
 A high finding and required-role exhaustion therefore preserve `request_changes` and `incomplete` independently. Publication and CI are not inferred from either value.
 
-The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and `darwin-arm64`, but only `darwin-arm64` is G0 `required`/blocking and requires native local-POSIX probe evidence. The other three cells are `intended_future`, non-blocking, unsupported, and release-ineligible; Windows and network filesystems are outside this contract. `kimi`, `zcode`, and `agy` are intended provider families, not supported providers, until their exact tuples pass the required probes. Provider/platform evidence v1 is compatibility-only; only v2 evidence may enter readiness. `codex` and `claude` are optional post-G0 configuration only and are not assignment defaults or automatic fallbacks.
+The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and `darwin-arm64`, but only `darwin-arm64` is G0 `required`/blocking and requires native local-POSIX probe evidence. The other three cells are `intended_future`, non-blocking, unsupported, and release-ineligible; Windows and network filesystems are outside this contract. The exact authority-gated `kimi`, `zcode`, and `agy` adapter tuples are complete through G007; standalone absence of evidence remains `UNVERIFIED` and does not imply support. Provider/platform evidence v1 is compatibility-only; only v2 evidence may enter readiness. `codex` and `claude` are optional post-G0 configuration only and are not assignment defaults or automatic fallbacks.
 
 ## 0.1 Post-G0 architectural milestones
 

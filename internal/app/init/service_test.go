@@ -13,7 +13,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestInitializeProjectWritesStrictConfigurationAndUnverifiedProviders(t *testing.T) {
+func TestInitializeProjectWritesStrictConfigurationAndExactUnverifiedProviderSet(t *testing.T) {
 	root := testRoot(t)
 	contextPath := testRelativePath(t, ".kar/context.md")
 	wantYAML := "version: 1\ntrusted_base: true\nproject:\n  name: \"project-alpha\"\n  root: \".\"\n  context: \".kar/context.md\"\n"
@@ -76,36 +76,7 @@ func TestInitializeProjectWritesStrictConfigurationAndUnverifiedProviders(t *tes
 	}
 }
 
-func TestInitializeProjectReturnsOptionalProvidersOnlyWhenRequested(t *testing.T) {
-	root := testRoot(t)
-	wantYAML := "version: 1\ntrusted_base: true\nproject:\n  name: \"project\"\n  root: \".\"\n"
-	writer := &fakeSecureWriter{receipt: receiptFor(t, projectConfigPath, []byte(wantYAML))}
-	service := mustNewService(t, writer, fixedClock{})
-
-	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot:         root,
-		ProjectName:         "project",
-		IntendedProviderIDs: []string{"kimi"},
-		OptionalProviderIDs: []string{"codex", "claude"},
-	})
-	if err != nil {
-		t.Fatalf("InitializeProject() error = %v", err)
-	}
-	if got, want := result.ProviderStatuses, []ProviderStatus{
-		{ID: "kimi", Status: "unverified"},
-		{ID: "codex", Status: "unverified"},
-		{ID: "claude", Status: "unverified"},
-	}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("provider statuses = %#v, want %#v", got, want)
-	}
-	for _, status := range result.ProviderStatuses {
-		if status.Status != unverifiedProviderStatus {
-			t.Fatalf("provider %q status = %q, want %q", status.ID, status.Status, unverifiedProviderStatus)
-		}
-	}
-}
-
-func TestInitializeProjectRejectsDuplicateAndUnknownProvidersBeforeWriting(t *testing.T) {
+func TestInitializeProjectRejectsDuplicateAndUnsupportedIntendedProvidersBeforeWriting(t *testing.T) {
 	root := testRoot(t)
 	tests := []struct {
 		name    string
@@ -128,7 +99,7 @@ func TestInitializeProjectRejectsDuplicateAndUnknownProvidersBeforeWriting(t *te
 			},
 		},
 		{
-			name: "optional in intended list",
+			name: "codex intended",
 			request: InitializeProjectRequest{
 				ProjectRoot:         root,
 				ProjectName:         "project",
@@ -136,19 +107,11 @@ func TestInitializeProjectRejectsDuplicateAndUnknownProvidersBeforeWriting(t *te
 			},
 		},
 		{
-			name: "intended in optional list",
+			name: "claude intended",
 			request: InitializeProjectRequest{
 				ProjectRoot:         root,
 				ProjectName:         "project",
-				OptionalProviderIDs: []string{"zcode"},
-			},
-		},
-		{
-			name: "duplicate optional",
-			request: InitializeProjectRequest{
-				ProjectRoot:         root,
-				ProjectName:         "project",
-				OptionalProviderIDs: []string{"claude", "claude"},
+				IntendedProviderIDs: []string{"claude"},
 			},
 		},
 	}

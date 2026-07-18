@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 13 Option B under SOT 1.3.0 and the verified delivery boundary through G3B. Decision Readiness is **READY**; G001–G006 are **COMPLETE**; G007–G009 are **PENDING**.
+This roadmap records Revision 13 Option B under SOT 1.4.0 and the implementation boundary through G007. Decision Readiness is **READY**; G001–G007 are **COMPLETE**; G008–G009 are **PENDING**. This is not release authorization.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -12,13 +12,13 @@ This roadmap records Revision 13 Option B under SOT 1.3.0 and the verified deliv
 | G004 | G2 prompt validation, repair, fake review | **COMPLETE** |
 | G005 | G3A coordinator, runtime, evidence, axes | **COMPLETE** |
 | G006 | G3B publication, recovery, reporting | **COMPLETE** |
-| G007 | G4 opt-in provider adapters | **PENDING** |
+| G007 | G4 opt-in provider adapters | **COMPLETE** |
 | G008 | G5 lineage, cleanup, export | **PENDING** |
 | G009 | Integrated v0.1 release gate | **PENDING** |
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G006 stories are complete; this boundary does not authorize pending G007–G009 work or a release.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G007 stories are complete; this boundary does not authorize pending G008–G009 work or a release.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -83,13 +83,15 @@ Acceptance:
 ## 6. G4: Opt-In Provider Contracts
 
 Deliver:
-- provider probes, profiles, adapter implementations, and `providers`/`doctor` reporting for `kimi`, `zcode`, and `agy`;
-- exact tuple capability evidence and assignment inputs.
+- completed opt-in, evidence-gated adapter construction and `providers`/`doctor` reporting for exactly `kimi`, `zcode`, and `agy`;
+- exact configured-tuple capability evidence and assignment inputs.
 
 Acceptance:
 - standard CI remains network- and credential-free;
-- a tuple is supported only after all required provider and role-fit probes PASS;
-- unavailable, inconclusive, or failed tuples remain non-supported and block dependent assignments;
+- standalone remains unverified absent injected authority evidence and does not guess, create, or load a hidden authority source;
+- a configured tuple is supported only after its exact tuple evidence is PASS;
+- unavailable, inconclusive, failed, missing, or otherwise non-PASS tuples remain unsupported and block dependent assignments;
+- the only controlled live receipt recorded here is the exact Kimi `local-default` 0.23.6 tuple with binary SHA-256 `50c358...`; this does not claim that all tuples are live-tested or supported;
 - every unlisted provider family, including `codex` and `claude`, remains disabled and is rejected by strict configuration until a separately approved SOT extension lists it; no such family is an automatic fallback.
 
 ## 7. G5: Lineage, Retention, and Export

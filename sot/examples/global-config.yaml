@@ -47,25 +47,6 @@ providers:
     max_stdout_bytes: 262144
     max_stderr_bytes: 262144
 
-  # Definitions only: neither optional provider is intended or assigned by default.
-  codex-optional:
-    driver: codex
-    optional: true
-    bin: codex
-    concurrency_key: codex-optional
-    timeout_sec: 180
-    max_stdout_bytes: 262144
-    max_stderr_bytes: 262144
-
-  claude-optional:
-    driver: claude
-    optional: true
-    bin: claude
-    concurrency_key: claude-optional
-    timeout_sec: 180
-    max_stdout_bytes: 262144
-    max_stderr_bytes: 262144
-
 roles:
   logic:
     enabled: true

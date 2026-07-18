@@ -56,6 +56,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseStatus(remaining, requestID)
 	case app.CommandReport:
 		return parseReport(remaining, requestID)
+	case app.CommandProviders:
+		return parseProviders(remaining, defaultProjectRoot, requestID)
 	case app.CommandFindings:
 		return parseFindings(remaining, requestID)
 	case app.CommandExcerpt:
@@ -151,12 +153,11 @@ func parseHelp(arguments []string, requestID string) (Invocation, error) {
 
 func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--project-root":       true,
-		"--name":               true,
-		"--context":            true,
-		"--providers":          true,
-		"--optional-providers": true,
-		"--output":             true,
+		"--project-root": true,
+		"--name":         true,
+		"--context":      true,
+		"--providers":    true,
+		"--output":       true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -196,16 +197,6 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		}
 		request.intendedProviderIDs = providers
 	}
-	if value, present := options["--optional-providers"]; present {
-		providers, parseErr := parseProviderCSV(value, optionalProvider)
-		if parseErr != nil {
-			return Invocation{}, parseErr
-		}
-		request.optionalProviderIDs = providers
-	}
-	if hasDuplicateProvider(request.intendedProviderIDs, request.optionalProviderIDs) {
-		return Invocation{}, usageError("provider IDs must be unique across provider lists")
-	}
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
 		return Invocation{}, err
@@ -216,9 +207,6 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		}
 		if _, present := options["--context"]; present {
 			return Invocation{}, usageError("JSON init cannot represent --context")
-		}
-		if _, present := options["--optional-providers"]; present {
-			return Invocation{}, usageError("JSON init cannot represent --optional-providers")
 		}
 	}
 	requestJSON, err := marshalRequest(struct {
@@ -247,6 +235,80 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		requestJSON:    requestJSON,
 		hasRequestJSON: true,
 		init:           &request,
+	}, nil
+}
+
+func parseProviders(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
+	positionals := make([]string, 0, len(arguments))
+	options := make(map[string]string, 2)
+	includeUnverified := false
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if !strings.HasPrefix(argument, "-") {
+			positionals = append(positionals, argument)
+			continue
+		}
+		switch argument {
+		case "--include-unverified":
+			if includeUnverified {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			if index+1 < len(arguments) && !strings.HasPrefix(arguments[index+1], "--") {
+				return Invocation{}, usageError("boolean flag does not accept a value")
+			}
+			includeUnverified = true
+		case "--project-root", "--output":
+			if _, duplicate := options[argument]; duplicate {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+				return Invocation{}, usageError("flag value is missing")
+			}
+			options[argument] = arguments[index+1]
+			index++
+		default:
+			return Invocation{}, usageError("unknown flag")
+		}
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("providers accepts no positional arguments")
+	}
+	projectRoot, err := optionProjectRoot(options, defaultProjectRoot)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ProvidersRequest{
+		projectRoot:       projectRoot,
+		includeUnverified: includeUnverified,
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID         string       `json:"request_id"`
+		Command           string       `json:"command"`
+		ProjectRoot       string       `json:"project_root"`
+		IncludeUnverified bool         `json:"include_unverified"`
+		OutputFormat      OutputFormat `json:"output_format"`
+	}{
+		RequestID:         requestID,
+		Command:           string(app.CommandProviders),
+		ProjectRoot:       request.projectRoot,
+		IncludeUnverified: request.includeUnverified,
+		OutputFormat:      outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command:        app.CommandProviders,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+		providers:      &request,
 	}, nil
 }
 
@@ -806,29 +868,6 @@ func intendedProvider(value string) bool {
 	default:
 		return false
 	}
-}
-
-func optionalProvider(value string) bool {
-	switch value {
-	case "codex", "claude":
-		return true
-	default:
-		return false
-	}
-}
-
-func hasDuplicateProvider(intended, optional []string) bool {
-	seen := make(map[string]struct{}, len(intended)+len(optional))
-	for _, provider := range intended {
-		seen[provider] = struct{}{}
-	}
-	for _, provider := range optional {
-		if _, exists := seen[provider]; exists {
-			return true
-		}
-		seen[provider] = struct{}{}
-	}
-	return false
 }
 
 func validHelpTopic(value string) bool {

@@ -203,7 +203,7 @@ An assignment is ineligible when this value exceeds 64 MiB. For each normalized 
 
 ## 11. Provider and platform contract evidence
 
-Provider and platform evidence v1 is byte-identical compatibility-only input and cannot enter readiness. Only `kar-provider-contract-evidence.v2` and `kar-platform-contract-evidence.v2` are readiness authority; an unknown, missing, mismatched, or v1 evidence identity fails closed. G001 satisfied the complete v2 G0 evidence conjunction and authority chain; product live-adapter implementation remains pending G007.
+Provider and platform evidence v1 is byte-identical compatibility-only input and cannot enter readiness. Only `kar-provider-contract-evidence.v2` and `kar-platform-contract-evidence.v2` are readiness authority; an unknown, missing, mismatched, or v1 evidence identity fails closed. G001 satisfied the complete v2 G0 evidence conjunction and authority chain. G007 completed opt-in, authority-gated adapter construction and reporting for exactly `kimi`, `zcode`, and `agy`: standalone does not guess or load a hidden authority source, and a configured tuple is unsupported unless its exact injected authority evidence is PASS. Unavailable, failed, inconclusive, missing, or otherwise non-PASS tuples are unsupported.
 
 G0 provider readiness is evidence, not an assertion from configuration. Runtime and canonical label order is exactly `kimi`, `zcode`, `agy`; lexical sorting is forbidden. Each family has the same exact 16 probes:
 

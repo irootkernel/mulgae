@@ -12,6 +12,7 @@ import (
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
 	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -209,7 +210,8 @@ func (adapter publicationReportAdapter) Render(
 
 // Dependencies are the explicit inward dependencies required by Application.
 // The G006 query/report pair is optional for source compatibility, but it must
-// be supplied as one complete pair.
+// be supplied as one complete pair. EvidenceReader is optional and absent
+// authority evidence remains unverified.
 type Dependencies struct {
 	Clock                ports.Clock
 	RequestIDGenerator   RequestIDGenerator
@@ -220,6 +222,7 @@ type Dependencies struct {
 	EnvironmentInspector ports.EnvironmentInspector
 	PublicationQueries   PublicationQueryService
 	PublicationReports   PublicationReportService
+	EvidenceReader       doctor.EvidenceReader
 }
 
 // Application is the executable foundation command surface. It owns no mutable
@@ -235,6 +238,7 @@ type Application struct {
 	inspector          ports.EnvironmentInspector
 	publicationQueries PublicationQueryService
 	publicationReports PublicationReportService
+	evidenceReader     doctor.EvidenceReader
 	renderer           *cli.EnvelopeRenderer
 }
 
@@ -258,7 +262,7 @@ func (result Result) ExitCode() app.ExitCode { return result.exit }
 
 // NewApplication constructs the foundation CLI application. Missing or typed
 // nil required dependencies, and partial G006 dependency groups, are rejected
-// before any command can execute.
+// before any command can execute; an optional typed-nil EvidenceReader is normalized.
 func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.Clock) {
 		return nil, fmt.Errorf("kar application: nil clock")
@@ -284,6 +288,10 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.PublicationQueries) != nilApplicationDependency(dependencies.PublicationReports) {
 		return nil, fmt.Errorf("kar application: incomplete G006 service dependencies")
 	}
+	evidenceReader := dependencies.EvidenceReader
+	if nilApplicationDependency(evidenceReader) {
+		evidenceReader = nil
+	}
 
 	renderer, err := cli.NewEnvelopeRenderer(dependencies.Clock, dependencies.JSONSchemaValidator)
 	if err != nil {
@@ -299,6 +307,7 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 		inspector:          dependencies.EnvironmentInspector,
 		publicationQueries: dependencies.PublicationQueries,
 		publicationReports: dependencies.PublicationReports,
+		evidenceReader:     evidenceReader,
 		renderer:           renderer,
 	}, nil
 }
@@ -667,15 +676,16 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 
 func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool {
 	allowed := map[app.CommandName]map[app.ExitCode]bool{
-		app.CommandInit:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandDoctor:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandStatus:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandReport:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandFindings: {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandExcerpt:  {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandConfig:   {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
-		app.CommandSchema:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandHelp:     {app.ExitCodeUsage: true},
+		app.CommandInit:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
+		app.CommandDoctor:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandStatus:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandReport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
+		app.CommandSchema:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
+		app.CommandHelp:      {app.ExitCodeUsage: true},
 	}
 	return allowed[command][requested]
 }
@@ -687,7 +697,7 @@ func projectedFailureExit(command app.CommandName, requested app.ExitCode) app.E
 		return requested
 	}
 	switch command {
-	case app.CommandInit, app.CommandDoctor, app.CommandSchema:
+	case app.CommandInit, app.CommandDoctor, app.CommandProviders, app.CommandSchema:
 		return app.ExitCodeArtifact
 	case app.CommandConfig:
 		return app.ExitCodeSecurity

@@ -30,7 +30,7 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		{app.CommandReport, AvailabilityFoundation, "internal/app/report", "RenderReport", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/report", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandFindings, AvailabilityFoundation, "internal/app/query", "ListFindings", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/findings", []string{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandExcerpt, AvailabilityFoundation, "internal/app/query", "RenderExcerpt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/excerpt", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
-		{app.CommandProviders, AvailabilityFutureMilestone, "internal/app/providers", "ListProviderProfiles", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/providers", []string{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}},
+		{app.CommandProviders, AvailabilityFoundation, "internal/app/providers", "ListProviderProfiles", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/providers", []string{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}},
 		{app.CommandConfig, AvailabilityFoundation, "internal/app/config", "ResolveConfiguration", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/config", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeSecurity}},
 		{app.CommandPrompt, AvailabilityFutureMilestone, "internal/app/prompt", "InspectPrompt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/prompt", []string{"https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}},
 		{app.CommandSchema, AvailabilityFoundation, "internal/app/schema", "InspectSchema", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/schema", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
@@ -59,7 +59,7 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		}
 	}
 }
-func TestG007ThroughG009CommandSpecsRemainFuture(t *testing.T) {
+func TestOtherUnfinishedCommandSpecsRemainFuture(t *testing.T) {
 	specifications := make(map[app.CommandName]CommandSpec)
 	for _, specification := range CommandSpecs() {
 		specifications[specification.Command()] = specification
@@ -69,7 +69,6 @@ func TestG007ThroughG009CommandSpecsRemainFuture(t *testing.T) {
 		app.CommandFollowup,
 		app.CommandDelta,
 		app.CommandRerun,
-		app.CommandProviders,
 		app.CommandPrompt,
 		app.CommandClean,
 		app.CommandExport,
@@ -216,6 +215,7 @@ func testFoundationHandlers(t *testing.T) map[app.CommandName]Handler {
 		app.CommandFindings,
 		app.CommandExcerpt,
 		app.CommandSchema,
+		app.CommandProviders,
 		app.CommandHelp,
 	} {
 		result, err := app.NewCommandSuccess(command, []byte(`{}`))

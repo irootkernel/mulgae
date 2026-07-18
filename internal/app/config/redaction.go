@@ -17,12 +17,11 @@ type RedactedConfig struct {
 }
 
 // RedactedProvider retains only non-executable provider identity and policy
-// state. Optional is false when the global definition omitted the field.
+// state.
 type RedactedProvider struct {
 	ID             string `json:"id" yaml:"id"`
 	Driver         string `json:"driver" yaml:"driver"`
 	Status         string `json:"status" yaml:"status"`
-	Optional       bool   `json:"optional" yaml:"optional"`
 	ConcurrencyKey string `json:"concurrency_key" yaml:"concurrency_key"`
 }
 
@@ -70,12 +69,10 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 	redactedProviders := make([]RedactedProvider, 0, len(providerIDs))
 	for _, id := range providerIDs {
 		provider := providers[id]
-		optional := provider.Optional != nil && *provider.Optional
 		redactedProviders = append(redactedProviders, RedactedProvider{
 			ID:             id,
 			Driver:         provider.Driver,
 			Status:         provider.Status,
-			Optional:       optional,
 			ConcurrencyKey: provider.ConcurrencyKey,
 		})
 	}
@@ -163,7 +160,7 @@ func safeProvenanceField(field string) bool {
 		return false
 	}
 	switch remainder[separator+1:] {
-	case "id", "driver", "status", "optional", "concurrency_key":
+	case "id", "driver", "status", "concurrency_key":
 		return true
 	default:
 		return false

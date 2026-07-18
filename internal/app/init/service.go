@@ -35,7 +35,6 @@ type InitializeProjectRequest struct {
 	ProjectName         string
 	ContextPath         *ports.SafeRelativePath
 	IntendedProviderIDs []string
-	OptionalProviderIDs []string
 }
 
 // ProviderStatus records one requested provider family. Init never promotes a
@@ -173,21 +172,11 @@ func validateInitializeProjectRequest(request InitializeProjectRequest) ([]Provi
 		return nil, fmt.Errorf("initialize project: invalid context path")
 	}
 
-	statuses := make([]ProviderStatus, 0, len(request.IntendedProviderIDs)+len(request.OptionalProviderIDs))
-	seen := make(map[string]struct{}, len(request.IntendedProviderIDs)+len(request.OptionalProviderIDs))
+	statuses := make([]ProviderStatus, 0, len(request.IntendedProviderIDs))
+	seen := make(map[string]struct{}, len(request.IntendedProviderIDs))
 	for _, providerID := range request.IntendedProviderIDs {
 		if !intendedProvider(providerID) {
 			return nil, fmt.Errorf("initialize project: intended provider %q is not allowed", providerID)
-		}
-		if _, duplicate := seen[providerID]; duplicate {
-			return nil, fmt.Errorf("initialize project: duplicate provider %q", providerID)
-		}
-		seen[providerID] = struct{}{}
-		statuses = append(statuses, ProviderStatus{ID: providerID, Status: unverifiedProviderStatus})
-	}
-	for _, providerID := range request.OptionalProviderIDs {
-		if !optionalProvider(providerID) {
-			return nil, fmt.Errorf("initialize project: optional provider %q is not allowed", providerID)
 		}
 		if _, duplicate := seen[providerID]; duplicate {
 			return nil, fmt.Errorf("initialize project: duplicate provider %q", providerID)
@@ -224,15 +213,6 @@ func lowerAlphaNumeric(character byte) bool {
 func intendedProvider(value string) bool {
 	switch value {
 	case "kimi", "zcode", "agy":
-		return true
-	default:
-		return false
-	}
-}
-
-func optionalProvider(value string) bool {
-	switch value {
-	case "codex", "claude":
 		return true
 	default:
 		return false

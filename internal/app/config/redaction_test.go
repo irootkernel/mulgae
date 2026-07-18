@@ -12,20 +12,18 @@ import (
 )
 
 func TestRedactOmitsRuntimeAndProviderSecrets(t *testing.T) {
-	optional := true
 	global := testGlobalConfig()
 	global.Runtime.Home = "/Users/alice/TopSecret"
 	global.Runtime.Path.Prepend = []string{"/Users/alice/private/bin"}
 	global.Runtime.Path.Append = []string{"/opt/private/bin"}
 	global.Runtime.EnvAllowlist = []string{"HOME", "API_TOKEN"}
 	global.Providers = adapterconfig.ProvidersConfig{
-		"codex-optional": {
-			Driver:         "codex",
+		"zcode-redacted": {
+			Driver:         "zcode",
 			Status:         "unverified",
-			Optional:       &optional,
-			Bin:            "/Users/alice/private/codex",
+			Bin:            "/Users/alice/private/zcode",
 			Args:           []string{"--token", "super-password", "--command=never-persist"},
-			ConcurrencyKey: "codex-optional",
+			ConcurrencyKey: "zcode-redacted",
 		},
 		"kimi-main": {
 			Driver:         "kimi",
@@ -55,8 +53,8 @@ func TestRedactOmitsRuntimeAndProviderSecrets(t *testing.T) {
 	}
 
 	if got, want := view.Providers, []RedactedProvider{
-		{ID: "codex-optional", Driver: "codex", Status: "unverified", Optional: true, ConcurrencyKey: "codex-optional"},
-		{ID: "kimi-main", Driver: "kimi", Status: "unverified", Optional: false, ConcurrencyKey: "kimi-main"},
+		{ID: "kimi-main", Driver: "kimi", Status: "unverified", ConcurrencyKey: "kimi-main"},
+		{ID: "zcode-redacted", Driver: "zcode", Status: "unverified", ConcurrencyKey: "zcode-redacted"},
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("redacted providers = %#v, want %#v", got, want)
 	}
@@ -130,12 +128,10 @@ func TestRedactProvenanceIsExhaustiveAndValueSafe(t *testing.T) {
 		"providers.kimi-main.id":               {SourceGlobal},
 		"providers.kimi-main.driver":           {SourceGlobal},
 		"providers.kimi-main.status":           {SourceGlobal},
-		"providers.kimi-main.optional":         {SourceGlobal},
 		"providers.kimi-main.concurrency_key":  {SourceGlobal},
 		"providers.zcode-main.id":              {SourceGlobal},
 		"providers.zcode-main.driver":          {SourceGlobal},
 		"providers.zcode-main.status":          {SourceGlobal},
-		"providers.zcode-main.optional":        {SourceGlobal},
 		"providers.zcode-main.concurrency_key": {SourceGlobal},
 	}
 	for _, role := range domain.FixedRoleOrder() {

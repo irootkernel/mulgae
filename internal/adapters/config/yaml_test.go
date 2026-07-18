@@ -32,11 +32,21 @@ providers:
     timeout_sec: 180
     max_stdout_bytes: 262144
     max_stderr_bytes: 262144
-  codex-optional:
-    driver: codex
-    optional: true
-    bin: codex
-    concurrency_key: codex-optional
+  zcode-main:
+    driver: zcode
+    status: unverified
+    bin: zcode
+    args: [--json]
+    concurrency_key: zcode-main
+    timeout_sec: 180
+    max_stdout_bytes: 262144
+    max_stderr_bytes: 262144
+  agy-main:
+    driver: agy
+    status: unverified
+    bin: agy
+    args: [--json]
+    concurrency_key: agy-main
     timeout_sec: 180
     max_stdout_bytes: 262144
     max_stderr_bytes: 262144
@@ -312,24 +322,13 @@ func TestDecodeRejectsInvalidConcurrencyAndForbiddenProjectFeatures(t *testing.T
 	}
 }
 
-func TestDecodeRejectsNonOptionalGuardedProvidersAndReturnsZeroConfigOnError(t *testing.T) {
-	for _, testCase := range []struct {
-		name         string
-		driver       string
-		optionalLine string
-		wantPath     string
-	}{
-		{"codex omitted", "codex", "", `$.providers["codex-optional"].optional`},
-		{"codex false", "codex", "    optional: false\n", `$.providers["codex-optional"].optional`},
-		{"claude omitted", "claude", "", `$.providers["claude-optional"].optional`},
-		{"claude false", "claude", "    optional: false\n", `$.providers["claude-optional"].optional`},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			fixture := strings.ReplaceAll(globalSOTFixture, "codex", testCase.driver)
-			fixture = strings.Replace(fixture, "    optional: true\n", testCase.optionalLine, 1)
+func TestDecodeGlobalRejectsUnsupportedProviderDriversAndReturnsZeroConfigOnError(t *testing.T) {
+	for _, driver := range []string{"codex", "claude", "unknown"} {
+		t.Run(driver, func(t *testing.T) {
+			fixture := strings.Replace(globalSOTFixture, "driver: kimi", "driver: "+driver, 1)
 			config, err := DecodeGlobal("global.yaml", []byte(fixture))
-			if diagnostic := findDiagnostic(t, err, "optional_provider_required"); diagnostic.Path != testCase.wantPath {
-				t.Fatalf("diagnostic = %#v, want path %q", diagnostic, testCase.wantPath)
+			if diagnostic := findDiagnostic(t, err, "invalid_enum"); diagnostic.Path != `$.providers["kimi-main"].driver` {
+				t.Fatalf("diagnostic = %#v, want unsupported driver path", diagnostic)
 			}
 			if !reflect.DeepEqual(config, GlobalConfig{}) {
 				t.Fatalf("DecodeGlobal() config = %#v, want zero GlobalConfig", config)
@@ -350,18 +349,18 @@ func TestDecodeAuthoritativeSOTExamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeGlobal(authoritative example): %v", err)
 	}
-	if global.Version != 1 || len(global.Providers) != 5 {
-		t.Fatalf("authoritative global decode = version %d providers %d", global.Version, len(global.Providers))
+	wantDrivers := map[string]string{
+		"kimi-main":  "kimi",
+		"zcode-main": "zcode",
+		"agy-main":   "agy",
 	}
-	for _, providerID := range []string{"codex-optional", "claude-optional"} {
-		provider := global.Providers[providerID]
-		if provider.Optional == nil || !*provider.Optional {
-			t.Fatalf("authoritative optional provider %q is not explicitly optional", providerID)
-		}
+	if global.Version != 1 || len(global.Providers) != len(wantDrivers) {
+		t.Fatalf("authoritative global decode = version %d providers %#v", global.Version, global.Providers)
 	}
-	for _, providerID := range []string{"kimi-main", "zcode-main", "agy-main"} {
-		if global.Providers[providerID].Optional != nil {
-			t.Fatalf("authoritative intended provider %q is marked optional", providerID)
+	for providerID, wantDriver := range wantDrivers {
+		provider, ok := global.Providers[providerID]
+		if !ok || provider.Driver != wantDriver {
+			t.Fatalf("authoritative provider %q = %#v, want driver %q", providerID, provider, wantDriver)
 		}
 	}
 

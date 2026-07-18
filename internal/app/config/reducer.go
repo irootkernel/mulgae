@@ -393,7 +393,7 @@ func newReductionState(global adapterconfig.GlobalConfig) *reductionState {
 	state.setProvenance("policy.degraded_review_fails", SourceBuiltin)
 
 	for id := range state.global.Providers {
-		for _, field := range []string{"id", "driver", "status", "optional", "concurrency_key"} {
+		for _, field := range []string{"id", "driver", "status", "concurrency_key"} {
 			state.setProvenance("providers."+id+"."+field, SourceGlobal)
 		}
 	}
@@ -552,21 +552,12 @@ func (state *reductionState) validateProviders() {
 			state.add(adapterconfig.LayerGlobal, path+".concurrency_key", "invalid_concurrency_key", "concurrency key must be canonical ASCII-lower and match [a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
 		}
 		switch provider.Driver {
-		case "kimi", "zcode", "agy", "codex", "claude":
+		case "kimi", "zcode", "agy":
 		default:
 			state.add(adapterconfig.LayerGlobal, path+".driver", "invalid_provider", "provider driver is not supported")
 		}
-		optionalDefinition := provider.Optional != nil && *provider.Optional
-		if provider.Status != "unverified" && !(optionalDefinition && provider.Status == "") {
+		if provider.Status != "unverified" {
 			state.add(adapterconfig.LayerGlobal, path+".status", "provider_readiness_promotion", "configuration cannot promote provider readiness")
-		}
-		if !optionalDefinition && provider.Status == "" {
-			state.add(adapterconfig.LayerGlobal, path+".status", "provider_status_required", "intended provider status must remain unverified")
-		}
-		if provider.Driver == "codex" || provider.Driver == "claude" {
-			if provider.Optional == nil || !*provider.Optional {
-				state.add(adapterconfig.LayerGlobal, path+".optional", "optional_provider_required", "codex and claude providers must be explicitly optional")
-			}
 		}
 	}
 }
@@ -981,9 +972,5 @@ func cloneProviders(input adapterconfig.ProvidersConfig) map[string]adapterconfi
 func cloneProvider(input adapterconfig.ProviderConfig) adapterconfig.ProviderConfig {
 	output := input
 	output.Args = append([]string(nil), input.Args...)
-	if input.Optional != nil {
-		optional := *input.Optional
-		output.Optional = &optional
-	}
 	return output
 }

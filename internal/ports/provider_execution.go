@@ -95,6 +95,7 @@ type ProviderExecutionObservation struct {
 	diagnosticCode     string
 	stdoutLimit        int64
 	stderrLimit        int64
+	resultIsolated     bool
 }
 
 // NewSuccessfulProviderExecutionObservation records a successful provider
@@ -129,6 +130,49 @@ func NewSuccessfulProviderExecutionObservation(
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
+	}
+	return observation, nil
+}
+
+// NewIsolatedSuccessfulProviderExecutionObservation records a successful
+// provider result deliberately derived from a structured process stdout stream.
+// The raw stdout remains available through ProcessObservation and Stdout.
+func NewIsolatedSuccessfulProviderExecutionObservation(
+	invocation ProviderInvocation,
+	result ProviderResult,
+	processObservation ProcessObservation,
+	stdoutLimit, stderrLimit int64,
+) (ProviderExecutionObservation, error) {
+	observation, err := NewSuccessfulProviderExecutionObservation(
+		invocation, result, processObservation, stdoutLimit, stderrLimit,
+	)
+	if err == nil {
+		return observation, nil
+	}
+	canonicalInvocation, invocationErr := canonicalProviderInvocation(invocation)
+	if invocationErr != nil {
+		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", invocationErr)
+	}
+	canonicalResult, resultErr := canonicalProviderResult(result)
+	if resultErr != nil {
+		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid result: %w", resultErr)
+	}
+	canonicalProcess, processErr := canonicalProcessObservation(processObservation)
+	if processErr != nil {
+		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid process observation: %w", processErr)
+	}
+	observation = ProviderExecutionObservation{
+		status:             ProviderExecutionStatusSucceeded,
+		invocation:         canonicalInvocation,
+		processObservation: canonicalProcess,
+		result:             canonicalResult,
+		hasResult:          true,
+		resultIsolated:     true,
+		stdoutLimit:        stdoutLimit,
+		stderrLimit:        stderrLimit,
+	}
+	if validationErr := observation.Validate(); validationErr != nil {
+		return ProviderExecutionObservation{}, validationErr
 	}
 	return observation, nil
 }
@@ -328,7 +372,7 @@ func (observation ProviderExecutionObservation) Validate() error {
 			result.completeStdinSHA256 != canonicalProcess.StdinWriteReceipt().SHA256() {
 			return fmt.Errorf("provider execution observation: result stdin identity does not match process observation")
 		}
-		if !bytes.Equal(result.stdout, canonicalProcess.stdout) {
+		if !observation.resultIsolated && !bytes.Equal(result.stdout, canonicalProcess.stdout) {
 			return fmt.Errorf("provider execution observation: result stdout does not match process stdout")
 		}
 		return nil
@@ -336,6 +380,9 @@ func (observation ProviderExecutionObservation) Validate() error {
 
 	if observation.hasResult || !providerResultIsZero(observation.result) {
 		return fmt.Errorf("provider execution observation: failed status must not have a result")
+	}
+	if observation.resultIsolated {
+		return fmt.Errorf("provider execution observation: failed status must not have an isolated result")
 	}
 	if !validProviderExecutionDiagnosticCode(observation.diagnosticCode) {
 		return fmt.Errorf("provider execution observation: diagnostic code must be non-empty and safe")

@@ -68,8 +68,11 @@ func main() {
 		SecureWriter:         writer,
 		TrustedProjectReader: gitAdapter,
 		EnvironmentInspector: environment.NewInspector(),
-		PublicationQueries:   kar.NewPublicationQueryService(queryService),
-		PublicationReports:   kar.NewPublicationReportService(reportService),
+		// SOT defines no canonical non-hidden production evidence source, so standalone
+		// KAR remains fail-closed until one is standardized.
+		EvidenceReader:     nil,
+		PublicationQueries: kar.NewPublicationQueryService(queryService),
+		PublicationReports: kar.NewPublicationReportService(reportService),
 	})
 	if err != nil {
 		fmt.Fprint(os.Stderr, "kar: application is unavailable\n")

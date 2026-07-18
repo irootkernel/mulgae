@@ -64,8 +64,7 @@ func TestParseInitForms(t *testing.T) {
 
 	invocation := mustParse(t, []string{
 		"init", "--project-root", "/work/other", "--name", "other-project",
-		"--context", "src/review", "--providers", "zcode,kimi",
-		"--optional-providers", "claude,codex", "--output", "human",
+		"--context", "src/review", "--providers", "zcode,kimi", "--output", "human",
 	})
 	request, ok = invocation.Init()
 	if !ok {
@@ -79,9 +78,6 @@ func TestParseInitForms(t *testing.T) {
 	}
 	if got, want := request.IntendedProviderIDs(), []string{"zcode", "kimi"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("init intended providers = %v, want %v", got, want)
-	}
-	if got, want := request.OptionalProviderIDs(), []string{"claude", "codex"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("init optional providers = %v, want %v", got, want)
 	}
 	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","intended_provider_ids":["zcode","kimi"],"overwrite":false,"output_format":"human"}`)
 }
@@ -190,11 +186,53 @@ func TestParsePublicationQueryForms(t *testing.T) {
 	assertRequestJSON(t, excerpt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"excerpt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","current_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_format":"human"}`)
 }
 
+func TestParseProvidersForms(t *testing.T) {
+	defaults := mustParse(t, []string{"providers"})
+	request, ok := defaults.Providers()
+	if !ok {
+		t.Fatal("providers invocation has no typed request")
+	}
+	if got, want := request.ProjectRoot(), testProjectRoot; got != want {
+		t.Fatalf("default providers project root = %q, want %q", got, want)
+	}
+	if request.IncludeUnverified() {
+		t.Fatal("default providers include unverified must be false")
+	}
+	if got, want := defaults.OutputFormat(), OutputFormatHuman; got != want {
+		t.Fatalf("default providers output = %q, want %q", got, want)
+	}
+	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"providers","project_root":"/work/project","include_unverified":false,"output_format":"human"}`)
+
+	invocation := mustParse(t, []string{
+		"providers", "--project-root", "/work/providers", "--include-unverified", "--output", "json",
+	})
+	request, ok = invocation.Providers()
+	if !ok {
+		t.Fatal("explicit providers invocation has no typed request")
+	}
+	if got, want := request.ProjectRoot(), "/work/providers"; got != want {
+		t.Fatalf("providers project root = %q, want %q", got, want)
+	}
+	if !request.IncludeUnverified() {
+		t.Fatal("explicit providers include unverified must be true")
+	}
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"providers","project_root":"/work/providers","include_unverified":true,"output_format":"json"}`)
+
+	firstJSON, available := invocation.RequestJSON()
+	if !available {
+		t.Fatal("providers request JSON unavailable")
+	}
+	firstJSON[0] = 'X'
+	secondJSON, available := invocation.RequestJSON()
+	if !available || secondJSON[0] != '{' {
+		t.Fatalf("providers request JSON mutated through getter = %q, %t", secondJSON, available)
+	}
+}
+
 func TestParseRejectsJSONOptionsOutsideFrozenRequestVariants(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"init", "--name", "named", "--output", "json"},
 		{"init", "--context", "src/review", "--output", "json"},
-		{"init", "--optional-providers", "codex", "--output", "json"},
 		{"config", "--project-config", ".kar.yaml", "--ref", strings.Repeat("a", 40), "--output", "json"},
 		{"schema", "export", testSchemaID, "contract.json", "--project-root", "/work/export", "--output", "json"},
 	} {
@@ -225,15 +263,16 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 		app.CommandHelp,
 	}
 	foundation := map[app.CommandName][]string{
-		app.CommandInit:     {"init"},
-		app.CommandDoctor:   {"doctor"},
-		app.CommandStatus:   {"status", "--run", testRunID},
-		app.CommandReport:   {"report", "--run", testRunID, "--output-path", "reports/run.json"},
-		app.CommandFindings: {"findings", "--run", testRunID, "--severity", "low"},
-		app.CommandExcerpt:  {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
-		app.CommandConfig:   {"config"},
-		app.CommandSchema:   {"schema", "list"},
-		app.CommandHelp:     {"help"},
+		app.CommandInit:      {"init"},
+		app.CommandDoctor:    {"doctor"},
+		app.CommandStatus:    {"status", "--run", testRunID},
+		app.CommandReport:    {"report", "--run", testRunID, "--output-path", "reports/run.json"},
+		app.CommandFindings:  {"findings", "--run", testRunID, "--severity", "low"},
+		app.CommandExcerpt:   {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
+		app.CommandProviders: {"providers"},
+		app.CommandConfig:    {"config"},
+		app.CommandSchema:    {"schema", "list"},
+		app.CommandHelp:      {"help"},
 	}
 	for _, command := range commands {
 		arguments, executable := foundation[command]
@@ -257,13 +296,12 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 		}
 	}
 }
-func TestParseKeepsG007ThroughG009CommandsUnavailable(t *testing.T) {
+func TestParseKeepsOtherUnfinishedCommandsUnavailable(t *testing.T) {
 	futureCommands := []app.CommandName{
 		app.CommandReview,
 		app.CommandFollowup,
 		app.CommandDelta,
 		app.CommandRerun,
-		app.CommandProviders,
 		app.CommandPrompt,
 		app.CommandClean,
 		app.CommandExport,
@@ -293,6 +331,13 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 	}{
 		{name: "unknown command", arguments: []string{"unknown"}},
 		{name: "future command arguments", arguments: []string{"review", "extra"}},
+		{name: "providers positional", arguments: []string{"providers", "extra"}},
+		{name: "providers duplicate project root", arguments: []string{"providers", "--project-root", testProjectRoot, "--project-root", testProjectRoot}},
+		{name: "providers duplicate include unverified", arguments: []string{"providers", "--include-unverified", "--include-unverified"}},
+		{name: "providers boolean value", arguments: []string{"providers", "--include-unverified", "true"}},
+		{name: "providers unknown flag", arguments: []string{"providers", "--unknown"}},
+		{name: "providers missing output", arguments: []string{"providers", "--output"}},
+		{name: "providers invalid output", arguments: []string{"providers", "--output", "yaml"}},
 		{name: "status missing run", arguments: []string{"status"}},
 		{name: "status missing run value", arguments: []string{"status", "--run"}},
 		{name: "status duplicate run", arguments: []string{"status", "--run", testRunID, "--run", testRunID}},
@@ -317,9 +362,10 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 		{name: "init positional", arguments: []string{"init", "extra"}},
 		{name: "repeated intended provider", arguments: []string{"init", "--providers", "kimi,kimi"}},
 		{name: "empty intended provider", arguments: []string{"init", "--providers", "kimi,"}},
-		{name: "unsupported intended provider", arguments: []string{"init", "--providers", "codex"}},
-		{name: "unsupported optional provider", arguments: []string{"init", "--optional-providers", "kimi"}},
-		{name: "providers overlap", arguments: []string{"init", "--providers", "kimi", "--optional-providers", "kimi"}},
+		{name: "unsupported intended provider codex", arguments: []string{"init", "--providers", "codex"}},
+		{name: "unsupported intended provider claude", arguments: []string{"init", "--providers", "claude"}},
+		{name: "unsupported intended provider unknown", arguments: []string{"init", "--providers", "unknown"}},
+		{name: "removed optional providers flag", arguments: []string{"init", "--optional-providers", "codex"}},
 		{name: "invalid project name", arguments: []string{"init", "--name", "Project"}},
 		{name: "unsafe context", arguments: []string{"init", "--context", "../outside"}},
 		{name: "unsupported help topic", arguments: []string{"help", "unknown"}},
@@ -386,24 +432,19 @@ func TestParseAcceptsSafeRelativePathsAndReference(t *testing.T) {
 }
 
 func TestParseReturnsDefensiveCopies(t *testing.T) {
-	invocation := mustParse(t, []string{"init", "--providers", "kimi,zcode", "--optional-providers", "claude"})
+	invocation := mustParse(t, []string{"init", "--providers", "kimi,zcode"})
 	first, ok := invocation.Init()
 	if !ok {
 		t.Fatal("init has no typed request")
 	}
 	intended := first.IntendedProviderIDs()
-	optional := first.OptionalProviderIDs()
 	intended[0] = "changed"
-	optional[0] = "changed"
 	second, ok := invocation.Init()
 	if !ok {
 		t.Fatal("init request disappeared")
 	}
 	if got, want := second.IntendedProviderIDs(), []string{"kimi", "zcode"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("intended providers mutated through getter = %v, want %v", got, want)
-	}
-	if got, want := second.OptionalProviderIDs(), []string{"claude"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("optional providers mutated through getter = %v, want %v", got, want)
 	}
 
 	firstJSON, available := invocation.RequestJSON()

@@ -45,7 +45,6 @@ type ProvidersConfig map[string]ProviderConfig
 type ProviderConfig struct {
 	Driver         string   `yaml:"driver"`
 	Status         string   `yaml:"status"`
-	Optional       *bool    `yaml:"optional"`
 	Bin            string   `yaml:"bin"`
 	Args           []string `yaml:"args"`
 	ConcurrencyKey string   `yaml:"concurrency_key"`

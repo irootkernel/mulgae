@@ -116,6 +116,35 @@ func TestSuccessfulProviderExecutionObservationBindsExactProcessFacts(t *testing
 		t.Fatalf("Validate() = %v", err)
 	}
 }
+func TestIsolatedSuccessfulProviderExecutionObservationPreservesRawStdout(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	rawStdout := []byte("{\"type\":\"assistant\",\"content\":\"answer\"}\n")
+	process := newProviderExecutionTestProcess(
+		t,
+		rawStdout,
+		[]byte("diagnostic"),
+		providerExecutionTestExitCode(0),
+		ProcessTerminationExited,
+		completeProviderExecutionReceipt(t, invocation),
+		providerExecutionTestStartedAt,
+		providerExecutionTestEndedAt,
+	)
+	result := newProviderExecutionTestResult(t, invocation, []byte("answer"))
+	observation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := observation.Result()
+	if !ok || !bytes.Equal(got.Stdout(), []byte("answer")) {
+		t.Fatalf("result = %#v, present=%t", got, ok)
+	}
+	if !bytes.Equal(observation.Stdout(), rawStdout) || !bytes.Equal(observation.Stderr(), []byte("diagnostic")) {
+		t.Fatal("isolated result changed raw process evidence")
+	}
+	if err := observation.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)

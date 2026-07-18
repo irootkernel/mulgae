@@ -60,6 +60,7 @@ type Invocation struct {
 	init           *InitRequest
 	doctor         *DoctorRequest
 	config         *ConfigRequest
+	providers      *ProvidersRequest
 	schema         *SchemaRequest
 	status         *StatusRequest
 	report         *ReportRequest
@@ -157,6 +158,14 @@ func (invocation Invocation) Config() (ConfigRequest, bool) {
 	return *invocation.config, true
 }
 
+// Providers returns the parsed providers fields when this is a providers invocation.
+func (invocation Invocation) Providers() (ProvidersRequest, bool) {
+	if invocation.providers == nil {
+		return ProvidersRequest{}, false
+	}
+	return *invocation.providers, true
+}
+
 // Schema returns the parsed schema fields when this is a schema invocation.
 func (invocation Invocation) Schema() (SchemaRequest, bool) {
 	if invocation.schema == nil {
@@ -181,7 +190,6 @@ type InitRequest struct {
 	contextPath         string
 	hasContextPath      bool
 	intendedProviderIDs []string
-	optionalProviderIDs []string
 	overwrite           bool
 }
 
@@ -199,11 +207,6 @@ func (request InitRequest) ContextPath() (string, bool) {
 // IntendedProviderIDs returns a caller-owned copy of intended provider IDs.
 func (request InitRequest) IntendedProviderIDs() []string {
 	return cloneStrings(request.intendedProviderIDs)
-}
-
-// OptionalProviderIDs returns a caller-owned copy of optional provider IDs.
-func (request InitRequest) OptionalProviderIDs() []string {
-	return cloneStrings(request.optionalProviderIDs)
 }
 
 // Overwrite reports the fixed non-overwrite initialization policy.
@@ -277,6 +280,18 @@ func (request ExcerptRequest) CurrentTargetSHA256() string {
 	return request.currentTargetSHA256
 }
 
+// ProvidersRequest contains the immutable provider-profile listing fields.
+type ProvidersRequest struct {
+	projectRoot       string
+	includeUnverified bool
+}
+
+// ProjectRoot returns the canonical project root selected for provider listing.
+func (request ProvidersRequest) ProjectRoot() string { return request.projectRoot }
+
+// IncludeUnverified reports whether unverified provider profiles are included.
+func (request ProvidersRequest) IncludeUnverified() bool { return request.includeUnverified }
+
 // ConfigRequest contains the executable configuration-selection fields.
 type ConfigRequest struct {
 	projectRoot          string
@@ -330,7 +345,6 @@ func (request SchemaRequest) ExportPath() (string, bool) {
 
 func cloneInitRequest(request InitRequest) InitRequest {
 	request.intendedProviderIDs = cloneStrings(request.intendedProviderIDs)
-	request.optionalProviderIDs = cloneStrings(request.optionalProviderIDs)
 	return request
 }
 

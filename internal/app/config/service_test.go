@@ -122,6 +122,21 @@ func TestServiceResolvesAuthoritativeEmbeddedGlobalDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve(authoritative default) error = %v", err)
 	}
+	wantDrivers := map[string]string{
+		"kimi-main":  "kimi",
+		"zcode-main": "zcode",
+		"agy-main":   "agy",
+	}
+	providers := resolution.Config().Providers()
+	if len(providers) != len(wantDrivers) {
+		t.Fatalf("Resolve(authoritative default) providers = %#v, want exactly %#v", providers, wantDrivers)
+	}
+	for providerID, wantDriver := range wantDrivers {
+		provider, ok := providers[providerID]
+		if !ok || provider.Driver != wantDriver {
+			t.Fatalf("Resolve(authoritative default) provider %q = %#v, want driver %q", providerID, provider, wantDriver)
+		}
+	}
 	if len(resolution.RedactedJSON()) == 0 {
 		t.Fatal("Resolve(authoritative default) returned empty redacted JSON")
 	}

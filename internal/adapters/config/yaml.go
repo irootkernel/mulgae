@@ -491,7 +491,6 @@ func globalSchema() *yamlSchema {
 	provider := requiredObject(map[string]*yamlSchema{
 		"driver":           stringScalar(),
 		"status":           stringScalar(),
-		"optional":         boolScalar(),
 		"bin":              stringScalar(),
 		"args":             stringList,
 		"concurrency_key":  stringScalar(),
@@ -679,7 +678,7 @@ func validateGlobal(config *GlobalConfig, locations map[string]*yaml.Node, sourc
 		} else {
 			appendLocationDiagnostic(diagnostics, LayerGlobal, source, providerPath, locations, "invalid_provider_id", "provider instance ID must match [a-z][a-z0-9._-]{0,63}")
 		}
-		validateEnum(provider.Driver, providerPath+".driver", []string{"kimi", "zcode", "agy", "codex", "claude"}, locations, LayerGlobal, source, diagnostics)
+		validateEnum(provider.Driver, providerPath+".driver", []string{"kimi", "zcode", "agy"}, locations, LayerGlobal, source, diagnostics)
 		validateEnum(provider.Status, providerPath+".status", []string{"unverified"}, locations, LayerGlobal, source, diagnostics)
 		validateNonemptyConfigured(provider.Bin, providerPath+".bin", locations, LayerGlobal, source, diagnostics)
 		validateStringList(provider.Args, providerPath+".args", nil, locations, LayerGlobal, source, diagnostics)
@@ -694,11 +693,6 @@ func validateGlobal(config *GlobalConfig, locations map[string]*yaml.Node, sourc
 		validateConfiguredPositive(provider.TimeoutSec, providerPath+".timeout_sec", locations, LayerGlobal, source, diagnostics)
 		validateConfiguredOutputLimit(provider.MaxStdoutBytes, providerPath+".max_stdout_bytes", locations, LayerGlobal, source, diagnostics)
 		validateConfiguredOutputLimit(provider.MaxStderrBytes, providerPath+".max_stderr_bytes", locations, LayerGlobal, source, diagnostics)
-		if provider.Driver == "codex" || provider.Driver == "claude" {
-			if provider.Optional == nil || !*provider.Optional {
-				appendLocationDiagnostic(diagnostics, LayerGlobal, source, providerPath+".optional", locations, "optional_provider_required", "codex and claude providers require explicit optional: true")
-			}
-		}
 	}
 
 	validateGlobalRoles(config.Roles, locations, source, diagnostics)

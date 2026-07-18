@@ -16,6 +16,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
 	apphelp "github.com/irootkernel/kkachi-agent-review/internal/app/help"
 	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/providers"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -38,6 +39,8 @@ func (application *Application) execute(ctx context.Context, invocation Invocati
 		return application.handleConfig(ctx, invocation)
 	case app.CommandDoctor:
 		return application.handleDoctor(ctx, invocation)
+	case app.CommandProviders:
+		return application.handleProviders(ctx, invocation)
 	case app.CommandStatus:
 		return application.handleStatus(ctx, invocation, canonicalProjectRoot)
 	case app.CommandReport:
@@ -176,7 +179,6 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		ProjectName:         request.ProjectName(),
 		ContextPath:         contextPath,
 		IntendedProviderIDs: request.IntendedProviderIDs(),
-		OptionalProviderIDs: request.OptionalProviderIDs(),
 	})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
@@ -302,7 +304,7 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	service, err := doctor.NewService(application.clock, application.catalog, application.inspector, nil, root)
+	service, err := doctor.NewService(application.clock, application.catalog, application.inspector, application.evidenceReader, root)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
@@ -369,6 +371,76 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 			class: domain.FailureProviderUnavailable,
 			code:  "readiness_unverified",
 			stage: "cli.doctor",
+			exit:  app.ExitCodeReadiness,
+		},
+	}
+}
+func (application *Application) handleProviders(ctx context.Context, invocation Invocation) execution {
+	data, err := providersResultData(0, nil)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	request, available := invocation.Providers()
+	if !available {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal),
+		}
+	}
+	root, err := ports.NewAnchoredRoot(request.ProjectRoot())
+	if err != nil {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureConfiguration),
+		}
+	}
+	diagnoser, err := doctor.NewService(application.clock, application.catalog, application.inspector, application.evidenceReader, root)
+	if err != nil {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureInternal),
+		}
+	}
+	service, err := providers.NewService(diagnoser)
+	if err != nil {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureInternal),
+		}
+	}
+	result, err := service.ListProviderProfiles(ctx, request.IncludeUnverified())
+	if err != nil {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureArtifact),
+		}
+	}
+	providerEvidenceURI, readyProviderCount, err := providersEvidenceURI(result.Profiles())
+	if err != nil {
+		return execution{
+			failureData: data,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureArtifact),
+		}
+	}
+	data, err = providersResultData(readyProviderCount, providerEvidenceURI)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	human := []byte(result.RenderHuman())
+	if len(human) == 0 {
+		human = []byte("no evidence-qualified provider profiles")
+	}
+	if readyProviderCount != 0 {
+		return execution{human: human, data: data}
+	}
+	return execution{
+		human:       human,
+		data:        data,
+		failureData: data,
+		failure: &executionFailure{
+			class: domain.FailureProviderUnavailable,
+			code:  "readiness_unverified",
+			stage: "cli.providers",
 			exit:  app.ExitCodeReadiness,
 		},
 	}
@@ -767,6 +839,36 @@ func schemaResultData(schemaID string, exportURI *string) ([]byte, error) {
 		SchemaID  string  `json:"schema_id"`
 		ExportURI *string `json:"export_uri"`
 	}{"schema_inspected", schemaID, exportURI})
+}
+func providersEvidenceURI(profiles []providers.Profile) (*string, int, error) {
+	var authorityURI *string
+	readyProviderCount := 0
+	for _, profile := range profiles {
+		if profile.Support() != providers.SupportSupported {
+			continue
+		}
+		readyProviderCount++
+		uri, available := profile.EvidenceURI()
+		if !available {
+			return nil, 0, errors.New("supported provider profile omitted authority evidence URI")
+		}
+		if authorityURI == nil {
+			authorityURI = &uri
+			continue
+		}
+		if *authorityURI != uri {
+			return nil, 0, errors.New("supported provider profiles have conflicting authority evidence URIs")
+		}
+	}
+	return authorityURI, readyProviderCount, nil
+}
+
+func providersResultData(readyProviderCount int, providerEvidenceURI *string) ([]byte, error) {
+	return json.Marshal(struct {
+		Kind                string  `json:"kind"`
+		ProviderEvidenceURI *string `json:"provider_evidence_uri"`
+		ReadyProviderCount  int     `json:"ready_provider_count"`
+	}{"providers_listed", providerEvidenceURI, readyProviderCount})
 }
 
 func (application *Application) persistJSON(

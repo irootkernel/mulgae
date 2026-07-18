@@ -348,7 +348,6 @@ func TestGlobalWorkspaceMayExpandBuiltinNoneAndProjectOnlyIntersects(t *testing.
 }
 
 func TestProvidersAndViewsAreDefensivelyCopied(t *testing.T) {
-	optional := true
 	global := testGlobalConfig()
 	global.Providers = adapterconfig.ProvidersConfig{
 		"kimi-main": {
@@ -358,12 +357,17 @@ func TestProvidersAndViewsAreDefensivelyCopied(t *testing.T) {
 			Args:           []string{"--token", "do-not-copy"},
 			ConcurrencyKey: "kimi-main",
 		},
-		"codex-optional": {
-			Driver:         "codex",
+		"zcode-main": {
+			Driver:         "zcode",
 			Status:         "unverified",
-			Optional:       &optional,
-			Bin:            "codex",
-			ConcurrencyKey: "codex-optional",
+			Bin:            "zcode",
+			ConcurrencyKey: "zcode-main",
+		},
+		"agy-main": {
+			Driver:         "agy",
+			Status:         "unverified",
+			Bin:            "agy",
+			ConcurrencyKey: "agy-main",
 		},
 	}
 	resolved, err := ResolveConfiguration(global, nil)
@@ -387,17 +391,13 @@ func TestProvidersAndViewsAreDefensivelyCopied(t *testing.T) {
 	if got, want := stored.Args[0], "--token"; got != want {
 		t.Errorf("stored provider args = %q, want %q", got, want)
 	}
-	optionalProvider, exists := resolved.Provider("codex-optional")
-	if !exists || optionalProvider.Optional == nil || !*optionalProvider.Optional {
-		t.Errorf("optional provider = %#v, exists = %t; want explicit optional true", optionalProvider, exists)
-	}
-	if exists && optionalProvider.Optional != nil {
-		*optionalProvider.Optional = false
-		storedOptional, storedExists := resolved.Provider("codex-optional")
-		if !storedExists || storedOptional.Optional == nil || !*storedOptional.Optional {
-			t.Error("mutating returned optional pointer changed resolved provider")
+	for _, id := range []string{"zcode-main", "agy-main"} {
+		provider, exists := resolved.Provider(id)
+		if !exists || provider.Status != "unverified" {
+			t.Errorf("Provider(%q) = %#v, exists = %t; want an unverified intended provider", id, provider, exists)
 		}
 	}
+
 	promoted := testGlobalConfig()
 	promoted.Providers = adapterconfig.ProvidersConfig{
 		"kimi-main": {Driver: "kimi", Status: "ready", ConcurrencyKey: "kimi-main"},
@@ -412,12 +412,30 @@ func TestProvidersAndViewsAreDefensivelyCopied(t *testing.T) {
 	if _, err := ResolveConfiguration(invalidID, nil); err == nil {
 		t.Error("ResolveConfiguration() accepted a noncanonical provider ID")
 	}
-	nonOptional := testGlobalConfig()
-	nonOptional.Providers = adapterconfig.ProvidersConfig{
-		"claude-main": {Driver: "claude", Status: "unverified", ConcurrencyKey: "claude-main"},
-	}
-	if _, err := ResolveConfiguration(nonOptional, nil); err == nil {
-		t.Error("ResolveConfiguration() accepted a non-optional claude provider")
+}
+
+func TestResolveConfigurationRejectsUnsupportedProviderDrivers(t *testing.T) {
+	for _, driver := range []string{"codex", "claude", "unknown"} {
+		t.Run(driver, func(t *testing.T) {
+			global := testGlobalConfig()
+			global.Providers = adapterconfig.ProvidersConfig{
+				driver + "-main": {Driver: driver, Status: "unverified", ConcurrencyKey: driver + "-main"},
+			}
+			resolved, err := ResolveConfiguration(global, nil)
+			if err == nil {
+				t.Fatal("ResolveConfiguration() error = nil, want unsupported provider rejection")
+			}
+			if !reflect.DeepEqual(resolved, ResolvedConfig{}) {
+				t.Errorf("resolved = %#v, want zero value", resolved)
+			}
+			var reductionError *ReductionError
+			if !errors.As(err, &reductionError) {
+				t.Fatalf("error type = %T, want *ReductionError", err)
+			}
+			if diagnostic := reductionError.Diagnostics()[0]; diagnostic.Path != "$.providers."+driver+"-main.driver" || diagnostic.Code != "invalid_provider" {
+				t.Errorf("diagnostic = %#v, want unsupported-driver diagnostic", diagnostic)
+			}
+		})
 	}
 }
 func TestResolveConfigurationRejectsNoncanonicalTypedConcurrencyKeys(t *testing.T) {
@@ -758,13 +776,19 @@ func TestResolveConfigurationAcceptsAuthoritativeEmbeddedGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfiguration(authoritative default) error = %v", err)
 	}
-	for _, id := range []string{"codex-optional", "claude-optional"} {
-		provider, exists := resolved.Provider(id)
-		if !exists || provider.Optional == nil || !*provider.Optional || provider.Status != "" {
-			t.Errorf("Provider(%q) = %#v, exists = %t; want optional unassigned definition", id, provider, exists)
+
+	providers := resolved.Providers()
+	if got, want := len(providers), 3; got != want {
+		t.Fatalf("ResolveConfiguration(authoritative default) provider count = %d, want %d", got, want)
+	}
+	for id, driver := range map[string]string{"kimi-main": "kimi", "zcode-main": "zcode", "agy-main": "agy"} {
+		provider, exists := providers[id]
+		if !exists {
+			t.Errorf("ResolveConfiguration(authoritative default) missing provider %q", id)
+			continue
 		}
-		if got, want := resolved.Provenance().Sources("providers."+id+".status"), []FieldSource{SourceGlobal}; !reflect.DeepEqual(got, want) {
-			t.Errorf("provider provenance = %v, want %v", got, want)
+		if provider.Driver != driver || provider.Status != "unverified" {
+			t.Errorf("ResolveConfiguration(authoritative default) provider %q = %#v, want driver %q with unverified status", id, provider, driver)
 		}
 	}
 }

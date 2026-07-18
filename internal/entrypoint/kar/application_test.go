@@ -23,14 +23,18 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-const foundationRequestID = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-const commandSchemaID = "https://kar.local/schemas/kar-command-result.v1.schema.json"
+const (
+	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
+	commandSchemaID               = "https://kar.local/schemas/kar-command-result.v1.schema.json"
+	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
+)
 
 type foundationFixture struct {
 	application *Application
@@ -75,6 +79,72 @@ func (writer *receiptCapturingFoundationWriter) Write(ctx context.Context, reque
 func (writer *receiptCapturingFoundationWriter) reset() {
 	writer.requests = nil
 	writer.receipts = nil
+}
+
+type foundationEvidenceReader struct {
+	providerCalls        []string
+	providerEvidenceURIs map[string]string
+	platformCalls        []doctor.PlatformCell
+	toolsCalls           int
+}
+
+func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, providerID string) (doctor.ProviderV2Evidence, error) {
+	reader.providerCalls = append(reader.providerCalls, providerID)
+	probes := []doctor.ProbeObservation{
+		{ID: "PV-VERSION", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-NONINTERACTIVE", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-PROMPT-TRANSPORT", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-JSON-ONLY", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-STDOUT-STDERR", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-CANCELLATION", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-OUTPUT-CAP", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-AUTH-CACHE-CONCURRENCY", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-EXIT-CLASSIFICATION", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-CWD-ISOLATION", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-logic", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-security", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-maintainability", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-product", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-documentation", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-ROLE-FIT-testing", Status: doctor.EvidenceStatusPass},
+	}
+	uri := foundationProviderEvidenceURI
+	if configuredURI, configured := reader.providerEvidenceURIs[providerID]; configured {
+		uri = configuredURI
+	}
+	return doctor.ProviderV2Evidence{
+		SchemaID:                "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json",
+		ProviderID:              providerID,
+		URI:                     uri,
+		SHA256:                  strings.Repeat("a", 64),
+		Probes:                  probes,
+		SecureWriterIndexStatus: doctor.EvidenceStatusPass,
+		AssignmentStatus:        doctor.EvidenceStatusPass,
+	}, nil
+}
+
+func (reader *foundationEvidenceReader) PlatformEvidence(_ context.Context, cell doctor.PlatformCell) (doctor.PlatformV2Evidence, error) {
+	reader.platformCalls = append(reader.platformCalls, cell)
+	return doctor.PlatformV2Evidence{}, errors.New("platform evidence was not injected")
+}
+
+func (reader *foundationEvidenceReader) ToolsLock(context.Context) (doctor.ToolsLockObservation, error) {
+	reader.toolsCalls++
+	return doctor.ToolsLockObservation{}, errors.New("tools lock was not injected")
+}
+
+type typedNilFoundationEvidenceReader struct{}
+
+func (*typedNilFoundationEvidenceReader) ProviderEvidence(context.Context, string) (doctor.ProviderV2Evidence, error) {
+	return doctor.ProviderV2Evidence{}, nil
+}
+
+func (*typedNilFoundationEvidenceReader) PlatformEvidence(context.Context, doctor.PlatformCell) (doctor.PlatformV2Evidence, error) {
+	return doctor.PlatformV2Evidence{}, nil
+}
+
+func (*typedNilFoundationEvidenceReader) ToolsLock(context.Context) (doctor.ToolsLockObservation, error) {
+	return doctor.ToolsLockObservation{}, nil
 }
 
 type controlledFoundationWriter struct {
@@ -402,6 +472,170 @@ func TestApplicationDoctorPersistsValidatedUnverifiedResult(t *testing.T) {
 	doctorSchema := mustFoundationAssetID(t, doctorResultSchema)
 	if err := fixture.validator.Validate(context.Background(), doctorSchema, contents); err != nil {
 		t.Fatalf("persisted doctor result is not schema-valid: %v", err)
+	}
+}
+func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+
+	human := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
+	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stderr()) != 0 {
+		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
+	wantFamilies := []string{"kimi", "zcode", "agy"}
+	if len(lines) != len(wantFamilies) {
+		t.Fatalf("providers human rows = %q, want %d rows", human.Stdout(), len(wantFamilies))
+	}
+	for index, family := range wantFamilies {
+		if !strings.Contains(lines[index], "family="+family+" ") ||
+			!strings.Contains(lines[index], "support=unverified evidence=unverified assignment=intended_but_unverified") {
+			t.Fatalf("providers row %d = %q, want unverified %s profile", index, lines[index], family)
+		}
+	}
+	if strings.Contains(string(human.Stdout()), "token") || strings.Contains(string(human.Stdout()), "secret") {
+		t.Fatalf("providers human output disclosed raw secret-like text: %q", human.Stdout())
+	}
+
+	filtered := fixture.application.Run(context.Background(), []string{"providers"}, root)
+	if filtered.ExitCode() != app.ExitCodeReadiness ||
+		!bytes.Equal(filtered.Stdout(), []byte("no evidence-qualified provider profiles\n")) ||
+		len(filtered.Stderr()) != 0 {
+		t.Fatalf("filtered providers result = exit %d stdout %q stderr %q", filtered.ExitCode(), filtered.Stdout(), filtered.Stderr())
+	}
+
+	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	var envelope struct {
+		Result struct {
+			Kind                string  `json:"kind"`
+			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
+			ReadyProviderCount  int     `json:"ready_provider_count"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Kind != "providers_listed" ||
+		envelope.Result.ProviderEvidenceURI != nil ||
+		envelope.Result.ReadyProviderCount != 0 {
+		t.Fatalf("providers JSON result = %#v, want unverified readiness projection", envelope.Result)
+	}
+}
+func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscovery(t *testing.T) {
+	evidence := &foundationEvidenceReader{}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	root := testAnchoredRoot(t)
+
+	providersResult := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, providersResult, app.ExitCodeSuccess)
+	var providersEnvelope struct {
+		Result struct {
+			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
+			ReadyProviderCount  int     `json:"ready_provider_count"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if providersEnvelope.Result.ReadyProviderCount != 3 ||
+		providersEnvelope.Result.ProviderEvidenceURI == nil ||
+		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
+		t.Fatalf("providers result = %#v, want 3 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+	}
+
+	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, doctorResult, app.ExitCodeReadiness)
+	uri := commandResultURI(t, doctorResult.Stdout(), "doctor_result_uri")
+	contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(uri)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diagnosis struct {
+		ProviderEvidence []struct {
+			ProviderID    string `json:"provider_id"`
+			EvidenceState string `json:"evidence_state"`
+			EvidenceURI   string `json:"evidence_uri"`
+		} `json:"provider_evidence"`
+	}
+	if err := json.Unmarshal(contents, &diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnosis.ProviderEvidence) != 3 {
+		t.Fatalf("doctor provider evidence rows = %d, want 3", len(diagnosis.ProviderEvidence))
+	}
+	for _, provider := range diagnosis.ProviderEvidence {
+		if provider.EvidenceState != "pass" || provider.EvidenceURI != foundationProviderEvidenceURI {
+			t.Fatalf("doctor provider evidence = %#v, want injected PASS evidence", provider)
+		}
+	}
+
+	wantCalls := []string{"kimi", "zcode", "agy", "kimi", "zcode", "agy"}
+	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
+		len(evidence.platformCalls) != 2 || evidence.toolsCalls != 2 {
+		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
+	}
+}
+func TestApplicationProvidersRejectsMismatchedSupportedEvidenceURIs(t *testing.T) {
+	evidence := &foundationEvidenceReader{
+		providerEvidenceURIs: map[string]string{
+			"zcode": "https://evidence.example.test/providers/zcode-authority.json",
+		},
+	}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	result := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+
+	var envelope struct {
+		Result struct {
+			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
+			ReadyProviderCount  int     `json:"ready_provider_count"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ProviderEvidenceURI != nil || envelope.Result.ReadyProviderCount != 0 {
+		t.Fatalf("failed providers result = %#v, want no authority URI or ready profiles", envelope.Result)
+	}
+}
+
+func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.T) {
+	var typedNil *typedNilFoundationEvidenceReader
+	for _, test := range []struct {
+		name    string
+		fixture func(*testing.T) foundationFixture
+	}{
+		{name: "absent", fixture: newFoundationFixture},
+		{name: "typed nil", fixture: func(t *testing.T) foundationFixture {
+			return newFoundationFixtureWithEvidence(t, typedNil)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := test.fixture(t)
+			if fixture.application.evidenceReader != nil {
+				t.Fatalf("application evidence reader = %#v, want nil", fixture.application.evidenceReader)
+			}
+			result := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, testAnchoredRoot(t))
+			if result.ExitCode() != app.ExitCodeReadiness ||
+				!strings.Contains(string(result.Stdout()), "support=unverified evidence=unverified assignment=intended_but_unverified") {
+				t.Fatalf("providers result = exit %d stdout %q, want unverified profiles", result.ExitCode(), result.Stdout())
+			}
+		})
+	}
+}
+
+func TestApplicationProvidersLeavesFutureCommandsUnavailable(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	for _, command := range []string{"review", "followup", "delta", "rerun", "prompt", "clean", "export"} {
+		t.Run(command, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), []string{command}, root)
+			if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 ||
+				!bytes.Equal(result.Stderr(), []byte("kar: command is unavailable in this foundation milestone\n")) {
+				t.Fatalf("%s result = exit %d stdout %q stderr %q", command, result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+		})
 	}
 }
 
@@ -1367,6 +1601,29 @@ func newFoundationFixture(t *testing.T) foundationFixture {
 	return newFoundationFixtureWithWriter(t, filesystem.NewSecureWriter())
 }
 
+func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceReader) foundationFixture {
+	t.Helper()
+	fixture := newFoundationFixture(t)
+	reader, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := NewApplication(Dependencies{
+		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:   fixedFoundationRequestIDs{},
+		Catalog:              fixture.catalog,
+		JSONSchemaValidator:  fixture.validator,
+		SecureWriter:         fixture.writer,
+		TrustedProjectReader: reader,
+		EnvironmentInspector: environment.NewInspector(),
+		EvidenceReader:       evidence,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application = application
+	return fixture
+}
 func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileWriter) foundationFixture {
 	t.Helper()
 	ctx := context.Background()
