@@ -24,26 +24,32 @@ const (
 )
 
 type reportFinalDTO struct {
-	SchemaVersion     string              `json:"schema_version"`
-	SessionID         string              `json:"session_id"`
-	RunID             string              `json:"run_id"`
-	ReviewID          string              `json:"review_id"`
-	RunType           string              `json:"run_type"`
-	CreatedAt         string              `json:"created_at"`
-	KAR               reportKARDTO        `json:"kar"`
-	ImmutableLineage  reportLineageDTO    `json:"immutable_lineage"`
-	Target            reportTargetDTO     `json:"target"`
-	Validation        reportValidationDTO `json:"validation"`
-	ContentVerdict    string              `json:"content_verdict"`
-	CoverageStatus    string              `json:"coverage_status"`
-	PublicationStatus string              `json:"publication_status"`
-	CIDecision        string              `json:"ci_decision"`
-	CIReasonCodes     []string            `json:"ci_reason_codes"`
-	SeverityThreshold reportSeverityDTO   `json:"severity_threshold"`
-	RoleOutcomes      []reportRoleDTO     `json:"role_outcomes"`
-	Findings          []reportFindingDTO  `json:"findings"`
-	Limitations       []string            `json:"limitations"`
-	Provenance        reportProvenanceDTO `json:"provenance"`
+	SchemaVersion     string                    `json:"schema_version"`
+	SessionID         string                    `json:"session_id"`
+	RunID             string                    `json:"run_id"`
+	ReviewID          string                    `json:"review_id"`
+	RunType           string                    `json:"run_type"`
+	CreatedAt         string                    `json:"created_at"`
+	KAR               reportKARDTO              `json:"kar"`
+	ImmutableLineage  reportLineageDTO          `json:"immutable_lineage"`
+	FollowupOutcome   *reportFollowupOutcomeDTO `json:"followup_outcome"`
+	Target            reportTargetDTO           `json:"target"`
+	Validation        reportValidationDTO       `json:"validation"`
+	ContentVerdict    string                    `json:"content_verdict"`
+	CoverageStatus    string                    `json:"coverage_status"`
+	PublicationStatus string                    `json:"publication_status"`
+	CIDecision        string                    `json:"ci_decision"`
+	CIReasonCodes     []string                  `json:"ci_reason_codes"`
+	SeverityThreshold reportSeverityDTO         `json:"severity_threshold"`
+	RoleOutcomes      []reportRoleDTO           `json:"role_outcomes"`
+	Findings          []reportFindingDTO        `json:"findings"`
+	Limitations       []string                  `json:"limitations"`
+	Provenance        reportProvenanceDTO       `json:"provenance"`
+}
+type reportFollowupOutcomeDTO struct {
+	Resolution string              `json:"resolution"`
+	Rationale  string              `json:"rationale"`
+	Evidence   []reportEvidenceDTO `json:"evidence"`
 }
 
 type reportKARDTO struct {
@@ -259,6 +265,9 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 		final.CIDecision != string(review.CIDecision()) {
 		return fmt.Errorf("final fields do not match the committed query view")
 	}
+	if err := final.consistentFollowupOutcome(review); err != nil {
+		return fmt.Errorf("followup outcome does not match the committed query view: %w", err)
+	}
 	if _, err := canonicalReportProvenance(final.Provenance, review); err != nil {
 		return fmt.Errorf("final provenance does not match the committed query view: %w", err)
 	}
@@ -316,6 +325,42 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 			item.Current.LineEnd != claim.LineEnd() ||
 			item.Current.Verification != string(claim.Verification()) {
 			return fmt.Errorf("finding %d evidence does not match the committed query view", index)
+		}
+	}
+	return nil
+}
+func (final reportFinalDTO) consistentFollowupOutcome(review query.CommittedReview) error {
+	outcome, present := review.FollowupOutcome()
+	if !present {
+		if final.FollowupOutcome != nil {
+			return errors.New("non-followup final has a followup outcome")
+		}
+		return nil
+	}
+	if final.FollowupOutcome == nil || final.FollowupOutcome.Resolution != string(outcome.Resolution()) ||
+		final.FollowupOutcome.Rationale != outcome.Rationale() {
+		return errors.New("resolution or rationale differs")
+	}
+	evidence := outcome.Evidence()
+	if len(final.FollowupOutcome.Evidence) != len(evidence) {
+		return errors.New("evidence count differs")
+	}
+	for index, item := range evidence {
+		value := final.FollowupOutcome.Evidence[index]
+		if value.Source.SessionID != item.SourceSessionID().String() ||
+			value.Source.RunID != item.SourceRunID().String() ||
+			value.Source.ReviewID != item.SourceReviewID().String() ||
+			value.Source.FindingID != item.SourceFindingID() ||
+			value.Source.SourceTargetSHA256 != item.SourceTargetSHA256() ||
+			value.Source.SourceExcerptSHA256 != item.SourceExcerptSHA256() ||
+			value.Current.TargetSHA256 != item.TargetSHA256() ||
+			value.Current.Side != string(item.Side()) ||
+			value.Current.Path != item.Path().String() ||
+			value.Current.LineStart != item.LineStart() ||
+			value.Current.LineEnd != item.LineEnd() ||
+			value.Current.Quote != item.Quote() ||
+			value.Current.Verification != string(item.Verification()) {
+			return fmt.Errorf("evidence %d differs", index)
 		}
 	}
 	return nil
@@ -443,6 +488,27 @@ func renderMarkdown(
 	writeField(&output, "Publication status", string(review.PublicationStatus()))
 	writeField(&output, "CI decision", string(review.CIDecision()))
 	writeBlankLine(&output)
+	if outcome, present := review.FollowupOutcome(); present {
+		writeHeading(&output, "Follow-up outcome")
+		writeField(&output, "Resolution", string(outcome.Resolution()))
+		writeTextBlock(&output, "Rationale", outcome.Rationale())
+		for index, evidence := range outcome.Evidence() {
+			writeSubheading(&output, fmt.Sprintf("Evidence %d", index+1))
+			writeField(&output, "Source session ID", evidence.SourceSessionID().String())
+			writeField(&output, "Source run ID", evidence.SourceRunID().String())
+			writeField(&output, "Source review ID", evidence.SourceReviewID().String())
+			writeField(&output, "Source finding ID", evidence.SourceFindingID())
+			writeField(&output, "Source target SHA-256", evidence.SourceTargetSHA256())
+			writeField(&output, "Source excerpt SHA-256", evidence.SourceExcerptSHA256())
+			writeField(&output, "Current target SHA-256", evidence.TargetSHA256())
+			writeField(&output, "Current side", string(evidence.Side()))
+			writeField(&output, "Current path", evidence.Path().String())
+			writeField(&output, "Current lines", fmt.Sprintf("%d-%d", evidence.LineStart(), evidence.LineEnd()))
+			writeField(&output, "Committed verification", string(evidence.Verification()))
+			writeTextBlock(&output, "Current quote", evidence.Quote())
+		}
+		writeBlankLine(&output)
+	}
 
 	writeHeading(&output, "Role coverage")
 	for _, role := range review.Roles() {

@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 13 Option B under SOT 1.4.0 and the implementation boundary through G007. Decision Readiness is **READY**; G001–G007 are **COMPLETE**; G008–G009 are **PENDING**. This is not release authorization.
+This roadmap records Revision 14 under SOT 1.5.0 and the completed implementation boundary through G008. Decision Readiness is **READY**; G001–G008 are **COMPLETE**; G009 is **PENDING AND UNAUTHORIZED**. This is not release authorization.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -13,12 +13,12 @@ This roadmap records Revision 13 Option B under SOT 1.4.0 and the implementation
 | G005 | G3A coordinator, runtime, evidence, axes | **COMPLETE** |
 | G006 | G3B publication, recovery, reporting | **COMPLETE** |
 | G007 | G4 opt-in provider adapters | **COMPLETE** |
-| G008 | G5 lineage, cleanup, export | **PENDING** |
-| G009 | Integrated v0.1 release gate | **PENDING** |
+| G008 | G5 lineage, cleanup, export | **COMPLETE** |
+| G009 | Integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** |
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G007 stories are complete; this boundary does not authorize pending G008–G009 work or a release.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G008 stories are complete. This boundary does not authorize pending G009 work, release CI, or release assets.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -94,17 +94,20 @@ Acceptance:
 - the only controlled live receipt recorded here is the exact Kimi `local-default` 0.23.6 tuple with binary SHA-256 `50c358...`; this does not claim that all tuples are live-tested or supported;
 - every unlisted provider family, including `codex` and `claude`, remains disabled and is rejected by strict configuration until a separately approved SOT extension lists it; no such family is an automatic fallback.
 
-## 7. G5: Lineage, Retention, and Export
+## 7. G008: Lineage, Retention, and Export
 
-Deliver:
-- followup, delta, rerun, clean, and export;
-- immutable lineage edges, source/current evidence views, retention planning, tombstones, and redacted export.
+G008 delivered:
+- application services and CLI dispatch boundaries for `followup`, `delta`, `rerun`, `clean`, and `export`, alongside the established `review` command;
+- immutable lineage edges, source/current evidence views, retention planning, tombstones, and redacted export;
+- executable behavior proven through a real composed P2 end-to-end test across root review, followup, delta, and exact rerun, plus focused cleanup and export tests; production standalone operation without canonical recorded provider/evidence authority fails closed with schema-valid typed failures, consistent with G007's opt-in authority rules.
 
-Acceptance:
+G008 acceptance:
 - every workflow creates a new run and preserves source bytes;
 - clean protects the retained seed, transitive ancestors, corrupt components, and newest session runs;
 - dry-run/apply uses fixed epoch and exact plan hash; stale plans fail rather than recompute;
-- export and cleanup use secure paths and reject symlink escape.
+- export and cleanup use secure paths, reject symlink escape, and keep redaction/export ownership in their application and adapter boundaries.
+
+G008 completion is not the integrated release gate. Its final Go, `go vet`, race, cleaner, executor QA, and architect-review receipts are retained with the durable G008 checkpoint. G009 remains pending and unauthorized, and no release CI or release asset is authorized.
 
 ## 8. G6: Future Platform Support Hardening
 
@@ -132,3 +135,4 @@ The following block release or promotion:
 - mutable completed artifacts, non-atomic final writes, stale cleanup application, or CAS retry with altered expected state;
 - absent source/current evidence identity, unversioned machine output, or secret persistence.
 - failure of `G0_EXTERNAL_JOIN_ORACLE`; intended-future cells do not block G0 and remain release-ineligible.
+- G009 integrated-gate review or test receipts not completed and retained by the leader; G008 completion alone never authorizes release CI or release assets.

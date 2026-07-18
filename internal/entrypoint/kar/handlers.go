@@ -8,15 +8,19 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
 	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
+	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
 	apphelp "github.com/irootkernel/kkachi-agent-review/internal/app/help"
 	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/providers"
+	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -49,8 +53,317 @@ func (application *Application) execute(ctx context.Context, invocation Invocati
 		return application.handleFindings(ctx, invocation, canonicalProjectRoot)
 	case app.CommandExcerpt:
 		return application.handleExcerpt(ctx, invocation, canonicalProjectRoot)
+	case app.CommandFollowup:
+		return application.handleFollowup(ctx, invocation)
+	case app.CommandDelta:
+		return application.handleDelta(ctx, invocation)
+	case app.CommandRerun:
+		return application.handleRerun(ctx, invocation)
+	case app.CommandClean:
+		return application.handleClean(ctx, invocation)
+	case app.CommandExport:
+		return application.handleExport(ctx, invocation, canonicalProjectRoot)
 	default:
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unsupported foundation dispatch"), domain.FailureInternal)}
+	}
+}
+func (application *Application) handleFollowup(ctx context.Context, invocation Invocation) execution {
+	request, available := invocation.Followup()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if application.followupRuns == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("followup service unavailable"), domain.FailureProviderUnavailable)}
+	}
+	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	target, err := followupTarget(request.Target())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	var objective *string
+	if value, present := request.Objective(); present {
+		objective = &value
+	}
+	var role *domain.Role
+	if value, present := request.Role(); present {
+		parsed := domain.Role(value)
+		if !parsed.Valid() {
+			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid role"), domain.FailureConfiguration)}
+		}
+		role = &parsed
+	}
+	result, err := application.followupRuns.StartFollowupRun(ctx, appfollowup.Request{
+		SourceRunID: sourceRunID, FindingID: request.FindingID(), Target: target, Objective: objective, Role: role,
+	})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	sessionID, runID, artifact, resolution := result.SessionID, result.RunID, result.ArtifactURI, result.FollowupResolution
+	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(artifact) ||
+		!resolution.Valid() {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid followup result"), domain.FailureInternal)}
+	}
+	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind                string `json:"kind"`
+		SessionID           string `json:"session_id"`
+		RunID               string `json:"run_id"`
+		FollowupArtifactURI string `json:"followup_artifact_uri"`
+		Resolution          string `json:"resolution"`
+	}{"followup_started", sessionID, runID, artifact, string(resolution)})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: []byte("followup started: " + runID + "\nresolution: " + string(resolution)), data: data, exit: exit, committedReasons: reasons}
+}
+
+func (application *Application) handleDelta(ctx context.Context, invocation Invocation) execution {
+	request, available := invocation.Delta()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if application.deltaRuns == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("delta service unavailable"), domain.FailureProviderUnavailable)}
+	}
+	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	target, err := deltaTarget(request.Target())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	roles := make([]domain.Role, len(request.Roles()))
+	for index, value := range request.Roles() {
+		roles[index] = domain.Role(value)
+		if !roles[index].Valid() {
+			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid role"), domain.FailureConfiguration)}
+		}
+	}
+	result, err := application.deltaRuns.StartDeltaRun(ctx, appdelta.StartRequest{SourceRunID: sourceRunID, Target: target, Roles: roles})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	sessionID, runID, artifact := result.SessionID, result.RunID, result.ArtifactURI
+	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(artifact) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid delta result"), domain.FailureInternal)}
+	}
+	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind              string `json:"kind"`
+		SessionID         string `json:"session_id"`
+		RunID             string `json:"run_id"`
+		ReviewArtifactURI string `json:"review_artifact_uri"`
+	}{"delta_started", sessionID, runID, artifact})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: []byte("delta started: " + runID), data: data, exit: exit, committedReasons: reasons}
+}
+
+func (application *Application) handleRerun(ctx context.Context, invocation Invocation) execution {
+	request, available := invocation.Rerun()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if application.reruns == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("rerun service unavailable"), domain.FailureProviderUnavailable)}
+	}
+	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	sourceAttemptID, err := domain.ParseAttemptID(request.SourceAttemptID())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	mode := appreplay.ReplayMode(request.ReplayMode())
+	result, err := application.reruns.StartRerun(ctx, appreplay.Request{SourceRunID: sourceRunID, SourceAttemptID: sourceAttemptID, ReplayMode: mode})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	sessionID, runID, manifest := result.SessionID, result.RunID, result.ArtifactURI
+	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(manifest) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid rerun result"), domain.FailureInternal)}
+	}
+	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind              string `json:"kind"`
+		SessionID         string `json:"session_id"`
+		RunID             string `json:"run_id"`
+		PromptManifestURI string `json:"prompt_manifest_uri"`
+	}{"rerun_started", sessionID, runID, manifest})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: []byte("rerun started: " + runID), data: data, exit: exit, committedReasons: reasons}
+}
+
+func (application *Application) handleClean(ctx context.Context, invocation Invocation) execution {
+	request, available := invocation.Clean()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if application.retention == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("retention service unavailable"), domain.FailureArtifact)}
+	}
+	var expectedPlanSHA256 *string
+	if value, present := request.ExpectedPlanSHA256(); present {
+		expectedPlanSHA256 = &value
+	}
+	result, err := application.retention.PlanAndApplyRetention(ctx, RetentionRequest{
+		Mode: request.Mode(), ExpectedPlanSHA256: expectedPlanSHA256,
+	})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.clean", domain.FailureArtifact, "clean operation failed", err), domain.FailureArtifact)}
+	}
+	if (result.Mode != "" && result.Mode != request.Mode()) || !validCommandURI(result.CleanPlanURI) || strings.TrimSpace(result.PlanSHA256) == "" || result.Applied != (request.Mode() == CleanModeApply) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid clean result"), domain.FailureInternal)}
+	}
+	if request.Mode() == CleanModeExplain {
+		if !validCleanExplainRows(result.ExplainRows) {
+			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid clean explain rows"), domain.FailureInternal)}
+		}
+	} else if len(result.ExplainRows) != 0 {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unexpected clean explain rows"), domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind         string `json:"kind"`
+		CleanPlanURI string `json:"clean_plan_uri"`
+		PlanSHA256   string `json:"plan_sha256"`
+		Applied      bool   `json:"applied"`
+	}{"clean_completed", result.CleanPlanURI, result.PlanSHA256, result.Applied})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	switch request.Mode() {
+	case CleanModePlan:
+		return execution{human: []byte("clean plan: " + result.CleanPlanURI), data: data}
+	case CleanModeApply:
+		return execution{human: []byte("clean completed: " + result.CleanPlanURI), data: data}
+	case CleanModeExplain:
+		return execution{human: []byte("clean explain: " + result.CleanPlanURI + "\n" + strings.Join(result.ExplainRows, "\n")), data: data}
+	default:
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unsupported clean mode"), domain.FailureInternal)}
+	}
+}
+
+func (application *Application) handleExport(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Export()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if application.exports == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("export service unavailable"), domain.FailureArtifact)}
+	}
+	root, err := ports.NewAnchoredRoot(canonicalProjectRoot)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	result, err := application.exports.ExportRedactedRun(ctx, RedactedExportRequest{
+		RunID: request.RunID(), OutputPath: request.OutputPath(), Redacted: request.Redacted(), ProjectRoot: root,
+	})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+	}
+	if !result.Redacted || !validCommandURI(result.ExportManifestURI) || !validCommandURI(result.BundleURI) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid export result"), domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind              string `json:"kind"`
+		ExportManifestURI string `json:"export_manifest_uri"`
+		BundleURI         string `json:"bundle_uri"`
+		Redacted          bool   `json:"redacted"`
+	}{"export_created", result.ExportManifestURI, result.BundleURI, true})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{human: []byte("export created: " + result.BundleURI), data: data}
+}
+
+func followupTarget(request TargetRequest) (appfollowup.Target, error) {
+	kind := appfollowup.TargetKind(request.Kind())
+	switch kind {
+	case appfollowup.TargetDiff, appfollowup.TargetPatch, appfollowup.TargetStdin:
+		if strings.TrimSpace(request.Value()) == "" {
+			return appfollowup.Target{}, errors.New("empty target")
+		}
+		return appfollowup.Target{Kind: kind, Value: request.Value()}, nil
+	default:
+		return appfollowup.Target{}, errors.New("unsupported target")
+	}
+}
+
+func deltaTarget(request TargetRequest) (appdelta.TargetRequest, error) {
+	kind := appdelta.TargetKind(request.Kind())
+	switch kind {
+	case appdelta.TargetDiff, appdelta.TargetPatch, appdelta.TargetStdin:
+		if len(request.Value()) == 0 || len(request.Value()) > 4096 || strings.TrimSpace(request.Value()) == "" || strings.ContainsAny(request.Value(), "\x00\r\n") {
+			return appdelta.TargetRequest{}, errors.New("invalid target")
+		}
+		return appdelta.TargetRequest{Kind: kind, Value: request.Value()}, nil
+	default:
+		return appdelta.TargetRequest{}, errors.New("unsupported target")
+	}
+}
+
+func validCommandURI(value string) bool {
+	return strings.TrimSpace(value) != "" && !strings.ContainsAny(value, "\x00\r\n")
+}
+func validCleanExplainRows(rows []string) bool {
+	if len(rows) == 0 || len(rows) > 4096 {
+		return false
+	}
+	for _, row := range rows {
+		if len(row) > 4096 || strings.TrimSpace(row) == "" || strings.ContainsAny(row, "\x00\r\n") {
+			return false
+		}
+	}
+	return true
+}
+
+func validCommandRunID(value string) bool {
+	_, err := domain.ParseRunID(value)
+	return err == nil
+}
+func committedTerminalOutcome(terminalExit domain.OperationalExitDecision) (app.ExitCode, []string, error) {
+	reasons := terminalExit.Reasons()
+	if len(reasons) == 0 {
+		return app.ExitCodeInternal, nil, errors.New("committed terminal exit authority is missing")
+	}
+	input, err := domain.NewOperationalExitInput(reasons)
+	if err != nil {
+		return app.ExitCodeInternal, nil, fmt.Errorf("committed terminal exit authority is invalid: %w", err)
+	}
+	reduced, err := domain.ReduceOperationalExit(input)
+	if err != nil || reduced.Code() != terminalExit.Code() {
+		return app.ExitCodeInternal, nil, errors.New("committed terminal exit authority is not reduced")
+	}
+	reasonCodes := make([]string, len(reasons))
+	for index, reason := range reasons {
+		reasonCodes[index] = reason.ReasonCode()
+	}
+	switch terminalExit.Code() {
+	case domain.ExitCommittedPass:
+		return app.ExitCodeSuccess, reasonCodes, nil
+	case domain.ExitCommittedCIRejected:
+		return app.ExitCodePolicy, reasonCodes, nil
+	case domain.ExitIncompleteCoverage:
+		return app.ExitCodeReadiness, reasonCodes, nil
+	default:
+		return app.ExitCodeInternal, nil, fmt.Errorf("terminal exit %d is not a committed P2 outcome", terminalExit.Code())
 	}
 }
 

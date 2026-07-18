@@ -90,6 +90,12 @@
     "immutable_lineage": {
       "$ref": "#/$defs/immutable_lineage"
     },
+    "followup_outcome": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "target": {
       "$ref": "#/$defs/target"
     },
@@ -534,7 +540,8 @@
       "required": [
         "manifest",
         "lineage_edge",
-        "epoch"
+        "epoch",
+        "support_index"
       ],
       "properties": {
         "manifest": {
@@ -566,6 +573,9 @@
               "$ref": "#/$defs/path_pointer"
             }
           ]
+        },
+        "support_index": {
+          "$ref": "#/$defs/artifact_identity"
         }
       }
     },
@@ -711,6 +721,9 @@
                 "type": "object"
               },
               "epoch": {
+                "type": "object"
+              },
+              "support_index": {
                 "type": "object"
               }
             }

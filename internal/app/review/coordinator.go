@@ -461,12 +461,113 @@ type coordinatorExecution struct {
 
 // Execute runs every selected role. It owns all mutable Run and Attempt state
 // in this goroutine; lane workers only execute immutable jobs.
+// Execute runs a new root review run.
 func (coordinator *Coordinator) Execute(
 	ctx context.Context,
 	target domain.TargetIdentity,
 	assignments []Assignment,
 	threshold domain.Severity,
 	policy *domain.CIPolicy,
+) (CoordinatorResult, error) {
+	return coordinator.execute(ctx, target, assignments, threshold, policy, nil)
+}
+
+// ExecuteDeltaRun executes supplied child roles with the explicit immutable
+// A-to-B provider material. The ordinary prompt path is not available.
+func (coordinator *Coordinator) ExecuteDeltaRun(
+	ctx context.Context,
+	run *domain.Run,
+	assignments []Assignment,
+	threshold domain.Severity,
+	policy *domain.CIPolicy,
+	material DeltaInvocationMaterial,
+) (CoordinatorResult, error) {
+	if coordinator == nil || coordinator.runtime == nil {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: delta execution dependencies are invalid")
+	}
+	runtime, ok := coordinator.runtime.(*ProviderInvocationRuntime)
+	if !ok || runtime == nil {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: delta execution requires provider invocation runtime")
+	}
+	explicit := *coordinator
+	explicit.runtime = deltaInvocationRuntime{runtime: runtime, material: cloneDeltaInvocationMaterial(material)}
+	return explicit.ExecuteRun(ctx, run, assignments, threshold, policy)
+}
+
+// ExecuteExactReplayRun executes one selected child role with its stored wire
+// authority. It removes fallback authority and the wrapper rejects any
+// non-initial invocation, so repair or multi-role scheduling cannot reach a
+// provider.
+func (coordinator *Coordinator) ExecuteExactReplayRun(
+	ctx context.Context,
+	run *domain.Run,
+	assignment Assignment,
+	threshold domain.Severity,
+	policy *domain.CIPolicy,
+	input ExactReplayInput,
+) (CoordinatorResult, error) {
+	if coordinator == nil || coordinator.runtime == nil || assignment.Role() != input.Role ||
+		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
+		assignment.PrimaryRoute().ProviderInstance() != input.SourceProviderInstance {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay authority is invalid")
+	}
+	runtime, ok := coordinator.runtime.(*ProviderInvocationRuntime)
+	if !ok || runtime == nil {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay requires provider invocation runtime")
+	}
+	selected, err := NewScheduledAssignment(assignment.Role(), assignment.Required(), assignment.PrimaryRoute(), nil)
+	if err != nil {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay assignment: %w", err)
+	}
+	explicit := *coordinator
+	explicit.runtime = exactReplayInvocationRuntime{runtime: runtime, input: cloneExactReplayInput(input)}
+	return explicit.ExecuteRun(ctx, run, []Assignment{selected}, threshold, policy)
+}
+
+type deltaInvocationRuntime struct {
+	runtime  *ProviderInvocationRuntime
+	material DeltaInvocationMaterial
+}
+
+func (runtime deltaInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) AttemptOutcome {
+	return runtime.runtime.InvokeDelta(ctx, job, runtime.material)
+}
+
+type exactReplayInvocationRuntime struct {
+	runtime *ProviderInvocationRuntime
+	input   ExactReplayInput
+}
+
+func (runtime exactReplayInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) AttemptOutcome {
+	if job.Purpose() != domain.InvocationInitial || job.Role() != runtime.input.Role ||
+		job.Route().ProviderInstance() != runtime.input.SourceProviderInstance {
+		return runtimeCondition(job, AttemptConditionConfigurationViolation)
+	}
+	return runtime.runtime.InvokeExactReplay(ctx, job, runtime.input)
+}
+
+// ExecuteRun executes one supplied fresh pending child run without replacing its
+// run, session, or lineage identities.
+func (coordinator *Coordinator) ExecuteRun(
+	ctx context.Context,
+	run *domain.Run,
+	assignments []Assignment,
+	threshold domain.Severity,
+	policy *domain.CIPolicy,
+) (CoordinatorResult, error) {
+	if run == nil {
+		return CoordinatorResult{}, fmt.Errorf("review coordinator: run is required")
+	}
+	return coordinator.execute(ctx, run.Target(), assignments, threshold, policy, run)
+}
+
+func (coordinator *Coordinator) execute(
+	ctx context.Context,
+	target domain.TargetIdentity,
+	assignments []Assignment,
+	threshold domain.Severity,
+	policy *domain.CIPolicy,
+	supplied *domain.Run,
 ) (result CoordinatorResult, err error) {
 	if coordinator == nil || nilInterface(coordinator.clock) || nilInterface(coordinator.ids) ||
 		nilInvocationRuntime(coordinator.runtime) || coordinator.maxActiveLanes < 1 ||
@@ -490,11 +591,29 @@ func (coordinator *Coordinator) Execute(
 	if threshold != "" && !threshold.Valid() {
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: invalid request-changes threshold %q", threshold)
 	}
+	if supplied != nil {
+		if _, err := domain.ParseRunID(supplied.ID().String()); err != nil {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: invalid supplied run ID: %w", err)
+		}
+		if _, err := domain.ParseSessionID(supplied.SessionID().String()); err != nil {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: invalid supplied session ID: %w", err)
+		}
+		if supplied.Type() == domain.RunTypeReview || !supplied.Type().Valid() || supplied.State() != domain.RunPending {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied run must be a fresh pending child run")
+		}
+		if _, ok := supplied.ParentRunID(); !ok {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied child run is missing parent lineage")
+		}
+		if _, ok := supplied.SourceRunID(); !ok {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied child run is missing source lineage")
+		}
+		target = supplied.Target()
+	}
 	canonicalTarget, err := canonicalCoordinatorTarget(target)
 	if err != nil {
 		return CoordinatorResult{}, err
 	}
-	canonicalAssignments, roleTasks, err := coordinatorAssignments(assignments, coordinator.receipt)
+	canonicalAssignments, roleTasks, err := coordinatorAssignments(assignments, coordinator.receipt, supplied != nil)
 	if err != nil {
 		return CoordinatorResult{}, err
 	}
@@ -504,33 +623,46 @@ func (coordinator *Coordinator) Execute(
 	}
 
 	issuer := newCoordinatorIssuer(coordinator.clock, coordinator.ids)
-	if err := coordinatorAdmissionContextError(workCtx); err != nil {
-		return CoordinatorResult{}, err
+	var sessionID domain.SessionID
+	var runID domain.RunID
+	var run domain.Run
+	if supplied != nil {
+		defer func() { *supplied = run }()
 	}
-	sessionID, err := issuer.newSessionID()
-	if err != nil {
-		return CoordinatorResult{}, err
-	}
-	if err := coordinatorAdmissionContextError(workCtx); err != nil {
-		return CoordinatorResult{}, err
-	}
-	runID, err := issuer.newRunID()
-	if err != nil {
-		return CoordinatorResult{}, err
-	}
-	if err := coordinatorAdmissionContextError(workCtx); err != nil {
-		return CoordinatorResult{}, err
-	}
-	createdAt, err := issuer.now()
-	if err != nil {
-		return CoordinatorResult{}, err
-	}
-	if err := coordinatorAdmissionContextError(workCtx); err != nil {
-		return CoordinatorResult{}, err
-	}
-	_, run, err := domain.NewReviewSession(sessionID, createdAt, runID, canonicalTarget, roleTasks)
-	if err != nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: create session and run: %w", err)
+	if supplied != nil {
+		sessionID, runID = supplied.SessionID(), supplied.ID()
+		run = *supplied
+		if !sameCoordinatorRoleTasks(run.RoleTasks(), roleTasks) {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: assignments do not match supplied run roles")
+		}
+	} else {
+		if err := coordinatorAdmissionContextError(workCtx); err != nil {
+			return CoordinatorResult{}, err
+		}
+		sessionID, err = issuer.newSessionID()
+		if err != nil {
+			return CoordinatorResult{}, err
+		}
+		if err := coordinatorAdmissionContextError(workCtx); err != nil {
+			return CoordinatorResult{}, err
+		}
+		runID, err = issuer.newRunID()
+		if err != nil {
+			return CoordinatorResult{}, err
+		}
+		if err := coordinatorAdmissionContextError(workCtx); err != nil {
+			return CoordinatorResult{}, err
+		}
+		createdAt, clockErr := issuer.now()
+		if clockErr != nil {
+			return CoordinatorResult{}, clockErr
+		}
+		runSession, createdRun, createErr := domain.NewReviewSession(sessionID, createdAt, runID, canonicalTarget, roleTasks)
+		_ = runSession
+		if createErr != nil {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: create session and run: %w", createErr)
+		}
+		run = createdRun
 	}
 	if err := coordinatorAdmissionContextError(workCtx); err != nil {
 		return CoordinatorResult{}, err
@@ -666,6 +798,17 @@ func (coordinator *Coordinator) Execute(
 	}
 	return execution.snapshot(sessionID, runID, threshold, localPolicyPointer)
 }
+func sameCoordinatorRoleTasks(left, right []domain.RoleTask) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Role() != right[index].Role() || left[index].Required() != right[index].Required() || left[index].State() != right[index].State() {
+			return false
+		}
+	}
+	return true
+}
 
 func (execution *coordinatorExecution) abort(
 	scheduler *laneScheduler,
@@ -739,7 +882,7 @@ func canonicalCoordinatorTarget(target domain.TargetIdentity) (domain.TargetIden
 	return canonical, nil
 }
 
-func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt) ([]Assignment, []domain.RoleTask, error) {
+func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt, allowSubset bool) ([]Assignment, []domain.RoleTask, error) {
 	byRole := make(map[domain.Role]Assignment, len(assignments))
 	for _, assignment := range assignments {
 		if !assignment.Role().Valid() || !assignment.PrimaryRoute().Valid() ||
@@ -759,7 +902,7 @@ func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt) 
 	}
 
 	budgets := receipt.RoleBudgets()
-	if len(assignments) != len(budgets) {
+	if len(assignments) > len(budgets) || (!allowSubset && len(assignments) != len(budgets)) {
 		return nil, nil, fmt.Errorf("review coordinator: assignments do not match budget roles")
 	}
 	budgetByRole := make(map[domain.Role]RoleBudget, len(budgets))
@@ -801,7 +944,7 @@ func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt) 
 		canonical = append(canonical, assignment)
 		roleTasks = append(roleTasks, task)
 	}
-	if len(canonical) != len(assignments) || len(canonical) != len(budgets) {
+	if len(canonical) != len(assignments) || (!allowSubset && len(canonical) != len(budgets)) {
 		return nil, nil, fmt.Errorf("review coordinator: assignments must use only fixed review roles")
 	}
 	return canonical, roleTasks, nil
@@ -867,7 +1010,9 @@ func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordin
 		return InvocationJob{}, err
 	}
 	execution.nextJob++
-	job, err := NewInvocationJob(
+	job, err := newCoordinatorInvocationJob(
+		execution.run.SessionID(),
+		execution.run.ID(),
 		role,
 		attempt.kind,
 		attempt.route,

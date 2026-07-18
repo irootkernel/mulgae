@@ -60,9 +60,34 @@ func main() {
 		fmt.Fprint(os.Stderr, "kar: publication report service is unavailable\n")
 		os.Exit(10)
 	}
+	exportInstaller, err := filesystem.NewExportInstaller(writer)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: export installer is unavailable\n")
+		os.Exit(10)
+	}
+	runSelector := filesystem.NewRunSelector(root)
+	requestResolver, err := kar.NewG008RequestResolver(root, queryService, runSelector, os.Stdin)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: G008 request resolver is unavailable\n")
+		os.Exit(10)
+	}
+	g008Dependencies, err := kar.NewG008Dependencies(kar.G008Composition{
+		Root:                 root,
+		Queries:              queryService,
+		RequestResolver:      requestResolver,
+		Clock:                clock,
+		IDs:                  ids,
+		ExportInstaller:      exportInstaller,
+		PublicationAuthority: publicationStore,
+	})
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: G008 offline services are unavailable\n")
+		os.Exit(10)
+	}
 	application, err := kar.NewApplication(kar.Dependencies{
 		Clock:                clock,
 		RequestIDGenerator:   ids,
+		RequestResolver:      g008Dependencies.RequestResolver,
 		Catalog:              catalog,
 		JSONSchemaValidator:  validator,
 		SecureWriter:         writer,
@@ -73,6 +98,8 @@ func main() {
 		EvidenceReader:     nil,
 		PublicationQueries: kar.NewPublicationQueryService(queryService),
 		PublicationReports: kar.NewPublicationReportService(reportService),
+		Retention:          g008Dependencies.Retention,
+		Exports:            g008Dependencies.Exports,
 	})
 	if err != nil {
 		fmt.Fprint(os.Stderr, "kar: application is unavailable\n")

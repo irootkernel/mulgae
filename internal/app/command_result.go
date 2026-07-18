@@ -171,11 +171,12 @@ func (diagnostic Diagnostic) RecommendedNextCommand() string {
 
 // CommandResult is the immutable application result consumed by a CLI adapter.
 type CommandResult struct {
-	command     CommandName
-	ok          bool
-	exitCode    ExitCode
-	data        []byte
-	diagnostics []Diagnostic
+	command          CommandName
+	ok               bool
+	exitCode         ExitCode
+	data             []byte
+	diagnostics      []Diagnostic
+	committedReasons []string
 }
 
 // NewCommandResult validates a command-result combination and takes ownership
@@ -237,21 +238,60 @@ func NewCommandFailure(command CommandName, exitCode ExitCode, diagnostics ...Di
 	return NewCommandResult(command, false, exitCode, nil, diagnostics)
 }
 
+// NewCommittedCommandOutcome creates a data-bearing child workflow outcome from
+// verified terminal authority. Its policy and readiness exits are committed
+// outcomes, not transport failures, and retain every stable terminal reason.
+func NewCommittedCommandOutcome(command CommandName, exitCode ExitCode, data []byte, reasons []string) (CommandResult, error) {
+	if !command.Valid() {
+		return CommandResult{}, invalidCommandResult("unknown command %q", command)
+	}
+	switch exitCode {
+	case ExitCodeSuccess, ExitCodePolicy, ExitCodeReadiness:
+	default:
+		return CommandResult{}, invalidCommandResult("committed outcome must use exit 0, 1, or 4")
+	}
+	if _, err := DecodeStrictJSONObject(data); err != nil {
+		return CommandResult{}, invalidCommandResult("committed outcome data must be exactly one non-null JSON object: %v", err)
+	}
+	if len(reasons) == 0 {
+		return CommandResult{}, invalidCommandResult("committed outcome requires a terminal reason")
+	}
+	for index, reason := range reasons {
+		if !validMachineCode(reason) {
+			return CommandResult{}, invalidCommandResult("committed terminal reason %d is invalid", index)
+		}
+	}
+	return CommandResult{
+		command:          command,
+		ok:               exitCode == ExitCodeSuccess,
+		exitCode:         exitCode,
+		data:             cloneBytes(data),
+		committedReasons: cloneStrings(reasons),
+	}, nil
+}
+
 // Command returns the command that produced this result.
 func (result CommandResult) Command() CommandName { return result.command }
 
-// OK reports whether the command completed successfully.
+// OK reports whether the command completed with a success exit.
 func (result CommandResult) OK() bool { return result.ok }
 
 // ExitCode returns the assigned CLI exit projection.
 func (result CommandResult) ExitCode() ExitCode { return result.exitCode }
 
-// Data returns a caller-owned copy of successful result data. Failed results
-// always return nil data.
+// Data returns a caller-owned copy of successful or committed result data.
+// Transport failures always return nil data.
 func (result CommandResult) Data() []byte { return cloneBytes(result.data) }
 
 // Diagnostics returns a caller-owned copy of the ordered typed diagnostics.
 func (result CommandResult) Diagnostics() []Diagnostic { return cloneDiagnostics(result.diagnostics) }
+
+// CommittedOutcome reports whether the result is a verified child workflow
+// terminal outcome rather than an ordinary success or transport failure.
+func (result CommandResult) CommittedOutcome() bool { return len(result.committedReasons) != 0 }
+
+// CommittedReasons returns caller-owned stable terminal reason codes.
+func (result CommandResult) CommittedReasons() []string { return cloneStrings(result.committedReasons) }
 
 func (diagnostic Diagnostic) validate() error {
 	if err := validateText(diagnostic.stage, 128); err != nil || diagnostic.stage == "" {
@@ -436,6 +476,14 @@ func cloneDiagnostics(value []Diagnostic) []Diagnostic {
 		return nil
 	}
 	copyValue := make([]Diagnostic, len(value))
+	copy(copyValue, value)
+	return copyValue
+}
+func cloneStrings(value []string) []string {
+	if value == nil {
+		return nil
+	}
+	copyValue := make([]string, len(value))
 	copy(copyValue, value)
 	return copyValue
 }

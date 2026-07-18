@@ -985,7 +985,7 @@ func TestPublicationStoreReportsInjectedUndurableCandidateAndPreparation(t *test
 		fixture := newPublicationStoreFixture(t)
 		path := mustRelativePath(
 			t,
-			fixture.run.SessionID().String()+"/"+fixture.run.RunID().String()+"/excerpts/injected.json",
+			fixture.run.SessionID().String()+"/"+fixture.run.RunID().String()+"/excerpts/F999.json",
 		)
 		payload := []byte(`{"excerpt":"clean"}`)
 		artifact, err := ports.NewImmutablePublicationArtifact(

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
@@ -77,10 +78,18 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	if got, want := first.Epoch().Record().Path().String(), "store/epochs/epoch_00000000000000000042.json"; got != want {
 		t.Fatalf("epoch path = %q, want %q", got, want)
 	}
-	if got := len(first.Excerpts()); got != 1 {
-		t.Fatalf("excerpt count = %d, want 1", got)
-	} else if got, want := first.Excerpts()[0].Path().String(), prefix+"/excerpts/F001_1.md"; got != want {
-		t.Fatalf("excerpt path = %q, want %q", got, want)
+	if got := len(first.Excerpts()); got != 3 {
+		t.Fatalf("support artifact count = %d, want excerpt, normalized finding, and support index", got)
+	} else {
+		if got, want := first.Excerpts()[0].Path().String(), prefix+"/excerpts/F001_1.md"; got != want {
+			t.Fatalf("excerpt path = %q, want %q", got, want)
+		}
+		if got, want := first.Excerpts()[1].Path().String(), prefix+"/excerpts/F001.json"; got != want {
+			t.Fatalf("normalized finding path = %q, want %q", got, want)
+		}
+		if got, want := first.Excerpts()[2].Path().String(), prefix+"/support/index.json"; got != want {
+			t.Fatalf("support index path = %q, want %q", got, want)
+		}
 	}
 
 	var final finalReviewWire
@@ -145,6 +154,124 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	journalBytes[0] = '!'
 	if first.Journal().Bytes()[0] == '!' {
 		t.Fatal("journal bytes are not defensively copied")
+	}
+}
+func TestPublicationBundleBindsCanonicalSupportIndex(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := publicationRuntimeCandidate(t).Build(
+		context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42,
+	)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var manifest runManifestWire
+	if err := unmarshalExact(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := bundle.Excerpts()[len(bundle.Excerpts())-1].Path()
+	if got, want := indexPath.String(), bundle.Manifest().Path().String()[:0]+
+		"s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/support/index.json"; got != want {
+		t.Fatalf("support index path = %q, want canonical %q", got, want)
+	}
+	if manifest.CompositeIdentity.SupportIndex.Path != indexPath.String() ||
+		manifest.CompositeIdentity.SupportIndex.SHA256 != bundle.Excerpts()[len(bundle.Excerpts())-1].SHA256() {
+		t.Fatal("manifest does not bind the exact support index")
+	}
+	var index runSupportIndexWire
+	if err := unmarshalExact(bundle.Excerpts()[len(bundle.Excerpts())-1].Bytes(), &index); err != nil {
+		t.Fatal(err)
+	}
+	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) == 0 {
+		t.Fatalf("support index is not canonical runtime inventory: %#v", index)
+	}
+	for _, artifact := range index.Artifacts {
+		if artifact.Path == indexPath.String() {
+			t.Fatal("support index recursively inventories itself")
+		}
+	}
+}
+func TestRepairedAttemptSelectsInitialReplayPrompt(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationRuntimeCandidate(t)
+	appendPublicationRuntimeRepairInvocation(t, &candidate)
+	bundle, err := candidate.Build(
+		context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42,
+	)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	var targetManifest *runtimeTargetManifestWire
+	for _, artifact := range bundle.Excerpts() {
+		var candidateManifest runtimeTargetManifestWire
+		if err := unmarshalExact(artifact.Bytes(), &candidateManifest); err == nil &&
+			candidateManifest.SchemaVersion == "kar-runtime-target-manifest.v1" {
+			targetManifest = &candidateManifest
+			break
+		}
+	}
+	if targetManifest == nil {
+		t.Fatal("runtime target manifest is absent")
+	}
+	if got, want := len(targetManifest.Prompts), 3; got != want {
+		t.Fatalf("runtime prompt inventory count = %d, want %d", got, want)
+	}
+	var selected *selectedReplayPromptWire
+	for index := range targetManifest.SelectedReplayPrompts {
+		candidateSelection := &targetManifest.SelectedReplayPrompts[index]
+		if candidateSelection.AttemptID != candidate.roles[0].attempts[0].id.String() {
+			continue
+		}
+		if selected != nil {
+			t.Fatal("successful repaired attempt has ambiguous replay prompts")
+		}
+		selected = candidateSelection
+	}
+	if selected == nil {
+		t.Fatal("successful repaired attempt has no replay prompt")
+	}
+	if selected.Sequence != 1 || selected.Purpose != "initial" {
+		t.Fatalf("selected replay prompt = %#v, want successful attempt initial prompt", selected)
+	}
+}
+
+func TestFailedAttemptRetainsInitialReplayPrompt(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationRuntimeCandidate(t)
+	attempt := &candidate.roles[0].attempts[0]
+	attempt.state = domain.AttemptFailed
+	artifacts, err := candidate.buildRuntimeArtifacts()
+	if err != nil {
+		t.Fatalf("buildRuntimeArtifacts() error = %v", err)
+	}
+	var targetManifest runtimeTargetManifestWire
+	found := false
+	for _, artifact := range artifacts {
+		var decoded runtimeTargetManifestWire
+		if err := unmarshalExact(artifact.Bytes(), &decoded); err == nil &&
+			decoded.SchemaVersion == "kar-runtime-target-manifest.v1" {
+			targetManifest = decoded
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("runtime target manifest is absent")
+	}
+	matches := 0
+	for _, selected := range targetManifest.SelectedReplayPrompts {
+		if selected.AttemptID == attempt.id.String() {
+			matches++
+			if selected.Sequence != 1 || selected.Purpose != "initial" {
+				t.Fatalf("failed attempt replay prompt = %#v", selected)
+			}
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("failed attempt replay selections = %d, want 1", matches)
 	}
 }
 

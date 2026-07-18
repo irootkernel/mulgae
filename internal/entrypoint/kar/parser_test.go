@@ -1,6 +1,7 @@
 package kar
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -17,6 +18,7 @@ const (
 	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testAttemptID           = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
 )
 
 func TestParseHelpForms(t *testing.T) {
@@ -185,6 +187,237 @@ func TestParsePublicationQueryForms(t *testing.T) {
 	}
 	assertRequestJSON(t, excerpt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"excerpt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","current_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_format":"human"}`)
 }
+func TestParseG008RequestForms(t *testing.T) {
+	followup := mustParse(t, []string{"followup", "--run", testRunID, "--finding", "F_SOURCE-1", "--diff", "git", "--output", "json"})
+	followupRequest, ok := followup.Followup()
+	if !ok || followupRequest.SourceRunID() != testRunID || followupRequest.FindingID() != "F_SOURCE-1" ||
+		followupRequest.Target().Kind() != "diff" || followupRequest.Target().Value() != "git" {
+		t.Fatalf("followup request = %#v, %t; want literal source and target fields", followupRequest, ok)
+	}
+	if _, present := followupRequest.Objective(); present {
+		t.Fatal("default followup objective must be null")
+	}
+	if _, present := followupRequest.Role(); present {
+		t.Fatal("default followup role must be null")
+	}
+	assertRequestJSON(t, followup, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F_SOURCE-1","target":{"kind":"diff","value":"git"},"objective":null,"role":null,"output_format":"json"}`)
+
+	delta := mustParse(t, []string{"delta", "--since-run", testRunID, "--patch", "changes.patch", "--roles", "logic,security"})
+	deltaRequest, ok := delta.Delta()
+	if !ok || deltaRequest.SourceRunID() != testRunID || deltaRequest.Target().Kind() != "patch" ||
+		!reflect.DeepEqual(deltaRequest.Roles(), []string{"logic", "security"}) {
+		t.Fatalf("delta request = %#v, %t; want literal source, target, and roles", deltaRequest, ok)
+	}
+	roles := deltaRequest.Roles()
+	roles[0] = "mutated"
+	if got := deltaRequest.Roles()[0]; got != "logic" {
+		t.Fatalf("delta roles mutated through accessor = %q", got)
+	}
+	assertRequestJSON(t, delta, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"patch","value":"changes.patch"},"roles":["logic","security"],"output_format":"human"}`)
+
+	rerun := mustParse(t, []string{"rerun", "--run", testRunID, "--attempt", testAttemptID})
+	rerunRequest, ok := rerun.Rerun()
+	if !ok || rerunRequest.SourceRunID() != testRunID || rerunRequest.SourceAttemptID() != testAttemptID || rerunRequest.ReplayMode() != ReplayModeExact {
+		t.Fatalf("rerun request = %#v, %t; want exact replay default", rerunRequest, ok)
+	}
+	assertRequestJSON(t, rerun, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`)
+
+	clean := mustParse(t, []string{"clean"})
+	cleanRequest, ok := clean.Clean()
+	if !ok || cleanRequest.Mode() != CleanModePlan {
+		t.Fatalf("clean request = %#v, %t; want plan default", cleanRequest, ok)
+	}
+	if _, present := cleanRequest.ExpectedPlanSHA256(); present {
+		t.Fatal("clean plan hash must be null")
+	}
+	assertRequestJSON(t, clean, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"plan","expected_plan_sha256":null,"output_format":"human"}`)
+
+	planHash := "sha256:" + strings.Repeat("b", 64)
+	apply := mustParse(t, []string{"clean", "--mode", "apply", "--expected-plan-sha256", planHash})
+	applyRequest, ok := apply.Clean()
+	if !ok || applyRequest.Mode() != CleanModeApply {
+		t.Fatalf("clean apply request = %#v, %t", applyRequest, ok)
+	}
+	if got, present := applyRequest.ExpectedPlanSHA256(); !present || got != planHash {
+		t.Fatalf("clean apply hash = %q, %t; want %q, true", got, present, planHash)
+	}
+
+	export := mustParse(t, []string{"export", "--run", testRunID, "--output-path", "exports/review.zip"})
+	exportRequest, ok := export.Export()
+	if !ok || exportRequest.RunID() != testRunID || exportRequest.OutputPath() != "exports/review.zip" || !exportRequest.Redacted() {
+		t.Fatalf("export request = %#v, %t; want fixed redacted export", exportRequest, ok)
+	}
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
+}
+
+type parserTestResolver struct {
+	runID     string
+	attemptID string
+	target    string
+	err       error
+}
+
+func (resolver parserTestResolver) ResolveRun(context.Context, string) (string, error) {
+	return resolver.runID, resolver.err
+}
+
+func (resolver parserTestResolver) ResolveAttempt(context.Context, string, string, string) (string, error) {
+	return resolver.attemptID, resolver.err
+}
+
+func (resolver parserTestResolver) CaptureTarget(context.Context) (string, error) {
+	return resolver.target, resolver.err
+}
+
+func TestParseResolvedFreezesCanonicalG008Requests(t *testing.T) {
+	resolver := parserTestResolver{runID: testRunID, attemptID: testAttemptID, target: "captured.patch"}
+	followup := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--output", "json"}
+	invocation, err := ParseResolved(context.Background(), followup, testProjectRoot, testRequestID, resolver)
+	if err != nil {
+		t.Fatalf("ParseResolved followup error = %v", err)
+	}
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F001","target":{"kind":"stdin","value":"captured.patch"},"objective":null,"role":null,"output_format":"json"}`)
+	if followup[2] != "latest" {
+		t.Fatal("ParseResolved mutated caller arguments")
+	}
+	first, available := invocation.RequestJSON()
+	if !available {
+		t.Fatal("resolved request JSON unavailable")
+	}
+	first[0] = 'X'
+	second, available := invocation.RequestJSON()
+	if !available || second[0] != '{' {
+		t.Fatal("resolved request JSON was not defensively copied")
+	}
+
+	delta, err := ParseResolved(context.Background(), []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic"}, testProjectRoot, testRequestID, resolver)
+	if err != nil {
+		t.Fatalf("ParseResolved delta error = %v", err)
+	}
+	assertRequestJSON(t, delta, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic"],"output_format":"human"}`)
+
+	rerun, err := ParseResolved(context.Background(), []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "kimi"}, testProjectRoot, testRequestID, resolver)
+	if err != nil {
+		t.Fatalf("ParseResolved rerun error = %v", err)
+	}
+	assertRequestJSON(t, rerun, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`)
+
+	export, err := ParseResolved(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/review.zip"}, testProjectRoot, testRequestID, resolver)
+	if err != nil {
+		t.Fatalf("ParseResolved export error = %v", err)
+	}
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
+}
+func TestParseDocumentedG008CommandGoldens(t *testing.T) {
+	resolver := parserTestResolver{
+		runID:     testRunID,
+		attemptID: testAttemptID,
+		target:    "captured.patch",
+	}
+	const planHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		want      string
+	}{
+		{
+			name:      "followup valueless stdin with nonnumeric finding ID",
+			arguments: []string{"followup", "--run", "latest", "--finding", "F_SOURCE-1", "--stdin", "--objective", "Verify only whether the original issue is resolved."},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F_SOURCE-1","target":{"kind":"stdin","value":"captured.patch"},"objective":"Verify only whether the original issue is resolved.","role":null,"output_format":"human"}`,
+		},
+		{
+			name:      "lineage followup",
+			arguments: []string{"followup", "--run", "latest", "--finding", "F001", "--diff", "git"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F001","target":{"kind":"diff","value":"git"},"objective":null,"role":null,"output_format":"human"}`,
+		},
+		{
+			name:      "followup role",
+			arguments: []string{"followup", "--run", testRunID, "--finding", "F003", "--diff", "git", "--role", "logic"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","target":{"kind":"diff","value":"git"},"objective":null,"role":"logic","output_format":"human"}`,
+		},
+		{
+			name:      "delta since run",
+			arguments: []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic,security"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic","security"],"output_format":"human"}`,
+		},
+		{
+			name:      "lineage delta",
+			arguments: []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic,security"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic","security"],"output_format":"human"}`,
+		},
+		{
+			name:      "rerun role provider selector",
+			arguments: []string{"rerun", "--run", "latest", "--role", "documentation", "--provider", "kimi-main"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`,
+		},
+		{
+			name:      "rerun exact attempt",
+			arguments: []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--replay", "exact"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`,
+		},
+		{
+			name:      "clean plan",
+			arguments: []string{"clean", "--mode", "plan"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"plan","expected_plan_sha256":null,"output_format":"human"}`,
+		},
+		{
+			name:      "clean hash bound apply",
+			arguments: []string{"clean", "--mode", "apply", "--expected-plan-sha256", planHash},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"apply","expected_plan_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","output_format":"human"}`,
+		},
+		{
+			name:      "export output path",
+			arguments: []string{"export", "--run", "latest", "--output-path", "exports/kar-review.zip", "--output", "human"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/kar-review.zip","redacted":true,"output_format":"human"}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invocation, err := ParseResolved(context.Background(), test.arguments, testProjectRoot, testRequestID, resolver)
+			if err != nil {
+				t.Fatalf("ParseResolved(%v) error = %v", test.arguments, err)
+			}
+			assertRequestJSON(t, invocation, test.want)
+		})
+	}
+}
+
+func TestParseResolvedRejectsUnresolvedSelectors(t *testing.T) {
+	for _, selectorErr := range []error{errors.New("zero matches"), errors.New("ambiguous matches"), errors.New("resolver failed")} {
+		resolver := parserTestResolver{err: selectorErr}
+		if _, err := ParseResolved(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/review.zip"}, testProjectRoot, testRequestID, resolver); !errors.Is(err, ErrUsage) {
+			t.Errorf("ParseResolved selector error = %v, want usage error", err)
+		}
+	}
+	if _, err := ParseResolved(context.Background(), []string{"rerun", "--run", testRunID, "--role", "logic", "--provider", "kimi"}, testProjectRoot, testRequestID, parserTestResolver{}); !errors.Is(err, ErrUsage) {
+		t.Errorf("ParseResolved zero attempt selector error = %v, want usage error", err)
+	}
+}
+
+func TestParseRejectsMalformedG008Requests(t *testing.T) {
+	planHash := "sha256:" + strings.Repeat("b", 64)
+	for _, arguments := range [][]string{
+		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--patch", "changes.patch"},
+		{"followup", "--run", testRunID, "--finding", "lowercase", "--diff", "git"},
+		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--role", "Logic"},
+		{"delta", "--run", testRunID, "--diff", "git", "--roles", "logic"},
+		{"clean", "--older-than", "30d"},
+		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,logic"},
+		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,security,testing,docs,ops,release,extra"},
+		{"rerun", "--run", testRunID, "--attempt", "a_019f596a-cf80-6c67-b265-f37053d51ccf"},
+		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--replay", "wire"},
+		{"clean", "--mode", "apply"},
+		{"clean", "--expected-plan-sha256", planHash},
+		{"clean", "--mode", "plan", "--expected-plan-sha256", planHash},
+		{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:" + strings.Repeat("B", 64)},
+		{"export", "--run", testRunID, "--output-path", "../review.zip"},
+		{"export", "--run", testRunID, "--output-path", "review.zip", "--redacted", "false"},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage error", arguments, err)
+		}
+	}
+}
 
 func TestParseProvidersForms(t *testing.T) {
 	defaults := mustParse(t, []string{"providers"})
@@ -265,6 +498,11 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 	foundation := map[app.CommandName][]string{
 		app.CommandInit:      {"init"},
 		app.CommandDoctor:    {"doctor"},
+		app.CommandFollowup:  {"followup", "--run", testRunID, "--finding", "F001", "--diff", "git"},
+		app.CommandDelta:     {"delta", "--since-run", testRunID, "--diff", "git", "--roles", "logic"},
+		app.CommandRerun:     {"rerun", "--run", testRunID, "--attempt", testAttemptID},
+		app.CommandClean:     {"clean"},
+		app.CommandExport:    {"export", "--run", testRunID, "--output-path", "exports/review.zip"},
 		app.CommandStatus:    {"status", "--run", testRunID},
 		app.CommandReport:    {"report", "--run", testRunID, "--output-path", "reports/run.json"},
 		app.CommandFindings:  {"findings", "--run", testRunID, "--severity", "low"},
@@ -299,12 +537,7 @@ func TestParseRecognizesExactCommandSurfaceAndClassifiesFutureCommands(t *testin
 func TestParseKeepsOtherUnfinishedCommandsUnavailable(t *testing.T) {
 	futureCommands := []app.CommandName{
 		app.CommandReview,
-		app.CommandFollowup,
-		app.CommandDelta,
-		app.CommandRerun,
 		app.CommandPrompt,
-		app.CommandClean,
-		app.CommandExport,
 	}
 	for _, command := range futureCommands {
 		t.Run(string(command), func(t *testing.T) {

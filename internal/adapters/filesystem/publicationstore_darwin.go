@@ -353,7 +353,7 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 		return ports.PersistAuxiliaryArtifactResult{}, err
 	}
 	artifact := request.Artifact()
-	if _, err := ports.NewPersistAuxiliaryArtifactRequest(request.Run(), artifact); err != nil {
+	if _, err := ports.NewPersistRunSupportArtifactRequest(request.Run(), artifact); err != nil {
 		return ports.PersistAuxiliaryArtifactResult{}, fmt.Errorf("persist auxiliary artifact: invalid request")
 	}
 
@@ -431,7 +431,7 @@ func (store *PublicationStore) ReadAuxiliaryArtifact(ctx context.Context, reques
 		return ports.ImmutablePublicationArtifact{}, err
 	}
 	expectedSHA256, hasExpectedSHA256 := request.ExpectedSHA256()
-	if _, err := ports.NewReadAuxiliaryArtifactRequest(request.Run(), request.Path(), expectedSHA256, request.MaxReadBytes()); err != nil {
+	if _, err := ports.NewReadRunSupportArtifactRequest(request.Run(), request.Path(), expectedSHA256, request.MaxReadBytes()); err != nil {
 		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("read auxiliary artifact: invalid request")
 	}
 

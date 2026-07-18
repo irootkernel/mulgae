@@ -29,11 +29,12 @@ type Service struct {
 // recovery observation that must resume collection. Snapshot is present only
 // when P2 is authoritative.
 type PublicationResult struct {
-	issued   *ports.IssuedReviewID
-	final    *ports.FinalReviewIdentity
-	decision domain.PublicationDecision
-	exit     *domain.OperationalExitDecision
-	snapshot *ports.CommittedPublicationSnapshot
+	issued           *ports.IssuedReviewID
+	final            *ports.FinalReviewIdentity
+	decision         domain.PublicationDecision
+	exit             *domain.OperationalExitDecision
+	snapshot         *ports.CommittedPublicationSnapshot
+	supportArtifacts []RunSupportArtifactIdentity
 }
 
 // IssuedReviewID returns the post-validation issued ID when this invocation
@@ -84,6 +85,39 @@ func (result PublicationResult) Snapshot() (ports.CommittedPublicationSnapshot, 
 	return *result.snapshot, true
 }
 
+// PersistedRunSupportArtifacts returns defensive copies of the exact support
+// artifact identities persisted and re-read by this invocation before P2.
+func (result PublicationResult) PersistedRunSupportArtifacts() []RunSupportArtifactIdentity {
+	return append([]RunSupportArtifactIdentity(nil), result.supportArtifacts...)
+}
+
+// PromptManifestArtifact returns the exact persisted prompt-manifest identity
+// for one attempt invocation. It fails closed when this result has no verified
+// support view, or the attempt/invocation is absent or ambiguous.
+func (result PublicationResult) PromptManifestArtifact(
+	attemptID domain.AttemptID,
+	invocationSequence uint64,
+) (RunSupportArtifactIdentity, bool) {
+	if result.decision.Authority() != domain.PublicationAuthorityP2 || invocationSequence == 0 {
+		return RunSupportArtifactIdentity{}, false
+	}
+	var match RunSupportArtifactIdentity
+	for _, identity := range result.supportArtifacts {
+		artifactAttemptID, artifactSequence, ok := identity.promptManifestBinding()
+		if !ok || artifactAttemptID != attemptID || artifactSequence != invocationSequence {
+			continue
+		}
+		if match.valid() {
+			return RunSupportArtifactIdentity{}, false
+		}
+		match = identity
+	}
+	if !match.valid() {
+		return RunSupportArtifactIdentity{}, false
+	}
+	return match, true
+}
+
 // NewService constructs a publication state-machine service.
 func NewService(
 	store ports.PublicationStore,
@@ -104,6 +138,21 @@ func NewService(
 		return nil, fmt.Errorf("publication service: max bytes must be positive")
 	}
 	return &Service{store: store, validator: validator, clock: clock, maxBytes: maxBytes}, nil
+}
+
+// PublishFollowup prepares and commits the specialized one-role followup in the
+// same P2 composite transaction used for every review publication.
+func (service *Service) PublishFollowup(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	input FollowupCandidateInput,
+	epoch uint64,
+) (PublicationResult, error) {
+	candidate, err := PrepareFollowupCandidate(input)
+	if err != nil {
+		return PublicationResult{}, fmt.Errorf("publish followup: %w", err)
+	}
+	return service.Publish(ctx, artifactRoot, candidate, epoch)
 }
 
 // Publish validates a candidate before issuing its ReviewID, writes all
@@ -171,7 +220,7 @@ func (service *Service) Publish(
 			)
 		}
 		if decision.Authority() == domain.PublicationAuthorityP2 {
-			return service.p2ResultFromDecision(run, observation, decision, &issued, nil)
+			return service.p2ResultFromDecision(ctx, run, observation, decision, &issued, nil, true)
 		}
 		if decision.Action() != domain.RecoveryActionResumeCollection {
 			return service.publishIssuedRecovered(ctx, run, issued)
@@ -216,13 +265,14 @@ func (service *Service) Publish(
 		!persistedCandidateMatches(candidatePersisted, run, bundle.Final()) {
 		return PublicationResult{}, publicationFailure("publish.persist_candidate", domain.FailureArtifact, "store returned inconsistent candidate receipt", nil)
 	}
+	persistedSupportArtifacts := make([]ports.ImmutablePublicationArtifact, 0, len(bundle.SupportArtifacts()))
 
-	for _, excerpt := range bundle.Excerpts() {
-		request, err := ports.NewPersistAuxiliaryArtifactRequest(run, excerpt)
+	for _, support := range bundle.SupportArtifacts() {
+		request, err := ports.NewPersistRunSupportArtifactRequest(run, support)
 		if err != nil {
-			return PublicationResult{}, publicationFailure("publish.persist_excerpt", domain.FailureInternal, "excerpt request is invalid", err)
+			return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureInternal, "run support request is invalid", err)
 		}
-		if err := service.checkpoint(ctx, "publish.persist_excerpt"); err != nil {
+		if err := service.checkpoint(ctx, "publish.persist_support"); err != nil {
 			return PublicationResult{}, err
 		}
 		persisted, persistErr := service.store.PersistAuxiliaryArtifact(ctx, request)
@@ -230,12 +280,24 @@ func (service *Service) Publish(
 			if persisted.Valid() || persisted.Durability().Valid() {
 				return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
 			}
-			return PublicationResult{}, service.storeFailure(ctx, "publish.persist_excerpt", "excerpt persistence failed", persistErr)
+			return PublicationResult{}, service.storeFailure(ctx, "publish.persist_support", "run support persistence failed", persistErr)
 		}
 		if persisted.Durability() != ports.AuxiliaryArtifactDurable ||
-			!persistedAuxiliaryMatches(persisted, run, excerpt) {
-			return PublicationResult{}, publicationFailure("publish.persist_excerpt", domain.FailureArtifact, "store returned inconsistent excerpt receipt", nil)
+			!persistedAuxiliaryMatches(persisted, run, support) {
+			return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "store returned inconsistent run support receipt", nil)
 		}
+		readRequest, err := ports.NewReadRunSupportArtifactRequest(run, support.Path(), support.SHA256(), service.maxBytes)
+		if err != nil {
+			return PublicationResult{}, publicationFailure("publish.verify_support", domain.FailureInternal, "run support read request is invalid", err)
+		}
+		observed, readErr := service.store.ReadAuxiliaryArtifact(ctx, readRequest)
+		if readErr != nil {
+			return PublicationResult{}, service.storeFailure(ctx, "publish.verify_support", "run support verification failed", readErr)
+		}
+		if !sameImmutableArtifact(observed, support) {
+			return PublicationResult{}, publicationFailure("publish.verify_support", domain.FailureArtifact, "store returned inconsistent run support bytes", nil)
+		}
+		persistedSupportArtifacts = append(persistedSupportArtifacts, observed)
 	}
 
 	composite, err := ports.NewCommitCompositeRequest(run, bundle.Final().Identity(), bundle.Manifest(), bundle.LineageEdge(), bundle.Epoch())
@@ -356,7 +418,7 @@ func (service *Service) Publish(
 		return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
 	}
 	final := bundle.Final().Identity()
-	return service.p2Result(ctx, run, &issued, &final)
+	return service.p2Result(ctx, run, &issued, &final, persistedSupportArtifacts)
 }
 
 // Recover applies only the action selected by a fresh domain classification.
@@ -378,7 +440,7 @@ func (service *Service) Recover(ctx context.Context, run ports.PublicationRun) (
 		case domain.RecoveryActionResumeCollection:
 			return PublicationResult{decision: decision}, nil
 		case domain.RecoveryActionReconstructCompletedStatus:
-			result, err := service.p2ResultFromDecision(run, observation, decision, nil, nil)
+			result, err := service.p2ResultFromDecision(ctx, run, observation, decision, nil, nil, true)
 			if err != nil {
 				return result, err
 			}
@@ -691,20 +753,36 @@ func (service *Service) replaceStatus(ctx context.Context, run ports.Publication
 	return false, nil
 }
 
-func (service *Service) p2Result(ctx context.Context, run ports.PublicationRun, issued *ports.IssuedReviewID, final *ports.FinalReviewIdentity) (PublicationResult, error) {
+func (service *Service) p2Result(
+	ctx context.Context,
+	run ports.PublicationRun,
+	issued *ports.IssuedReviewID,
+	final *ports.FinalReviewIdentity,
+	supportArtifacts []ports.ImmutablePublicationArtifact,
+) (PublicationResult, error) {
 	observation, decision, err := service.observe(ctx, run)
 	if err != nil {
 		return PublicationResult{}, err
 	}
-	return service.p2ResultFromDecision(run, observation, decision, issued, final)
+	result, err := service.p2ResultFromDecision(ctx, run, observation, decision, issued, final, false)
+	if err != nil {
+		return result, err
+	}
+	result.supportArtifacts = make([]RunSupportArtifactIdentity, len(supportArtifacts))
+	for index, artifact := range supportArtifacts {
+		result.supportArtifacts[index] = runSupportArtifactIdentity(artifact)
+	}
+	return result, nil
 }
 
 func (service *Service) p2ResultFromDecision(
+	ctx context.Context,
 	run ports.PublicationRun,
 	observation ports.PublicationObservation,
 	decision domain.PublicationDecision,
 	issued *ports.IssuedReviewID,
 	final *ports.FinalReviewIdentity,
+	reloadSupportArtifacts bool,
 ) (PublicationResult, error) {
 	if !observation.Valid() || !decision.Valid() {
 		return PublicationResult{}, publicationFailure("publication.p2", domain.FailureArtifact, "P2 observation or decision is invalid", nil)
@@ -756,11 +834,83 @@ func (service *Service) p2ResultFromDecision(
 		return PublicationResult{}, publicationFailure("publication.snapshot", domain.FailureArtifact, "caller final does not match committed snapshot", nil)
 	}
 	result := PublicationResult{decision: decision, exit: &exit, snapshot: &snapshot, final: &snapshotFinal}
+	if reloadSupportArtifacts {
+		supportArtifacts, err := service.readManifestBoundSupportArtifacts(ctx, run, snapshot)
+		if err != nil {
+			return service.p2RecoveryFailure(ctx, result, "publication.support", "committed support inventory is invalid", err)
+		}
+		result.supportArtifacts = supportArtifacts
+	}
 	if issued != nil {
 		issuedCopy := *issued
 		result.issued = &issuedCopy
 	}
 	return result, nil
+}
+func (service *Service) readManifestBoundSupportArtifacts(
+	ctx context.Context,
+	run ports.PublicationRun,
+	snapshot ports.CommittedPublicationSnapshot,
+) ([]RunSupportArtifactIdentity, error) {
+	var manifest runManifestWire
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed manifest"); err != nil {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest is invalid", err)
+	}
+	index := manifest.CompositeIdentity.SupportIndex
+	if !validSHA256(index.SHA256) {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index is invalid", nil)
+	}
+	indexPath, err := ports.NewSafeRelativePath(index.Path)
+	if err != nil {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index path is invalid", err)
+	}
+	readIndex, err := ports.NewReadRunSupportArtifactRequest(run, indexPath, index.SHA256, service.maxBytes)
+	if err != nil {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index request is invalid", err)
+	}
+	indexArtifact, err := service.store.ReadAuxiliaryArtifact(ctx, readIndex)
+	if err != nil {
+		return nil, service.storeFailure(ctx, "publication.support", "committed manifest support index read failed", err)
+	}
+	if !indexArtifact.Valid() || indexArtifact.Path() != indexPath || indexArtifact.SHA256() != index.SHA256 {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index does not match", nil)
+	}
+	var supportIndex runSupportIndexWire
+	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
+	}
+	if supportIndex.SchemaVersion != "kar-run-support-index.v1" {
+		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
+	}
+	identities := make([]RunSupportArtifactIdentity, 0, len(supportIndex.Artifacts)+1)
+	identities = append(identities, runSupportArtifactIdentity(indexArtifact))
+	seen := map[string]struct{}{indexPath.String(): {}}
+	for _, item := range supportIndex.Artifacts {
+		if !validSHA256(item.SHA256) {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support identity is invalid", nil)
+		}
+		path, err := ports.NewSafeRelativePath(item.Path)
+		if err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support path is invalid", err)
+		}
+		if _, duplicate := seen[path.String()]; duplicate {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support paths are ambiguous", nil)
+		}
+		seen[path.String()] = struct{}{}
+		request, err := ports.NewReadRunSupportArtifactRequest(run, path, item.SHA256, service.maxBytes)
+		if err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support read request is invalid", err)
+		}
+		artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
+		if err != nil {
+			return nil, service.storeFailure(ctx, "publication.support", "committed support read failed", err)
+		}
+		if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != item.SHA256 {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support artifact does not match", nil)
+		}
+		identities = append(identities, runSupportArtifactIdentity(artifact))
+	}
+	return identities, nil
 }
 func (service *Service) p2RecoveryFailure(
 	ctx context.Context,

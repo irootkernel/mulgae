@@ -1,6 +1,6 @@
 # Package Validation Report
 
-**Specification version:** 1.4.0
+**Specification version:** 1.5.0
 **Status date:** 2026-07-18
 
 ## G0 Contract and Implementation Baseline
@@ -13,11 +13,11 @@
 | Checksummed payloads | 70; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 23; 16 are G0-required |
 | Decision Readiness | **READY** |
-| Implementation Status | **G001–G007 COMPLETE; G008–G009 PENDING** |
+| Implementation Status | **G001–G008 COMPLETE; G009 PENDING AND UNAUTHORIZED** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 OPT-IN ADAPTERS EVIDENCE-GATED** |
 The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs.
 
-This SOT 1.4.0 report records both the preserved Revision 13 contract and the implementation boundary through G007. It is not a release approval and does not authorize G008 or later work.
+This SOT 1.5.0 report records both the preserved Revision 14 contract and the completed implementation boundary through G008. This is not a release approval and does not authorize G009, product/release CI jobs, or release assets.
 
 ## G0 Evidence Status
 
@@ -52,17 +52,17 @@ The G0 external join and authority prerequisites are complete. G007 product supp
 | G005 | Coordinator lanes, direct process runtime, evidence, independent axes | **COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
 | G007 | Opt-in evidence-gated provider adapters for exactly `kimi`, `zcode`, and `agy` | **COMPLETE** | `feat(g007)` |
-| G008 | Child workflows, raw attempt artifacts, cleanup, export | **PENDING** | — |
-| G009 | Release assets and integrated v0.1 release gate | **PENDING** | — |
+| G008 | Immutable root/followup/delta/rerun lineage and P2 publication; runtime attempt/target/prompt artifacts; retention/tombstone cleanup; redacted secure export | **COMPLETE** | `feat(g008)` |
+| G009 | Release assets and integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** | — |
 
-## G007 Completion Gate
+## G008 Completion Evidence
 
-G006 verification remains recorded as the preceding product boundary. G007 has offline standard adapter tests and a controlled live exact Kimi tuple PASS for `local-default` 0.23.6 with binary SHA-256 `50c358...`. Final full Go, `go vet`, race, and review evidence is the G007 completion gate and must pass after this status update is embedded and checksummed; this report records no command counts or receipts for those leader-owned gates. G008 child workflows, raw attempt artifacts, cleanup/export, and G009 release assets/integration remain pending.
+G008 completion is backed by focused workflow tests, a real composed P2 end-to-end run covering root review plus followup, delta, and exact rerun, repository-wide tests, static analysis, race verification, cleanup review, executor QA/red-team evidence, and architecture review. Production standalone operation without canonical recorded provider/evidence authority remains fail-closed with schema-valid typed failures under G007's opt-in authority rules. G009 release assets and integration remain pending and unauthorized.
 
 ## Readiness and Product Boundary
 
-The G001 authority and implementation prerequisites were completed before G002 product code. G001–G007 are the recorded implementation boundary; G008–G009 remain outside it. No release asset or release claim is authorized by this report, and future platforms remain unsupported and release-ineligible.
+The G001 authority and implementation prerequisites were completed before G002 product code. G001–G008 are complete; G009 remains outside the completed boundary, pending, and unauthorized. No release asset or release claim is authorized by this report, and future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 
-The 1.0.0, 1.1.0, 1.2.0, and 1.3.0 reports remain historical baselines. SOT 1.4.0 carries forward their contract assertions while recording the G007 implementation boundary; current checksums and repository tests are authoritative for this revision.
+The 1.0.0, 1.1.0, 1.2.0, 1.3.0, and 1.4.0 reports remain historical baselines. SOT 1.5.0 carries forward their contract assertions while recording the completed G008 implementation boundary; current checksums and repository tests are authoritative for this revision.

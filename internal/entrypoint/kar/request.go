@@ -2,6 +2,8 @@
 package kar
 
 import (
+	"context"
+
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
@@ -48,6 +50,14 @@ const (
 	SchemaOperationExport SchemaOperation = "export"
 )
 
+// RequestResolver resolves CLI-only selectors before a schema request is frozen.
+// Implementations must return canonical IDs and a nonempty captured stdin target.
+type RequestResolver interface {
+	ResolveRun(context.Context, string) (string, error)
+	ResolveAttempt(context.Context, string, string, string) (string, error)
+	CaptureTarget(context.Context) (string, error)
+}
+
 // Invocation is the immutable result of parsing one KAR command line.
 type Invocation struct {
 	command        app.CommandName
@@ -66,6 +76,11 @@ type Invocation struct {
 	report         *ReportRequest
 	findings       *FindingsRequest
 	excerpt        *ExcerptRequest
+	followup       *FollowupRequest
+	delta          *DeltaRequest
+	rerun          *RerunRequest
+	clean          *CleanRequest
+	export         *ExportRequest
 }
 
 // Command returns the exact recognized command name.
@@ -172,6 +187,46 @@ func (invocation Invocation) Schema() (SchemaRequest, bool) {
 		return SchemaRequest{}, false
 	}
 	return *invocation.schema, true
+}
+
+// Followup returns the parsed followup fields when this is a followup invocation.
+func (invocation Invocation) Followup() (FollowupRequest, bool) {
+	if invocation.followup == nil {
+		return FollowupRequest{}, false
+	}
+	return *invocation.followup, true
+}
+
+// Delta returns the parsed delta fields when this is a delta invocation.
+func (invocation Invocation) Delta() (DeltaRequest, bool) {
+	if invocation.delta == nil {
+		return DeltaRequest{}, false
+	}
+	return cloneDeltaRequest(*invocation.delta), true
+}
+
+// Rerun returns the parsed rerun fields when this is a rerun invocation.
+func (invocation Invocation) Rerun() (RerunRequest, bool) {
+	if invocation.rerun == nil {
+		return RerunRequest{}, false
+	}
+	return *invocation.rerun, true
+}
+
+// Clean returns the parsed clean fields when this is a clean invocation.
+func (invocation Invocation) Clean() (CleanRequest, bool) {
+	if invocation.clean == nil {
+		return CleanRequest{}, false
+	}
+	return *invocation.clean, true
+}
+
+// Export returns the parsed export fields when this is an export invocation.
+func (invocation Invocation) Export() (ExportRequest, bool) {
+	if invocation.export == nil {
+		return ExportRequest{}, false
+	}
+	return *invocation.export, true
 }
 
 // HelpRequest contains a validated fixed help topic.
@@ -343,8 +398,138 @@ func (request SchemaRequest) ExportPath() (string, bool) {
 	return request.exportPath, request.hasExportPath
 }
 
+// TargetRequest contains one literal command-request target.
+type TargetRequest struct {
+	kind  string
+	value string
+}
+
+// Kind returns the target kind: diff, patch, or stdin.
+func (request TargetRequest) Kind() string { return request.kind }
+
+// Value returns the target value.
+func (request TargetRequest) Value() string { return request.value }
+
+// FollowupRequest contains the immutable source finding and target fields.
+type FollowupRequest struct {
+	sourceRunID  string
+	findingID    string
+	target       TargetRequest
+	objective    string
+	hasObjective bool
+	role         string
+	hasRole      bool
+}
+
+// SourceRunID returns the source run selected for the child workflow.
+func (request FollowupRequest) SourceRunID() string { return request.sourceRunID }
+
+// FindingID returns the source finding selected for followup.
+func (request FollowupRequest) FindingID() string { return request.findingID }
+
+// Target returns the literal target request.
+func (request FollowupRequest) Target() TargetRequest { return request.target }
+
+// Objective returns the optional followup objective.
+func (request FollowupRequest) Objective() (string, bool) {
+	return request.objective, request.hasObjective
+}
+
+// Role returns the optional followup role.
+func (request FollowupRequest) Role() (string, bool) { return request.role, request.hasRole }
+
+// DeltaRequest contains the immutable source run, target, and roles.
+type DeltaRequest struct {
+	sourceRunID string
+	target      TargetRequest
+	roles       []string
+}
+
+// SourceRunID returns the source run selected for the delta workflow.
+func (request DeltaRequest) SourceRunID() string { return request.sourceRunID }
+
+// Target returns the literal target request.
+func (request DeltaRequest) Target() TargetRequest { return request.target }
+
+// Roles returns a caller-owned copy of the requested roles.
+func (request DeltaRequest) Roles() []string { return cloneStrings(request.roles) }
+
+// ReplayMode identifies the rerun prompt construction mode.
+type ReplayMode string
+
+const (
+	// ReplayModeExact reuses the captured source invocation exactly.
+	ReplayModeExact ReplayMode = "exact"
+	// ReplayModeRecompose recompiles from current trusted templates.
+	ReplayModeRecompose ReplayMode = "recompose"
+)
+
+// RerunRequest contains the immutable source attempt and replay selection.
+type RerunRequest struct {
+	sourceRunID     string
+	sourceAttemptID string
+	replayMode      ReplayMode
+}
+
+// SourceRunID returns the source run selected for replay.
+func (request RerunRequest) SourceRunID() string { return request.sourceRunID }
+
+// SourceAttemptID returns the source attempt selected for replay.
+func (request RerunRequest) SourceAttemptID() string { return request.sourceAttemptID }
+
+// ReplayMode returns the selected replay construction mode.
+func (request RerunRequest) ReplayMode() ReplayMode { return request.replayMode }
+
+// CleanMode identifies the literal maintenance request mode.
+type CleanMode string
+
+const (
+	// CleanModePlan produces a dry-run clean plan.
+	CleanModePlan CleanMode = "plan"
+	// CleanModeApply executes a hash-bound clean plan.
+	CleanModeApply CleanMode = "apply"
+	// CleanModeExplain renders a dry-run plan with deterministic human rows.
+	CleanModeExplain CleanMode = "explain"
+)
+
+// CleanRequest contains the immutable clean-plan selection.
+type CleanRequest struct {
+	mode                CleanMode
+	expectedPlanSHA256  string
+	hasExpectedPlanHash bool
+}
+
+// Mode returns the literal clean request mode.
+func (request CleanRequest) Mode() CleanMode { return request.mode }
+
+// ExpectedPlanSHA256 returns the required apply-plan hash when present.
+func (request CleanRequest) ExpectedPlanSHA256() (string, bool) {
+	return request.expectedPlanSHA256, request.hasExpectedPlanHash
+}
+
+// ExportRequest contains the immutable redacted export selection.
+type ExportRequest struct {
+	runID      string
+	outputPath string
+	redacted   bool
+}
+
+// RunID returns the source run selected for export.
+func (request ExportRequest) RunID() string { return request.runID }
+
+// OutputPath returns the safe relative export output path.
+func (request ExportRequest) OutputPath() string { return request.outputPath }
+
+// Redacted reports the schema-required redacted export mode.
+func (request ExportRequest) Redacted() bool { return request.redacted }
+
 func cloneInitRequest(request InitRequest) InitRequest {
 	request.intendedProviderIDs = cloneStrings(request.intendedProviderIDs)
+	return request
+}
+
+func cloneDeltaRequest(request DeltaRequest) DeltaRequest {
+	request.roles = cloneStrings(request.roles)
 	return request
 }
 

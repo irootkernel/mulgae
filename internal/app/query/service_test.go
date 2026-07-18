@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -118,6 +120,19 @@ func TestReadCommittedListFindingsAndRenderExcerpt(t *testing.T) {
 	}
 	if store.auxiliaryReads != 1 {
 		t.Fatalf("RenderExcerpt auxiliary reads = %d, want 1", store.auxiliaryReads)
+	}
+}
+func TestReadCommittedPreservesFollowupOutcome(t *testing.T) {
+	run, snapshot, observation := queryFollowupCommittedFixture(t, domain.FollowupResolved)
+	service := mustQueryService(t, &queryStore{observation: observation, snapshot: snapshot}, &queryValidator{}, &queryTargetReader{})
+
+	review, err := service.ReadCommitted(context.Background(), run)
+	if err != nil {
+		t.Fatalf("ReadCommitted() error = %v", err)
+	}
+	outcome, present := review.FollowupOutcome()
+	if !present || outcome.Resolution() != domain.FollowupResolved || outcome.Rationale() != "verified resolution" || len(outcome.Evidence()) != 1 {
+		t.Fatalf("FollowupOutcome() = %#v, present = %t", outcome, present)
 	}
 }
 
@@ -1562,12 +1577,338 @@ func TestQueryDependencyCancellationNeverReturnsNilOrHidesHigherPrecedence(t *te
 	}
 }
 
+func TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, observation, artifacts, _, attempt := queryRuntimeFixture(t)
+	store := &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+
+	source, err := service.ReadCommittedFindingSource(context.Background(), run, "F001")
+	if err != nil {
+		t.Fatalf("ReadCommittedFindingSource() error = %v", err)
+	}
+	if string(source.Normalized()) != `{"id":"F001"}` || string(source.Excerpt()) != "line one\nline two" {
+		t.Fatalf("ReadCommittedFindingSource() = normalized %q excerpt %q", source.Normalized(), source.Excerpt())
+	}
+	if _, err := service.ReadRuntimeTarget(context.Background(), run); err != nil {
+		t.Fatalf("ReadRuntimeTarget() error = %v", err)
+	}
+	if _, err := service.ReadCommittedAttempt(context.Background(), run, attempt); err != nil {
+		t.Fatalf("ReadCommittedAttempt() error = %v", err)
+	}
+	if len(store.auxiliaryRequests) == 0 {
+		t.Fatal("query made no auxiliary artifact requests")
+	}
+	for _, request := range store.auxiliaryRequests {
+		expected, ok := artifacts[request.Path().String()]
+		if !ok {
+			t.Fatalf("auxiliary request path %q is not a fixture artifact", request.Path().String())
+		}
+		got, present := request.ExpectedSHA256()
+		if !present || got != expected.SHA256() {
+			t.Fatalf("auxiliary request %q digest = (%q, %t), want (%q, true)", request.Path().String(), got, present, expected.SHA256())
+		}
+	}
+}
+
+func TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts(t *testing.T) {
+	t.Parallel()
+
+	type reader func(*Service, ports.PublicationRun, domain.AttemptID) error
+	readers := map[string]reader{
+		"support": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadCommittedFindingSource(context.Background(), run, "F001")
+			return err
+		},
+		"normalized": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadCommittedFindingSource(context.Background(), run, "F001")
+			return err
+		},
+		"excerpt": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadCommittedFindingSource(context.Background(), run, "F001")
+			return err
+		},
+		"target": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		},
+		"target-manifest": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		},
+		"prompt-manifest": func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		},
+		"stdin": func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		},
+	}
+	for artifactName, read := range readers {
+		for _, mutation := range []string{"missing", "tampered", "rebound"} {
+			t.Run(artifactName+"/"+mutation, func(t *testing.T) {
+				run, snapshot, observation, artifacts, paths, attempt := queryRuntimeFixture(t)
+				path := paths[artifactName]
+				switch mutation {
+				case "missing":
+					delete(artifacts, path)
+				case "tampered":
+					artifacts[path] = mustQueryArtifact(t, mustQueryPath(t, path), []byte("tampered support material"))
+				case "rebound":
+					reboundPath := mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/alternate/"+artifactName)
+					artifacts[path] = mustQueryArtifact(t, reboundPath, artifacts[path].Bytes())
+				}
+				store := &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}
+				if err := read(mustQueryService(t, store, &queryValidator{}, nil), run, attempt); err == nil {
+					t.Fatalf("%s %s artifact was accepted", artifactName, mutation)
+				}
+			})
+		}
+	}
+}
+func TestRuntimeReadsFailClosedOnSupportInventoryTampering(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		artifact string
+		missing  bool
+		read     func(*Service, ports.PublicationRun, domain.AttemptID) error
+	}{
+		{"support index tampered", "support", false, func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		}},
+		{"support index missing", "support", true, func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		}},
+		{"target manifest tampered", "target-manifest", false, func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		}},
+		{"target manifest missing", "target-manifest", true, func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		}},
+		{"prompt manifest tampered", "prompt-manifest", false, func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		}},
+		{"prompt manifest missing", "prompt-manifest", true, func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		}},
+		{"stdin tampered", "stdin", false, func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		}},
+		{"stdin missing", "stdin", true, func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
+			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
+			return err
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			run, snapshot, observation, artifacts, paths, attempt := queryRuntimeFixture(t)
+			store := &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}
+			service := mustQueryService(t, store, &queryValidator{}, nil)
+			if _, err := service.ReadRuntimeTarget(context.Background(), run); err != nil {
+				t.Fatalf("runtime fixture target read failed: %v", err)
+			}
+			if strings.Contains(test.artifact, "prompt") || test.artifact == "stdin" {
+				if _, err := service.ReadCommittedAttempt(context.Background(), run, attempt); err != nil {
+					t.Fatalf("runtime fixture attempt read failed: %v", err)
+				}
+			}
+			if test.missing {
+				delete(store.auxiliaryArtifacts, paths[test.artifact])
+			} else {
+				store.auxiliaryArtifacts[paths[test.artifact]] = mustQueryArtifact(t, mustQueryPath(t, paths[test.artifact]), []byte("tampered runtime material"))
+			}
+			if err := test.read(service, run, attempt); err == nil {
+				t.Fatalf("%s did not fail closed", test.name)
+			}
+		})
+	}
+}
+
+func TestReadRuntimeTargetRejectsMetadataThatDoesNotMatchFinalIdentity(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, _, artifacts, paths, _ := queryRuntimeFixture(t)
+	targetManifest := artifacts[paths["target-manifest"]]
+	mutatedTargetManifest := mustQueryArtifact(t, targetManifest.Path(), []byte(strings.Replace(
+		string(targetManifest.Bytes()), `"base_object_id":""`,
+		`"base_object_id":"0123456789012345678901234567890123456789"`, 1,
+	)))
+	support := artifacts[paths["support"]]
+	mutatedSupport := mustQueryArtifact(t, support.Path(), []byte(strings.Replace(
+		string(support.Bytes()), targetManifest.SHA256(), mutatedTargetManifest.SHA256(), 1,
+	)))
+	mutatedManifest := mustQueryArtifact(t, snapshot.Manifest().Path(), []byte(strings.Replace(
+		string(snapshot.Manifest().Bytes()), support.SHA256(), mutatedSupport.SHA256(), 1,
+	)))
+	mutatedSnapshot, err := ports.NewCommittedPublicationSnapshot(
+		snapshot.Final(), mutatedManifest, snapshot.LineageEdge(), snapshot.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts[paths["target-manifest"]] = mutatedTargetManifest
+	artifacts[paths["support"]] = mutatedSupport
+	store := &queryStore{
+		snapshot:           mutatedSnapshot,
+		observation:        queryP2Observation(t, run, mutatedSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1),
+		auxiliaryArtifacts: artifacts,
+	}
+	if _, err := mustQueryService(t, store, &queryValidator{}, nil).ReadRuntimeTarget(context.Background(), run); err == nil {
+		t.Fatal("runtime target with mismatched final identity was accepted")
+	}
+}
+func TestReadCommittedAttemptRejectsRepairPromptSelection(t *testing.T) {
+	t.Parallel()
+
+	run, snapshot, _, artifacts, paths, attempt := queryRuntimeFixture(t)
+	targetManifest := artifacts[paths["target-manifest"]]
+	mutatedTargetManifest := mustQueryArtifact(t, targetManifest.Path(), []byte(strings.Replace(
+		string(targetManifest.Bytes()),
+		`"sequence":1,"purpose":"initial"`,
+		`"sequence":2,"purpose":"repair"`,
+		1,
+	)))
+	support := artifacts[paths["support"]]
+	mutatedSupport := mustQueryArtifact(t, support.Path(), []byte(strings.Replace(
+		string(support.Bytes()), targetManifest.SHA256(), mutatedTargetManifest.SHA256(), 1,
+	)))
+	mutatedManifest := mustQueryArtifact(t, snapshot.Manifest().Path(), []byte(strings.Replace(
+		string(snapshot.Manifest().Bytes()), support.SHA256(), mutatedSupport.SHA256(), 1,
+	)))
+	mutatedSnapshot, err := ports.NewCommittedPublicationSnapshot(
+		snapshot.Final(), mutatedManifest, snapshot.LineageEdge(), snapshot.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts[paths["target-manifest"]] = mutatedTargetManifest
+	artifacts[paths["support"]] = mutatedSupport
+	store := &queryStore{
+		snapshot:           mutatedSnapshot,
+		observation:        queryP2Observation(t, run, mutatedSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1),
+		auxiliaryArtifacts: artifacts,
+	}
+
+	if _, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommittedAttempt(context.Background(), run, attempt); err == nil {
+		t.Fatal("repair prompt selection was accepted as replay authority")
+	}
+}
+
+func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
+	t.Helper()
+	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	attempt, err := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetPath := prefix + "/target/target.bytes"
+	target := mustQueryArtifact(t, mustQueryPath(t, targetPath), []byte("runtime target bytes"))
+	stdinPath := prefix + "/prompts/" + attempt.String() + "/001-initial.stdin"
+	stdin := mustQueryArtifact(t, mustQueryPath(t, stdinPath), []byte("runtime stdin bytes"))
+	promptPath := prefix + "/prompts/" + attempt.String() + "/001-initial.manifest.json"
+	completeStdinSHA256 := prompt.CompleteStdinSHA256(stdin.Bytes())
+	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"kar-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
+	targetManifestPath := prefix + "/target/target-manifest.json"
+	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"kar-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
+	normalizedPath := prefix + "/excerpts/F001.json"
+	normalized := mustQueryArtifact(t, mustQueryPath(t, normalizedPath), []byte(`{"id":"F001"}`))
+	excerptPath := prefix + "/excerpts/F001_1.md"
+	excerpt := mustQueryArtifact(t, mustQueryPath(t, excerptPath), []byte("line one\nline two"))
+	supportPath := prefix + "/support/index.json"
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), []byte(fmt.Sprintf(`{"schema_version":"kar-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q}]}`, normalizedPath, normalized.SHA256(), excerptPath, excerpt.SHA256(), targetPath, target.SHA256(), stdinPath, stdin.SHA256(), promptPath, prompt.SHA256(), targetManifestPath, targetManifest.SHA256())))
+
+	finalRecord, err := decodeFinalDTO(baseSnapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalRecord.Target.ContentSHA256 = target.SHA256()
+	for findingIndex := range finalRecord.Findings {
+		for evidenceIndex := range finalRecord.Findings[findingIndex].Evidence {
+			item := &finalRecord.Findings[findingIndex].Evidence[evidenceIndex]
+			item.Source.SourceTargetSHA256 = target.SHA256()
+			item.Current.TargetSHA256 = target.SHA256()
+			claim, claimErr := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+				TargetSHA256: item.Current.TargetSHA256,
+				Side:         evidence.Side(item.Current.Side),
+				Path:         item.Current.Path,
+				LineStart:    item.Current.LineStart,
+				LineEnd:      item.Current.LineEnd,
+				Quote:        item.Current.Quote,
+			})
+			if claimErr != nil {
+				t.Fatal(claimErr)
+			}
+			item.Source.SourceExcerptSHA256, claimErr = claim.ExcerptSHA256([]byte(item.Current.Quote))
+			if claimErr != nil {
+				t.Fatal(claimErr)
+			}
+		}
+	}
+	finalBytes, err := json.Marshal(finalRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(baseSnapshot.Final().Identity().ReviewID(), baseSnapshot.Final().Identity().Path(), querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord, err := decodeManifestDTO(baseSnapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.Target.ContentSHA256 = target.SHA256()
+	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
+	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, baseSnapshot.Manifest().Path(), manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, baseSnapshot.LineageEdge(), baseSnapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalRecord, finalErr := decodeFinalDTO(final.Bytes())
+	manifestRecord, manifestErr := decodeManifestDTO(manifest.Bytes())
+	if finalErr != nil || manifestErr != nil {
+		t.Fatalf("runtime fixture decode: final=%v manifest=%v", finalErr, manifestErr)
+	}
+	exit := domain.ExitCommittedCIRejected
+	decision, decisionErr := domain.NewPublicationDecision(domain.PublicationCommitted, domain.PublicationAuthorityP2, domain.RecoveryActionReconstructCompletedStatus, &exit, nil)
+	if decisionErr != nil {
+		t.Fatal(decisionErr)
+	}
+	if _, semanticErr := buildCommittedReview(run, decision, snapshot, finalRecord, manifestRecord); semanticErr != nil {
+		t.Fatalf("runtime fixture semantics: %v", semanticErr)
+	}
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+	return run, snapshot, observation, map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest}, map[string]string{"support": supportPath, "normalized": normalizedPath, "excerpt": excerptPath, "target": targetPath, "target-manifest": targetManifestPath, "prompt-manifest": promptPath, "stdin": stdinPath}, attempt
+}
+
 type queryStore struct {
 	observation                 ports.PublicationObservation
 	observations                []ports.PublicationObservation
 	snapshot                    ports.CommittedPublicationSnapshot
 	resolved                    ports.PublicationRun
 	auxiliaryArtifact           ports.ImmutablePublicationArtifact
+	auxiliaryArtifacts          map[string]ports.ImmutablePublicationArtifact
 	observeErr                  error
 	readErr                     error
 	resolveErr                  error
@@ -1578,6 +1919,7 @@ type queryStore struct {
 	observeCalls                int
 	auxiliaryReads              int
 	auxiliaryRequest            ports.ReadAuxiliaryArtifactRequest
+	auxiliaryRequests           []ports.ReadAuxiliaryArtifactRequest
 	afterSnapshot               func()
 	afterAuxiliary              func()
 }
@@ -1613,6 +1955,7 @@ func (store *queryStore) PersistAuxiliaryArtifact(context.Context, ports.Persist
 func (store *queryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
 	store.auxiliaryReads++
 	store.auxiliaryRequest = request
+	store.auxiliaryRequests = append(store.auxiliaryRequests, request)
 	if store.afterAuxiliary != nil {
 		store.afterAuxiliary()
 	}
@@ -1621,6 +1964,9 @@ func (store *queryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.
 	}
 	if store.returnZeroAuxiliaryArtifact {
 		return ports.ImmutablePublicationArtifact{}, nil
+	}
+	if artifact, ok := store.auxiliaryArtifacts[request.Path().String()]; ok {
+		return artifact, nil
 	}
 	if !store.auxiliaryArtifact.Valid() {
 		return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
@@ -1781,6 +2127,33 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 	}
 	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, exit, 1)
 	return run, snapshot, observation
+}
+func queryFollowupCommittedFixture(t *testing.T, resolution domain.FollowupResolution) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation) {
+	t.Helper()
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	lineage := `"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":"F001","replay_mode":null`
+	outcome := `"followup_outcome":{"resolution":"` + string(resolution) + `","rationale":"verified resolution","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":"` + querySourceExcerptSHA256(t) + `"},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","verification":"verified"}}]},`
+	finalBytes := strings.ReplaceAll(string(snapshot.Final().Bytes()), `"run_type":"review"`, `"run_type":"followup"`)
+	finalBytes = strings.Replace(finalBytes, `"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`, lineage, 1)
+	finalBytes = strings.Replace(finalBytes, `"target":{"content_sha256"`, outcome+`"target":{"content_sha256"`, 1)
+	finalIdentity, err := ports.NewFinalReviewIdentity(snapshot.Final().Identity().ReviewID(), snapshot.Final().Identity().Path(), querySHA([]byte(finalBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, []byte(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBytes := strings.ReplaceAll(string(snapshot.Manifest().Bytes()), `"run_type":"review"`, `"run_type":"followup"`)
+	manifestBytes = strings.Replace(manifestBytes, `"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`, lineage, 1)
+	manifestBytes = strings.Replace(manifestBytes, `"target":{"manifest_path"`, outcome+`"target":{"manifest_path"`, 1)
+	manifestBytes = strings.ReplaceAll(manifestBytes, snapshot.Final().Identity().SHA256(), finalIdentity.SHA256())
+	manifest := mustQueryArtifact(t, snapshot.Manifest().Path(), []byte(manifestBytes))
+	followupSnapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, snapshot.LineageEdge(), snapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run, followupSnapshot, queryP2Observation(t, run, followupSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
 }
 
 func queryP2Observation(

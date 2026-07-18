@@ -28,6 +28,8 @@ func (kind AttemptKind) Valid() bool {
 // coordinator to a provider runtime. It carries no mutable run or attempt
 // aggregate.
 type InvocationJob struct {
+	sessionID   domain.SessionID
+	runID       domain.RunID
 	role        domain.Role
 	attemptKind AttemptKind
 	route       ports.ProviderRoute
@@ -38,8 +40,40 @@ type InvocationJob struct {
 	ordinal     uint64
 }
 
-// NewInvocationJob validates and canonicalizes one provider invocation job.
+// NewInvocationJob validates and canonicalizes a legacy direct provider
+// invocation job. Coordinator-issued jobs must use newCoordinatorInvocationJob
+// and always carry run coordinates.
 func NewInvocationJob(
+	role domain.Role,
+	attemptKind AttemptKind,
+	route ports.ProviderRoute,
+	target domain.TargetIdentity,
+	limits InvocationLimits,
+	attemptID domain.AttemptID,
+	purpose domain.InvocationPurpose,
+	ordinal uint64,
+) (InvocationJob, error) {
+	return newInvocationJob(domain.SessionID{}, domain.RunID{}, role, attemptKind, route, target, limits, attemptID, purpose, ordinal)
+}
+
+func newCoordinatorInvocationJob(
+	sessionID domain.SessionID,
+	runID domain.RunID,
+	role domain.Role,
+	attemptKind AttemptKind,
+	route ports.ProviderRoute,
+	target domain.TargetIdentity,
+	limits InvocationLimits,
+	attemptID domain.AttemptID,
+	purpose domain.InvocationPurpose,
+	ordinal uint64,
+) (InvocationJob, error) {
+	return newInvocationJob(sessionID, runID, role, attemptKind, route, target, limits, attemptID, purpose, ordinal)
+}
+
+func newInvocationJob(
+	sessionID domain.SessionID,
+	runID domain.RunID,
 	role domain.Role,
 	attemptKind AttemptKind,
 	route ports.ProviderRoute,
@@ -58,6 +92,8 @@ func NewInvocationJob(
 		return InvocationJob{}, err
 	}
 	job := InvocationJob{
+		sessionID:   sessionID,
+		runID:       runID,
 		role:        role,
 		attemptKind: attemptKind,
 		route:       canonicalRoute,
@@ -72,6 +108,14 @@ func NewInvocationJob(
 	}
 	return job, nil
 }
+
+// SessionID returns the coordinator-authorized review session identity, or zero
+// for a legacy direct job.
+func (job InvocationJob) SessionID() domain.SessionID { return job.sessionID }
+
+// RunID returns the coordinator-authorized review run identity, or zero for a
+// legacy direct job.
+func (job InvocationJob) RunID() domain.RunID { return job.runID }
 
 // Role returns the canonical coordinator-selected role.
 func (job InvocationJob) Role() domain.Role { return job.role }
@@ -110,6 +154,17 @@ func (job InvocationJob) Purpose() domain.InvocationPurpose { return job.purpose
 func (job InvocationJob) Ordinal() uint64 { return job.ordinal }
 
 func (job InvocationJob) validate() error {
+	if (job.sessionID.String() == "") != (job.runID.String() == "") {
+		return fmt.Errorf("review coordinator invocation job: session and run IDs must both be present or absent")
+	}
+	if job.sessionID.String() != "" {
+		if _, err := domain.ParseSessionID(job.sessionID.String()); err != nil {
+			return fmt.Errorf("review coordinator invocation job: invalid session ID: %w", err)
+		}
+		if _, err := domain.ParseRunID(job.runID.String()); err != nil {
+			return fmt.Errorf("review coordinator invocation job: invalid run ID: %w", err)
+		}
+	}
 	if !job.role.Valid() {
 		return fmt.Errorf("review coordinator invocation job: invalid role %q", job.role)
 	}

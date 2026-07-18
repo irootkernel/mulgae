@@ -43,7 +43,7 @@
 | Publication status | Store-derived publication axis: `not_published`, `staged`, `installed`, `committed`, or `corrupt` |
 | CI decision | Trusted CI policy axis: `pass` or `fail`, accompanied by reason codes |
 | Decision Readiness | Whether the SOT contract is settled; G0 records this as `READY` |
-| Implementation Readiness | Whether product implementation is authorized; G001 completed the prerequisite, G002–G007 are complete, and G008–G009 remain separately gated and pending |
+| Implementation Readiness | Whether product implementation is authorized; G001 completed the prerequisite and G002–G008 are complete. G009, the integrated release gate, remains separately gated, pending, and unauthorized; G008 completion does not authorize release CI or release assets. |
 | External Contract Readiness | Whether required provider tuples and native platform cells passed; G001 verified the G0 evidence state, and G007 completes the exact authority-gated `kimi`, `zcode`, and `agy` adapters while standalone absence of evidence remains `UNVERIFIED` |
 | Gate A | Session-bound GJC runtime approval that permits G0 contract/evidence work; it is not implementation approval |
 | G0 complete | Post-promotion, post-verification authority record that closes G0; spelled `g0_complete` in authority records |
@@ -66,3 +66,5 @@
 | Authority-ref CAS | Compare-and-swap update of the authoritative SOT Git ref using the approved expected old state |
 | Delete-ref CAS | Compare-and-swap deletion of an authority ref when rollback returns to an initially absent authority |
 | Secure writer | Shared scan-before-write persistence boundary for newly durable untrusted bytes |
+| G008 application boundary | The completed ownership boundary for `followup`, `delta`, `rerun`, cleanup, and redacted export. The CLI constructs requests and renders envelopes; application services own child-run/lineage transitions, P2 publication, retention planning, and export/redaction behavior. |
+| G009 integrated release gate | The pending release boundary that requires final review and test receipts completed and retained by the leader before release authorization or release asset publication. |

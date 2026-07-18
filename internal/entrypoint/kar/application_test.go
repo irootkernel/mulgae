@@ -23,7 +23,11 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+	appexport "github.com/irootkernel/kkachi-agent-review/internal/app/export"
+	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
+	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -628,7 +632,7 @@ func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.
 func TestApplicationProvidersLeavesFutureCommandsUnavailable(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	for _, command := range []string{"review", "followup", "delta", "rerun", "prompt", "clean", "export"} {
+	for _, command := range []string{"review", "prompt"} {
 		t.Run(command, func(t *testing.T) {
 			result := fixture.application.Run(context.Background(), []string{command}, root)
 			if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 ||
@@ -653,6 +657,213 @@ type g006QueryFake struct {
 	excerptErr   error
 	resolveErr   error
 	resolveRoots []ports.AnchoredRoot
+}
+
+type g008FollowupFake struct{}
+
+func (g008FollowupFake) StartFollowupRun(context.Context, appfollowup.Request) (StartedRun, error) {
+	return StartedRun{}, errors.New("unexpected followup call")
+}
+
+type g008DeltaFake struct{}
+
+func (g008DeltaFake) StartDeltaRun(context.Context, appdelta.StartRequest) (StartedRun, error) {
+	return StartedRun{}, errors.New("unexpected delta call")
+}
+
+type g008RerunFake struct{}
+
+func (g008RerunFake) StartRerun(context.Context, appreplay.Request) (StartedRun, error) {
+	return StartedRun{}, errors.New("unexpected rerun call")
+}
+
+func g008Dependencies() (FollowupRunService, DeltaRunService, RerunService, RetentionService, RedactedExportService) {
+	return g008FollowupFake{}, g008DeltaFake{}, g008RerunFake{},
+		RetentionServiceFunc(func(context.Context, RetentionRequest) (RetentionResult, error) {
+			return RetentionResult{}, errors.New("unexpected clean call")
+		}),
+		RedactedExportServiceFunc(func(context.Context, RedactedExportRequest) (RedactedExportResult, error) {
+			return RedactedExportResult{}, errors.New("unexpected export call")
+		})
+}
+
+type g008ResolverFake struct {
+	runCalls     []string
+	attemptCalls []g008AttemptResolution
+	targetCalls  int
+}
+
+type g008AttemptResolution struct {
+	runID    string
+	role     string
+	provider string
+}
+
+func (fake *g008ResolverFake) ResolveRun(_ context.Context, selector string) (string, error) {
+	fake.runCalls = append(fake.runCalls, selector)
+	return testRunID, nil
+}
+
+func (fake *g008ResolverFake) ResolveAttempt(_ context.Context, runID, role, provider string) (string, error) {
+	fake.attemptCalls = append(fake.attemptCalls, g008AttemptResolution{runID: runID, role: role, provider: provider})
+	return testAttemptID, nil
+}
+
+func (fake *g008ResolverFake) CaptureTarget(context.Context) (string, error) {
+	fake.targetCalls++
+	return "captured.patch", nil
+}
+
+type g008FollowupE2EFake struct {
+	requests     []appfollowup.Request
+	err          error
+	terminalExit domain.OperationalExitDecision
+	resolution   domain.FollowupResolution
+}
+
+func (fake *g008FollowupE2EFake) StartFollowupRun(_ context.Context, request appfollowup.Request) (StartedRun, error) {
+	fake.requests = append(fake.requests, request)
+	if fake.err != nil {
+		return StartedRun{}, fake.err
+	}
+	return StartedRun{
+		SessionID:          g006SessionID,
+		RunID:              "r_019f596a-d050-79e7-b2b7-59822f012273",
+		ArtifactURI:        ".kar/followup/new-review.json",
+		FollowupResolution: fake.resolution,
+		TerminalExit:       fake.terminalExit,
+	}, nil
+}
+
+type g008DeltaE2EFake struct {
+	requests     []appdelta.StartRequest
+	err          error
+	terminalExit domain.OperationalExitDecision
+}
+
+func (fake *g008DeltaE2EFake) StartDeltaRun(_ context.Context, request appdelta.StartRequest) (StartedRun, error) {
+	fake.requests = append(fake.requests, request)
+	if fake.err != nil {
+		return StartedRun{}, fake.err
+	}
+	return StartedRun{
+		SessionID:    g006SessionID,
+		RunID:        "r_019f596a-d051-79e7-b2b7-59822f012273",
+		ArtifactURI:  ".kar/delta/new-review.json",
+		TerminalExit: fake.terminalExit,
+	}, nil
+}
+
+type g008RerunE2EFake struct {
+	requests     []appreplay.Request
+	err          error
+	terminalExit domain.OperationalExitDecision
+}
+
+func (fake *g008RerunE2EFake) StartRerun(_ context.Context, request appreplay.Request) (StartedRun, error) {
+	fake.requests = append(fake.requests, request)
+	if fake.err != nil {
+		return StartedRun{}, fake.err
+	}
+	return StartedRun{
+		SessionID:    g006SessionID,
+		RunID:        "r_019f596a-d052-79e7-b2b7-59822f012273",
+		ArtifactURI:  ".kar/rerun/prompt-manifest.json",
+		TerminalExit: fake.terminalExit,
+	}, nil
+}
+
+type g008RetentionE2EFake struct {
+	requests []RetentionRequest
+	err      error
+}
+
+func (fake *g008RetentionE2EFake) PlanAndApplyRetention(_ context.Context, request RetentionRequest) (RetentionResult, error) {
+	fake.requests = append(fake.requests, request)
+	if fake.err != nil {
+		return RetentionResult{}, fake.err
+	}
+	return RetentionResult{
+		CleanPlanURI: ".kar/clean/plan.json",
+		PlanSHA256:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Applied:      request.Mode == CleanModeApply,
+	}, nil
+}
+
+type g008ExportE2EFake struct {
+	requests []RedactedExportRequest
+	err      error
+}
+
+func (fake *g008ExportE2EFake) ExportRedactedRun(_ context.Context, request RedactedExportRequest) (RedactedExportResult, error) {
+	fake.requests = append(fake.requests, request)
+	if fake.err != nil {
+		return RedactedExportResult{}, fake.err
+	}
+	return RedactedExportResult{
+		ExportManifestURI: ".kar/exports/manifest.json",
+		BundleURI:         request.OutputPath,
+		Redacted:          true,
+	}, nil
+}
+
+type g008WorkflowFakes struct {
+	resolver  *g008ResolverFake
+	followup  *g008FollowupE2EFake
+	delta     *g008DeltaE2EFake
+	rerun     *g008RerunE2EFake
+	retention *g008RetentionE2EFake
+	export    *g008ExportE2EFake
+}
+
+func newG008WorkflowFakes(t *testing.T) g008WorkflowFakes {
+	t.Helper()
+	return g008WorkflowFakes{
+		resolver:  &g008ResolverFake{},
+		followup:  &g008FollowupE2EFake{resolution: domain.FollowupStillOpen, terminalExit: g008CommittedTerminalExit(t, domain.ExitCommittedCIRejected)},
+		delta:     &g008DeltaE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitCommittedPass)},
+		rerun:     &g008RerunE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage)},
+		retention: &g008RetentionE2EFake{},
+		export:    &g008ExportE2EFake{},
+	}
+}
+
+func g008CommittedTerminalExit(t *testing.T, code domain.OperationalExitCode) domain.OperationalExitDecision {
+	t.Helper()
+	reasonCode := "policy_evaluated"
+	switch code {
+	case domain.ExitCommittedCIRejected:
+		reasonCode = "request_changes_threshold"
+	case domain.ExitIncompleteCoverage:
+		reasonCode = "required_role_incomplete"
+	}
+	reason, err := domain.NewExitReason(code, reasonCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := domain.NewOperationalExitInput([]domain.ExitReason{reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := domain.ReduceOperationalExit(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decision
+}
+
+type g008RequestResolver struct{}
+
+func (g008RequestResolver) ResolveRun(context.Context, string) (string, error) {
+	return testRunID, nil
+}
+
+func (g008RequestResolver) ResolveAttempt(context.Context, string, string, string) (string, error) {
+	return "a_019f596a-cf80-7c67-b265-f37053d51ccf", nil
+}
+
+func (g008RequestResolver) CaptureTarget(context.Context) (string, error) {
+	return "captured.patch", nil
 }
 
 func (fake *g006QueryFake) ResolveRun(_ context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
@@ -1396,6 +1607,8 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	followup, delta, rerun, retention, exports := g008Dependencies()
+	resolver := g008RequestResolver{}
 	dependencies := Dependencies{
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
@@ -1404,6 +1617,12 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 		SecureWriter:         fixture.writer,
 		TrustedProjectReader: reader,
 		EnvironmentInspector: environment.NewInspector(),
+		RequestResolver:      resolver,
+		FollowupRuns:         followup,
+		DeltaRuns:            delta,
+		Reruns:               rerun,
+		Retention:            retention,
+		Exports:              exports,
 	}
 	query := newG006QueryFake()
 	report := newG006ReportFake()
@@ -1415,6 +1634,447 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	dependencies.PublicationReports = report
 	if _, err := NewApplication(dependencies); err == nil {
 		t.Fatal("NewApplication accepted a partial G006 report dependency group")
+	}
+	dependencies.PublicationReports = nil
+	dependencies.RequestResolver = nil
+	dependencies.FollowupRuns = nil
+	dependencies.DeltaRuns = nil
+	dependencies.Reruns = nil
+	dependencies.Retention = nil
+	dependencies.Exports = nil
+	standalone, err := NewApplication(dependencies)
+	if err != nil {
+		t.Fatalf("NewApplication rejected absent G008 dependency group: %v", err)
+	}
+	result := standalone.Run(context.Background(), []string{"clean", "--output", "json"}, testAnchoredRoot(t))
+	if result.ExitCode() != app.ExitCodeArtifact {
+		t.Fatalf("absent G008 clean exit = %d, want %d; stdout=%q stderr=%q", result.ExitCode(), app.ExitCodeArtifact, result.Stdout(), result.Stderr())
+	}
+	schemaID, err := ports.ParseAssetID(commandSchemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.validator.Validate(context.Background(), schemaID, result.Stdout()); err != nil {
+		t.Fatalf("absent G008 clean JSON is not schema-valid: %v", err)
+	}
+	dependencies.RequestResolver = resolver
+	dependencies.Exports = newG008WorkflowFakes(t).export
+	resolvedStandalone, err := NewApplication(dependencies)
+	if err != nil {
+		t.Fatalf("NewApplication rejected an independent request resolver: %v", err)
+	}
+	for _, argv := range [][]string{
+		{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--output", "json"},
+		{"delta", "--since-run", "latest", "--stdin", "--roles", "logic", "--output", "json"},
+		{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
+	} {
+		result := resolvedStandalone.Run(context.Background(), argv, testAnchoredRoot(t))
+		if result.ExitCode() != app.ExitCodeReadiness {
+			t.Fatalf("standalone %v exit = %d, want %d; stdout=%q stderr=%q", argv, result.ExitCode(), app.ExitCodeReadiness, result.Stdout(), result.Stderr())
+		}
+	}
+	export := resolvedStandalone.Run(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json"}, testAnchoredRoot(t))
+	if export.ExitCode() != app.ExitCodeSuccess {
+		t.Fatalf("offline export/latest exit = %d, want %d; stdout=%q stderr=%q", export.ExitCode(), app.ExitCodeSuccess, export.Stdout(), export.Stderr())
+	}
+	dependencies.FollowupRuns = followup
+	if _, err := NewApplication(dependencies); err == nil {
+		t.Fatal("NewApplication accepted a partial online G008 dependency group")
+	}
+}
+func TestApplicationG008FakeWorkflowE2E(t *testing.T) {
+	tests := []struct {
+		name   string
+		argv   []string
+		human  string
+		kind   string
+		exit   app.ExitCode
+		json   bool
+		reason string
+	}{
+		{name: "followup human", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}, human: "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: still_open", kind: "followup_started", exit: app.ExitCodePolicy},
+		{name: "followup JSON", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"}, kind: "followup_started", exit: app.ExitCodePolicy, json: true, reason: "request_changes_threshold"},
+		{name: "delta human", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing"}, human: "delta started: r_019f596a-d051-79e7-b2b7-59822f012273", kind: "delta_started"},
+		{name: "delta JSON", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"}, kind: "delta_started", json: true},
+		{name: "rerun human", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose"}, human: "rerun started: r_019f596a-d052-79e7-b2b7-59822f012273", kind: "rerun_started", exit: app.ExitCodeReadiness},
+		{name: "rerun JSON", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"}, kind: "rerun_started", exit: app.ExitCodeReadiness, json: true, reason: "required_role_incomplete"},
+		{name: "clean human", argv: []string{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, human: "clean completed: .kar/clean/plan.json", kind: "clean_completed"},
+		{name: "clean JSON", argv: []string{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--output", "json"}, kind: "clean_completed", json: true},
+		{name: "export human", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip"}, human: "export created: exports/redacted.zip", kind: "export_created"},
+		{name: "export JSON", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json"}, kind: "export_created", json: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fakes := newG008WorkflowFakes(t)
+			fixture := newG008Fixture(t, fakes)
+			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
+			if test.json {
+				assertFoundationEnvelope(t, fixture, result, test.exit)
+				if got := commandResultKind(t, result.Stdout()); got != test.kind {
+					t.Fatalf("JSON result kind = %q, want %q", got, test.kind)
+				}
+				if test.reason != "" {
+					assertCommittedOutcomeEnvelope(t, result, test.exit, test.reason)
+				}
+			} else if result.ExitCode() != test.exit || len(result.Stderr()) != 0 || !bytes.Equal(result.Stdout(), expectedTextOutput([]byte(test.human))) {
+				t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+			output := result.Stdout()
+			output[0] = '!'
+			if result.Stdout()[0] == '!' {
+				t.Fatal("Result.Stdout exposed mutable application-owned bytes")
+			}
+			assertG008FakeRequest(t, test.name, fakes)
+		})
+	}
+}
+func TestApplicationG008FollowupRendersEveryResolutionExactly(t *testing.T) {
+	for _, resolution := range []domain.FollowupResolution{
+		domain.FollowupResolved,
+		domain.FollowupPartiallyResolved,
+		domain.FollowupStillOpen,
+		domain.FollowupUnclear,
+	} {
+		t.Run(string(resolution), func(t *testing.T) {
+			for _, output := range []string{"human", "json"} {
+				t.Run(output, func(t *testing.T) {
+					fakes := newG008WorkflowFakes(t)
+					fakes.followup.resolution = resolution
+					argv := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}
+					if output == "json" {
+						argv = append(argv, "--output", "json")
+					}
+					result := newG008Fixture(t, fakes).application.Run(context.Background(), argv, testAnchoredRoot(t))
+					if output == "human" {
+						want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: " + string(resolution) + "\n"
+						if result.ExitCode() != app.ExitCodePolicy || !bytes.Equal(result.Stdout(), []byte(want)) || len(result.Stderr()) != 0 {
+							t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+						}
+						return
+					}
+					var envelope struct {
+						Result struct {
+							Resolution string `json:"resolution"`
+						} `json:"result"`
+					}
+					if result.ExitCode() != app.ExitCodePolicy {
+						t.Fatalf("JSON exit = %d, want %d", result.ExitCode(), app.ExitCodePolicy)
+					}
+					if err := json.Unmarshal(result.Stdout(), &envelope); err != nil || envelope.Result.Resolution != string(resolution) {
+						t.Fatalf("JSON result = stdout %q resolution %q error %v", result.Stdout(), envelope.Result.Resolution, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
+	security := mustG006Failure(t, domain.FailureSecurityPolicy)
+	tests := []struct {
+		name string
+		argv []string
+		exit app.ExitCode
+		set  func(g008WorkflowFakes)
+	}{
+		{
+			name: "cancelled followup",
+			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
+			exit: app.ExitCodeCancellation,
+			set:  func(fakes g008WorkflowFakes) { fakes.followup.err = context.Canceled },
+		},
+		{
+			name: "followup missing terminal exit authority",
+			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
+			exit: app.ExitCodeInternal,
+			set:  func(fakes g008WorkflowFakes) { fakes.followup.terminalExit = domain.OperationalExitDecision{} },
+		},
+		{
+			name: "typed security delta",
+			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
+			exit: app.ExitCodeSecurity,
+			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = security },
+		},
+		{
+			name: "typed artifact clean",
+			argv: []string{"clean", "--output", "json"},
+			exit: app.ExitCodeArtifact,
+			set:  func(fakes g008WorkflowFakes) { fakes.retention.err = mustG006ArtifactFailure(t) },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fakes := newG008WorkflowFakes(t)
+			test.set(fakes)
+			fixture := newG008Fixture(t, fakes)
+			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			assertG008FakeRequest(t, test.name, fakes)
+		})
+	}
+}
+func TestApplicationG008ExportSecurityFailureRedactsSuccessFields(t *testing.T) {
+	fakes := newG008WorkflowFakes(t)
+	fakes.export.err = mustG006Failure(t, domain.FailureSecurityPolicy)
+	fixture := newG008Fixture(t, fakes)
+
+	result := fixture.application.Run(context.Background(), []string{
+		"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json",
+	}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+
+	var envelope struct {
+		Result struct {
+			ExportManifestURI *string `json:"export_manifest_uri"`
+			BundleURI         *string `json:"bundle_uri"`
+			Redacted          bool    `json:"redacted"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.Result.Redacted || envelope.Result.ExportManifestURI != nil || envelope.Result.BundleURI != nil {
+		t.Fatalf("security export result disclosed success fields: %#v", envelope.Result)
+	}
+	if bytes.Contains(result.Stdout(), []byte(".kar/exports/manifest.json")) {
+		t.Fatalf("security export result contained success URI bytes: %q", result.Stdout())
+	}
+	if len(fakes.export.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" {
+		t.Fatalf("security export calls = requests %#v runs %#v", fakes.export.requests, fakes.resolver.runCalls)
+	}
+}
+
+func TestApplicationG008FollowupPreservesNonNumericFindingID(t *testing.T) {
+	fakes := newG008WorkflowFakes(t)
+	fixture := newG008Fixture(t, fakes)
+
+	result := fixture.application.Run(context.Background(), []string{
+		"followup", "--run", "latest", "--finding", "F_SOURCE-1", "--stdin",
+		"--objective", "verify fix", "--role", "security", "--output", "json",
+	}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodePolicy)
+
+	if len(fakes.followup.requests) != 1 {
+		t.Fatalf("followup requests = %#v", fakes.followup.requests)
+	}
+	if got := fakes.followup.requests[0].FindingID; got != "F_SOURCE-1" {
+		t.Fatalf("followup finding ID = %q, want %q", got, "F_SOURCE-1")
+	}
+}
+func TestApplicationG008HumanFailureDefensivelyCopiesStderr(t *testing.T) {
+	fakes := newG008WorkflowFakes(t)
+	fakes.followup.err = context.Canceled
+	fixture := newG008Fixture(t, fakes)
+	result := fixture.application.Run(context.Background(), []string{
+		"followup", "--run", "latest", "--finding", "F001", "--stdin",
+		"--objective", "verify fix", "--role", "security",
+	}, testAnchoredRoot(t))
+	if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 {
+		t.Fatalf("human cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+	}
+	stderr := result.Stderr()
+	stderr[0] = '!'
+	if result.Stderr()[0] == '!' {
+		t.Fatal("Result.Stderr exposed mutable application-owned bytes")
+	}
+	assertG008FakeRequest(t, "cancelled followup", fakes)
+}
+
+func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
+	t.Helper()
+	switch {
+	case strings.HasPrefix(name, "followup"), strings.HasPrefix(name, "cancelled followup"):
+		if len(fakes.followup.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" || fakes.resolver.targetCalls != 1 {
+			t.Fatalf("followup calls = requests %#v runs %#v target calls %d", fakes.followup.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
+		}
+		request := fakes.followup.requests[0]
+		if request.SourceRunID.String() != testRunID || request.FindingID != "F001" || string(request.Target.Kind) != "stdin" || request.Target.Value != "captured.patch" ||
+			request.Objective == nil || *request.Objective != "verify fix" || request.Role == nil || *request.Role != domain.RoleSecurity {
+			t.Fatalf("followup request = %#v", request)
+		}
+		if request.SourceRunID.String() == "r_019f596a-d050-79e7-b2b7-59822f012273" {
+			t.Fatal("followup source run ID equals returned child run ID")
+		}
+	case strings.HasPrefix(name, "delta"), strings.HasPrefix(name, "typed security delta"):
+		if len(fakes.delta.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" || fakes.resolver.targetCalls != 1 {
+			t.Fatalf("delta calls = requests %#v runs %#v target calls %d", fakes.delta.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
+		}
+		request := fakes.delta.requests[0]
+		if request.SourceRunID.String() != testRunID || string(request.Target.Kind) != "stdin" || request.Target.Value != "captured.patch" ||
+			!reflect.DeepEqual(request.Roles, []domain.Role{domain.RoleLogic, domain.RoleTesting}) {
+			t.Fatalf("delta request = %#v", request)
+		}
+		if request.SourceRunID.String() == "r_019f596a-d051-79e7-b2b7-59822f012273" {
+			t.Fatal("delta source run ID equals returned child run ID")
+		}
+	case strings.HasPrefix(name, "rerun"):
+		if len(fakes.rerun.requests) != 1 || len(fakes.resolver.runCalls) != 1 || len(fakes.resolver.attemptCalls) != 1 {
+			t.Fatalf("rerun calls = requests %#v runs %#v attempts %#v", fakes.rerun.requests, fakes.resolver.runCalls, fakes.resolver.attemptCalls)
+		}
+		request := fakes.rerun.requests[0]
+		if request.SourceRunID.String() != testRunID || request.SourceAttemptID.String() != testAttemptID || request.ReplayMode != appreplay.RecomposeReplay ||
+			!reflect.DeepEqual(fakes.resolver.attemptCalls[0], g008AttemptResolution{runID: testRunID, role: "logic", provider: "testing"}) {
+			t.Fatalf("rerun request = %#v, resolutions = %#v", request, fakes.resolver.attemptCalls)
+		}
+		if request.SourceRunID.String() == "r_019f596a-d052-79e7-b2b7-59822f012273" {
+			t.Fatal("rerun source run ID equals returned child run ID")
+		}
+	case strings.HasPrefix(name, "clean"), strings.HasPrefix(name, "typed artifact clean"):
+		if len(fakes.retention.requests) != 1 {
+			t.Fatalf("clean requests = %#v", fakes.retention.requests)
+		}
+		request := fakes.retention.requests[0]
+		if strings.HasPrefix(name, "typed artifact") {
+			if request.Mode != CleanModePlan || request.ExpectedPlanSHA256 != nil {
+				t.Fatalf("clean failure request = %#v", request)
+			}
+			return
+		}
+		if request.Mode != CleanModeApply || request.ExpectedPlanSHA256 == nil ||
+			*request.ExpectedPlanSHA256 != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+			t.Fatalf("clean request = %#v", request)
+		}
+	case strings.HasPrefix(name, "export"):
+		if len(fakes.export.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" {
+			t.Fatalf("export calls = requests %#v runs %#v", fakes.export.requests, fakes.resolver.runCalls)
+		}
+		if request := fakes.export.requests[0]; request.RunID != testRunID || request.OutputPath != "exports/redacted.zip" || !request.Redacted {
+			t.Fatalf("export request = %#v", request)
+		}
+	default:
+		t.Fatalf("uncovered G008 fake assertion %q", name)
+	}
+}
+func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
+	t.Helper()
+	fixture := newFoundationFixture(t)
+	reader, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := NewApplication(Dependencies{
+		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:   fixedFoundationRequestIDs{},
+		Catalog:              fixture.catalog,
+		JSONSchemaValidator:  fixture.validator,
+		SecureWriter:         fixture.writer,
+		TrustedProjectReader: reader,
+		EnvironmentInspector: environment.NewInspector(),
+		RequestResolver:      fakes.resolver,
+		FollowupRuns:         fakes.followup,
+		DeltaRuns:            fakes.delta,
+		Reruns:               fakes.rerun,
+		Retention:            fakes.retention,
+		Exports:              fakes.export,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application = application
+	return fixture
+}
+func TestProductionKARCompositionFailsClosedWithoutG008Authority(t *testing.T) {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "kar")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/kar")
+	build.Dir = repositoryRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build production kar: %v: %s", err, output)
+	}
+
+	fixture := newFoundationFixture(t)
+	run := func(argv ...string) ([]byte, []byte, app.ExitCode) {
+		command := exec.Command(binary, argv...)
+		command.Dir = t.TempDir()
+		stdout, err := command.Output()
+		if err == nil {
+			return stdout, nil, app.ExitCodeSuccess
+		}
+		exitError, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run production kar %v: %v", argv, err)
+		}
+		return stdout, exitError.Stderr, app.ExitCode(exitError.ExitCode())
+	}
+	for _, argv := range [][]string{
+		{"help", "security", "--output", "json"},
+		{"schema", "show", commandSchemaID},
+	} {
+		if _, stderr, exit := run(argv...); exit != app.ExitCodeSuccess {
+			t.Fatalf("production G001-G007 command %v exit = %d stderr %q", argv, exit, stderr)
+		}
+	}
+	for _, command := range []string{"review", "prompt"} {
+		if stdout, stderr, exit := run(command); exit != app.ExitCodeUsage || len(stdout) != 0 ||
+			!bytes.Equal(stderr, []byte("kar: command is unavailable in this foundation milestone\n")) {
+			t.Fatalf("production future command %s = exit %d stdout %q stderr %q", command, exit, stdout, stderr)
+		}
+	}
+	for _, argv := range [][]string{
+		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--output", "json"},
+		{"delta", "--since-run", testRunID, "--diff", "git", "--roles", "logic", "--output", "json"},
+		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"},
+	} {
+		stdout, stderr, exit := run(argv...)
+		if exit != app.ExitCodeReadiness || len(stderr) != 0 {
+			t.Fatalf("production authority-gated G008 command %v = exit %d stderr %q", argv, exit, stderr)
+		}
+		assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeReadiness)
+	}
+	stdout, stderr, exit := run("export", "--run", testRunID, "--output-path", "exports/redacted.zip", "--output", "json")
+	if exit != app.ExitCodeArtifact || len(stderr) != 0 {
+		t.Fatalf("production export = exit %d stderr %q", exit, stderr)
+	}
+	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
+	stdout, stderr, exit = run("clean", "--output", "json")
+	if exit != app.ExitCodeArtifact || len(stderr) != 0 {
+		t.Fatalf("production clean = exit %d stderr %q", exit, stderr)
+	}
+	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
+}
+func TestProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSource(t *testing.T) {
+	fixture := newG008RealE2EFixture(t)
+	fixture.provider.logicNoFindings = true
+	root := fixture.executeAndPublishRoot(t)
+	installer := mustG008RealExportInstaller(t, fixture)
+	service, err := NewRedactedExportService(fixture.queries, installer, fixture.clock, fixture.ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ExportRedactedRun(context.Background(), RedactedExportRequest{
+		ProjectRoot: fixture.root, RunID: root.RunID.String(), OutputPath: "exports/no-findings.zip", Redacted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Redacted || result.BundleURI != "exports/no-findings.zip" || result.ExportManifestURI != "exports/no-findings.manifest.json" {
+		t.Fatalf("no-findings export result = %#v", result)
+	}
+	run, err := fixture.queries.ResolveRun(context.Background(), fixture.root, root.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := fixture.queries.ReadCommitted(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := (p2ExportProjectionReader{committed: committed}).ReadCommittedProjection(context.Background(), appexport.ExportSource{
+		SessionID: root.SessionID.String(), RunID: root.RunID.String(), ReviewID: root.ReviewID.String(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Findings) != 0 || len(projection.Evidence) != 0 || projection.SourceIdentity.SourceTargetSHA256 != committed.TargetSHA256() || projection.CurrentIdentity.TargetSHA256 != committed.TargetSHA256() {
+		t.Fatalf("no-findings projection = %#v", projection)
+	}
+	_, err = (p2ExportProjectionReader{committed: committed}).ReadCommittedProjection(context.Background(), appexport.ExportSource{
+		SessionID: root.SessionID.String(), RunID: root.RunID.String(), ReviewID: "malformed",
+	})
+	if err == nil {
+		t.Fatal("unbound export source was accepted")
 	}
 }
 
@@ -1472,6 +2132,8 @@ func newG006FixtureWithWriter(
 	if err != nil {
 		t.Fatal(err)
 	}
+	followup, delta, rerun, retention, exports := g008Dependencies()
+	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
@@ -1480,8 +2142,14 @@ func newG006FixtureWithWriter(
 		SecureWriter:         fixture.writer,
 		TrustedProjectReader: reader,
 		EnvironmentInspector: environment.NewInspector(),
+		RequestResolver:      resolver,
 		PublicationQueries:   query,
 		PublicationReports:   report,
+		FollowupRuns:         followup,
+		DeltaRuns:            delta,
+		Reruns:               rerun,
+		Retention:            retention,
+		Exports:              exports,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1608,6 +2276,8 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 	if err != nil {
 		t.Fatal(err)
 	}
+	followup, delta, rerun, retention, exports := g008Dependencies()
+	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
@@ -1616,7 +2286,13 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 		SecureWriter:         fixture.writer,
 		TrustedProjectReader: reader,
 		EnvironmentInspector: environment.NewInspector(),
+		RequestResolver:      resolver,
 		EvidenceReader:       evidence,
+		FollowupRuns:         followup,
+		DeltaRuns:            delta,
+		Reruns:               rerun,
+		Retention:            retention,
+		Exports:              exports,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1637,6 +2313,8 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 		t.Fatal(err)
 	}
 	writer := &receiptCapturingFoundationWriter{delegate: secureWriter}
+	followup, delta, rerun, retention, exports := g008Dependencies()
+	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
@@ -1645,6 +2323,12 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 		SecureWriter:         writer,
 		TrustedProjectReader: reader,
 		EnvironmentInspector: environment.NewInspector(),
+		RequestResolver:      resolver,
+		FollowupRuns:         followup,
+		DeltaRuns:            delta,
+		Reruns:               rerun,
+		Retention:            retention,
+		Exports:              exports,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1679,6 +2363,31 @@ func assertFoundationEnvelope(t *testing.T, fixture foundationFixture, result Re
 	schema := mustFoundationAssetID(t, commandSchemaID)
 	if err := fixture.validator.Validate(context.Background(), schema, result.Stdout()); err != nil {
 		t.Fatalf("command envelope is not schema-valid: %v", err)
+	}
+}
+func assertCommittedOutcomeEnvelope(t *testing.T, result Result, wantExit app.ExitCode, wantReason string) {
+	t.Helper()
+	var envelope struct {
+		Exit struct {
+			Code int    `json:"code"`
+			Kind string `json:"kind"`
+		} `json:"exit"`
+		Reasons []struct {
+			Code string `json:"code"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	wantKind := "policy"
+	if wantExit == app.ExitCodeReadiness {
+		wantKind = "readiness"
+	}
+	if envelope.Exit.Code != int(wantExit) || envelope.Exit.Kind != wantKind {
+		t.Fatalf("committed envelope exit = %#v, want code %d kind %q", envelope.Exit, wantExit, wantKind)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != wantReason {
+		t.Fatalf("committed envelope reasons = %#v, want %q", envelope.Reasons, wantReason)
 	}
 }
 

@@ -10,12 +10,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -57,6 +60,151 @@ type PreparedCandidate struct {
 	limits    []string
 	reasons   []string
 	exitCode  int
+	lineage   preparedLineage
+	followup  *preparedFollowupOutcome
+}
+type preparedLineage struct {
+	runType          domain.RunType
+	parentRunID      *domain.RunID
+	sourceRunID      *domain.RunID
+	sourceReviewID   *domain.ReviewID
+	sourceFindingRef *string
+	replayMode       *ReplayMode
+}
+
+// ReplayMode describes how a rerun obtains its prompt material.
+type ReplayMode string
+
+const (
+	ReplayModeExact     ReplayMode = "exact"
+	ReplayModeRecompose ReplayMode = "recompose"
+)
+
+// RunPublicationContext binds a candidate to its immutable run lineage.
+// The zero value is the byte-compatible root review context.
+type RunPublicationContext struct {
+	lineage preparedLineage
+}
+
+// NewChildPublicationContext validates the complete immutable lineage for a
+// followup, delta, or rerun publication.
+func NewChildPublicationContext(
+	runType domain.RunType,
+	parentRunID domain.RunID,
+	sourceRunID domain.RunID,
+	sourceReviewID domain.ReviewID,
+	sourceFindingRef *string,
+	replayMode *ReplayMode,
+) (RunPublicationContext, error) {
+	parent := parentRunID
+	source := sourceRunID
+	review := sourceReviewID
+	context := RunPublicationContext{lineage: preparedLineage{
+		runType: runType, parentRunID: &parent, sourceRunID: &source, sourceReviewID: &review,
+	}}
+	if sourceFindingRef != nil {
+		value := *sourceFindingRef
+		context.lineage.sourceFindingRef = &value
+	}
+	if replayMode != nil {
+		value := *replayMode
+		context.lineage.replayMode = &value
+	}
+	if err := context.validate(); err != nil {
+		return RunPublicationContext{}, fmt.Errorf("child publication context: %w", err)
+	}
+	return context, nil
+}
+
+func rootPublicationContext() RunPublicationContext {
+	return RunPublicationContext{lineage: preparedLineage{runType: domain.RunTypeReview}}
+}
+
+func (context RunPublicationContext) validate() error {
+	lineage := context.lineage
+	if lineage.runType == "" {
+		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
+			lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+			return fmt.Errorf("root lineage cannot contain child fields")
+		}
+		return nil
+	}
+	if !lineage.runType.Valid() {
+		return fmt.Errorf("invalid run type %q", lineage.runType)
+	}
+	if lineage.runType == domain.RunTypeReview {
+		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
+			lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+			return fmt.Errorf("review lineage must be root")
+		}
+		return nil
+	}
+	if lineage.parentRunID == nil || lineage.sourceRunID == nil || lineage.sourceReviewID == nil {
+		return fmt.Errorf("%s lineage requires parent run, source run, and source review", lineage.runType)
+	}
+	if _, err := domain.ParseRunID(lineage.parentRunID.String()); err != nil {
+		return fmt.Errorf("parent run ID: %w", err)
+	}
+	if _, err := domain.ParseRunID(lineage.sourceRunID.String()); err != nil {
+		return fmt.Errorf("source run ID: %w", err)
+	}
+	if _, err := domain.ParseReviewID(lineage.sourceReviewID.String()); err != nil {
+		return fmt.Errorf("source review ID: %w", err)
+	}
+	if lineage.sourceFindingRef != nil && !validFindingID(*lineage.sourceFindingRef) {
+		return fmt.Errorf("source finding reference is invalid")
+	}
+	if lineage.replayMode != nil && *lineage.replayMode != ReplayModeExact && *lineage.replayMode != ReplayModeRecompose {
+		return fmt.Errorf("replay mode is invalid")
+	}
+	switch lineage.runType {
+	case domain.RunTypeFollowup:
+		if lineage.sourceFindingRef == nil || lineage.replayMode != nil {
+			return fmt.Errorf("followup lineage requires a source finding and forbids replay mode")
+		}
+	case domain.RunTypeDelta:
+		if lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+			return fmt.Errorf("delta lineage forbids source finding and replay mode")
+		}
+	case domain.RunTypeRerun:
+		if lineage.sourceFindingRef != nil || lineage.replayMode == nil {
+			return fmt.Errorf("rerun lineage requires replay mode and forbids source finding")
+		}
+	}
+	return nil
+}
+
+func (context RunPublicationContext) runType() domain.RunType { return context.lineage.runType }
+
+func (context RunPublicationContext) immutableLineage() preparedLineage {
+	lineage := context.lineage
+	if lineage.parentRunID != nil {
+		value := *lineage.parentRunID
+		lineage.parentRunID = &value
+	}
+	if lineage.sourceRunID != nil {
+		value := *lineage.sourceRunID
+		lineage.sourceRunID = &value
+	}
+	if lineage.sourceReviewID != nil {
+		value := *lineage.sourceReviewID
+		lineage.sourceReviewID = &value
+	}
+	if lineage.sourceFindingRef != nil {
+		value := *lineage.sourceFindingRef
+		lineage.sourceFindingRef = &value
+	}
+	if lineage.replayMode != nil {
+		value := *lineage.replayMode
+		lineage.replayMode = &value
+	}
+	return lineage
+}
+func (candidate PreparedCandidate) publicationLineage() preparedLineage {
+	if candidate.lineage.runType == "" {
+		return rootPublicationContext().lineage
+	}
+	return RunPublicationContext{lineage: candidate.lineage}.immutableLineage()
 }
 
 type preparedTarget struct {
@@ -99,10 +247,130 @@ type preparedAttempt struct {
 	invocations []preparedInvocation
 }
 
+// AttemptArtifactInput binds one captured provider stream to an immutable
+// attempt invocation. Rejected streams retain no bytes and are never persisted.
+type AttemptArtifactInput struct {
+	AttemptID          domain.AttemptID
+	InvocationSequence uint64
+	Artifact           ports.CapturedAttemptArtifact
+}
+
+// FollowupRuntimeArtifactInput is the complete immutable runtime inventory for
+// the specialized followup invocation. Its fields intentionally mirror the
+// coordinator runtime inventory so followups use the same P2 retention rules.
+type FollowupRuntimeArtifactInput struct {
+	RuntimeRunID                 domain.RunID
+	RuntimeAttemptID             domain.AttemptID
+	RuntimeSequence              uint64
+	RuntimePurpose               domain.InvocationPurpose
+	RuntimeRole                  domain.Role
+	RuntimeTarget                []byte
+	RuntimeTargetIdentity        domain.TargetIdentity
+	RuntimeStdin                 []byte
+	RuntimeStdinSHA256           string
+	RuntimeTemplateID            string
+	RuntimeTemplateVersion       string
+	RuntimeTemplateSHA256        string
+	RuntimeSourceInvocationID    string
+	RuntimeExecutionInvocationID string
+	RuntimeScope                 string
+	RuntimeAdapterProfile        string
+	RuntimeAdapterParameters     map[string]string
+	RuntimeCaptures              []ports.CapturedAttemptArtifact
+}
+
+type runtimeArtifactInventory interface {
+	RunID() domain.RunID
+	AttemptID() domain.AttemptID
+	Sequence() uint64
+	Purpose() domain.InvocationPurpose
+	Role() domain.Role
+	Target() []byte
+	TargetIdentity() domain.TargetIdentity
+	Stdin() []byte
+	StdinSHA256() string
+	TemplateID() string
+	TemplateVersion() string
+	TemplateSHA256() string
+	SourceInvocationID() string
+	ExecutionInvocationID() string
+	Scope() string
+	AdapterProfile() string
+	AdapterParameters() map[string]string
+	Captures() []ports.CapturedAttemptArtifact
+}
+
+func (input FollowupRuntimeArtifactInput) RunID() domain.RunID         { return input.RuntimeRunID }
+func (input FollowupRuntimeArtifactInput) AttemptID() domain.AttemptID { return input.RuntimeAttemptID }
+func (input FollowupRuntimeArtifactInput) Sequence() uint64            { return input.RuntimeSequence }
+func (input FollowupRuntimeArtifactInput) Purpose() domain.InvocationPurpose {
+	return input.RuntimePurpose
+}
+func (input FollowupRuntimeArtifactInput) Role() domain.Role { return input.RuntimeRole }
+func (input FollowupRuntimeArtifactInput) Target() []byte    { return cloneBytes(input.RuntimeTarget) }
+func (input FollowupRuntimeArtifactInput) TargetIdentity() domain.TargetIdentity {
+	return input.RuntimeTargetIdentity
+}
+func (input FollowupRuntimeArtifactInput) Stdin() []byte       { return cloneBytes(input.RuntimeStdin) }
+func (input FollowupRuntimeArtifactInput) StdinSHA256() string { return input.RuntimeStdinSHA256 }
+func (input FollowupRuntimeArtifactInput) TemplateID() string  { return input.RuntimeTemplateID }
+func (input FollowupRuntimeArtifactInput) TemplateVersion() string {
+	return input.RuntimeTemplateVersion
+}
+func (input FollowupRuntimeArtifactInput) TemplateSHA256() string { return input.RuntimeTemplateSHA256 }
+func (input FollowupRuntimeArtifactInput) SourceInvocationID() string {
+	return input.RuntimeSourceInvocationID
+}
+func (input FollowupRuntimeArtifactInput) ExecutionInvocationID() string {
+	return input.RuntimeExecutionInvocationID
+}
+func (input FollowupRuntimeArtifactInput) Scope() string          { return input.RuntimeScope }
+func (input FollowupRuntimeArtifactInput) AdapterProfile() string { return input.RuntimeAdapterProfile }
+func (input FollowupRuntimeArtifactInput) AdapterParameters() map[string]string {
+	result := make(map[string]string, len(input.RuntimeAdapterParameters))
+	for key, value := range input.RuntimeAdapterParameters {
+		result[key] = value
+	}
+	return result
+}
+func (input FollowupRuntimeArtifactInput) Captures() []ports.CapturedAttemptArtifact {
+	return append([]ports.CapturedAttemptArtifact(nil), input.RuntimeCaptures...)
+}
+
+type preparedAttemptArtifact struct {
+	kind             ports.AttemptArtifactKind
+	bytes            []byte
+	securityRejected bool
+}
+
 type preparedInvocation struct {
-	sequence uint64
-	purpose  domain.InvocationPurpose
-	state    domain.InvocationState
+	sequence  uint64
+	purpose   domain.InvocationPurpose
+	state     domain.InvocationState
+	artifacts []preparedAttemptArtifact
+	runtime   *preparedRuntimeArtifact
+}
+
+type preparedRuntimeArtifact struct {
+	target                []byte
+	targetSHA256          string
+	targetKind            domain.TargetKind
+	targetRepository      string
+	targetBaseOID         string
+	targetHeadOID         string
+	targetHeadTreeOID     string
+	targetIndexTreeOID    string
+	stdin                 []byte
+	stdinSHA256           string
+	templateID            string
+	templateVersion       string
+	templateSHA256        string
+	sourceInvocationID    string
+	executionInvocationID string
+	scope                 string
+	role                  domain.Role
+	adapterProfile        string
+	adapterParameters     map[string]string
 }
 
 type preparedFinding struct {
@@ -120,14 +388,25 @@ type preparedFinding struct {
 }
 
 type preparedEvidence struct {
-	targetSHA256  string
-	side          evidence.Side
-	path          string
-	lineStart     int
-	lineEnd       int
-	quote         string
-	excerptSHA256 string
-	excerpt       []byte
+	targetSHA256        string
+	side                evidence.Side
+	path                string
+	lineStart           int
+	lineEnd             int
+	quote               string
+	excerptSHA256       string
+	excerpt             []byte
+	sourceSessionID     string
+	sourceRunID         string
+	sourceReviewID      string
+	sourceFindingID     string
+	sourceTargetSHA256  string
+	sourceExcerptSHA256 string
+}
+type preparedFollowupOutcome struct {
+	resolution domain.FollowupResolution
+	rationale  string
+	evidence   []preparedEvidence
 }
 
 type preparedFailure struct {
@@ -160,6 +439,60 @@ func (document PublicationDocument) Valid() bool {
 		document.sha256 == sha256Identifier(document.bytes)
 }
 
+// RunSupportArtifactIdentity is the exact immutable identity of one
+// run-support artifact re-read by publication before P2. It has no public
+// constructor so callers cannot present synthesized support identities as
+// persisted evidence.
+type RunSupportArtifactIdentity struct {
+	path   ports.SafeRelativePath
+	sha256 string
+}
+
+// Path returns the exact persisted support-artifact path.
+func (identity RunSupportArtifactIdentity) Path() ports.SafeRelativePath { return identity.path }
+
+// SHA256 returns the exact persisted support-artifact hash.
+func (identity RunSupportArtifactIdentity) SHA256() string { return identity.sha256 }
+
+func (identity RunSupportArtifactIdentity) valid() bool {
+	return identity.path.Valid() && validSHA256(identity.sha256)
+}
+
+func runSupportArtifactIdentity(artifact ports.ImmutablePublicationArtifact) RunSupportArtifactIdentity {
+	return RunSupportArtifactIdentity{path: artifact.Path(), sha256: artifact.SHA256()}
+}
+
+func (identity RunSupportArtifactIdentity) promptManifestBinding() (domain.AttemptID, uint64, bool) {
+	if !identity.valid() {
+		return domain.AttemptID{}, 0, false
+	}
+	parts := strings.Split(identity.path.String(), "/")
+	if len(parts) != 5 || parts[2] != "prompts" {
+		return domain.AttemptID{}, 0, false
+	}
+	attemptID, err := domain.ParseAttemptID(parts[3])
+	if err != nil {
+		return domain.AttemptID{}, 0, false
+	}
+	sequence, suffix, ok := strings.Cut(parts[4], "-")
+	if !ok || (suffix != "initial.manifest.json" && suffix != "repair.manifest.json") {
+		return domain.AttemptID{}, 0, false
+	}
+	if len(sequence) < 3 {
+		return domain.AttemptID{}, 0, false
+	}
+	for _, digit := range sequence {
+		if digit < '0' || digit > '9' {
+			return domain.AttemptID{}, 0, false
+		}
+	}
+	value, err := strconv.ParseUint(sequence, 10, 64)
+	if err != nil || value == 0 {
+		return domain.AttemptID{}, 0, false
+	}
+	return attemptID, value, true
+}
+
 // PublicationBundle is the defensive publication payload for one P2 composite.
 // Its authority is represented solely by serialized records; this Go value has
 // no authority flag or authorization accessor.
@@ -180,7 +513,7 @@ func (bundle PublicationBundle) Final() ports.FinalReviewArtifact { return bundl
 // Manifest returns the immutable committed manifest.
 func (bundle PublicationBundle) Manifest() ports.ImmutablePublicationArtifact { return bundle.manifest }
 
-// LineageEdge returns the immutable root-review lineage edge.
+// LineageEdge returns the immutable publication lineage edge.
 func (bundle PublicationBundle) LineageEdge() ports.ImmutablePublicationArtifact {
 	return bundle.lineageEdge
 }
@@ -204,6 +537,13 @@ func (bundle PublicationBundle) Excerpts() []ports.ImmutablePublicationArtifact 
 	return append([]ports.ImmutablePublicationArtifact(nil), bundle.excerpts...)
 }
 
+// SupportArtifacts returns caller-owned immutable excerpts and attempt-capture
+// artifacts. Their paths are validated against the closed run-support grammar
+// by the persistence boundary.
+func (bundle PublicationBundle) SupportArtifacts() []ports.ImmutablePublicationArtifact {
+	return append([]ports.ImmutablePublicationArtifact(nil), bundle.excerpts...)
+}
+
 // Valid reports whether every bundle member remains self-consistent. It does
 // not assert reader authority; only the serialized P2 records can do that.
 func (bundle PublicationBundle) Valid() bool {
@@ -220,8 +560,7 @@ func (bundle PublicationBundle) Valid() bool {
 }
 
 // PrepareCandidate validates every semantic fact available before a ReviewID is
-// issued. It accepts only root review publication and therefore always records
-// run_type=review and root lineage in its eventual serialized artifacts.
+// issued. It preserves the root-review API and its serialized bytes.
 func PrepareCandidate(
 	result review.CoordinatorResult,
 	target domain.TargetIdentity,
@@ -229,6 +568,23 @@ func PrepareCandidate(
 	karVersion string,
 	karCommit string,
 ) (PreparedCandidate, error) {
+	return PrepareCandidateWithContext(
+		result, target, severityThreshold, karVersion, karCommit, rootPublicationContext(),
+	)
+}
+
+// PrepareCandidateWithContext validates a root or child publication candidate.
+func PrepareCandidateWithContext(
+	result review.CoordinatorResult,
+	target domain.TargetIdentity,
+	severityThreshold domain.Severity,
+	karVersion string,
+	karCommit string,
+	context RunPublicationContext,
+) (PreparedCandidate, error) {
+	if err := context.validate(); err != nil {
+		return PreparedCandidate{}, fmt.Errorf("publication candidate: context: %w", err)
+	}
 	if err := validateIdentity(result.SessionID(), result.RunID()); err != nil {
 		return PreparedCandidate{}, fmt.Errorf("publication candidate: result identity: %w", err)
 	}
@@ -260,7 +616,7 @@ func PrepareCandidate(
 		}
 	}
 
-	axes, reasons, exitCode, limits, err := validateOutcomeAxes(result, roles, findings, severityThreshold)
+	axes, reasons, exitCode, limits, err := validateOutcomeAxes(result, roles, findings, severityThreshold, context)
 	if err != nil {
 		return PreparedCandidate{}, err
 	}
@@ -289,11 +645,170 @@ func PrepareCandidate(
 		limits:   append([]string(nil), limits...),
 		reasons:  append([]string(nil), reasons...),
 		exitCode: exitCode,
+		lineage:  context.immutableLineage(),
 	}
 	if err := candidate.validate(); err != nil {
 		return PreparedCandidate{}, err
 	}
 	return candidate, nil
+}
+
+// PrepareCandidateWithRuntimeArtifacts binds one complete immutable runtime
+// inventory to every coordinator invocation and rejects missing source material
+// before P2 publication.
+func PrepareCandidateWithRuntimeArtifacts(
+	result review.CoordinatorResult,
+	target domain.TargetIdentity,
+	severityThreshold domain.Severity,
+	karVersion string,
+	karCommit string,
+	context RunPublicationContext,
+	inputs []review.RuntimeArtifactInventory,
+) (PreparedCandidate, error) {
+	candidate, err := PrepareCandidateWithContext(
+		result, target, severityThreshold, karVersion, karCommit, context,
+	)
+	if err != nil {
+		return PreparedCandidate{}, err
+	}
+	runtimeInputs := make([]runtimeArtifactInventory, len(inputs))
+	for index := range inputs {
+		runtimeInputs[index] = inputs[index]
+	}
+	if err := candidate.bindRuntimeArtifactInventories(runtimeInputs); err != nil {
+		return PreparedCandidate{}, err
+	}
+	return candidate, nil
+}
+
+func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runtimeArtifactInventory) error {
+	if len(inputs) == 0 {
+		return fmt.Errorf("publication candidate: runtime artifact inventory is absent")
+	}
+	seen := make(map[string]struct{}, len(inputs))
+	captures := make([]AttemptArtifactInput, 0)
+	for _, input := range inputs {
+		if input.RunID() != candidate.runID || input.AttemptID().String() == "" ||
+			input.Sequence() == 0 || input.Role() == "" ||
+			sha256Identifier(input.Target()) != "sha256:"+input.TargetIdentity().SHA256() ||
+			"sha256:"+input.TargetIdentity().SHA256() != candidate.target.sha256 ||
+			input.StdinSHA256() != prompt.CompleteStdinSHA256(input.Stdin()) ||
+			input.TemplateID() == "" || input.TemplateVersion() == "" ||
+			input.TemplateSHA256() == "" || input.SourceInvocationID() == "" ||
+			input.ExecutionInvocationID() == "" || input.Scope() == "" ||
+			input.AdapterProfile() == "" {
+			return fmt.Errorf("publication candidate: invalid runtime artifact inventory for run=%s attempt=%s sequence=%d role=%s target=%s/%s stdin=%s/%s template=%s/%s/%s source=%s execution=%s scope=%s profile=%s",
+				input.RunID(), input.AttemptID(), input.Sequence(), input.Role(),
+				sha256Identifier(input.Target()), input.TargetIdentity().SHA256(),
+				input.StdinSHA256(), prompt.CompleteStdinSHA256(input.Stdin()),
+				input.TemplateID(), input.TemplateVersion(), input.TemplateSHA256(),
+				input.SourceInvocationID(), input.ExecutionInvocationID(), input.Scope(), input.AdapterProfile())
+		}
+		key := input.AttemptID().String() + fmt.Sprintf("/%020d", input.Sequence())
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("publication candidate: duplicate runtime artifact inventory")
+		}
+		seen[key] = struct{}{}
+		bound := false
+		for roleIndex := range candidate.roles {
+			for attemptIndex := range candidate.roles[roleIndex].attempts {
+				attempt := &candidate.roles[roleIndex].attempts[attemptIndex]
+				if attempt.id != input.AttemptID() {
+					continue
+				}
+				for invocationIndex := range attempt.invocations {
+					invocation := &attempt.invocations[invocationIndex]
+					if invocation.sequence != input.Sequence() || invocation.purpose != input.Purpose() ||
+						candidate.roles[roleIndex].role != input.Role() {
+						continue
+					}
+					identity := input.TargetIdentity()
+					invocation.runtime = &preparedRuntimeArtifact{
+						target: input.Target(), targetSHA256: identity.SHA256(), targetKind: identity.Kind(),
+						targetRepository: identity.RepositoryID(), targetBaseOID: identity.BaseObjectID(),
+						targetHeadOID: identity.HeadObjectID(), stdin: input.Stdin(),
+						targetHeadTreeOID: identity.HeadTreeObjectID(), targetIndexTreeOID: identity.IndexTreeObjectID(),
+						stdinSHA256: input.StdinSHA256(), templateID: input.TemplateID(),
+						templateVersion: input.TemplateVersion(), templateSHA256: input.TemplateSHA256(),
+						sourceInvocationID: input.SourceInvocationID(), executionInvocationID: input.ExecutionInvocationID(),
+						scope: input.Scope(), role: input.Role(), adapterProfile: input.AdapterProfile(),
+						adapterParameters: input.AdapterParameters(),
+					}
+					for _, capture := range input.Captures() {
+						captures = append(captures, AttemptArtifactInput{
+							AttemptID: input.AttemptID(), InvocationSequence: input.Sequence(), Artifact: capture,
+						})
+					}
+					bound = true
+					break
+				}
+			}
+		}
+		if !bound {
+			return fmt.Errorf("publication candidate: runtime artifact does not bind an invocation")
+		}
+	}
+	for roleIndex := range candidate.roles {
+		for attemptIndex := range candidate.roles[roleIndex].attempts {
+			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+				if candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime == nil {
+					return fmt.Errorf("publication candidate: runtime artifact inventory is incomplete")
+				}
+			}
+		}
+	}
+	if err := candidate.bindAttemptArtifacts(captures); err != nil {
+		return err
+	}
+	return candidate.validate()
+}
+
+func (candidate *PreparedCandidate) bindAttemptArtifacts(inputs []AttemptArtifactInput) error {
+	seen := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		if _, err := domain.ParseAttemptID(input.AttemptID.String()); err != nil ||
+			input.InvocationSequence == 0 || !input.Artifact.Valid() {
+			return fmt.Errorf("publication candidate: invalid attempt artifact input")
+		}
+		key := input.AttemptID.String() + fmt.Sprintf("/%020d/", input.InvocationSequence) + string(input.Artifact.Kind())
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("publication candidate: duplicate attempt artifact input")
+		}
+		seen[key] = struct{}{}
+		bound := false
+		for roleIndex := range candidate.roles {
+			for attemptIndex := range candidate.roles[roleIndex].attempts {
+				attempt := &candidate.roles[roleIndex].attempts[attemptIndex]
+				if attempt.id != input.AttemptID {
+					continue
+				}
+				for invocationIndex := range attempt.invocations {
+					invocation := &attempt.invocations[invocationIndex]
+					if invocation.sequence != input.InvocationSequence {
+						continue
+					}
+					if input.Artifact.Kind() == ports.AttemptArtifactInitialCandidate &&
+						invocation.purpose != domain.InvocationInitial {
+						return fmt.Errorf("publication candidate: initial capture is bound to a repair invocation")
+					}
+					if input.Artifact.Kind() == ports.AttemptArtifactRepairedCandidate &&
+						invocation.purpose != domain.InvocationRepair {
+						return fmt.Errorf("publication candidate: repaired capture is bound to an initial invocation")
+					}
+					invocation.artifacts = append(invocation.artifacts, preparedAttemptArtifact{
+						kind: input.Artifact.Kind(), bytes: input.Artifact.Bytes(),
+						securityRejected: input.Artifact.SecurityRejected(),
+					})
+					bound = true
+					break
+				}
+			}
+		}
+		if !bound {
+			return fmt.Errorf("publication candidate: attempt artifact does not bind an invocation")
+		}
+	}
+	return candidate.validate()
 }
 
 // Valid reports whether this value is a complete semantic pre-publication
@@ -324,6 +839,45 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 	write(candidate.sessionID.String())
 	write(candidate.runID.String())
 	write(string(candidate.runState))
+	lineage := candidate.publicationLineage()
+	if lineage.runType != domain.RunTypeReview {
+		write(string(lineage.runType))
+		if lineage.parentRunID != nil {
+			write(lineage.parentRunID.String())
+		}
+		if lineage.sourceRunID != nil {
+			write(lineage.sourceRunID.String())
+		}
+		if lineage.sourceReviewID != nil {
+			write(lineage.sourceReviewID.String())
+		}
+		if lineage.sourceFindingRef != nil {
+			write(*lineage.sourceFindingRef)
+		}
+		if lineage.replayMode != nil {
+			write(string(*lineage.replayMode))
+		}
+	}
+	if candidate.followup != nil {
+		write(string(candidate.followup.resolution))
+		write(candidate.followup.rationale)
+		for _, item := range candidate.followup.evidence {
+			write(item.targetSHA256)
+			write(string(item.side))
+			write(item.path)
+			write(fmt.Sprintf("%d", item.lineStart))
+			write(fmt.Sprintf("%d", item.lineEnd))
+			write(item.quote)
+			write(item.excerptSHA256)
+			write(string(item.excerpt))
+			write(item.sourceSessionID)
+			write(item.sourceRunID)
+			write(item.sourceReviewID)
+			write(item.sourceFindingID)
+			write(item.sourceTargetSHA256)
+			write(item.sourceExcerptSHA256)
+		}
+	}
 	write(candidate.target.sha256)
 	write(candidate.target.baseOID)
 	write(candidate.target.headOID)
@@ -352,6 +906,44 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 				write(fmt.Sprintf("%d", invocation.sequence))
 				write(string(invocation.purpose))
 				write(string(invocation.state))
+				if invocation.runtime == nil {
+					write("runtime:absent")
+				} else {
+					runtime := invocation.runtime
+					write("runtime:present")
+					write(string(runtime.target))
+					write(runtime.targetSHA256)
+					write(string(runtime.targetKind))
+					write(runtime.targetRepository)
+					write(runtime.targetBaseOID)
+					write(runtime.targetHeadOID)
+					write(runtime.targetHeadTreeOID)
+					write(runtime.targetIndexTreeOID)
+					write(string(runtime.stdin))
+					write(runtime.stdinSHA256)
+					write(runtime.templateID)
+					write(runtime.templateVersion)
+					write(runtime.templateSHA256)
+					write(runtime.sourceInvocationID)
+					write(runtime.executionInvocationID)
+					write(runtime.scope)
+					write(string(runtime.role))
+					write(runtime.adapterProfile)
+					keys := make([]string, 0, len(runtime.adapterParameters))
+					for key := range runtime.adapterParameters {
+						keys = append(keys, key)
+					}
+					sort.Strings(keys)
+					for _, key := range keys {
+						write(key)
+						write(runtime.adapterParameters[key])
+					}
+				}
+				for _, artifact := range invocation.artifacts {
+					write(string(artifact.kind))
+					write(fmt.Sprintf("%t", artifact.securityRejected))
+					write(string(artifact.bytes))
+				}
 			}
 		}
 		for _, findingID := range role.validFindingIDs {
@@ -381,6 +973,12 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 			write(item.quote)
 			write(item.excerptSHA256)
 			write(string(item.excerpt))
+			write(item.sourceSessionID)
+			write(item.sourceRunID)
+			write(item.sourceReviewID)
+			write(item.sourceFindingID)
+			write(item.sourceTargetSHA256)
+			write(item.sourceExcerptSHA256)
 		}
 	}
 	for _, failure := range candidate.failures {
@@ -407,6 +1005,16 @@ func (candidate PreparedCandidate) validate() error {
 	if err := validateIdentity(candidate.sessionID, candidate.runID); err != nil {
 		return err
 	}
+	if err := (RunPublicationContext{lineage: candidate.publicationLineage()}).validate(); err != nil {
+		return fmt.Errorf("lineage: %w", err)
+	}
+	lineage := candidate.publicationLineage()
+	if lineage.parentRunID != nil && *lineage.parentRunID == candidate.runID {
+		return fmt.Errorf("lineage parent cannot be the child run")
+	}
+	if lineage.sourceRunID != nil && *lineage.sourceRunID == candidate.runID {
+		return fmt.Errorf("lineage source cannot be the child run")
+	}
 	if candidate.runState != domain.RunCompleted && candidate.runState != domain.RunDegraded && candidate.runState != domain.RunFailed {
 		return fmt.Errorf("run state %q is not publishable", candidate.runState)
 	}
@@ -419,6 +1027,18 @@ func (candidate PreparedCandidate) validate() error {
 	}
 	if !candidate.axes.content.Valid() || !candidate.axes.coverage.Valid() || !candidate.axes.ci.Valid() {
 		return fmt.Errorf("outcome axes are invalid")
+	}
+	if candidate.lineage.runType == domain.RunTypeFollowup {
+		if candidate.followup == nil || !candidate.followup.resolution.Valid() ||
+			!safeText(candidate.followup.rationale, 12000, false) ||
+			len(candidate.followup.evidence) == 0 {
+			return fmt.Errorf("followup outcome is incomplete")
+		}
+		if err := validatePreparedEvidence(candidate.followup.evidence, candidate.target.sha256); err != nil {
+			return fmt.Errorf("followup outcome evidence: %w", err)
+		}
+	} else if candidate.followup != nil {
+		return fmt.Errorf("non-followup candidate has followup outcome")
 	}
 	if len(candidate.roles) == 0 || len(candidate.reasons) == 0 || !validNormalExit(candidate.exitCode) {
 		return fmt.Errorf("candidate has incomplete role, reason, or exit data")
@@ -437,11 +1057,15 @@ func (candidate PreparedCandidate) validate() error {
 			return fmt.Errorf("roles are not in deterministic order")
 		}
 	}
-	if _, ok := seenRoles[domain.RoleLogic]; !ok {
-		return fmt.Errorf("required logic role is absent")
-	}
-	if _, ok := seenRoles[domain.RoleSecurity]; !ok {
-		return fmt.Errorf("required security role is absent")
+	singleRoleRerun := candidate.lineage.runType == domain.RunTypeRerun &&
+		candidate.lineage.replayMode != nil
+	if candidate.lineage.runType != domain.RunTypeFollowup && !singleRoleRerun {
+		if _, ok := seenRoles[domain.RoleLogic]; !ok {
+			return fmt.Errorf("required logic role is absent")
+		}
+		if _, ok := seenRoles[domain.RoleSecurity]; !ok {
+			return fmt.Errorf("required security role is absent")
+		}
 	}
 	if err := validatePreparedFindings(candidate.findings, candidate.roles, candidate.target.sha256); err != nil {
 		return err
@@ -641,6 +1265,7 @@ func validateOutcomeAxes(
 	roles []preparedRole,
 	findings []preparedFinding,
 	threshold domain.Severity,
+	context RunPublicationContext,
 ) (preparedAxes, []string, int, []string, error) {
 	outcomes := result.Outcomes()
 	if !outcomes.ContentVerdict().Valid() || !outcomes.CoverageStatus().Valid() || !outcomes.CIDecision().Valid() ||
@@ -658,15 +1283,29 @@ func validateOutcomeAxes(
 	if err != nil {
 		return preparedAxes{}, nil, 0, nil, fmt.Errorf("publication candidate: recompute axes: %w", err)
 	}
-	if outcomes.ContentVerdict() != expected.ContentVerdict() || outcomes.CoverageStatus() != expected.CoverageStatus() ||
-		outcomes.CIDecision() != expected.CIDecision() {
+	expectedCoverage := expected.CoverageStatus()
+	expectedCI := expected.CIDecision()
+	recomposeRerun := context.lineage.runType == domain.RunTypeRerun &&
+		context.lineage.replayMode != nil && *context.lineage.replayMode == ReplayModeRecompose
+	if recomposeRerun {
+		expectedCoverage = coverageForSelectedPreparedRoles(roles)
+		expectedCI = domain.CIPass
+		if expected.ContentVerdict() == domain.ContentRequestChanges || expectedCoverage != domain.CoverageComplete {
+			expectedCI = domain.CIFail
+		}
+	}
+	if outcomes.ContentVerdict() != expected.ContentVerdict() ||
+		(!recomposeRerun && (outcomes.CoverageStatus() != expectedCoverage || outcomes.CIDecision() != expectedCI)) {
 		return preparedAxes{}, nil, 0, nil, fmt.Errorf("publication candidate: result outcome axes do not match trusted policy")
 	}
+	content := expected.ContentVerdict()
+	coverage := expectedCoverage
+	ci := expectedCI
 	reasons := make([]string, 0, 2)
-	if outcomes.ContentVerdict() == domain.ContentRequestChanges {
+	if content == domain.ContentRequestChanges {
 		reasons = append(reasons, "request_changes_threshold")
 	}
-	switch outcomes.CoverageStatus() {
+	switch coverage {
 	case domain.CoverageIncomplete:
 		reasons = append(reasons, "required_role_incomplete")
 	case domain.CoverageDegraded:
@@ -676,18 +1315,35 @@ func validateOutcomeAxes(
 		reasons = append(reasons, "policy_evaluated")
 	}
 	exitCode := 0
-	if outcomes.CoverageStatus() == domain.CoverageIncomplete {
+	if coverage == domain.CoverageIncomplete {
 		exitCode = int(domain.ExitIncompleteCoverage)
-	} else if outcomes.CIDecision() == domain.CIFail {
+	} else if ci == domain.CIFail {
 		exitCode = int(domain.ExitCommittedCIRejected)
 	}
 	limits := make([]string, 0, 1)
-	if outcomes.CoverageStatus() == domain.CoverageIncomplete {
+	if coverage == domain.CoverageIncomplete {
 		limits = append(limits, "Required review coverage is incomplete.")
-	} else if outcomes.CoverageStatus() == domain.CoverageDegraded {
+	} else if coverage == domain.CoverageDegraded {
 		limits = append(limits, "Review coverage is degraded.")
 	}
-	return preparedAxes{content: outcomes.ContentVerdict(), coverage: outcomes.CoverageStatus(), ci: outcomes.CIDecision()}, reasons, exitCode, limits, nil
+	return preparedAxes{content: content, coverage: coverage, ci: ci}, reasons, exitCode, limits, nil
+}
+
+func coverageForSelectedPreparedRoles(roles []preparedRole) domain.CoverageStatus {
+	coverage := domain.CoverageComplete
+	for _, role := range roles {
+		if !role.valid {
+			if role.required {
+				return domain.CoverageIncomplete
+			}
+			coverage = domain.CoverageDegraded
+			continue
+		}
+		if role.degraded {
+			coverage = domain.CoverageDegraded
+		}
+	}
+	return coverage
 }
 
 func validateTerminalRun(state domain.RunState, roles []preparedRole, coverage domain.CoverageStatus) error {
@@ -763,6 +1419,17 @@ func validatePreparedRole(role preparedRole) error {
 			if invocation.sequence != uint64(invocationIndex+1) || !invocation.purpose.Valid() || !terminalInvocationState(invocation.state) {
 				return fmt.Errorf("attempt %q invocation %d is invalid", attempt.id, invocationIndex)
 			}
+			seenArtifacts := make(map[ports.AttemptArtifactKind]struct{}, len(invocation.artifacts))
+			for _, artifact := range invocation.artifacts {
+				if !artifact.kind.Valid() || (artifact.securityRejected && len(artifact.bytes) != 0) ||
+					(!artifact.securityRejected && len(artifact.bytes) == 0) {
+					return fmt.Errorf("attempt %q invocation %d artifact is invalid", attempt.id, invocationIndex)
+				}
+				if _, duplicate := seenArtifacts[artifact.kind]; duplicate {
+					return fmt.Errorf("attempt %q invocation %d has duplicate artifact kind", attempt.id, invocationIndex)
+				}
+				seenArtifacts[artifact.kind] = struct{}{}
+			}
 		}
 	}
 	finalAttempt := role.attempts[len(role.attempts)-1]
@@ -818,9 +1485,13 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 			return fmt.Errorf("finding %q text or evidence is invalid", finding.id)
 		}
 		for evidenceIndex, item := range finding.evidence {
+			hasSource := item.sourceSessionID != "" || item.sourceRunID != "" || item.sourceReviewID != "" || item.sourceFindingID != "" ||
+				item.sourceTargetSHA256 != "" || item.sourceExcerptSHA256 != ""
 			if item.targetSHA256 != targetSHA256 || !item.side.Valid() || !safePath(item.path) || item.lineStart < 1 ||
 				item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.excerptSHA256) ||
-				len(item.excerpt) == 0 || !utf8.Valid(item.excerpt) {
+				len(item.excerpt) == 0 || !utf8.Valid(item.excerpt) ||
+				(hasSource && (item.sourceSessionID == "" || item.sourceRunID == "" || item.sourceReviewID == "" || item.sourceFindingID == "" ||
+					!validSHA256(item.sourceTargetSHA256) || !validSHA256(item.sourceExcerptSHA256))) {
 				return fmt.Errorf("finding %q evidence %d is invalid", finding.id, evidenceIndex)
 			}
 			claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
@@ -855,6 +1526,29 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 	return nil
 }
 
+func validatePreparedEvidence(items []preparedEvidence, targetSHA256 string) error {
+	for index, item := range items {
+		if item.targetSHA256 != targetSHA256 || !item.side.Valid() || !safePath(item.path) || item.lineStart < 1 ||
+			item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.excerptSHA256) ||
+			len(item.excerpt) == 0 || !utf8.Valid(item.excerpt) || item.sourceSessionID == "" || item.sourceRunID == "" ||
+			item.sourceReviewID == "" || item.sourceFindingID == "" || !validSHA256(item.sourceTargetSHA256) ||
+			!validSHA256(item.sourceExcerptSHA256) {
+			return fmt.Errorf("evidence %d is invalid", index)
+		}
+		claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+			TargetSHA256: item.targetSHA256, Side: item.side, Path: item.path,
+			LineStart: item.lineStart, LineEnd: item.lineEnd, Quote: item.quote,
+		})
+		if err != nil || !bytes.Equal(claim.QuoteBytes(), item.excerpt) {
+			return fmt.Errorf("evidence %d does not match its verified excerpt", index)
+		}
+		excerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
+		if err != nil || excerptSHA256 != item.excerptSHA256 {
+			return fmt.Errorf("evidence %d excerpt identity is invalid", index)
+		}
+	}
+	return nil
+}
 func validatePreparedFailures(failures []preparedFailure, roles []preparedRole) error {
 	failedRoles := 0
 	for _, role := range roles {
@@ -1069,6 +1763,13 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 	if err := validateBundleExcerptBindings(bundle.excerpts, finalWire, paths); err != nil {
 		return err
 	}
+	var manifestWire runManifestWire
+	if err := unmarshalCanonicalPublicationRecord(bundle.manifest.Bytes(), &manifestWire, "run manifest"); err != nil {
+		return err
+	}
+	if err := validateBundleSupportIndex(bundle.excerpts, manifestWire.CompositeIdentity.SupportIndex); err != nil {
+		return err
+	}
 
 	var journal publicationJournalWire
 	if err := unmarshalCanonicalPublicationRecord(bundle.journal.Bytes(), &journal, "publication journal"); err != nil {
@@ -1121,8 +1822,8 @@ func validateBundleExcerptBindings(
 	for _, finding := range final.Findings {
 		expectedCount += len(finding.Evidence)
 	}
-	if len(excerpts) != expectedCount {
-		return fmt.Errorf("excerpt count does not match final evidence")
+	if len(excerpts) < expectedCount {
+		return fmt.Errorf("excerpt count is smaller than final evidence")
 	}
 	index := 0
 	for _, finding := range final.Findings {
@@ -1140,6 +1841,62 @@ func validateBundleExcerptBindings(
 			}
 			index++
 		}
+	}
+	sessionID, err := domain.ParseSessionID(final.SessionID)
+	if err != nil {
+		return fmt.Errorf("final session ID is invalid: %w", err)
+	}
+	runID, err := domain.ParseRunID(final.RunID)
+	if err != nil {
+		return fmt.Errorf("final run ID is invalid: %w", err)
+	}
+	for _, artifact := range excerpts[index:] {
+		if _, err := ports.ClassifyRunSupportArtifactPath(sessionID, runID, artifact.Path()); err != nil {
+			return fmt.Errorf("auxiliary artifact path %q is not canonical: %w", artifact.Path().String(), err)
+		}
+	}
+	return nil
+}
+
+func validateBundleSupportIndex(
+	artifacts []ports.ImmutablePublicationArtifact,
+	identity artifactIdentityWire,
+) error {
+	var indexArtifact *ports.ImmutablePublicationArtifact
+	expected := make(map[string]string, len(artifacts))
+	for artifactIndex := range artifacts {
+		artifact := &artifacts[artifactIndex]
+		if artifact.Path().String() == identity.Path {
+			if indexArtifact != nil || artifact.SHA256() != identity.SHA256 {
+				return fmt.Errorf("support index identity is invalid")
+			}
+			indexArtifact = artifact
+			continue
+		}
+		if _, duplicate := expected[artifact.Path().String()]; duplicate {
+			return fmt.Errorf("support artifact path is duplicated")
+		}
+		expected[artifact.Path().String()] = artifact.SHA256()
+	}
+	if indexArtifact == nil {
+		return fmt.Errorf("support index artifact is absent")
+	}
+	var index runSupportIndexWire
+	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &index, "support index"); err != nil {
+		return err
+	}
+	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) != len(expected) {
+		return fmt.Errorf("support index contents are invalid")
+	}
+	for _, item := range index.Artifacts {
+		digest, ok := expected[item.Path]
+		if !ok || digest != item.SHA256 {
+			return fmt.Errorf("support index artifact binding is invalid")
+		}
+		delete(expected, item.Path)
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("support index omits generated artifacts")
 	}
 	return nil
 }
@@ -1206,7 +1963,7 @@ func validatePublicationCompositeSemantics(
 		return 0, err
 	}
 	if finalWire.SchemaVersion != "kar-review-artifact.v2" ||
-		finalWire.RunType != string(domain.RunTypeReview) ||
+		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
 		finalWire.PublicationStatus != string(domain.PublicationCommitted) ||
@@ -1247,10 +2004,12 @@ func validatePublicationCompositeSemantics(
 	if err := validateReasonCodes(finalWire.CIReasonCodes); err != nil {
 		return 0, fmt.Errorf("final review CI reasons: %w", err)
 	}
-	if err := validateRootLineage(finalWire.ImmutableLineage, lineageArtifact); err != nil {
+	if err := validatePublicationLineage(
+		domain.RunType(finalWire.RunType), finalWire.ImmutableLineage, lineage, lineageArtifact, sessionID, runID, reviewID,
+	); err != nil {
 		return 0, fmt.Errorf("final review lineage: %w", err)
 	}
-	content, coverage, ci, err := validateFinalOutcomeSemantics(finalWire)
+	content, coverage, ci, err := validateFinalOutcomeSemantics(domain.RunType(finalWire.RunType), finalWire.ImmutableLineage.ReplayMode, finalWire)
 	if err != nil {
 		return 0, err
 	}
@@ -1294,7 +2053,9 @@ func validatePublicationCompositeSemantics(
 		manifest.CompositeIdentity.Manifest.Path != manifestArtifact.Path().String() ||
 		manifest.CompositeIdentity.LineageEdge.Path != lineageArtifact.Path().String() ||
 		manifest.CompositeIdentity.LineageEdge.SHA256 != lineageArtifact.SHA256() ||
-		manifest.CompositeIdentity.Epoch.Path != epoch.Record().Path().String() {
+		manifest.CompositeIdentity.Epoch.Path != epoch.Record().Path().String() ||
+		manifest.CompositeIdentity.SupportIndex.Path != paths.supportIndex.String() ||
+		!validSHA256(manifest.CompositeIdentity.SupportIndex.SHA256) {
 		return 0, fmt.Errorf("manifest does not match the final review and immutable composite")
 	}
 	repaired, err := validateManifestRoleBindings(manifest, finalWire)
@@ -1312,18 +2073,6 @@ func validatePublicationCompositeSemantics(
 	normalExit := normalExitForPublicationAxes(coverage, ci)
 	if manifest.ExitCode != int(normalExit) {
 		return 0, fmt.Errorf("manifest normal exit does not match final outcome axes")
-	}
-	if lineage.SchemaVersion != lineageEdgeV1 ||
-		lineage.EdgeID != "e_"+reviewID.String() ||
-		lineage.Child.SessionID != sessionID.String() ||
-		lineage.Child.RunID != runID.String() ||
-		lineage.Child.ReviewID != reviewID.String() ||
-		lineage.ParentRunID != nil ||
-		lineage.SourceRunID != nil ||
-		lineage.SourceReviewID != nil ||
-		lineage.SourceFindingRef != nil ||
-		lineage.ReplayMode != nil {
-		return 0, fmt.Errorf("lineage edge is not the exact root-review edge")
 	}
 	if epochWire.SchemaVersion != publicationEpochV1 ||
 		epochWire.StoreEpoch != epoch.Value() ||
@@ -1353,20 +2102,60 @@ func unmarshalCanonicalPublicationRecord(data []byte, value any, name string) er
 	return nil
 }
 
-func validateRootLineage(lineage immutableLineageWire, edge ports.ImmutablePublicationArtifact) error {
-	if lineage.ParentRunID != nil ||
-		lineage.SourceRunID != nil ||
-		lineage.SourceReviewID != nil ||
-		lineage.SourceFindingRef != nil ||
-		lineage.ReplayMode != nil ||
-		lineage.LineageEdgePath != edge.Path().String() ||
-		lineage.LineageEdgeSHA256 != edge.SHA256() {
-		return fmt.Errorf("root lineage does not match the immutable edge")
+func validatePublicationLineage(
+	runType domain.RunType,
+	lineage immutableLineageWire,
+	edge lineageEdgeWire,
+	edgeArtifact ports.ImmutablePublicationArtifact,
+	sessionID domain.SessionID,
+	runID domain.RunID,
+	reviewID domain.ReviewID,
+) error {
+	expectedPath := mustPublicationPath("store/lineage-edges/e_" + reviewID.String() + ".json")
+	if edgeArtifact.Path() != expectedPath ||
+		lineage.LineageEdgePath != edgeArtifact.Path().String() || lineage.LineageEdgeSHA256 != edgeArtifact.SHA256() {
+		return fmt.Errorf("lineage does not bind the canonical immutable edge")
 	}
-	return nil
+	if edge.SchemaVersion != lineageEdgeV1 || edge.EdgeID != "e_"+reviewID.String() ||
+		edge.Child.SessionID != sessionID.String() || edge.Child.RunID != runID.String() || edge.Child.ReviewID != reviewID.String() ||
+		!reflect.DeepEqual(edge.ParentRunID, lineage.ParentRunID) ||
+		!reflect.DeepEqual(edge.SourceRunID, lineage.SourceRunID) ||
+		!reflect.DeepEqual(edge.SourceReviewID, lineage.SourceReviewID) ||
+		!reflect.DeepEqual(edge.SourceFindingRef, lineage.SourceFindingRef) ||
+		!reflect.DeepEqual(edge.ReplayMode, lineage.ReplayMode) {
+		return fmt.Errorf("lineage edge does not match final lineage")
+	}
+	context := RunPublicationContext{lineage: preparedLineage{runType: runType}}
+	if lineage.ParentRunID != nil {
+		value, err := domain.ParseRunID(*lineage.ParentRunID)
+		if err != nil {
+			return fmt.Errorf("parent run ID: %w", err)
+		}
+		context.lineage.parentRunID = &value
+	}
+	if lineage.SourceRunID != nil {
+		value, err := domain.ParseRunID(*lineage.SourceRunID)
+		if err != nil {
+			return fmt.Errorf("source run ID: %w", err)
+		}
+		context.lineage.sourceRunID = &value
+	}
+	if lineage.SourceReviewID != nil {
+		value, err := domain.ParseReviewID(*lineage.SourceReviewID)
+		if err != nil {
+			return fmt.Errorf("source review ID: %w", err)
+		}
+		context.lineage.sourceReviewID = &value
+	}
+	context.lineage.sourceFindingRef = cloneOptionalString(lineage.SourceFindingRef)
+	if lineage.ReplayMode != nil {
+		value := ReplayMode(*lineage.ReplayMode)
+		context.lineage.replayMode = &value
+	}
+	return context.validate()
 }
 
-func validateFinalOutcomeSemantics(final finalReviewWire) (domain.ContentVerdict, domain.CoverageStatus, domain.CIDecision, error) {
+func validateFinalOutcomeSemantics(runType domain.RunType, replayMode *string, final finalReviewWire) (domain.ContentVerdict, domain.CoverageStatus, domain.CIDecision, error) {
 	threshold := domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove)
 	if !threshold.Valid() || final.SeverityThreshold.PolicySource != "trusted_base" {
 		return "", "", "", fmt.Errorf("final review severity threshold is invalid")
@@ -1422,9 +2211,16 @@ func validateFinalOutcomeSemantics(final finalReviewWire) (domain.ContentVerdict
 			Degraded: role.Outcome == "degraded",
 		}
 	}
-	axes, err := domain.ComputeOutcomeAxes(nil, roles, threshold, domain.PublicationCommitted, nil)
-	if err != nil {
-		return "", "", "", fmt.Errorf("final review coverage: %w", err)
+	coverage := domain.CoverageComplete
+	if runType == domain.RunTypeFollowup ||
+		(runType == domain.RunTypeRerun && replayMode != nil && *replayMode == string(ReplayModeRecompose)) {
+		coverage = coverageForSelectedFinalRoles(roles)
+	} else {
+		axes, err := domain.ComputeOutcomeAxes(nil, roles, threshold, domain.PublicationCommitted, nil)
+		if err != nil {
+			return "", "", "", fmt.Errorf("final review coverage: %w", err)
+		}
+		coverage = axes.CoverageStatus()
 	}
 	content := domain.ContentNoFindings
 	for _, finding := range final.Findings {
@@ -1439,16 +2235,36 @@ func validateFinalOutcomeSemantics(final finalReviewWire) (domain.ContentVerdict
 			content = domain.ContentRequestChanges
 		}
 	}
+	if runType == domain.RunTypeFollowup && final.FollowupOutcome != nil &&
+		final.FollowupOutcome.Resolution == string(domain.FollowupStillOpen) {
+		content = domain.ContentRequestChanges
+	}
 	ci := domain.CIPass
-	if content == domain.ContentRequestChanges || axes.CoverageStatus() != domain.CoverageComplete {
+	if content == domain.ContentRequestChanges || coverage != domain.CoverageComplete {
 		ci = domain.CIFail
 	}
 	if domain.ContentVerdict(final.ContentVerdict) != content ||
-		domain.CoverageStatus(final.CoverageStatus) != axes.CoverageStatus() ||
+		domain.CoverageStatus(final.CoverageStatus) != coverage ||
 		domain.CIDecision(final.CIDecision) != ci {
 		return "", "", "", fmt.Errorf("final review outcome axes are inconsistent")
 	}
-	return content, axes.CoverageStatus(), ci, nil
+	return content, coverage, ci, nil
+}
+func coverageForSelectedFinalRoles(roles []domain.RoleResultSummary) domain.CoverageStatus {
+	coverage := domain.CoverageComplete
+	for _, role := range roles {
+		if !role.Valid {
+			if role.Required {
+				return domain.CoverageIncomplete
+			}
+			coverage = domain.CoverageDegraded
+			continue
+		}
+		if role.Degraded {
+			coverage = domain.CoverageDegraded
+		}
+	}
+	return coverage
 }
 
 func validateFinalReportSemantics(
@@ -1542,11 +2358,22 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 			return fmt.Errorf("final finding %q does not bind to a valid role outcome", finding.ID)
 		}
 		for evidenceIndex, item := range finding.Evidence {
-			if item.Source.SessionID != final.SessionID ||
-				item.Source.RunID != final.RunID ||
-				item.Source.ReviewID != final.ReviewID ||
-				item.Source.FindingID != finding.ID ||
-				item.Source.SourceTargetSHA256 != final.Target.ContentSHA256 ||
+			followupSource := final.RunType == string(domain.RunTypeFollowup)
+			sourceValid := item.Source.SessionID == final.SessionID &&
+				item.Source.RunID == final.RunID &&
+				item.Source.ReviewID == final.ReviewID &&
+				item.Source.FindingID == finding.ID &&
+				item.Source.SourceTargetSHA256 == final.Target.ContentSHA256
+			if followupSource {
+				sourceValid = final.ImmutableLineage.SourceRunID != nil && final.ImmutableLineage.SourceReviewID != nil &&
+					final.ImmutableLineage.SourceFindingRef != nil &&
+					item.Source.SessionID == final.SessionID &&
+					item.Source.RunID == *final.ImmutableLineage.SourceRunID &&
+					item.Source.ReviewID == *final.ImmutableLineage.SourceReviewID &&
+					item.Source.FindingID == *final.ImmutableLineage.SourceFindingRef &&
+					validSHA256(item.Source.SourceTargetSHA256)
+			}
+			if !sourceValid ||
 				!validSHA256(item.Source.SourceExcerptSHA256) ||
 				item.Current.TargetSHA256 != final.Target.ContentSHA256 ||
 				!evidence.Side(item.Current.Side).Valid() ||
@@ -1569,7 +2396,7 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 				return fmt.Errorf("final finding %q evidence %d claim: %w", finding.ID, evidenceIndex, err)
 			}
 			excerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
-			if err != nil || excerptSHA256 != item.Source.SourceExcerptSHA256 {
+			if err != nil || (!followupSource && excerptSHA256 != item.Source.SourceExcerptSHA256) {
 				return fmt.Errorf("final finding %q evidence %d excerpt identity is invalid", finding.ID, evidenceIndex)
 			}
 		}
@@ -1856,7 +2683,29 @@ func clonePreparedAttempts(source []preparedAttempt) []preparedAttempt {
 	cloned := make([]preparedAttempt, len(source))
 	for index, attempt := range source {
 		cloned[index] = attempt
-		cloned[index].invocations = append([]preparedInvocation(nil), attempt.invocations...)
+		cloned[index].invocations = clonePreparedInvocations(attempt.invocations)
+	}
+	return cloned
+}
+func clonePreparedInvocations(source []preparedInvocation) []preparedInvocation {
+	cloned := make([]preparedInvocation, len(source))
+	for index, invocation := range source {
+		cloned[index] = invocation
+		cloned[index].artifacts = make([]preparedAttemptArtifact, len(invocation.artifacts))
+		for artifactIndex, artifact := range invocation.artifacts {
+			cloned[index].artifacts[artifactIndex] = artifact
+			cloned[index].artifacts[artifactIndex].bytes = cloneBytes(artifact.bytes)
+		}
+		if invocation.runtime != nil {
+			runtime := *invocation.runtime
+			runtime.target = cloneBytes(invocation.runtime.target)
+			runtime.stdin = cloneBytes(invocation.runtime.stdin)
+			runtime.adapterParameters = make(map[string]string, len(invocation.runtime.adapterParameters))
+			for key, value := range invocation.runtime.adapterParameters {
+				runtime.adapterParameters[key] = value
+			}
+			cloned[index].runtime = &runtime
+		}
 	}
 	return cloned
 }

@@ -41,6 +41,7 @@ type CommittedReview struct {
 	coverage        domain.CoverageStatus
 	publication     domain.PublicationStatus
 	ci              domain.CIDecision
+	followupOutcome *FollowupOutcome
 	roles           []Role
 	findings        []Finding
 	finalBytes      []byte
@@ -98,6 +99,15 @@ func (review CommittedReview) PublicationStatus() domain.PublicationStatus { ret
 // CIDecision returns the independent committed CI axis.
 func (review CommittedReview) CIDecision() domain.CIDecision { return review.ci }
 
+// FollowupOutcome returns the committed followup resolution only for followup
+// reviews. Its rationale and evidence are validated final/manifest data.
+func (review CommittedReview) FollowupOutcome() (FollowupOutcome, bool) {
+	if review.followupOutcome == nil {
+		return FollowupOutcome{}, false
+	}
+	return cloneFollowupOutcome(*review.followupOutcome), true
+}
+
 // Roles returns caller-owned role views in final artifact order.
 func (review CommittedReview) Roles() []Role { return cloneRoles(review.roles) }
 
@@ -109,6 +119,188 @@ func (review CommittedReview) FinalBytes() []byte { return cloneBytes(review.fin
 
 // ManifestBytes returns a caller-owned copy of the exact committed manifest bytes.
 func (review CommittedReview) ManifestBytes() []byte { return cloneBytes(review.manifestBytes) }
+
+// FollowupOutcome is the immutable committed resolution for a followup review.
+type FollowupOutcome struct {
+	resolution domain.FollowupResolution
+	rationale  string
+	evidence   []FollowupEvidence
+}
+
+// Resolution returns the validator-owned followup resolution.
+func (outcome FollowupOutcome) Resolution() domain.FollowupResolution { return outcome.resolution }
+
+// Rationale returns the committed followup rationale.
+func (outcome FollowupOutcome) Rationale() string { return outcome.rationale }
+
+// Evidence returns caller-owned committed followup evidence in final order.
+func (outcome FollowupOutcome) Evidence() []FollowupEvidence {
+	return cloneFollowupEvidence(outcome.evidence)
+}
+
+// FollowupEvidence is one immutable committed followup evidence claim.
+type FollowupEvidence struct {
+	sourceSessionID     domain.SessionID
+	sourceRunID         domain.RunID
+	sourceReviewID      domain.ReviewID
+	sourceFindingID     string
+	sourceTargetSHA256  string
+	sourceExcerptSHA256 string
+	targetSHA256        string
+	side                evidence.Side
+	path                ports.SafeRelativePath
+	lineStart           int
+	lineEnd             int
+	quote               string
+	verification        evidence.ReceiptStatus
+}
+
+func (item FollowupEvidence) SourceSessionID() domain.SessionID { return item.sourceSessionID }
+func (item FollowupEvidence) SourceRunID() domain.RunID         { return item.sourceRunID }
+func (item FollowupEvidence) SourceReviewID() domain.ReviewID   { return item.sourceReviewID }
+func (item FollowupEvidence) SourceFindingID() string           { return item.sourceFindingID }
+func (item FollowupEvidence) SourceTargetSHA256() string        { return item.sourceTargetSHA256 }
+func (item FollowupEvidence) SourceExcerptSHA256() string       { return item.sourceExcerptSHA256 }
+func (item FollowupEvidence) TargetSHA256() string              { return item.targetSHA256 }
+func (item FollowupEvidence) Side() evidence.Side               { return item.side }
+func (item FollowupEvidence) Path() ports.SafeRelativePath      { return item.path }
+func (item FollowupEvidence) LineStart() int                    { return item.lineStart }
+func (item FollowupEvidence) LineEnd() int                      { return item.lineEnd }
+func (item FollowupEvidence) Quote() string                     { return item.quote }
+func (item FollowupEvidence) Verification() evidence.ReceiptStatus {
+	return item.verification
+}
+
+// RuntimeTarget is the immutable target material reconstructed from a committed
+// P2 target manifest. Its bytes and identity are returned as defensive copies.
+type RuntimeTarget struct {
+	identity domain.TargetIdentity
+	bytes    []byte
+}
+
+func (target RuntimeTarget) Identity() domain.TargetIdentity { return target.identity }
+func (target RuntimeTarget) Bytes() []byte                   { return cloneBytes(target.bytes) }
+
+// RuntimePrompt is exact persisted replay material from one initial invocation.
+type RuntimePrompt struct {
+	stdin                 []byte
+	stdinSHA256           string
+	completeStdinSHA256   string
+	manifestPath          ports.SafeRelativePath
+	manifestSHA256        string
+	templateID            string
+	templateVersion       string
+	templateSHA256        string
+	sourceInvocationID    string
+	executionInvocationID string
+	scope                 string
+	role                  domain.Role
+	adapterProfile        string
+	adapterParameters     map[string]string
+}
+
+func (prompt RuntimePrompt) Stdin() []byte                        { return cloneBytes(prompt.stdin) }
+func (prompt RuntimePrompt) StdinSHA256() string                  { return prompt.stdinSHA256 }
+func (prompt RuntimePrompt) CompleteStdinSHA256() string          { return prompt.completeStdinSHA256 }
+func (prompt RuntimePrompt) ManifestPath() ports.SafeRelativePath { return prompt.manifestPath }
+func (prompt RuntimePrompt) ManifestSHA256() string               { return prompt.manifestSHA256 }
+func (prompt RuntimePrompt) TemplateID() string                   { return prompt.templateID }
+func (prompt RuntimePrompt) TemplateVersion() string              { return prompt.templateVersion }
+func (prompt RuntimePrompt) TemplateSHA256() string               { return prompt.templateSHA256 }
+func (prompt RuntimePrompt) SourceInvocationID() string           { return prompt.sourceInvocationID }
+func (prompt RuntimePrompt) ExecutionInvocationID() string        { return prompt.executionInvocationID }
+func (prompt RuntimePrompt) Scope() string                        { return prompt.scope }
+func (prompt RuntimePrompt) Role() domain.Role                    { return prompt.role }
+func (prompt RuntimePrompt) AdapterProfile() string               { return prompt.adapterProfile }
+func (prompt RuntimePrompt) AdapterParameters() map[string]string {
+	result := make(map[string]string, len(prompt.adapterParameters))
+	for key, value := range prompt.adapterParameters {
+		result[key] = value
+	}
+	return result
+}
+
+// CommittedAttempt is the unique P2-bound source projection for one attempt.
+type CommittedAttempt struct {
+	sessionID domain.SessionID
+	runID     domain.RunID
+	reviewID  domain.ReviewID
+	attemptID domain.AttemptID
+	role      domain.Role
+	provider  string
+	target    RuntimeTarget
+	prompt    RuntimePrompt
+}
+
+func (attempt CommittedAttempt) SessionID() domain.SessionID { return attempt.sessionID }
+func (attempt CommittedAttempt) RunID() domain.RunID         { return attempt.runID }
+func (attempt CommittedAttempt) ReviewID() domain.ReviewID   { return attempt.reviewID }
+func (attempt CommittedAttempt) AttemptID() domain.AttemptID { return attempt.attemptID }
+func (attempt CommittedAttempt) Role() domain.Role           { return attempt.role }
+func (attempt CommittedAttempt) Provider() string            { return attempt.provider }
+func (attempt CommittedAttempt) Target() RuntimeTarget {
+	return RuntimeTarget{identity: attempt.target.identity, bytes: cloneBytes(attempt.target.bytes)}
+}
+func (attempt CommittedAttempt) Prompt() RuntimePrompt {
+	return RuntimePrompt{
+		stdin: cloneBytes(attempt.prompt.stdin), stdinSHA256: attempt.prompt.stdinSHA256,
+		completeStdinSHA256: attempt.prompt.completeStdinSHA256, manifestPath: attempt.prompt.manifestPath,
+		manifestSHA256: attempt.prompt.manifestSHA256, templateID: attempt.prompt.templateID, templateVersion: attempt.prompt.templateVersion,
+		templateSHA256: attempt.prompt.templateSHA256, sourceInvocationID: attempt.prompt.sourceInvocationID,
+		executionInvocationID: attempt.prompt.executionInvocationID, scope: attempt.prompt.scope, role: attempt.prompt.role,
+		adapterProfile: attempt.prompt.adapterProfile, adapterParameters: attempt.prompt.AdapterParameters(),
+	}
+}
+
+// CommittedFindingSource contains the exact P2 support artifacts bound to a
+// committed finding. All byte accessors return defensive copies.
+type CommittedFindingSource struct {
+	review     CommittedReview
+	finding    Finding
+	normalized []byte
+	excerpt    []byte
+}
+
+func (source CommittedFindingSource) Review() CommittedReview { return source.review }
+func (source CommittedFindingSource) Finding() Finding        { return source.finding }
+func (source CommittedFindingSource) Normalized() []byte      { return cloneBytes(source.normalized) }
+func (source CommittedFindingSource) Excerpt() []byte         { return cloneBytes(source.excerpt) }
+
+type runtimeTargetManifestDTO struct {
+	SchemaVersion         string                    `json:"schema_version"`
+	Target                artifactIdentityDTO       `json:"target"`
+	TargetKind            string                    `json:"target_kind"`
+	RepositoryID          string                    `json:"repository_id"`
+	BaseObjectID          string                    `json:"base_object_id"`
+	HeadObjectID          string                    `json:"head_object_id"`
+	HeadTreeObjectID      string                    `json:"head_tree_object_id"`
+	IndexTreeObjectID     string                    `json:"index_tree_object_id"`
+	Prompts               []artifactIdentityDTO     `json:"prompts"`
+	SelectedReplayPrompts []selectedReplayPromptDTO `json:"selected_replay_prompts"`
+}
+
+type selectedReplayPromptDTO struct {
+	AttemptID string              `json:"attempt_id"`
+	Sequence  uint64              `json:"sequence"`
+	Purpose   string              `json:"purpose"`
+	Artifact  artifactIdentityDTO `json:"artifact"`
+}
+
+type runtimePromptManifestDTO struct {
+	SchemaVersion         string              `json:"schema_version"`
+	Target                artifactIdentityDTO `json:"target"`
+	Stdin                 artifactIdentityDTO `json:"stdin"`
+	CompleteStdinSHA256   string              `json:"complete_stdin_sha256"`
+	TemplateID            string              `json:"template_id"`
+	TemplateVersion       string              `json:"template_version"`
+	TemplateSHA256        string              `json:"template_sha256"`
+	SourceInvocationID    string              `json:"source_invocation_id"`
+	ExecutionInvocationID string              `json:"execution_invocation_id"`
+	Scope                 string              `json:"scope"`
+	Role                  string              `json:"role"`
+	AdapterProfile        string              `json:"adapter_profile"`
+	AdapterParameters     map[string]string   `json:"adapter_parameters"`
+}
 
 // Role is the report-facing summary for one selected role.
 type Role struct {
@@ -330,6 +522,7 @@ type finalDTO struct {
 	CreatedAt         string               `json:"created_at"`
 	KAR               finalKARDTO          `json:"kar"`
 	ImmutableLineage  lineageDTO           `json:"immutable_lineage"`
+	FollowupOutcome   *followupOutcomeDTO  `json:"followup_outcome"`
 	Target            finalTargetDTO       `json:"target"`
 	Validation        finalValidationDTO   `json:"validation"`
 	ContentVerdict    string               `json:"content_verdict"`
@@ -342,6 +535,12 @@ type finalDTO struct {
 	Findings          []finalFindingDTO    `json:"findings"`
 	Limitations       []string             `json:"limitations"`
 	Provenance        provenanceDTO        `json:"provenance"`
+}
+
+type followupOutcomeDTO struct {
+	Resolution string             `json:"resolution"`
+	Rationale  string             `json:"rationale"`
+	Evidence   []finalEvidenceDTO `json:"evidence"`
 }
 
 type finalKARDTO struct {
@@ -446,6 +645,7 @@ type manifestDTO struct {
 	CompletedAt              *string              `json:"completed_at"`
 	KARVersion               string               `json:"kar_version"`
 	ImmutableLineage         lineageDTO           `json:"immutable_lineage"`
+	FollowupOutcome          *followupOutcomeDTO  `json:"followup_outcome"`
 	Target                   manifestTargetDTO    `json:"target"`
 	SelectedRoles            []string             `json:"selected_roles"`
 	RequiredRoles            []string             `json:"required_roles"`
@@ -497,9 +697,10 @@ type artifactIdentityDTO struct {
 }
 
 type compositeIdentityDTO struct {
-	Manifest    *pathPointerDTO      `json:"manifest"`
-	LineageEdge *artifactIdentityDTO `json:"lineage_edge"`
-	Epoch       *pathPointerDTO      `json:"epoch"`
+	Manifest     *pathPointerDTO      `json:"manifest"`
+	LineageEdge  *artifactIdentityDTO `json:"lineage_edge"`
+	Epoch        *pathPointerDTO      `json:"epoch"`
+	SupportIndex *artifactIdentityDTO `json:"support_index"`
 }
 
 type pathPointerDTO struct {
@@ -673,6 +874,17 @@ func cloneEvidence(source []Evidence) []Evidence {
 		return nil
 	}
 	return append([]Evidence(nil), source...)
+}
+func cloneFollowupOutcome(source FollowupOutcome) FollowupOutcome {
+	return FollowupOutcome{
+		resolution: source.resolution,
+		rationale:  source.rationale,
+		evidence:   cloneFollowupEvidence(source.evidence),
+	}
+}
+
+func cloneFollowupEvidence(source []FollowupEvidence) []FollowupEvidence {
+	return append([]FollowupEvidence(nil), source...)
 }
 
 func cloneBytes(source []byte) []byte {

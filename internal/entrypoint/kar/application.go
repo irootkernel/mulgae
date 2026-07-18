@@ -12,9 +12,12 @@ import (
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
 	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
+	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -208,6 +211,170 @@ func (adapter publicationReportAdapter) Render(
 	}, nil
 }
 
+// StartedRun is the authoritative projection of a newly started child workflow.
+type StartedRun struct {
+	SessionID          string
+	RunID              string
+	ArtifactURI        string
+	FollowupResolution domain.FollowupResolution
+	TerminalExit       domain.OperationalExitDecision
+}
+
+// FollowupRunService is the command-facing followup workflow boundary.
+type FollowupRunService interface {
+	StartFollowupRun(context.Context, appfollowup.Request) (StartedRun, error)
+}
+
+// DeltaRunService is the command-facing delta workflow boundary.
+type DeltaRunService interface {
+	StartDeltaRun(context.Context, appdelta.StartRequest) (StartedRun, error)
+}
+
+// RerunService is the command-facing rerun workflow boundary.
+type RerunService interface {
+	StartRerun(context.Context, appreplay.Request) (StartedRun, error)
+}
+
+// RetentionRequest is the complete schema-backed clean command selection.
+type RetentionRequest struct {
+	Mode               CleanMode
+	ExpectedPlanSHA256 *string
+}
+
+// RetentionResult is the authoritative mode-specific clean projection. ExplainRows
+// preserve the service's deterministic explanation order for human output only;
+// the frozen JSON command-result schema intentionally does not expose them.
+type RetentionResult struct {
+	Mode         CleanMode
+	CleanPlanURI string
+	PlanSHA256   string
+	Applied      bool
+	ExplainRows  []string
+}
+
+// RetentionService is the command-facing retention workflow boundary.
+type RetentionService interface {
+	PlanAndApplyRetention(context.Context, RetentionRequest) (RetentionResult, error)
+}
+
+// RedactedExportRequest is the complete schema-backed export selection.
+type RedactedExportRequest struct {
+	RunID       string
+	OutputPath  string
+	Redacted    bool
+	ProjectRoot ports.AnchoredRoot
+}
+
+// RedactedExportResult is the authoritative persisted export projection.
+type RedactedExportResult struct {
+	ExportManifestURI string
+	BundleURI         string
+	Redacted          bool
+}
+
+// RedactedExportService is the command-facing export workflow boundary.
+type RedactedExportService interface {
+	ExportRedactedRun(context.Context, RedactedExportRequest) (RedactedExportResult, error)
+}
+
+// NewFollowupRunService adapts the followup application service to command wiring.
+func NewFollowupRunService(service *appfollowup.Service) FollowupRunService {
+	if service == nil {
+		return nil
+	}
+	return followupRunAdapter{service: service}
+}
+
+type followupRunAdapter struct{ service *appfollowup.Service }
+
+func (adapter followupRunAdapter) StartFollowupRun(ctx context.Context, request appfollowup.Request) (StartedRun, error) {
+	result, err := adapter.service.StartFollowupRun(ctx, request)
+	if err != nil {
+		return StartedRun{}, err
+	}
+	if err := result.ValidateTerminalExit(); err != nil {
+		return StartedRun{}, fmt.Errorf("followup result terminal exit: %w", err)
+	}
+	terminalExit, available := result.TerminalExit()
+	if !available {
+		return StartedRun{}, errors.New("followup result terminal exit is unavailable")
+	}
+	if !result.ValidatedOutput().Resolution().Valid() {
+		return StartedRun{}, errors.New("followup result resolution is unavailable")
+	}
+	return StartedRun{
+		SessionID:          result.SessionID().String(),
+		RunID:              result.RunID().String(),
+		ArtifactURI:        result.FollowupArtifactURI(),
+		FollowupResolution: result.ValidatedOutput().Resolution(),
+		TerminalExit:       terminalExit,
+	}, nil
+}
+
+// NewDeltaRunService adapts the delta application service to command wiring.
+func NewDeltaRunService(service *appdelta.Service) DeltaRunService {
+	if service == nil {
+		return nil
+	}
+	return deltaRunAdapter{service: service}
+}
+
+type deltaRunAdapter struct{ service *appdelta.Service }
+
+func (adapter deltaRunAdapter) StartDeltaRun(ctx context.Context, request appdelta.StartRequest) (StartedRun, error) {
+	result, err := adapter.service.StartDeltaRun(ctx, request)
+	if err != nil {
+		return StartedRun{}, err
+	}
+	if err := result.ValidateTerminalExit(); err != nil {
+		return StartedRun{}, fmt.Errorf("delta result terminal exit: %w", err)
+	}
+	terminalExit, available := result.TerminalExit()
+	if !available {
+		return StartedRun{}, errors.New("delta result terminal exit is unavailable")
+	}
+	return StartedRun{SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.ReviewArtifactURI, TerminalExit: terminalExit}, nil
+}
+
+// NewRerunService adapts the rerun application service to command wiring.
+func NewRerunService(service *appreplay.Service) RerunService {
+	if service == nil {
+		return nil
+	}
+	return rerunAdapter{service: service}
+}
+
+type rerunAdapter struct{ service *appreplay.Service }
+
+func (adapter rerunAdapter) StartRerun(ctx context.Context, request appreplay.Request) (StartedRun, error) {
+	result, err := adapter.service.StartRerun(ctx, request)
+	if err != nil {
+		return StartedRun{}, err
+	}
+	if err := result.ValidateTerminalExit(); err != nil {
+		return StartedRun{}, fmt.Errorf("rerun result terminal exit: %w", err)
+	}
+	terminalExit, available := result.TerminalExit()
+	if !available {
+		return StartedRun{}, errors.New("rerun result terminal exit is unavailable")
+	}
+	return StartedRun{SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.PromptManifestURI, TerminalExit: terminalExit}, nil
+}
+
+// RetentionServiceFunc adapts a command retention function to RetentionService.
+type RetentionServiceFunc func(context.Context, RetentionRequest) (RetentionResult, error)
+
+func (fn RetentionServiceFunc) PlanAndApplyRetention(ctx context.Context, request RetentionRequest) (RetentionResult, error) {
+	return fn(ctx, request)
+}
+
+// RedactedExportServiceFunc adapts a command export function to RedactedExportService.
+type RedactedExportServiceFunc func(context.Context, RedactedExportRequest) (RedactedExportResult, error)
+
+func (fn RedactedExportServiceFunc) ExportRedactedRun(ctx context.Context, request RedactedExportRequest) (RedactedExportResult, error) {
+	return fn(ctx, request)
+}
+
 // Dependencies are the explicit inward dependencies required by Application.
 // The G006 query/report pair is optional for source compatibility, but it must
 // be supplied as one complete pair. EvidenceReader is optional and absent
@@ -215,6 +382,7 @@ func (adapter publicationReportAdapter) Render(
 type Dependencies struct {
 	Clock                ports.Clock
 	RequestIDGenerator   RequestIDGenerator
+	RequestResolver      RequestResolver
 	Catalog              ports.ContractCatalog
 	JSONSchemaValidator  cli.SchemaValidator
 	SecureWriter         ports.SecureFileWriter
@@ -222,6 +390,11 @@ type Dependencies struct {
 	EnvironmentInspector ports.EnvironmentInspector
 	PublicationQueries   PublicationQueryService
 	PublicationReports   PublicationReportService
+	FollowupRuns         FollowupRunService
+	DeltaRuns            DeltaRunService
+	Reruns               RerunService
+	Retention            RetentionService
+	Exports              RedactedExportService
 	EvidenceReader       doctor.EvidenceReader
 }
 
@@ -231,6 +404,7 @@ type Dependencies struct {
 type Application struct {
 	clock              ports.Clock
 	requestIDs         RequestIDGenerator
+	requestResolver    RequestResolver
 	catalog            ports.ContractCatalog
 	validator          cli.SchemaValidator
 	writer             ports.SecureFileWriter
@@ -238,6 +412,11 @@ type Application struct {
 	inspector          ports.EnvironmentInspector
 	publicationQueries PublicationQueryService
 	publicationReports PublicationReportService
+	followupRuns       FollowupRunService
+	deltaRuns          DeltaRunService
+	reruns             RerunService
+	retention          RetentionService
+	exports            RedactedExportService
 	evidenceReader     doctor.EvidenceReader
 	renderer           *cli.EnvelopeRenderer
 }
@@ -260,9 +439,10 @@ func (result Result) Stderr() []byte { return cloneApplicationBytes(result.stder
 // ExitCode returns the assigned KAR process exit code.
 func (result Result) ExitCode() app.ExitCode { return result.exit }
 
-// NewApplication constructs the foundation CLI application. Missing or typed
-// nil required dependencies, and partial G006 dependency groups, are rejected
-// before any command can execute; an optional typed-nil EvidenceReader is normalized.
+// NewApplication constructs the foundation CLI application. Required dependencies
+// are rejected before any command can execute. The online workflow trio is one
+// authority capability; resolver, retention, and export capabilities are
+// independently optional. An optional typed-nil EvidenceReader is normalized.
 func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.Clock) {
 		return nil, fmt.Errorf("kar application: nil clock")
@@ -288,6 +468,38 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.PublicationQueries) != nilApplicationDependency(dependencies.PublicationReports) {
 		return nil, fmt.Errorf("kar application: incomplete G006 service dependencies")
 	}
+	onlineDependencies := []any{
+		dependencies.FollowupRuns,
+		dependencies.DeltaRuns,
+		dependencies.Reruns,
+	}
+	onlinePresent := 0
+	for _, dependency := range onlineDependencies {
+		if !nilApplicationDependency(dependency) {
+			onlinePresent++
+		}
+	}
+	if onlinePresent != 0 && onlinePresent != len(onlineDependencies) {
+		return nil, fmt.Errorf("kar application: incomplete online G008 service dependencies")
+	}
+	if nilApplicationDependency(dependencies.RequestResolver) {
+		dependencies.RequestResolver = nil
+	}
+	if nilApplicationDependency(dependencies.FollowupRuns) {
+		dependencies.FollowupRuns = nil
+	}
+	if nilApplicationDependency(dependencies.DeltaRuns) {
+		dependencies.DeltaRuns = nil
+	}
+	if nilApplicationDependency(dependencies.Reruns) {
+		dependencies.Reruns = nil
+	}
+	if nilApplicationDependency(dependencies.Retention) {
+		dependencies.Retention = nil
+	}
+	if nilApplicationDependency(dependencies.Exports) {
+		dependencies.Exports = nil
+	}
 	evidenceReader := dependencies.EvidenceReader
 	if nilApplicationDependency(evidenceReader) {
 		evidenceReader = nil
@@ -300,6 +512,7 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	return &Application{
 		clock:              dependencies.Clock,
 		requestIDs:         dependencies.RequestIDGenerator,
+		requestResolver:    dependencies.RequestResolver,
 		catalog:            dependencies.Catalog,
 		validator:          dependencies.JSONSchemaValidator,
 		writer:             dependencies.SecureWriter,
@@ -307,6 +520,11 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 		inspector:          dependencies.EnvironmentInspector,
 		publicationQueries: dependencies.PublicationQueries,
 		publicationReports: dependencies.PublicationReports,
+		followupRuns:       dependencies.FollowupRuns,
+		deltaRuns:          dependencies.DeltaRuns,
+		reruns:             dependencies.Reruns,
+		retention:          dependencies.Retention,
+		exports:            dependencies.Exports,
 		evidenceReader:     evidenceReader,
 		renderer:           renderer,
 	}, nil
@@ -326,6 +544,9 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 		return errorResult(app.ExitCodeInternal, "kar: invocation could not be created")
 	}
 	invocation, err := Parse(cloneApplicationStrings(argv), canonicalDefaultRoot, requestID)
+	if application.requestResolver != nil {
+		invocation, err = ParseResolved(ctx, cloneApplicationStrings(argv), canonicalDefaultRoot, requestID, application.requestResolver)
+	}
 	if err != nil {
 		return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
 	}
@@ -379,11 +600,13 @@ func (application *Application) newRequestID() (requestID string, err error) {
 }
 
 type execution struct {
-	human       []byte
-	data        []byte
-	failureData []byte
-	failure     *executionFailure
-	verbatim    bool
+	human            []byte
+	data             []byte
+	failureData      []byte
+	failure          *executionFailure
+	exit             app.ExitCode
+	committedReasons []string
+	verbatim         bool
 }
 
 type executionFailure struct {
@@ -396,16 +619,22 @@ type executionFailure struct {
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
 	if invocation.OutputFormat() == OutputFormatHuman {
 		if run.verbatim {
-			return newResult(run.human, nil, app.ExitCodeSuccess)
+			return newResult(run.human, nil, run.exit)
 		}
-		return newResult(terminalOutput(run.human), nil, app.ExitCodeSuccess)
+		return newResult(terminalOutput(run.human), nil, run.exit)
 	}
 
 	request, available := invocation.RequestJSON()
 	if !available {
 		return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
 	}
-	commandResult, err := app.NewCommandSuccess(invocation.Command(), run.data)
+	var commandResult app.CommandResult
+	var err error
+	if len(run.committedReasons) != 0 {
+		commandResult, err = app.NewCommittedCommandOutcome(invocation.Command(), run.exit, run.data, run.committedReasons)
+	} else {
+		commandResult, err = app.NewCommandSuccess(invocation.Command(), run.data)
+	}
 	if err != nil {
 		return application.renderFailure(context.WithoutCancel(ctx), invocation, execution{
 			failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal),
@@ -417,7 +646,7 @@ func (application *Application) renderSuccess(ctx context.Context, invocation In
 			failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal),
 		})
 	}
-	return newResult(output, nil, app.ExitCodeSuccess)
+	return newResult(output, nil, run.exit)
 }
 
 func (application *Application) renderFailure(ctx context.Context, invocation Invocation, run execution) Result {
@@ -547,6 +776,42 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			ExcerptBase64 *string `json:"excerpt_base64"`
 			ExcerptSHA256 *string `json:"excerpt_sha256"`
 		}{"excerpt_failed", "unverifiable", nil, nil, nil})
+	case app.CommandFollowup:
+		return json.Marshal(struct {
+			Kind                string  `json:"kind"`
+			SessionID           *string `json:"session_id"`
+			RunID               *string `json:"run_id"`
+			FollowupArtifactURI *string `json:"followup_artifact_uri"`
+			Resolution          *string `json:"resolution"`
+		}{"followup_started", nil, nil, nil, nil})
+	case app.CommandDelta:
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		}{"delta_started", nil, nil, nil})
+	case app.CommandRerun:
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			PromptManifestURI *string `json:"prompt_manifest_uri"`
+		}{"rerun_started", nil, nil, nil})
+	case app.CommandClean:
+		return json.Marshal(struct {
+			Kind         string  `json:"kind"`
+			CleanPlanURI *string `json:"clean_plan_uri"`
+			PlanSHA256   *string `json:"plan_sha256"`
+			Applied      bool    `json:"applied"`
+		}{"clean_completed", nil, nil, false})
+	case app.CommandExport:
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			ExportManifestURI *string `json:"export_manifest_uri"`
+			BundleURI         *string `json:"bundle_uri"`
+			Redacted          bool    `json:"redacted"`
+		}{"export_created", nil, nil, true})
 	default:
 		return nil, errors.New("missing command failure projection")
 	}
@@ -683,9 +948,12 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandDelta:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandRerun:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandClean:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandExport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
-		app.CommandSchema:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandHelp:      {app.ExitCodeUsage: true},
 	}
 	return allowed[command][requested]
 }
@@ -745,6 +1013,14 @@ func newResult(stdout, stderr []byte, exit app.ExitCode) Result {
 		stdout: cloneApplicationBytes(stdout),
 		stderr: cloneApplicationBytes(stderr),
 		exit:   exit,
+	}
+}
+func isG008Command(command app.CommandName) bool {
+	switch command {
+	case app.CommandFollowup, app.CommandDelta, app.CommandRerun, app.CommandClean, app.CommandExport:
+		return true
+	default:
+		return false
 	}
 }
 

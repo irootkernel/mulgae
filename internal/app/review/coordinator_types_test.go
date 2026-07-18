@@ -159,6 +159,9 @@ func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInvocationJob() error = %v", err)
 	}
+	if job.SessionID().String() != "" || job.RunID().String() != "" {
+		t.Fatalf("legacy job coordinates = %q/%q, want zero values", job.SessionID().String(), job.RunID().String())
+	}
 	if job.Role() != domain.RoleLogic || job.AttemptKind() != AttemptKindFallback ||
 		job.AttemptID() != attemptID || job.Purpose() != domain.InvocationRepair || job.Ordinal() != 3 {
 		t.Fatalf("job accessors = %#v", job)
@@ -172,6 +175,58 @@ func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 	}
 	if limits := job.Limits(); limits.Timeout() != time.Second || limits.MaxStdoutBytes() != 11 || limits.MaxStderrBytes() != 12 {
 		t.Fatalf("job limits = %#v", limits)
+	}
+}
+func TestCoordinatorInvocationJobRetainsCoordinates(t *testing.T) {
+	t.Parallel()
+
+	sessionID, err := domain.ParseSessionID("s_00000000-0000-7000-8000-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_00000000-0000-7000-8000-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := newCoordinatorInvocationJob(
+		sessionID,
+		runID,
+		domain.RoleLogic,
+		AttemptKindPrimary,
+		coordinatorTypesRoute(t, "provider", "lane"),
+		coordinatorTypesTarget(t, 1),
+		coordinatorTypesLimits(t),
+		coordinatorTypesAttemptID(t, 2),
+		domain.InvocationInitial,
+		1,
+	)
+	if err != nil {
+		t.Fatalf("newCoordinatorInvocationJob() error = %v", err)
+	}
+	if job.SessionID() != sessionID || job.RunID() != runID {
+		t.Fatalf("job coordinates = %q/%q, want %q/%q", job.SessionID().String(), job.RunID().String(), sessionID.String(), runID.String())
+	}
+}
+func TestCoordinatorInvocationJobRejectsIncompleteCoordinates(t *testing.T) {
+	t.Parallel()
+
+	runID, err := domain.ParseRunID("r_00000000-0000-7000-8000-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newCoordinatorInvocationJob(
+		domain.SessionID{},
+		runID,
+		domain.RoleLogic,
+		AttemptKindPrimary,
+		coordinatorTypesRoute(t, "provider", "lane"),
+		coordinatorTypesTarget(t, 1),
+		coordinatorTypesLimits(t),
+		coordinatorTypesAttemptID(t, 2),
+		domain.InvocationInitial,
+		1,
+	); err == nil {
+		t.Fatal("newCoordinatorInvocationJob() accepted incomplete coordinates")
 	}
 }
 

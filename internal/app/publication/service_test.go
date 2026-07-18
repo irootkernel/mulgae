@@ -6,12 +6,407 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+func TestAttemptCaptureArtifactsAreImmutableAndSecretBytesAreDropped(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	initial := []byte(`{"prompt":"initial"}`)
+	capture, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactInitialCandidate, initial, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactStderr, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := candidate.roles[0].attempts[0].id
+	if err := candidate.bindAttemptArtifacts([]AttemptArtifactInput{
+		{AttemptID: attemptID, InvocationSequence: 1, Artifact: capture},
+		{AttemptID: attemptID, InvocationSequence: 1, Artifact: secret},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	initial[0] = 'X'
+	bundle, err := candidate.Build(
+		context.Background(), publicationServiceValidator{}, publicationTestReviewID(t), publicationTestTime(), 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw, status []byte
+	for _, artifact := range bundle.Excerpts() {
+		switch {
+		case bytes.Contains([]byte(artifact.Path().String()), []byte("/candidate.initial.json")):
+			raw = artifact.Bytes()
+		case bytes.Contains([]byte(artifact.Path().String()), []byte("/attempts/"+attemptID.String()+"/status.json")):
+			status = artifact.Bytes()
+		}
+	}
+	if !bytes.Equal(raw, []byte(`{"prompt":"initial"}`)) {
+		t.Fatalf("raw capture = %q, want defensive original", raw)
+	}
+	if len(status) == 0 || !bytes.Contains(status, []byte("security_rejected")) ||
+		!bytes.Contains(status, []byte("/candidate.initial.json")) ||
+		!bytes.Contains(status, []byte(sha256Identifier([]byte(`{"prompt":"initial"}`)))) {
+		t.Fatalf("attempt status does not record canonical persisted and rejected captures: %s", status)
+	}
+	if bytes.Contains(status, []byte("secret")) || bytes.Contains(raw, []byte("secret")) {
+		t.Fatal("security-rejected bytes were persisted")
+	}
+}
+func TestFollowupRuntimeCapturesRequireExactObservedStreams(t *testing.T) {
+	t.Parallel()
+
+	candidate := []byte(`{"resolution":"no_change"}`)
+	stdout := []byte("provider stdout")
+	stderr := []byte("provider stderr")
+	captures := make([]ports.CapturedAttemptArtifact, 0, 3)
+	for _, stream := range []struct {
+		kind  ports.AttemptArtifactKind
+		bytes []byte
+	}{
+		{ports.AttemptArtifactInitialCandidate, candidate},
+		{ports.AttemptArtifactStdout, stdout},
+		{ports.AttemptArtifactStderr, stderr},
+	} {
+		capture, err := ports.NewCapturedAttemptArtifact(stream.kind, stream.bytes, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		captures = append(captures, capture)
+	}
+	if err := validateFollowupRuntimeCaptures(captures, candidate, stdout, stderr); err != nil {
+		t.Fatalf("validate complete followup streams: %v", err)
+	}
+	if err := validateFollowupRuntimeCaptures(captures[:2], candidate, stdout, stderr); err == nil {
+		t.Fatal("accepted missing followup stderr capture")
+	}
+}
+func TestRunSupportContractRejectsArbitraryPathsAndRejectedSecretBytes(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	bytes := []byte("support")
+	for _, value := range []string{
+		fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/notes/support.raw",
+		fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/excerpts/nested/F001_1.md",
+		fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/attempts/not-an-attempt/status.json",
+	} {
+		path, err := ports.NewSafeRelativePath(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifact, err := ports.NewImmutablePublicationArtifact(path, sha256Identifier(bytes), bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, artifact); err == nil {
+			t.Fatalf("arbitrary run-support path %q was accepted", value)
+		}
+	}
+	if _, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactStderr, []byte("secret"), true); err == nil {
+		t.Fatal("security-rejected secret bytes were accepted")
+	}
+}
+func TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	bytes := []byte("runtime inventory")
+	base := fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/"
+	attemptID := publicationTestCandidate(t, false).roles[0].attempts[0].id.String()
+	cases := []struct {
+		path string
+		kind ports.RunSupportArtifactKind
+	}{
+		{base + "target/target.bytes", ports.RunSupportArtifactTargetBytes},
+		{base + "target/target-manifest.json", ports.RunSupportArtifactTargetManifest},
+		{base + "prompts/" + attemptID + "/001-initial.stdin", ports.RunSupportArtifactPromptStdin},
+		{base + "prompts/" + attemptID + "/001-initial.manifest.json", ports.RunSupportArtifactPromptManifest},
+	}
+	for _, test := range cases {
+		path, err := ports.NewSafeRelativePath(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifact, err := ports.NewImmutablePublicationArtifact(path, sha256Identifier(bytes), bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, artifact)
+		if err != nil || request.Kind() != test.kind {
+			t.Fatalf("runtime inventory path %q was not accepted as %q: %v", test.path, test.kind, err)
+		}
+	}
+	for _, value := range []string{
+		base + "target/other.bytes",
+		base + "prompts/" + attemptID + "/1-initial.stdin",
+		base + "prompts/" + attemptID + "/001-initial.json",
+	} {
+		path, err := ports.NewSafeRelativePath(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifact, err := ports.NewImmutablePublicationArtifact(path, sha256Identifier(bytes), bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, artifact); err == nil {
+			t.Fatalf("non-canonical runtime inventory path %q was accepted", value)
+		}
+	}
+}
+func TestRepairedCandidateAndPatchStdoutHaveDistinctCanonicalArtifacts(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	attempt := &candidate.roles[0].attempts[0]
+	attempt.invocations = append(attempt.invocations, preparedInvocation{
+		sequence: 2, purpose: domain.InvocationRepair, state: domain.InvocationSucceeded,
+	})
+	reconstructed := []byte(`{"schema_version":"kar-provider-review-output.v2","findings":[]}`)
+	patch := []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[]}`)
+	repaired, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactRepairedCandidate, reconstructed, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactStdout, patch, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := candidate.bindAttemptArtifacts([]AttemptArtifactInput{
+		{AttemptID: attempt.id, InvocationSequence: 2, Artifact: repaired},
+		{AttemptID: attempt.id, InvocationSequence: 2, Artifact: stdout},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := candidate.Build(context.Background(), publicationServiceValidator{}, publicationTestReviewID(t), publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidateArtifact, stdoutArtifact []byte
+	for _, artifact := range bundle.Excerpts() {
+		switch artifact.Path().String() {
+		case candidate.sessionID.String() + "/" + candidate.runID.String() + "/attempts/" + attempt.id.String() + "/candidate.repaired.001.json":
+			candidateArtifact = artifact.Bytes()
+		case candidate.sessionID.String() + "/" + candidate.runID.String() + "/attempts/" + attempt.id.String() + "/invocations/002-repair/stdout.raw":
+			stdoutArtifact = artifact.Bytes()
+		}
+	}
+	if !bytes.Equal(candidateArtifact, reconstructed) || !bytes.Equal(stdoutArtifact, patch) ||
+		bytes.Equal(candidateArtifact, stdoutArtifact) {
+		t.Fatalf("repaired candidate and patch stdout artifacts are not distinct: candidate=%q stdout=%q", candidateArtifact, stdoutArtifact)
+	}
+}
+
+func TestAttemptCaptureAbsentPreservesRootPublicationBytes(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	reviewID := publicationTestReviewID(t)
+	legacy, err := candidate.Build(context.Background(), publicationServiceValidator{}, reviewID, publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := candidate.bindAttemptArtifacts(nil); err != nil {
+		t.Fatal(err)
+	}
+	withoutCapture, err := candidate.Build(context.Background(), publicationServiceValidator{}, reviewID, publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(legacy.Final().Bytes(), withoutCapture.Final().Bytes()) ||
+		!bytes.Equal(legacy.Manifest().Bytes(), withoutCapture.Manifest().Bytes()) {
+		t.Fatal("root publication bytes changed without attempt capture")
+	}
+}
+func TestChildPublicationLineageSerialization(t *testing.T) {
+	t.Parallel()
+
+	parent, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := domain.ParseRunID("r_019f596a-cf82-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceReview, err := domain.ParseReviewID("019f596a-cf83-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := "F001"
+	exact := ReplayModeExact
+	cases := []struct {
+		runType domain.RunType
+		finding *string
+		replay  *ReplayMode
+	}{
+		{runType: domain.RunTypeFollowup, finding: &finding},
+		{runType: domain.RunTypeDelta},
+		{runType: domain.RunTypeRerun, replay: &exact},
+	}
+	for _, test := range cases {
+		childContext, err := NewChildPublicationContext(test.runType, parent, source, sourceReview, test.finding, test.replay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate := publicationTestCandidate(t, true)
+		if test.runType == domain.RunTypeFollowup {
+			for findingIndex := range candidate.findings {
+				for evidenceIndex := range candidate.findings[findingIndex].evidence {
+					item := &candidate.findings[findingIndex].evidence[evidenceIndex]
+					item.sourceSessionID = candidate.sessionID.String()
+					item.sourceRunID = source.String()
+					item.sourceReviewID = sourceReview.String()
+					item.sourceFindingID = finding
+					item.sourceTargetSHA256 = candidate.target.sha256
+					item.sourceExcerptSHA256 = item.excerptSHA256
+				}
+			}
+			candidate.followup = &preparedFollowupOutcome{
+				resolution: domain.FollowupStillOpen,
+				rationale:  "verified followup evidence",
+				evidence:   append([]preparedEvidence(nil), candidate.findings[0].evidence...),
+			}
+		}
+		child, err := domain.ParseRunID("r_019f596a-cf84-7c67-b265-f37053d51ccf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate.runID = child
+		candidate.lineage = childContext.immutableLineage()
+		bundle, err := candidate.Build(context.Background(), publicationServiceValidator{}, publicationTestReviewID(t), publicationTestTime(), 7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var final finalReviewWire
+		var manifest runManifestWire
+		var edge lineageEdgeWire
+		if err := json.Unmarshal(bundle.Final().Bytes(), &final); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(bundle.LineageEdge().Bytes(), &edge); err != nil {
+			t.Fatal(err)
+		}
+		if final.RunType != string(test.runType) || manifest.RunType != final.RunType ||
+			final.ImmutableLineage.LineageEdgePath != bundle.LineageEdge().Path().String() ||
+			final.ImmutableLineage.LineageEdgeSHA256 != bundle.LineageEdge().SHA256() ||
+			!publicationLineageWireEqual(manifest.ImmutableLineage, final.ImmutableLineage) ||
+			edge.ParentRunID == nil || *edge.ParentRunID != parent.String() ||
+			edge.SourceRunID == nil || *edge.SourceRunID != source.String() ||
+			edge.SourceReviewID == nil || *edge.SourceReviewID != sourceReview.String() ||
+			!publicationOptionalStringEqual(edge.SourceFindingRef, test.finding) ||
+			!publicationReplayModeEqual(edge.ReplayMode, test.replay) {
+			t.Fatalf("child lineage serialization mismatch: %#v", final.ImmutableLineage)
+		}
+		evidence := final.Findings[0].Evidence[0]
+		if evidence.Current.TargetSHA256 != final.Target.ContentSHA256 ||
+			evidence.Current.Verification != "verified" {
+			t.Fatalf("child current evidence view is inconsistent: %#v", evidence)
+		}
+		if test.runType == domain.RunTypeFollowup {
+			if evidence.Source.SessionID != final.SessionID ||
+				evidence.Source.RunID != source.String() ||
+				evidence.Source.ReviewID != sourceReview.String() ||
+				evidence.Source.FindingID != finding ||
+				evidence.Source.SourceTargetSHA256 != final.Target.ContentSHA256 {
+				t.Fatalf("followup source evidence view is inconsistent: %#v", evidence)
+			}
+		} else if evidence.Source.SessionID != final.SessionID ||
+			evidence.Source.RunID != final.RunID ||
+			evidence.Source.RunID == source.String() ||
+			evidence.Source.ReviewID != final.ReviewID ||
+			evidence.Source.FindingID != final.Findings[0].ID ||
+			evidence.Source.SourceTargetSHA256 != final.Target.ContentSHA256 {
+			t.Fatalf("child source evidence view is inconsistent: %#v", evidence)
+		}
+	}
+}
+
+func TestChildPublicationContextRejectsInvalidTruthTable(t *testing.T) {
+	t.Parallel()
+
+	runID, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := domain.ParseReviewID("019f596a-cf83-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := "F001"
+	if _, err := NewChildPublicationContext(domain.RunTypeFollowup, runID, runID, reviewID, nil, nil); err == nil {
+		t.Fatal("followup without finding was accepted")
+	}
+	if _, err := NewChildPublicationContext(domain.RunTypeDelta, runID, runID, reviewID, &finding, nil); err == nil {
+		t.Fatal("delta with finding was accepted")
+	}
+	if _, err := NewChildPublicationContext(domain.RunTypeRerun, runID, runID, reviewID, nil, nil); err == nil {
+		t.Fatal("rerun without replay mode was accepted")
+	}
+}
+func publicationLineageWireEqual(left, right immutableLineageWire) bool {
+	return left.LineageEdgePath == right.LineageEdgePath &&
+		left.LineageEdgeSHA256 == right.LineageEdgeSHA256 &&
+		publicationOptionalStringEqual(left.ParentRunID, right.ParentRunID) &&
+		publicationOptionalStringEqual(left.SourceRunID, right.SourceRunID) &&
+		publicationOptionalStringEqual(left.SourceReviewID, right.SourceReviewID) &&
+		publicationOptionalStringEqual(left.SourceFindingRef, right.SourceFindingRef) &&
+		publicationOptionalStringEqual(left.ReplayMode, right.ReplayMode)
+}
+
+func publicationOptionalStringEqual(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+func publicationReplayModeEqual(left *string, right *ReplayMode) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == string(*right)
+}
+
+func TestRootPublicationBytesRemainLegacyCompatible(t *testing.T) {
+	t.Parallel()
+
+	root := publicationTestCandidate(t, false)
+	legacyRoot := root
+	legacyRoot.lineage = preparedLineage{}
+	reviewID := publicationTestReviewID(t)
+	createdAt := publicationTestTime()
+
+	current, err := root.Build(context.Background(), publicationServiceValidator{}, reviewID, createdAt, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := legacyRoot.Build(context.Background(), publicationServiceValidator{}, reviewID, createdAt, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(current.Final().Bytes(), legacy.Final().Bytes()) ||
+		!bytes.Equal(current.Manifest().Bytes(), legacy.Manifest().Bytes()) ||
+		!bytes.Equal(current.LineageEdge().Bytes(), legacy.LineageEdge().Bytes()) ||
+		!bytes.Equal(current.Epoch().Record().Bytes(), legacy.Epoch().Record().Bytes()) ||
+		!bytes.Equal(current.Journal().Bytes(), legacy.Journal().Bytes()) ||
+		!bytes.Equal(current.Status().Bytes(), legacy.Status().Bytes()) {
+		t.Fatal("root publication bytes changed when no child context was supplied")
+	}
+}
 
 const publicationServiceTestMaxBytes int64 = 8 << 20
 
@@ -141,7 +536,7 @@ func TestPublishPersistsAndPublishesInDurableOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !publicationServiceCallsEqual(store.calls, []string{
-		"issue", "candidate", "prepare", "journal", "stage", "journal", "install",
+		"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal", "install",
 		"journal", "commit", "journal", "status", "journal", "observe",
 	}) {
 		t.Fatalf("publication calls = %#v", store.calls)
@@ -161,6 +556,357 @@ func TestPublishPersistsAndPublishesInDurableOrder(t *testing.T) {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
 	publicationServiceAssertJournalCAS(t, store.replacements)
+}
+func TestPublishReturnsVerifiedPromptManifestIdentity(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceRuntimeFixture(t)
+	attemptID := fixture.candidate.roles[0].attempts[0].id
+	store := newPublicationServiceHappyStore(t, fixture)
+	var rereadPromptManifest ports.ImmutablePublicationArtifact
+	baseReadAuxiliary := store.readAuxiliary
+	store.readAuxiliary = func(request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+		artifact, err := baseReadAuxiliary(request)
+		if err == nil && request.Kind() == ports.RunSupportArtifactPromptManifest &&
+			strings.Contains(request.Path().String(), "/prompts/"+attemptID.String()+"/") {
+			rereadPromptManifest = artifact
+		}
+		return artifact, err
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.Publish(context.Background(), fixture.root, fixture.candidate, fixture.bundle.Epoch().Value())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := result.PromptManifestArtifact(attemptID, 1)
+	if !ok || got.Path() != rereadPromptManifest.Path() || got.SHA256() != rereadPromptManifest.SHA256() {
+		t.Fatalf("PromptManifestArtifact() = (%#v, %t), want persisted/re-read %q/%q", got, ok, rereadPromptManifest.Path(), rereadPromptManifest.SHA256())
+	}
+	identities := result.PersistedRunSupportArtifacts()
+	if len(identities) == 0 {
+		t.Fatal("PersistedRunSupportArtifacts() omitted verified support artifacts")
+	}
+	identities[0] = RunSupportArtifactIdentity{}
+	if _, ok := result.PromptManifestArtifact(attemptID, 1); !ok {
+		t.Fatal("returned support identity slice aliases PublicationResult")
+	}
+
+	finalArtifact, err := ports.NewImmutablePublicationArtifact(
+		fixture.bundle.Final().Identity().Path(),
+		fixture.bundle.Final().Identity().SHA256(),
+		fixture.bundle.Final().Bytes(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.supportArtifacts = []RunSupportArtifactIdentity{runSupportArtifactIdentity(finalArtifact)}
+	if _, ok := result.PromptManifestArtifact(attemptID, 1); ok {
+		t.Fatal("final-review identity substituted for prompt manifest")
+	}
+	result.supportArtifacts = nil
+	if _, ok := result.PromptManifestArtifact(attemptID, 1); ok {
+		t.Fatal("missing prompt manifest support identity was accepted")
+	}
+	result.supportArtifacts = []RunSupportArtifactIdentity{got, got}
+	if _, ok := result.PromptManifestArtifact(attemptID, 1); ok {
+		t.Fatal("ambiguous prompt manifest support identities were accepted")
+	}
+}
+func TestRecoveredP2ResultsReturnVerifiedPromptManifestIdentity(t *testing.T) {
+	for _, boundary := range []struct {
+		name   string
+		inject func(*publicationServiceScriptedStore)
+	}{
+		{
+			name: "final install",
+			inject: func(store *publicationServiceScriptedStore) {
+				base := store.install
+				store.install = func(request ports.InstallFinalRequest) (ports.InstallFinalResult, error) {
+					result, err := base(request)
+					return result, errors.Join(err, errors.New("install completion uncertain"))
+				}
+			},
+		},
+		{
+			name: "composite commit",
+			inject: func(store *publicationServiceScriptedStore) {
+				base := store.commit
+				store.commit = func(prepared ports.PreparedComposite) (ports.CompositeCommitResult, error) {
+					result, err := base(prepared)
+					return result, errors.Join(err, errors.New("commit completion uncertain"))
+				}
+			},
+		},
+		{
+			name: "status replacement",
+			inject: func(store *publicationServiceScriptedStore) {
+				base := store.replace
+				store.replace = func(request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
+					result, err := base(request)
+					if request.Document() == ports.MutablePublicationStatus {
+						return result, errors.Join(err, errors.New("status completion uncertain"))
+					}
+					return result, err
+				}
+			},
+		},
+	} {
+		t.Run(boundary.name, func(t *testing.T) {
+			fixture := newPublicationServiceRuntimeFixture(t)
+			attemptID := fixture.candidate.roles[0].attempts[0].id
+			store := newPublicationServiceHappyStore(t, fixture)
+			boundary.inject(store)
+			service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.Publish(context.Background(), fixture.root, fixture.candidate, fixture.bundle.Epoch().Value())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := result.PromptManifestArtifact(attemptID, 1); !ok {
+				t.Fatal("recovered P2 result omitted verified prompt manifest")
+			}
+		})
+	}
+
+	t.Run("completed journal with runtime prompts", func(t *testing.T) {
+		fixture := newPublicationServiceRuntimeFixture(t)
+		attemptID := fixture.candidate.roles[0].attempts[0].id
+		store := newPublicationServiceHappyStore(t, fixture)
+		service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.Recover(context.Background(), fixture.run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := result.PromptManifestArtifact(attemptID, 1); !ok {
+			t.Fatal("completed-journal P2 recovery omitted verified prompt manifest")
+		}
+	})
+
+	t.Run("completed journal without runtime prompts", func(t *testing.T) {
+		fixture := newPublicationServiceFixture(t)
+		attemptID := fixture.candidate.roles[0].attempts[0].id
+		store := newPublicationServiceHappyStore(t, fixture)
+		service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.Recover(context.Background(), fixture.run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := result.PromptManifestArtifact(attemptID, 1); ok {
+			t.Fatal("completed-journal P2 recovery invented a prompt manifest")
+		}
+		if got, want := len(result.PersistedRunSupportArtifacts()), len(fixture.bundle.SupportArtifacts()); got != want {
+			t.Fatalf("recovered support identities = %d, want %d", got, want)
+		}
+	})
+}
+func TestRecoverCompletedJournalFailsClosedWhenBoundSupportCannotBeRead(t *testing.T) {
+	failures := []struct {
+		name  string
+		match func(ports.ReadAuxiliaryArtifactRequest) bool
+		read  func() (ports.ImmutablePublicationArtifact, error)
+	}{
+		{
+			name: "missing support index",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactSupportIndex
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
+			},
+		},
+		{
+			name: "corrupt support index",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactSupportIndex
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, nil
+			},
+		},
+		{
+			name: "missing selected prompt",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactPromptManifest
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
+			},
+		},
+		{
+			name: "corrupt selected prompt",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactPromptManifest
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, nil
+			},
+		},
+	}
+	for _, failure := range failures {
+		t.Run(failure.name, func(t *testing.T) {
+			fixture := newPublicationServiceRuntimeFixture(t)
+			store := newPublicationServiceHappyStore(t, fixture)
+			baseRead := store.readAuxiliary
+			store.readAuxiliary = func(request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+				if failure.match(request) {
+					return failure.read()
+				}
+				return baseRead(request)
+			}
+			service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			result, recoverErr := service.Recover(context.Background(), fixture.run)
+			publicationServiceRequireFailureClass(t, recoverErr, domain.FailureArtifact)
+			if _, ok := result.Snapshot(); !ok {
+				t.Fatal("completed-journal recovery discarded the committed snapshot after support corruption")
+			}
+			if _, ok := result.Final(); !ok {
+				t.Fatal("completed-journal recovery discarded the final identity after support corruption")
+			}
+			if result.Decision().Authority() != domain.PublicationAuthorityP2 ||
+				result.Decision().Status() != domain.PublicationCommitted {
+				t.Fatal("completed-journal recovery downgraded durable P2 authority after support corruption")
+			}
+			if exit := result.Exit(); exit == nil || exit.Code() != domain.ExitArtifactFailure {
+				t.Fatalf("completed-journal support corruption exit = %#v, want artifact failure", exit)
+			}
+		})
+	}
+}
+
+func TestRecoveredP2FailsClosedWhenBoundSupportCannotBeRead(t *testing.T) {
+	boundaries := []struct {
+		name   string
+		inject func(*publicationServiceScriptedStore, func())
+	}{
+		{
+			name: "final install",
+			inject: func(store *publicationServiceScriptedStore, arm func()) {
+				base := store.install
+				store.install = func(request ports.InstallFinalRequest) (ports.InstallFinalResult, error) {
+					result, err := base(request)
+					arm()
+					return result, errors.Join(err, errors.New("install completion uncertain"))
+				}
+			},
+		},
+		{
+			name: "composite commit",
+			inject: func(store *publicationServiceScriptedStore, arm func()) {
+				base := store.commit
+				store.commit = func(prepared ports.PreparedComposite) (ports.CompositeCommitResult, error) {
+					result, err := base(prepared)
+					arm()
+					return result, errors.Join(err, errors.New("commit completion uncertain"))
+				}
+			},
+		},
+		{
+			name: "status replacement",
+			inject: func(store *publicationServiceScriptedStore, arm func()) {
+				base := store.replace
+				store.replace = func(request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
+					result, err := base(request)
+					if request.Document() == ports.MutablePublicationStatus {
+						arm()
+						return result, errors.Join(err, errors.New("status completion uncertain"))
+					}
+					return result, err
+				}
+			},
+		},
+	}
+	failures := []struct {
+		name  string
+		match func(ports.ReadAuxiliaryArtifactRequest) bool
+		read  func() (ports.ImmutablePublicationArtifact, error)
+	}{
+		{
+			name: "missing support index",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactSupportIndex
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
+			},
+		},
+		{
+			name: "corrupt support index",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactSupportIndex
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, nil
+			},
+		},
+		{
+			name: "missing selected prompt",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactPromptManifest
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
+			},
+		},
+		{
+			name: "corrupt selected prompt",
+			match: func(request ports.ReadAuxiliaryArtifactRequest) bool {
+				return request.Kind() == ports.RunSupportArtifactPromptManifest
+			},
+			read: func() (ports.ImmutablePublicationArtifact, error) {
+				return ports.ImmutablePublicationArtifact{}, nil
+			},
+		},
+	}
+	for _, boundary := range boundaries {
+		for _, failure := range failures {
+			t.Run(boundary.name+"/"+failure.name, func(t *testing.T) {
+				fixture := newPublicationServiceRuntimeFixture(t)
+				store := newPublicationServiceHappyStore(t, fixture)
+				armed := false
+				baseRead := store.readAuxiliary
+				store.readAuxiliary = func(request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+					if armed && failure.match(request) {
+						return failure.read()
+					}
+					return baseRead(request)
+				}
+				boundary.inject(store, func() { armed = true })
+				service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				result, err := service.Publish(context.Background(), fixture.root, fixture.candidate, fixture.bundle.Epoch().Value())
+				if err == nil {
+					t.Fatal("Publish returned committed success with unreadable manifest-bound support")
+				}
+				publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+				if _, ok := result.Snapshot(); !ok {
+					t.Fatal("recovered P2 discarded its committed snapshot after support corruption")
+				}
+				if result.Decision().Authority() != domain.PublicationAuthorityP2 ||
+					result.Decision().Status() != domain.PublicationCommitted {
+					t.Fatal("recovered P2 downgraded durable authority after support corruption")
+				}
+			})
+		}
+	}
 }
 
 func TestPublishReconcilesValidIssuedIDReturnedWithError(t *testing.T) {
@@ -199,7 +945,7 @@ func TestPublishReconcilesValidIssuedIDReturnedWithError(t *testing.T) {
 		t.Fatalf("reconciled issued ID = (%#v, %t), want (%#v, true)", issued, ok, fixture.issued)
 	}
 	if len(store.issueRequests) != 1 || len(store.candidateRequests) != 0 ||
-		!publicationServiceCallsEqual(store.calls, []string{"issue", "observe"}) {
+		!publicationServiceCallsEqual(store.calls, []string{"issue", "observe", "read_auxiliary"}) {
 		t.Fatalf("ambiguous issuance calls = %#v, issue requests = %d, candidate requests = %d", store.calls, len(store.issueRequests), len(store.candidateRequests))
 	}
 }
@@ -373,7 +1119,7 @@ func TestPublishReobservesValidMismatchedCandidateResultWithError(t *testing.T) 
 		t.Fatal(err)
 	}
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 ||
-		!publicationServiceCallsEqual(store.calls, []string{"issue", "candidate", "observe"}) {
+		!publicationServiceCallsEqual(store.calls, []string{"issue", "candidate", "observe", "read_auxiliary"}) {
 		t.Fatalf("mismatched candidate reconciliation = (%q, %#v)", result.Decision().Authority(), store.calls)
 	}
 }
@@ -442,7 +1188,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("prepare post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "prepare", "observe"},
+			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "observe"},
 		},
 		{
 			name: "journal replacement",
@@ -456,7 +1202,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("journal post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "prepare", "journal", "observe"},
+			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "observe"},
 		},
 		{
 			name: "staged final",
@@ -470,7 +1216,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("stage post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "prepare", "journal", "stage", "observe"},
+			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "observe"},
 		},
 		{
 			name: "installed final",
@@ -485,7 +1231,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 				}
 			},
 			wantCalls: []string{
-				"issue", "candidate", "prepare", "journal", "stage", "journal",
+				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
 				"install", "observe",
 			},
 		},
@@ -502,7 +1248,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 				}
 			},
 			wantCalls: []string{
-				"issue", "candidate", "prepare", "journal", "stage", "journal",
+				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
 				"install", "journal", "commit", "observe",
 			},
 		},
@@ -519,7 +1265,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 				}
 			},
 			wantCalls: []string{
-				"issue", "candidate", "prepare", "journal", "stage", "journal",
+				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
 				"install", "journal", "commit", "journal", "status", "observe",
 			},
 		},
@@ -550,8 +1296,9 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 			if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 				t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 			}
-			if !publicationServiceCallsEqual(store.calls, test.wantCalls) {
-				t.Fatalf("calls = %#v, want %#v", store.calls, test.wantCalls)
+			wantCalls := append(append([]string(nil), test.wantCalls...), "read_auxiliary")
+			if !publicationServiceCallsEqual(store.calls, wantCalls) {
+				t.Fatalf("calls = %#v, want %#v", store.calls, wantCalls)
 			}
 		})
 	}
@@ -594,7 +1341,36 @@ func TestPublishReobservesValidAuxiliaryPostEffectResult(t *testing.T) {
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
-	if want := []string{"issue", "candidate", "auxiliary", "observe"}; !publicationServiceCallsEqual(store.calls, want) {
+	want := []string{"issue", "candidate", "auxiliary", "observe"}
+	for range fixture.bundle.SupportArtifacts() {
+		want = append(want, "read_auxiliary")
+	}
+	if !publicationServiceCallsEqual(store.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", store.calls, want)
+	}
+}
+func TestPublishPreventsP2WhenPersistedRunSupportCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixtureWithFinding(t, true)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.readAuxiliary = func(ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+		return ports.ImmutablePublicationArtifact{}, errors.New("run support artifact is absent")
+	}
+	service, err := NewService(
+		store,
+		publicationServiceValidator{},
+		publicationServiceClock{now: publicationTestTime()},
+		publicationServiceTestMaxBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Publish(context.Background(), fixture.root, fixture.candidate, fixture.bundle.Epoch().Value()); err == nil {
+		t.Fatal("Publish committed P2 with missing run support")
+	}
+	if want := []string{"issue", "candidate", "auxiliary", "read_auxiliary"}; !publicationServiceCallsEqual(store.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", store.calls, want)
 	}
 }
@@ -749,7 +1525,7 @@ func TestP2ResultRejectsIssuedCandidateBindingMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = service.p2Result(context.Background(), fixture.run, &mismatchedIssued, nil)
+	_, err = service.p2Result(context.Background(), fixture.run, &mismatchedIssued, nil, nil)
 	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
 	if !publicationServiceCallsEqual(store.calls, []string{"observe"}) {
 		t.Fatalf("P2 binding mismatch calls = %#v", store.calls)
@@ -782,7 +1558,7 @@ func TestPublishRecoveredRejectsIssuedCandidateBindingMismatch(t *testing.T) {
 	if exit := result.Exit(); exit == nil || exit.Code() != domain.ExitArtifactFailure {
 		t.Fatalf("recovery binding mismatch exit = %#v, want artifact exit 7", exit)
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{"observe"}) {
+	if !publicationServiceCallsEqual(store.calls, []string{"observe", "read_auxiliary"}) {
 		t.Fatalf("recovery binding mismatch calls = %#v", store.calls)
 	}
 }
@@ -848,7 +1624,7 @@ func TestRecoverP2ReconstructionErrorOverridesStoredNormalExit(t *testing.T) {
 	if exit == nil || exit.Code() != domain.ExitArtifactFailure {
 		t.Fatalf("errored P2 recovery exit = %#v, want artifact exit 7", exit)
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{"observe", "status"}) {
+	if !publicationServiceCallsEqual(store.calls, []string{"observe", "read_auxiliary", "status"}) {
 		t.Fatalf("errored P2 recovery calls = %#v", store.calls)
 	}
 }
@@ -948,7 +1724,7 @@ func TestP2ResultRejectsSnapshotWarningsOutsidePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = service.p2Result(context.Background(), fixture.run, nil, nil)
+	_, err = service.p2Result(context.Background(), fixture.run, nil, nil, nil)
 	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
 	if !publicationServiceCallsEqual(store.calls, []string{"observe"}) {
 		t.Fatalf("semantic snapshot rejection calls = %#v", store.calls)
@@ -1173,7 +1949,7 @@ func TestRecoverCommitsExactPreparedCompositeFromP1Installed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 || commitCalls != 1 ||
-		!publicationServiceCallsEqual(store.calls, []string{"observe", "commit", "journal", "observe"}) {
+		!publicationServiceCallsEqual(store.calls, []string{"observe", "commit", "journal", "observe", "read_auxiliary"}) {
 		t.Fatalf("P1 recovery = authority %q, commit calls %d, calls %#v", result.Decision().Authority(), commitCalls, store.calls)
 	}
 }
@@ -1256,7 +2032,7 @@ func TestRecoverReobservesValidAdoptionPostEffectResult(t *testing.T) {
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
-	want := []string{"observe", "adopt", "observe", "adopt", "install", "observe"}
+	want := []string{"observe", "adopt", "observe", "adopt", "install", "observe", "read_auxiliary"}
 	if !publicationServiceCallsEqual(store.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", store.calls, want)
 	}
@@ -1617,6 +2393,29 @@ func newPublicationServiceFixtureWithFinding(t *testing.T, withFinding bool) pub
 		root: root, run: run, candidate: candidate, issued: issued, bundle: bundle,
 	}
 }
+func newPublicationServiceRuntimeFixture(t *testing.T) publicationServiceFixture {
+	t.Helper()
+
+	fixture := newPublicationServiceFixture(t)
+	fixture.candidate = publicationRuntimeCandidate(t)
+	issued, err := ports.NewIssuedReviewID(fixture.issued.ReviewID(), fixture.candidate.ValidatedCandidateSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := fixture.candidate.Build(
+		context.Background(),
+		publicationServiceValidator{},
+		issued.ReviewID(),
+		publicationTestTime(),
+		1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.issued = issued
+	fixture.bundle = bundle
+	return fixture
+}
 
 type publicationServiceScriptedStore struct {
 	calls              []string
@@ -1631,6 +2430,7 @@ type publicationServiceScriptedStore struct {
 	observe          func() (ports.PublicationObservation, error)
 	persistCandidate func(ports.PersistValidatedCandidateRequest) (ports.PersistValidatedCandidateResult, error)
 	persistAuxiliary func(ports.PersistAuxiliaryArtifactRequest) (ports.PersistAuxiliaryArtifactResult, error)
+	readAuxiliary    func(ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error)
 	prepare          func(ports.PrepareCompositeRequest) (ports.PreparedComposite, error)
 	stage            func(ports.StageFinalRequest) (ports.StageFinalResult, error)
 	adopt            func(ports.AdoptStagedFinalRequest) (ports.StageFinalResult, error)
@@ -1680,9 +2480,12 @@ func (store *publicationServiceScriptedStore) PersistAuxiliaryArtifact(_ context
 	return store.persistAuxiliary(request)
 }
 
-func (store *publicationServiceScriptedStore) ReadAuxiliaryArtifact(context.Context, ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+func (store *publicationServiceScriptedStore) ReadAuxiliaryArtifact(_ context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
 	store.calls = append(store.calls, "read_auxiliary")
-	return ports.ImmutablePublicationArtifact{}, errors.New("unexpected auxiliary read")
+	if store.readAuxiliary == nil {
+		return ports.ImmutablePublicationArtifact{}, errors.New("unexpected auxiliary read")
+	}
+	return store.readAuxiliary(request)
 }
 
 func (store *publicationServiceScriptedStore) PrepareComposite(_ context.Context, request ports.PrepareCompositeRequest) (ports.PreparedComposite, error) {
@@ -1807,6 +2610,15 @@ func newPublicationServiceHappyStore(t *testing.T, fixture publicationServiceFix
 			receipt,
 			ports.AuxiliaryArtifactDurable,
 		)
+	}
+	store.readAuxiliary = func(request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+		expectedSHA256, hasExpectedSHA256 := request.ExpectedSHA256()
+		for _, expected := range fixture.bundle.SupportArtifacts() {
+			if request.Path() == expected.Path() && (!hasExpectedSHA256 || expectedSHA256 == expected.SHA256()) {
+				return expected, nil
+			}
+		}
+		return ports.ImmutablePublicationArtifact{}, errors.New("run support artifact is absent")
 	}
 	store.prepare = func(request ports.PrepareCompositeRequest) (ports.PreparedComposite, error) {
 		return publicationServicePreparedCompositeForRequest(t, fixture.root, request), nil

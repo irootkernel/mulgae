@@ -19,12 +19,6 @@ type Run struct {
 }
 
 func NewChildRun(id RunID, runType RunType, parent Run, source Run, target TargetIdentity, roles []RoleTask) (Run, error) {
-	if !runType.Valid() {
-		return Run{}, fmt.Errorf("child run: %w: invalid type %q", ErrInvariant, runType)
-	}
-	if runType == RunTypeReview {
-		return Run{}, fmt.Errorf("child run: %w: review runs must be constructed with NewReviewSession", ErrInvariant)
-	}
 	if err := validateChildProvenance("parent", parent); err != nil {
 		return Run{}, err
 	}
@@ -34,15 +28,164 @@ func NewChildRun(id RunID, runType RunType, parent Run, source Run, target Targe
 	if parent.sessionID != source.sessionID {
 		return Run{}, fmt.Errorf("child run: %w: parent and source must belong to the same session", ErrInvariant)
 	}
-	if id == parent.id || id == source.id {
-		return Run{}, fmt.Errorf("child run: %w: child ID cannot reference its parent or source", ErrInvariant)
+	return NewChildRunFromImmutableSource(id, runType, parent.sessionID, parent.id, source.id, target, roles)
+}
+
+// NewFollowupChildRun creates a fresh, finding-scoped followup child. Followups
+// deliberately execute only the selected source role; the broad review floors
+// remain enforced by NewChildRun and NewChildRunFromImmutableSource.
+func NewFollowupChildRun(id RunID, parent Run, source Run, target TargetIdentity, selected RoleTask) (Run, error) {
+	if err := validateChildProvenance("parent", parent); err != nil {
+		return Run{}, err
 	}
-	run, err := newRun(id, parent.sessionID, runType, target, roles)
+	if err := validateChildProvenance("source", source); err != nil {
+		return Run{}, err
+	}
+	if parent.sessionID != source.sessionID {
+		return Run{}, fmt.Errorf("followup child run: %w: parent and source must belong to the same session", ErrInvariant)
+	}
+	if !selected.Role().Valid() {
+		return Run{}, fmt.Errorf("followup child run: %w: selected role is invalid", ErrInvariant)
+	}
+	if selected.State() != RoleTaskPending {
+		return Run{}, fmt.Errorf("followup child run: %w: selected role task is not pending", ErrInvariant)
+	}
+	if id == parent.id || id == source.id {
+		return Run{}, fmt.Errorf("followup child run: %w: child ID cannot reference its parent or source", ErrInvariant)
+	}
+	run, err := newFollowupRun(id, parent.sessionID, target, selected)
 	if err != nil {
 		return Run{}, err
 	}
 	run.parentRunID, run.hasParent = parent.id, true
 	run.sourceRunID, run.hasSource = source.id, true
+	return run, nil
+}
+
+func newFollowupRun(id RunID, sessionID SessionID, target TargetIdentity, selected RoleTask) (Run, error) {
+	if _, err := ParseRunID(id.String()); err != nil {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid run ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseSessionID(sessionID.String()); err != nil {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid session ID: %v", ErrInvariant, err)
+	}
+	if target.Kind() == "" {
+		return Run{}, fmt.Errorf("followup child run: %w: target identity is required", ErrInvariant)
+	}
+	if !selected.Role().Valid() || selected.State() != RoleTaskPending {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid selected role task", ErrInvariant)
+	}
+	return Run{id: id, sessionID: sessionID, runType: RunTypeFollowup, state: RunPending, target: target, roles: []RoleTask{selected}}, nil
+}
+
+// NewFollowupChildRunFromImmutableSource is the immutable-lineage form of
+// NewFollowupChildRun. It keeps the followup's single selected-role exception
+// isolated from the broad child constructors.
+func NewFollowupChildRunFromImmutableSource(
+	id RunID,
+	sessionID SessionID,
+	parentRunID RunID,
+	sourceRunID RunID,
+	target TargetIdentity,
+	selected RoleTask,
+) (Run, error) {
+	if _, err := ParseSessionID(sessionID.String()); err != nil {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid session ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(parentRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid parent run ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(sourceRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("followup child run: %w: invalid source run ID: %v", ErrInvariant, err)
+	}
+	if id == parentRunID || id == sourceRunID {
+		return Run{}, fmt.Errorf("followup child run: %w: child ID cannot reference its parent or source", ErrInvariant)
+	}
+	run, err := newFollowupRun(id, sessionID, target, selected)
+	if err != nil {
+		return Run{}, err
+	}
+	run.parentRunID, run.hasParent = parentRunID, true
+	run.sourceRunID, run.hasSource = sourceRunID, true
+	return run, nil
+}
+
+// NewRerunChildRunFromImmutableSource creates an exact-replay child with only
+// the source-selected role. Broad recomposed reruns continue to use
+// NewChildRunFromImmutableSource and its full role-floor validation.
+func NewRerunChildRunFromImmutableSource(
+	id RunID,
+	sessionID SessionID,
+	parentRunID RunID,
+	sourceRunID RunID,
+	target TargetIdentity,
+	selected RoleTask,
+) (Run, error) {
+	if _, err := ParseSessionID(sessionID.String()); err != nil {
+		return Run{}, fmt.Errorf("rerun child run: %w: invalid session ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(parentRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("rerun child run: %w: invalid parent run ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(sourceRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("rerun child run: %w: invalid source run ID: %v", ErrInvariant, err)
+	}
+	if id == parentRunID || id == sourceRunID {
+		return Run{}, fmt.Errorf("rerun child run: %w: child ID cannot reference its parent or source", ErrInvariant)
+	}
+	if _, err := ParseRunID(id.String()); err != nil {
+		return Run{}, fmt.Errorf("rerun child run: %w: invalid run ID: %v", ErrInvariant, err)
+	}
+	if target.Kind() == "" {
+		return Run{}, fmt.Errorf("rerun child run: %w: target identity is required", ErrInvariant)
+	}
+	if !selected.Role().Valid() || selected.State() != RoleTaskPending {
+		return Run{}, fmt.Errorf("rerun child run: %w: invalid selected role task", ErrInvariant)
+	}
+	return Run{
+		id: id, sessionID: sessionID, runType: RunTypeRerun,
+		state: RunPending, target: target, roles: []RoleTask{selected},
+		parentRunID: parentRunID, hasParent: true,
+		sourceRunID: sourceRunID, hasSource: true,
+	}, nil
+}
+
+// NewChildRunFromImmutableSource creates a fresh child using only verified
+// immutable lineage identifiers. It does not require or reconstruct source run
+// state.
+func NewChildRunFromImmutableSource(
+	id RunID,
+	runType RunType,
+	sessionID SessionID,
+	parentRunID RunID,
+	sourceRunID RunID,
+	target TargetIdentity,
+	roles []RoleTask,
+) (Run, error) {
+	if !runType.Valid() {
+		return Run{}, fmt.Errorf("child run: %w: invalid type %q", ErrInvariant, runType)
+	}
+	if runType == RunTypeReview {
+		return Run{}, fmt.Errorf("child run: %w: review runs must be constructed with NewReviewSession", ErrInvariant)
+	}
+	if _, err := ParseSessionID(sessionID.String()); err != nil {
+		return Run{}, fmt.Errorf("child run: %w: invalid session ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(parentRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("child run: %w: invalid parent run ID: %v", ErrInvariant, err)
+	}
+	if _, err := ParseRunID(sourceRunID.String()); err != nil {
+		return Run{}, fmt.Errorf("child run: %w: invalid source run ID: %v", ErrInvariant, err)
+	}
+	if id == parentRunID || id == sourceRunID {
+		return Run{}, fmt.Errorf("child run: %w: child ID cannot reference its parent or source", ErrInvariant)
+	}
+	run, err := newRun(id, sessionID, runType, target, roles)
+	if err != nil {
+		return Run{}, err
+	}
+	run.parentRunID, run.hasParent = parentRunID, true
+	run.sourceRunID, run.hasSource = sourceRunID, true
 	return run, nil
 }
 

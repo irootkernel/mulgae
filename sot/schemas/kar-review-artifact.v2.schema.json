@@ -71,6 +71,16 @@
     "immutable_lineage": {
       "$ref": "#/$defs/immutable_lineage"
     },
+    "followup_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/followup_outcome"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "target": {
       "$ref": "#/$defs/target"
     },
@@ -628,6 +638,38 @@
             "invalid",
             "unverifiable"
           ]
+        }
+      }
+    },
+    "followup_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution",
+        "rationale",
+        "evidence"
+      ],
+      "properties": {
+        "resolution": {
+          "enum": [
+            "resolved",
+            "partially_resolved",
+            "still_open",
+            "unclear"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
         }
       }
     },

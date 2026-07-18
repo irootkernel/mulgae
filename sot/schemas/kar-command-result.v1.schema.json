@@ -851,12 +851,18 @@
       "followup": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "session_id", "run_id", "followup_artifact_uri"],
+        "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution"],
         "properties": {
           "kind": { "const": "followup_started" },
           "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
           "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
-          "followup_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+          "followup_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "resolution": {
+            "oneOf": [
+              { "type": "null" },
+              { "enum": ["resolved", "partially_resolved", "still_open", "unclear"] }
+            ]
+          }
         }
       },
       "delta": {

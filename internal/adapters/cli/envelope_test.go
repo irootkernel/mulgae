@@ -20,13 +20,13 @@ func TestEnvelopeRendererRendersCanonicalEnvelopeInContractOrder(t *testing.T) {
 	validator := &envelopeValidator{}
 	renderer := mustEnvelopeRenderer(t, validator)
 	request := []byte(`{"target":{"value":"origin/main...HEAD","kind":"diff"},"source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","request_id":"i_019f596a-e201-7a4b-8d76-1cf503a1849e","role":"logic","output_format":"json","objective":"Verify whether the source finding is resolved.","finding_id":"F003","command":"followup"}`)
-	result := mustCommandSuccess(t, app.CommandFollowup, []byte(`{"run_id":"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e","followup_artifact_uri":".kar/followup.json","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","kind":"followup_started"}`))
+	result := mustCommandSuccess(t, app.CommandFollowup, []byte(`{"run_id":"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e","followup_artifact_uri":".kar/followup.json","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","resolution":"still_open","kind":"followup_started"}`))
 
 	got, err := renderer.Render(context.Background(), result, request, nil)
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	want := []byte("{\"schema_version\":\"kar-command-result.v1\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".kar/followup.json\",\"kind\":\"followup_started\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
+	want := []byte("{\"schema_version\":\"kar-command-result.v1\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".kar/followup.json\",\"kind\":\"followup_started\",\"resolution\":\"still_open\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Render() = %s\nwant     = %s", got, want)
 	}

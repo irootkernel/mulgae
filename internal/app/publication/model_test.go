@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -35,6 +36,39 @@ func TestPreparedCandidateRejectsMalformedAndUnvalidatedBuild(t *testing.T) {
 	}
 	if _, err := valid.Build(context.Background(), validator, reviewID, publicationTestTime(), 1); err == nil {
 		t.Fatal("Build accepted malformed candidate")
+	}
+}
+func TestRunSupportArtifactIdentityRecognizesOnlyCanonicalPromptManifests(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	attemptID := candidate.roles[0].attempts[0].id
+	path, err := ports.NewSafeRelativePath(
+		candidate.sessionID.String() + "/" + candidate.runID.String() +
+			"/prompts/" + attemptID.String() + "/001-initial.manifest.json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := ports.NewImmutablePublicationArtifact(path, sha256Identifier([]byte("manifest")), []byte("manifest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotAttemptID, sequence, ok := runSupportArtifactIdentity(artifact).promptManifestBinding()
+	if !ok || gotAttemptID != attemptID || sequence != 1 {
+		t.Fatalf("prompt manifest binding = (%q, %d, %t), want (%q, 1, true)", gotAttemptID, sequence, ok, attemptID)
+	}
+
+	finalPath, err := ports.NewSafeRelativePath(candidate.sessionID.String() + "/" + candidate.runID.String() + "/review.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalArtifact, err := ports.NewImmutablePublicationArtifact(finalPath, sha256Identifier([]byte("final")), []byte("final"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := runSupportArtifactIdentity(finalArtifact).promptManifestBinding(); ok {
+		t.Fatal("final-review identity accepted as a prompt manifest")
 	}
 }
 
@@ -308,6 +342,164 @@ func TestPreparedCandidateRejectsNonCanonicalAttemptSequences(t *testing.T) {
 			}
 		})
 	}
+}
+func TestValidatedCandidateSHA256BindsRuntimeInventory(t *testing.T) {
+	t.Parallel()
+
+	baseline := publicationRuntimeCandidate(t)
+	want := baseline.ValidatedCandidateSHA256()
+	if want == "" {
+		t.Fatal("runtime candidate has no validated identity")
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*testing.T, *PreparedCandidate)
+	}{
+		{"run", func(t *testing.T, candidate *PreparedCandidate) {
+			runID, err := domain.ParseRunID("r_019f596a-dfe4-7c9c-b82e-7149158243ba")
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate.runID = runID
+		}},
+		{"attempt", func(t *testing.T, candidate *PreparedCandidate) {
+			attemptID, err := domain.ParseAttemptID("a_019f596a-e048-79e7-b2b7-59822f012273")
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate.roles[0].attempts[0].id = attemptID
+		}},
+		{"sequence", appendPublicationRuntimeRepairInvocation},
+		{"purpose", appendPublicationRuntimeRepairInvocation},
+		{"role", func(t *testing.T, candidate *PreparedCandidate) {
+			attemptID, err := domain.ParseAttemptID("a_019f596a-e0ac-7c12-8b68-0bd73e911b2e")
+			if err != nil {
+				t.Fatal(err)
+			}
+			role := candidate.roles[0]
+			role.attempts = append([]preparedAttempt(nil), role.attempts...)
+			role.attempts[0].invocations = append([]preparedInvocation(nil), role.attempts[0].invocations...)
+			role.role = domain.RoleMaintainability
+			role.required = false
+			role.attempts[0].id = attemptID
+			role.attempts[0].provider = "kimi-maintainability"
+			role.attempts[0].invocations[0].runtime = clonePreparedRuntimeArtifact(role.attempts[0].invocations[0].runtime)
+			role.attempts[0].invocations[0].runtime.role = role.role
+			candidate.roles = append(candidate.roles, role)
+		}},
+		{"target bytes and digest", func(t *testing.T, candidate *PreparedCandidate) {
+			runtime := candidate.roles[0].attempts[0].invocations[0].runtime
+			runtime.target = []byte("other target\n")
+			candidate.target.sha256 = sha256Identifier(runtime.target)
+			runtime.targetSHA256 = strings.TrimPrefix(candidate.target.sha256, "sha256:")
+		}},
+		{"target identity kind, repository, base, head, tree, and index", func(t *testing.T, candidate *PreparedCandidate) {
+			runtime := candidate.roles[0].attempts[0].invocations[0].runtime
+			runtime.targetKind = domain.TargetGit
+			runtime.targetRepository = "github.com/irootkernel/kkachi-agent-review"
+			runtime.targetBaseOID = strings.Repeat("d", 64)
+			runtime.targetHeadOID = strings.Repeat("e", 64)
+			runtime.targetHeadTreeOID = strings.Repeat("f", 64)
+			runtime.targetIndexTreeOID = strings.Repeat("a", 64)
+			candidate.target.baseOID = runtime.targetBaseOID
+			candidate.target.headOID = runtime.targetHeadOID
+		}},
+		{"stdin and digest", func(t *testing.T, candidate *PreparedCandidate) {
+			runtime := candidate.roles[0].attempts[0].invocations[0].runtime
+			runtime.stdin = []byte("other stdin")
+			runtime.stdinSHA256 = prompt.CompleteStdinSHA256(runtime.stdin)
+		}},
+		{"template ID", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.templateID = "other-template"
+		}},
+		{"template version", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.templateVersion = "v2"
+		}},
+		{"template hash", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.templateSHA256 = "sha256:" + strings.Repeat("b", 64)
+		}},
+		{"source invocation ID", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.sourceInvocationID = "source-2"
+		}},
+		{"execution invocation ID", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.executionInvocationID = "execution-2"
+		}},
+		{"scope", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.scope = "scope-2"
+		}},
+		{"adapter profile", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.adapterProfile = "profile-2"
+		}},
+		{"sorted adapter parameter key and value", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].runtime.adapterParameters = map[string]string{
+				"model": "other", "temperature": "0.2", "top_p": "0.9",
+			}
+		}},
+		{"capture kind", appendPublicationRuntimeRepairInvocation},
+		{"capture security flag and bytes", func(t *testing.T, candidate *PreparedCandidate) {
+			artifact := &candidate.roles[0].attempts[0].invocations[0].artifacts[0]
+			artifact.securityRejected = true
+			artifact.bytes = nil
+		}},
+		{"capture bytes", func(t *testing.T, candidate *PreparedCandidate) {
+			candidate.roles[0].attempts[0].invocations[0].artifacts[0].bytes = []byte("other capture")
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := publicationRuntimeCandidate(t)
+			test.mutate(t, &candidate)
+			if !candidate.Valid() {
+				t.Fatalf("%s produced an invalid candidate", test.name)
+			}
+			if got := candidate.ValidatedCandidateSHA256(); got == "" || got == want {
+				t.Fatalf("%s candidate identity = %q, want nonempty value distinct from baseline", test.name, got)
+			}
+		})
+	}
+}
+
+func appendPublicationRuntimeRepairInvocation(t *testing.T, candidate *PreparedCandidate) {
+	t.Helper()
+	invocation := candidate.roles[0].attempts[0].invocations[0]
+	invocation.sequence = 2
+	invocation.purpose = domain.InvocationRepair
+	invocation.runtime = clonePreparedRuntimeArtifact(invocation.runtime)
+	invocation.artifacts = []preparedAttemptArtifact{{
+		kind: ports.AttemptArtifactRepairedCandidate, bytes: []byte("repaired capture"),
+	}}
+	candidate.roles[0].attempts[0].invocations = append(candidate.roles[0].attempts[0].invocations, invocation)
+}
+
+func clonePreparedRuntimeArtifact(runtime *preparedRuntimeArtifact) *preparedRuntimeArtifact {
+	cloned := *runtime
+	cloned.target = append([]byte(nil), runtime.target...)
+	cloned.stdin = append([]byte(nil), runtime.stdin...)
+	cloned.adapterParameters = make(map[string]string, len(runtime.adapterParameters))
+	for key, value := range runtime.adapterParameters {
+		cloned.adapterParameters[key] = value
+	}
+	return &cloned
+}
+
+func publicationRuntimeCandidate(t *testing.T) PreparedCandidate {
+	t.Helper()
+	candidate := publicationTestCandidate(t, false)
+	target := []byte("reviewed line\n")
+	for roleIndex := range candidate.roles {
+		invocation := &candidate.roles[roleIndex].attempts[0].invocations[0]
+		stdin := []byte("provider stdin")
+		invocation.runtime = &preparedRuntimeArtifact{
+			target: target, targetSHA256: strings.TrimPrefix(candidate.target.sha256, "sha256:"),
+			targetKind: domain.TargetPatch, stdin: stdin, stdinSHA256: prompt.CompleteStdinSHA256(stdin),
+			templateID: "review", templateVersion: "v1", templateSHA256: "sha256:" + strings.Repeat("c", 64),
+			sourceInvocationID: "source-1", executionInvocationID: "execution-1", scope: "repository",
+			role: candidate.roles[roleIndex].role, adapterProfile: "default", adapterParameters: map[string]string{"model": "trusted"},
+		}
+		invocation.artifacts = []preparedAttemptArtifact{{kind: ports.AttemptArtifactInitialCandidate, bytes: []byte("captured candidate")}}
+	}
+	return candidate
 }
 func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate {
 	t.Helper()

@@ -123,6 +123,7 @@ KAR additionally parses the UUID and verifies version 7. It rejects separators, 
 | Source run artifacts | Source run | No | No |
 
 A new followup, delta, or rerun never modifies source run files.
+G008 implements immutable child/source lineage: a child run references validated immutable source artifacts and immutable lineage-edge bytes; it never adopts, rewrites, or deletes source-run bytes.
 
 ## 5. Session Metadata
 
@@ -151,6 +152,7 @@ ci_decision
 ```
 
 It also records `persisted_journal_state`, `derived_publication_status`, expected staged/final path and hash where recovery requires them, and references to the immutable manifest, lineage-edge, and epoch observations. `persisted_journal_state` is only a recovery hint; reader authority and serialized `publication_status` come only from the durable classifier.
+For G008 child runs, lineage edges are immutable, content-addressed child-to-parent records installed with the manifest in the composite publication transaction. Source target, prompt, and attempt bytes remain source-owned immutable bytes; a child may reference them or persist its own newly captured immutable bytes, but may not mutate either set.
 
 Schemas:
 
@@ -218,9 +220,9 @@ Teams may intentionally version `.kar/context.md` and approved `.kar/prompts/`; 
 
 ## 11. Retention, Export, and Transitive Protection
 
-Deletion operates only below the validated artifact root, never follows symlinks, and uses the same store lock as secure-writer publication. A redacted export creates a new secure-writer package and never mutates original evidence.
+Deletion operates only below the validated artifact root, never follows symlinks, and uses the same store lock as secure-writer publication. A redacted export creates a new secure-writer package and never mutates original evidence, grants publication authority, or authorizes release.
 
-A clean plan has fixed inputs: `retention_age`, `min_age_for_size`, `target_bytes`, explicit keep IDs, fixed `now`, and store epoch `E0`. Its retained seed is:
+A clean plan obtains `retention_age`, `min_age_for_size`, `target_bytes`, and explicit keep IDs from resolved retention policy; it freezes those resolved values with fixed `now` and store epoch `E0`.
 
 ```text
 explicit keep IDs
@@ -255,7 +257,7 @@ partial_delete_resume
 
 The `age_delete_set` contains completed, unprotected runs with `completed_at < now-retention_age`. The `size_delete_set` contains completed, unprotected runs not in the age set with `completed_at <= now-min_age_for_size`. Each set is ordered by `(completed_at UTC epoch nanos ascending, run_id UTF-8 ascending)`. Apply all age deletions first, then ordered size deletions until regular-file `lstat` bytes after planned deletions are no greater than `target_bytes`.
 
-Dry-run emits the canonical clean-plan with its exact inputs, `E0`, ordered actions, reasons, edge references, byte accounting, and plan hash. Apply requires the exact plan hash and unchanged `E0` and input policy; otherwise it fails as stale with exit `7`. Apply executes only the listed actions and never recomputes eligibility. Tombstone commit precedes deletion; restart resumes the tombstone. An unjournaled partial directory is protected as corrupt. Explain renders the same machine plan plus deterministic human rows.
+Dry-run emits the canonical clean-plan with its exact resolved-policy inputs, `E0`, ordered actions, reasons, edge references, byte accounting, and plan hash. Apply accepts the request's exact `expected_plan_sha256` and requires that hash, unchanged `E0`, and unchanged input policy; otherwise it fails as stale with exit `7`. Apply executes only the listed actions and never recomputes eligibility. Tombstone commit precedes deletion; restart resumes the tombstone; an unjournaled partial directory is protected as corrupt. Explain renders the same machine plan plus deterministic human rows.
 
 `plan_hash` has one canonical, non-self-referential preimage. Construct `plan_hash_input` by removing the top-level fields `mode`, `plan_hash`, and `apply_identity` from the schema-valid clean-plan object. Serialize the remaining object as RFC 8785 canonical JSON UTF-8 bytes with no trailing newline, then compute:
 
@@ -265,7 +267,7 @@ plan_hash = "sha256:" + lowercase_hex(
 )
 ```
 
-Dry-run and explain therefore identify the same ordered plan. Apply supplies the dry-run hash separately in `apply_identity.dry_run_plan_hash` and must verify that hash, the unchanged store epoch, and the unchanged input-policy hash before any tombstone or deletion.
+Dry-run and explain therefore identify the same ordered plan. Apply supplies the dry-run hash through the frozen request field `expected_plan_sha256` and must verify that hash, the unchanged store epoch, and the unchanged input-policy hash before any tombstone or deletion.
 
 ## 12. Publication State Inputs
 

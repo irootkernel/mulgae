@@ -259,6 +259,69 @@ func (artifact ImmutablePublicationArtifact) validate() error {
 }
 
 // FinalReviewArtifact is one immutable final review and its exact bytes.
+// AttemptArtifactKind identifies one captured provider byte stream.
+type AttemptArtifactKind string
+
+const (
+	AttemptArtifactInitialCandidate  AttemptArtifactKind = "initial_candidate"
+	AttemptArtifactRepairedCandidate AttemptArtifactKind = "repaired_candidate"
+	AttemptArtifactStdout            AttemptArtifactKind = "stdout"
+	AttemptArtifactStderr            AttemptArtifactKind = "stderr"
+)
+
+// Valid reports whether the kind is a persisted provider byte stream.
+func (kind AttemptArtifactKind) Valid() bool {
+	return kind == AttemptArtifactInitialCandidate ||
+		kind == AttemptArtifactRepairedCandidate ||
+		kind == AttemptArtifactStdout ||
+		kind == AttemptArtifactStderr
+}
+
+// CapturedAttemptArtifact is a caller-owned captured provider byte stream.
+// SecurityRejected means the bytes were rejected before persistence and must be
+// empty; it deliberately carries no synthetic identity or receipt.
+type CapturedAttemptArtifact struct {
+	kind             AttemptArtifactKind
+	bytes            []byte
+	securityRejected bool
+}
+
+// NewCapturedAttemptArtifact takes ownership of permitted bytes. Rejected
+// streams retain only their rejection state and can never be serialized.
+func NewCapturedAttemptArtifact(
+	kind AttemptArtifactKind,
+	bytes []byte,
+	securityRejected bool,
+) (CapturedAttemptArtifact, error) {
+	artifact := CapturedAttemptArtifact{
+		kind: kind, bytes: cloneBytes(bytes), securityRejected: securityRejected,
+	}
+	if !artifact.Valid() {
+		return CapturedAttemptArtifact{}, fmt.Errorf("captured attempt artifact: invalid kind or bytes")
+	}
+	return artifact, nil
+}
+
+// Kind returns the captured stream kind.
+func (artifact CapturedAttemptArtifact) Kind() AttemptArtifactKind { return artifact.kind }
+
+// Bytes returns a caller-owned copy of permitted captured bytes.
+func (artifact CapturedAttemptArtifact) Bytes() []byte { return cloneBytes(artifact.bytes) }
+
+// SecurityRejected reports whether capture policy rejected the stream.
+func (artifact CapturedAttemptArtifact) SecurityRejected() bool { return artifact.securityRejected }
+
+// Valid reports whether the artifact can be handled without persisting rejected bytes.
+func (artifact CapturedAttemptArtifact) Valid() bool {
+	if !artifact.kind.Valid() {
+		return false
+	}
+	if artifact.securityRejected {
+		return len(artifact.bytes) == 0
+	}
+	return len(artifact.bytes) > 0
+}
+
 type FinalReviewArtifact struct {
 	identity FinalReviewIdentity
 	bytes    []byte
@@ -455,49 +518,106 @@ func validatedCandidatePathForFinal(final FinalReviewIdentity) (SafeRelativePath
 	return NewSafeRelativePath(prefix + "/validation/final-candidate.json")
 }
 
-// AuxiliaryArtifactStore persists and reads immutable, non-authoritative
-// publication support artifacts. It accepts only exact artifacts under the
-// canonical run excerpts directory and never replaces an existing artifact.
-type AuxiliaryArtifactStore interface {
+// RunSupportArtifactStore persists and reads immutable, non-authoritative run
+// support artifacts. It accepts only canonical excerpt and provider-attempt
+// paths for its exact run and never replaces an existing artifact.
+type RunSupportArtifactStore interface {
 	PersistAuxiliaryArtifact(context.Context, PersistAuxiliaryArtifactRequest) (PersistAuxiliaryArtifactResult, error)
 	ReadAuxiliaryArtifact(context.Context, ReadAuxiliaryArtifactRequest) (ImmutablePublicationArtifact, error)
 }
 
-// PersistAuxiliaryArtifactRequest binds one exact immutable excerpt to a run.
+// AuxiliaryArtifactStore is retained for consumers that only render excerpts.
+// New publication code uses RunSupportArtifactStore terminology.
+type AuxiliaryArtifactStore = RunSupportArtifactStore
+
+// RunSupportArtifactKind identifies the closed support-artifact path grammar.
+type RunSupportArtifactKind string
+
+const (
+	RunSupportArtifactExcerpt           RunSupportArtifactKind = "excerpt"
+	RunSupportArtifactAttemptStatus     RunSupportArtifactKind = "attempt_status"
+	RunSupportArtifactInitialCandidate  RunSupportArtifactKind = "initial_candidate"
+	RunSupportArtifactRepairedCandidate RunSupportArtifactKind = "repaired_candidate"
+	RunSupportArtifactInvocationStdout  RunSupportArtifactKind = "invocation_stdout"
+	RunSupportArtifactInvocationStderr  RunSupportArtifactKind = "invocation_stderr"
+	RunSupportArtifactTargetBytes       RunSupportArtifactKind = "target_bytes"
+	RunSupportArtifactTargetManifest    RunSupportArtifactKind = "target_manifest"
+	RunSupportArtifactPromptStdin       RunSupportArtifactKind = "prompt_stdin"
+	RunSupportArtifactPromptManifest    RunSupportArtifactKind = "prompt_manifest"
+	RunSupportArtifactSupportIndex      RunSupportArtifactKind = "support_index"
+)
+
+// Valid reports whether kind is a closed run-support artifact kind.
+func (kind RunSupportArtifactKind) Valid() bool {
+	switch kind {
+	case RunSupportArtifactExcerpt, RunSupportArtifactAttemptStatus,
+		RunSupportArtifactInitialCandidate, RunSupportArtifactRepairedCandidate,
+		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
+		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
+		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
+		RunSupportArtifactSupportIndex:
+		return true
+	default:
+		return false
+	}
+}
+
+// PersistAuxiliaryArtifactRequest binds one exact immutable run-support artifact
+// to a run. Its kind is derived from the canonical path, never caller supplied.
 type PersistAuxiliaryArtifactRequest struct {
 	run      PublicationRun
 	artifact ImmutablePublicationArtifact
+	kind     RunSupportArtifactKind
 }
 
-// NewPersistAuxiliaryArtifactRequest validates a no-replace excerpt write.
+// NewPersistAuxiliaryArtifactRequest validates a no-replace run-support write.
 func NewPersistAuxiliaryArtifactRequest(
 	run PublicationRun,
 	artifact ImmutablePublicationArtifact,
 ) (PersistAuxiliaryArtifactRequest, error) {
-	request := PersistAuxiliaryArtifactRequest{run: run, artifact: artifact}
+	kind, err := classifyCanonicalRunSupportPath(run, artifact.Path())
+	if err != nil {
+		return PersistAuxiliaryArtifactRequest{}, fmt.Errorf("persist run support artifact: %w", err)
+	}
+	request := PersistAuxiliaryArtifactRequest{run: run, artifact: artifact, kind: kind}
 	if err := request.validate(); err != nil {
-		return PersistAuxiliaryArtifactRequest{}, fmt.Errorf("persist auxiliary artifact request: %w", err)
+		return PersistAuxiliaryArtifactRequest{}, fmt.Errorf("persist run support artifact request: %w", err)
 	}
 	return request, nil
+}
+
+// NewPersistRunSupportArtifactRequest is the canonical run-support constructor.
+func NewPersistRunSupportArtifactRequest(
+	run PublicationRun,
+	artifact ImmutablePublicationArtifact,
+) (PersistAuxiliaryArtifactRequest, error) {
+	return NewPersistAuxiliaryArtifactRequest(run, artifact)
 }
 
 // Run returns the exact publication scope.
 func (request PersistAuxiliaryArtifactRequest) Run() PublicationRun { return request.run }
 
-// Artifact returns the exact immutable excerpt artifact.
+// Artifact returns the exact immutable run-support artifact.
 func (request PersistAuxiliaryArtifactRequest) Artifact() ImmutablePublicationArtifact {
 	return request.artifact
 }
 
+// Kind returns the path-derived closed run-support artifact kind.
+func (request PersistAuxiliaryArtifactRequest) Kind() RunSupportArtifactKind { return request.kind }
+
 func (request PersistAuxiliaryArtifactRequest) validate() error {
-	if !request.run.Valid() || !request.artifact.Valid() {
-		return fmt.Errorf("invalid run or artifact")
+	if !request.run.Valid() || !request.artifact.Valid() || !request.kind.Valid() {
+		return fmt.Errorf("invalid run, artifact, or kind")
 	}
-	return validateCanonicalExcerptPath(request.run, request.artifact.Path())
+	kind, err := classifyCanonicalRunSupportPath(request.run, request.artifact.Path())
+	if err != nil || kind != request.kind {
+		return fmt.Errorf("artifact path is not canonical run support")
+	}
+	return nil
 }
 
-// AuxiliaryArtifactDurability distinguishes a durable excerpt from one installed
-// before its directory durability step reported an error.
+// AuxiliaryArtifactDurability distinguishes a durable run-support artifact from
+// one installed before its directory durability step reported an error.
 type AuxiliaryArtifactDurability string
 
 const (
@@ -510,7 +630,7 @@ func (durability AuxiliaryArtifactDurability) Valid() bool {
 	return durability == AuxiliaryArtifactDurable || durability == AuxiliaryArtifactUndurable
 }
 
-// PersistAuxiliaryArtifactResult exists only after exact excerpt bytes were
+// PersistAuxiliaryArtifactResult exists only after exact run-support bytes were
 // installed. An undurable result must be followed by ObserveRun, not retried.
 type PersistAuxiliaryArtifactResult struct {
 	artifact   ImmutablePublicationArtifact
@@ -518,7 +638,7 @@ type PersistAuxiliaryArtifactResult struct {
 	durability AuxiliaryArtifactDurability
 }
 
-// NewPersistAuxiliaryArtifactResult validates an installed excerpt receipt.
+// NewPersistAuxiliaryArtifactResult validates an installed run-support receipt.
 func NewPersistAuxiliaryArtifactResult(
 	artifact ImmutablePublicationArtifact,
 	receipt SecureWriteReceipt,
@@ -533,7 +653,7 @@ func NewPersistAuxiliaryArtifactResult(
 	return result, nil
 }
 
-// Artifact returns the installed immutable excerpt.
+// Artifact returns the installed immutable run-support artifact.
 func (result PersistAuxiliaryArtifactResult) Artifact() ImmutablePublicationArtifact {
 	return result.artifact
 }
@@ -564,39 +684,58 @@ func (result PersistAuxiliaryArtifactResult) validate() error {
 	return nil
 }
 
-// ReadAuxiliaryArtifactRequest identifies one immutable excerpt by its canonical
-// path, with an optional exact raw SHA-256. Adapters must always reject a
-// different path and must reject a different artifact when a hash is supplied.
+// ReadAuxiliaryArtifactRequest identifies one immutable run-support artifact by
+// its canonical path, with an optional exact raw SHA-256. Adapters must always
+// reject a different path and must reject a different artifact when a hash is
+// supplied.
 type ReadAuxiliaryArtifactRequest struct {
 	run          PublicationRun
 	path         SafeRelativePath
+	kind         RunSupportArtifactKind
 	sha256       string
 	maxReadBytes int64
 }
 
-// NewReadAuxiliaryArtifactRequest validates one bounded excerpt read. An empty
-// SHA-256 requests a bounded canonical-path read; a non-empty SHA-256 remains
-// an exact raw-byte identity requirement.
+// NewReadAuxiliaryArtifactRequest validates one bounded run-support read. An
+// empty SHA-256 requests a bounded canonical-path read; a non-empty SHA-256
+// remains an exact raw-byte identity requirement.
 func NewReadAuxiliaryArtifactRequest(
 	run PublicationRun,
 	path SafeRelativePath,
 	sha256 string,
 	maxReadBytes int64,
 ) (ReadAuxiliaryArtifactRequest, error) {
+	kind, err := classifyCanonicalRunSupportPath(run, path)
+	if err != nil {
+		return ReadAuxiliaryArtifactRequest{}, fmt.Errorf("read run support artifact: %w", err)
+	}
 	request := ReadAuxiliaryArtifactRequest{
-		run: run, path: path, sha256: sha256, maxReadBytes: maxReadBytes,
+		run: run, path: path, kind: kind, sha256: sha256, maxReadBytes: maxReadBytes,
 	}
 	if err := request.validate(); err != nil {
-		return ReadAuxiliaryArtifactRequest{}, fmt.Errorf("read auxiliary artifact request: %w", err)
+		return ReadAuxiliaryArtifactRequest{}, fmt.Errorf("read run support artifact request: %w", err)
 	}
 	return request, nil
+}
+
+// NewReadRunSupportArtifactRequest is the canonical run-support constructor.
+func NewReadRunSupportArtifactRequest(
+	run PublicationRun,
+	path SafeRelativePath,
+	sha256 string,
+	maxReadBytes int64,
+) (ReadAuxiliaryArtifactRequest, error) {
+	return NewReadAuxiliaryArtifactRequest(run, path, sha256, maxReadBytes)
 }
 
 // Run returns the exact publication scope.
 func (request ReadAuxiliaryArtifactRequest) Run() PublicationRun { return request.run }
 
-// Path returns the exact expected excerpt path.
+// Path returns the exact expected run-support path.
 func (request ReadAuxiliaryArtifactRequest) Path() SafeRelativePath { return request.path }
+
+// Kind returns the path-derived closed run-support artifact kind.
+func (request ReadAuxiliaryArtifactRequest) Kind() RunSupportArtifactKind { return request.kind }
 
 // ExpectedSHA256 returns the optional expected exact raw artifact hash.
 func (request ReadAuxiliaryArtifactRequest) ExpectedSHA256() (string, bool) {
@@ -607,21 +746,164 @@ func (request ReadAuxiliaryArtifactRequest) ExpectedSHA256() (string, bool) {
 func (request ReadAuxiliaryArtifactRequest) MaxReadBytes() int64 { return request.maxReadBytes }
 
 func (request ReadAuxiliaryArtifactRequest) validate() error {
-	if !request.run.Valid() || !request.path.Valid() || request.maxReadBytes <= 0 {
-		return fmt.Errorf("invalid run, path, or read cap")
+	if !request.run.Valid() || !request.path.Valid() || !request.kind.Valid() || request.maxReadBytes <= 0 {
+		return fmt.Errorf("invalid run, path, kind, or read cap")
 	}
 	if request.sha256 != "" && validateSHA256(request.sha256) != nil {
 		return fmt.Errorf("invalid hash")
 	}
-	return validateCanonicalExcerptPath(request.run, request.path)
+	kind, err := classifyCanonicalRunSupportPath(request.run, request.path)
+	if err != nil || kind != request.kind {
+		return fmt.Errorf("path is not canonical run support")
+	}
+	return nil
 }
 
 func validateCanonicalExcerptPath(run PublicationRun, path SafeRelativePath) error {
-	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/excerpts/"
-	if !strings.HasPrefix(path.String(), prefix) || len(path.String()) == len(prefix) {
-		return fmt.Errorf("artifact path %q is not under canonical excerpts directory", path.String())
+	kind, err := classifyCanonicalRunSupportPath(run, path)
+	if err != nil || kind != RunSupportArtifactExcerpt {
+		return fmt.Errorf("artifact path %q is not a canonical excerpt", path.String())
 	}
 	return nil
+}
+
+// ClassifyRunSupportArtifactPath validates a canonical support-artifact path
+// against its immutable session and run scope.
+func ClassifyRunSupportArtifactPath(sessionID domain.SessionID, runID domain.RunID, path SafeRelativePath) (RunSupportArtifactKind, error) {
+	if sessionID.String() == "" || runID.String() == "" || !path.Valid() {
+		return "", fmt.Errorf("invalid run scope or path")
+	}
+	return classifyCanonicalRunSupportPathValues(sessionID, runID, path)
+}
+
+func classifyCanonicalRunSupportPath(run PublicationRun, path SafeRelativePath) (RunSupportArtifactKind, error) {
+	if !run.Valid() || !path.Valid() {
+		return "", fmt.Errorf("invalid run or path")
+	}
+	return classifyCanonicalRunSupportPathValues(run.SessionID(), run.RunID(), path)
+}
+
+func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID domain.RunID, path SafeRelativePath) (RunSupportArtifactKind, error) {
+	prefix := sessionID.String() + "/" + runID.String() + "/"
+	value := path.String()
+	if !strings.HasPrefix(value, prefix) {
+		return "", fmt.Errorf("artifact path %q is outside the run", value)
+	}
+	relative := strings.TrimPrefix(value, prefix)
+	if name, ok := strings.CutPrefix(relative, "excerpts/"); ok {
+		if canonicalExcerptName(name) {
+			return RunSupportArtifactExcerpt, nil
+		}
+		return "", fmt.Errorf("excerpt path %q is not canonical", value)
+	}
+	if name, ok := strings.CutPrefix(relative, "attempts/"); ok {
+		return classifyCanonicalAttemptSupportPath(name)
+	}
+	if relative == "target/target.bytes" {
+		return RunSupportArtifactTargetBytes, nil
+	}
+	if relative == "target/target-manifest.json" {
+		return RunSupportArtifactTargetManifest, nil
+	}
+	if relative == "support/index.json" {
+		return RunSupportArtifactSupportIndex, nil
+	}
+	if name, ok := strings.CutPrefix(relative, "prompts/"); ok {
+		return classifyCanonicalPromptSupportPath(name)
+	}
+	return "", fmt.Errorf("artifact path %q is not an allowed run-support path", value)
+}
+
+func canonicalExcerptName(name string) bool {
+	if strings.Contains(name, "/") || !strings.HasPrefix(name, "F") {
+		return false
+	}
+	stem := strings.TrimPrefix(name, "F")
+	if strings.HasSuffix(stem, ".json") {
+		return decimalDigits(strings.TrimSuffix(stem, ".json"), 1)
+	}
+	finding, position, ok := strings.Cut(stem, "_")
+	return ok && strings.HasSuffix(position, ".md") &&
+		decimalDigits(finding, 1) &&
+		decimalDigits(strings.TrimSuffix(position, ".md"), 1)
+}
+
+func classifyCanonicalAttemptSupportPath(name string) (RunSupportArtifactKind, error) {
+	parts := strings.Split(name, "/")
+	if len(parts) < 2 || !validAttemptArtifactID(parts[0]) {
+		return "", fmt.Errorf("attempt support path %q has an invalid attempt ID", name)
+	}
+	switch {
+	case len(parts) == 2 && parts[1] == "status.json":
+		return RunSupportArtifactAttemptStatus, nil
+	case len(parts) == 2 && parts[1] == "candidate.initial.json":
+		return RunSupportArtifactInitialCandidate, nil
+	case len(parts) == 2 && strings.HasPrefix(parts[1], "candidate.repaired.") &&
+		strings.HasSuffix(parts[1], ".json") &&
+		decimalIdentifier(strings.TrimSuffix(strings.TrimPrefix(parts[1], "candidate.repaired."), ".json"), 3):
+		return RunSupportArtifactRepairedCandidate, nil
+	case len(parts) == 4 && parts[1] == "invocations" &&
+		canonicalInvocationDirectory(parts[2]) && parts[3] == "stdout.raw":
+		return RunSupportArtifactInvocationStdout, nil
+	case len(parts) == 4 && parts[1] == "invocations" &&
+		canonicalInvocationDirectory(parts[2]) && parts[3] == "stderr.raw":
+		return RunSupportArtifactInvocationStderr, nil
+	default:
+		return "", fmt.Errorf("attempt support path %q is not canonical", name)
+	}
+}
+func classifyCanonicalPromptSupportPath(name string) (RunSupportArtifactKind, error) {
+	parts := strings.Split(name, "/")
+	if len(parts) != 2 || !validAttemptArtifactID(parts[0]) {
+		return "", fmt.Errorf("prompt support path %q is not canonical", name)
+	}
+	sequence, suffix, ok := strings.Cut(parts[1], "-")
+	if !ok || !decimalIdentifier(sequence, 3) {
+		return "", fmt.Errorf("prompt support path %q is not canonical", name)
+	}
+	switch suffix {
+	case "initial.stdin", "repair.stdin":
+		return RunSupportArtifactPromptStdin, nil
+	case "initial.manifest.json", "repair.manifest.json":
+		return RunSupportArtifactPromptManifest, nil
+	default:
+		return "", fmt.Errorf("prompt support path %q is not canonical", name)
+	}
+}
+
+func validAttemptArtifactID(value string) bool {
+	_, err := domain.ParseAttemptID(value)
+	return err == nil
+}
+
+func canonicalInvocationDirectory(value string) bool {
+	sequence, purpose, ok := strings.Cut(value, "-")
+	return ok && decimalIdentifier(sequence, 3) && (purpose == "initial" || purpose == "repair")
+}
+
+func decimalIdentifier(value string, minimumWidth int) bool {
+	if len(value) < minimumWidth || value == "" {
+		return false
+	}
+	nonZero := false
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+		nonZero = nonZero || character != '0'
+	}
+	return nonZero && (value[0] != '0' || len(value) == minimumWidth)
+}
+func decimalDigits(value string, minimumWidth int) bool {
+	if len(value) < minimumWidth {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // IssueReviewIDRequest proves which final validated candidate is about to

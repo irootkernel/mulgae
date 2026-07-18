@@ -2,7 +2,7 @@
 
 ## 0. G0 Contract Boundary
 
-This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G006 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and committed-query boundaries; and G007 completes the authority-gated provider adapters for exactly `kimi`, `zcode`, and `agy`. G008 and G009 remain separately gated and pending.
+This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G007 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and authority-gated provider-adapter boundaries. G008 completes the lineage, retention, and export application boundary. G009 remains separately gated and pending.
 
 No coordinator, publisher, provider adapter, lineage service, product tool, actual product/release CI job, or release asset may be implemented before both the authoritative SOT post-verification records `g0_complete` and a separate session-bound implementation approval is granted. Gate A, candidate review, promotion authorization, and the authority-ref compare-and-swap are distinct prerequisites; cached approval data is not authority.
 
@@ -21,7 +21,7 @@ The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and
 
 ## 0.1 Post-G0 architectural milestones
 
-G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds opt-in live provider adapters only after tuple evidence. G5 adds followup, delta, rerun, cleanup, and export. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
+G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds opt-in live provider adapters only after tuple evidence. G008 completes followup, delta, rerun, cleanup, and export; its fake verification surface exercises all four workflows, including review. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
 
 ## 0.2 Authority and persistence boundaries
 
@@ -65,10 +65,12 @@ internal/domain/
   errors.go
 
 internal/app/
-  start_review.go
-  start_followup.go
-  start_delta.go
-  start_rerun.go
+  review/
+  followup/
+  delta/
+  rerun/
+  clean/
+  export/
   coordinator.go
   validation_pipeline.go
   aggregation.go
@@ -109,6 +111,8 @@ internal/builtin/prompts/
 internal/builtin/schemas/
 internal/builtin/help/
 ```
+G008 owns the application packages `internal/app/followup`, `internal/app/delta`, `internal/app/rerun`, `internal/app/clean`, and `internal/app/export`. The child-workflow packages create new runs from immutable source records; `clean` produces and applies a fixed-epoch, hash-bound retention plan; `export` produces a redacted bundle and manifest. These packages depend on domain/ports contracts and do not take ownership of CLI parsing or durable adapter effects.
+
 
 ## 3. Core Domain Rules
 
@@ -294,7 +298,7 @@ The CLI layer handles:
 - rendering concise progress and final status;
 - mapping application results to exit codes.
 
-It must not implement scheduling, fallback, validation, target capture, or publication logic.
+It must not implement scheduling, fallback, validation, target capture, publication, lineage transitions, retention planning, or export/redaction logic. The G008 CLI boundary dispatches `followup`, `delta`, `rerun`, `clean`, and `export` to their application services alongside the established `review` command; it only constructs requests, renders envelopes, and maps typed results to exits.
 
 ## 12. Schema Evolution
 

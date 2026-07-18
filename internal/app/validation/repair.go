@@ -17,65 +17,73 @@ import (
 // replacement review; a fill-missing-fields repair accepts only the bounded
 // kar-repair-patch.v1 pointer set from its RepairPlan.
 func (validator *ReviewValidator) ApplyRepair(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, error) {
+	review, _, err := validator.ApplyRepairCandidate(ctx, originalRaw, repairRaw, scope, plan)
+	return review, err
+}
+
+// ApplyRepairCandidate applies a repair and returns the exact validated provider
+// review candidate. For a patch repair, candidate is the reconstructed JSON;
+// repairRaw remains the distinct provider patch stream in ValidatedReview.
+func (validator *ReviewValidator) ApplyRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, []byte, error) {
 	if validator == nil {
-		return ValidatedReview{}, fmt.Errorf("review repair: nil validator")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: nil validator")
 	}
 	if ctx == nil {
-		return ValidatedReview{}, fmt.Errorf("review repair: nil context")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: nil context")
 	}
 	if err := ctx.Err(); err != nil {
-		return ValidatedReview{}, fmt.Errorf("review repair: context: %w", err)
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: context: %w", err)
 	}
 	if nilSchemaValidator(validator.schemaValidator) || !validator.schemaID.Valid() || validator.schemaID.String() != ProviderReviewSchemaID {
-		return ValidatedReview{}, fmt.Errorf("review repair: invalid validator configuration")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: invalid validator configuration")
 	}
 	if _, err := validateScope(scope); err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	if scope.SourceBearing {
-		return ValidatedReview{}, fmt.Errorf("review repair: source-bearing reviews require a trusted source-identity reducer")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: source-bearing reviews require a trusted source-identity reducer")
 	}
 	if !plan.valid() {
-		return ValidatedReview{}, fmt.Errorf("review repair: invalid repair plan")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: invalid repair plan")
 	}
 	if sha256.Sum256(originalRaw) != plan.originalSHA256 {
-		return ValidatedReview{}, fmt.Errorf("review repair: original output does not match repair plan")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: original output does not match repair plan")
 	}
 
 	switch plan.mode {
 	case RepairModeReformatOnly:
 		review, _, err := validator.validate(ctx, repairRaw, scope, originalRaw, repairRaw, false)
 		if err != nil {
-			return ValidatedReview{}, fmt.Errorf("review repair: reformat candidate: %w", err)
+			return ValidatedReview{}, nil, fmt.Errorf("review repair: reformat candidate: %w", err)
 		}
-		return review, nil
+		return review, append([]byte(nil), repairRaw...), nil
 	case RepairModeFillMissingFields:
-		return validator.applyPatchRepair(ctx, originalRaw, repairRaw, scope, plan)
+		return validator.applyPatchRepairCandidate(ctx, originalRaw, repairRaw, scope, plan)
 	default:
-		return ValidatedReview{}, fmt.Errorf("review repair: unsupported mode %q", plan.mode)
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: unsupported mode %q", plan.mode)
 	}
 }
 
-func (validator *ReviewValidator) applyPatchRepair(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, error) {
+func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, []byte, error) {
 	original, err := decodeJSONObject(originalRaw, "original provider output")
 	if err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	if err := guardProviderReview(original); err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	originalCount, err := findingCount(original)
 	if err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	originalSeverity, err := findingSeverities(original)
 	if err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 
 	patch, err := validator.decodeRepairPatch(ctx, repairRaw)
 	if err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	allowed := make(map[string]struct{}, len(plan.allowedPaths))
 	for _, path := range plan.allowedPaths {
@@ -83,33 +91,33 @@ func (validator *ReviewValidator) applyPatchRepair(ctx context.Context, original
 	}
 	for _, operation := range patch.repairs {
 		if _, ok := allowed[operation.path]; !ok {
-			return ValidatedReview{}, fmt.Errorf("review repair: path %q is not allowed", operation.path)
+			return ValidatedReview{}, nil, fmt.Errorf("review repair: path %q is not allowed", operation.path)
 		}
 		if err := setRepairValue(original, operation.path, operation.value); err != nil {
-			return ValidatedReview{}, fmt.Errorf("review repair: path %q: %w", operation.path, err)
+			return ValidatedReview{}, nil, fmt.Errorf("review repair: path %q: %w", operation.path, err)
 		}
 	}
 	if err := guardProviderReview(original); err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 	if repairedCount, err := findingCount(original); err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	} else if repairedCount != originalCount {
-		return ValidatedReview{}, fmt.Errorf("review repair: finding count changed")
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: finding count changed")
 	}
 	if err := rejectSeverityDowngrade(originalSeverity, original); err != nil {
-		return ValidatedReview{}, err
+		return ValidatedReview{}, nil, err
 	}
 
 	candidateRaw, err := json.Marshal(original)
 	if err != nil {
-		return ValidatedReview{}, fmt.Errorf("review repair: marshal candidate: %w", err)
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: marshal candidate: %w", err)
 	}
 	review, _, err := validator.validate(ctx, candidateRaw, scope, originalRaw, repairRaw, false)
 	if err != nil {
-		return ValidatedReview{}, fmt.Errorf("review repair: patched candidate: %w", err)
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: patched candidate: %w", err)
 	}
-	return review, nil
+	return review, candidateRaw, nil
 }
 
 type repairPatch struct {

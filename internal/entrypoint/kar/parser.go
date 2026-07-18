@@ -1,6 +1,7 @@
 package kar
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,6 +67,16 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseConfig(remaining, defaultProjectRoot, requestID)
 	case app.CommandSchema:
 		return parseSchema(remaining, defaultProjectRoot, requestID)
+	case app.CommandFollowup:
+		return parseFollowup(remaining, requestID)
+	case app.CommandDelta:
+		return parseDelta(remaining, requestID)
+	case app.CommandRerun:
+		return parseRerun(remaining, requestID)
+	case app.CommandClean:
+		return parseClean(remaining, requestID)
+	case app.CommandExport:
+		return parseExport(remaining, requestID)
 	default:
 		if len(remaining) != 0 {
 			return Invocation{}, usageError("future command %q does not accept arguments in this milestone", command)
@@ -77,6 +88,167 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 			outputFormat: OutputFormatHuman,
 		}, nil
 	}
+}
+
+// ParseResolved resolves documented CLI selectors before freezing the exact schema
+// request object. Parse remains the pure canonical-ID entry point.
+func ParseResolved(ctx context.Context, arguments []string, defaultProjectRoot, requestID string, resolver RequestResolver) (Invocation, error) {
+	if len(arguments) == 0 {
+		return Parse(arguments, defaultProjectRoot, requestID)
+	}
+	normalized := cloneStrings(arguments)
+	var err error
+	switch normalized[0] {
+	case string(app.CommandFollowup):
+		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
+			return Invocation{}, err
+		}
+		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
+		if err != nil {
+			return Invocation{}, err
+		}
+	case string(app.CommandDelta):
+		if err := resolveRunFlag(ctx, normalized, "--since-run", resolver); err != nil {
+			return Invocation{}, err
+		}
+		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
+		if err != nil {
+			return Invocation{}, err
+		}
+	case string(app.CommandRerun):
+		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
+			return Invocation{}, err
+		}
+		normalized, err = resolveRerunSelector(ctx, normalized, resolver)
+		if err != nil {
+			return Invocation{}, err
+		}
+	case string(app.CommandExport):
+		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
+			return Invocation{}, err
+		}
+	}
+	return Parse(normalized, defaultProjectRoot, requestID)
+}
+
+func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolver RequestResolver) error {
+	for index := 1; index < len(arguments); index++ {
+		if arguments[index] != flag {
+			continue
+		}
+		if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+			return nil
+		}
+		if arguments[index+1] != "latest" {
+			return nil
+		}
+		if resolver == nil {
+			return usageError("%s latest selector requires a resolver", flag)
+		}
+		runID, err := resolver.ResolveRun(ctx, "latest")
+		if err != nil {
+			return usageError("resolve latest run: %v", err)
+		}
+		arguments[index+1] = runID
+		return nil
+	}
+	return nil
+}
+
+func resolveCapturedStdin(ctx context.Context, arguments []string, resolver RequestResolver) ([]string, error) {
+	stdinCount := 0
+	stdinIndex := -1
+	for index := 1; index < len(arguments); index++ {
+		switch arguments[index] {
+		case "--diff", "--patch", "--stdin":
+			if arguments[index] == "--stdin" {
+				stdinCount++
+				stdinIndex = index
+			}
+		}
+	}
+	if stdinCount != 1 || stdinIndex == -1 || stdinIndex+1 < len(arguments) && !strings.HasPrefix(arguments[stdinIndex+1], "--") {
+		return arguments, nil
+	}
+	if resolver == nil {
+		return nil, usageError("valueless --stdin requires a resolver")
+	}
+	value, err := resolver.CaptureTarget(ctx)
+	if err != nil {
+		return nil, usageError("capture stdin target: %v", err)
+	}
+	if !validTargetValue(value) {
+		return nil, usageError("captured stdin target is malformed")
+	}
+	normalized := make([]string, 0, len(arguments)+1)
+	normalized = append(normalized, arguments[:stdinIndex+1]...)
+	normalized = append(normalized, value)
+	return append(normalized, arguments[stdinIndex+1:]...), nil
+}
+
+func resolveRerunSelector(ctx context.Context, arguments []string, resolver RequestResolver) ([]string, error) {
+	role, hasRole, err := selectorOption(arguments, "--role")
+	if err != nil {
+		return nil, err
+	}
+	provider, hasProvider, err := selectorOption(arguments, "--provider")
+	if err != nil {
+		return nil, err
+	}
+	_, hasAttempt, err := selectorOption(arguments, "--attempt")
+	if err != nil {
+		return nil, err
+	}
+	if !hasRole && !hasProvider {
+		return arguments, nil
+	}
+	if hasAttempt || !hasRole || !hasProvider {
+		return nil, usageError("rerun requires either --attempt or exactly one --role and --provider selector")
+	}
+	if !validRole(role) || !validRole(provider) {
+		return nil, usageError("rerun role/provider selector is malformed")
+	}
+	runID, present, err := selectorOption(arguments, "--run")
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return arguments, nil
+	}
+	if resolver == nil {
+		return nil, usageError("rerun role/provider selector requires a resolver")
+	}
+	attemptID, err := resolver.ResolveAttempt(ctx, runID, role, provider)
+	if err != nil {
+		return nil, usageError("resolve rerun attempt: %v", err)
+	}
+	normalized := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		if arguments[index] == "--role" || arguments[index] == "--provider" {
+			index++
+			continue
+		}
+		normalized = append(normalized, arguments[index])
+	}
+	return append(normalized, "--attempt", attemptID), nil
+}
+
+func selectorOption(arguments []string, flag string) (string, bool, error) {
+	var value string
+	present := false
+	for index := 1; index < len(arguments); index++ {
+		if arguments[index] != flag {
+			continue
+		}
+		if present {
+			return "", false, usageError("duplicate flag")
+		}
+		if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+			return "", false, usageError("flag value is missing")
+		}
+		value, present = arguments[index+1], true
+	}
+	return value, present, nil
 }
 
 func parseCommand(value string) (app.CommandName, error) {
@@ -780,6 +952,344 @@ func parseSchema(arguments []string, defaultProjectRoot, requestID string) (Invo
 		schema:         &request,
 	}, nil
 }
+func parseFollowup(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run": true, "--finding": true, "--diff": true, "--patch": true, "--stdin": true,
+		"--objective": true, "--role": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("followup accepts no positional arguments")
+	}
+	sourceRunID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	findingID, present := options["--finding"]
+	if !present || !validCommandFindingID(findingID) {
+		return Invocation{}, usageError("followup requires a canonical --finding")
+	}
+	target, err := optionTarget(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := FollowupRequest{sourceRunID: sourceRunID, findingID: findingID, target: target}
+	if objective, present := options["--objective"]; present {
+		if !validObjective(objective) {
+			return Invocation{}, usageError("followup objective is malformed")
+		}
+		request.objective, request.hasObjective = objective, true
+	}
+	if role, present := options["--role"]; present {
+		if !validRole(role) {
+			return Invocation{}, usageError("followup role is malformed")
+		}
+		request.role, request.hasRole = role, true
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	var objective, role *string
+	if request.hasObjective {
+		objective = &request.objective
+	}
+	if request.hasRole {
+		role = &request.role
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID   string `json:"request_id"`
+		Command     string `json:"command"`
+		SourceRunID string `json:"source_run_id"`
+		FindingID   string `json:"finding_id"`
+		Target      struct {
+			Kind  string `json:"kind"`
+			Value string `json:"value"`
+		} `json:"target"`
+		Objective    *string      `json:"objective"`
+		Role         *string      `json:"role"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandFollowup), request.sourceRunID, request.findingID, struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	}{request.target.kind, request.target.value}, objective, role, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandFollowup, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, followup: &request}, nil
+}
+
+func parseDelta(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--since-run": true, "--diff": true, "--patch": true, "--stdin": true, "--roles": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("delta accepts no positional arguments")
+	}
+	sourceRunID, err := optionRequiredRunID(options, "--since-run")
+	if err != nil {
+		return Invocation{}, err
+	}
+	target, err := optionTarget(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	rolesValue, present := options["--roles"]
+	if !present {
+		return Invocation{}, usageError("delta requires --roles")
+	}
+	roles, err := parseRolesCSV(rolesValue)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := DeltaRequest{sourceRunID: sourceRunID, target: target, roles: roles}
+	requestJSON, err := marshalRequest(struct {
+		RequestID   string `json:"request_id"`
+		Command     string `json:"command"`
+		SourceRunID string `json:"source_run_id"`
+		Target      struct {
+			Kind  string `json:"kind"`
+			Value string `json:"value"`
+		} `json:"target"`
+		Roles        []string     `json:"roles"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandDelta), request.sourceRunID, struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	}{request.target.kind, request.target.value}, cloneStrings(request.roles), outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandDelta, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, delta: &request}, nil
+}
+
+func parseRerun(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run": true, "--attempt": true, "--replay": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("rerun accepts no positional arguments")
+	}
+	sourceRunID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	sourceAttemptID, present := options["--attempt"]
+	if !present {
+		return Invocation{}, usageError("rerun requires --attempt")
+	}
+	attemptID, err := domain.ParseAttemptID(sourceAttemptID)
+	if err != nil {
+		return Invocation{}, usageError("attempt ID is not a canonical UUIDv7")
+	}
+	replayMode := ReplayModeExact
+	if value, present := options["--replay"]; present {
+		replayMode = ReplayMode(value)
+		if replayMode != ReplayModeExact && replayMode != ReplayModeRecompose {
+			return Invocation{}, usageError("unsupported replay mode")
+		}
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := RerunRequest{sourceRunID: sourceRunID, sourceAttemptID: attemptID.String(), replayMode: replayMode}
+	requestJSON, err := marshalRequest(struct {
+		RequestID       string       `json:"request_id"`
+		Command         string       `json:"command"`
+		SourceRunID     string       `json:"source_run_id"`
+		SourceAttemptID string       `json:"source_attempt_id"`
+		ReplayMode      ReplayMode   `json:"replay_mode"`
+		OutputFormat    OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandRerun), request.sourceRunID, request.sourceAttemptID, request.replayMode, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandRerun, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, rerun: &request}, nil
+}
+
+func parseClean(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--mode": true, "--expected-plan-sha256": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("clean accepts no positional arguments")
+	}
+	request := CleanRequest{mode: CleanModePlan}
+	if value, present := options["--mode"]; present {
+		request.mode = CleanMode(value)
+		if request.mode != CleanModePlan && request.mode != CleanModeApply && request.mode != CleanModeExplain {
+			return Invocation{}, usageError("unsupported clean mode")
+		}
+	}
+	if value, present := options["--expected-plan-sha256"]; present {
+		if !validSHA256Identifier(value) {
+			return Invocation{}, usageError("expected clean plan SHA-256 is not canonical")
+		}
+		request.expectedPlanSHA256, request.hasExpectedPlanHash = value, true
+	}
+	if request.mode == CleanModeApply && !request.hasExpectedPlanHash {
+		return Invocation{}, usageError("clean apply requires --expected-plan-sha256")
+	}
+	if request.mode != CleanModeApply && request.hasExpectedPlanHash {
+		return Invocation{}, usageError("only clean apply accepts --expected-plan-sha256")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	var expectedPlanSHA256 *string
+	if request.hasExpectedPlanHash {
+		expectedPlanSHA256 = &request.expectedPlanSHA256
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID          string       `json:"request_id"`
+		Command            string       `json:"command"`
+		Mode               CleanMode    `json:"mode"`
+		ExpectedPlanSHA256 *string      `json:"expected_plan_sha256"`
+		OutputFormat       OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandClean), request.mode, expectedPlanSHA256, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandClean, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, clean: &request}, nil
+}
+
+func parseExport(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--run": true, "--output-path": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("export accepts no positional arguments")
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputPath, present := options["--output-path"]
+	if !present || !validRelativePath(outputPath) {
+		return Invocation{}, usageError("export requires a safe relative --output-path")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ExportRequest{runID: runID, outputPath: outputPath, redacted: true}
+	requestJSON, err := marshalRequest(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		RunID        string       `json:"run_id"`
+		OutputPath   string       `json:"output_path"`
+		Redacted     bool         `json:"redacted"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandExport), request.runID, request.outputPath, request.redacted, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandExport, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, export: &request}, nil
+}
+func optionTarget(options map[string]string) (TargetRequest, error) {
+	var target TargetRequest
+	for _, candidate := range []struct {
+		kind string
+		flag string
+	}{
+		{kind: "diff", flag: "--diff"},
+		{kind: "patch", flag: "--patch"},
+		{kind: "stdin", flag: "--stdin"},
+	} {
+		value, present := options[candidate.flag]
+		if !present {
+			continue
+		}
+		if target.kind != "" {
+			return TargetRequest{}, usageError("target kind flags are mutually exclusive")
+		}
+		if !validTargetValue(value) {
+			return TargetRequest{}, usageError("target value is malformed")
+		}
+		target = TargetRequest{kind: candidate.kind, value: value}
+	}
+	if target.kind == "" {
+		return TargetRequest{}, usageError("command requires one target kind flag")
+	}
+	return target, nil
+}
+
+func parseRolesCSV(value string) ([]string, error) {
+	if value == "" || strings.ContainsAny(value, "\x00\r\n") {
+		return nil, usageError("role list is malformed")
+	}
+	roles := strings.Split(value, ",")
+	if len(roles) > 6 {
+		return nil, usageError("role list exceeds six roles")
+	}
+	seen := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		if !validRole(role) {
+			return nil, usageError("role list contains a malformed role")
+		}
+		if _, duplicate := seen[role]; duplicate {
+			return nil, usageError("role list contains a duplicate role")
+		}
+		seen[role] = struct{}{}
+	}
+	return roles, nil
+}
+
+func validTargetValue(value string) bool {
+	return value != "" && len(value) <= maximumPathLength && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validObjective(value string) bool {
+	return value != "" && len(value) <= 12000 && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validRole(value string) bool {
+	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validCommandFindingID(value string) bool {
+	if len(value) == 0 || len(value) > 64 || value[0] < 'A' || value[0] > 'Z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 func parseOptions(arguments []string, allowed map[string]bool) ([]string, map[string]string, error) {
 	positionals := make([]string, 0, len(arguments))
@@ -809,6 +1319,17 @@ func optionRunID(options map[string]string) (string, error) {
 	value, present := options["--run"]
 	if !present {
 		return "", usageError("command requires --run")
+	}
+	runID, err := domain.ParseRunID(value)
+	if err != nil {
+		return "", usageError("run ID is not a canonical UUIDv7")
+	}
+	return runID.String(), nil
+}
+func optionRequiredRunID(options map[string]string, flag string) (string, error) {
+	value, present := options[flag]
+	if !present {
+		return "", usageError("command requires %s", flag)
 	}
 	runID, err := domain.ParseRunID(value)
 	if err != nil {

@@ -2,7 +2,7 @@
 
 **Status date:** 2026-07-18
 
-SOT 1.4.0 records the authorized implementation boundary after `g0_complete`: G001 through G007 are complete; G008 and G009 remain pending and unauthorized until their own execution gates are opened.
+SOT 1.5.0 records the authorized implementation boundary after `g0_complete`: G001 through G008 are complete; G009 remains pending and unauthorized until its own execution and release gates are opened.
 
 ## Goal Completion Snapshot
 
@@ -15,10 +15,10 @@ SOT 1.4.0 records the authorized implementation boundary after `g0_complete`: G0
 | G005 | Coordinator lanes, direct process runtime, evidence, outcome axes | **COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
 | G007 | Opt-in evidence-gated provider adapters for exactly `kimi`, `zcode`, and `agy` | **COMPLETE** | `feat(g007)` |
-| G008 | Child workflows, raw attempt artifacts, cleanup, export | **PENDING** | — |
-| G009 | Release assets and integrated v0.1 release gate | **PENDING** | — |
+| G008 | Immutable root/followup/delta/rerun lineage and P2 publication; runtime attempt/target/prompt artifacts; retention/tombstone cleanup; redacted secure export | **COMPLETE** | `feat(g008)` |
+| G009 | Release assets and integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** | — |
 
-A checked item below means its implementation or prerequisite is covered by the recorded G001–G007 boundary. Unchecked items remain G008 or G009 work.
+A checked item below is covered by the recorded completed G001–G008 boundary. G009 work remains unchecked and unauthorized until its own execution gate opens.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -64,7 +64,7 @@ A checked item below means its implementation or prerequisite is covered by the 
 - [x] Support `reformat_only` and `fill_missing_fields` repair modes.
 - [x] Restrict patch paths to explicit `allowed_paths`.
 - [x] Prohibit overwrite of existing meaningful values.
-- [ ] Preserve all raw and repaired outputs as immutable attempt artifacts (G008).
+- [x] Preserve all raw and repaired outputs as immutable attempt artifacts.
 - [x] Run complete schema, semantic, and evidence validation after repair.
 
 ## Target and Evidence
@@ -93,24 +93,24 @@ A checked item below means its implementation or prerequisite is covered by the 
 - [x] Use atomic replacement for mutable run status and publication journal files; install the committed manifest immutably with no replacement.
 - [x] Use write, validate, fsync, and atomic rename for final review publication.
 - [x] Detect hash mismatch and multiple final files as corruption.
-- [ ] Add safe cleanup and redacted export paths (G008).
+- [x] Add safe retention/tombstone cleanup and redacted secure export paths.
 
 ## CLI and CI
 
-- [ ] Implement distinct review, followup, delta, and rerun application services (G008).
-- [ ] Make rerun create a child run, not mutate the source run (G008).
+- [x] Implement distinct review, followup, delta, and rerun application services with immutable child-workflow lineage.
+- [x] Make followup, delta, and rerun create child runs, never mutate the source run.
 - [x] Keep review verdict separate from CI decision.
 - [x] Implement documented exit-code precedence.
 - [x] Add all required help topics and golden tests.
 - [x] Ensure product text never implies approval authority.
 
-## G007 Completion and G009 Release Gates
+## G008 Completion Evidence and G009 Release Gate
 
 - [x] All JSON examples pass their schemas.
 - [x] Race detector passes coordinator and lane tests.
 - [x] Crash tests show no partial final artifact.
 - [x] Security tests show no fallback after security violation.
-- [ ] Fake-provider end-to-end tests cover all four run types (G009).
+- [x] Retain real composed P2 end-to-end evidence covering root review, followup, delta, and rerun through injected provider authority; production standalone operation without canonical recorded provider/evidence authority remains fail-closed with schema-valid typed failures under G007's opt-in authority rules.
 - [x] Complete the G007 opt-in live provider/version adapter contract item for exactly the authority-gated `kimi`, `zcode`, and `agy` adapters: direct noninteractive profiles, strict output isolation, process bounds/cancellation, tuple/base-argv evidence binding, strict unlisted-family rejection, provider CLI reporting, offline standard tests, and a controlled live exact Kimi tuple PASS for `local-default` 0.23.6 with binary SHA-256 `50c358...`; standalone absence of evidence remains `UNVERIFIED`, and all unavailable, failed, or inconclusive tuples remain unsupported.
-- [x] No P0 issue remains in trust, cancellation, fallback, evidence, or publication through the G007 boundary.
-- [x] Record the leader G007 completion evidence: full `go test`, `go vet`, full race, checksums/generation/diff, controlled exact Kimi live test, cleaner **PASS**, and executor QA **PASS**. Final architect signoff is required before the checkpoint; this status does not claim a release.
+- [x] No P0 issue remains in trust, cancellation, fallback, evidence, or publication through the G008 boundary.
+- [x] Retain final full `go test`, `go vet`, race, checksums/generation/diff, cleaner, executor QA, and final architect-review receipts for G008. This completion does not authorize G009 or release.

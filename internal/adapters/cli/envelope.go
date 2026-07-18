@@ -50,10 +50,10 @@ func NewEnvelopeRenderer(clock ports.Clock, validator SchemaValidator) (*Envelop
 }
 
 // Render returns a schema-validated canonical command-result envelope followed
-// by exactly one newline. requestRaw and the selected result data must each
-// contain exactly one non-null JSON object with no duplicate keys. Failed
-// command results use failureResultRaw because the command contract requires a
-// result object even when command execution failed.
+// by exactly one newline. requestRaw and selected result data must each contain
+// exactly one non-null JSON object with no duplicate keys. Failed command
+// results use failureResultRaw because the command contract requires a result
+// object even when command execution failed.
 func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.CommandResult, requestRaw, failureResultRaw []byte) ([]byte, error) {
 	if renderer == nil {
 		return nil, fmt.Errorf("cli envelope: nil renderer")
@@ -80,7 +80,7 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 	if !commandResult.ExitCode().Valid() {
 		return nil, fmt.Errorf("cli envelope: invalid command result exit code")
 	}
-	if commandResult.OK() != (commandResult.ExitCode() == app.ExitCodeSuccess) {
+	if !commandResult.CommittedOutcome() && commandResult.OK() != (commandResult.ExitCode() == app.ExitCodeSuccess) {
 		return nil, fmt.Errorf("cli envelope: inconsistent command result status")
 	}
 
@@ -90,7 +90,7 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 	}
 
 	resultRaw := failureResultRaw
-	if commandResult.OK() {
+	if commandResult.OK() || commandResult.CommittedOutcome() {
 		resultRaw = commandResult.Data()
 	}
 	result, err := decodeJSONObject(resultRaw, "result")
@@ -108,19 +108,35 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 	}
 
 	diagnostics := commandResult.Diagnostics()
-	reasons := make([]commandReason, len(diagnostics))
-	for index, diagnostic := range diagnostics {
-		reason, err := reasonForDiagnostic(diagnostic)
-		if err != nil {
-			return nil, fmt.Errorf("cli envelope: diagnostic %d: %w", index, err)
+	reasons := make([]commandReason, 0, len(diagnostics))
+	if commandResult.CommittedOutcome() {
+		if len(diagnostics) != 0 {
+			return nil, fmt.Errorf("cli envelope: committed outcome has diagnostics")
 		}
-		reasons[index] = reason
-	}
-	if commandResult.OK() && len(reasons) != 0 {
-		return nil, fmt.Errorf("cli envelope: successful command result has diagnostics")
-	}
-	if !commandResult.OK() && len(reasons) == 0 {
-		return nil, fmt.Errorf("cli envelope: failed command result has no diagnostics")
+		for index, code := range commandResult.CommittedReasons() {
+			reason, err := reasonForCommittedOutcome(commandResult.ExitCode(), code)
+			if err != nil {
+				return nil, fmt.Errorf("cli envelope: committed reason %d: %w", index, err)
+			}
+			reasons = append(reasons, reason)
+		}
+		if len(reasons) == 0 {
+			return nil, fmt.Errorf("cli envelope: committed outcome has no reasons")
+		}
+	} else {
+		for index, diagnostic := range diagnostics {
+			reason, err := reasonForDiagnostic(diagnostic)
+			if err != nil {
+				return nil, fmt.Errorf("cli envelope: diagnostic %d: %w", index, err)
+			}
+			reasons = append(reasons, reason)
+		}
+		if commandResult.OK() && len(reasons) != 0 {
+			return nil, fmt.Errorf("cli envelope: successful command result has diagnostics")
+		}
+		if !commandResult.OK() && len(reasons) == 0 {
+			return nil, fmt.Errorf("cli envelope: failed command result has no diagnostics")
+		}
 	}
 
 	candidate, err := json.Marshal(commandEnvelope{
@@ -236,6 +252,25 @@ func reasonForDiagnostic(diagnostic app.Diagnostic) (commandReason, error) {
 		Message:     diagnostic.Message(),
 		Retryable:   diagnostic.FailureClass().FallbackAllowed(),
 		ArtifactURI: artifact,
+	}, nil
+}
+
+func reasonForCommittedOutcome(exit app.ExitCode, code string) (commandReason, error) {
+	var category, message string
+	switch exit {
+	case app.ExitCodeSuccess:
+		category, message = "evidence", "Committed child workflow passed"
+	case app.ExitCodePolicy:
+		category, message = "policy", "Committed child workflow policy outcome"
+	case app.ExitCodeReadiness:
+		category, message = "readiness", "Committed child workflow readiness outcome"
+	default:
+		return commandReason{}, fmt.Errorf("committed outcome uses exit %d", exit)
+	}
+	return commandReason{
+		Category: category,
+		Code:     code,
+		Message:  message,
 	}, nil
 }
 

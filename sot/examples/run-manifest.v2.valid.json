@@ -84,6 +84,10 @@
     },
     "epoch": {
       "path": "epochs/epoch_000001.json"
+    },
+    "support_index": {
+      "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/support/index.json",
+      "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   },
   "recovery_action": "reconstruct_completed_status",

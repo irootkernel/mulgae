@@ -1061,6 +1061,41 @@ func TestPublicationStoreInterfaceIsSegregated(t *testing.T) {
 	var _ PublicationStore = publicationStoreContractFake{}
 	var _ AuxiliaryArtifactStore = publicationStoreContractFake{}
 }
+func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.T) {
+	t.Parallel()
+
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	cases := []struct {
+		name  string
+		path  string
+		valid bool
+	}{
+		{"canonical", prefix + "support/index.json", true},
+		{"wrong name", prefix + "support/index.v1.json", false},
+		{"nested", prefix + "support/nested/index.json", false},
+		{"wrong root", "other/" + run.RunID().String() + "/support/index.json", false},
+		{"prompt lookalike", prefix + "prompts/support/index.json", false},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			path, err := NewSafeRelativePath(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+			if test.valid {
+				if err != nil || kind != RunSupportArtifactSupportIndex {
+					t.Fatalf("ClassifyRunSupportArtifactPath(%q) = %q, %v", test.path, kind, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ClassifyRunSupportArtifactPath(%q) accepted %q", test.path, kind)
+			}
+		})
+	}
+}
 
 type publicationStoreContractFake struct{}
 

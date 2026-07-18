@@ -9,16 +9,18 @@ import (
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const (
-	resolveRunStage    = "query.resolve_run"
-	readCommittedStage = "query.read_committed"
-	readStatusStage    = "query.read_run_status"
-	listFindingsStage  = "query.list_findings"
-	renderExcerptStage = "query.render_excerpt"
+	resolveRunStage        = "query.resolve_run"
+	readCommittedStage     = "query.read_committed"
+	readStatusStage        = "query.read_run_status"
+	listFindingsStage      = "query.list_findings"
+	renderExcerptStage     = "query.render_excerpt"
+	readRuntimeTargetStage = "query.read_runtime_target"
 
 	finalReviewSchemaURI = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
 	runManifestSchemaURI = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
@@ -41,6 +43,11 @@ type observedRun struct {
 	decision   domain.PublicationDecision
 	storeEpoch uint64
 	snapshot   ports.CommittedPublicationSnapshot
+}
+
+type runtimeSupportIndexDTO struct {
+	SchemaVersion string                `json:"schema_version"`
+	Artifacts     []artifactIdentityDTO `json:"artifacts"`
 }
 
 // NewService constructs the shared committed-read service. The immutable target
@@ -136,6 +143,330 @@ func (service *Service) ReadCommitted(ctx context.Context, run ports.Publication
 	return service.readCommittedSnapshot(ctx, run, observation, readCommittedStage)
 }
 
+// ReadRuntimeTarget reconstructs target authority only from artifacts bound by a
+// freshly verified P2 final. It never reads a working tree or mutable target.
+func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.PublicationRun) (RuntimeTarget, error) {
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return RuntimeTarget{}, err
+	}
+	final, err := decodeFinalDTO(review.FinalBytes())
+	if err != nil {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
+	}
+	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	if err != nil {
+		return RuntimeTarget{}, err
+	}
+	targetManifestPath, err := runSupportPath(run, final.Target.ManifestPath)
+	if err != nil {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed target manifest path is invalid", err)
+	}
+	targetManifest, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetManifestPath)
+	if err != nil {
+		return RuntimeTarget{}, err
+	}
+	var manifest runtimeTargetManifestDTO
+	if err := decodeStrictDTO(targetManifest.Bytes(), &manifest); err != nil {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest decode failed", err)
+	}
+	if manifest.SchemaVersion != "kar-runtime-target-manifest.v1" || !validSHA256(manifest.Target.SHA256) {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest is invalid", nil)
+	}
+	targetPath, err := ports.NewSafeRelativePath(manifest.Target.Path)
+	if err != nil {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target path is invalid", err)
+	}
+	if index[targetPath.String()] != manifest.Target.SHA256 {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest digest is not support-indexed", nil)
+	}
+	targetArtifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetPath)
+	if err != nil {
+		return RuntimeTarget{}, err
+	}
+	if strings.TrimPrefix(manifest.Target.SHA256, "sha256:") != strings.TrimPrefix(final.Target.ContentSHA256, "sha256:") ||
+		sameOptionalTargetOID(manifest.BaseObjectID, final.Target.BaseOID) == false ||
+		sameOptionalTargetOID(manifest.HeadObjectID, final.Target.HeadOID) == false {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity does not match committed final", nil)
+	}
+	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetKind(manifest.TargetKind), SHA256: strings.TrimPrefix(manifest.Target.SHA256, "sha256:"),
+		RepositoryID: manifest.RepositoryID, BaseObjectID: manifest.BaseObjectID, HeadObjectID: manifest.HeadObjectID,
+		HeadTreeObjectID: manifest.HeadTreeObjectID, IndexTreeObjectID: manifest.IndexTreeObjectID,
+	})
+	if err != nil {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity is invalid", err)
+	}
+	if identity.SHA256() != strings.TrimPrefix(manifest.Target.SHA256, "sha256:") {
+		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity digest mismatch", nil)
+	}
+	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes()}, nil
+}
+
+func sameOptionalTargetOID(value string, expected *string) bool {
+	if value == "" {
+		return expected == nil
+	}
+	return expected != nil && value == *expected
+}
+
+func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.PublicationRun, review CommittedReview) (map[string]string, error) {
+	manifest, err := decodeManifestDTO(review.ManifestBytes())
+	if err != nil {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
+	}
+	ref := manifest.CompositeIdentity.SupportIndex
+	if ref == nil || !validSHA256(ref.SHA256) {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "manifest-bound support index is absent", nil)
+	}
+	path, err := ports.NewSafeRelativePath(ref.Path)
+	if err != nil {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index path is invalid", err)
+	}
+	kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+	if err != nil || kind != ports.RunSupportArtifactSupportIndex {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index path is not canonical", err)
+	}
+	artifact, err := service.readBoundRuntimeArtifact(ctx, run, review, path, ref.SHA256)
+	if err != nil {
+		return nil, err
+	}
+	var index runtimeSupportIndexDTO
+	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
+	}
+	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) == 0 {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
+	}
+	identities := make(map[string]string, len(index.Artifacts))
+	for _, item := range index.Artifacts {
+		path, pathErr := ports.NewSafeRelativePath(item.Path)
+		if pathErr != nil || !validSHA256(item.SHA256) {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact identity is invalid", pathErr)
+		}
+		if _, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); classifyErr != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact path is invalid", classifyErr)
+		}
+		if _, duplicate := identities[item.Path]; duplicate {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact is ambiguous", nil)
+		}
+		identities[item.Path] = item.SHA256
+	}
+	return identities, nil
+}
+
+func (service *Service) readIndexedRuntimeArtifact(ctx context.Context, run ports.PublicationRun, review CommittedReview, index map[string]string, path ports.SafeRelativePath) (ports.ImmutablePublicationArtifact, error) {
+	digest, ok := index[path.String()]
+	if !ok || !validSHA256(digest) {
+		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact is absent from support index", nil)
+	}
+	return service.readBoundRuntimeArtifact(ctx, run, review, path, digest)
+}
+
+func (service *Service) readBoundRuntimeArtifact(ctx context.Context, run ports.PublicationRun, review CommittedReview, path ports.SafeRelativePath, digest string) (ports.ImmutablePublicationArtifact, error) {
+	if !validSHA256(digest) {
+		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact digest is absent", nil)
+	}
+	request, err := ports.NewReadAuxiliaryArtifactRequest(run, path, digest, service.maxReadBytes)
+	if err != nil {
+		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact request is invalid", err)
+	}
+	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
+	if err != nil {
+		return ports.ImmutablePublicationArtifact{}, dependencyFailure(ctx, readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact read failed", err)
+	}
+	if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != digest {
+		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact identity drifted", nil)
+	}
+	observed, err := service.ReadCommitted(context.WithoutCancel(ctx), run)
+	if err != nil {
+		return ports.ImmutablePublicationArtifact{}, err
+	}
+	if observed.Epoch() != review.Epoch() || !bytes.Equal(observed.FinalBytes(), review.FinalBytes()) || !bytes.Equal(observed.ManifestBytes(), review.ManifestBytes()) {
+		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source changed during runtime read", nil)
+	}
+	return artifact, nil
+}
+
+func runSupportPath(run ports.PublicationRun, value string) (ports.SafeRelativePath, error) {
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	if !strings.HasPrefix(value, prefix) {
+		value = prefix + strings.TrimPrefix(value, "/")
+	}
+	path, err := ports.NewSafeRelativePath(value)
+	if err != nil {
+		return ports.SafeRelativePath{}, err
+	}
+	if _, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); err != nil {
+		return ports.SafeRelativePath{}, err
+	}
+	return path, nil
+}
+
+// ReadCommittedAttempt reconstructs one exact-replay source attempt from P2.
+// The only replay authority is the unique persisted initial prompt for that
+// attempt; repair and fallback prompts are deliberately not candidates.
+func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.PublicationRun, attemptID domain.AttemptID) (CommittedAttempt, error) {
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	manifest, err := decodeManifestDTO(review.ManifestBytes())
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
+	}
+	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	var selected *manifestAttemptDTO
+	for index := range manifest.Attempts {
+		candidate := &manifest.Attempts[index]
+		if candidate.AttemptID == attemptID.String() {
+			if selected != nil {
+				return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed attempt is ambiguous", nil)
+			}
+			selected = candidate
+		}
+	}
+	if selected == nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed attempt is absent", nil)
+	}
+	role := domain.Role(selected.Role)
+	if !role.Valid() {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed attempt role is invalid", nil)
+	}
+	target, err := service.ReadRuntimeTarget(ctx, run)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	final, err := decodeFinalDTO(review.FinalBytes())
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
+	}
+	targetManifestPath, err := runSupportPath(run, final.Target.ManifestPath)
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest path is invalid", err)
+	}
+	targetManifest, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetManifestPath)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	var inventory runtimeTargetManifestDTO
+	if err := decodeStrictDTO(targetManifest.Bytes(), &inventory); err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest decode failed", err)
+	}
+	var promptSelection *selectedReplayPromptDTO
+	for index := range inventory.SelectedReplayPrompts {
+		candidate := &inventory.SelectedReplayPrompts[index]
+		if candidate.AttemptID != attemptID.String() {
+			continue
+		}
+		if promptSelection != nil {
+			return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt is ambiguous", nil)
+		}
+		promptSelection = candidate
+	}
+	if promptSelection == nil || promptSelection.Sequence != 1 ||
+		domain.InvocationPurpose(promptSelection.Purpose) != domain.InvocationInitial ||
+		!validSHA256(promptSelection.Artifact.SHA256) {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt is absent or invalid", nil)
+	}
+	promptRef := promptSelection.Artifact
+	promptInventoryMatches := 0
+	for _, candidate := range inventory.Prompts {
+		if candidate.Path == promptRef.Path && candidate.SHA256 == promptRef.SHA256 {
+			promptInventoryMatches++
+		}
+	}
+	if promptInventoryMatches != 1 {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt is not uniquely inventoried", nil)
+	}
+	expectedSuffix := fmt.Sprintf("/%03d-%s.manifest.json", promptSelection.Sequence, promptSelection.Purpose)
+	expectedPrefix := run.SessionID().String() + "/" + run.RunID().String() + "/prompts/" + attemptID.String()
+	if !strings.HasPrefix(promptRef.Path, expectedPrefix) || !strings.HasSuffix(promptRef.Path, expectedSuffix) {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt path does not match its binding", nil)
+	}
+	promptPath, err := ports.NewSafeRelativePath(promptRef.Path)
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt path is invalid", err)
+	}
+	if index[promptPath.String()] != promptRef.SHA256 {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt digest is not support-indexed", nil)
+	}
+	promptArtifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, promptPath)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	var wire runtimePromptManifestDTO
+	if err := decodeStrictDTO(promptArtifact.Bytes(), &wire); err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest decode failed", err)
+	}
+	promptRole := domain.Role(wire.Role)
+	if !promptRole.Valid() || wire.SchemaVersion != "kar-runtime-prompt-manifest.v1" || promptRole != role ||
+		wire.Target.Path == "" || strings.TrimPrefix(wire.Target.SHA256, "sha256:") != target.Identity().SHA256() ||
+		!validSHA256(wire.Stdin.SHA256) || wire.CompleteStdinSHA256 == "" {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest binding is invalid", nil)
+	}
+	stdinPath, err := ports.NewSafeRelativePath(wire.Stdin.Path)
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime stdin path is invalid", err)
+	}
+	if index[stdinPath.String()] != wire.Stdin.SHA256 {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime stdin digest is not support-indexed", nil)
+	}
+	stdin, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, stdinPath)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	if prompt.CompleteStdinSHA256(stdin.Bytes()) != wire.CompleteStdinSHA256 {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime complete stdin identity is invalid", nil)
+	}
+	return CommittedAttempt{
+		sessionID: review.SessionID(), runID: review.RunID(), reviewID: review.ReviewID(), attemptID: attemptID,
+		role: role, provider: selected.ProviderInstance, target: target,
+		prompt: RuntimePrompt{stdin: stdin.Bytes(), stdinSHA256: wire.Stdin.SHA256,
+			completeStdinSHA256: wire.CompleteStdinSHA256, manifestPath: promptPath,
+			manifestSHA256: promptRef.SHA256, templateID: wire.TemplateID, templateVersion: wire.TemplateVersion,
+			templateSHA256: wire.TemplateSHA256, sourceInvocationID: wire.SourceInvocationID,
+			executionInvocationID: wire.ExecutionInvocationID, scope: wire.Scope, role: promptRole,
+			adapterProfile: wire.AdapterProfile, adapterParameters: wire.AdapterParameters},
+	}, nil
+}
+
+// ResolveCommittedAttempt selects exactly one manifest attempt by role and
+// provider. It deliberately treats zero and multiple matches as artifact
+// failures instead of relying on attempt order.
+func (service *Service) ResolveCommittedAttempt(ctx context.Context, run ports.PublicationRun, role domain.Role, provider string) (CommittedAttempt, error) {
+	if !role.Valid() || strings.TrimSpace(provider) == "" {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "attempt selector is invalid", nil)
+	}
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return CommittedAttempt{}, err
+	}
+	manifest, err := decodeManifestDTO(review.ManifestBytes())
+	if err != nil {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
+	}
+	var selected domain.AttemptID
+	matches := 0
+	for _, candidate := range manifest.Attempts {
+		if candidate.Role != string(role) || candidate.ProviderInstance != provider {
+			continue
+		}
+		attemptID, parseErr := domain.ParseAttemptID(candidate.AttemptID)
+		if parseErr != nil {
+			return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected attempt ID is invalid", parseErr)
+		}
+		selected, matches = attemptID, matches+1
+	}
+	if matches != 1 {
+		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "attempt selector does not resolve exactly one committed attempt", nil)
+	}
+	return service.ReadCommittedAttempt(ctx, run, selected)
+}
+
 // ReadRunStatus returns classifier-derived status for every valid observation.
 // P0 and P1 never cause a final snapshot read or expose a final path. A corrupt
 // durable or semantic result returns a safe corrupt status with an artifact
@@ -207,6 +538,96 @@ func (service *Service) ListFindings(
 		}
 	}
 	return filtered, nil
+}
+
+// ReadCommittedFindingSource rereads the final and manifest, then exposes only
+// normalized finding and excerpt artifacts whose exact identities are bound by
+// the manifest support index for one stable P2 finding.
+func (service *Service) ReadCommittedFindingSource(ctx context.Context, run ports.PublicationRun, findingID string) (CommittedFindingSource, error) {
+	if err := service.preflight(ctx, renderExcerptStage); err != nil {
+		return CommittedFindingSource{}, err
+	}
+	if !validFindingID(findingID) {
+		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureConfiguration, "finding ID is invalid", nil)
+	}
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return CommittedFindingSource{}, err
+	}
+	var finding Finding
+	for _, candidate := range review.Findings() {
+		if candidate.ID() == findingID {
+			finding = candidate
+			break
+		}
+	}
+	if finding.ID() == "" {
+		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding is not bound to the requested run", nil)
+	}
+	normalizedPath, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/excerpts/%s.json", run.SessionID().String(), run.RunID().String(), findingID))
+	if err != nil {
+		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "normalized finding artifact path is invalid", err)
+	}
+	supportIndex, err := service.readRuntimeSupportIndex(ctx, run, review)
+	if err != nil {
+		return CommittedFindingSource{}, err
+	}
+	normalized, err := service.readIndexedRuntimeArtifact(ctx, run, review, supportIndex, normalizedPath)
+	if err != nil {
+		return CommittedFindingSource{}, err
+	}
+	if len(normalized.Bytes()) == 0 {
+		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "normalized finding artifact is invalid", nil)
+	}
+	claims := finding.Evidence()
+	if len(claims) == 0 {
+		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding has no committed current evidence", nil)
+	}
+	var excerpt []byte
+	for evidenceIndex, current := range claims {
+		persisted, readErr := service.readCommittedFindingExcerpt(ctx, run, review, findingID, evidenceIndex+1, current, supportIndex)
+		if readErr != nil {
+			return CommittedFindingSource{}, readErr
+		}
+		if evidenceIndex == 0 {
+			excerpt = persisted
+		}
+	}
+	return CommittedFindingSource{review: review, finding: finding, normalized: normalized.Bytes(), excerpt: excerpt}, nil
+}
+
+func (service *Service) readCommittedFindingExcerpt(
+	ctx context.Context,
+	run ports.PublicationRun,
+	review CommittedReview,
+	findingID string,
+	evidenceIndex int,
+	current Evidence,
+	index map[string]string,
+) ([]byte, error) {
+	if current.TargetSHA256() != review.TargetSHA256() || current.Verification() != evidence.ReceiptVerified {
+		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding current evidence is not bound to the committed target", nil)
+	}
+	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+		TargetSHA256: current.TargetSHA256(),
+		Side:         current.Side(),
+		Path:         current.Path().String(),
+		LineStart:    current.LineStart(),
+		LineEnd:      current.LineEnd(),
+		Quote:        current.quote,
+	})
+	if err != nil {
+		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "committed current evidence is invalid", err)
+	}
+	path, err := excerptArtifactPath(run, findingID, evidenceIndex)
+	if err != nil {
+		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "committed excerpt artifact path is invalid", err)
+	}
+	artifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
+	if err != nil {
+		return nil, err
+	}
+	return service.verifyPersistedExcerpt(ctx, claim, current.SourceExcerptSHA256(), path, artifact)
 }
 
 // RenderExcerpt returns a committed evidence excerpt only after its durable P2
@@ -695,6 +1116,9 @@ func buildCommittedReview(
 		manifest.ImmutableLineage.LineageEdgeSHA != lineageArtifact.SHA256() {
 		return CommittedReview{}, fmt.Errorf("manifest lineage edge binding is invalid")
 	}
+	if err := validateFollowupOutcome(final, manifest); err != nil {
+		return CommittedReview{}, err
+	}
 	if !domain.RunState(manifest.State).Valid() ||
 		(domain.RunState(manifest.State) != domain.RunCompleted && domain.RunState(manifest.State) != domain.RunDegraded && domain.RunState(manifest.State) != domain.RunFailed) ||
 		!manifest.Sealed {
@@ -747,7 +1171,7 @@ func buildCommittedReview(
 		manifest.PublicationStatus != final.PublicationStatus || manifest.CIDecision != final.CIDecision {
 		return CommittedReview{}, fmt.Errorf("independent outcome axes are invalid")
 	}
-	roles, expectedRoleFindingIDs, err := buildRoles(final.RoleOutcomes)
+	roles, expectedRoleFindingIDs, err := buildRolesForRun(final.RoleOutcomes, domain.RunType(final.RunType), final.ImmutableLineage.ReplayMode)
 	if err != nil {
 		return CommittedReview{}, err
 	}
@@ -760,6 +1184,10 @@ func buildCommittedReview(
 		expectedRoleFindingIDs,
 		roles,
 	)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	followupOutcome, err := buildFollowupOutcome(final.FollowupOutcome, sessionID)
 	if err != nil {
 		return CommittedReview{}, err
 	}
@@ -785,12 +1213,101 @@ func buildCommittedReview(
 		lineageEdgePath: lineageArtifact.Path(), lineageEdgeSHA: lineageArtifact.SHA256(),
 		epoch: epoch.Value(), epochPath: epoch.Record().Path(), targetSHA256: final.Target.ContentSHA256,
 		content: content, coverage: coverage, publication: publication, ci: ci,
-		roles: cloneRoles(roles), findings: cloneFindings(findings),
+		followupOutcome: followupOutcome,
+		roles:           cloneRoles(roles), findings: cloneFindings(findings),
 		finalBytes: finalArtifact.Bytes(), manifestBytes: manifestArtifact.Bytes(),
 	}, nil
 }
 
+func validateFollowupOutcome(final finalDTO, manifest manifestDTO) error {
+	if final.RunType != string(domain.RunTypeFollowup) {
+		if final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
+			return fmt.Errorf("non-followup publication has followup outcome")
+		}
+		return nil
+	}
+	if final.FollowupOutcome == nil || manifest.FollowupOutcome == nil ||
+		!reflect.DeepEqual(final.FollowupOutcome, manifest.FollowupOutcome) {
+		return fmt.Errorf("followup outcome is missing or differs between final and manifest")
+	}
+	outcome := final.FollowupOutcome
+	if !domain.FollowupResolution(outcome.Resolution).Valid() || strings.TrimSpace(outcome.Rationale) == "" ||
+		len(outcome.Rationale) > 12000 || len(outcome.Evidence) == 0 || len(outcome.Evidence) > 20 {
+		return fmt.Errorf("followup outcome is invalid")
+	}
+	lineage := final.ImmutableLineage
+	if lineage.SourceRunID == nil || lineage.SourceReviewID == nil || lineage.SourceFindingRef == nil {
+		return fmt.Errorf("followup source lineage is absent")
+	}
+	for index, item := range outcome.Evidence {
+		if item.Source.SessionID != final.SessionID || item.Source.RunID != *lineage.SourceRunID ||
+			item.Source.ReviewID != *lineage.SourceReviewID || item.Source.FindingID != *lineage.SourceFindingRef ||
+			!validSHA256(item.Source.SourceTargetSHA256) || !validSHA256(item.Source.SourceExcerptSHA256) ||
+			item.Current.TargetSHA256 != final.Target.ContentSHA256 || item.Current.Verification != "verified" ||
+			item.Current.LineStart < 1 || item.Current.LineEnd < item.Current.LineStart ||
+			strings.TrimSpace(item.Current.Path) == "" || strings.TrimSpace(item.Current.Quote) == "" {
+			return fmt.Errorf("followup outcome evidence %d is invalid", index)
+		}
+	}
+	if outcome.Resolution == string(domain.FollowupStillOpen) && len(final.Findings) == 0 &&
+		(final.ContentVerdict != string(domain.ContentRequestChanges) || final.CoverageStatus != string(domain.CoverageComplete) ||
+			final.CIDecision != string(domain.CIFail)) {
+		return fmt.Errorf("still-open followup without new findings has unsafe outcome axes")
+	}
+	return nil
+}
+func buildFollowupOutcome(value *followupOutcomeDTO, sessionID domain.SessionID) (*FollowupOutcome, error) {
+	if value == nil {
+		return nil, nil
+	}
+	evidenceViews := make([]FollowupEvidence, len(value.Evidence))
+	for index, item := range value.Evidence {
+		sourceSessionID, err := domain.ParseSessionID(item.Source.SessionID)
+		if err != nil || sourceSessionID != sessionID {
+			return nil, fmt.Errorf("followup outcome evidence %d source session is invalid", index)
+		}
+		sourceRunID, err := domain.ParseRunID(item.Source.RunID)
+		if err != nil {
+			return nil, fmt.Errorf("followup outcome evidence %d source run is invalid", index)
+		}
+		sourceReviewID, err := domain.ParseReviewID(item.Source.ReviewID)
+		if err != nil {
+			return nil, fmt.Errorf("followup outcome evidence %d source review is invalid", index)
+		}
+		path, err := ports.NewSafeRelativePath(item.Current.Path)
+		if err != nil {
+			return nil, fmt.Errorf("followup outcome evidence %d path is invalid", index)
+		}
+		claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+			TargetSHA256: item.Current.TargetSHA256,
+			Side:         evidence.Side(item.Current.Side),
+			Path:         item.Current.Path,
+			LineStart:    item.Current.LineStart,
+			LineEnd:      item.Current.LineEnd,
+			Quote:        item.Current.Quote,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("followup outcome evidence %d current claim is invalid", index)
+		}
+		evidenceViews[index] = FollowupEvidence{
+			sourceSessionID: sourceSessionID, sourceRunID: sourceRunID, sourceReviewID: sourceReviewID,
+			sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256,
+			sourceExcerptSHA256: item.Source.SourceExcerptSHA256, targetSHA256: claim.TargetSHA256(),
+			side: claim.Side(), path: path, lineStart: claim.LineStart(), lineEnd: claim.LineEnd(),
+			quote: claim.Quote(), verification: evidence.ReceiptVerified,
+		}
+	}
+	return &FollowupOutcome{
+		resolution: domain.FollowupResolution(value.Resolution),
+		rationale:  value.Rationale,
+		evidence:   evidenceViews,
+	}, nil
+}
 func buildRoles(values []finalRoleDTO) ([]Role, map[domain.Role][]string, error) {
+	return buildRolesForRun(values, domain.RunTypeReview, nil)
+}
+
+func buildRolesForRun(values []finalRoleDTO, runType domain.RunType, replayMode *string) ([]Role, map[domain.Role][]string, error) {
 	if len(values) == 0 {
 		return nil, nil, fmt.Errorf("final has no role outcomes")
 	}
@@ -873,9 +1390,13 @@ func buildRoles(values []finalRoleDTO) ([]Role, map[domain.Role][]string, error)
 			roles[index].failureReason = *value.FailureReason
 		}
 	}
-	for _, mandatory := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
-		if _, present := seen[mandatory]; !present {
-			return nil, nil, fmt.Errorf("mandatory role outcome is missing")
+	singleRoleRerun := runType == domain.RunTypeRerun && replayMode != nil &&
+		(*replayMode == "exact" || *replayMode == "recompose")
+	if runType != domain.RunTypeFollowup && !singleRoleRerun {
+		for _, mandatory := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
+			if _, present := seen[mandatory]; !present {
+				return nil, nil, fmt.Errorf("mandatory role outcome is missing")
+			}
 		}
 	}
 	return roles, findingIDs, nil
@@ -1204,10 +1725,27 @@ func validateOutcomeProjection(
 			}
 		}
 	}
+	if final.FollowupOutcome != nil &&
+		final.FollowupOutcome.Resolution == string(domain.FollowupStillOpen) &&
+		len(findings) == 0 {
+		expectedContent = domain.ContentRequestChanges
+	}
 	if content != expectedContent {
 		return fmt.Errorf("content axis does not match findings")
 	}
 	expectedCoverage := domain.CoverageComplete
+	if final.RunType == string(domain.RunTypeRerun) &&
+		final.ImmutableLineage.ReplayMode != nil && *final.ImmutableLineage.ReplayMode == "exact" {
+		mandatory := map[domain.Role]bool{domain.RoleLogic: false, domain.RoleSecurity: false}
+		for _, role := range roles {
+			if _, present := mandatory[role.Name()]; present {
+				mandatory[role.Name()] = true
+			}
+		}
+		if !mandatory[domain.RoleLogic] || !mandatory[domain.RoleSecurity] {
+			expectedCoverage = domain.CoverageIncomplete
+		}
+	}
 	for _, role := range roles {
 		switch role.Outcome() {
 		case "failed", "skipped":

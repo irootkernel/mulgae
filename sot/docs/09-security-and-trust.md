@@ -131,10 +131,12 @@ diagnostics containing provider or user bytes
 ```
 
 The writer creates `0700` parent directories and `0600` files, opens only beneath an approved root with `openat`, no-follow, and an exclusive temporary name, streams through the configured cap and credential/token scanner before durable write, and rejects path or symlink escape. Existing immutable source bytes are referenced rather than copied; copying them invokes this writer.
+For G008 export, this is the implemented secure export boundary: export members pass through the writer into a new package, redaction is mandatory, and the package remains separate from immutable source bytes. A successful export neither publishes a review nor authorizes release, approval, or any authority mutation.
 
 On a secret match or scan overflow, KAR terminates the producer, zeros and drops the buffer, unlinks the temporary file before rename, and writes only drop metadata: channel, detector, count, and source IDs. It persists no content, substring, or hash of the blocked bytes. Repair, fallback, and publication are forbidden; the result is a security failure (exit `8`).
 
 Only a clean stream may write the temporary file, fsync it, rename it, and fsync its directory. Raw immutable evidence, normalized internal artifacts, and redacted human/export views are distinct only after this boundary; `redact_surface` never authorizes preserving detected credentials in an untrusted durable raw copy.
+The export destination is a safe relative `--output-path`; `--output` selects only human or JSON command-result rendering and cannot select an unredacted export mode.
 
 ## 9. Path Safety
 

@@ -6,13 +6,13 @@ KAR makes evidence-backed AI review portable across repositories and organizatio
 
 The product is designed for local development, CI, pre-merge checks, remediation verification, and review provenance. It is not a substitute for code ownership, legal approval, security authorization, or release governance.
 
-## 1.1 SOT 1.4.0 Contract and Implementation Status
+## 1.1 SOT 1.5.0 Contract and Implementation Status
 
-This document preserves the G0 contract and records `decision_readiness=READY`, the verified G001–G007 implementation boundary, and pending G008–G009 work. G001 completed Gate A, authority promotion, post-verification `g0_complete`, support derivation, and the separate implementation approval prerequisite. G007 adds authority-gated adapters only for exact `kimi`, `zcode`, and `agy` tuples; absence of injected authority remains `UNVERIFIED` and grants no standalone support.
+This document preserves the G0 contract and records `decision_readiness=READY` and the verified G001–G008 implementation boundary; G009 remains pending and unauthorized. G001 completed Gate A, authority promotion, post-verification `g0_complete`, support derivation, and the separate implementation approval prerequisite. G007 adds authority-gated adapters only for exact `kimi`, `zcode`, and `agy` tuples; production standalone operation without canonical recorded provider/evidence authority fails closed with schema-valid typed failures and grants no support.
 
 Decisions D-030 through D-038 remain normative: four native platform cells are evidence-only, only `kimi`, `zcode`, and `agy` are G0 provider-probe families, the six roles are fixed, severity direction is strict, outcomes are independent, retention is deterministic, trust and assignment are fail-closed, and prompt/evidence provenance is byte- and identity-bound.
 
-The G0 approval contract remains a one-way, session-bound sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. G001 completed that sequence before G002 product code. The completed G007 boundary authorizes no unsupported tuple, G008 or later work, release CI, or release asset.
+The G0 approval contract remains a one-way, session-bound sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. G001 completed that sequence before G002 product code. G008 executable behavior is proven through a real composed P2 end-to-end test across root review, followup, delta, and exact rerun, plus cleanup, export, repository, race, QA, and architecture-review evidence. The completed G008 boundary authorizes no unsupported tuple, G009 work, release CI, or release asset.
 ## 2. Primary User Outcomes
 
 A successful KAR run gives the user:

@@ -106,6 +106,22 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		t.Fatal("Report source identities do not match the committed review")
 	}
 }
+func TestRenderIncludesCommittedFollowupOutcome(t *testing.T) {
+	outcome := `"followup_outcome":{"resolution":"partially_resolved","rationale":"some remediation is verified","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F000","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two\n","verification":"verified"}}]},`
+	mutate := func(value string) string {
+		value = strings.ReplaceAll(value, `"run_type":"review"`, `"run_type":"followup"`)
+		return strings.Replace(value, `"target":{`, outcome+`"target":{`, 1)
+	}
+	run, review := reportCommittedFixtureWithMutations(t, mutate, mutate)
+	rendered, err := mustReportService(t, &reportReader{review: review, excerpt: []byte("line one\nline two\n")}).Render(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if !strings.Contains(string(rendered.Bytes()), "# Follow-up outcome\n\n- **Resolution:** `partially_resolved`\n") ||
+		!strings.Contains(string(rendered.Bytes()), "some remediation is verified") {
+		t.Fatalf("rendered followup outcome = %q", rendered.Bytes())
+	}
+}
 
 func TestRenderReadinessFailureRecordsStateWithoutExcerptBytes(t *testing.T) {
 	run, review := reportCommittedFixture(t)

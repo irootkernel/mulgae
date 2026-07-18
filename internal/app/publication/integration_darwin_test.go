@@ -319,6 +319,15 @@ func TestPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
 	if _, err := store.PersistValidatedCandidate(ctx, persistRequest); err != nil {
 		t.Fatal(err)
 	}
+	for _, support := range bundle.SupportArtifacts() {
+		request, err := ports.NewPersistRunSupportArtifactRequest(run, support)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.PersistAuxiliaryArtifact(ctx, request); err != nil {
+			t.Fatal(err)
+		}
+	}
 	composite, err := ports.NewCommitCompositeRequest(
 		run,
 		bundle.Final().Identity(),
