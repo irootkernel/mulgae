@@ -423,8 +423,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	}
 	fixture := &g008RealE2EFixture{root: root, clock: clock, ids: ids, validator: validator, writer: writer, store: store, queries: queries, publisher: publisher, coordinator: coordinator, runtime: runtime, provider: provider, assignments: assignments, target: target}
 	fixture.followupPrompts = g008RealE2EFollowupPromptSource{provider: provider}
-	epochs := childrun.NewPublicationEpochSource(1)
-	fixture.childExecutor, err = childrun.NewExecutor(coordinator, runtime, publisher, root, childrun.ExecutorConfig{Assignments: fixture.assignments, SeverityThreshold: domain.SeverityHigh, KARVersion: "g008-test", KARCommit: "g008-test", PublicationEpochSource: epochs})
+	fixture.childExecutor, err = childrun.NewExecutor(coordinator, runtime, publisher, root, childrun.ExecutorConfig{Assignments: fixture.assignments, SeverityThreshold: domain.SeverityHigh, KARVersion: "g008-test", KARCommit: "g008-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +432,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.followupExecutor, err = childrun.NewFollowupExecutor(clock, ids, provider, fixture.followupPrompts, followupValidator, publisher, root, childrun.FollowupExecutorConfig{ProviderInstance: "g008.logic", PublicationEpochSource: epochs, SeverityThreshold: domain.SeverityHigh, KARVersion: "g008-test", KARCommit: "g008-test"})
+	fixture.followupExecutor, err = childrun.NewFollowupExecutor(clock, ids, provider, fixture.followupPrompts, followupValidator, publisher, root, childrun.FollowupExecutorConfig{ProviderInstance: "g008.logic", SeverityThreshold: domain.SeverityHigh, KARVersion: "g008-test", KARCommit: "g008-test"})
 	if err != nil {
 		t.Fatal(err)
 	}

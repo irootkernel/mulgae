@@ -161,6 +161,20 @@ func (service *Service) PublishFollowup(
 	return service.Publish(ctx, artifactRoot, candidate, epoch)
 }
 
+// PublishFollowupNext prepares the specialized one-role followup and commits it
+// under the next root-scoped epoch selected atomically by the publication store.
+func (service *Service) PublishFollowupNext(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	input FollowupCandidateInput,
+) (PublicationResult, error) {
+	candidate, err := PrepareFollowupCandidate(input)
+	if err != nil {
+		return PublicationResult{}, fmt.Errorf("publish followup next: %w", err)
+	}
+	return service.PublishNext(ctx, artifactRoot, candidate)
+}
+
 // PublishNext selects and commits the next root-scoped durable epoch as one
 // store-authorized transaction. It is the production entry point; Publish
 // remains available for compatibility callers that explicitly control epochs.

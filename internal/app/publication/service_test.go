@@ -602,6 +602,26 @@ func TestPublishNextRejectsStoreWithoutAtomicEpochTransaction(t *testing.T) {
 	}
 }
 
+func TestPublishFollowupNextRejectsInvalidCandidateBeforeEpochTransaction(t *testing.T) {
+	t.Parallel()
+
+	store := &publicationServiceScriptedStore{}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot("/tmp/publication-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PublishFollowupNext(context.Background(), root, FollowupCandidateInput{}); err == nil {
+		t.Fatal("PublishFollowupNext accepted an invalid candidate")
+	}
+	if len(store.calls) != 0 {
+		t.Fatalf("publication calls = %#v, want validation before epoch transaction", store.calls)
+	}
+}
+
 func TestPublishReturnsVerifiedPromptManifestIdentity(t *testing.T) {
 	t.Parallel()
 

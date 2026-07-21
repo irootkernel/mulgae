@@ -20,13 +20,11 @@ import (
 // child review runs. The coordinator already owns the corresponding prompt,
 // assignment budget, and provider execution authority.
 type ExecutorConfig struct {
-	Assignments            []review.Assignment
-	SeverityThreshold      domain.Severity
-	Policy                 *domain.CIPolicy
-	KARVersion             string
-	KARCommit              string
-	PublicationEpoch       uint64
-	PublicationEpochSource *PublicationEpochSource
+	Assignments       []review.Assignment
+	SeverityThreshold domain.Severity
+	Policy            *domain.CIPolicy
+	KARVersion        string
+	KARCommit         string
 }
 
 // Executor is the production delta child executor. It deliberately accepts a
@@ -37,7 +35,6 @@ type Executor struct {
 	publisher    *publication.Service
 	artifactRoot ports.AnchoredRoot
 	config       ExecutorConfig
-	epochs       *PublicationEpochSource
 }
 
 // NewExecutor constructs a child executor with all execution and publication
@@ -67,21 +64,15 @@ func NewExecutor(
 	if !config.SeverityThreshold.Valid() {
 		return nil, fmt.Errorf("child executor: severity threshold is invalid")
 	}
-	if config.KARVersion == "" || config.KARCommit == "" || (config.PublicationEpoch == 0 && config.PublicationEpochSource == nil) {
+	if config.KARVersion == "" || config.KARCommit == "" {
 		return nil, fmt.Errorf("child executor: publication identity is incomplete")
-	}
-	epochs := config.PublicationEpochSource
-	if epochs == nil {
-		epochs = NewPublicationEpochSource(config.PublicationEpoch - 1)
 	}
 	return &Executor{
 		coordinator: coordinator, runtime: runtime, publisher: publisher, artifactRoot: artifactRoot,
 		config: ExecutorConfig{
 			Assignments: append([]review.Assignment(nil), config.Assignments...), SeverityThreshold: config.SeverityThreshold,
 			Policy: config.Policy, KARVersion: config.KARVersion, KARCommit: config.KARCommit,
-			PublicationEpoch: config.PublicationEpoch, PublicationEpochSource: epochs,
 		},
-		epochs: epochs,
 	}, nil
 }
 
@@ -134,11 +125,7 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: prepare delta publication: %w", err)
 	}
-	epoch, err := executor.epochs.Next()
-	if err != nil {
-		return delta.ExecutionResult{}, fmt.Errorf("child executor: allocate delta publication epoch: %w", err)
-	}
-	published, err := executor.publisher.Publish(ctx, executor.artifactRoot, candidate, epoch)
+	published, err := executor.publisher.PublishNext(ctx, executor.artifactRoot, candidate)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: publish delta run: %w", err)
 	}
@@ -213,11 +200,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: prepare rerun publication: %w", err)
 	}
-	epoch, err := executor.epochs.Next()
-	if err != nil {
-		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: allocate rerun publication epoch: %w", err)
-	}
-	published, err := executor.publisher.Publish(ctx, executor.artifactRoot, candidate, epoch)
+	published, err := executor.publisher.PublishNext(ctx, executor.artifactRoot, candidate)
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: publish rerun run: %w", err)
 	}

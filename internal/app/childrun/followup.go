@@ -42,19 +42,16 @@ type FollowupExecutor struct {
 	publisher         *publication.Service
 	artifactRoot      ports.AnchoredRoot
 	providerInstance  string
-	epochs            *PublicationEpochSource
 	severityThreshold domain.Severity
 	karVersion        string
 	karCommit         string
 }
 
 type FollowupExecutorConfig struct {
-	ProviderInstance       string
-	PublicationEpoch       uint64
-	PublicationEpochSource *PublicationEpochSource
-	SeverityThreshold      domain.Severity
-	KARVersion             string
-	KARCommit              string
+	ProviderInstance  string
+	SeverityThreshold domain.Severity
+	KARVersion        string
+	KARCommit         string
 }
 
 func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports.ObservedReviewProvider, prompts FollowupPromptSource, validator *validation.FollowupValidator, publisher *publication.Service, artifactRoot ports.AnchoredRoot, config FollowupExecutorConfig) (*FollowupExecutor, error) {
@@ -64,12 +61,8 @@ func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports
 	if _, ok := prompts.(FollowupRuntimeInventorySource); !ok {
 		return nil, fmt.Errorf("followup executor: runtime inventory authority is incomplete")
 	}
-	if config.ProviderInstance == "" || (config.PublicationEpoch == 0 && config.PublicationEpochSource == nil) || config.KARVersion == "" || config.KARCommit == "" {
+	if config.ProviderInstance == "" || config.KARVersion == "" || config.KARCommit == "" {
 		return nil, fmt.Errorf("followup executor: publication identity is incomplete")
-	}
-	epochs := config.PublicationEpochSource
-	if epochs == nil {
-		epochs = NewPublicationEpochSource(config.PublicationEpoch - 1)
 	}
 	if config.SeverityThreshold == "" {
 		config.SeverityThreshold = domain.SeverityHigh
@@ -77,7 +70,7 @@ func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports
 	if !config.SeverityThreshold.Valid() {
 		return nil, fmt.Errorf("followup executor: severity threshold is invalid")
 	}
-	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, epochs: epochs, severityThreshold: config.SeverityThreshold, karVersion: config.KARVersion, karCommit: config.KARCommit}, nil
+	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, severityThreshold: config.SeverityThreshold, karVersion: config.KARVersion, karCommit: config.KARCommit}, nil
 }
 
 // ExecuteFollowup observes exactly one provider call and publishes only its
@@ -171,11 +164,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		captures = append(captures, artifact)
 	}
 	runtime.RuntimeCaptures = captures
-	epoch, err := executor.epochs.Next()
-	if err != nil {
-		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: allocate publication epoch: %w", err)
-	}
-	published, err := executor.publisher.PublishFollowup(ctx, executor.artifactRoot, publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observation, Runtime: runtime, SeverityThreshold: executor.severityThreshold, KARVersion: executor.karVersion, KARCommit: executor.karCommit}, epoch)
+	published, err := executor.publisher.PublishFollowupNext(ctx, executor.artifactRoot, publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observation, Runtime: runtime, SeverityThreshold: executor.severityThreshold, KARVersion: executor.karVersion, KARCommit: executor.karCommit})
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publish: %w", err)
 	}
