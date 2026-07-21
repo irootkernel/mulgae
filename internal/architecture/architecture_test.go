@@ -15,11 +15,6 @@ const modulePath = "github.com/irootkernel/kkachi-agent-review/"
 
 func TestProductionDependencyDirection(t *testing.T) {
 	root := repositoryRoot(t)
-	allowedAdapterImports := map[string]bool{
-		"internal/app/reviewrun/current_qualifier.go":     true,
-		"internal/app/reviewrun/production_candidates.go": true,
-		"internal/app/reviewrun/qualifier.go":             true,
-	}
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -46,7 +41,7 @@ func TestProductionDependencyDirection(t *testing.T) {
 			if strings.HasPrefix(rel, "internal/ports/") && (strings.Contains(importPath, "/internal/app/") || strings.Contains(importPath, "/internal/adapters/") || strings.Contains(importPath, "/internal/entrypoint/")) {
 				t.Errorf("%s imports outward dependency %q", rel, importPath)
 			}
-			if strings.HasPrefix(rel, "internal/app/") && (strings.Contains(importPath, "/internal/adapters/") || strings.Contains(importPath, "/internal/builtin")) && !allowedAdapterImports[filepath.ToSlash(rel)] {
+			if strings.HasPrefix(rel, "internal/app/") && (strings.Contains(importPath, "/internal/adapters/") || strings.Contains(importPath, "/internal/builtin")) {
 				t.Errorf("%s imports outward dependency %q", rel, importPath)
 			}
 			if strings.HasPrefix(rel, "internal/app/") && (importPath == "os/exec" || strings.Contains(importPath, "yaml") || strings.Contains(importPath, "jsonschema")) {
