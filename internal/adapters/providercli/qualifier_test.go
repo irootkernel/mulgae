@@ -747,7 +747,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	}
 	return observation, nil
 }
-func TestVersionAtLeastHonorsPrereleaseAndBuildMetadata(t *testing.T) {
+func TestVersionAtLeastHonorsAGYFloorPrereleaseAndBuildMetadata(t *testing.T) {
 	for version, want := range map[string]bool{
 		"1.1.3":       false,
 		"1.1.4-beta":  false,

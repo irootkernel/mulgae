@@ -248,8 +248,8 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 		evidence.Role != string(fixture.Role()) {
 		t.Fatal("FAIL: AGY capability evidence did not contain the exact descriptor-bound positive evidence")
 	}
-	if !providercli.VersionAtLeast(result.Version, 1, 1, 2) {
-		t.Fatal("FAIL: installed AGY version is below required 1.1.2")
+	if !providercli.VersionAtLeast(result.Version, 1, 1, 4) {
+		t.Fatal("FAIL: installed AGY version is below required 1.1.4")
 	}
 	liveAgyRequireExactReceipts(t, result.Receipts)
 	authBeforeDrain, err := liveAgyAuthSettingsManifest(runtimeHome)
