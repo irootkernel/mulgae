@@ -1010,9 +1010,9 @@ func reportFailurePrecedence(class domain.FailureClass) int {
 	switch class {
 	case domain.FailureInternal:
 		return 7
-	case domain.FailureArtifact:
-		return 6
 	case domain.FailureSecurityPolicy:
+		return 6
+	case domain.FailureArtifact:
 		return 5
 	case domain.FailureCancelled:
 		return 4

@@ -323,6 +323,36 @@ func TestRenderPreservesExcerptFailureOverConcurrentCancellation(t *testing.T) {
 	}
 }
 
+func TestReportFailureReductionUsesOperationalPrecedenceInBothJoinOrders(t *testing.T) {
+	ordered := []struct {
+		class domain.FailureClass
+		rank  int
+	}{
+		{domain.FailureInternal, 7},
+		{domain.FailureSecurityPolicy, 6},
+		{domain.FailureArtifact, 5},
+		{domain.FailureCancelled, 4},
+		{domain.FailureConfiguration, 3},
+		{domain.FailureProviderUnavailable, 2},
+	}
+	for higherIndex, higher := range ordered {
+		for _, lower := range ordered[higherIndex+1:] {
+			name := string(higher.class) + "_over_" + string(lower.class)
+			for _, failures := range [][]error{
+				{mustReportFailure(t, higher.class, "higher precedence"), mustReportFailure(t, lower.class, "lower precedence")},
+				{mustReportFailure(t, lower.class, "lower precedence"), mustReportFailure(t, higher.class, "higher precedence")},
+			} {
+				t.Run(name, func(t *testing.T) {
+					selection := reduceReportFailure(errors.Join(failures...))
+					if selection.rank != higher.rank {
+						t.Fatalf("reduced rank = %d, want %d", selection.rank, higher.rank)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestRenderPropagatesUnknownProviderUnavailableReason(t *testing.T) {
 	run, review := reportCommittedFixture(t)
 	reader := &reportReader{
