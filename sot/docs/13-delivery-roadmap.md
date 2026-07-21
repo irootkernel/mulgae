@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 14 under SOT 1.9.0. Decision Readiness remains **READY**; G001–G008 retain historical completion evidence, while G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. Prior G009 evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
+This roadmap records Revision 14 under SOT 1.9.1. Decision Readiness remains **READY**; G001–G008 retain historical completion evidence, while G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. Prior G009 evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -10,7 +10,7 @@ This roadmap records Revision 14 under SOT 1.9.0. Decision Readiness remains **R
 | G002 | G1A domain and ports foundation | **COMPLETE** |
 | G003 | G1B trusted adapters and foundation CLI | **COMPLETE** |
 | G004 | G2 prompt validation, repair, fake review | **COMPLETE** |
-| G005 | G3A coordinator, runtime, evidence, axes | **COMPLETE** |
+| G005 | G3A coordinator, runtime, evidence, independent outcome axes | **COMPLETE** |
 | G006 | G3B publication, recovery, reporting | **COMPLETE** |
 | G007 | G4 opt-in provider adapters | **COMPLETE** |
 | G008 | G5 lineage, cleanup, export | **COMPLETE** |

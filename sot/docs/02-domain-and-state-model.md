@@ -62,6 +62,14 @@ classDiagram
     ReviewArtifact "1" --> "0..*" Finding
 ```
 
+### 1.1 Functional role boundary
+
+```text
+KAR roles are functional review lenses.
+They are not people, teams, or organizational authorities.
+KAR reports findings and recommendations only.
+```
+
 ## 2. Identifier Policy
 
 All identifiers use canonical lowercase, hyphenated UUIDv7 values. Prefixes distinguish entity types where they appear as directories or logs.
@@ -247,7 +255,9 @@ unclear
 stateDiagram-v2
     [*] --> pending
     pending --> primary_queued
+    pending --> blocked
     primary_queued --> primary_running
+    primary_queued --> blocked
     primary_running --> succeeded: valid result
     primary_running --> fallback_queued: fallback-eligible failure
     primary_running --> failed: non-fallback failure
@@ -262,6 +272,7 @@ stateDiagram-v2
     succeeded --> [*]
     failed --> [*]
     cancelled --> [*]
+    blocked --> [*]
 ```
 
 The central coordinator owns transitions. Lane workers execute child-process invocations but do not decide run completion, fallback eligibility, repair policy, or required-role coverage.
@@ -347,8 +358,14 @@ External references use a run-scoped form:
 A stable fingerprint supports cross-run matching:
 
 ```text
-SHA-256(normalized rule/category + normalized path + normalized evidence region)
+SHA-256(
+  uint64be(byte_length(normalized rule/category)) || UTF-8(normalized rule/category) ||
+  uint64be(byte_length(normalized path))          || UTF-8(normalized path)          ||
+  uint64be(byte_length(normalized evidence region)) || UTF-8(normalized evidence region)
+)
 ```
+
+Each length is an unsigned 64-bit big-endian byte length. Length-prefixed framing is part of the fingerprint contract; unframed string concatenation is not.
 
 The fingerprint is an aid, not proof that two findings are identical. Followup matching retains both the explicit source finding reference and any calculated fingerprint.
 

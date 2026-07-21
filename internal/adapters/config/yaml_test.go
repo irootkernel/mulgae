@@ -192,6 +192,27 @@ func TestDecodeRejectsBudgetAndPermissionContradictions(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsOmittedLegacyWorkspaceAndShellModes(t *testing.T) {
+	t.Parallel()
+
+	base, err := EncodeCanonical(validConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"omitted workspace access": strings.Replace(string(base), "execution:\n  workspace_access: \"none\"\n", "execution: {}\n", 1),
+		"legacy project workspace": strings.Replace(string(base), "workspace_access: \"none\"", "workspace_access: \"project\"", 1),
+		"shell mode":               strings.Replace(string(base), "workspace_access: \"none\"", "workspace_access: \"none\"\n  shell: true", 1),
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(input)); err == nil {
+				t.Fatal("unsafe or incomplete execution mode was accepted")
+			}
+		})
+	}
+}
+
 func bytesOf(value byte, length int) []byte {
 	result := make([]byte, length)
 	for i := range result {

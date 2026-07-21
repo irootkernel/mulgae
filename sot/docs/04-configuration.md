@@ -31,8 +31,9 @@ The document has `version: 1` and the sections `project`, `native_user`,
 `providers`, `execution`, `roles`, `review`, `validation`, `resources`, and
 `ci`. `providers` contains any nonempty subset of `kimi`, `zcode`, and `agy`.
 Provider commands are family-specific fields; generic argv, environment, shell,
-and credential fields do not exist. Workspace access is `none` by default and
-may only be `none` or `readonly_snapshot`.
+and credential fields do not exist. `execution.workspace_access` is required and
+may only be `none` or `readonly_snapshot`; omission is rejected. `kar init`
+explicitly writes `none` into every newly created configuration.
 
 Parsing is strict: one UTF-8 YAML document, exact keys, no aliases, tags, merges,
 duplicates, nulls, placeholders, controls, or unknown fields. Canonical output
@@ -44,8 +45,9 @@ scan, then exact-key/known-field and typed semantic validation. The scanner
 ASCII-lowercases keys and folds runs of `-`, `_`, `.`, and ASCII space to `_`,
 so a secret-like noncanonical key is rejected with the credential reason before
 ordinary unknown-key rejection. Explicit empty strings, Unicode control
-characters, and nonempty `${...}` placeholders are invalid; omitted optional
-fields continue to receive their code-fixed defaults.
+characters, and nonempty `${...}` placeholders are invalid. Only fields
+explicitly defined as optional receive code-fixed defaults;
+`execution.workspace_access` is not optional.
 
 Credential-like keys and deterministic credential value forms are rejected
 before an accepted digest or provenance is produced. Diagnostics expose only

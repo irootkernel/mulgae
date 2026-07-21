@@ -42,7 +42,8 @@ flowchart TB
     GIT[Git Target Adapter] --> PORTS
     FS[Filesystem Artifact Adapter] --> PORTS
     SCHEMA[JSON Schema Adapter] --> PORTS
-    REPORT[Report Adapter] --> PORTS
+    REPORT[Report Application Service] --> PORTS
+    REPORT --> DOMAIN
     CONFIG[Config Adapter] --> APP
 ```
 
@@ -51,65 +52,84 @@ Dependency direction points inward. Adapters implement ports owned by the applic
 ## 2. Recommended Package Layout
 
 ```text
-cmd/kar/main.go
+cmd/kar/
 
 internal/domain/
-  identifiers.go
-  session.go
-  run.go
-  role_task.go
   attempt.go
+  event.go
+  failure.go
   finding.go
+  identifiers.go
+  outcome.go
+  publication.go
+  role_task.go
+  run.go
+  session.go
+  states.go
   target.go
-  policy.go
-  errors.go
 
 internal/app/
-  review/
-  followup/
-  delta/
-  rerun/
+  childrun/
   clean/
+  config/
+  delta/
+  doctor/
+  evidence/
   export/
-  coordinator.go
-  validation_pipeline.go
-  aggregation.go
-  publication.go
-  status_query.go
+  followup/
+  help/
+  init/
+  prompt/
+  providers/
+  publication/
+  query/
+  report/
+  rerun/
+  review/
+  reviewrun/
+  schema/
+  validation/
 
 internal/ports/
-  provider_executor.go
-  provider_registry.go
-  target_capture.go
-  artifact_store.go
-  prompt_compiler.go
-  output_validator.go
-  evidence_verifier.go
-  report_renderer.go
-  clock.go
-  id_generator.go
-  lane_lock.go
+  config_install.go
+  config_locality.go
+  foundation.go
+  provider.go
+  provider_execution.go
+  provider_qualification.go
+  publication.go
+  review_input.go
+  runtime.go
+  scheduling.go
+  workspace.go
 
 internal/adapters/cli/
 internal/adapters/config/
-internal/adapters/providerexec/
-internal/adapters/providers/
-  fake/
-  genericjson/
-  zcode/
-  kimi/
-  agy/
-internal/adapters/gittarget/
+internal/adapters/environment/
+internal/adapters/fakeprovider/
 internal/adapters/filesystem/
+internal/adapters/gittarget/
 internal/adapters/jsonschema/
-internal/adapters/report/
-internal/adapters/locking/
+internal/adapters/lanelock/
+internal/adapters/process/
+internal/adapters/providercli/
+internal/adapters/reviewinput/
+internal/adapters/runtime/
+internal/adapters/workspace/
 
-internal/builtin/prompts/
-internal/builtin/schemas/
-internal/builtin/help/
+internal/builtin/
+internal/entrypoint/kar/
 ```
-G008 owns the application packages `internal/app/followup`, `internal/app/delta`, `internal/app/rerun`, `internal/app/clean`, and `internal/app/export`. The child-workflow packages create new runs from immutable source records; `clean` produces and applies a fixed-epoch, hash-bound retention plan; `export` produces a redacted bundle and manifest. These packages depend on domain/ports contracts and do not take ownership of CLI parsing or durable adapter effects.
+`internal/app/reviewrun` owns production review orchestration through neutral
+provider-qualification ports; it does not import `internal/adapters/providercli`.
+`internal/entrypoint/kar` is the composition root that binds application ports to
+CLI, configuration, provider, process, Git, filesystem, schema, review-input,
+runtime, and workspace adapters. Report, validation, evidence, and prompt logic
+are application packages. Provider families share the flat
+`internal/adapters/providercli` implementation rather than family-specific
+adapter subdirectories.
+
+G008 owns the application packages `internal/app/followup`, `internal/app/delta`, `internal/app/rerun`, `internal/app/childrun`, `internal/app/clean`, and `internal/app/export`. The child-workflow packages create new runs from immutable source records; `clean` produces and applies a fixed-epoch, hash-bound retention plan; `export` produces a redacted bundle and manifest. These packages depend on domain/ports contracts and do not take ownership of CLI parsing or durable adapter effects.
 
 
 ## 3. Core Domain Rules
@@ -274,16 +294,18 @@ Tests must not depend on wall-clock sleeps, random UUIDs, live Git state, or ins
 
 ## 10. Built-In Assets
 
-Embed versioned prompts, schemas, and help using `go:embed`. Every asset has a stable ID, for example:
+Embed the generated SOT archive using `go:embed`. Canonical SOT assets retain
+their source-derived IDs, schema `$id` URLs, or help aliases, for example:
 
 ```text
-builtin:prompts/common@1
-builtin:roles/security@1
-builtin:schemas/provider-review-output@1
-builtin:help/security@1
+sot:prompts/root-review/common.v2.txt
+sot:prompts/root-review/roles/security.v2.txt
+https://kar.local/schemas/kar-provider-review-output.v2.schema.json
+help:security
 ```
 
-The prompt manifest records exact IDs and SHA-256 values.
+The embedded archive SHA-256 versions the catalog as a whole. Prompt manifests
+record the exact selected asset IDs and SHA-256 values.
 
 ## 11. CLI Adapter
 

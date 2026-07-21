@@ -6,7 +6,7 @@ KAR makes evidence-backed AI review portable across repositories and organizatio
 
 The product is designed for local development, CI, pre-merge checks, remediation verification, and review provenance. It is not a substitute for code ownership, legal approval, security authorization, or release governance.
 
-## 1.1 SOT 1.9.0 Contract and Implementation Status
+## 1.1 SOT 1.9.1 Contract and Implementation Status
 
 This document preserves the G0 contract and records `decision_readiness=READY` and the verified G001–G008 implementation boundary. Production root `kar review` composition is wired, but it remains reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. The documented review contract is normative behavior; current production composition does not establish closure. G007's intended ordinary support is limited to the allowlisted `kimi`, `zcode`, and `agy` families and requires the applicable minimum version plus current runtime capability and security admission. AGY's minimum version is 1.1.4. Executable path, SHA-256, and adapter profile are diagnostic provenance only; they do not pin authorization to one historical executable.
 

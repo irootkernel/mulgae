@@ -51,12 +51,17 @@ The provider receives captured target bytes, not the live project directory. Kim
 
 Optional `readonly_snapshot` should use OS-supported read-only mounts, permissions, or sandbox primitives where available. A copied directory with writable permissions is not read-only isolation.
 
-`project` access is a dangerous opt-in and must be visible in command output and artifacts. It never implicitly authorizes live-root or `HOME` access outside that explicit scope.
+`project` is a rejected legacy/unsafe workspace value, not an opt-in. The closed
+workspace set is `none|readonly_snapshot`, and neither value authorizes live-root
+or user-`HOME` access. AGY's captured native authentication context remains the
+narrow exception described above and is not workspace access.
 AGY policy is not installed through a user `settings.json`. The enforceable macOS AGY controls are `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. These controls do not make the native authentication context a sandbox, authorize user-home mutation, or establish production verification or closure.
 
 ## 4. Mutation Detection
 
-KAR may capture repository state before and after execution, especially for `project` mode. This is an anomaly detector, not an isolation mechanism.
+KAR may capture repository state before and after execution to detect source
+mutation. This is an anomaly detector, not an isolation mechanism or a dormant
+`project` mode.
 
 It cannot prevent:
 
@@ -88,7 +93,7 @@ Trusted prompt layers state that all project and target content is data. Delimit
 Defense in depth includes:
 
 - no provider tool access by default;
-- no live project filesystem access by default;
+- no live project filesystem access;
 - strict JSON-only output;
 - deterministic validation;
 - evidence verification;
@@ -151,7 +156,7 @@ Evidence paths are logical target paths, not direct host filesystem paths.
 
 ## 10. Failure Containment
 
-`security_policy_violation`, source mutation, `configuration_violation`, `artifact_failure`, `user_cancelled`, `kar_internal_error`, and a valid finding all have `fallback=forbidden`. Secret exposure, mutation in live-project mode, and sandbox-escape indicators cancel the run by default; secret and mutation also forbid repair and publication and return exit `8`.
+`security_policy_violation`, source mutation, `configuration_violation`, `artifact_failure`, `user_cancelled`, `kar_internal_error`, and a valid finding all have `fallback=forbidden`. Secret exposure, detected source mutation, and sandbox-escape indicators cancel the run by default; secret and mutation also forbid repair and publication and return exit `8`.
 
 `timeout`, `auth`, `quota`, and `rate_limit` are operational failures with `repair=none` and `fallback=allowed`. If an eligible configured fallback exists, it may be scheduled; otherwise the role is exhausted. Invalid JSON, AI-owned missing values, and invalid or unverifiable evidence claims may use exactly one bounded repair before eligible fallback. These rules do not make fallback success or publication automatic.
 
@@ -173,7 +178,7 @@ KAR must report a hash mismatch as artifact corruption. It must not silently reg
 
 ## 12. CI Project-Local Authority Posture
 
-CI checks out the target first, then provisions `.kar/config.yaml` as private untracked operator state through `kar init` or an equivalent secure installation step. The file records absolute provider identities for that CI machine, uses `workspace_access: none` by default, and remains outside repository control. KAR re-attests the root, `.kar`, configuration, checkout, index, and applicable commits across admission and execution boundaries. Repository content cannot supply a fallback configuration, select a provider command, disable the required role floor, or expand workspace access. KAR and provider adapter versions remain pinned by the CI environment.
+CI checks out the target first, then provisions `.kar/config.yaml` as private untracked operator state through `kar init` or an equivalent secure installation step. The file records absolute provider identities for that CI machine, explicitly records the required `workspace_access: none`, and remains outside repository control. KAR re-attests the root, `.kar`, configuration, checkout, index, and applicable commits across admission and execution boundaries. Repository content cannot supply a fallback configuration, select a provider command, disable the required role floor, or expand workspace access. KAR and provider adapter versions remain pinned by the CI environment.
 
 The resulting `ci_decision` is exactly `pass` or `fail` with admitted-policy reason codes. It is a projection of validated content and coverage, not a mutation of `content_verdict`, `coverage_status`, or `publication_status`.
 

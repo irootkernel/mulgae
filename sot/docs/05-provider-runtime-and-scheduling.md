@@ -117,7 +117,7 @@ CI may disable cross-process locking only when runners are isolated.
 
 ## 7. Attempt Workspace
 
-Default:
+Init-generated setting:
 
 ```yaml
 execution:
@@ -136,13 +136,13 @@ attempt-workspace/
 
 Available modes:
 
-| Mode | Provider access | Default |
+| Mode | Provider access | Init selection |
 |---|---|---:|
 | `none` | Prompt packet and captured target only | Yes |
 | `readonly_snapshot` | Isolated, read-only materialized snapshot | No |
-| `project` | Actual project root | Dangerous explicit opt-in |
+| `project` | Rejected legacy/unsafe value; the actual project root is never exposed | Not selectable |
 
-Workspace access is closed to `none|readonly_snapshot` and defaults to `none`. `readonly_snapshot` remains an immutable read-only snapshot; native `@file` transport refers only to captured material. Kimi and ZCode receive an isolated `HOME` with their projected credentials; neither mode may expose the live project root. AGY is the narrow macOS authentication exception defined in §8.1, not a workspace-access exception.
+Workspace access is closed to `none|readonly_snapshot`; `kar init` writes the required value `none`. `readonly_snapshot` remains an immutable read-only snapshot; native `@file` transport refers only to captured material. Kimi and ZCode receive an isolated `HOME` with their projected credentials; neither mode may expose the live project root. AGY is the narrow macOS authentication exception defined in §8.1, not a workspace-access exception.
 
 Production discovery accepts only canonical absolute paths from the admitted
 project-local configuration. It performs no PATH lookup. Ambient

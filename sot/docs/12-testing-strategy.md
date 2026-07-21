@@ -13,6 +13,11 @@
 | End-to-end smoke tests | Complete workflow | Fake by default, live opt-in |
 
 Standard CI must not require provider credentials or network access.
+
+ID and safe-path properties use fixed-seed standard-library generators so
+failures are reproducible: `internal/domain/identifiers_test.go::TestIdentifierParsingSeededCanonicalityProperty`
+and `internal/ports/foundation_test.go::TestSafeRelativePathSeededTraversalProperty`.
+
 ## 1.1 G0 Contract-Freeze Validation
 
 G0 contract validators produce contract-model receipts, while the candidate-bound provider/platform branch separately establishes historical external PASS evidence. G001 completed both required branches and the authority gate; G002–G007 then passed their product unit, integration, race, and adversarial suites. G008 completes its application and fake/composed offline verification surface; it does not close production review verification. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. Its prior integrated-gate evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`: it includes a controlled exact-Kimi tuple that did not SKIP, truthful v1 `schema list --output json` machine-mode rejection, direct crash-before-rename proof, and canonical-lineage end-to-end execution. That receipt qualifies the recorded historical run only; it is not a current provider-support boundary or proof of production `kar review`. The append-only provider history also retains two later 2026-07-18 opt-in retries that each timed out externally after approximately 30.15 seconds with `process_timeout`; they do not replace the earlier PASS. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`; no release assets or actions are authorized. The G0 validator set remains exact and complete:
@@ -157,7 +162,8 @@ The test asserts object IDs and captured bytes, not mutable ref names.
 - duplicate YAML keys fail;
 - unknown keys fail;
 - project config cannot define provider command fields;
-- lower-trust layer cannot expand workspace access;
+- `execution.workspace_access` omission is rejected and the closed set is exactly `none|readonly_snapshot`;
+- the legacy `project` workspace value is rejected rather than treated as an opt-in;
 - project prompt override is disabled by default;
 - prompt path symlink escape fails;
 - lists replace instead of append;
@@ -167,20 +173,26 @@ The test asserts object IDs and captured bytes, not mutable ref names.
 
 ## 8. Security Tests
 
-- objective instruction override phrases trigger deterministic lint;
-- target instructions remain inside untrusted delimiters;
-- secret-like values are not written to env or command artifacts;
-- secret output policy blocks publication;
-- security failure does not trigger fallback;
-- `project` workspace mode requires explicit opt-in;
-- shell mode cannot be enabled by project config;
-- cleanup and export reject malicious symlinks;
-- mutation detection is labeled as detection, not sandbox success.
-- macOS AGY captures the installed-user native `HOME`, inode-revalidates it immediately before spawn, and never uses a synthetic authentication home or credential projection;
-- KAR's AGY namespace setup and drain leave user authentication and settings files untouched: no KAR write, overwrite, zero, or unlink; live tests separately disclose any normal provider-owned Keychain/profile refresh;
-- AGY keeps the descriptor-bound immutable snapshot as CWD while KAR owns XDG, cache, temporary, and scratch namespaces;
-- Kimi and ZCode retain isolated `HOME` directories and credential projection; and
-- AGY argv contains `--sandbox`, the exact immutable-snapshot `--add-dir`, and `--mode plan`, with bounded time/output and post-output `SIGTERM`/`SIGKILL` lifecycle coverage.
+The security inventory is distributed across the owning packages. This table is
+the canonical case-to-test index; every listed test runs offline unless marked
+`liveprovider`.
+
+| Security case | Representative enforcing tests |
+|---|---|
+| Objective instruction override phrases trigger deterministic lint | `internal/app/prompt/objective_test.go::TestLintObjectiveRejectsEveryFrozenConflictClass` |
+| Target instructions remain inside untrusted frames | `internal/app/prompt/compiler_test.go::TestCompileEmitsCanonicalSOTPacket`; `internal/app/prompt/compiler_test.go::TestCompilerParserRoundTripArbitraryPayloads` |
+| Secret-like configuration is rejected before it can become environment or command authority | `internal/adapters/config/yaml_test.go::TestCredentialDetectorUsesReasonOnlyAndBoundaries`; `internal/adapters/providercli/policy_test.go::TestDirectExecutionEnvironmentAuthorityFailsClosed` |
+| Secret output blocks publication | `internal/adapters/filesystem/securewriter_test.go::TestSecureWriterDropsCrossChunkSecretAndCleansTemporaryFile`; `internal/adapters/filesystem/publicationstore_test.go::TestPublicationStoreClassifiesSecretRejectionAsSecurity` |
+| Security failure does not trigger fallback | `internal/app/review/policy_test.go::TestSecurityAndCancellationProhibitNewWork`; `internal/app/review/coordinator_test.go::TestCoordinatorEvidenceInvariantFailsClosedWithoutFallback` |
+| `project` workspace mode is rejected | `internal/adapters/config/yaml_test.go::TestDecodeRejectsOmittedLegacyWorkspaceAndShellModes` |
+| Shell mode cannot be enabled by project configuration | `internal/adapters/config/yaml_test.go::TestDecodeRejectsOmittedLegacyWorkspaceAndShellModes`; `internal/adapters/process/runner_test.go::TestRunnerDoesNotInterpretShellMetacharactersAndSupportsRepeatedRuns` |
+| Cleanup and export reject malicious symlinks | `internal/adapters/filesystem/cleanupstore_darwin_test.go::TestCleanupStoreRejectsCleanupWriteSymlinkAncestors`; `internal/adapters/filesystem/exportinstaller_darwin_test.go::TestExportInstallerRejectsEscapingAndNonRegularDestinationsWithoutPartialSuccess` |
+| Mutation checks remain supplementary detection and fail closed as security, not sandbox authority | `internal/app/followup/service_test.go::TestStartFollowupRunRejectsMutationDespiteExecutorSelfAttestation`; `internal/app/delta/service_test.go::TestStartDeltaRunRejectsSourceMutationAfterOneChildExecution`; `internal/app/rerun/service_test.go::TestStartRerunClassifiesSourceMutationAsSecurityPolicy` |
+| macOS AGY captures and revalidates the installed-user native `HOME`, without a synthetic authentication home or credential projection | `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection`; `internal/adapters/environment/inspector_test.go::TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement` |
+| AGY namespace setup and drain do not write, overwrite, zero, or unlink user authentication/settings; normal provider-owned refresh is disclosed separately | `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection`; `internal/adapters/providercli/agy_live_test.go::TestLiveAgyAuthSettingsManifestDetectsMutation` (`liveprovider`) |
+| AGY keeps the descriptor-bound immutable snapshot as CWD while KAR owns XDG, cache, temporary, and scratch namespaces | `internal/adapters/providercli/registry_test.go::TestRegistryObserveWorkspaceUsesGuardedCWDLifecycleAndBoundRequest`; `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection` |
+| Kimi and ZCode retain isolated `HOME` directories and credential projection | `internal/adapters/providercli/credential_source_test.go::TestCredentialSourceProjectsOnlyDeclaredFamilyFiles`; `internal/adapters/providercli/namespace_test.go::TestCredentialProjectionUsesOnlyProviderHomePaths` |
+| AGY argv contains `--sandbox`, the exact immutable-snapshot `--add-dir`, and `--mode plan`, with bounded output/time and post-output `SIGTERM`/`SIGKILL` lifecycle | `internal/adapters/providercli/registry_test.go::TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt`; `internal/adapters/providercli/agy_lifecycle_test.go::TestAgyLifecycleOfflineRealProcess` |
 
 ## 9. CLI and Help Golden Tests
 
@@ -250,4 +262,4 @@ The release gate requires:
 - no unresolved P0 defect in config trust, publication, cancellation, or fallback.
 ## 13. Post-G0 Product Verification Boundaries
 
-G1 tests domain, configuration, target capture, artifact, command-envelope, and doctor behavior. G2 tests fake-provider review and deterministic prompt compilation. G3 tests lanes, repair, fallback, four-axis aggregation, evidence, publication recovery, and race behavior. G4 runs opt-in live adapter contracts for family and runtime capability; it records version/path/SHA/profile provenance but does not turn those identities or an exact tuple receipt into support gates. G008 tests fake/composed offline P2 execution of all four workflow shapes (`review`, `followup`, `delta`, and `rerun`) together with cleanup planning/application and redacted export, including immutable source preservation, lineage edges, source/current evidence separation, runtime target/prompt/attempt artifacts, retention seed and ancestor protection, fixed-epoch plan hashing, stale-plan rejection, secure-path handling, and redaction. It does not close production review verification. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior full integrated-gate evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`: retain the exact 17 load-bearing command registry/binary goldens; validate all 23 schema/example pairs and assets; execute the controlled exact-Kimi tuple without SKIP as historical qualification evidence; reject schema-list v1 `schema list --output json` machine mode truthfully; prove a direct child-process crash before rename leaves only the temporary file; preserve immutable lineage in canonical four-workflow end-to-end execution; and retain the full domain, security, publication, cancellation, and fallback suites. These historical verification details do not establish current production verification, release authorization, or current provider identity allowlisting. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`; no release assets or actions are authorized. Any future release authorization requires the pending production verification, retained receipts, and a separate release decision. G6 may expand beyond the sole required `darwin-arm64` platform only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval; Linux and Intel future cells remain unsupported and release-ineligible. None of these product tests substitutes for G0 receipts, and G0 completion plus separate implementation approval remains required before they exist.
+G1 tests domain, configuration, target capture, artifact, command-envelope, and doctor behavior. G2 tests fake-provider review and deterministic prompt compilation. G3 tests lanes, repair, fallback, four-axis aggregation, evidence, publication recovery, and race behavior. G4 runs opt-in live adapter contracts for family and runtime capability; it records version/path/SHA/profile provenance but does not turn those identities or an exact tuple receipt into support gates. G008 tests fake/composed offline P2 execution of all four workflow shapes (`review`, `followup`, `delta`, and `rerun`) together with cleanup planning/application and redacted export, including immutable source preservation, lineage edges, source/current evidence separation, runtime target/prompt/attempt artifacts, retention seed and ancestor protection, fixed-epoch plan hashing, stale-plan rejection, secure-path handling, and redaction. It does not close production review verification. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior full integrated-gate evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`: retain the exact 17 load-bearing command registry/binary goldens; validate all 25 schema/example pairs and assets; execute the controlled exact-Kimi tuple without SKIP as historical qualification evidence; reject schema-list v1 `schema list --output json` machine mode truthfully; prove a direct child-process crash before rename leaves only the temporary file; preserve immutable lineage in canonical four-workflow end-to-end execution; and retain the full domain, security, publication, cancellation, and fallback suites. These historical verification details do not establish current production verification, release authorization, or current provider identity allowlisting. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`; no release assets or actions are authorized. Any future release authorization requires the pending production verification, retained receipts, and a separate release decision. G6 may expand beyond the sole required `darwin-arm64` platform only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval; Linux and Intel future cells remain unsupported and release-ineligible. None of these product tests substitutes for G0 receipts, and G0 completion plus separate implementation approval remains required before they exist.

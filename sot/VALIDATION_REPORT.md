@@ -1,7 +1,7 @@
 # Package Validation Report
 
-**Specification version:** 1.9.0
-**Status date:** 2026-07-21
+**Specification version:** 1.9.1
+**Status date:** 2026-07-22
 
 ## G0 Contract and Implementation Baseline
 
@@ -17,7 +17,7 @@
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
 
-This SOT 1.9.0 report records the preserved Revision 14 contract, the project-local init/config contract, the historical integrated-gate classification **HISTORICAL_GATE_PASS_NON_PRODUCTION**, the family-and-capability provider policy, and provider version guidance in `doctor`. Offline verification covers the generated init outcome matrix and exact private-target reasons; it does not close production review. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.
+This SOT 1.9.1 report records the preserved Revision 14 contract, the project-local init/config contract, the historical integrated-gate classification **HISTORICAL_GATE_PASS_NON_PRODUCTION**, the family-and-capability provider policy, and provider version guidance in `doctor`. Offline verification covers the generated init outcome matrix and exact private-target reasons; it does not close production review. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.
 
 ## G0 Evidence Status
 
@@ -49,7 +49,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, direct process runtime, evidence, independent axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G005 | Coordinator lanes, direct process runtime, evidence, independent outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
@@ -71,9 +71,9 @@ three providers and new/existing root-barrier failure plus retry projections.
 
 ## Historical G009 Integrated v0.1 Gate Evidence
 
-Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 23 schema/example pairs and assets, fake/offline canonical lineage evidence from the four-workflow end-to-end execution rather than current production closure proof, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. Historical full `go test`, `go vet`, and race verification passed with zero recorded P0 blockers. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified.
+Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence from the four-workflow end-to-end execution rather than current production closure proof, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. Historical full `go test`, `go vet`, and race verification passed with zero recorded P0 blockers. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified.
 
-The retained controlled Kimi receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with a ledger receipt and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`. It is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
+The retained controlled Kimi receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`. Its append-only ledger receipt remains untouched, and byte-identical repository copies are indexed by `artifacts/historical/g009/manifest.json`: receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. It is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
 
 The controlled provider attempt history also records two later opt-in retries on 2026-07-18. Each exited after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`. The durable G009 ledger retains both outcomes. They do not replace or erase the earlier exact-tuple PASS, and do not alter current family-and-capability support; they are disclosed as later external liveness failures rather than hidden.
 
@@ -83,4 +83,4 @@ The G001 authority and implementation prerequisites were completed before G002 p
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.8.0 reports remain historical baselines. SOT 1.9.0 carries forward their contract assertions, preserves family-and-capability provider support, and records the reopened production-review status; current checksums and repository tests are authoritative for this revision.
+The 1.0.0 through 1.9.0 reports remain historical baselines. SOT 1.9.1 carries forward their contract assertions, preserves family-and-capability provider support, and records the reopened production-review status; current checksums and repository tests are authoritative for this revision.

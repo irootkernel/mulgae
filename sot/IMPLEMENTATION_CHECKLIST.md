@@ -1,8 +1,8 @@
 # KAR Implementation Status Checklist
 
-**Status date:** 2026-07-19
+**Status date:** 2026-07-22
 
-SOT 1.9.0 records historical implementation evidence after `g0_complete`; it does not claim current production completion. Production `kar review` composition is wired, but the current production-review status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. Historical integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and append-only. The current provider policy remains unchanged: `kimi`, `zcode`, and `agy` are supported by family and runtime capability contract, while version/path/SHA/profile are diagnostic provenance rather than authorization gates. On macOS, AGY native authentication remains an incomplete production-review requirement: it uses the installed user's captured and inode-revalidated `HOME`/Keychain context without synthetic-home credential projection or user-home mutation; AGY's minimum version is 1.1.4, and this boundary does not establish live P2 success. `doctor` reports installed versions against the initial minimum/verified-latest baselines with red, green, and yellow guidance without denying newer identities. No release assets were authorized or created, and release publication remains subject to separate approval.
+SOT 1.9.1 records historical implementation evidence after `g0_complete`; it does not claim current production completion. Production `kar review` composition is wired, but the current production-review status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. Historical integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and append-only. The current provider policy remains unchanged: `kimi`, `zcode`, and `agy` are supported by family and runtime capability contract, while version/path/SHA/profile are diagnostic provenance rather than authorization gates. On macOS, AGY native authentication remains an incomplete production-review requirement: it uses the installed user's captured and inode-revalidated `HOME`/Keychain context without synthetic-home credential projection or user-home mutation; AGY's minimum version is 1.1.4, and this boundary does not establish live P2 success. `doctor` reports installed versions against the initial minimum/verified-latest baselines with red, green, and yellow guidance without denying newer identities. No release assets were authorized or created, and release publication remains subject to separate approval.
 
 ## Goal Completion Snapshot
 
@@ -12,7 +12,7 @@ SOT 1.9.0 records historical implementation evidence after `g0_complete`; it doe
 | G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, direct process runtime, evidence, outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G005 | Coordinator lanes, direct process runtime, evidence, independent outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
@@ -116,11 +116,11 @@ The checked items below preserve historical G001–G009 evidence. They do not es
 ## Historical G009 Integrated v0.1 Gate Evidence
 
 - [x] Historical: retain the exact 17 load-bearing command registry/binary golden and the truthful schema-list v1 rejection.
-- [x] Historical: validate all 23 schema/example pairs and assets.
+- [x] Historical: validate all 25 schema/example pairs and assets.
 - [x] Historical: retain fake/offline canonical lineage evidence from the four-workflow end-to-end execution; this is not production root-review proof.
 - [x] Historical: retain subprocess crash proof and the full domain, security, publication, cancellation, and fallback suites.
 - [x] Historical: full `go test`, `go vet`, and race verification passed with zero recorded P0 blockers.
-- [x] Retain the controlled Kimi historical qualification receipt for the recorded G009 run: `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, its ledger receipt, and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`; it is not a current support boundary.
+- [x] Retain the controlled Kimi historical qualification receipt for the recorded G009 run: `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, its append-only ledger receipt, and the byte-identical repository copies indexed by `artifacts/historical/g009/manifest.json`; receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. This is not a current support boundary.
 - [x] Preserve the append-only provider attempt history: two later 2026-07-18 retries each ended after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; retain those ledger events without replacing the earlier PASS.
 - [x] Keep G0 provider-family evidence for `kimi`, `zcode`, and `agy` separate from current support. Support those families by runtime capability contract without version, executable path, SHA, or profile allowlisting; retain those fields as diagnostic provenance, produce actionable typed capability diagnostics, explicitly block known incompatibilities only, reject unlisted families, and do not automatically substitute providers. Keep `darwin-arm64` as the sole supported platform.
 - [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but the current status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.

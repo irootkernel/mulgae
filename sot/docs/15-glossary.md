@@ -37,7 +37,7 @@
 | Session | Lineage grouping a root review and its related later runs |
 | System-owned field | Metadata generated deterministically by KAR, never by AI |
 | Validation pipeline | Schema, semantic, and evidence checks applied before publication |
-| Workspace access | Provider filesystem exposure mode: none, read-only snapshot, or live project |
+| Workspace access | Provider filesystem exposure mode: `none` or `readonly_snapshot`. The legacy `project` concept is not selectable and is rejected; KAR never exposes the live project root through this setting. |
 | Content verdict | Aggregation-owned content axis: `no_findings`, `findings_present`, or `request_changes` |
 | Coverage status | Coordinator-owned coverage axis: `complete`, `degraded`, or `incomplete` |
 | Publication status | Store-derived publication axis: `not_published`, `staged`, `installed`, `committed`, or `corrupt` |

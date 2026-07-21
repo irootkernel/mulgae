@@ -23,7 +23,7 @@
 | D-017 | A central coordinator owns dynamic fallback and run completion | Accepted | Avoids race-prone distributed state decisions |
 | D-018 | Valid findings never trigger fallback | Accepted | Prevents result shopping |
 | D-019 | Security, configuration, artifact, internal, and cancellation failures do not trigger fallback | Accepted | Prevents risk amplification and error masking |
-| D-020 | Provider workspace access defaults to `none` | Accepted | Reduces source mutation and broad file access |
+| D-020 | Provider workspace access is required, closed to `none\|readonly_snapshot`, and init writes `none` | Accepted | Reduces source mutation and broad file access; omission and legacy `project` are rejected |
 | D-021 | Mutation guard is anomaly detection, not isolation | Accepted | Avoids a false security claim |
 | D-022 | Project config is declarative-only by default | Accepted | Prevents a reviewed repository from choosing its own reviewer command |
 | D-023 | Shell providers are disabled by default and cannot be enabled by project config | Accepted | Improves safety and reproducibility |
@@ -72,7 +72,7 @@ The prior G002 through G009 implementation and integrated-gate record is `HISTOR
 | Immediate fallback on parser failure | One constrained repair, then fallback if eligible |
 | Project role guide override as normal behavior | Disabled by default or loaded only through explicit trusted policy |
 | Rerun adds an attempt to completed run | Rerun creates a child run |
-| Historical pre-Revision-13 D-030 | All four native cells were G0 required/blocking | Superseded by the staged-support D-030 revision; the three non-`darwin-arm64` cells are now intended-future, non-blocking, unsupported, and release-ineligible |
+| Historical pre-Revision-13 D-030: all four native cells were G0 required/blocking | Superseded by the staged-support D-030 revision; the three non-`darwin-arm64` cells are now intended-future, non-blocking, unsupported, and release-ineligible |
 
 ## 3. G0 External Verification Items and Future Inventory
 
@@ -84,7 +84,7 @@ These distinguish historical G0 qualification evidence and future-inventory decl
 | Historical G0 provider-family evidence: `zcode` | Its exact runtime-contract tuple's 16 canonical probes and secure-writer index | PASS; historical qualification evidence only |
 | Historical G0 provider-family evidence: `agy` | Its exact runtime-contract tuple's 16 canonical probes and secure-writer index | PASS; historical qualification evidence only |
 | Historical provider join and assignment | All 48 provider probes, all three secure-writer indexes, and live six-role assignment | PASS; historical qualification evidence only |
-| Historical controlled Kimi qualification receipt | `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`; receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27` | PASS; diagnostic provenance, not an ordinary-use version or SHA-256 gate |
+| Historical controlled Kimi qualification receipt | `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`; receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`; byte-identical copies indexed by `artifacts/historical/g009/manifest.json` | PASS; diagnostic provenance, not an ordinary-use version or SHA-256 gate |
 | Required native platform: `darwin-arm64` | All 11 platform predicates on a native local POSIX filesystem | PASS; sole supported platform |
 | Intended-future inventory: `linux-amd64`, `linux-arm64`, `darwin-amd64` | Fixed NOT_RUN contract rows; no G0 native execution or PASS evidence is required, and any future support requires a new scope decision, native evidence, candidate refreeze, and promotion | UNSUPPORTED; non-blocking and release-ineligible |
 | Canonical argv bundle | Four compact JSON arrays, individual hashes, and bundle hash | PASS |

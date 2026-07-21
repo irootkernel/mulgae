@@ -1,7 +1,7 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.9.0**
-**Date:** 2026-07-19
+**Development Specification v1.9.1**
+**Date:** 2026-07-22
 **Primary binary:** `kar`
 **Implementation target:** Go
 
@@ -10,7 +10,7 @@ KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It
 KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
 CI is a trusted projection of a committed artifact, not a `review` command mode: `review --ci` and a CI request field are unsupported.
 
-## SOT 1.9.0 Contract and Implementation Baseline
+## SOT 1.9.1 Contract and Implementation Baseline
 
 This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. Production `kar review` composition is wired, but production closure remains separately gated by current qualification, security, and P2 provenance.
 
@@ -51,7 +51,7 @@ The file is created only after deterministic schema, semantic, and evidence vali
 
 1. Review targets, project context, project-controlled prompts, and provider output are untrusted inputs.
 2. Project configuration cannot introduce executable provider commands by default.
-3. Provider execution has no project filesystem access by default.
+3. Provider execution has no live project filesystem access.
 4. A provider returns JSON only. KAR owns normalization, identifiers, the four final outcome axes, and publication.
 5. Missing AI-owned mandatory values may receive one constrained repair attempt. System-owned fields are never delegated to AI.
 6. Fallback is triggered only by explicitly classified provider availability, execution, or invalid-output failures.
@@ -204,7 +204,7 @@ The repository records the following historical implementation evidence. These c
 | G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, process runtime, evidence, completion axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G005 | Coordinator lanes, process runtime, evidence, independent outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, runtime-capability diagnostics, provenance capture, unlisted-family rejection, and provider CLI reporting | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |

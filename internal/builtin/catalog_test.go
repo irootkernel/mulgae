@@ -318,7 +318,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 
 	catalog := NewCatalog()
 	var help strings.Builder
-	for _, topic := range []string{"quickstart", "config", "providers", "workflows", "exit-codes", "security"} {
+	for _, topic := range []string{"quickstart", "config", "providers", "roles", "workflows", "exit-codes", "security"} {
 		_, data, err := catalog.Read(context.Background(), mustAssetID(t, "help:"+topic))
 		if err != nil {
 			t.Fatalf("read help %q: %v", topic, err)
@@ -331,7 +331,8 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 		"one configuration authority: `<canonical-project-root>/.kar/config.yaml`",
 		"`--providers auto|FAMILY[,FAMILY...]`",
 		"`FAMILY := kimi | zcode | agy`",
-		"Workspace access is `none` by default",
+		"`execution.workspace_access` is required",
+		"KAR roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nKAR reports findings and recommendations only.",
 		"an explicit\n`safe` or `dangerously-skip-permissions` mode",
 		"unconditional project-root durability barrier",
 		"output delivery failure never rolls back a\ncommitted config",
