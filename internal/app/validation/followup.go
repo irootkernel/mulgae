@@ -10,6 +10,7 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -301,8 +302,17 @@ func injectFollowupTrust(provider map[string]any, trusted trustedFollowupScope) 
 }
 
 func validateFollowupSemantics(candidate map[string]any) error {
-	if resolution, ok := candidate["resolution"].(string); !ok || !domain.FollowupResolution(resolution).Valid() {
+	resolution, ok := candidate["resolution"].(string)
+	if !ok || !domain.FollowupResolution(resolution).Valid() {
 		return fmt.Errorf("followup validation: invalid resolution")
+	}
+	for _, field := range []string{"summary", "rationale"} {
+		if err := requireMeaningfulFollowupText(candidate[field], field); err != nil {
+			return err
+		}
+	}
+	if resolution == string(domain.FollowupResolved) && contradictsResolvedFollowup(candidate["rationale"].(string)) {
+		return fmt.Errorf("followup validation: resolved rationale contradicts resolution")
 	}
 	check := func(value any) error {
 		evidence, ok := value.([]any)
@@ -317,6 +327,9 @@ func validateFollowupSemantics(candidate map[string]any) error {
 			current, ok := entry["current"].(map[string]any)
 			if !ok {
 				continue
+			}
+			if err := requireMeaningfulFollowupText(current["quote"], "current evidence quote"); err != nil {
+				return err
 			}
 			start, startOK := current["line_start"].(json.Number)
 			end, endOK := current["line_end"].(json.Number)
@@ -335,15 +348,59 @@ func validateFollowupSemantics(candidate map[string]any) error {
 		return err
 	}
 	if findings, ok := candidate["new_findings"].([]any); ok {
-		for _, item := range findings {
+		for index, item := range findings {
 			if finding, ok := item.(map[string]any); ok {
+				for _, field := range []string{"title", "description", "recommendation"} {
+					if err := requireMeaningfulFollowupText(finding[field], fmt.Sprintf("new_findings[%d].%s", index, field)); err != nil {
+						return err
+					}
+				}
 				if err := check(finding["evidence"]); err != nil {
 					return err
 				}
 			}
 		}
 	}
+	if limitations, ok := candidate["limitations"].([]any); ok {
+		for index, limitation := range limitations {
+			if err := requireMeaningfulFollowupText(limitation, fmt.Sprintf("limitations[%d]", index)); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func requireMeaningfulFollowupText(value any, path string) error {
+	text, ok := value.(string)
+	if !ok || !meaningfulText(text) {
+		return fmt.Errorf("followup validation: %s must be meaningful", path)
+	}
+	return nil
+}
+
+func contradictsResolvedFollowup(rationale string) bool {
+	normalized := normalizeFollowupRationale(rationale)
+	for _, phrase := range []string{
+		"issue remains",
+		"issue is still present",
+		"issue still exists",
+		"still open",
+		"not resolved",
+		"still unresolved",
+		"remains unresolved",
+	} {
+		if strings.Contains(" "+normalized+" ", " "+phrase+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeFollowupRationale(value string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(value), func(character rune) bool {
+		return !unicode.IsLetter(character) && !unicode.IsDigit(character)
+	}), " ")
 }
 
 func followupFindingID(value string) bool {

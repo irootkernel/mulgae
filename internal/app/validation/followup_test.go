@@ -71,6 +71,115 @@ func TestFollowupValidatorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestFollowupValidatorRejectsMeaninglessProviderText(t *testing.T) {
+	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"summary", func(document map[string]any) { document["summary"] = " tbd " }},
+		{"rationale", func(document map[string]any) { document["rationale"] = "TODO" }},
+		{"evidence quote", func(document map[string]any) {
+			document["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "unknown"
+		}},
+		{"limitation", func(document map[string]any) { document["limitations"] = []any{"none"} }},
+		{"new finding title", func(document map[string]any) {
+			document["new_findings"] = []any{followupTestFinding("-")}
+		}},
+		{"new finding description", func(document map[string]any) {
+			finding := followupTestFinding("New finding")
+			finding["description"] = "n/a"
+			document["new_findings"] = []any{finding}
+		}},
+		{"new finding recommendation", func(document map[string]any) {
+			finding := followupTestFinding("New finding")
+			finding["recommendation"] = "TBD"
+			document["new_findings"] = []any{finding}
+		}},
+		{"new finding evidence quote", func(document map[string]any) {
+			finding := followupTestFinding("New finding")
+			finding["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = " "
+			document["new_findings"] = []any{finding}
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			document := followupTestDocument("resolved", "The issue was removed by the current change.")
+			test.mutate(document)
+			if _, err := validator.Validate(context.Background(), followupTestJSON(t, document), followupTestScope(t)); err == nil {
+				t.Fatal("Validate() unexpectedly accepted meaningless text")
+			}
+		})
+	}
+}
+
+func TestFollowupValidatorRejectsResolvedContradictions(t *testing.T) {
+	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
+	for _, rationale := range []string{
+		"The issue remains in the current target.",
+		"The ISSUE, IS STILL PRESENT after inspection.",
+		"The issue-still-exists.",
+		"This is still open.",
+		"The finding is not resolved.",
+		"It is still unresolved.",
+		"The finding remains unresolved.",
+	} {
+		t.Run(rationale, func(t *testing.T) {
+			document := followupTestDocument("resolved", rationale)
+			if _, err := validator.Validate(context.Background(), followupTestJSON(t, document), followupTestScope(t)); err == nil {
+				t.Fatal("Validate() unexpectedly accepted a resolved contradiction")
+			}
+		})
+	}
+}
+
+func TestFollowupValidatorAcceptsNonContradictoryRationale(t *testing.T) {
+	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
+	cases := []map[string]any{
+		followupTestDocument("resolved", "The issue no longer remains after applying the fix."),
+		followupTestDocument("still_open", "The issue remains in the current target."),
+	}
+	for _, document := range cases {
+		if _, err := validator.Validate(context.Background(), followupTestJSON(t, document), followupTestScope(t)); err != nil {
+			t.Fatalf("Validate() rejected valid rationale: %v", err)
+		}
+	}
+}
+
+func followupTestDocument(resolution, rationale string) map[string]any {
+	return map[string]any{
+		"schema_version": "kar-provider-followup-output.v2",
+		"summary":        "The finding was checked against the current target.",
+		"resolution":     resolution,
+		"rationale":      rationale,
+		"evidence": []any{map[string]any{"current": map[string]any{
+			"path": "a.go", "line_start": 1, "line_end": 1, "side": "head", "quote": "return nil",
+		}}},
+		"new_findings": []any{},
+		"limitations":  []any{},
+	}
+}
+
+func followupTestFinding(title string) map[string]any {
+	return map[string]any{
+		"severity":       "medium",
+		"title":          title,
+		"description":    "The current target introduces a separate defect.",
+		"evidence":       []any{map[string]any{"current": map[string]any{"path": "b.go", "line_start": 2, "line_end": 2, "side": "head", "quote": "panic(err)"}}},
+		"recommendation": "Handle the error before returning.",
+		"confidence":     0.9,
+	}
+}
+
+func followupTestJSON(t *testing.T, document map[string]any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func followupTestValidator(t *testing.T, schema SchemaValidator) *FollowupValidator {
 	t.Helper()
 	id, err := ports.ParseAssetID(ProviderFollowupSchemaID)
