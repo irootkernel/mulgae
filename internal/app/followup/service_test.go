@@ -181,10 +181,20 @@ func TestStartFollowupRunRejectsMutationDespiteExecutorSelfAttestation(t *testin
 
 	_, err := service.StartFollowupRun(context.Background(), testRequest(source.RunID))
 	assertFollowupErrorKind(t, err, ErrorMutation)
+	assertFollowupFailureClass(t, err, domain.FailureSecurityPolicy)
 	if reader.calls != 2 || !executor.called {
 		t.Fatalf("calls = reader %d executor %t, want independent reread after child execution", reader.calls, executor.called)
 	}
 }
+
+func assertFollowupFailureClass(t *testing.T, err error, want domain.FailureClass) {
+	t.Helper()
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != want {
+		t.Fatalf("error = %v, want failure class %s", err, want)
+	}
+}
+
 func TestStartFollowupRunPreservesTypedExecutorFailure(t *testing.T) {
 	source := testVerifiedSource(t)
 	cause := &followupSecurityError{}

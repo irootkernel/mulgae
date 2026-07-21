@@ -2993,6 +2993,10 @@ func TestApplicationG008FollowupRendersEveryResolutionExactly(t *testing.T) {
 
 func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
 	security := mustG006Failure(t, domain.FailureSecurityPolicy)
+	mutation, err := domain.NewFailure("child.source_reobservation", domain.FailureSecurityPolicy, "source changed during child execution", errors.New("source mutation"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name string
 		argv []string
@@ -3006,6 +3010,18 @@ func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
 			set:  func(fakes g008WorkflowFakes) { fakes.followup.err = context.Canceled },
 		},
 		{
+			name: "delta cancellation",
+			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
+			exit: app.ExitCodeCancellation,
+			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = context.Canceled },
+		},
+		{
+			name: "rerun cancellation",
+			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
+			exit: app.ExitCodeCancellation,
+			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = context.Canceled },
+		},
+		{
 			name: "followup missing terminal exit authority",
 			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
 			exit: app.ExitCodeInternal,
@@ -3016,6 +3032,44 @@ func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
 			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
 			exit: app.ExitCodeSecurity,
 			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = security },
+		},
+		{
+			name: "followup source mutation",
+			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
+			exit: app.ExitCodeSecurity,
+			set:  func(fakes g008WorkflowFakes) { fakes.followup.err = mutation },
+		},
+		{
+			name: "delta source mutation",
+			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
+			exit: app.ExitCodeSecurity,
+			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = mutation },
+		},
+		{
+			name: "rerun source mutation",
+			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
+			exit: app.ExitCodeSecurity,
+			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = mutation },
+		},
+		{
+			name: "followup source corruption",
+			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
+			exit: app.ExitCodeArtifact,
+			set: func(fakes g008WorkflowFakes) {
+				fakes.followup.err = &appfollowup.Error{Kind: appfollowup.ErrorSource, Stage: "source", Err: errors.New("source corrupt")}
+			},
+		},
+		{
+			name: "delta source corruption",
+			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
+			exit: app.ExitCodeArtifact,
+			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = errors.New("source corrupt") },
+		},
+		{
+			name: "rerun source corruption",
+			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
+			exit: app.ExitCodeArtifact,
+			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = appreplay.ErrSourceCorrupt },
 		},
 		{
 			name: "typed artifact clean",

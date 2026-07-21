@@ -336,6 +336,25 @@ func TestStartRerunRejectsMalformedIDsAndStaleSource(t *testing.T) {
 		t.Fatal("stale source was accepted")
 	}
 }
+
+func TestStartRerunClassifiesSourceMutationAsSecurityPolicy(t *testing.T) {
+	source := validRerunSource()
+	mutated := cloneRerunSource(source)
+	mutated.ProviderInstance = "different-provider"
+	mutated.ImmutableSHA256 = sourceAttemptDigest(mutated)
+	reader := &rerunSourceReader{source: source, observed: &mutated}
+	service := testRerunService(t, reader, &rerunExecutor{})
+
+	_, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay})
+	if !errors.Is(err, ErrSourceMutated) {
+		t.Fatalf("source mutation error = %v, want ErrSourceMutated", err)
+	}
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
+		t.Fatalf("source mutation error = %v, want security policy failure", err)
+	}
+}
+
 func TestStartRerunRejectsMissingOrStaleAuthority(t *testing.T) {
 	source := validRerunSource()
 	reader := &rerunSourceReader{source: source}

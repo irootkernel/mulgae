@@ -165,22 +165,30 @@ func (service *Service) StartDeltaRun(ctx context.Context, request StartRequest)
 
 	after, err := service.sources.ReadSource(context.WithoutCancel(ctx), request.SourceRunID)
 	if err != nil {
-		return Result{}, fmt.Errorf("delta source recheck: %w", err)
+		return Result{}, deltaSourceMutationFailure("source reread failed", err)
 	}
 	after, err = after.normalized()
 	if err != nil {
-		return Result{}, err
+		return Result{}, deltaSourceMutationFailure("source normalization failed", err)
 	}
 	if err := after.validate(request.SourceRunID); err != nil {
-		return Result{}, err
+		return Result{}, deltaSourceMutationFailure("source validation failed", err)
 	}
 	if after.Receipt != source.Receipt || after.SessionID != source.SessionID || after.RunID != source.RunID || after.ReviewID != source.ReviewID ||
 		after.Target.Kind() != source.Target.Kind() || after.Target.Value() != source.Target.Value() ||
 		after.Target.SHA256() != source.Target.SHA256() ||
 		!bytes.Equal(after.Target.Bytes(), source.Target.Bytes()) {
-		return Result{}, fmt.Errorf("delta source: source changed during child execution")
+		return Result{}, deltaSourceMutationFailure("source changed during child execution", nil)
 	}
 	return NewResult(execution.SessionID, execution.RunID, execution.ReviewArtifactURI, terminalExit)
+}
+
+func deltaSourceMutationFailure(reason string, cause error) error {
+	failure, err := domain.NewFailure("delta.source_reobservation", domain.FailureSecurityPolicy, reason, cause)
+	if err != nil {
+		return fmt.Errorf("delta source mutation classification: %w", err)
+	}
+	return failure
 }
 
 func childRoles(source []domain.RoleTask, requested []domain.Role) ([]domain.RoleTask, error) {

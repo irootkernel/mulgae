@@ -324,6 +324,10 @@ func TestStartDeltaRunRejectsSourceMutationAfterOneChildExecution(t *testing.T) 
 	if err == nil {
 		t.Fatal("StartDeltaRun accepted a source mutation after child execution")
 	}
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
+		t.Fatalf("source mutation error = %v, want security policy failure", err)
+	}
 	if sources.calls != 2 || executor.calls != 1 {
 		t.Fatalf("source reads = %d, executor calls = %d; want source recheck after one child execution", sources.calls, executor.calls)
 	}

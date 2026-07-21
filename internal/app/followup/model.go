@@ -230,6 +230,13 @@ func (err *Error) Error() string {
 func (err *Error) Unwrap() error { return err.Err }
 
 func fail(kind ErrorKind, stage, message string, cause error) error {
+	if kind == ErrorMutation {
+		failure, err := domain.NewFailure("followup."+stage, domain.FailureSecurityPolicy, message, cause)
+		if err != nil {
+			return &Error{Kind: ErrorInvariant, Stage: stage, Err: fmt.Errorf("classify source mutation: %w", err)}
+		}
+		return &Error{Kind: kind, Stage: stage, Err: failure}
+	}
 	if cause != nil {
 		return &Error{Kind: kind, Stage: stage, Err: fmt.Errorf("%s: %w", message, cause)}
 	}

@@ -94,19 +94,27 @@ func (service *Service) StartRerun(ctx context.Context, request Request) (Result
 	}
 	observed, err := service.sources.ReadRerunSource(context.WithoutCancel(ctx), request.SourceRunID, request.SourceAttemptID)
 	if err != nil {
-		return Result{}, fmt.Errorf("%w: source reread: %w", ErrSourceMutated, err)
+		return Result{}, rerunSourceMutationFailure("source reread failed", fmt.Errorf("%w: source reread: %w", ErrSourceMutated, err))
 	}
 	if err := validateSource(observed, request); err != nil {
-		return Result{}, fmt.Errorf("%w: %w", ErrSourceMutated, err)
+		return Result{}, rerunSourceMutationFailure("source validation failed", fmt.Errorf("%w: %w", ErrSourceMutated, err))
 	}
 	if !sameSource(source, observed) {
-		return Result{}, ErrSourceMutated
+		return Result{}, rerunSourceMutationFailure("source changed during child execution", ErrSourceMutated)
 	}
 	terminalExit, ok := childResult.TerminalExit()
 	if !ok {
 		return Result{}, ErrInvalidChild
 	}
 	return NewResult(childResult.SessionID, childResult.RunID, childResult.PromptManifestURI, terminalExit)
+}
+
+func rerunSourceMutationFailure(reason string, cause error) error {
+	failure, err := domain.NewFailure("rerun.source_reobservation", domain.FailureSecurityPolicy, reason, cause)
+	if err != nil {
+		return fmt.Errorf("rerun source mutation classification: %w", err)
+	}
+	return failure
 }
 func newChildRun(source SourceAttempt, mode ReplayMode, config Config) (domain.Run, error) {
 	if !mode.Valid() {
