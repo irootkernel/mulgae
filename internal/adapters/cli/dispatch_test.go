@@ -170,7 +170,7 @@ func TestDispatchRejectsUndeclaredHandlerFailureExitAsInvariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, err := app.NewCommandFailure(app.CommandInit, app.ExitCodeCancellation, diagnostic)
+	failure, err := app.NewCommandFailure(app.CommandInit, app.ExitCodePolicy, diagnostic)
 	if err != nil {
 		t.Fatal(err)
 	}
