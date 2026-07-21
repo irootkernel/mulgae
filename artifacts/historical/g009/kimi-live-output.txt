@@ -1,0 +1,4 @@
+=== RUN   TestLiveKimiExactTuple
+--- PASS: TestLiveKimiExactTuple (3.65s)
+PASS
+ok  	github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli	4.045s

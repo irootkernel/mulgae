@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "kind": "controlled-provider-live-test-report",
+  "goalId": "G009",
+  "baselineCommit": "e1f14f80d92b30662c89ed385ab88dc2f850e2b4",
+  "platform": "darwin-arm64",
+  "tuple": {
+    "family": "kimi",
+    "instance": "local-default",
+    "version": "0.23.6",
+    "binary": "/Users/draccoon/.kimi-code/bin/kimi",
+    "binarySHA256": "50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a",
+    "concurrencyKey": "kimi-default"
+  },
+  "command": "go test -tags=liveprovider ./internal/adapters/providercli -run ^TestLiveKimiExactTuple$ -count=1 -v",
+  "result": "PASS",
+  "skipped": false,
+  "exitCode": 0,
+  "rawOutputPath": "/tmp/g009-live-kimi-output.txt",
+  "rawOutputSHA256": "435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141"
+}
