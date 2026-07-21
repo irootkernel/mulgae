@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const (
@@ -16,37 +16,28 @@ const (
 	currentQualificationDrainWait = 5 * time.Second
 )
 
-type providerCurrentProbe interface {
-	QualifyCurrent(context.Context, providercli.CurrentProbeRequest) (providercli.CurrentProbeResult, error)
-}
-
-type probeFixtureAcquirer interface {
-	Acquire(context.Context, domain.Role) (providercli.ProbeFixtureLease, error)
-}
-
-// ProviderCLICurrentQualifier adapts descriptor-bound provider probes into
+// ProviderCurrentQualifier adapts descriptor-bound provider probes into
 // provider-independent current admission evidence.
-type ProviderCLICurrentQualifier struct {
-	probe      providerCurrentProbe
-	fixtures   probeFixtureAcquirer
-	invocation providercli.SafeProbeInvocation
+type ProviderCurrentQualifier struct {
+	probe    ports.ProviderCurrentProbe
+	fixtures ports.ProviderQualificationFixtureFactory
 }
 
-var _ CurrentQualifier = (*ProviderCLICurrentQualifier)(nil)
+var _ CurrentQualifier = (*ProviderCurrentQualifier)(nil)
 
-// NewProviderCLICurrentQualifier constructs the production current qualifier.
-func NewProviderCLICurrentQualifier(probe providerCurrentProbe, fixtures probeFixtureAcquirer, invocation providercli.SafeProbeInvocation) (*ProviderCLICurrentQualifier, error) {
-	if probe == nil || fixtures == nil || invocation == nil {
+// NewProviderCurrentQualifier constructs the production current qualifier.
+func NewProviderCurrentQualifier(probe ports.ProviderCurrentProbe, fixtures ports.ProviderQualificationFixtureFactory) (*ProviderCurrentQualifier, error) {
+	if nilInterface(probe) || nilInterface(fixtures) {
 		return nil, fmt.Errorf("review run: current qualifier dependencies unavailable")
 	}
-	return &ProviderCLICurrentQualifier{probe: probe, fixtures: fixtures, invocation: invocation}, nil
+	return &ProviderCurrentQualifier{probe: probe, fixtures: fixtures}, nil
 }
 
 // QualifyCurrent acquires independently materialized fixtures, performs one
 // descriptor-bound probe, and returns evidence bound only to its observed
 // version. Every acquired fixture is drained before it returns.
-func (qualifier *ProviderCLICurrentQualifier) QualifyCurrent(ctx context.Context, request CurrentQualificationRequest) (result CurrentQualificationResult, err error) {
-	if qualifier == nil || qualifier.probe == nil || qualifier.fixtures == nil || qualifier.invocation == nil || ctx == nil || request.Now.IsZero() {
+func (qualifier *ProviderCurrentQualifier) QualifyCurrent(ctx context.Context, request CurrentQualificationRequest) (result CurrentQualificationResult, err error) {
+	if qualifier == nil || nilInterface(qualifier.probe) || nilInterface(qualifier.fixtures) || ctx == nil || request.Now.IsZero() {
 		return CurrentQualificationResult{}, fmt.Errorf("review run: invalid current qualification authority")
 	}
 	roles, err := qualifier.rolesFor(request)
@@ -54,7 +45,7 @@ func (qualifier *ProviderCLICurrentQualifier) QualifyCurrent(ctx context.Context
 		return CurrentQualificationResult{}, err
 	}
 
-	fixtures := make([]providercli.ProbeFixtureLease, 0, len(roles))
+	fixtures := make([]ports.ProviderQualificationFixtureLease, 0, len(roles))
 	defer func() {
 		if cleanupErr := drainProbeFixtures(fixtures); cleanupErr != nil {
 			failure, failureErr := domain.NewFailure("reviewrun.current.cleanup", domain.FailureInternal, "qualification fixture cleanup failed", cleanupErr)
@@ -76,7 +67,7 @@ func (qualifier *ProviderCLICurrentQualifier) QualifyCurrent(ctx context.Context
 	if acquireErr != nil {
 		return CurrentQualificationResult{}, acquireErr
 	}
-	roleFixtures := make([]providercli.ProbeFixtureLease, 0, len(roles)-1)
+	roleFixtures := make([]ports.ProviderQualificationFixtureLease, 0, len(roles)-1)
 	for _, role := range roles {
 		if role == request.BaseRole {
 			continue
@@ -88,9 +79,9 @@ func (qualifier *ProviderCLICurrentQualifier) QualifyCurrent(ctx context.Context
 		roleFixtures = append(roleFixtures, fixture)
 	}
 
-	probeResult, probeErr := qualifier.probe.QualifyCurrent(ctx, providercli.CurrentProbeRequest{
+	probeResult, probeErr := qualifier.probe.QualifyProviderCurrent(ctx, ports.ProviderCurrentProbeRequest{
 		Definition: request.Definition, Namespace: request.Namespace, Fixture: base, RoleFixtures: roleFixtures,
-		Invocation: qualifier.invocation, Now: request.Now, TTL: currentQualificationTTL,
+		Now: request.Now, TTL: currentQualificationTTL,
 	})
 	if probeErr != nil {
 		return CurrentQualificationResult{}, admissionProbeError(probeErr)
@@ -118,7 +109,7 @@ func (qualifier *ProviderCLICurrentQualifier) QualifyCurrent(ctx context.Context
 	}, nil
 }
 
-func (qualifier *ProviderCLICurrentQualifier) rolesFor(request CurrentQualificationRequest) ([]domain.Role, error) {
+func (qualifier *ProviderCurrentQualifier) rolesFor(request CurrentQualificationRequest) ([]domain.Role, error) {
 	definition := request.Definition
 	identity := request.Identity
 	if request.Namespace == nil || definition.Instance() == "" || request.Profile.Family() != Family(definition.Family()) ||
@@ -142,7 +133,7 @@ func (qualifier *ProviderCLICurrentQualifier) rolesFor(request CurrentQualificat
 	return roles, nil
 }
 
-func (qualifier *ProviderCLICurrentQualifier) acquire(ctx context.Context, role domain.Role, acquired *[]providercli.ProbeFixtureLease) (providercli.ProbeFixtureLease, error) {
+func (qualifier *ProviderCurrentQualifier) acquire(ctx context.Context, role domain.Role, acquired *[]ports.ProviderQualificationFixtureLease) (ports.ProviderQualificationFixtureLease, error) {
 	fixture, err := qualifier.fixtures.Acquire(ctx, role)
 	if err != nil {
 		return nil, err
@@ -185,7 +176,7 @@ func canonicalQualificationRoles(baseRole domain.Role, requestedRoles []domain.R
 	return roles, nil
 }
 
-func drainProbeFixtures(fixtures []providercli.ProbeFixtureLease) error {
+func drainProbeFixtures(fixtures []ports.ProviderQualificationFixtureLease) error {
 	var result error
 	for _, fixture := range fixtures {
 		if fixture == nil {
@@ -226,9 +217,9 @@ func admissionProbeError(err error) error {
 }
 
 func currentProbeAppReceipts(
-	receipts []providercli.CurrentProbeReceipt,
+	receipts []ports.ProviderCurrentProbeReceipt,
 	identity Identity,
-	definition providercli.RuntimeDefinition,
+	definition ports.ProviderRuntimeDefinition,
 	namespaceGeneration string,
 	roles []domain.Role,
 ) ([]Receipt, error) {

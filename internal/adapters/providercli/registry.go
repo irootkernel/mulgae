@@ -313,6 +313,11 @@ func (d RuntimeDefinition) PostOutputLifecycle() (ports.BoundedPostOutputLifecyc
 	}
 	return d.postOutputLifecycle, true
 }
+func (d RuntimeDefinition) TransportChannel() ports.ProviderPacketChannel {
+	return d.transport.Channel()
+}
+func (d RuntimeDefinition) TransportArgvIndex() int    { return d.transport.ArgvIndex() }
+func (d RuntimeDefinition) TransportReference() string { return d.transport.Reference() }
 
 func (d RuntimeDefinition) validate() error {
 	if !validFamily(d.family) {

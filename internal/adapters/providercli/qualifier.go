@@ -23,14 +23,7 @@ const currentProbeOutputLimit int64 = 64 << 10
 
 // QualificationNamespace is the retained provider namespace authority. Workspace
 // authority belongs exclusively to the ProbeFixtureLease used for each spawn.
-type QualificationNamespace interface {
-	ProviderInstance() string
-	Generation() string
-	Environment() []ports.EnvironmentVariable
-	RuntimeSafetyPolicyIdentity() string
-	ValidateForSpawn() error
-	NativeHomeLaunchAuthority() (ports.NativeHomeLaunchAuthority, bool)
-}
+type QualificationNamespace = ports.ProviderQualificationNamespace
 
 // SafeProbeInvocation supplies family-closed capability argv.
 type SafeProbeInvocation interface {
@@ -95,7 +88,11 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Valid() bool {
 
 // Matches reports whether this receipt is valid for one exact runtime definition,
 // observed version, namespace generation, and unique role set.
-func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Matches(definition RuntimeDefinition, observedVersion, namespaceGeneration string, roles []domain.Role) bool {
+func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Matches(candidate ports.ProviderRuntimeDefinition, observedVersion, namespaceGeneration string, roles []domain.Role) bool {
+	definition, ok := candidate.(RuntimeDefinition)
+	if !ok {
+		return false
+	}
 	runtimeDefinitionIdentity, identityErr := currentProbeRuntimeDefinitionIdentity(definition)
 	if !receipt.Valid() || identityErr != nil || receipt.runtimeDefinitionIdentity != runtimeDefinitionIdentity ||
 		!semverOutput.MatchString(observedVersion) || namespaceGeneration == "" || len(roles) != len(receipt.proofs) {

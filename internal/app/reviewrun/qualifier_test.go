@@ -21,7 +21,7 @@ type qualifierClock struct{ now time.Time }
 func (clock qualifierClock) Now() time.Time { return clock.now }
 
 type qualifierRegistry struct {
-	namespaces    map[string]providercli.QualificationNamespace
+	namespaces    map[string]ports.ProviderQualificationNamespace
 	receipt       ports.ProviderRunTerminalReceipt
 	closeErr      error
 	closeErrs     []error
@@ -30,7 +30,7 @@ type qualifierRegistry struct {
 	closed        int
 }
 
-func (registry *qualifierRegistry) QualificationNamespace(instance string) (providercli.QualificationNamespace, bool) {
+func (registry *qualifierRegistry) QualificationNamespace(instance string) (ports.ProviderQualificationNamespace, bool) {
 	namespace, ok := registry.namespaces[instance]
 	return namespace, ok
 }
@@ -78,7 +78,7 @@ func (namespace qualifierNamespace) ValidateForSpawn() error  { return nil }
 
 type qualifierRegistryFactory struct{ registry *qualifierRegistry }
 
-func (factory qualifierRegistryFactory) NewQualifiedRunRegistry(_ context.Context, definitions []providercli.RuntimeDefinition) (QualifiedRunRegistry, error) {
+func (factory qualifierRegistryFactory) NewProviderQualificationRegistry(_ context.Context, definitions []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
 	for _, definition := range definitions {
 		if _, ok := factory.registry.namespaces[definition.Instance()]; !ok {
 			factory.registry.namespaces[definition.Instance()] = qualifierNamespace{
@@ -87,6 +87,10 @@ func (factory qualifierRegistryFactory) NewQualifiedRunRegistry(_ context.Contex
 		}
 	}
 	return factory.registry, nil
+}
+
+func (qualifierRegistryFactory) RegistryFromConstructionError(error) (ports.ProviderQualificationRegistry, bool) {
+	return nil, false
 }
 
 func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *testing.T) {
@@ -110,7 +114,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 	}
 	namespaceReceipt := acquiredProviderNamespaceTerminalReceipt(t, "kimi-main", "generation-1")
 	aggregate := mustProviderRunTerminalReceipt(t, namespaceReceipt)
-	registry := &qualifierRegistry{namespaces: map[string]providercli.QualificationNamespace{}, receipt: aggregate}
+	registry := &qualifierRegistry{namespaces: map[string]ports.ProviderQualificationNamespace{}, receipt: aggregate}
 	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 		if request.Namespace == nil || request.Namespace.ProviderInstance() != request.Identity.Instance ||
 			request.Namespace.Generation() != request.Identity.NamespaceGeneration ||

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -207,7 +206,7 @@ func newAuthorityRegistry(t *testing.T) *qualifierRegistry {
 	namespace := acquiredProviderNamespaceTerminalReceipt(t, "agy-main", "generation-1")
 	aggregate := mustProviderRunTerminalReceipt(t, namespace)
 	return &qualifierRegistry{
-		namespaces: make(map[string]providercli.QualificationNamespace),
+		namespaces: make(map[string]ports.ProviderQualificationNamespace),
 		receipt:    aggregate,
 	}
 }

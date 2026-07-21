@@ -222,15 +222,26 @@ func composeReviewRuns(
 	if err != nil {
 		return nil, fmt.Errorf("review composition: current probe: %w", err)
 	}
-	current, err := reviewrun.NewProviderCLICurrentQualifier(probe, fixtures, providercli.NativeProbeInvocation{})
+	probePort, err := providercli.NewQualificationProbeAdapter(probe, providercli.NativeProbeInvocation{})
+	if err != nil {
+		return nil, fmt.Errorf("review composition: current probe adapter: %w", err)
+	}
+	fixturePort, err := providercli.NewQualificationFixtureFactoryAdapter(fixtures)
+	if err != nil {
+		return nil, fmt.Errorf("review composition: qualification fixture adapter: %w", err)
+	}
+	current, err := reviewrun.NewProviderCurrentQualifier(probePort, fixturePort)
 	if err != nil {
 		return nil, fmt.Errorf("review composition: current qualifier: %w", err)
 	}
-	registries := reviewrun.ProviderCLIQualifiedRunRegistryFactory{
-		Runner: runner, Namespaces: projectedNamespaces,
-		VerifierFactory: func(ctx context.Context) (providercli.SpawnVerifier, error) {
+	registries, err := providercli.NewQualificationRegistryFactory(
+		runner, projectedNamespaces, nil,
+		func(ctx context.Context) (providercli.SpawnVerifier, error) {
 			return boundLocalitySpawnVerifier(ctx, baseSpawnVerifier)
 		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("review composition: qualification registry factory: %w", err)
 	}
 	qualified, err := reviewrun.NewQualifiedRunFactory(current, registries, clock)
 	if err != nil {
@@ -481,7 +492,7 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if provider := source.config.Providers.Kimi; provider != nil {
 		kimiModel = provider.Model
 	}
-	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(profiles, source.policyIdentities, source.agyPermissionMode, kimiModel)
+	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel)
 	if err != nil {
 		return nil, err
 	}

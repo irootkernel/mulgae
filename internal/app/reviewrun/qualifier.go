@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -34,9 +33,9 @@ func (function CurrentQualifierFunc) QualifyCurrent(ctx context.Context, request
 // definition is production-only and the identity is shared by every receipt.
 type CurrentQualificationRequest struct {
 	Profile        DiscoveredProviderProfile
-	Definition     providercli.RuntimeDefinition
+	Definition     ports.ProviderRuntimeDefinition
 	Identity       Identity
-	Namespace      providercli.QualificationNamespace
+	Namespace      ports.ProviderQualificationNamespace
 	RequestedRoles []domain.Role
 	BaseRole       domain.Role
 	Now            time.Time
@@ -66,46 +65,18 @@ type CurrentRoleReceipt struct {
 // declared production process profile and role authority.
 type QualifiedRunCandidate struct {
 	Profile          DiscoveredProviderProfile
-	Definition       providercli.RuntimeDefinition
+	Definition       ports.ProviderRuntimeDefinition
 	SnapshotManifest string
 	SupportedRoles   []domain.Role
 	BaseRole         domain.Role
 	Limits           review.InvocationLimits
 }
 
-// QualifiedRunRegistry is the retained production execution authority. It is
-// deliberately narrower than providercli.Registry construction authority.
-type QualifiedRunRegistry interface {
-	ports.ObservedReviewProvider
-	QualificationNamespace(string) (providercli.QualificationNamespace, bool)
-	Close(context.Context) (ports.ProviderRunTerminalReceipt, error)
-}
+// QualifiedRunRegistry is the retained production execution authority.
+type QualifiedRunRegistry = ports.ProviderQualificationRegistry
 
-// QualifiedRunRegistryFactory creates a production-only registry. Implementors
-// allocate exactly one namespace per supplied instance and retain it until Close.
-type QualifiedRunRegistryFactory interface {
-	NewQualifiedRunRegistry(context.Context, []providercli.RuntimeDefinition) (QualifiedRunRegistry, error)
-}
-
-// ProviderCLIQualifiedRunRegistryFactory is the production registry adapter.
-type ProviderCLIQualifiedRunRegistryFactory struct {
-	Runner          ports.ProcessRunner
-	Namespaces      ports.ProviderNamespaceFactory
-	Verifier        providercli.SpawnVerifier
-	VerifierFactory func(context.Context) (providercli.SpawnVerifier, error)
-}
-
-func (factory ProviderCLIQualifiedRunRegistryFactory) NewQualifiedRunRegistry(ctx context.Context, definitions []providercli.RuntimeDefinition) (QualifiedRunRegistry, error) {
-	verifier := factory.Verifier
-	if factory.VerifierFactory != nil {
-		var err error
-		verifier, err = factory.VerifierFactory(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("review run: construct spawn verifier: %w", err)
-		}
-	}
-	return providercli.NewProductionRegistryWithContext(ctx, factory.Runner, factory.Namespaces, verifier, definitions...)
-}
+// QualifiedRunRegistryFactory creates production-only retained registries.
+type QualifiedRunRegistryFactory = ports.ProviderQualificationRegistryFactory
 
 // QualifiedRunFactory turns identity-only discovery into immutable routes and a
 // run-owned registry. It has no fallback to live process state.
@@ -267,12 +238,12 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 	routes := make([]QualifiedRoute, 0, len(candidates))
 	for _, candidate := range candidates {
 		definition := candidate.Definition
-		registry, err := factory.registries.NewQualifiedRunRegistry(ctx, []providercli.RuntimeDefinition{definition})
+		registry, err := factory.registries.NewProviderQualificationRegistry(ctx, []ports.ProviderRuntimeDefinition{definition})
 		if err != nil {
 			if currentQualificationUnavailable(err) {
 				continue
 			}
-			if retained, ok := providercli.RegistryFromConstructionError(err); ok {
+			if retained, ok := factory.registries.RegistryFromConstructionError(err); ok {
 				admitted[definition.Instance()] = retained
 				admittedInstances = append(admittedInstances, definition.Instance())
 				if namespace, retained := retained.QualificationNamespace(definition.Instance()); retained {
@@ -389,7 +360,7 @@ func validateQualifiedRunCandidate(candidate QualifiedRunCandidate, seen map[str
 	return nil
 }
 
-func qualificationIdentity(candidate QualifiedRunCandidate, definition providercli.RuntimeDefinition, generation string) Identity {
+func qualificationIdentity(candidate QualifiedRunCandidate, definition ports.ProviderRuntimeDefinition, generation string) Identity {
 	return Identity{
 		Family: Family(definition.Family()), Instance: definition.Instance(), ProfileGeneration: definition.ProfileGeneration(),
 		AdapterProfile: definition.ProfileID(), Version: definition.Version(), Executable: definition.Executable(),
@@ -617,7 +588,7 @@ func closeQualifiedRunRegistry(ctx context.Context, registry QualifiedRunRegistr
 	return receipt, nil
 }
 
-func (registry *qualifiedRunRegistryComposite) QualificationNamespace(instance string) (providercli.QualificationNamespace, bool) {
+func (registry *qualifiedRunRegistryComposite) QualificationNamespace(instance string) (ports.ProviderQualificationNamespace, bool) {
 	if registry == nil {
 		return nil, false
 	}

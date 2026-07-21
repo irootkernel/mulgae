@@ -4,13 +4,14 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
-	templates, err := trustedProductionCandidateTemplates()
+	templates, err := trustedProductionCandidateTemplates(providercli.RuntimeBuilder{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,16 +24,16 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 	if templates[0].lifecycle != nil || templates[1].lifecycle != nil || templates[2].lifecycle == nil || !templates[2].lifecycle.Valid() {
 		t.Fatal("AGY lifecycle binding is not exclusive and valid")
 	}
-	if templates[1].transport.ArgvIndex() != 6 {
-		t.Fatalf("ZCode transport argv index = %d, want 6", templates[1].transport.ArgvIndex())
+	if templates[1].transportArgvIndex != 6 {
+		t.Fatalf("ZCode transport argv index = %d, want 6", templates[1].transportArgvIndex)
 	}
-	if templates[2].transport.ArgvIndex() != 10 {
-		t.Fatalf("default AGY transport argv index = %d, want safe-mode index 10", templates[2].transport.ArgvIndex())
+	if templates[2].transportArgvIndex != 10 {
+		t.Fatalf("default AGY transport argv index = %d, want safe-mode index 10", templates[2].transportArgvIndex)
 	}
 }
 
 func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
-	identities, err := defaultProductionPolicyIdentities()
+	identities, err := defaultProductionPolicyIdentities(providercli.RuntimeBuilder{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := templates[2].transport.ArgvIndex(); got != test.want {
+		if got := templates[2].transportArgvIndex; got != test.want {
 			t.Fatalf("AGY %s argv index = %d, want %d", test.mode, got, test.want)
 		}
 	}
@@ -60,7 +61,7 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 		FamilyZCode: "zcode-policy",
 		FamilyAGY:   "agy-workspace-policy",
 	}
-	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(profiles, identities)
+	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(providercli.RuntimeBuilder{}, profiles, identities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(profiles, invalid); err == nil {
+			if _, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(providercli.RuntimeBuilder{}, profiles, invalid); err == nil {
 				t.Fatal("invalid policy coverage was accepted")
 			}
 		})
@@ -104,7 +105,7 @@ func TestProductionCandidatesBindConfiguredKimiModel(t *testing.T) {
 		argv: []string{"/private/bin/kimi"}, sha256: "kimi-sha", launcherSHA256: "kimi-sha", reason: "unqualified_discovery",
 	}}
 	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(
-		profiles, map[Family]string{FamilyKimi: "kimi-policy", FamilyZCode: "zcode-policy", FamilyAGY: "agy-policy"},
+		providercli.RuntimeBuilder{}, profiles, map[Family]string{FamilyKimi: "kimi-policy", FamilyZCode: "zcode-policy", FamilyAGY: "agy-policy"},
 		"safe", "operator/model-v1",
 	)
 	if err != nil {
@@ -139,7 +140,7 @@ func TestValidateStartupProfilesRejectsMalformedAndCopiesArgv(t *testing.T) {
 	if err := validateStartupProfiles([]DiscoveredProviderProfile{profile}); err != nil {
 		t.Fatal(err)
 	}
-	source, err := NewProductionQualifiedRunCandidateSource([]DiscoveredProviderProfile{profile})
+	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, []DiscoveredProviderProfile{profile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +159,7 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 		{family: FamilyZCode, executable: "/private/bin/node", launcher: ZCodeLauncher, argv: []string{"/private/bin/node", ZCodeLauncher}, sha256: "node-sha", launcherSHA256: "launcher-sha", reason: "unqualified_discovery"},
 		{family: FamilyAGY, executable: "/private/bin/agy", launcher: "/private/bin/agy", argv: []string{"/private/bin/agy"}, sha256: "agy-sha", launcherSHA256: "agy-sha", reason: "unqualified_discovery"},
 	}
-	source, err := NewProductionQualifiedRunCandidateSource(profiles)
+	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, profiles)
 	if err != nil {
 		t.Fatal(err)
 	}

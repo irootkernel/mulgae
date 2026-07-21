@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -26,7 +25,9 @@ type productionCandidateTemplate struct {
 	runtimeSafetyPolicyIdentity string
 	baseArgv                    []string
 	environment                 []ports.EnvironmentVariable
-	transport                   providercli.RuntimeTransport
+	transportChannel            ports.ProviderPacketChannel
+	transportArgvIndex          int
+	transportReference          string
 	concurrencyKey              ports.ConcurrencyKey
 	limits                      review.InvocationLimits
 	lifecycle                   *ports.BoundedPostOutputLifecycle
@@ -42,35 +43,39 @@ type ProductionQualifiedRunCandidateSource struct {
 	policyIdentities       map[Family]string
 	frozenPolicyIdentities map[Family]string
 	templates              []productionCandidateTemplate
+	builder                ports.ProviderRuntimeBuilder
 }
 
 // NewProductionQualifiedRunCandidateSource constructs the production candidate
 // source from the identity-only profiles captured at startup. Profiles are
 // retained by value; their caller-owned argv slices are cloned.
-func NewProductionQualifiedRunCandidateSource(profiles []DiscoveredProviderProfile) (*ProductionQualifiedRunCandidateSource, error) {
-	identities, err := defaultProductionPolicyIdentities()
+func NewProductionQualifiedRunCandidateSource(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile) (*ProductionQualifiedRunCandidateSource, error) {
+	identities, err := defaultProductionPolicyIdentities(builder)
 	if err != nil {
 		return nil, fmt.Errorf("review run: default production policy identities: %w", err)
 	}
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(profiles, identities)
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(builder, profiles, identities)
 }
 
 // NewProductionQualifiedRunCandidateSourceWithPolicyIdentities constructs the
 // production candidate source using the exact policies installed into provider
 // credential namespaces for this composition.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(profiles []DiscoveredProviderProfile, identities map[Family]string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(profiles, identities, "safe")
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string) (*ProductionQualifiedRunCandidateSource, error) {
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder, profiles, identities, "safe")
 }
 
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(profiles, identities, agyPermissionMode, "kimi-code/k3")
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode string) (*ProductionQualifiedRunCandidateSource, error) {
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder, profiles, identities, agyPermissionMode, "kimi-code/k3")
 }
 
 // NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings
 // binds operator-admitted family settings to every probe and production
 // invocation. Kimi's model is explicit here; callers pass the canonical K3
 // default only when the configuration omitted the field.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string) (*ProductionQualifiedRunCandidateSource, error) {
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string) (*ProductionQualifiedRunCandidateSource, error) {
+	if nilInterface(builder) {
+		return nil, fmt.Errorf("review run: provider runtime builder is required")
+	}
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, fmt.Errorf("review run: invalid production policy identities: %w", err)
 	}
@@ -86,7 +91,7 @@ func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSetti
 	return &ProductionQualifiedRunCandidateSource{
 		profiles: cloned, frozenProfiles: cloneDiscoveredProviderProfiles(cloned),
 		policyIdentities: clonedIdentities, frozenPolicyIdentities: cloneProductionPolicyIdentities(clonedIdentities),
-		templates: templates,
+		templates: templates, builder: builder,
 	}, nil
 }
 
@@ -133,7 +138,7 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 		if !ok || profileMissingOperationalIdentity(profile) {
 			continue
 		}
-		definition, err := template.definition(profile)
+		definition, err := template.definition(source.builder, profile)
 		if err != nil {
 			return nil, fmt.Errorf("review run: construct %s production candidate: %w", template.family, err)
 		}
@@ -153,57 +158,51 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 	return candidates, nil
 }
 
-func (template productionCandidateTemplate) definition(profile DiscoveredProviderProfile) (providercli.RuntimeDefinition, error) {
+func (template productionCandidateTemplate) definition(builder ports.ProviderRuntimeBuilder, profile DiscoveredProviderProfile) (ports.ProviderRuntimeDefinition, error) {
 	baseArgv := append([]string{profile.Executable()}, template.baseArgv...)
 	if template.family == FamilyZCode {
 		baseArgv = []string{profile.Executable(), profile.Launcher()}
 		baseArgv = append(baseArgv, template.baseArgv...)
 	}
-	if template.lifecycle != nil {
-		return providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-			string(template.family), template.instance, "", profile.Executable(), profile.SHA256(), profile.Launcher(), profile.LauncherSHA256(),
-			template.concurrencyKey, template.profileID, productionProfileGeneration, template.runtimeSafetyPolicyIdentity,
-			baseArgv, template.transport, *template.lifecycle, append([]ports.EnvironmentVariable(nil), template.environment...), productionWorkingDirectory,
-			template.limits.Timeout(), template.limits.MaxStdoutBytes(), template.limits.MaxStderrBytes(),
-		)
+	if nilInterface(builder) {
+		return nil, fmt.Errorf("provider runtime builder is required")
 	}
-	if template.family == FamilyKimi {
-		return providercli.NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
-			string(template.family), template.instance, "", profile.Executable(), profile.SHA256(), profile.Launcher(), profile.LauncherSHA256(),
-			template.concurrencyKey, template.profileID, productionProfileGeneration, template.runtimeSafetyPolicyIdentity, template.kimiModel,
-			baseArgv, template.transport, append([]ports.EnvironmentVariable(nil), template.environment...), productionWorkingDirectory,
-			template.limits.Timeout(), template.limits.MaxStdoutBytes(), template.limits.MaxStderrBytes(),
-		)
+	var lifecycle ports.BoundedPostOutputLifecycle
+	hasLifecycle := template.lifecycle != nil
+	if hasLifecycle {
+		lifecycle = *template.lifecycle
 	}
-	return providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		string(template.family), template.instance, "", profile.Executable(), profile.SHA256(), profile.Launcher(), profile.LauncherSHA256(),
-		template.concurrencyKey, template.profileID, productionProfileGeneration, template.runtimeSafetyPolicyIdentity,
-		baseArgv, template.transport, append([]ports.EnvironmentVariable(nil), template.environment...), productionWorkingDirectory,
-		template.limits.Timeout(), template.limits.MaxStdoutBytes(), template.limits.MaxStderrBytes(),
-	)
+	return builder.BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: string(template.family), Instance: template.instance, Executable: profile.Executable(), ExecutableSHA256: profile.SHA256(),
+		Launcher: profile.Launcher(), LauncherSHA256: profile.LauncherSHA256(), ConcurrencyKey: template.concurrencyKey,
+		ProfileID: template.profileID, ProfileGeneration: productionProfileGeneration, RuntimeSafetyPolicyIdentity: template.runtimeSafetyPolicyIdentity,
+		KimiModel: template.kimiModel, BaseArgv: baseArgv, TransportChannel: template.transportChannel,
+		TransportArgvIndex: template.transportArgvIndex, TransportReference: template.transportReference,
+		Environment: append([]ports.EnvironmentVariable(nil), template.environment...), WorkingDirectory: productionWorkingDirectory,
+		Timeout: template.limits.Timeout(), MaxStdoutBytes: template.limits.MaxStdoutBytes(), MaxStderrBytes: template.limits.MaxStderrBytes(),
+		PostOutputLifecycle: lifecycle, HasPostOutputLifecycle: hasLifecycle,
+	})
 }
 
-func trustedProductionCandidateTemplates() ([]productionCandidateTemplate, error) {
-	identities, err := defaultProductionPolicyIdentities()
+func trustedProductionCandidateTemplates(builder ports.ProviderRuntimeBuilder) ([]productionCandidateTemplate, error) {
+	identities, err := defaultProductionPolicyIdentities(builder)
 	if err != nil {
 		return nil, err
 	}
 	return productionCandidateTemplates(identities)
 }
 
-func defaultProductionPolicyIdentities() (map[Family]string, error) {
-	families := map[Family]providercli.CredentialSourceFamily{
-		FamilyKimi:  providercli.CredentialSourceKimi,
-		FamilyZCode: providercli.CredentialSourceZCode,
-		FamilyAGY:   providercli.CredentialSourceAGY,
+func defaultProductionPolicyIdentities(builder ports.ProviderRuntimeBuilder) (map[Family]string, error) {
+	if nilInterface(builder) {
+		return nil, fmt.Errorf("provider runtime builder is required")
 	}
-	identities := make(map[Family]string, len(families))
-	for family, credentialFamily := range families {
-		policy, err := providercli.RuntimeSafetyPolicyForFamily(credentialFamily)
+	identities := make(map[Family]string, len(Families()))
+	for _, family := range Families() {
+		identity, err := builder.RuntimeSafetyPolicyIdentity(string(family))
 		if err != nil {
 			return nil, err
 		}
-		identities[family] = policy.Identity()
+		identities[family] = identity
 	}
 	return identities, nil
 }
@@ -242,21 +241,9 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	if err != nil {
 		return nil, err
 	}
-	kimiTransport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 4, "")
-	if err != nil {
-		return nil, err
-	}
-	zcodeTransport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 6, "")
-	if err != nil {
-		return nil, err
-	}
 	agyArgvIndex := 10
 	if agyPermissionMode == "dangerously-skip-permissions" {
 		agyArgvIndex = 11
-	}
-	agyTransport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, agyArgvIndex, "")
-	if err != nil {
-		return nil, err
 	}
 	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
 	if err != nil {
@@ -267,9 +254,9 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 		return nil, err
 	}
 	return []productionCandidateTemplate{
-		{family: FamilyKimi, instance: "kimi-default", profileID: "kimi-default", runtimeSafetyPolicyIdentity: identities[FamilyKimi], kimiModel: kimiModel, transport: kimiTransport, concurrencyKey: kimiKey, limits: limits},
-		{family: FamilyZCode, instance: "zcode-default", profileID: "zcode-default", runtimeSafetyPolicyIdentity: identities[FamilyZCode], transport: zcodeTransport, concurrencyKey: zcodeKey, limits: limits},
-		{family: FamilyAGY, instance: "agy-default", profileID: "agy-default", runtimeSafetyPolicyIdentity: identities[FamilyAGY], transport: agyTransport, concurrencyKey: agyKey, limits: limits, lifecycle: &lifecycle, environment: []ports.EnvironmentVariable{agyEnvironment}},
+		{family: FamilyKimi, instance: "kimi-default", profileID: "kimi-default", runtimeSafetyPolicyIdentity: identities[FamilyKimi], kimiModel: kimiModel, transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: 4, concurrencyKey: kimiKey, limits: limits},
+		{family: FamilyZCode, instance: "zcode-default", profileID: "zcode-default", runtimeSafetyPolicyIdentity: identities[FamilyZCode], transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: 6, concurrencyKey: zcodeKey, limits: limits},
+		{family: FamilyAGY, instance: "agy-default", profileID: "agy-default", runtimeSafetyPolicyIdentity: identities[FamilyAGY], transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: agyArgvIndex, concurrencyKey: agyKey, limits: limits, lifecycle: &lifecycle, environment: []ports.EnvironmentVariable{agyEnvironment}},
 	}, nil
 }
 
@@ -279,7 +266,8 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 	}
 	seen := make(map[Family]struct{}, len(templates))
 	for _, template := range templates {
-		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" {
+		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" ||
+			template.transportChannel != ports.ProviderPacketChannelArgvLiteral || template.transportArgvIndex < 0 || template.transportReference != "" {
 			return fmt.Errorf("invalid template policy identity")
 		}
 		if _, duplicate := seen[template.family]; duplicate {

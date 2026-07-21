@@ -22,6 +22,17 @@ type ProviderRuntimeDefinition interface {
 	RuntimeSafetyPolicyIdentity() string
 	ConcurrencyKey() ConcurrencyKey
 	ProfileID() string
+	KimiModel() string
+	BaseArgv() []string
+	Environment() []EnvironmentVariable
+	WorkingDirectory() string
+	Timeout() time.Duration
+	MaxStdoutBytes() int64
+	MaxStderrBytes() int64
+	PostOutputLifecycle() (BoundedPostOutputLifecycle, bool)
+	TransportChannel() ProviderPacketChannel
+	TransportArgvIndex() int
+	TransportReference() string
 }
 
 // ProviderRuntimeSpec is the neutral construction request passed from the
@@ -76,6 +87,7 @@ type ProviderQualificationNamespace interface {
 type ProviderQualificationFixtureLease interface {
 	Role() domain.Role
 	WorkspaceSnapshotIdentity() WorkspaceSnapshotIdentity
+	Validate() error
 	DrainTerminal(context.Context) (QualificationWorkspaceTerminalReceipt, error)
 }
 

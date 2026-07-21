@@ -41,9 +41,9 @@ func TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority(t *testing.T) {
 			identity := Identity{Family: family, Version: "2.0.0"}
 			expires := time.Now().Add(time.Minute)
 			kinds := []string{"workspace", "manifest", "namespace", "environment", "transport", "native-reference", "version", "capability", "base-role", "assignment", "direct-execution-authority"}
-			providerReceipts := make([]providercli.CurrentProbeReceipt, 0, len(kinds))
+			providerReceipts := make([]ports.ProviderCurrentProbeReceipt, 0, len(kinds))
 			for _, kind := range kinds {
-				providerReceipts = append(providerReceipts, providercli.CurrentProbeReceipt{Kind: kind, ExpiresAt: expires})
+				providerReceipts = append(providerReceipts, ports.ProviderCurrentProbeReceipt{Kind: kind, ExpiresAt: expires})
 			}
 			if _, err := currentProbeAppReceipts(providerReceipts, identity, providercli.RuntimeDefinition{}, "", nil); err == nil {
 				t.Fatal("nil direct-execution authority accepted")
@@ -58,11 +58,11 @@ func TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority(t *testing.T) {
 
 func TestDrainProbeFixturesRetriesAndRejectsMismatchedReceipt(t *testing.T) {
 	fixture := newCurrentQualifierFixture(t, domain.RoleLogic, testCurrentQualifierWorkspaceIdentity(t), 1, false)
-	if err := drainProbeFixtures([]providercli.ProbeFixtureLease{fixture}); err != nil || fixture.drains != 2 {
+	if err := drainProbeFixtures([]ports.ProviderQualificationFixtureLease{fixture}); err != nil || fixture.drains != 2 {
 		t.Fatalf("retry drain = %v, calls=%d", err, fixture.drains)
 	}
 	fixture = newCurrentQualifierFixture(t, domain.RoleLogic, testCurrentQualifierWorkspaceIdentity(t), 0, true)
-	if err := drainProbeFixtures([]providercli.ProbeFixtureLease{fixture}); err == nil || fixture.drains != 2 {
+	if err := drainProbeFixtures([]ports.ProviderQualificationFixtureLease{fixture}); err == nil || fixture.drains != 2 {
 		t.Fatalf("wrong receipt drain = %v, calls=%d", err, fixture.drains)
 	}
 }
@@ -191,27 +191,27 @@ func testCurrentQualifierOtherWorkspaceIdentity() ports.WorkspaceSnapshotIdentit
 }
 
 type currentQualifierProbe struct {
-	requests       []providercli.CurrentProbeRequest
+	requests       []ports.ProviderCurrentProbeRequest
 	dropKind       string
 	duplicateKind  string
 	mismatchExpiry bool
 }
 
-func (probe *currentQualifierProbe) QualifyCurrent(_ context.Context, request providercli.CurrentProbeRequest) (providercli.CurrentProbeResult, error) {
+func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, request ports.ProviderCurrentProbeRequest) (ports.ProviderCurrentProbeResult, error) {
 	probe.requests = append(probe.requests, request)
-	receipts := make([]providercli.CurrentProbeReceipt, 0, len(currentProbeReceiptKinds)+1)
+	receipts := make([]ports.ProviderCurrentProbeReceipt, 0, len(currentProbeReceiptKinds)+1)
 	for _, kind := range currentProbeReceiptKinds {
 		if kind != probe.dropKind {
-			receipts = append(receipts, providercli.CurrentProbeReceipt{Kind: kind, ExpiresAt: request.Now.Add(time.Minute)})
+			receipts = append(receipts, ports.ProviderCurrentProbeReceipt{Kind: kind, ExpiresAt: request.Now.Add(time.Minute)})
 		}
 	}
 	if probe.duplicateKind != "" {
-		receipts = append(receipts, providercli.CurrentProbeReceipt{Kind: probe.duplicateKind, ExpiresAt: request.Now.Add(time.Minute)})
+		receipts = append(receipts, ports.ProviderCurrentProbeReceipt{Kind: probe.duplicateKind, ExpiresAt: request.Now.Add(time.Minute)})
 	}
 	if probe.mismatchExpiry && len(receipts) > 0 {
 		receipts[len(receipts)-1].ExpiresAt = request.Now.Add(2 * time.Minute)
 	}
-	return providercli.CurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.23.6", Receipts: receipts}, nil
+	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.23.6", Receipts: receipts}, nil
 }
 
 type currentQualifierFixtures struct {
@@ -219,7 +219,7 @@ type currentQualifierFixtures struct {
 	next     int
 }
 
-func (fixtures *currentQualifierFixtures) Acquire(_ context.Context, role domain.Role) (providercli.ProbeFixtureLease, error) {
+func (fixtures *currentQualifierFixtures) Acquire(_ context.Context, role domain.Role) (ports.ProviderQualificationFixtureLease, error) {
 	fixtures.next++
 	fixtures.acquired = append(fixtures.acquired, role)
 	identity, err := ports.NewWorkspaceSnapshotIdentity(
@@ -238,28 +238,26 @@ func (fixtures *currentQualifierFixtures) Acquire(_ context.Context, role domain
 	return fixture, nil
 }
 
-type currentQualifierInvocation struct{}
-
-func (currentQualifierInvocation) VersionArgv(providercli.RuntimeDefinition) ([]string, error) {
-	return []string{"provider", "--version"}, nil
-}
-func (currentQualifierInvocation) CapabilityArgv(providercli.RuntimeDefinition, providercli.ProbeFixture) ([]string, error) {
-	return []string{"provider", "capability"}, nil
-}
-
-func (currentQualifierInvocation) Validate(providercli.RuntimeDefinition, providercli.ProbeFixture, []string) error {
-	return nil
-}
-
 var currentProbeReceiptKinds = []string{
 	"workspace", "manifest", "namespace", "environment", "transport", "native-reference",
 	"version", "capability", "base-role", "assignment", "direct-execution-authority",
 }
 
-func TestProviderCLICurrentQualifierUsesRequestRolesWithoutAuthorityBleed(t *testing.T) {
+func portCurrentProbeReceipts(receipts []providercli.CurrentProbeReceipt) []ports.ProviderCurrentProbeReceipt {
+	translated := make([]ports.ProviderCurrentProbeReceipt, len(receipts))
+	for index, receipt := range receipts {
+		translated[index] = ports.ProviderCurrentProbeReceipt{Kind: receipt.Kind, EvidenceID: receipt.EvidenceID, ExpiresAt: receipt.ExpiresAt}
+		if receipt.DirectExecutionAuthority != nil {
+			translated[index].DirectExecutionAuthority = receipt.DirectExecutionAuthority
+		}
+	}
+	return translated
+}
+
+func TestProviderCurrentQualifierUsesRequestRolesWithoutAuthorityBleed(t *testing.T) {
 	probe := &currentQualifierProbe{}
 	fixtures := &currentQualifierFixtures{}
-	qualifier, err := NewProviderCLICurrentQualifier(probe, fixtures, currentQualifierInvocation{})
+	qualifier, err := NewProviderCurrentQualifier(probe, fixtures)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +279,7 @@ func TestProviderCLICurrentQualifierUsesRequestRolesWithoutAuthorityBleed(t *tes
 		t.Fatalf("second fixture roles = %v", got)
 	}
 }
-func TestProviderCLICurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirectEvidence(t *testing.T) {
+func TestProviderCurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirectEvidence(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		probe *currentQualifierProbe
@@ -291,7 +289,7 @@ func TestProviderCLICurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirec
 		{name: "mismatched authority", probe: &currentQualifierProbe{mismatchExpiry: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			qualifier, err := NewProviderCLICurrentQualifier(test.probe, &currentQualifierFixtures{}, currentQualifierInvocation{})
+			qualifier, err := NewProviderCurrentQualifier(test.probe, &currentQualifierFixtures{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -339,7 +337,7 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 	}
 }
 
-func fixtureRoles(request providercli.CurrentProbeRequest) []domain.Role {
+func fixtureRoles(request ports.ProviderCurrentProbeRequest) []domain.Role {
 	roles := []domain.Role{request.Fixture.Role()}
 	for _, fixture := range request.RoleFixtures {
 		roles = append(roles, fixture.Role())
@@ -593,7 +591,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 		Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(), SnapshotManifest: "manifest-1",
 	}
-	receipts, err := currentProbeAppReceipts(result.Receipts, identity, definition, namespace.Generation(), []domain.Role{domain.RoleLogic})
+	receipts, err := currentProbeAppReceipts(portCurrentProbeReceipts(result.Receipts), identity, definition, namespace.Generation(), []domain.Role{domain.RoleLogic})
 	if err != nil {
 		t.Fatal(err)
 	}

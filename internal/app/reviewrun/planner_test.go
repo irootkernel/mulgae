@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -159,7 +160,7 @@ func TestQualifiedPlannerRejectsMissingRequiredRole(t *testing.T) {
 	}
 }
 func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimits(t *testing.T) {
-	templates, err := trustedProductionCandidateTemplates()
+	templates, err := trustedProductionCandidateTemplates(providercli.RuntimeBuilder{})
 	if err != nil {
 		t.Fatal(err)
 	}
