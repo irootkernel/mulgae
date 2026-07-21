@@ -3,6 +3,8 @@ package ports
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"math/rand"
+	"path"
 	"strings"
 	"testing"
 )
@@ -78,6 +80,48 @@ func TestAnchoredRootAndSafeRelativePathValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSafeRelativePathSeededTraversalProperty(t *testing.T) {
+	t.Parallel()
+
+	random := rand.New(rand.NewSource(0x4b415250415448))
+	for iteration := 0; iteration < 512; iteration++ {
+		value := seededSafeRelativePath(random)
+		relative, err := NewSafeRelativePath(value)
+		if err != nil {
+			t.Fatalf("iteration %d rejected generated canonical path %q: %v", iteration, value, err)
+		}
+		if !relative.Valid() || relative.String() != value || path.Clean(relative.String()) != relative.String() {
+			t.Fatalf("iteration %d did not preserve canonical path %q", iteration, value)
+		}
+		for _, hostile := range []string{
+			"/" + value,
+			"../" + value,
+			value + "/../escape",
+			value + "//tail",
+			value + "/./tail",
+			value + "\\tail",
+			value + "\x00tail",
+		} {
+			if accepted, err := NewSafeRelativePath(hostile); err == nil {
+				t.Fatalf("iteration %d accepted hostile path %q as %q", iteration, hostile, accepted.String())
+			}
+		}
+	}
+}
+
+func seededSafeRelativePath(random *rand.Rand) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+	components := make([]string, 1+random.Intn(8))
+	for componentIndex := range components {
+		component := make([]byte, 1+random.Intn(24))
+		for index := range component {
+			component[index] = alphabet[random.Intn(len(alphabet))]
+		}
+		components[componentIndex] = string(component)
+	}
+	return strings.Join(components, "/")
 }
 
 func TestContractValuesAndWriteRequestsDefensivelyOwnMutableInputs(t *testing.T) {

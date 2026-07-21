@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"math/rand"
 	"testing"
 )
 
@@ -225,4 +227,71 @@ func TestIdentifierParsingRejectsNoncanonicalValues(t *testing.T) {
 			t.Errorf("review parser accepted prefix %q", prefix)
 		}
 	}
+}
+
+func TestIdentifierParsingSeededCanonicalityProperty(t *testing.T) {
+	t.Parallel()
+
+	random := rand.New(rand.NewSource(0x4b41524944))
+	parsers := []struct {
+		name   string
+		prefix string
+		parse  func(string) (string, error)
+	}{
+		{name: "session", prefix: "s_", parse: func(value string) (string, error) {
+			id, err := ParseSessionID(value)
+			return id.String(), err
+		}},
+		{name: "run", prefix: "r_", parse: func(value string) (string, error) {
+			id, err := ParseRunID(value)
+			return id.String(), err
+		}},
+		{name: "attempt", prefix: "a_", parse: func(value string) (string, error) {
+			id, err := ParseAttemptID(value)
+			return id.String(), err
+		}},
+		{name: "review", parse: func(value string) (string, error) {
+			id, err := ParseReviewID(value)
+			return id.String(), err
+		}},
+	}
+	for iteration := 0; iteration < 512; iteration++ {
+		body := seededUUIDv7(random)
+		for _, parser := range parsers {
+			canonical := parser.prefix + body
+			parsed, err := parser.parse(canonical)
+			if err != nil || parsed != canonical {
+				t.Fatalf("iteration %d %s canonical parse = %q, %v; want %q", iteration, parser.name, parsed, err, canonical)
+			}
+			corrupted := []byte(body)
+			switch iteration % 4 {
+			case 0:
+				index := random.Intn(len(corrupted))
+				for corrupted[index] == '-' {
+					index = random.Intn(len(corrupted))
+				}
+				corrupted[index] = 'g'
+			case 1:
+				corrupted[14] = '6'
+			case 2:
+				corrupted[19] = '7'
+			case 3:
+				corrupted = corrupted[:len(corrupted)-1]
+			}
+			if _, err := parser.parse(parser.prefix + string(corrupted)); err == nil {
+				t.Fatalf("iteration %d %s accepted corrupted identifier %q", iteration, parser.name, parser.prefix+string(corrupted))
+			}
+		}
+	}
+}
+
+func seededUUIDv7(random *rand.Rand) string {
+	bytes := make([]byte, 16)
+	for index := range bytes {
+		bytes[index] = byte(random.Intn(256))
+	}
+	bytes[6] = bytes[6]&0x0f | 0x70
+	bytes[8] = bytes[8]&0x3f | 0x80
+	encoded := hex.EncodeToString(bytes)
+	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:]
 }
