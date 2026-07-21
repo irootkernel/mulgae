@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -803,3 +804,218 @@ type schedulingLaneLeaseStub struct{}
 func (schedulingLaneLeaseStub) Key() ConcurrencyKey { return ConcurrencyKey{} }
 
 func (schedulingLaneLeaseStub) Release() error { return nil }
+func TestNewProviderProcessRequestEnforcesOnePacketChannel(t *testing.T) {
+	packet := schedulingTestPacket(t, []byte("packet"))
+	key := schedulingTestConcurrencyKey(t)
+	newRequest := func(binding ProviderPacketBinding, argv []string, workingDirectory string) (ProcessRequest, error) {
+		return NewProviderProcessRequest(
+			"/usr/bin/provider", argv, nil, workingDirectory, binding,
+			time.Second, 1024, 1024, key,
+		)
+	}
+	argvBinding, err := NewArgvLiteralProviderPacketBinding(packet, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinBinding, err := NewStdinProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileBinding, err := NewPromptFileProviderPacketBinding(packet, 1, "@prompt/request.json", "/work")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name       string
+		binding    ProviderPacketBinding
+		argv       []string
+		workingDir string
+		wantStdin  []byte
+		wantError  bool
+	}{
+		{name: "argv exactly once", binding: argvBinding, argv: []string{"/usr/bin/provider", "packet"}, workingDir: "/work"},
+		{name: "stdin exactly once", binding: stdinBinding, argv: []string{"/usr/bin/provider", "--request"}, workingDir: "/work", wantStdin: []byte("packet")},
+		{name: "prompt file exactly once", binding: fileBinding, argv: []string{"/usr/bin/provider", "@prompt/request.json"}, workingDir: "/work"},
+		{name: "argv missing packet", binding: argvBinding, argv: []string{"/usr/bin/provider", "--request"}, workingDir: "/work", wantError: true},
+		{name: "argv wrong index", binding: argvBinding, argv: []string{"packet", "/usr/bin/provider"}, workingDir: "/work", wantError: true},
+		{name: "argv duplicate packet", binding: argvBinding, argv: []string{"/usr/bin/provider", "packet", "packet"}, workingDir: "/work", wantError: true},
+		{name: "stdin packet duplicated in argv", binding: stdinBinding, argv: []string{"/usr/bin/provider", "packet"}, workingDir: "/work", wantError: true},
+		{name: "prompt file duplicate reference", binding: fileBinding, argv: []string{"/usr/bin/provider", "@prompt/request.json", "@prompt/request.json"}, workingDir: "/work", wantError: true},
+		{name: "prompt file literal packet", binding: fileBinding, argv: []string{"/usr/bin/provider", "@prompt/request.json", "packet"}, workingDir: "/work", wantError: true},
+		{name: "prompt file cwd mismatch", binding: fileBinding, argv: []string{"/usr/bin/provider", "@prompt/request.json"}, workingDir: "/other", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := newRequest(test.binding, test.argv, test.workingDir)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("NewProviderProcessRequest() succeeded")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := request.Stdin(); !bytes.Equal(got, test.wantStdin) {
+				t.Fatalf("Stdin() = %q, want %q", got, test.wantStdin)
+			}
+		})
+	}
+
+	nulPacket, err := NewProviderPacket([]byte("packet\x00suffix"), schedulingStdinWriteSHA256([]byte("packet\x00suffix")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewArgvLiteralProviderPacketBinding(nulPacket, 1); err == nil {
+		t.Fatal("NewArgvLiteralProviderPacketBinding() accepted NUL packet")
+	}
+	for _, reference := range []string{"@prompt/request.json", "@/absolute", "@../traversal", "@prompt/../request", "@prompt\x00file"} {
+		_, err := NewPromptFileProviderPacketBinding(packet, 1, reference, "/work")
+		if (reference == "@prompt/request.json") != (err == nil) {
+			t.Errorf("NewPromptFileProviderPacketBinding(%q) error = %v", reference, err)
+		}
+	}
+}
+
+func TestProviderRunTerminalReceiptCanonicalizesAndCopies(t *testing.T) {
+	alpha := schedulingTerminalReceipt(t, "alpha-main", "generation-a")
+	zeta := schedulingTerminalReceipt(t, "zeta-main", "generation-z")
+	input := []ProviderNamespaceTerminalReceipt{zeta, alpha}
+	receipt, err := NewProviderRunTerminalReceipt(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Valid() {
+		t.Fatal("aggregate receipt reports invalid")
+	}
+	input[0] = ProviderNamespaceTerminalReceipt{}
+	got := receipt.NamespaceReceipts()
+	if len(got) != 2 || got[0] != alpha || got[1] != zeta {
+		t.Fatalf("canonical receipts = %#v", got)
+	}
+	got[0] = ProviderNamespaceTerminalReceipt{}
+	if receipt.NamespaceReceipts()[0] != alpha {
+		t.Fatal("aggregate receipt exposed internal storage")
+	}
+}
+
+func TestProviderRunTerminalReceiptRejectsEmptyDuplicateAndInvalid(t *testing.T) {
+	valid := schedulingTerminalReceipt(t, "alpha-main", "generation-a")
+	if _, err := NewProviderRunTerminalReceipt(nil); err == nil {
+		t.Fatal("empty aggregate accepted")
+	}
+	if _, err := NewProviderRunTerminalReceipt([]ProviderNamespaceTerminalReceipt{valid, valid}); err == nil {
+		t.Fatal("duplicate provider instance accepted")
+	}
+	if _, err := NewProviderRunTerminalReceipt([]ProviderNamespaceTerminalReceipt{{}}); err == nil {
+		t.Fatal("invalid namespace receipt accepted")
+	}
+}
+func schedulingTestPacket(t *testing.T, bytes []byte) ProviderPacket {
+	t.Helper()
+	packet, err := NewProviderPacket(bytes, schedulingStdinWriteSHA256(bytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return packet
+}
+
+type testCredentialSourceAuthority struct{}
+
+func (testCredentialSourceAuthority) ValidateCredentialSource(int64, os.FileMode, string) error {
+	return nil
+}
+
+func TestCredentialProjectionRequestAuthority(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "credential")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	digest := fmt.Sprintf("%064x", 1)
+	request, err := NewCredentialProjectionRequestWithAuthority(
+		"provider", "generation", file.Name(), file, digest, 0, 0600,
+		CredentialProjectionZCodeConfig, testCredentialSourceAuthority{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.SourceAuthority() == nil {
+		t.Fatal("authority was not retained")
+	}
+}
+func TestNewAcceptedProcessGroupSignalRequestReceiptRestrictsReasons(t *testing.T) {
+	signal, err := NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, reason := range []ProcessGroupSignalRequestReason{
+		ProcessGroupSignalRequestCancellation,
+		ProcessGroupSignalRequestTimeout,
+		ProcessGroupSignalRequestStdoutLimit,
+		ProcessGroupSignalRequestStderrLimit,
+		ProcessGroupSignalRequestStdinIncomplete,
+		ProcessGroupSignalRequestResidualGroup,
+		ProcessGroupSignalRequestInternalTeardown,
+	} {
+		receipt, err := NewAcceptedProcessGroupSignalRequestReceipt(reason, signal)
+		if err != nil {
+			t.Fatalf("NewAcceptedProcessGroupSignalRequestReceipt(%q): %v", reason, err)
+		}
+		if !receipt.Valid() || receipt.Reason() != reason {
+			t.Fatalf("receipt for %q = %#v", reason, receipt)
+		}
+	}
+
+	for _, reason := range []ProcessGroupSignalRequestReason{
+		"",
+		"arbitrary",
+		ProcessGroupSignalRequestPostOutput,
+		ProcessGroupSignalRequestPostOutputEscalation,
+	} {
+		if _, err := NewAcceptedProcessGroupSignalRequestReceipt(reason, signal); err == nil {
+			t.Fatalf("NewAcceptedProcessGroupSignalRequestReceipt(%q) succeeded", reason)
+		}
+	}
+}
+func schedulingTerminalReceipt(t *testing.T, instance, generation string) ProviderNamespaceTerminalReceipt {
+	t.Helper()
+	var lease *schedulingTerminalLease
+	acquired, err := AcquireProviderNamespaceLease(context.Background(), instance, func(_ context.Context, _ string, binding ProviderNamespaceTerminalBinding) (ProviderNamespaceLease, error) {
+		lease = &schedulingTerminalLease{instance: instance, generation: generation}
+		drain, err := binding.Bind(generation, func(context.Context) error { return nil })
+		if err != nil {
+			return nil, err
+		}
+		lease.drain = drain
+		return lease, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := acquired.DrainTerminal(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
+}
+
+type schedulingTerminalLease struct {
+	instance   string
+	generation string
+	drain      ProviderNamespaceTerminalDrain
+}
+
+func (lease *schedulingTerminalLease) ProviderInstance() string { return lease.instance }
+func (lease *schedulingTerminalLease) Generation() string       { return lease.generation }
+func (*schedulingTerminalLease) Environment() []EnvironmentVariable {
+	return nil
+}
+func (*schedulingTerminalLease) ProjectCredential(context.Context, CredentialProjectionRequest) (CredentialProjectionReceipt, error) {
+	return CredentialProjectionReceipt{}, errors.New("unexpected credential projection")
+}
+func (*schedulingTerminalLease) ValidateForSpawn() error { return nil }
+func (lease *schedulingTerminalLease) DrainTerminal(ctx context.Context) (ProviderNamespaceTerminalReceipt, error) {
+	return lease.drain(ctx)
+}

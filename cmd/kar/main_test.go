@@ -1,0 +1,1305 @@
+//go:build darwin && arm64
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"runtime/debug"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
+	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
+	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	karentry "github.com/irootkernel/kkachi-agent-review/internal/entrypoint/kar"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+)
+
+type reviewConfigMutatingAttestor struct {
+	path    string
+	mutated bool
+}
+
+func (attestor *reviewConfigMutatingAttestor) Attest(context.Context, ports.ConfigLocalityRequest) (ports.ConfigLocalityContext, error) {
+	return ports.ConfigLocalityContext{}, nil
+}
+func (attestor *reviewConfigMutatingAttestor) Revalidate(context.Context, ports.ConfigLocalityRequest, ports.ConfigLocalityContext) error {
+	if attestor.mutated {
+		return nil
+	}
+	attestor.mutated = true
+	return os.WriteFile(attestor.path, []byte("version: 2\n"), 0o600)
+}
+
+type recordingReviewSpawnVerifier struct{ called bool }
+
+type writeFunc func([]byte) (int, error)
+
+func (function writeFunc) Write(value []byte) (int, error) { return function(value) }
+
+func (verifier *recordingReviewSpawnVerifier) VerifyProviderSpawn(context.Context, providercli.RuntimeDefinition) error {
+	verifier.called = true
+	return nil
+}
+
+func TestBuildIdentityFrom(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	release := &debug.BuildInfo{
+		Main: debug.Module{Version: "v1.4.2"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: commit},
+			{Key: "vcs.modified", Value: "false"},
+		},
+	}
+	identity, err := buildIdentityFrom(release, "kar", "", "")
+	if err != nil {
+		t.Fatalf("release metadata rejected: %v", err)
+	}
+	if want := "kar"; identity.Product != want {
+		t.Fatalf("product = %q, want %q", identity.Product, want)
+	}
+	if want := "v1.4.2"; identity.Version != want {
+		t.Fatalf("version = %q, want %q", identity.Version, want)
+	}
+	if identity.Commit != commit {
+		t.Fatalf("commit = %q, want %q", identity.Commit, commit)
+	}
+
+	for name, info := range map[string]*debug.BuildInfo{
+		"devel":       {Main: debug.Module{Version: "(devel)"}, Settings: release.Settings},
+		"missing VCS": {Main: debug.Module{Version: "v1.4.2"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := buildIdentityFrom(info, "kar", "", ""); err == nil {
+				t.Fatal("production metadata accepted")
+			}
+		})
+	}
+
+	linked, err := buildIdentityFrom(&debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "kar", "v1.4.2", commit)
+	if err != nil {
+		t.Fatalf("explicit linker metadata rejected: %v", err)
+	}
+	if linked != identity {
+		t.Fatalf("linked identity = %#v, want %#v", linked, identity)
+	}
+}
+func TestStartupTempRootCanonicalizesDarwinEnvironmentValue(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	link := filepath.Join(canonicalTestTempDir(t), "temp-link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", link+string(filepath.Separator))
+	got, err := startupTempRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root {
+		t.Fatalf("startup temp root = %q, want %q", got, root)
+	}
+
+	t.Setenv("TMPDIR", "")
+	got, err = startupTempRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("empty startup temp root = %q", got)
+	}
+}
+func TestReviewCompositionPolicyReadFailuresFailClosed(t *testing.T) {
+	root, err := ports.NewAnchoredRoot(canonicalTestTempDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, readerErr := gittarget.New(gittarget.NewExecRunner())
+	if readerErr != nil {
+		t.Fatal(readerErr)
+	}
+	_, err = resolveProductionRunPolicy(context.Background(), root, reader)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+		t.Fatalf("missing local configuration = %#v, want configuration failure", err)
+	}
+}
+func TestProductionConfigCredentialFailuresRemainSecurityFailures(t *testing.T) {
+	for _, test := range []struct {
+		name, yaml, reason string
+	}{
+		{name: "credential key", yaml: "api_key: redacted\n", reason: string(adapterconfig.ReasonCredentialKeyDetected)},
+		{name: "credential value", yaml: "note: \"Bearer abcdefghijklmnop\"\n", reason: string(adapterconfig.ReasonCredentialValueDetected)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, admissionErr := adapterconfig.Decode([]byte(test.yaml))
+			if admissionErr == nil {
+				t.Fatal("credential-bearing configuration was accepted")
+			}
+			classified := productionConfigResolutionFailure(admissionErr)
+			var failure *domain.Failure
+			if !errors.As(classified, &failure) || failure.Class() != domain.FailureSecurityPolicy || failure.Reason() != test.reason {
+				t.Fatalf("credential failure = %#v, want security/%s", classified, test.reason)
+			}
+		})
+	}
+}
+
+func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T) {
+	rootPath := canonicalTestTempDir(t)
+	if err := os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(rootPath, ".kar", "config.yaml")
+	if err := os.WriteFile(configPath, []byte("version: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := source.Observation().Proof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestor := &reviewConfigMutatingAttestor{path: configPath}
+	inner := &recordingReviewSpawnVerifier{}
+	verifier := localitySpawnVerifier{inner: inner, source: source, attestor: attestor, request: request}
+	if err := verifier.VerifyProviderSpawn(context.Background(), providercli.RuntimeDefinition{}); err == nil {
+		t.Fatal("provider spawn accepted config mutation")
+	}
+	if !attestor.mutated || inner.called {
+		t.Fatalf("mutated=%t inner_called=%t", attestor.mutated, inner.called)
+	}
+}
+func TestReviewCompositionConstructorFailureCleansTemporaryRoots(t *testing.T) {
+	workspace, err := ports.NewAnchoredRoot(canonicalTestTempDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, err := ports.NewAnchoredRoot(canonicalTestTempDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupReviewCompositionRoots(true, namespace, workspace)
+
+	for _, root := range []ports.AnchoredRoot{workspace, namespace} {
+		if _, err := os.Lstat(root.String()); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("constructor failure retained temporary root %q: %v", root.String(), err)
+		}
+	}
+}
+
+func TestUnavailableBuildMetadataIsArtifactFailure(t *testing.T) {
+	cause := errors.New("missing release provenance")
+	err := unavailableBuildMetadata(cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("build metadata failure = %v, want wrapped cause", err)
+	}
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("build metadata failure = %#v, want artifact failure", err)
+	}
+}
+
+func TestDeferredReviewRunServiceDoesNotComposeAtConstruction(t *testing.T) {
+	sentinel := errors.New("composed on demand")
+	compositions := 0
+	service := newDeferredReviewRunService(func(context.Context, ports.AnchoredRoot) (karentry.ReviewRunService, error) {
+		compositions++
+		return nil, sentinel
+	})
+	if _, ok := service.(karentry.ReviewRunServicePreparer); !ok {
+		t.Fatal("deferred review service does not expose preparation boundary")
+	}
+	if compositions != 0 {
+		t.Fatalf("review compositions at construction = %d, want 0", compositions)
+	}
+	_, err := service.StartReviewRun(context.Background(), karentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if !errors.Is(err, sentinel) || compositions != 1 {
+		t.Fatalf("deferred review = error %v compositions %d, want sentinel/1", err, compositions)
+	}
+}
+
+func TestDeliverOutputClassifiesInitCommitDeliveryFailure(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		writer     writeFunc
+		argv       []string
+		wantExit   int
+		wantStderr string
+	}{
+		{name: "init short write", writer: func(value []byte) (int, error) { return len(value) - 1, nil }, argv: []string{"init", "--output", "json"}, wantExit: 7, wantStderr: "kar: init committed .kar/config.yaml; result delivery failed\n"},
+		{name: "init write error", writer: func([]byte) (int, error) { return 0, syscall.EPIPE }, argv: []string{"init"}, wantExit: 7, wantStderr: "kar: init committed .kar/config.yaml; result delivery failed\n"},
+		{name: "other command", writer: func([]byte) (int, error) { return 0, syscall.EPIPE }, argv: []string{"help"}, wantExit: 10, wantStderr: "kar: standard output write failed\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if got := deliverOutput(test.writer, &stderr, []byte("result\n"), nil, 0, test.argv); got != test.wantExit || stderr.String() != test.wantStderr {
+				t.Fatalf("delivery = exit %d stderr %q", got, stderr.String())
+			}
+		})
+	}
+}
+
+func TestE2EKARBinaryBoundary(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildKARBinary(t, root)
+
+	t.Run("authoritative help", func(t *testing.T) {
+		catalog := builtin.NewCatalog()
+		for _, topic := range []string{
+			"quickstart", "config", "providers", "roles", "lanes", "prompts",
+			"workflows", "artifacts", "validation", "ci", "exit-codes", "security",
+		} {
+			t.Run(topic, func(t *testing.T) {
+				id := mustAssetID(t, "help:"+topic)
+				_, authoritative, err := catalog.Read(context.Background(), id)
+				if err != nil {
+					t.Fatalf("read authoritative help: %v", err)
+				}
+
+				got := runKARBinary(t, binary, t.TempDir(), "help", topic)
+				if got.exitCode != 0 || len(got.stderr) != 0 {
+					t.Fatalf("help %q = exit %d stdout %q stderr %q", topic, got.exitCode, got.stdout, got.stderr)
+				}
+				want := terminalLF(authoritative)
+				if !bytes.Equal(got.stdout, want) {
+					t.Fatalf("help %q bytes differ from authoritative asset\n got: %q\nwant: %q", topic, got.stdout, want)
+				}
+			})
+		}
+	})
+
+	t.Run("help never opens project config", func(t *testing.T) {
+		workingDirectory := t.TempDir()
+		privateDirectory := filepath.Join(workingDirectory, ".kar")
+		if err := os.Mkdir(privateDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(filepath.Join(privateDirectory, "config.yaml"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, binary, "help", "quickstart")
+		command.Dir = workingDirectory
+		command.Env = isolatedKAREnv(t)
+		output, err := command.CombinedOutput()
+		if ctx.Err() != nil {
+			t.Fatal("help blocked while opening project config")
+		}
+		if err != nil {
+			t.Fatalf("help failed: %v: %s", err, output)
+		}
+		if len(output) == 0 {
+			t.Fatal("help returned no embedded documentation")
+		}
+	})
+
+	t.Run("all provider subsets use canonical order", func(t *testing.T) {
+		installed, err := user.Current()
+		if err != nil || installed == nil {
+			t.Fatalf("current native account unavailable: %#v %v", installed, err)
+		}
+		providerDirectory := canonicalTestTempDir(t)
+		paths := map[string]string{
+			"kimi":  filepath.Join(providerDirectory, "kimi"),
+			"zcode": filepath.Join(providerDirectory, "zcode-node"),
+			"agy":   filepath.Join(providerDirectory, "agy"),
+		}
+		for _, path := range paths {
+			mustWriteTestFile(t, path, []byte("#!/bin/sh\nexit 0\n"))
+			if err := os.Chmod(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		launcher := filepath.Join(providerDirectory, "zcode-launcher.cjs")
+		mustWriteTestFile(t, launcher, []byte("module.exports = {};\n"))
+		environment := isolatedKAREnvWith(t, installed.HomeDir, providerDirectory)
+		for _, test := range []struct {
+			name     string
+			input    string
+			expected []string
+		}{
+			{name: "kimi", input: "kimi", expected: []string{"kimi"}},
+			{name: "zcode", input: "zcode", expected: []string{"zcode"}},
+			{name: "agy", input: "agy", expected: []string{"agy"}},
+			{name: "kimi zcode", input: "zcode,kimi", expected: []string{"kimi", "zcode"}},
+			{name: "kimi agy", input: "agy,kimi", expected: []string{"kimi", "agy"}},
+			{name: "zcode agy", input: "agy,zcode", expected: []string{"zcode", "agy"}},
+			{name: "all", input: "agy,zcode,kimi", expected: []string{"kimi", "zcode", "agy"}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				project := canonicalTestTempDir(t)
+				initializeReviewGitRepository(t, project)
+				arguments := []string{"init", "--providers", test.input, "--output", "json"}
+				for _, family := range test.expected {
+					switch family {
+					case "kimi":
+						arguments = append(arguments, "--kimi-executable", paths[family])
+					case "zcode":
+						arguments = append(arguments, "--zcode-node-executable", paths[family], "--zcode-launcher", launcher)
+					case "agy":
+						arguments = append(arguments, "--agy-executable", paths[family], "--agy-permission-mode", "safe")
+					}
+				}
+				result := runKARBinaryWithEnv(t, binary, project, environment, arguments...)
+				if result.exitCode != 0 || len(result.stderr) != 0 {
+					t.Fatalf("init subset %q = exit %d stdout %q stderr %q", test.input, result.exitCode, result.stdout, result.stderr)
+				}
+				var envelope struct {
+					Request struct {
+						Selection struct {
+							ProviderIDs []string `json:"provider_ids"`
+						} `json:"selection"`
+					} `json:"request"`
+					Result struct {
+						Selected   []string `json:"selected_provider_ids"`
+						Candidates []string `json:"candidate_provider_ids"`
+						Configured []string `json:"configured_provider_ids"`
+					} `json:"result"`
+				}
+				if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Equal(envelope.Request.Selection.ProviderIDs, test.expected) || !slices.Equal(envelope.Result.Selected, test.expected) || !slices.Equal(envelope.Result.Candidates, test.expected) || !slices.Equal(envelope.Result.Configured, test.expected) {
+					t.Fatalf("canonical provider order = request %v selected %v candidates %v configured %v, want %v", envelope.Request.Selection.ProviderIDs, envelope.Result.Selected, envelope.Result.Candidates, envelope.Result.Configured, test.expected)
+				}
+				data, err := os.ReadFile(filepath.Join(project, ".kar", "config.yaml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				config, err := (adapterconfig.YAMLCodec{}).Decode(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := config.Providers.Families(); !slices.Equal(got, test.expected) {
+					t.Fatalf("config provider order = %v, want %v", got, test.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("auto discovery covers zero through three providers in human and json modes", func(t *testing.T) {
+		installed, err := user.Current()
+		if err != nil || installed == nil {
+			t.Fatalf("current native account unavailable: %#v %v", installed, err)
+		}
+		overrideDirectory := canonicalTestTempDir(t)
+		emptyPATH := canonicalTestTempDir(t)
+		paths := map[string]string{
+			"kimi":     filepath.Join(overrideDirectory, "kimi-override"),
+			"node":     filepath.Join(overrideDirectory, "node-override"),
+			"launcher": filepath.Join(overrideDirectory, "zcode-launcher.cjs"),
+			"agy":      filepath.Join(overrideDirectory, "agy-override"),
+			"data":     filepath.Join(overrideDirectory, "kimi-data"),
+		}
+		for _, path := range []string{paths["kimi"], paths["node"], paths["agy"]} {
+			mustWriteTestFile(t, path, []byte("#!/bin/sh\nexit 0\n"))
+			if err := os.Chmod(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		mustWriteTestFile(t, paths["launcher"], []byte("module.exports = {};\n"))
+		if err := os.Mkdir(paths["data"], 0o700); err != nil {
+			t.Fatal(err)
+		}
+		environment := isolatedKAREnvWith(t, installed.HomeDir, emptyPATH)
+		for _, providerCount := range []int{0, 1, 2, 3} {
+			for _, format := range []string{"human", "json"} {
+				t.Run(fmt.Sprintf("%d_%s", providerCount, format), func(t *testing.T) {
+					project := canonicalTestTempDir(t)
+					initializeReviewGitRepository(t, project)
+					arguments := []string{"init", "--providers", "auto", "--name", "auto-project"}
+					expected := []string{}
+					if providerCount >= 1 {
+						arguments = append(arguments, "--agy-executable", paths["agy"])
+						expected = append(expected, "agy")
+					}
+					if providerCount >= 2 {
+						arguments = append(arguments, "--kimi-executable", paths["kimi"], "--kimi-model", "kimi-code/k3", "--kimi-data-home", paths["data"])
+						expected = []string{"kimi", "agy"}
+					}
+					if providerCount >= 3 {
+						arguments = append(arguments, "--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"], "--agy-permission-mode", "safe", "--native-home", installed.HomeDir)
+						expected = []string{"kimi", "zcode", "agy"}
+					}
+					if format == "json" {
+						arguments = append(arguments, "--output", "json")
+					}
+					result := runKARBinaryWithEnv(t, binary, project, environment, arguments...)
+					if providerCount == 0 {
+						if result.exitCode != 4 || len(result.stderr) != 0 || len(result.stdout) == 0 {
+							t.Fatalf("auto zero = exit %d stdout %q stderr %q", result.exitCode, result.stdout, result.stderr)
+						}
+						if _, err := os.Lstat(filepath.Join(project, ".kar")); !errors.Is(err, os.ErrNotExist) {
+							t.Fatalf("auto zero mutated project: %v", err)
+						}
+						return
+					}
+					if result.exitCode != 0 || len(result.stderr) != 0 || len(result.stdout) == 0 {
+						t.Fatalf("auto %d = exit %d stdout %q stderr %q", providerCount, result.exitCode, result.stdout, result.stderr)
+					}
+					data, err := os.ReadFile(filepath.Join(project, ".kar", "config.yaml"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					config, err := (adapterconfig.YAMLCodec{}).Decode(data)
+					if err != nil || !slices.Equal(config.Providers.Families(), expected) {
+						t.Fatalf("auto config families = %v err=%v, want %v", config.Providers.Families(), err, expected)
+					}
+					if format == "json" {
+						var envelope struct {
+							Request struct {
+								Selection struct {
+									Mode string `json:"mode"`
+								} `json:"selection"`
+							} `json:"request"`
+							Result struct {
+								Candidates []string `json:"candidate_provider_ids"`
+								Configured []string `json:"configured_provider_ids"`
+							} `json:"result"`
+						}
+						if err := json.Unmarshal(result.stdout, &envelope); err != nil || envelope.Request.Selection.Mode != "auto" || !slices.Equal(envelope.Result.Candidates, expected) || !slices.Equal(envelope.Result.Configured, expected) {
+							t.Fatalf("auto JSON projection = %#v err=%v", envelope, err)
+						}
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("agy safe omission equals explicit safe and init never overwrites", func(t *testing.T) {
+		installed, err := user.Current()
+		if err != nil || installed == nil {
+			t.Fatalf("current native account unavailable: %#v %v", installed, err)
+		}
+		providerDirectory := canonicalTestTempDir(t)
+		agy := filepath.Join(providerDirectory, "agy")
+		mustWriteTestFile(t, agy, []byte("#!/bin/sh\nexit 0\n"))
+		if err := os.Chmod(agy, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		environment := isolatedKAREnvWith(t, installed.HomeDir, providerDirectory)
+		projects := []string{canonicalTestTempDir(t), canonicalTestTempDir(t)}
+		for _, project := range projects {
+			initializeReviewGitRepository(t, project)
+		}
+		base := []string{"init", "--name", "safe-project", "--providers", "agy", "--agy-executable", agy, "--output", "json"}
+		omitted := runKARBinaryWithEnv(t, binary, projects[0], environment, base...)
+		explicitArguments := append(append([]string(nil), base...), "--agy-permission-mode", "safe")
+		explicit := runKARBinaryWithEnv(t, binary, projects[1], environment, explicitArguments...)
+		if omitted.exitCode != 0 || explicit.exitCode != 0 {
+			t.Fatalf("safe init exits = omitted %d explicit %d", omitted.exitCode, explicit.exitCode)
+		}
+		omittedConfig, err := os.ReadFile(filepath.Join(projects[0], ".kar", "config.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		explicitConfig, err := os.ReadFile(filepath.Join(projects[1], ".kar", "config.yaml"))
+		if err != nil || !bytes.Equal(omittedConfig, explicitConfig) {
+			t.Fatalf("safe omission and explicit bytes differ: %v", err)
+		}
+		repeated := runKARBinaryWithEnv(t, binary, projects[1], environment, explicitArguments...)
+		if repeated.exitCode != 2 || len(repeated.stderr) != 0 {
+			t.Fatalf("repeat init = exit %d stdout %q stderr %q", repeated.exitCode, repeated.stdout, repeated.stderr)
+		}
+		after, err := os.ReadFile(filepath.Join(projects[1], ".kar", "config.yaml"))
+		if err != nil || !bytes.Equal(after, explicitConfig) {
+			t.Fatalf("repeat init changed config: %v", err)
+		}
+	})
+
+	t.Run("closed stdout preserves committed init", func(t *testing.T) {
+		installed, err := user.Current()
+		if err != nil || installed == nil {
+			t.Fatalf("current native account unavailable: %#v %v", installed, err)
+		}
+		project := canonicalTestTempDir(t)
+		initializeReviewGitRepository(t, project)
+		providerDirectory := canonicalTestTempDir(t)
+		agy := filepath.Join(providerDirectory, "agy")
+		mustWriteTestFile(t, agy, []byte("#!/bin/sh\nexit 0\n"))
+		if err := os.Chmod(agy, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		readPipe, writePipe, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := readPipe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		command := exec.Command(binary, "init", "--providers", "agy", "--agy-executable", agy, "--output", "json")
+		command.Dir = project
+		command.Env = isolatedKAREnvWith(t, installed.HomeDir, providerDirectory)
+		command.Stdout = writePipe
+		var stderr bytes.Buffer
+		command.Stderr = &stderr
+		runErr := command.Run()
+		_ = writePipe.Close()
+		var exitError *exec.ExitError
+		if !errors.As(runErr, &exitError) || exitError.ExitCode() != 7 {
+			t.Fatalf("closed stdout init = %v stderr %q", runErr, stderr.String())
+		}
+		if stderr.String() != "kar: init committed .kar/config.yaml; result delivery failed\n" {
+			t.Fatalf("closed stdout stderr = %q", stderr.String())
+		}
+		if _, err := os.Stat(filepath.Join(project, ".kar", "config.yaml")); err != nil {
+			t.Fatalf("committed config missing after delivery failure: %v", err)
+		}
+	})
+
+	t.Run("command census", func(t *testing.T) {
+		const runID = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+		const attemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
+		cases := []struct {
+			command string
+			argv    []string
+			exit    int
+		}{
+			{"init", []string{"init"}, 8},
+			{"doctor", []string{"doctor"}, 4},
+			{"review", []string{"review", "--diff", "git", "--output", "json"}, 2},
+			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--diff", "git"}, 4},
+			{"delta", []string{"delta", "--since-run", runID, "--diff", "git", "--roles", "logic"}, 4},
+			{"rerun", []string{"rerun", "--run", runID, "--attempt", attemptID}, 4},
+			{"status", []string{"status", "--run", runID}, 7},
+			{"report", []string{"report", "--run", runID, "--output-path", "report.md"}, 7},
+			{"findings", []string{"findings", "--run", runID, "--severity", "low"}, 7},
+			{"excerpt", []string{"excerpt", "--run", runID, "--finding", "F001", "--current-target-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, 7},
+			{"providers", []string{"providers", "--include-unverified"}, 4},
+			{"config", []string{"config"}, 2},
+			{"prompt", []string{"prompt", "--run", runID, "--attempt", attemptID, "--output", "json"}, 7},
+			{"schema", []string{"schema", "list"}, 0},
+			{"clean", []string{"clean"}, 7},
+			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
+			{"help", []string{"help"}, 0},
+		}
+		if got, want := len(cases), 17; got != want {
+			t.Fatalf("documented command census = %d, want %d", got, want)
+		}
+		specs := cli.CommandSpecs()
+		if got, want := len(specs), len(cases); got != want {
+			t.Fatalf("canonical command registry count = %d, want %d", got, want)
+		}
+		for index, spec := range specs {
+			if got, want := string(spec.Command()), cases[index].command; got != want {
+				t.Fatalf("canonical command registry[%d] = %q, want %q", index, got, want)
+			}
+		}
+		seen := make(map[string]bool, len(cases))
+		for _, test := range cases {
+			t.Run(test.command, func(t *testing.T) {
+				if seen[test.command] {
+					t.Fatalf("duplicate command %q", test.command)
+				}
+				seen[test.command] = true
+				got := runKARBinary(t, binary, t.TempDir(), test.argv...)
+				if got.exitCode != test.exit {
+					t.Fatalf("%s exit = %d, want %d; stdout %q stderr %q", test.command, got.exitCode, test.exit, got.stdout, got.stderr)
+				}
+			})
+		}
+	})
+
+	t.Run("usage streams", func(t *testing.T) {
+		for _, argv := range [][]string{
+			{"not-a-command"},
+			{"review", "--diff"},
+			{"review", "--diff", "git", "--ci"},
+		} {
+			got := runKARBinary(t, binary, t.TempDir(), argv...)
+			if got.exitCode != 2 || len(got.stdout) != 0 || !bytes.Equal(got.stderr, []byte("kar: invalid command usage\n")) {
+				t.Fatalf("usage %q = exit %d stdout %q stderr %q", argv, got.exitCode, got.stdout, got.stderr)
+			}
+		}
+	})
+
+	t.Run("schema list formats", func(t *testing.T) {
+		human := runKARBinary(t, binary, t.TempDir(), "schema", "list")
+		if human.exitCode != 0 || len(human.stdout) == 0 || len(human.stderr) != 0 {
+			t.Fatalf("schema list human = exit %d stdout %q stderr %q", human.exitCode, human.stdout, human.stderr)
+		}
+		json := runKARBinary(t, binary, t.TempDir(), "schema", "list", "--output", "json")
+		if json.exitCode != 2 || len(json.stdout) != 0 || !bytes.Equal(json.stderr, []byte("kar: invalid command usage\n")) {
+			t.Fatalf("schema list JSON = exit %d stdout %q stderr %q", json.exitCode, json.stdout, json.stderr)
+		}
+	})
+
+	t.Run("authority absent envelopes", func(t *testing.T) {
+		const runID = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+		const attemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
+		cases := []struct {
+			name       string
+			argv       []string
+			exit       int
+			check      func(*testing.T, commandEnvelope)
+			nullFields []string
+		}{
+			{
+				name:       "review",
+				argv:       []string{"review", "--diff", "git", "--output", "json"},
+				exit:       2,
+				nullFields: []string{"session_id", "run_id", "run_manifest_uri", "review_artifact_uri"},
+				check: func(t *testing.T, envelope commandEnvelope) {
+					if envelope.Command != "review" || envelope.Result.Kind != "review_started" ||
+						envelope.Result.SessionID != nil || envelope.Result.RunID != nil ||
+						envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
+						envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" {
+						t.Fatalf("review authority-absent envelope = %#v", envelope)
+					}
+				},
+			},
+			{
+				name:       "prompt",
+				argv:       []string{"prompt", "--run", runID, "--attempt", attemptID, "--output", "json"},
+				exit:       7,
+				nullFields: []string{"prompt_manifest_uri", "complete_stdin_sha256"},
+				check: func(t *testing.T, envelope commandEnvelope) {
+					if envelope.Command != "prompt" || envelope.Result.Kind != "prompt_inspected" ||
+						envelope.Result.PromptManifestURI != nil || envelope.Result.CompleteStdinSHA256 != nil ||
+						envelope.Exit.Code != 7 || envelope.Exit.Kind != "artifact" {
+						t.Fatalf("prompt authority-absent envelope = %#v", envelope)
+					}
+				},
+			},
+		}
+		for _, test := range cases {
+			t.Run(test.name, func(t *testing.T) {
+				got := runKARBinary(t, binary, t.TempDir(), test.argv...)
+				if got.exitCode != test.exit || len(got.stderr) != 0 {
+					t.Fatalf("%s = exit %d stdout %q stderr %q", test.name, got.exitCode, got.stdout, got.stderr)
+				}
+				var envelope commandEnvelope
+				if err := json.Unmarshal(got.stdout, &envelope); err != nil {
+					t.Fatalf("decode %s envelope: %v", test.name, err)
+				}
+				var raw struct {
+					Result map[string]json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(got.stdout, &raw); err != nil {
+					t.Fatalf("decode %s result: %v", test.name, err)
+				}
+				assertNullResultFields(t, raw.Result, test.nullFields)
+				test.check(t, envelope)
+			})
+		}
+	})
+}
+func TestE2EKARProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildKARBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	home := canonicalTestTempDir(t)
+	seedKimiCredentials(t, home)
+	providerDirectory := canonicalTestTempDir(t)
+	logPath := filepath.Join(canonicalTestTempDir(t), "kimi-observations.jsonl")
+	buildFakeKimi(t, root, filepath.Join(providerDirectory, "kimi"), logPath)
+	environment := isolatedKAREnvWith(t, home, providerDirectory)
+	initialized := runKARBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "kimi", "--kimi-executable", filepath.Join(providerDirectory, "kimi"), "--kimi-data-home", filepath.Join(home, ".kimi-code"))
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize Kimi local config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+
+	review := runKARBinaryWithEnv(t, binary, project, environment,
+		"review", "--diff", "git", "--objective", "@roadmap.md review the changed behavior without rewriting this objective", "--roles", "logic,security", "--output", "json")
+	if review.exitCode != 8 || len(review.stderr) != 0 {
+		t.Fatalf("Kimi security non-admission = exit %d stdout %q stderr %q", review.exitCode, review.stdout, review.stderr)
+	}
+	var envelope commandEnvelope
+	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
+		t.Fatalf("decode Kimi security envelope: %v", err)
+	}
+	if envelope.Command != "review" || envelope.Exit.Code != 8 || envelope.Exit.Kind != "security" ||
+		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil ||
+		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
+		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "security" ||
+		envelope.Reasons[0].Code != "security_rejected" || envelope.Reasons[0].Retryable {
+		t.Fatalf("Kimi security envelope = %#v", envelope)
+	}
+	entries, err := os.ReadDir(filepath.Join(project, ".kar"))
+	if err != nil {
+		t.Fatalf("read Kimi security artifact directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
+		t.Fatalf("Kimi security rejection created P2 artifacts: %v", entries)
+	}
+	observations := readFakeKimiObservations(t, logPath)
+	if len(observations) != 1 || observations[0].Prompt != "@roadmap.md" {
+		t.Fatalf("Kimi executed beyond its positive qualification launch: %#v", observations)
+	}
+}
+
+func TestE2EKARProductionReviewSubprocessAGY(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildKARBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	uid, err := strconv.ParseUint(installedUser.Uid, 10, 32)
+	if err != nil || int(uid) != os.Geteuid() {
+		t.Fatalf("current native user identity is not effective UID: uid=%q euid=%d err=%v", installedUser.Uid, os.Geteuid(), err)
+	}
+
+	providerDirectory := canonicalTestTempDir(t)
+	logPath := filepath.Join(canonicalTestTempDir(t), "agy-observations.jsonl")
+	buildFakeAGY(t, root, filepath.Join(providerDirectory, "agy"), logPath)
+	environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
+	environment = append(environment, "KAR_FAKE_AGY_LOG="+logPath)
+	initialized := runKARBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "agy", "--agy-executable", filepath.Join(providerDirectory, "agy"), "--agy-permission-mode", "dangerously-skip-permissions")
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize AGY local config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+
+	const objective = "@roadmap.md review the changed behavior without rewriting this objective"
+	review := runKARBinaryWithEnv(t, binary, project, environment,
+		"review", "--diff", "git", "--objective", objective, "--roles", "logic,security", "--output", "json")
+	if review.exitCode != 0 || len(review.stderr) != 0 {
+		var failed commandEnvelope
+		if err := json.Unmarshal(review.stdout, &failed); err == nil {
+			t.Logf("AGY production review reasons: %#v", failed.Reasons)
+		}
+		observations := readFakeAGYObservations(t, logPath)
+		argv := make([][]string, 0, len(observations))
+		for _, observation := range observations {
+			argv = append(argv, observation.Argv)
+		}
+		t.Fatalf("AGY production review failed: exit=%d launches=%d argv=%v stdout=%q stderr=%q", review.exitCode, len(observations), argv, review.stdout, review.stderr)
+	}
+	var reviewEnvelope commandEnvelope
+	if err := json.Unmarshal(review.stdout, &reviewEnvelope); err != nil {
+		t.Fatalf("decode AGY review envelope: %v", err)
+	}
+	if reviewEnvelope.Result.Kind != "review_started" ||
+		reviewEnvelope.Exit.Code != 0 || reviewEnvelope.Exit.Kind != "success" ||
+		reviewEnvelope.Result.SessionID == nil || reviewEnvelope.Result.RunID == nil ||
+		reviewEnvelope.Result.RunManifestURI == nil || reviewEnvelope.Result.ReviewArtifactURI == nil {
+		t.Fatalf("AGY review did not publish a successful P2 result: %#v", reviewEnvelope)
+	}
+	for _, uri := range []string{*reviewEnvelope.Result.RunManifestURI, *reviewEnvelope.Result.ReviewArtifactURI} {
+		if !strings.HasPrefix(uri, ".kar/") {
+			t.Fatalf("published URI %q is not a P2 project URI", uri)
+		}
+		if _, err := os.Stat(filepath.Join(project, uri)); err != nil {
+			t.Fatalf("published URI %q is not reopenable: %v", uri, err)
+		}
+	}
+
+	status := runKARBinaryWithEnv(t, binary, project, environment,
+		"status", "--run", *reviewEnvelope.Result.RunID, "--output", "json")
+	if status.exitCode != 0 || len(status.stderr) != 0 {
+		t.Fatalf("published status = exit %d stdout %q stderr %q", status.exitCode, status.stdout, status.stderr)
+	}
+	var statusEnvelope struct {
+		Exit struct {
+			Code int    `json:"code"`
+			Kind string `json:"kind"`
+		} `json:"exit"`
+		Result struct {
+			RunID             string  `json:"run_id"`
+			PublicationStatus string  `json:"publication_status"`
+			FinalArtifactURI  *string `json:"final_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(status.stdout, &statusEnvelope); err != nil {
+		t.Fatalf("decode status envelope: %v", err)
+	}
+	if statusEnvelope.Exit.Code != 0 || statusEnvelope.Exit.Kind != "success" ||
+		statusEnvelope.Result.RunID != *reviewEnvelope.Result.RunID ||
+		statusEnvelope.Result.PublicationStatus != "committed" ||
+		statusEnvelope.Result.FinalArtifactURI == nil ||
+		!strings.HasPrefix(*statusEnvelope.Result.FinalArtifactURI, ".kar/") {
+		t.Fatalf("published status is not a successful committed P2 reopening: %#v", statusEnvelope)
+	}
+	if _, err := os.Stat(filepath.Join(project, *statusEnvelope.Result.FinalArtifactURI)); err != nil {
+		t.Fatalf("reopened P2 final artifact %q is unavailable: %v", *statusEnvelope.Result.FinalArtifactURI, err)
+	}
+
+	observations := readFakeAGYObservations(t, logPath)
+	versionChecks := make([]fakeAGYObservation, 0, 2)
+	qualificationRuns := make([]fakeAGYObservation, 0, 2)
+	reviewRuns := make([]fakeAGYObservation, 0, 2)
+	for _, observation := range observations {
+		switch {
+		case len(observation.Argv) == 1 && observation.Argv[0] == "--version":
+			versionChecks = append(versionChecks, observation)
+		case observation.Prompt == "@roadmap.md":
+			qualificationRuns = append(qualificationRuns, observation)
+		default:
+			reviewRuns = append(reviewRuns, observation)
+		}
+	}
+	// Version observation is diagnostic-only and may time out before the fake
+	// process starts on a heavily instrumented race run. Qualification and role
+	// execution are the authoritative launches and remain exact.
+	if len(versionChecks) > 2 || len(qualificationRuns) != 2 || len(reviewRuns) != 2 {
+		argv := make([][]string, 0, len(observations))
+		for _, observation := range observations {
+			argv = append(argv, observation.Argv)
+		}
+		t.Fatalf("AGY launches = versions:%d qualifications:%d reviews:%d argv=%v, want at most two diagnostic version checks and exactly two qualification and review launches", len(versionChecks), len(qualificationRuns), len(reviewRuns), argv)
+	}
+	for _, observation := range observations {
+		if observation.Home != installedUser.HomeDir || observation.CWD == "" {
+			t.Fatalf("AGY native-home/CWD contract = %#v", observation)
+		}
+		if len(observation.Argv) == 1 && observation.Argv[0] == "--version" {
+			continue
+		}
+		for _, value := range []string{observation.XDGConfigHome, observation.XDGCacheHome, observation.TempDir, observation.Scratch} {
+			if value == "" || value == installedUser.HomeDir || strings.HasPrefix(value, installedUser.HomeDir+string(filepath.Separator)) {
+				t.Fatalf("AGY disposable environment escaped native home: %#v", observation)
+			}
+		}
+	}
+	for _, observation := range qualificationRuns {
+		if observation.CWD != observation.Snapshot || observation.Prompt != "@roadmap.md" {
+			t.Fatalf("AGY qualification snapshot/control contract = %#v", observation)
+		}
+	}
+	for _, observation := range reviewRuns {
+		if observation.CWD != observation.Snapshot || !strings.Contains(observation.Prompt, objective) {
+			t.Fatalf("AGY review snapshot/control contract = %#v", observation)
+		}
+	}
+}
+
+type commandEnvelope struct {
+	Command string `json:"command"`
+	Exit    struct {
+		Code int    `json:"code"`
+		Kind string `json:"kind"`
+	} `json:"exit"`
+	Result struct {
+		Kind                string  `json:"kind"`
+		SessionID           *string `json:"session_id"`
+		RunID               *string `json:"run_id"`
+		RunManifestURI      *string `json:"run_manifest_uri"`
+		ReviewArtifactURI   *string `json:"review_artifact_uri"`
+		PromptManifestURI   *string `json:"prompt_manifest_uri"`
+		CompleteStdinSHA256 *string `json:"complete_stdin_sha256"`
+	} `json:"result"`
+	Reasons []struct {
+		Category  string `json:"category"`
+		Code      string `json:"code"`
+		Retryable bool   `json:"retryable"`
+	} `json:"reasons"`
+}
+type fakeKimiObservation struct {
+	CWD    string `json:"cwd"`
+	Prompt string `json:"prompt"`
+}
+type fakeAGYObservation struct {
+	Argv          []string `json:"argv"`
+	CWD           string   `json:"cwd"`
+	Home          string   `json:"home"`
+	XDGConfigHome string   `json:"xdg_config_home"`
+	XDGCacheHome  string   `json:"xdg_cache_home"`
+	TempDir       string   `json:"tmpdir"`
+	Scratch       string   `json:"scratch"`
+	Snapshot      string   `json:"snapshot"`
+	Prompt        string   `json:"prompt"`
+}
+
+func initializeReviewGitRepository(t *testing.T, directory string) {
+	t.Helper()
+	mustWriteTestFile(t, filepath.Join(directory, "roadmap.md"), []byte("# Roadmap\nReview the linked design.\n"))
+	mustWriteTestFile(t, filepath.Join(directory, "docs", "linked.md"), []byte("# Linked design\nThe review must preserve immutable inputs.\n"))
+	mustWriteTestFile(t, filepath.Join(directory, "review.go"), []byte("package review\n\nconst state = \"before\"\n"))
+	runTestCommand(t, directory, "git", "init")
+	runTestCommand(t, directory, "git", "add", ".")
+	runTestCommand(t, directory, "git", "-c", "user.name=KAR E2E", "-c", "user.email=kar-e2e@example.invalid", "commit", "-m", "baseline")
+	mustWriteTestFile(t, filepath.Join(directory, "review.go"), []byte("package review\n\nconst state = \"after\"\n"))
+}
+
+func seedKimiCredentials(t *testing.T, home string) {
+	t.Helper()
+	for path, contents := range map[string][]byte{
+		".kimi-code/config.toml":                []byte("endpoint = \"offline\"\n"),
+		".kimi-code/credentials/kimi-code.json": []byte("{\"token\":\"offline\"}\n"),
+		".kimi/config.toml":                     []byte("endpoint = \"offline\"\n"),
+		".kimi/credentials/kimi-code.json":      []byte("{\"token\":\"offline\"}\n"),
+	} {
+		mustWriteTestFile(t, filepath.Join(home, path), contents)
+	}
+}
+
+func buildFakeKimi(t *testing.T, root, binary, logPath string) {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), "main.go")
+	program := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
+
+type observation struct {
+	CWD string
+	Prompt string
+}
+
+func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("0.28.0")
+		return
+	}
+	if len(os.Args) != 7 || os.Args[1] != "--model" ||
+		os.Args[2] != "kimi-code/k3" || os.Args[3] != "--prompt" ||
+		os.Args[5] != "--output-format" || os.Args[6] != "stream-json" {
+		panic("non-canonical Kimi invocation")
+	}
+	prompt := os.Args[4]
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	log, err := os.OpenFile("__FAKE_KIMI_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	if err := json.NewEncoder(log).Encode(observation{CWD: cwd, Prompt: prompt}); err != nil {
+		panic(err)
+	}
+	if err := log.Close(); err != nil {
+		panic(err)
+	}
+	content := "{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+	if prompt == "@roadmap.md" {
+		roadmap, err := os.ReadFile("roadmap.md")
+		if err != nil {
+			panic(err)
+		}
+		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(string(roadmap))
+		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(string(roadmap))
+		link, err := os.ReadFile("docs/linked.md")
+		if err != nil || len(root) != 2 || len(role) != 2 {
+			panic("native qualification reference did not resolve")
+		}
+		content = fmt.Sprintf("{\"root\":%q,\"link\":%q,\"missing\":\"denied\",\"kar\":\"denied\",\"outside\":\"denied\",\"role\":%q,\"command\":\"denied\",\"write\":\"denied\",\"network\":\"denied\",\"browser\":\"denied\",\"mcp\":\"denied\"}", root[1], strings.TrimSpace(string(link)), role[1])
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]string{"role": "assistant", "content": content}); err != nil {
+		panic(err)
+	}
+}
+`
+	mustWriteTestFile(t, source, []byte(strings.ReplaceAll(program, "__FAKE_KIMI_LOG__", logPath)))
+	build := exec.Command("go", "build", "-o", binary, source)
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake Kimi: %v\n%s", err, output)
+	}
+}
+func buildFakeAGY(t *testing.T, root, binary, logPath string) {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), "main.go")
+	program := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+)
+
+type observation struct {
+	Argv []string ` + "`json:\"argv\"`" + `
+	CWD string ` + "`json:\"cwd\"`" + `
+	Home string ` + "`json:\"home\"`" + `
+	XDGConfigHome string ` + "`json:\"xdg_config_home\"`" + `
+	XDGCacheHome string ` + "`json:\"xdg_cache_home\"`" + `
+	TempDir string ` + "`json:\"tmpdir\"`" + `
+	Scratch string ` + "`json:\"scratch\"`" + `
+	Snapshot string ` + "`json:\"snapshot\"`" + `
+	Prompt string ` + "`json:\"prompt\"`" + `
+}
+
+func main() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	argv := append([]string(nil), os.Args[1:]...)
+	observation := observation{
+		Argv: argv, CWD: cwd, Home: os.Getenv("HOME"),
+		XDGConfigHome: os.Getenv("XDG_CONFIG_HOME"), XDGCacheHome: os.Getenv("XDG_CACHE_HOME"),
+		TempDir: os.Getenv("TMPDIR"), Scratch: os.Getenv("KAR_PROVIDER_SCRATCH"),
+	}
+	if len(argv) == 1 && argv[0] == "--version" {
+		write(observation)
+		fmt.Println("1.1.4")
+		return
+	}
+	if len(argv) != 11 || argv[0] != "--new-project" || argv[1] != "--sandbox" ||
+		argv[2] != "--dangerously-skip-permissions" || argv[3] != "--add-dir" ||
+		argv[5] != "--mode" || argv[6] != "plan" || argv[7] != "--print-timeout" ||
+		argv[8] != "2m" || argv[9] != "--print" || argv[4] != cwd {
+		panic("non-canonical AGY invocation")
+	}
+	observation.Snapshot, observation.Prompt = argv[4], argv[10]
+	write(observation)
+	if observation.Prompt == "@roadmap.md" {
+		roadmap, err := os.ReadFile("roadmap.md")
+		if err != nil {
+			panic(err)
+		}
+		link, err := os.ReadFile("docs/linked.md")
+		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(string(roadmap))
+		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(string(roadmap))
+		if err != nil || len(root) != 2 || len(role) != 2 {
+			panic("native qualification reference did not resolve")
+		}
+		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], strings.TrimSpace(string(link)), role[1])
+		_ = os.Stdout.Close()
+		for { time.Sleep(time.Hour) }
+	}
+	fmt.Print("{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+	_ = os.Stdout.Close()
+	for { time.Sleep(time.Hour) }
+}
+
+func write(observation observation) {
+	log, err := os.OpenFile("__FAKE_AGY_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer log.Close()
+	if err := json.NewEncoder(log).Encode(observation); err != nil {
+		panic(err)
+	}
+}`
+	mustWriteTestFile(t, source, []byte(strings.ReplaceAll(program, "__FAKE_AGY_LOG__", logPath)))
+	build := exec.Command("go", "build", "-o", binary, source)
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake AGY: %v\n%s", err, output)
+	}
+}
+
+func readFakeAGYObservations(t *testing.T, path string) []fakeAGYObservation {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fake AGY observations: %v", err)
+	}
+	var observations []fakeAGYObservation
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var observation fakeAGYObservation
+		if err := json.Unmarshal([]byte(line), &observation); err != nil {
+			t.Fatalf("decode fake AGY observation %q: %v", line, err)
+		}
+		observations = append(observations, observation)
+	}
+	return observations
+}
+
+func readFakeKimiObservations(t *testing.T, path string) []fakeKimiObservation {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fake Kimi observations: %v", err)
+	}
+	var observations []fakeKimiObservation
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var observation fakeKimiObservation
+		if err := json.Unmarshal([]byte(line), &observation); err != nil {
+			t.Fatalf("decode fake Kimi observation %q: %v", line, err)
+		}
+		observations = append(observations, observation)
+	}
+	return observations
+}
+
+func mustWriteTestFile(t *testing.T, path string, contents []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatalf("create test file directory %q: %v", path, err)
+	}
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatalf("write test file %q: %v", path, err)
+	}
+}
+
+func runTestCommand(t *testing.T, directory, name string, arguments ...string) {
+	t.Helper()
+	command := exec.Command(name, arguments...)
+	command.Dir = directory
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run %s %q: %v\n%s", name, arguments, err, output)
+	}
+}
+
+func assertNullResultFields(t *testing.T, result map[string]json.RawMessage, fields []string) {
+	t.Helper()
+	for _, field := range fields {
+		if got, present := result[field]; !present || !bytes.Equal(got, []byte("null")) {
+			t.Fatalf("result.%s = %s, want exact null", field, got)
+		}
+	}
+}
+func buildKARBinary(t *testing.T, root string) string {
+	t.Helper()
+	if binary := os.Getenv("KAR_E2E_BINARY"); binary != "" {
+		if info, err := os.Stat(binary); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			t.Fatalf("KAR_E2E_BINARY is not an executable file: %q: %v", binary, err)
+		}
+		return binary
+	}
+	binary := filepath.Join(t.TempDir(), "kar")
+	build := exec.Command("go", "build", "-ldflags", "-X main.buildProduct=kar -X main.buildVersion=v1.4.2 -X main.buildCommit=0123456789abcdef0123456789abcdef01234567", "-o", binary, "./cmd/kar")
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build KAR binary: %v\n%s", err, output)
+	}
+	return binary
+}
+
+func mustAssetID(t *testing.T, value string) ports.AssetID {
+	t.Helper()
+	id, err := ports.ParseAssetID(value)
+	if err != nil {
+		t.Fatalf("parse asset ID %q: %v", value, err)
+	}
+	return id
+}
+
+func terminalLF(value []byte) []byte {
+	return append(bytes.TrimRight(append([]byte(nil), value...), "\n"), '\n')
+}
+
+type binaryResult struct {
+	stdout   []byte
+	stderr   []byte
+	exitCode int
+}
+
+func runKARBinary(t *testing.T, binary, workingDirectory string, arguments ...string) binaryResult {
+	t.Helper()
+	return runKARBinaryWithEnv(t, binary, workingDirectory, isolatedKAREnv(t), arguments...)
+}
+
+func runKARBinaryWithEnv(t *testing.T, binary, workingDirectory string, environment []string, arguments ...string) binaryResult {
+	t.Helper()
+	command := exec.Command(binary, arguments...)
+	command.Dir = workingDirectory
+	command.Env = environment
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	result := binaryResult{stdout: stdout.Bytes(), stderr: stderr.Bytes()}
+	if err == nil {
+		return result
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("run KAR %q: %v", arguments, err)
+	}
+	result.exitCode = exitError.ExitCode()
+	return result
+}
+
+func isolatedKAREnv(t *testing.T) []string {
+	t.Helper()
+	root := t.TempDir()
+	return []string{
+		"HOME=" + root,
+		"TMPDIR=" + root,
+		"XDG_CACHE_HOME=" + root,
+		"XDG_CONFIG_HOME=" + root,
+		"PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+		"NO_PROXY=*",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	}
+}
+func isolatedKAREnvWith(t *testing.T, home, providerDirectory string) []string {
+	t.Helper()
+	return []string{
+		"HOME=" + home,
+		"TMPDIR=" + canonicalTestTempDir(t),
+		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
+		"XDG_CONFIG_HOME=" + canonicalTestTempDir(t),
+		"PATH=" + providerDirectory + ":/usr/bin",
+		"NO_PROXY=*",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	}
+}
+
+func canonicalTestTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(path)
+}
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs(filepath.Join(workingDirectory, "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+type compositionProjectReader struct {
+	commit  ports.GitObjectID
+	readErr error
+	reads   int
+}
+
+func (reader *compositionProjectReader) ResolveCommit(context.Context, ports.AnchoredRoot, string) (ports.GitObjectID, error) {
+	return reader.commit, nil
+}
+
+func (reader *compositionProjectReader) ReadFileAtCommit(context.Context, ports.AnchoredRoot, ports.GitObjectID, ports.SafeRelativePath) ([]byte, error) {
+	reader.reads++
+	return nil, reader.readErr
+}

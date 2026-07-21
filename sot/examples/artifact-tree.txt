@@ -1,5 +1,5 @@
 .kar/
-  context.md
+  config.yaml
   cache/
     provider-profiles/
     target-copies/

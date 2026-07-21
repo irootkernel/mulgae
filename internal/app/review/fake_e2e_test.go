@@ -220,11 +220,12 @@ func expectedE2ECall(provider string, role domain.Role, attemptID domain.Attempt
 	}
 }
 
-func TestFakeProviderE2ERepairNormalizationAndAxes(t *testing.T) {
+func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	ctx := context.Background()
 	common := e2eLayer(t, "common", "Common review constraints.")
 	runLayer := e2eLayer(t, "review-run", "This is a review run.")
 	jsonLayer := e2eLayer(t, "json-output", "Return JSON only.")
+	repairLayer := e2eLayer(t, "repair", "Repair only allowed fields.")
 	logicLayer := e2eLayer(t, "logic", "Review logic defects.")
 	securityLayer := e2eLayer(t, "security", "Review security defects.")
 	target := e2eTarget(t)
@@ -300,7 +301,7 @@ func TestFakeProviderE2ERepairNormalizationAndAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, map[domain.Role]prompt.TrustedLayer{
+	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, repairLayer, map[domain.Role]prompt.TrustedLayer{
 		domain.RoleLogic:    logicLayer,
 		domain.RoleSecurity: securityLayer,
 	})

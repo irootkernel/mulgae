@@ -77,9 +77,11 @@ type Invocation struct {
 	findings       *FindingsRequest
 	excerpt        *ExcerptRequest
 	followup       *FollowupRequest
+	review         *ReviewRequest
 	delta          *DeltaRequest
 	rerun          *RerunRequest
 	clean          *CleanRequest
+	prompt         *PromptRequest
 	export         *ExportRequest
 }
 
@@ -189,6 +191,14 @@ func (invocation Invocation) Schema() (SchemaRequest, bool) {
 	return *invocation.schema, true
 }
 
+// Review returns the parsed review fields when this is a review invocation.
+func (invocation Invocation) Review() (ReviewRequest, bool) {
+	if invocation.review == nil {
+		return ReviewRequest{}, false
+	}
+	return cloneReviewRequest(*invocation.review), true
+}
+
 // Followup returns the parsed followup fields when this is a followup invocation.
 func (invocation Invocation) Followup() (FollowupRequest, bool) {
 	if invocation.followup == nil {
@@ -221,6 +231,14 @@ func (invocation Invocation) Clean() (CleanRequest, bool) {
 	return *invocation.clean, true
 }
 
+// Prompt returns the parsed prompt fields when this is a prompt invocation.
+func (invocation Invocation) Prompt() (PromptRequest, bool) {
+	if invocation.prompt == nil {
+		return PromptRequest{}, false
+	}
+	return *invocation.prompt, true
+}
+
 // Export returns the parsed export fields when this is an export invocation.
 func (invocation Invocation) Export() (ExportRequest, bool) {
 	if invocation.export == nil {
@@ -244,8 +262,17 @@ type InitRequest struct {
 	projectName         string
 	contextPath         string
 	hasContextPath      bool
-	intendedProviderIDs []string
-	overwrite           bool
+	selectionMode       string
+	providerIDs         []string
+	nativeHome          string
+	hasNativeHome       bool
+	kimiExecutable      string
+	kimiModel           string
+	kimiDataHome        string
+	zcodeNodeExecutable string
+	zcodeLauncher       string
+	agyExecutable       string
+	agyPermissionMode   string
 }
 
 // ProjectRoot returns the canonical project root selected for initialization.
@@ -259,13 +286,22 @@ func (request InitRequest) ContextPath() (string, bool) {
 	return request.contextPath, request.hasContextPath
 }
 
-// IntendedProviderIDs returns a caller-owned copy of intended provider IDs.
-func (request InitRequest) IntendedProviderIDs() []string {
-	return cloneStrings(request.intendedProviderIDs)
+func (request InitRequest) Selection() (string, []string) {
+	return request.selectionMode, cloneStrings(request.providerIDs)
 }
-
-// Overwrite reports the fixed non-overwrite initialization policy.
-func (request InitRequest) Overwrite() bool { return request.overwrite }
+func (request InitRequest) NativeHome() (string, bool) {
+	return request.nativeHome, request.hasNativeHome
+}
+func (request InitRequest) KimiOverrides() (string, string, string) {
+	return request.kimiExecutable, request.kimiModel, request.kimiDataHome
+}
+func (request InitRequest) ZCodeOverrides() (string, string) {
+	return request.zcodeNodeExecutable, request.zcodeLauncher
+}
+func (request InitRequest) AGYOverrides() (string, string) {
+	return request.agyExecutable, request.agyPermissionMode
+}
+func (request InitRequest) Overwrite() bool { return false }
 
 // DoctorRequest contains the executable doctor fields.
 type DoctorRequest struct {
@@ -349,25 +385,12 @@ func (request ProvidersRequest) IncludeUnverified() bool { return request.includ
 
 // ConfigRequest contains the executable configuration-selection fields.
 type ConfigRequest struct {
-	projectRoot          string
-	reference            string
-	projectConfigPath    string
-	projectConfigEnabled bool
-	mode                 ConfigMode
+	projectRoot string
+	mode        ConfigMode
 }
 
 // ProjectRoot returns the canonical project root selected for configuration.
 func (request ConfigRequest) ProjectRoot() string { return request.projectRoot }
-
-// Reference returns the exact immutable Git object ID selected as the trusted
-// project-configuration base.
-func (request ConfigRequest) Reference() string { return request.reference }
-
-// ProjectConfigPath returns the explicitly selected safe relative
-// project-configuration path. It is false when no project layer was selected.
-func (request ConfigRequest) ProjectConfigPath() (string, bool) {
-	return request.projectConfigPath, request.projectConfigEnabled
-}
 
 // Mode returns the requested configuration view.
 func (request ConfigRequest) Mode() ConfigMode { return request.mode }
@@ -409,6 +432,48 @@ func (request TargetRequest) Kind() string { return request.kind }
 
 // Value returns the target value.
 func (request TargetRequest) Value() string { return request.value }
+
+// ReviewRequest contains the immutable independent-review fields.
+type ReviewRequest struct {
+	target       TargetRequest
+	objective    string
+	hasObjective bool
+	roles        []string
+	sessionID    string
+	hasSessionID bool
+}
+
+// Target returns the literal target request.
+func (request ReviewRequest) Target() TargetRequest { return request.target }
+
+// Objective returns the optional review objective.
+func (request ReviewRequest) Objective() (string, bool) {
+	return request.objective, request.hasObjective
+}
+
+// Roles returns a caller-owned copy of the requested roles.
+func (request ReviewRequest) Roles() []string { return cloneStrings(request.roles) }
+
+// SessionID returns the optional imported workflow session ID.
+func (request ReviewRequest) SessionID() (string, bool) {
+	return request.sessionID, request.hasSessionID
+}
+
+// PromptRequest contains the immutable prompt-rendering fields.
+type PromptRequest struct {
+	runID               string
+	attemptID           string
+	includeGuardedBytes bool
+}
+
+// RunID returns the selected canonical review-run ID.
+func (request PromptRequest) RunID() string { return request.runID }
+
+// AttemptID returns the selected canonical attempt ID.
+func (request PromptRequest) AttemptID() string { return request.attemptID }
+
+// IncludeGuardedBytes reports whether guarded bytes are included.
+func (request PromptRequest) IncludeGuardedBytes() bool { return request.includeGuardedBytes }
 
 // FollowupRequest contains the immutable source finding and target fields.
 type FollowupRequest struct {
@@ -524,7 +589,12 @@ func (request ExportRequest) OutputPath() string { return request.outputPath }
 func (request ExportRequest) Redacted() bool { return request.redacted }
 
 func cloneInitRequest(request InitRequest) InitRequest {
-	request.intendedProviderIDs = cloneStrings(request.intendedProviderIDs)
+	request.providerIDs = cloneStrings(request.providerIDs)
+	return request
+}
+
+func cloneReviewRequest(request ReviewRequest) ReviewRequest {
+	request.roles = cloneStrings(request.roles)
 	return request
 }
 

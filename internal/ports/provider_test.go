@@ -226,3 +226,81 @@ func providerTestDigest(stdin []byte) string {
 	_, _ = hash.Write(stdin)
 	return hex.EncodeToString(hash.Sum(nil))
 }
+func TestProviderPacketContractPreservesV1IdentityAndLegacyAliases(t *testing.T) {
+	packetBytes := []byte("packet transport payload")
+	digest := providerTestDigest(packetBytes)
+	packet, err := NewProviderPacket(packetBytes, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes[0] = 'x'
+	if got, want := packet.Bytes(), []byte("packet transport payload"); !bytes.Equal(got, want) {
+		t.Fatalf("Packet.Bytes() after source mutation = %q, want %q", got, want)
+	}
+	copy := packet.Bytes()
+	copy[0] = 'y'
+	if got, want := packet.Bytes(), []byte("packet transport payload"); !bytes.Equal(got, want) {
+		t.Fatalf("Packet.Bytes() after getter mutation = %q, want %q", got, want)
+	}
+	if got := packet.Identity(); !got.Valid() || got.ByteLength() != len(packetBytes) || got.CompleteSHA256() != digest {
+		t.Fatalf("Packet.Identity() = %#v", got)
+	}
+
+	invocation, err := NewProviderInvocationWithPacket(
+		domain.RoleSecurity, "kimi-main", providerTestAttempt(t), ProviderInvocationInitial, packet,
+		providerTestSourceID, providerTestExecutionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(invocation.PacketBytes(), invocation.Stdin()) || invocation.InputIdentity() != packet.Identity() ||
+		invocation.CompleteStdinSHA256() != packet.Identity().CompleteSHA256() {
+		t.Fatal("packet-native invocation and stdin aliases diverged")
+	}
+
+	result, err := NewProviderResultForInput([]byte("result"), packet.Identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyResult, err := NewProviderResult([]byte("result"), packet.Identity().ByteLength(), packet.Identity().CompleteSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InputIdentity() != packet.Identity() || result.InputIdentity() != legacyResult.InputIdentity() ||
+		result.InputByteLength() != result.StdinByteLength() ||
+		result.CompleteInputSHA256() != result.CompleteStdinSHA256() {
+		t.Fatal("packet-native result and stdin aliases diverged")
+	}
+
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{name: "zero identity length", call: func() error {
+			_, err := NewProviderPacketIdentity(0, digest)
+			return err
+		}},
+		{name: "uppercase identity hash", call: func() error {
+			_, err := NewProviderPacketIdentity(1, strings.ToUpper(digest))
+			return err
+		}},
+		{name: "empty packet", call: func() error {
+			_, err := NewProviderPacket(nil, providerTestDigest(nil))
+			return err
+		}},
+		{name: "packet hash mismatch", call: func() error {
+			_, err := NewProviderPacket([]byte("packet"), digest)
+			return err
+		}},
+		{name: "result invalid identity", call: func() error {
+			_, err := NewProviderResultForInput([]byte("result"), ProviderPacketIdentity{})
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.call(); err == nil {
+				t.Fatal("packet contract constructor succeeded")
+			}
+		})
+	}
+}

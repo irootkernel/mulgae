@@ -6,8 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"reflect"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -16,21 +15,29 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestBuildArgvUsesExactFamilyProfiles(t *testing.T) {
+func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	tests := []struct {
 		family string
 		want   []string
 	}{
-		{FamilyKimi, []string{"/private/bin/kimi", "--prompt", "review bytes", "--output-format", "stream-json"}},
+		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"}},
 		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes"}},
-		{FamilyAgy, []string{"/private/bin/agy", "--print", "review bytes", "--sandbox", "--mode", "plan", "--print-timeout", "2m"}},
+		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--print-timeout", "2m", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
-			got := buildArgv(definition{
-				family:   test.family,
-				baseArgv: []string{"/private/bin/" + test.family},
-			}, []byte("review bytes"))
+			transport, err := defaultRuntimeTransport(test.family, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := buildArgv(definition{
+				family:    test.family,
+				baseArgv:  []string{"/private/bin/" + test.family},
+				transport: transport,
+			}, "/private/work", []byte("review bytes"))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if len(got) != len(test.want) {
 				t.Fatalf("argv = %q, want %q", got, test.want)
 			}
@@ -65,7 +72,7 @@ func TestProviderResultStrictness(t *testing.T) {
 		if _, _, err := providerResult(family, []byte("{\"findings\":[]} trailing")); err == nil {
 			t.Fatalf("%s accepted trailing bytes", family)
 		}
-		want := []byte(" {\"findings\":[]}\n")
+		want := []byte("{\"findings\":[]}")
 		got, isolated, err := providerResult(family, want)
 		if err != nil || isolated || !bytes.Equal(got, want) {
 			t.Fatalf("%s result = %q, isolated=%t, err=%v", family, got, isolated, err)
@@ -73,216 +80,104 @@ func TestProviderResultStrictness(t *testing.T) {
 	}
 }
 
-func TestDefinitionRejectsNonPassOrMismatchedEvidence(t *testing.T) {
-	key, err := ports.ParseConcurrencyKey("kimi_default")
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv := []string{"/private/bin/kimi"}
-	evidence, err := newTupleEvidence(FamilyKimi, "kimi_default", "0.23.6", testSHA256, key, "kimi_default", EvidencePass, argv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := newDefinition(FamilyKimi, "kimi_default", "0.23.6", "/private/bin/kimi", testSHA256, key, "kimi_default", evidence, argv, nil, "/private/work", time.Second, 1, 1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := newTupleEvidence(FamilyKimi, "kimi_default", "0.23.6", testSHA256, key, "kimi_default", "FAIL", argv); err == nil {
-		t.Fatal("non-PASS evidence accepted")
-	}
-
-	otherKey, err := ports.ParseConcurrencyKey("kimi_other")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
-		name     string
-		evidence tupleEvidence
+func TestNewRuntimeDefinitionAllowsOptionalProvenance(t *testing.T) {
+	for _, provenance := range []struct {
+		name      string
+		version   string
+		hash      string
+		profileID string
 	}{
-		{"family", mustTupleEvidence(t, FamilyZcode, "kimi_default", "0.23.6", testSHA256, key, "kimi_default", argv)},
-		{"instance", mustTupleEvidence(t, FamilyKimi, "kimi_other", "0.23.6", testSHA256, key, "kimi_default", argv)},
-		{"version", mustTupleEvidence(t, FamilyKimi, "kimi_default", "0.23.7", testSHA256, key, "kimi_default", argv)},
-		{"executable SHA", mustTupleEvidence(t, FamilyKimi, "kimi_default", "0.23.6", "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", key, "kimi_default", argv)},
-		{"concurrency key", mustTupleEvidence(t, FamilyKimi, "kimi_default", "0.23.6", testSHA256, otherKey, "kimi_default", argv)},
-		{"profile ID", mustTupleEvidence(t, FamilyKimi, "kimi_default", "0.23.6", testSHA256, key, "kimi_other", argv)},
-		{"base argv", mustTupleEvidence(t, FamilyKimi, "kimi_default", "0.23.6", testSHA256, key, "kimi_default", []string{"/private/bin/kimi", "--other"})},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := newDefinition(FamilyKimi, "kimi_default", "0.23.6", "/private/bin/kimi", testSHA256, key, "kimi_default", test.evidence, argv, nil, "/private/work", time.Second, 1, 1); err == nil {
-				t.Fatal("mismatched evidence accepted")
-			}
-		})
-	}
-	if _, err := newTupleEvidence("unsupported", "kimi_default", "0.23.6", testSHA256, key, "kimi_default", EvidencePass, argv); err == nil {
-		t.Fatal("unsupported family accepted")
-	}
-	if _, err := newTupleEvidence(FamilyKimi, "kimi_default", "0.23.6", testSHA256, key, "kimi.default", EvidencePass, argv); err == nil {
-		t.Fatal("dotted profile ID accepted")
-	}
-	if _, err := newDefinition(FamilyKimi, "kimi.default", "0.23.6", "/private/bin/kimi", testSHA256, key, "kimi_default", mustTupleEvidence(t, FamilyKimi, "kimi.default", "0.23.6", testSHA256, key, "kimi_default", argv), argv, nil, "/private/work", time.Second, 1, 1); err != nil {
-		t.Fatalf("dotted provider instance rejected: %v", err)
-	}
-}
-
-func TestRegistryOptInDefinitions(t *testing.T) {
-	runner := &barrierRunner{}
-	kimi := testDefinition(t, FamilyKimi, "kimi_default", "kimi_default")
-	registry, err := newRegistry(runner, kimi)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registry == nil {
-		t.Fatal("single opt-in definition returned nil registry")
-	}
-	if _, err := newRegistry(runner); err == nil {
-		t.Fatal("empty registry accepted")
-	}
-}
-func TestNewAuthorizedRegistryAuthorizesExactCandidatesBeforeConstruction(t *testing.T) {
-	kimi := testCandidate(t, FamilyKimi, "kimi_default", "kimi_lane")
-	zcode := testCandidate(t, FamilyZcode, "zcode_default", "zcode_lane")
-	runner := &countingRunner{}
-	authorizer := &recordingAuthorizer{expected: []RuntimeDefinitionCandidate{kimi, zcode}}
-
-	registry, err := NewAuthorizedRegistry(context.Background(), runner, authorizer, kimi, zcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registry == nil || authorizer.calls != 2 || runner.calls != 0 {
-		t.Fatalf("registry=%v authorizer calls=%d runner calls=%d", registry, authorizer.calls, runner.calls)
-	}
-	if !reflect.DeepEqual(authorizer.seen, []RuntimeDefinitionCandidate{kimi, zcode}) {
-		t.Fatalf("authorized candidates = %#v", authorizer.seen)
-	}
-}
-
-func TestNewAuthorizedRegistryFailsClosed(t *testing.T) {
-	candidate := testCandidate(t, FamilyKimi, "kimi_default", "kimi_lane")
-	runner := &countingRunner{}
-
-	if _, err := NewAuthorizedRegistry(context.Background(), runner, nil, candidate); err == nil {
-		t.Fatal("nil authorizer accepted")
-	}
-	var typedNil *recordingAuthorizer
-	if _, err := NewAuthorizedRegistry(context.Background(), runner, typedNil, candidate); err == nil {
-		t.Fatal("typed-nil authorizer accepted")
-	}
-	authorizer := &recordingAuthorizer{expected: []RuntimeDefinitionCandidate{candidate}, err: errors.New("denied"), failAt: 0}
-	if _, err := NewAuthorizedRegistry(context.Background(), runner, authorizer, candidate); err == nil {
-		t.Fatal("authorizer error accepted")
-	}
-	if authorizer.calls != 1 || runner.calls != 0 {
-		t.Fatalf("authorizer calls=%d runner calls=%d", authorizer.calls, runner.calls)
-	}
-	if _, err := NewAuthorizedRegistry(nil, runner, &recordingAuthorizer{}, candidate); err == nil {
-		t.Fatal("nil context accepted")
-	}
-	var typedNilRunner *countingRunner
-	if _, err := NewAuthorizedRegistry(context.Background(), typedNilRunner, &recordingAuthorizer{}, candidate); err == nil {
-		t.Fatal("typed-nil runner accepted")
-	}
-}
-
-func TestNewAuthorizedRegistryAcceptsDistinctInstancesOfSameFamily(t *testing.T) {
-	primary := testCandidate(t, FamilyKimi, "kimi_primary", "kimi_primary_lane")
-	secondary := testCandidate(t, FamilyKimi, "kimi_secondary", "kimi_secondary_lane")
-	authorizer := &recordingAuthorizer{expected: []RuntimeDefinitionCandidate{primary, secondary}}
-
-	registry, err := NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, primary, secondary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registry == nil || authorizer.calls != 2 {
-		t.Fatalf("registry=%v authorizer calls=%d", registry, authorizer.calls)
-	}
-	primaryDefinition := registry.definitions[primary.Instance()]
-	secondaryDefinition := registry.definitions[secondary.Instance()]
-	if primaryDefinition.family != FamilyKimi || primaryDefinition.instance != primary.Instance() ||
-		primaryDefinition.concurrencyKey != primary.ConcurrencyKey() ||
-		secondaryDefinition.family != FamilyKimi || secondaryDefinition.instance != secondary.Instance() ||
-		secondaryDefinition.concurrencyKey != secondary.ConcurrencyKey() {
-		t.Fatalf("registered definitions = %#v, %#v", primaryDefinition, secondaryDefinition)
-	}
-	if primaryDefinition.concurrencyKey == secondaryDefinition.concurrencyKey ||
-		registry.lanes[primaryDefinition.concurrencyKey] == registry.lanes[secondaryDefinition.concurrencyKey] {
-		t.Fatal("distinct Kimi instances do not have independent tuple and lane identities")
-	}
-}
-
-func TestNewAuthorizedRegistryRejectsDuplicateInstancesAndNoncanonicalOrder(t *testing.T) {
-	kimiPrimary := testCandidate(t, FamilyKimi, "kimi_primary", "kimi_primary_lane")
-	kimiSecondary := testCandidate(t, FamilyKimi, "kimi_secondary", "kimi_secondary_lane")
-	kimiDuplicate := testCandidate(t, FamilyKimi, "kimi_primary", "kimi_duplicate_lane")
-	zcode := testCandidate(t, FamilyZcode, "zcode_default", "zcode_lane")
-	unlisted := kimiPrimary
-	unlisted.family = "other"
-
-	for name, candidates := range map[string][]RuntimeDefinitionCandidate{
-		"duplicate instance":        {kimiPrimary, kimiDuplicate},
-		"out of order same family":  {kimiSecondary, kimiPrimary},
-		"out of order cross family": {zcode, kimiPrimary},
-		"unlisted family":           {unlisted},
+		{"empty", "", "", ""},
+		{"arbitrary", "future-build+unknown", "not-a-sha", "vendor profile 2030.4"},
+		{"different hash", "0.23.6", "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "kimi.default"},
 	} {
+		for _, family := range []string{FamilyKimi, FamilyZcode, FamilyAgy} {
+			t.Run(family+"/"+provenance.name, func(t *testing.T) {
+				profile := testProfile(t, family, family+"_default", family+"_lane", provenance.version, provenance.hash)
+				profile.profileID = provenance.profileID
+				registry, err := NewRegistry(&countingRunner{}, profile)
+				if err != nil || registry == nil {
+					t.Fatalf("registry=%v err=%v", registry, err)
+				}
+			})
+		}
+	}
+}
+func TestNewRuntimeDefinitionWithTransportValidatesRuntimeShape(t *testing.T) {
+	baseArgv := []string{"/private/bin/kimi"}
+	argvTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 4, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptFileTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 4, "@prompt/request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, transport := range []RuntimeTransport{argvTransport, stdinTransport, promptFileTransport} {
+		profile, err := newTestProfileWithTransport(t, FamilyKimi, "kimi_default", "kimi_lane", baseArgv, transport)
+		if err != nil {
+			t.Fatalf("transport %q: %v", transport.Channel(), err)
+		}
+		if profile.Transport() != transport {
+			t.Fatalf("transport = %#v, want %#v", profile.Transport(), transport)
+		}
+	}
+	for _, transport := range []RuntimeTransport{
+		{channel: ports.ProviderPacketChannelArgvLiteral, argvIndex: -1},
+		{channel: ports.ProviderPacketChannelStdin, argvIndex: 0},
+		{channel: ports.ProviderPacketChannelPromptFile, argvIndex: 2, reference: "@/absolute"},
+		{channel: ports.ProviderPacketChannelArgvLiteral, argvIndex: 1},
+	} {
+		if _, err := newTestProfileWithTransport(t, FamilyKimi, "kimi_default", "kimi_lane", baseArgv, transport); err == nil {
+			t.Fatalf("transport %#v was accepted", transport)
+		}
+	}
+}
+
+func TestNewRegistryRejectsMalformedProfilesAndUnlistedFamilies(t *testing.T) {
+	profile := testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", "")
+	tests := map[string]func(*RuntimeDefinition){
+		"unlisted family": func(p *RuntimeDefinition) { p.family = "other" },
+		"relative executable": func(p *RuntimeDefinition) {
+			p.executable, p.baseArgv[0] = "kimi", "kimi"
+		},
+		"unclean executable": func(p *RuntimeDefinition) {
+			p.executable, p.baseArgv[0] = "/private/bin/../kimi", "/private/bin/../kimi"
+		},
+		"invalid argv": func(p *RuntimeDefinition) { p.baseArgv = []string{p.executable, ""} },
+	}
+	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			authorizer := &recordingAuthorizer{}
-			registry, err := NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, candidates...)
-			if err == nil || registry != nil {
+			invalid := cloneRuntimeDefinition(profile)
+			mutate(&invalid)
+			if registry, err := NewRegistry(&countingRunner{}, invalid); err == nil || registry != nil {
 				t.Fatalf("registry=%v err=%v", registry, err)
 			}
-			if authorizer.calls != 0 {
-				t.Fatalf("authorizer called %d times", authorizer.calls)
-			}
 		})
 	}
 }
 
-func TestNewAuthorizedRegistryAcceptsUpToThirtyTwoCandidatesAndRejectsMore(t *testing.T) {
-	candidates := make([]RuntimeDefinitionCandidate, 0, 33)
-	for index := 0; index < 32; index++ {
-		instance := fmt.Sprintf("kimi_%02d", index)
-		candidates = append(candidates, testCandidate(t, FamilyKimi, instance, instance+"_lane"))
-	}
-
-	authorizer := &recordingAuthorizer{expected: candidates}
-	registry, err := NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, candidates...)
-	if err != nil || registry == nil {
-		t.Fatalf("registry=%v err=%v", registry, err)
-	}
-	if authorizer.calls != len(candidates) {
-		t.Fatalf("authorizer called %d times", authorizer.calls)
-	}
-
-	overMax := append(candidates, testCandidate(t, FamilyKimi, "kimi_32", "kimi_32_lane"))
-	authorizer = &recordingAuthorizer{}
-	registry, err = NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, overMax...)
-	if err == nil || registry != nil {
-		t.Fatalf("registry=%v err=%v", registry, err)
-	}
-	if authorizer.calls != 0 {
-		t.Fatalf("authorizer called %d times", authorizer.calls)
-	}
-}
-
-func TestNewAuthorizedRegistryPreservesExactCandidateAndDefensiveCopies(t *testing.T) {
+func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
 	argv := []string{"/private/bin/kimi", "--safe"}
 	environment := []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home")}
 	key, err := ports.ParseConcurrencyKey("kimi_lane")
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := NewRuntimeDefinitionCandidate(FamilyKimi, "kimi_default", "1.0.0", argv[0], testSHA256, key, "kimi_default", argv, environment, "/private/work", time.Second, 4096, 4096)
+	profile, err := NewRuntimeDefinition(FamilyKimi, "kimi_default", "", argv[0], "", key, "kimi_default", argv, environment, "/private/work", time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
 	argv[1] = "--mutated"
 	environment[0] = mustEnvironment(t, "HOME", "/mutated")
-	authorizer := &recordingAuthorizer{expected: []RuntimeDefinitionCandidate{candidate}}
-	registry, err := NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, candidate)
+	registry, err := NewRegistry(&countingRunner{}, profile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotArgv := authorizer.seen[0].BaseArgv()
-	gotArgv[1] = "--authority-mutation"
 	if got := registry.definitions["kimi_default"].baseArgv; !equalStrings(got, []string{"/private/bin/kimi", "--safe"}) {
 		t.Fatalf("runnable argv = %q", got)
 	}
@@ -290,67 +185,30 @@ func TestNewAuthorizedRegistryPreservesExactCandidateAndDefensiveCopies(t *testi
 		t.Fatalf("runnable environment value = %q", got)
 	}
 }
-func TestNewAuthorizedRegistryRejectsEveryChangedCandidateField(t *testing.T) {
-	baseline := testCandidate(t, FamilyKimi, "kimi_default", "kimi_lane")
-	otherKey, err := ports.ParseConcurrencyKey("other_lane")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := map[string]func(*RuntimeDefinitionCandidate){
-		"family":   func(c *RuntimeDefinitionCandidate) { c.family = FamilyZcode },
-		"instance": func(c *RuntimeDefinitionCandidate) { c.instance = "kimi_other" },
-		"version":  func(c *RuntimeDefinitionCandidate) { c.version = "2.0.0" },
-		"executable": func(c *RuntimeDefinitionCandidate) {
-			c.executable, c.baseArgv[0] = "/private/bin/kimi-other", "/private/bin/kimi-other"
-		},
-		"executable SHA": func(c *RuntimeDefinitionCandidate) {
-			c.executableSHA256 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-		},
-		"concurrency key": func(c *RuntimeDefinitionCandidate) { c.concurrencyKey = otherKey },
-		"profile ID":      func(c *RuntimeDefinitionCandidate) { c.profileID = "kimi_other" },
-		"base argv":       func(c *RuntimeDefinitionCandidate) { c.baseArgv = append(c.baseArgv, "--changed") },
-		"environment": func(c *RuntimeDefinitionCandidate) {
-			c.environment = []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/other")}
-		},
-		"working directory": func(c *RuntimeDefinitionCandidate) {
-			c.workingDirectory = "/private/other"
-		},
-		"timeout":      func(c *RuntimeDefinitionCandidate) { c.timeout = 2 * time.Second },
-		"stdout limit": func(c *RuntimeDefinitionCandidate) { c.maxStdoutBytes = 8192 },
-		"stderr limit": func(c *RuntimeDefinitionCandidate) { c.maxStderrBytes = 8192 },
-	}
-	for name, change := range tests {
+
+func TestNewRegistryRejectsDuplicateInstancesAndNoncanonicalOrder(t *testing.T) {
+	kimiPrimary := testProfile(t, FamilyKimi, "kimi_primary", "kimi_primary_lane", "", "")
+	kimiSecondary := testProfile(t, FamilyKimi, "kimi_secondary", "kimi_secondary_lane", "", "")
+	kimiDuplicate := testProfile(t, FamilyKimi, "kimi_primary", "kimi_duplicate_lane", "", "")
+	zcode := testProfile(t, FamilyZcode, "zcode_default", "zcode_lane", "", "")
+	for name, profiles := range map[string][]RuntimeDefinition{
+		"duplicate instance":        {kimiPrimary, kimiDuplicate},
+		"out of order same family":  {kimiSecondary, kimiPrimary},
+		"out of order cross family": {zcode, kimiPrimary},
+	} {
 		t.Run(name, func(t *testing.T) {
-			candidate := cloneCandidate(baseline)
-			change(&candidate)
-			authorizer := &recordingAuthorizer{expected: []RuntimeDefinitionCandidate{baseline}}
-			registry, err := NewAuthorizedRegistry(context.Background(), &countingRunner{}, authorizer, candidate)
-			if err == nil || registry != nil || authorizer.calls != 1 {
-				t.Fatalf("registry=%v err=%v authorizer calls=%d", registry, err, authorizer.calls)
+			registry, err := NewRegistry(&countingRunner{}, profiles...)
+			if err == nil || registry != nil {
+				t.Fatalf("registry=%v err=%v", registry, err)
 			}
 		})
-	}
-}
-
-func TestNewAuthorizedRegistryReturnsNoPartialRegistry(t *testing.T) {
-	kimi := testCandidate(t, FamilyKimi, "kimi_default", "kimi_lane")
-	zcode := testCandidate(t, FamilyZcode, "zcode_default", "zcode_lane")
-	runner := &countingRunner{}
-	authorizer := &recordingAuthorizer{
-		expected: []RuntimeDefinitionCandidate{kimi, zcode},
-		err:      errors.New("second candidate denied"),
-		failAt:   1,
-	}
-	registry, err := NewAuthorizedRegistry(context.Background(), runner, authorizer, kimi, zcode)
-	if err == nil || registry != nil || authorizer.calls != 2 || runner.calls != 0 {
-		t.Fatalf("registry=%v err=%v authorizer calls=%d runner calls=%d", registry, err, authorizer.calls, runner.calls)
 	}
 }
 func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance(t *testing.T) {
 	runner := newBarrierRunner()
 	first := testDefinition(t, FamilyKimi, "kimi_primary", "kimi_primary_lane")
 	second := testDefinition(t, FamilyKimi, "kimi_secondary", "kimi_secondary_lane")
-	registry, err := newRegistry(runner, first, second)
+	registry, err := newRegistry(context.Background(), runner, first, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,14 +229,14 @@ func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance
 	if observeErr := <-observed; observeErr != nil {
 		t.Fatalf("secondary Kimi dispatch failed: %v", observeErr)
 	}
-	if _, err := newRegistry(runner, first, first); err == nil {
+	if _, err := newRegistry(context.Background(), runner, first, first); err == nil {
 		t.Fatal("duplicate provider instance accepted")
 	}
 }
 func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 	runner := newBarrierRunner()
 	kimi := testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane")
-	registry, err := newRegistry(runner, kimi)
+	registry, err := newRegistry(context.Background(), runner, kimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +255,7 @@ func TestRegistrySerializesEqualKeysAndAllowsDistinctKeys(t *testing.T) {
 	kimi := testDefinition(t, FamilyKimi, "kimi_default", "shared_lane")
 	zcode := testDefinition(t, FamilyZcode, "zcode_default", "shared_lane")
 	agy := testDefinition(t, FamilyAgy, "agy_default", "other_lane")
-	registry, err := newRegistry(runner, kimi, zcode, agy)
+	registry, err := newRegistry(context.Background(), runner, kimi, zcode, agy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +304,7 @@ func TestRegistrySerializesEqualKeysAndAllowsDistinctKeys(t *testing.T) {
 }
 func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(runner, testDefinition(t, FamilyKimi, "kimi_default", "shared_lane"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "shared_lane"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +351,7 @@ func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 func TestRegistryObserveFailsClosedOnRunnerErrorWithObservation(t *testing.T) {
 	process := testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0)
 	runner := &observationRunner{observation: process, err: errors.New("runner failed")}
-	registry, err := newRegistry(runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +376,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			stdout:       []byte("{\"role\":\"system\",\"content\":\"ignored\"}\n{\"role\":\"assistant\",\"content\":\"answer\"}\n"),
 			wantResult:   []byte("answer"),
 			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/kimi", "--prompt", "review bytes", "--output-format", "stream-json"},
+			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"},
 		},
 		{
 			family:     FamilyZcode,
@@ -530,7 +388,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--print", "review bytes", "--sandbox", "--mode", "plan", "--print-timeout", "2m"},
+			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--print-timeout", "2m", "--print", "review bytes"},
 		},
 	}
 	for _, test := range tests {
@@ -539,7 +397,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			process := testProcessObservation(t, test.stdout, []byte("provider diagnostics"), ports.ProcessTerminationExited, 0)
 			runner := &observationRunner{observation: process}
 			definition := testDefinition(t, test.family, test.family+"_default", test.family+"_lane")
-			registry, err := newRegistry(runner, definition)
+			registry, err := newRegistry(context.Background(), runner, definition)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -562,14 +420,28 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 				t.Fatalf("result isolation = %t", test.wantIsolated)
 			}
 			request := runner.request
-			if !equalStrings(request.Argv(), test.wantArgv) ||
-				!bytes.Equal(request.Stdin(), invocation.Stdin()) ||
+			binding, ok := request.ProviderPacketBinding()
+			if !ok ||
+				binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+				binding.PacketIdentity() != invocation.InputIdentity() ||
+				binding.ArgvIndex() < 0 ||
+				!equalStrings(request.Argv(), test.wantArgv) ||
+				len(request.Stdin()) != 0 ||
+				packetOccurrences(request.Argv(), string(invocation.PacketBytes())) != 1 ||
 				request.Timeout() != definition.timeout ||
 				request.MaxStdoutBytes() != definition.maxStdoutBytes ||
 				request.MaxStderrBytes() != definition.maxStderrBytes ||
 				request.ConcurrencyKey() != definition.concurrencyKey {
-				t.Fatalf("request = argv %q stdin %q timeout %s stdout cap %d stderr cap %d lane %q",
-					request.Argv(), request.Stdin(), request.Timeout(), request.MaxStdoutBytes(), request.MaxStderrBytes(), request.ConcurrencyKey())
+				t.Fatalf("request = argv %q stdin %q binding %#v timeout %s stdout cap %d stderr cap %d lane %q",
+					request.Argv(), request.Stdin(), binding, request.Timeout(), request.MaxStdoutBytes(), request.MaxStderrBytes(), request.ConcurrencyKey())
+			}
+			transport, ok := process.ProviderPacketTransportReceipt()
+			if !ok || transport.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+				transport.PacketIdentity() != invocation.InputIdentity() {
+				t.Fatalf("transport receipt = %#v, present=%t", transport, ok)
+			}
+			if result.InputIdentity() != invocation.InputIdentity() {
+				t.Fatalf("result input identity = %#v, want %#v", result.InputIdentity(), invocation.InputIdentity())
 			}
 		})
 	}
@@ -590,7 +462,7 @@ func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T)
 			invocation := testInvocation(t, instance)
 			process := testProcessObservation(t, test.stdout, []byte("provider diagnostics"), ports.ProcessTerminationExited, 0)
 			runner := &observationRunner{observation: process}
-			registry, err := newRegistry(runner, testDefinition(t, test.family, instance, test.family+"_lane"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, test.family, instance, test.family+"_lane"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -642,7 +514,7 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 			runner := &observationRunner{
 				observation: testProcessObservation(t, []byte("raw stdout"), []byte("raw stderr"), test.termination, test.exitCode),
 			}
-			registry, err := newRegistry(runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -672,29 +544,37 @@ func (runner *observationRunner) Run(_ context.Context, request ports.ProcessReq
 
 func testProcessObservation(t *testing.T, stdout, stderr []byte, termination ports.ProcessTermination, exitCode int) ports.ProcessObservation {
 	t.Helper()
-	stdin := []byte("review bytes")
-	written := stdin
-	complete := true
-	switch termination {
-	case ports.ProcessTerminationStartFailed,
-		ports.ProcessTerminationStartUnavailable,
-		ports.ProcessTerminationStartConfiguration,
-		ports.ProcessTerminationStartSecurity,
-		ports.ProcessTerminationLockFailed,
-		ports.ProcessTerminationLockUnavailable,
-		ports.ProcessTerminationLockConfiguration,
-		ports.ProcessTerminationLockSecurity:
-		written = nil
-		complete = false
+	packet := []byte("review bytes")
+	receipt, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	receipt, err := ports.NewStdinWriteReceipt(int64(len(stdin)), int64(len(written)), testStdinDigest(written), complete)
+	packetIdentity, err := ports.NewProviderPacketIdentity(len(packet), testStdinDigest(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelArgvLiteral, packetIdentity, "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	startedAt := time.Unix(0, 0).UTC()
 	endedAt := time.Unix(1, 0).UTC()
+	switch termination {
+	case ports.ProcessTerminationStartFailed, ports.ProcessTerminationStartUnavailable,
+		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity,
+		ports.ProcessTerminationLockFailed, ports.ProcessTerminationLockUnavailable,
+		ports.ProcessTerminationLockConfiguration, ports.ProcessTerminationLockSecurity:
+		observation, err := ports.NewProcessObservation(stdout, stderr, nil, termination, receipt, startedAt, endedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observation
+	}
 	if termination == ports.ProcessTerminationExited {
-		observation, err := ports.NewProcessObservation(stdout, stderr, &exitCode, termination, receipt, startedAt, endedAt)
+		observation, err := ports.NewProviderProcessObservation(stdout, stderr, &exitCode, termination, receipt, transport, startedAt, endedAt)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -705,13 +585,13 @@ func testProcessObservation(t *testing.T, stdout, stderr []byte, termination por
 		if err != nil {
 			t.Fatal(err)
 		}
-		observation, err := ports.NewProcessObservation(stdout, stderr, nil, termination, receipt, startedAt, endedAt, signal)
+		observation, err := ports.NewProviderProcessObservation(stdout, stderr, nil, termination, receipt, transport, startedAt, endedAt, signal)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return observation
 	}
-	observation, err := ports.NewProcessObservation(stdout, stderr, nil, termination, receipt, startedAt, endedAt)
+	observation, err := ports.NewProviderProcessObservation(stdout, stderr, nil, termination, receipt, transport, startedAt, endedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,8 +609,300 @@ func equalStrings(got, want []string) bool {
 	}
 	return true
 }
+func packetOccurrences(argv []string, packet string) int {
+	occurrences := 0
+	for _, argument := range argv {
+		if argument == packet {
+			occurrences++
+		}
+	}
+	return occurrences
+}
 
-const testSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+func TestRegistryObserveWorkspaceUsesGuardedCWDLifecycleAndBoundRequest(t *testing.T) {
+	root, identity := testWorkspaceRoot(t)
+	events := make([]string, 0, 5)
+	guard := &workspaceGuardFake{root: root, identity: identity, events: &events}
+	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
+	runner := &workspaceRunnerFake{
+		events:      &events,
+		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
+	}
+	profile := testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", "")
+	registry, err := NewRegistry(runner, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registry.Observe(context.Background(), testWorkspaceInvocation(t, "kimi_default", authority)); err != nil {
+		t.Fatal(err)
+	}
+	if runner.request.WorkingDirectory() != root.Path() {
+		t.Fatalf("working directory = %q, want guard root %q", runner.request.WorkingDirectory(), root.Path())
+	}
+	if _, boundRoot, ok := runner.request.BoundLaunchDirectory(); !ok || boundRoot != root {
+		t.Fatalf("bound request = (%v, %v)", ok, boundRoot)
+	}
+	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
+		t.Fatalf("lifecycle = %q, want %q", got, want)
+	}
+}
+
+func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *testing.T) {
+	root, identity := testWorkspaceRoot(t)
+	events := make([]string, 0, 5)
+	guard := &workspaceGuardFake{root: root, identity: identity, events: &events}
+	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
+	runner := &workspaceRunnerFake{
+		events:      &events,
+		observation: testProcessObservation(t, []byte("{\"findings\":[]}"), nil, ports.ProcessTerminationExited, 0),
+	}
+	profile := testProfile(t, FamilyAgy, "agy_production", "agy_lane", "", "")
+	registry, err := NewRegistry(runner, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invocation := testWorkspaceInvocation(t, "agy_production", authority)
+	if _, err := registry.Observe(context.Background(), invocation); err != nil {
+		t.Fatal(err)
+	}
+
+	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--print-timeout", "2m", "--print", string(invocation.PacketBytes())}
+	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
+		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
+	}
+	binding, ok := runner.request.ProviderPacketBinding()
+	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+		binding.ArgvIndex() != len(profile.baseArgv)+10 ||
+		runner.request.Argv()[binding.ArgvIndex()] != string(invocation.PacketBytes()) {
+		t.Fatalf("packet binding = %#v, argv=%q", binding, runner.request.Argv())
+	}
+	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
+		t.Fatalf("lifecycle = %q, want %q", got, want)
+	}
+}
+
+func TestProviderProcessRequestRejectsMalformedWorkingDirectory(t *testing.T) {
+	definition := testDefinition(t, FamilyAgy, "agy_default", "agy_lane")
+	packet := testInvocation(t, "agy_default").Packet()
+	for _, workingDirectory := range []string{"relative", "/private/work/../escape", "/private/work\x00"} {
+		t.Run(workingDirectory, func(t *testing.T) {
+			if _, _, err := providerProcessRequest(definition, packet, workingDirectory); err == nil {
+				t.Fatal("malformed working directory accepted")
+			}
+		})
+	}
+}
+
+func TestRegistryObserveWorkspaceDriftOverridesProviderSuccess(t *testing.T) {
+	root, identity := testWorkspaceRoot(t)
+	events := make([]string, 0, 5)
+	guard := &workspaceGuardFake{root: root, identity: identity, events: &events, postErr: errors.New("changed")}
+	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
+	runner := &workspaceRunnerFake{
+		events:      &events,
+		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, err := NewRegistry(runner, testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = registry.Observe(context.Background(), testWorkspaceInvocation(t, "kimi_default", authority))
+	if !errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
+		t.Fatalf("error = %v, want workspace drift", err)
+	}
+	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
+		t.Fatalf("lifecycle = %q, want %q", got, want)
+	}
+}
+
+func TestRegistryObserveStrictDefinitionRejectsMissingWorkspaceAuthority(t *testing.T) {
+	key, err := ports.ParseConcurrencyKey("kimi_lane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := NewProductionRuntimeDefinition(
+		FamilyKimi, "kimi_default", "", "/private/bin/kimi", "", key, "kimi_default",
+		[]string{"/private/bin/kimi"}, nil, "/private/work", time.Second, 4096, 4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &workspaceRunnerFake{}
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewRegistryWithNamespaceFactory(runner, factory, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
+		t.Fatal("strict definition accepted authority-free invocation")
+	}
+	if runner.calls != 0 {
+		t.Fatalf("runner calls = %d, want 0", runner.calls)
+	}
+}
+
+func TestRegistryObserveLegacyDefinitionSupportsAuthorityFreeInvocation(t *testing.T) {
+	runner := &workspaceRunnerFake{
+		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, err := NewRegistry(runner, testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err != nil {
+		t.Fatal(err)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.calls)
+	}
+}
+func TestRegistryNamespaceBlocksHostHomeDriftAndTerminalReuse(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", "")
+	profile.environment = []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/host/home/must-not-leak")}
+	runner := &workspaceRunnerFake{
+		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, err := NewRegistryWithNamespaceFactory(runner, factory, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err != nil {
+		t.Fatal(err)
+	}
+	for _, variable := range runner.request.Environment() {
+		if variable.Name() == "HOME" && variable.Value() == "/host/home/must-not-leak" {
+			t.Fatal("runner inherited host HOME")
+		}
+	}
+	lease := registry.namespaces["kimi_default"]
+	cache := namespaceEnvironmentMap(t, lease.Environment())["XDG_CACHE_HOME"]
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
+		t.Fatal("namespace drift reached runner")
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.calls)
+	}
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
+		t.Fatal("terminally drained registry reached runner")
+	}
+}
+
+type workspaceAuthorityFake struct {
+	identity ports.WorkspaceSnapshotIdentity
+	guard    ports.WorkspaceExecutionGuard
+	err      error
+	events   *[]string
+}
+
+func (authority *workspaceAuthorityFake) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
+	return authority.identity
+}
+
+func (authority *workspaceAuthorityFake) RevalidateForExecution() (ports.WorkspaceExecutionGuard, error) {
+	*authority.events = append(*authority.events, "pre")
+	return authority.guard, authority.err
+}
+
+type workspaceGuardFake struct {
+	root     ports.ValidatedWorkspaceRoot
+	identity ports.WorkspaceSnapshotIdentity
+	events   *[]string
+	postErr  error
+	closeErr error
+}
+
+func (guard *workspaceGuardFake) WorkspaceRoot() ports.ValidatedWorkspaceRoot { return guard.root }
+func (guard *workspaceGuardFake) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
+	return guard.identity
+}
+func (guard *workspaceGuardFake) DuplicateLaunchDirectory() (*os.File, error) {
+	*guard.events = append(*guard.events, "duplicate")
+	return os.Open(guard.root.Path())
+}
+func (guard *workspaceGuardFake) RevalidateAfterExecution() error {
+	*guard.events = append(*guard.events, "post")
+	return guard.postErr
+}
+func (guard *workspaceGuardFake) Close() error {
+	*guard.events = append(*guard.events, "close")
+	return guard.closeErr
+}
+
+type workspaceRunnerFake struct {
+	request     ports.ProcessRequest
+	observation ports.ProcessObservation
+	err         error
+	events      *[]string
+	calls       int
+}
+
+func (runner *workspaceRunnerFake) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
+	runner.calls++
+	runner.request = request
+	if runner.events != nil {
+		*runner.events = append(*runner.events, "run")
+	}
+	if directory, _, ok := request.BoundLaunchDirectory(); ok {
+		_ = directory.Close()
+	}
+	return runner.observation, runner.err
+}
+
+func testWorkspaceRoot(t *testing.T) (ports.ValidatedWorkspaceRoot, ports.WorkspaceSnapshotIdentity) {
+	t.Helper()
+	path := t.TempDir()
+	identity, err := ports.NewWorkspaceSnapshotIdentity(
+		path, "snapshot-0123456789abcdef0123456789abcdef", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "policy",
+		1, 2, 3, 4,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewValidatedWorkspaceRoot(path, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, identity
+}
+
+func testWorkspaceInvocation(t *testing.T, instance string, workspace ports.WorkspaceExecutionAuthority) ports.ProviderInvocation {
+	t.Helper()
+	legacy := testInvocation(t, instance)
+	invocation, err := ports.NewProviderInvocationWithPacketInWorkspace(
+		legacy.Role(), instance, legacy.AttemptID(), legacy.Purpose(), legacy.Packet(),
+		legacy.SourceInvocationID(), legacy.ExecutionInvocationID(), workspace,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return invocation
+}
+func cloneRuntimeDefinition(profile RuntimeDefinition) RuntimeDefinition {
+	profile.baseArgv = append([]string(nil), profile.baseArgv...)
+	profile.environment = append([]ports.EnvironmentVariable(nil), profile.environment...)
+	return profile
+}
 
 type barrierRunner struct {
 	started chan struct{}
@@ -757,13 +929,23 @@ func (runner *barrierRunner) Run(_ context.Context, request ports.ProcessRequest
 	}()
 	runner.started <- struct{}{}
 	<-runner.release
-	stdin := request.Stdin()
-	receipt, err := ports.NewStdinWriteReceipt(int64(len(stdin)), int64(len(stdin)), testStdinDigest(stdin), true)
+	receipt, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	packetIdentity, err := ports.NewProviderPacketIdentity(len([]byte("review bytes")), testStdinDigest([]byte("review bytes")))
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelArgvLiteral, packetIdentity, "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+	)
 	if err != nil {
 		return ports.ProcessObservation{}, err
 	}
 	exitCode := 0
-	return ports.NewProcessObservation([]byte("{}"), nil, &exitCode, ports.ProcessTerminationExited, receipt, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
+	return ports.NewProviderProcessObservation([]byte("{}"), nil, &exitCode, ports.ProcessTerminationExited, receipt, transport, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
 }
 
 func (runner *barrierRunner) activeCount() int {
@@ -781,44 +963,6 @@ func (runner *countingRunner) Run(_ context.Context, _ ports.ProcessRequest) (po
 	return ports.ProcessObservation{}, errors.New("unexpected process run")
 }
 
-type recordingAuthorizer struct {
-	expected []RuntimeDefinitionCandidate
-	seen     []RuntimeDefinitionCandidate
-	calls    int
-	err      error
-	failAt   int
-}
-
-func (authorizer *recordingAuthorizer) Authorize(_ context.Context, candidate RuntimeDefinitionCandidate) error {
-	authorizer.calls++
-	authorizer.seen = append(authorizer.seen, candidate)
-	index := authorizer.calls - 1
-	if len(authorizer.expected) > index && !reflect.DeepEqual(candidate, authorizer.expected[index]) {
-		return errors.New("candidate does not match authorization subject")
-	}
-	if authorizer.err != nil && index == authorizer.failAt {
-		return authorizer.err
-	}
-	return nil
-}
-
-func testCandidate(t *testing.T, family, instance, lane string) RuntimeDefinitionCandidate {
-	t.Helper()
-	key, err := ports.ParseConcurrencyKey(lane)
-	if err != nil {
-		t.Fatal(err)
-	}
-	executable := "/private/bin/" + family
-	candidate, err := NewRuntimeDefinitionCandidate(
-		family, instance, "1.0.0", executable, testSHA256, key, instance,
-		[]string{executable}, nil, "/private/work", time.Second, 4096, 4096,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return candidate
-}
-
 func mustEnvironment(t *testing.T, name, value string) ports.EnvironmentVariable {
 	t.Helper()
 	variable, err := ports.NewEnvironmentVariable(name, value)
@@ -828,31 +972,39 @@ func mustEnvironment(t *testing.T, name, value string) ports.EnvironmentVariable
 	return variable
 }
 
-func testDefinition(t *testing.T, family, instance, lane string) definition {
+func testProfile(t *testing.T, family, instance, lane, version, executableSHA256 string) RuntimeDefinition {
 	t.Helper()
 	key, err := ports.ParseConcurrencyKey(lane)
 	if err != nil {
 		t.Fatal(err)
 	}
 	executable := "/private/bin/" + family
-	argv := []string{executable}
-	evidence, err := newTupleEvidence(family, instance, "1.0.0", testSHA256, key, instance, EvidencePass, argv)
+	profile, err := NewRuntimeDefinition(
+		family, instance, version, executable, executableSHA256, key, instance,
+		[]string{executable}, nil, "/private/work", time.Second, 4096, 4096,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := newDefinition(family, instance, "1.0.0", executable, testSHA256, key, instance, evidence, argv, nil, "/private/work", time.Second, 4096, 4096)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return definition
+	return profile
 }
-func mustTupleEvidence(t *testing.T, family, instance, version, executableSHA256 string, concurrencyKey ports.ConcurrencyKey, profileID string, argv []string) tupleEvidence {
+func newTestProfileWithTransport(
+	t *testing.T, family, instance, lane string, baseArgv []string, transport RuntimeTransport,
+) (RuntimeDefinition, error) {
 	t.Helper()
-	evidence, err := newTupleEvidence(family, instance, version, executableSHA256, concurrencyKey, profileID, EvidencePass, argv)
+	key, err := ports.ParseConcurrencyKey(lane)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return evidence
+	return NewRuntimeDefinitionWithTransport(
+		family, instance, "", "/private/bin/"+family, "", key, instance,
+		baseArgv, transport, nil, "/private/work", time.Second, 4096, 4096,
+	)
+}
+
+func testDefinition(t *testing.T, family, instance, lane string) definition {
+	t.Helper()
+	return definition(testProfile(t, family, instance, lane, "", ""))
 }
 
 func testInvocation(t *testing.T, instance string) ports.ProviderInvocation {
@@ -884,4 +1036,342 @@ func testStdinDigest(stdin []byte) string {
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(stdin)
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+type scriptedNamespaceFactory struct {
+	leases  map[string]*scriptedNamespace
+	capture func(context.Context, string)
+}
+
+func (factory scriptedNamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance string) (ports.ProviderNamespaceLease, error) {
+	if factory.capture != nil {
+		factory.capture(ctx, instance)
+	}
+	return ports.AcquireProviderNamespaceLease(ctx, instance, func(_ context.Context, _ string, binding ports.ProviderNamespaceTerminalBinding) (ports.ProviderNamespaceLease, error) {
+		lease := factory.leases[instance]
+		if lease == nil {
+			return nil, errors.New("missing scripted namespace")
+		}
+		drain, err := binding.Bind(lease.generation, lease.drainTerminalEffects)
+		if err != nil {
+			return nil, err
+		}
+		lease.terminalDrain = drain
+		return lease, nil
+	})
+}
+
+type scriptedNamespace struct {
+	instance, generation        string
+	runtimeSafetyPolicyIdentity string
+	mu                          sync.Mutex
+	terminalDrain               ports.ProviderNamespaceTerminalDrain
+	validateErr                 error
+	drainCalls                  int
+	failCalls                   int
+	drainContext                func(context.Context)
+}
+
+func (lease *scriptedNamespace) ProviderInstance() string { return lease.instance }
+func (lease *scriptedNamespace) Generation() string       { return lease.generation }
+func (lease *scriptedNamespace) Environment() []ports.EnvironmentVariable {
+	return nil
+}
+func (lease *scriptedNamespace) RuntimeSafetyPolicyIdentity() string {
+	return lease.runtimeSafetyPolicyIdentity
+}
+func (*scriptedNamespace) ProjectCredential(context.Context, ports.CredentialProjectionRequest) (ports.CredentialProjectionReceipt, error) {
+	return ports.CredentialProjectionReceipt{}, errors.New("unexpected credential projection")
+}
+func (lease *scriptedNamespace) ValidateForSpawn() error { return lease.validateErr }
+func (lease *scriptedNamespace) DrainTerminal(ctx context.Context) (ports.ProviderNamespaceTerminalReceipt, error) {
+	if lease == nil || lease.terminalDrain == nil {
+		return ports.ProviderNamespaceTerminalReceipt{}, errors.New("missing scripted terminal drain")
+	}
+	return lease.terminalDrain(ctx)
+}
+
+func (lease *scriptedNamespace) drainTerminalEffects(ctx context.Context) error {
+	if lease.drainContext != nil {
+		lease.drainContext(ctx)
+	}
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	lease.drainCalls++
+	if ctx.Err() != nil || lease.failCalls > 0 {
+		if lease.failCalls > 0 {
+			lease.failCalls--
+		}
+		return context.Canceled
+	}
+	return nil
+}
+
+type testSpawnVerifier struct{}
+
+func (testSpawnVerifier) VerifyProviderSpawn(context.Context, RuntimeDefinition) error { return nil }
+
+func testProductionSafetyProfile(t *testing.T, family, policyIdentity string) RuntimeDefinition {
+	t.Helper()
+	key, err := ports.ParseConcurrencyKey("production_lane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := defaultRuntimeTransport(family, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := "/private/bin/" + family
+	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
+		family, family+"_production", "", executable, "executable-sha256", executable, "executable-sha256",
+		key, family+"_production", "generation-1", policyIdentity, []string{executable}, transport, nil,
+		"/private/work", time.Second, 4096, 4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profile
+}
+
+func TestNewProductionRegistryBindsAcquiredRuntimeSafetyPolicyIdentity(t *testing.T) {
+	profile := testProductionSafetyProfile(t, FamilyKimi, "policy-expected")
+
+	for _, test := range []struct {
+		name   string
+		policy string
+		wantOK bool
+	}{
+		{name: "missing actual identity"},
+		{name: "mismatched actual identity", policy: "policy-other"},
+		{name: "matching actual identity", policy: "policy-expected", wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lease := &scriptedNamespace{
+				instance: profile.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: test.policy,
+			}
+			registry, err := NewProductionRegistry(&countingRunner{}, scriptedNamespaceFactory{
+				leases: map[string]*scriptedNamespace{profile.Instance(): lease},
+			}, testSpawnVerifier{}, profile)
+			if test.wantOK {
+				if err != nil || registry == nil {
+					t.Fatalf("registry=%v err=%v", registry, err)
+				}
+				namespace, ok := registry.QualificationNamespace(profile.Instance())
+				if !ok || namespace.RuntimeSafetyPolicyIdentity() != test.policy {
+					t.Fatalf("qualification namespace policy = %q, ok=%t", namespace.RuntimeSafetyPolicyIdentity(), ok)
+				}
+				if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
+					t.Fatal("qualification namespace exposed working-directory authority")
+				}
+				return
+			}
+			if err == nil || registry != nil {
+				t.Fatalf("registry=%v err=%v", registry, err)
+			}
+			if lease.drainCalls != 1 {
+				t.Fatalf("drain calls = %d, want 1", lease.drainCalls)
+			}
+		})
+	}
+}
+func TestNewProductionRegistryConstructionUsesCallerContextForAcquireAndCleanup(t *testing.T) {
+	profile := testProductionSafetyProfile(t, FamilyKimi, "policy-expected")
+	type contextKey struct{}
+	key := contextKey{}
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.WithValue(context.Background(), key, "caller-value"), deadline)
+	defer cancel()
+
+	var acquisitionContext, cleanupContext context.Context
+	lease := &scriptedNamespace{
+		instance: profile.Instance(), generation: "generation-1", validateErr: errors.New("invalid namespace"),
+		drainContext: func(ctx context.Context) { cleanupContext = ctx },
+	}
+	_, err := NewProductionRegistryWithContext(ctx, &countingRunner{}, scriptedNamespaceFactory{
+		leases:  map[string]*scriptedNamespace{profile.Instance(): lease},
+		capture: func(ctx context.Context, _ string) { acquisitionContext = ctx },
+	}, testSpawnVerifier{}, profile)
+	if err == nil {
+		t.Fatal("malformed namespace construction succeeded")
+	}
+	for name, captured := range map[string]context.Context{"acquisition": acquisitionContext, "cleanup": cleanupContext} {
+		if captured == nil || captured.Value(key) != "caller-value" {
+			t.Fatalf("%s context value = %#v", name, captured)
+		}
+		gotDeadline, ok := captured.Deadline()
+		if !ok || !gotDeadline.Equal(deadline) {
+			t.Fatalf("%s deadline = %v, present=%t; want %v", name, gotDeadline, ok, deadline)
+		}
+	}
+}
+
+func TestNewProductionRegistryPolicyCleanupFailureRetainsPartialRegistry(t *testing.T) {
+	first := testProductionSafetyProfile(t, FamilyKimi, "policy-kimi")
+	second := testProductionSafetyProfile(t, FamilyKimi, "policy-zcode")
+	second.instance = "kimi_secondary"
+	firstLease := &scriptedNamespace{
+		instance: first.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "policy-kimi",
+	}
+	secondLease := &scriptedNamespace{
+		instance: second.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "wrong-policy", failCalls: 2,
+	}
+	registry, err := NewProductionRegistryWithContext(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{first.Instance(): firstLease, second.Instance(): secondLease},
+	}, testSpawnVerifier{}, first, second)
+	if registry != nil || err == nil {
+		t.Fatalf("registry=%v err=%v", registry, err)
+	}
+	owner, ok := RegistryFromConstructionError(err)
+	if !ok || owner == nil {
+		t.Fatalf("construction cleanup owner = %#v, present=%t", owner, ok)
+	}
+	if firstLease.drainCalls != 1 || secondLease.drainCalls != 1 {
+		t.Fatalf("initial drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
+	}
+	secondLease.failCalls = 0
+	receipt, closeErr := owner.Close(context.Background())
+	if closeErr != nil || !receipt.Valid() {
+		t.Fatalf("retry receipt=%#v err=%v", receipt, closeErr)
+	}
+	if firstLease.drainCalls != 1 || secondLease.drainCalls != 2 {
+		t.Fatalf("retry drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
+	}
+}
+func TestNewProductionRuntimeDefinitionWithSafetyPolicyAndPostOutputLifecycle(t *testing.T) {
+	key, err := ports.ParseConcurrencyKey("agy_production_lane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := defaultRuntimeTransport(FamilyAgy, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
+		FamilyAgy, "agy_production", "", "/private/bin/agy", "executable-sha256",
+		"/private/bin/agy", "executable-sha256", key, "agy_production", "generation-1", "policy-identity",
+		[]string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", time.Second, 4096, 4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.RuntimeSafetyPolicyIdentity() != "policy-identity" {
+		t.Fatalf("runtime safety policy identity = %q", profile.RuntimeSafetyPolicyIdentity())
+	}
+	if got, ok := profile.PostOutputLifecycle(); !ok || got != lifecycle {
+		t.Fatalf("post-output lifecycle = %#v, enabled=%t", got, ok)
+	}
+	if _, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
+		FamilyKimi, "kimi_production", "", "/private/bin/kimi", "executable-sha256",
+		"/private/bin/kimi", "executable-sha256", key, "kimi_production", "generation-1", "policy-identity",
+		[]string{"/private/bin/kimi"}, transport, lifecycle, nil, "/private/work", time.Second, 4096, 4096,
+	); err == nil {
+		t.Fatal("non-AGY profile accepted post-output lifecycle")
+	}
+}
+
+func TestRegistryQualificationNamespaceIsNarrowRetainedLease(t *testing.T) {
+	profile := testProfile(t, FamilyKimi, "kimi_default", "kimi_lane", "", "")
+	lease := &scriptedNamespace{instance: "kimi_default", generation: "generation-1"}
+	registry, err := NewRegistryWithNamespaceFactory(&countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{"kimi_default": lease},
+	}, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, ok := registry.QualificationNamespace("kimi_default")
+	if !ok || namespace == nil || namespace.ProviderInstance() != lease.instance ||
+		namespace.Generation() != lease.generation || namespace.ValidateForSpawn() != nil {
+		t.Fatalf("qualification namespace = %#v, ok=%t", namespace, ok)
+	}
+	if _, isLease := namespace.(ports.ProviderNamespaceLease); isLease {
+		t.Fatal("qualification namespace exposed drain or credential authority")
+	}
+	if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
+		t.Fatal("qualification namespace exposed working-directory authority")
+	}
+}
+
+func TestRegistryCloseRetriesOnlyUndrainedNamespaces(t *testing.T) {
+	first := testDefinition(t, FamilyKimi, "kimi_primary", "kimi_primary_lane")
+	second := testDefinition(t, FamilyKimi, "kimi_secondary", "kimi_secondary_lane")
+	primary := &scriptedNamespace{instance: "kimi_primary", generation: "generation-primary"}
+	secondary := &scriptedNamespace{instance: "kimi_secondary", generation: "generation-secondary", failCalls: 1}
+	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{leases: map[string]*scriptedNamespace{
+		"kimi_primary": primary, "kimi_secondary": secondary,
+	}}, first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := registry.Close(context.Background()); err == nil || receipt.Valid() {
+		t.Fatalf("partial close = %#v, %v", receipt, err)
+	}
+	if primary.drainCalls != 1 || secondary.drainCalls != 1 {
+		t.Fatalf("first drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
+	}
+	receipt, err := registry.Close(context.Background())
+	if err != nil || !receipt.Valid() || len(receipt.NamespaceReceipts()) != 2 {
+		t.Fatalf("retry receipt = %#v, %v", receipt, err)
+	}
+	if primary.drainCalls != 1 || secondary.drainCalls != 2 {
+		t.Fatalf("retry drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
+	}
+}
+func TestRegistryCloseRetriesAfterCancellation(t *testing.T) {
+	definition := testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane")
+	lease := &scriptedNamespace{instance: "kimi_default", generation: "generation-1"}
+	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{"kimi_default": lease},
+	}, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if receipt, err := registry.Close(cancelled); err == nil || receipt.Valid() {
+		t.Fatalf("cancelled close = %#v, %v", receipt, err)
+	}
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
+	if lease.drainCalls != 1 {
+		t.Fatalf("drain calls = %d, want 1 after pre-drain cancellation", lease.drainCalls)
+	}
+}
+func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing.T) {
+	runner := newBarrierRunner()
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+		observed <- observeErr
+	}()
+	<-runner.started
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	closed := make(chan error, 1)
+	go func() {
+		_, closeErr := registry.Close(cancelled)
+		closed <- closeErr
+	}()
+	select {
+	case closeErr := <-closed:
+		if !errors.Is(closeErr, context.Canceled) {
+			t.Fatalf("cancelled close error = %v", closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled close waited for active observation")
+	}
+	close(runner.release)
+	<-observed
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
 }

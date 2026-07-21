@@ -96,6 +96,26 @@ type Diagnostic struct {
 	fallbackProhibited     bool
 	artifactPath           string
 	recommendedNextCommand string
+	retryableOverride      *bool
+}
+
+// NewDiagnosticWithRetryable constructs a diagnostic whose command-envelope
+// retryability is defined by a command-owned outcome contract rather than the
+// generic provider fallback policy.
+func NewDiagnosticWithRetryable(
+	stage string,
+	failureClass domain.FailureClass,
+	machineCode string,
+	message string,
+	retryable bool,
+) (Diagnostic, error) {
+	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, false, false, "", "")
+	if err != nil {
+		return Diagnostic{}, err
+	}
+	diagnostic.retryableOverride = new(bool)
+	*diagnostic.retryableOverride = retryable
+	return diagnostic, nil
 }
 
 // NewDiagnostic constructs a typed, redacted user-facing diagnostic. Empty
@@ -167,6 +187,15 @@ func (diagnostic Diagnostic) ArtifactPath() string { return diagnostic.artifactP
 // RecommendedNextCommand returns the optional redacted next command.
 func (diagnostic Diagnostic) RecommendedNextCommand() string {
 	return diagnostic.recommendedNextCommand
+}
+
+// Retryable returns the command-owned retryability override when present and
+// otherwise preserves the historical failure-class fallback mapping.
+func (diagnostic Diagnostic) Retryable() bool {
+	if diagnostic.retryableOverride != nil {
+		return *diagnostic.retryableOverride
+	}
+	return diagnostic.failureClass.FallbackAllowed()
 }
 
 // CommandResult is the immutable application result consumed by a CLI adapter.

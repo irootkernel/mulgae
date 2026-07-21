@@ -17,12 +17,12 @@
 | Finding fingerprint | Stable hash used to assist matching or deduplication across runs |
 | Followup | New run that evaluates whether one prior finding has been addressed |
 | Functional role | Review lens such as logic, security, or testing |
-| Global config | Trusted user-local configuration that may define provider executables |
+| Config locality context | Immutable proof binding the project root, checkout, complete index, applicable commits, config identity, and parsed target decision |
 | Lane | Serial queue for one concurrency key |
 | Manifest | Run-level index and integrity record |
 | Objective | User-supplied text that narrows review focus without overriding contracts |
 | Primary | First configured provider instance for a role task |
-| Project config | Limited-trust declarative repository configuration |
+| Project config | Sole operator-local runtime authority at `.kar/config.yaml`, admitted through locality and private-file checks |
 | Provider driver | Adapter family for a provider CLI |
 | Provider instance | Local executable and runtime settings for one driver/account/profile |
 | Provider output | Untrusted JSON claim produced by a provider attempt |
@@ -43,15 +43,15 @@
 | Publication status | Store-derived publication axis: `not_published`, `staged`, `installed`, `committed`, or `corrupt` |
 | CI decision | Trusted CI policy axis: `pass` or `fail`, accompanied by reason codes |
 | Decision Readiness | Whether the SOT contract is settled; G0 records this as `READY` |
-| Implementation Readiness | Whether product implementation is authorized; G001 completed the prerequisite and G002–G008 are complete. G009, the integrated release gate, remains separately gated, pending, and unauthorized; G008 completion does not authorize release CI or release assets. |
-| External Contract Readiness | Whether required provider tuples and native platform cells passed; G001 verified the G0 evidence state, and G007 completes the exact authority-gated `kimi`, `zcode`, and `agy` adapters while standalone absence of evidence remains `UNVERIFIED` |
+| Implementation Readiness | Current production implementation status. It is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`: production `kar review` is composed and wired, but incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`; final closure is not authorized. The prior G002–G009 implementation and integrated-gate record is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`, not a current production-completeness claim. Release CI, asset creation, and publication require separate approval; no asset was created. |
+| External Contract Readiness | Whether allowlisted provider families satisfy current runtime capability and security contracts and native platform cells satisfy their declared support contracts. Historical G0 and G007 evidence is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; missing required capability evidence remains `UNVERIFIED`. Only `darwin-arm64` is supported; future platforms remain unsupported. Historical exact-tuple evidence, including the Kimi receipt `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default` with receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, is qualification evidence and diagnostic provenance, not ordinary-use version or SHA-256 gating. |
 | Gate A | Session-bound GJC runtime approval that permits G0 contract/evidence work; it is not implementation approval |
 | G0 complete | Post-promotion, post-verification authority record that closes G0; spelled `g0_complete` in authority records |
 | Implementation approval | Separate session-bound GJC runtime approval required after `g0_complete` before product code may be implemented |
-| Intended provider | A configured provider family awaiting complete contract evidence; intended is not supported |
-| Supported tuple | A provider family, instance, version, binary, and concurrency-key tuple with all required probes passed |
+| Intended provider | A configured provider family that is not currently supported because it is unlisted or its required runtime capability contracts have not succeeded; it is never silently substituted. |
+| Supported provider | An allowlisted `kimi`, `zcode`, or `agy` provider family whose current runtime capability and security contracts succeed. Version, executable path, SHA-256, and adapter profile are diagnostic provenance for issue reporting and reproduction, not support authorization. Doctor guidance records a minimum-version floor and verified-latest baseline: below-minimum is red, versions above verified latest are yellow and allowed, and unknown versions are yellow. |
 | Platform cell | One native platform contract target: `linux-amd64`, `linux-arm64`, `darwin-amd64`, or `darwin-arm64` |
-| Trusted base | The policy baseline used by CI; project configuration may only strengthen it monotonically |
+| Safety floor | Code-fixed invariant that the project-local configuration cannot weaken or replace |
 | Four-axis outcome | The independent combination of content verdict, coverage status, publication status, and CI decision |
 | Persisted journal state | Durable progress hint: `collecting`, `content_validated`, `final_staged`, `final_file_installed`, `manifest_committed`, or `completed` |
 | Derived publication state | Recovery classifier result derived from durable observations rather than copied from the journal hint |
@@ -66,5 +66,6 @@
 | Authority-ref CAS | Compare-and-swap update of the authoritative SOT Git ref using the approved expected old state |
 | Delete-ref CAS | Compare-and-swap deletion of an authority ref when rollback returns to an initially absent authority |
 | Secure writer | Shared scan-before-write persistence boundary for newly durable untrusted bytes |
-| G008 application boundary | The completed ownership boundary for `followup`, `delta`, `rerun`, cleanup, and redacted export. The CLI constructs requests and renders envelopes; application services own child-run/lineage transitions, P2 publication, retention planning, and export/redaction behavior. |
-| G009 integrated release gate | The pending release boundary that requires final review and test receipts completed and retained by the leader before release authorization or release asset publication. |
+| G008 application boundary | Historical application-boundary evidence for `followup`, `delta`, `rerun`, cleanup, and redacted export. It is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; production `kar review` is composed and wired, but this historical evidence does not establish its required authority gates or family-distinct normal P2 receipts. |
+| G009 integrated verification gate | Historical integrated-gate evidence retaining repository test, `go vet`, race, cleaner, executor-QA, architect-review, and integrated-gate evidence categories. It is classified `HISTORICAL_GATE_PASS_NON_PRODUCTION`; it does not authorize production closure, release CI, asset creation, or publication. |
+| Reopened production review | Current decision token `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`: production `kar review` is composed and wired; historical integrated-gate evidence is non-production, and final closure remains unauthorized pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. |

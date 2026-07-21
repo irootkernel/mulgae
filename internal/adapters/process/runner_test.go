@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -23,6 +24,11 @@ import (
 )
 
 const processTestExecutionTimeout = 5 * time.Second
+
+type postOutputSignalExpectation struct {
+	reason ports.ProcessGroupSignalRequestReason
+	name   string
+}
 
 type runnerTestClock struct {
 	times []time.Time
@@ -41,6 +47,203 @@ func (clock *runnerTestClock) Now() time.Time {
 type nilRunnerTestClock struct{}
 
 func (*nilRunnerTestClock) Now() time.Time { return time.Time{} }
+func TestMain(m *testing.M) {
+	handled, err := ExecInheritedDirectory(os.Args)
+	if handled {
+		if err != nil {
+			os.Exit(125)
+		}
+		os.Exit(126)
+	}
+	os.Exit(m.Run())
+}
+
+func TestExecInheritedDirectoryNativeHomeTrampoline(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err = filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statHome := func(t *testing.T) syscall.Stat_t {
+		t.Helper()
+		var stat syscall.Stat_t
+		if err := syscall.Stat(home, &stat); err != nil {
+			t.Fatal(err)
+		}
+		return stat
+	}
+	authority := func(t *testing.T) []string {
+		t.Helper()
+		stat := statHome(t)
+		return []string{home, strconv.FormatUint(uint64(stat.Dev), 10), strconv.FormatUint(stat.Ino, 10), strconv.FormatUint(uint64(stat.Uid), 10)}
+	}
+	run := func(t *testing.T, directoryPath string, nativeHome []string, marker string) *exec.Cmd {
+		t.Helper()
+		directory, err := os.Open(directoryPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = directory.Close() })
+		argv := append([]string{
+			fdExecNativeHomeHiddenArgument,
+			"3",
+			binary,
+		}, nativeHome...)
+		argv = append(argv, "-test.run=^TestRunnerHelperProcess$", "--", "native-home-provider", marker)
+		command := exec.Command(binary, argv...)
+		command.ExtraFiles = []*os.File{directory}
+		command.Env = append(os.Environ(), "KAR_PROCESS_RUNNER_HELPER=1")
+		return command
+	}
+
+	t.Run("exact identity executes provider", func(t *testing.T) {
+		marker := filepath.Join(root, "executed")
+		if output, err := run(t, home, authority(t), marker).CombinedOutput(); err != nil {
+			t.Fatalf("native-home trampoline failed: %v: %q", err, output)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("provider did not execute: %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name       string
+		nativeHome func(*testing.T) []string
+		mutate     func(*testing.T)
+	}{
+		{
+			name: "malformed authority",
+			nativeHome: func(t *testing.T) []string {
+				value := authority(t)
+				value[1] = "not-a-device"
+				return value
+			},
+		},
+		{
+			name:       "symlink",
+			nativeHome: authority,
+			mutate: func(t *testing.T) {
+				target := filepath.Join(root, "target")
+				if err := os.Mkdir(target, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(home); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, home); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "inode replacement",
+			nativeHome: authority,
+			mutate: func(t *testing.T) {
+				if err := os.Remove(home); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(home, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "wrong uid",
+			nativeHome: func(t *testing.T) []string {
+				value := authority(t)
+				value[3] = strconv.FormatUint(uint64(os.Geteuid()+1), 10)
+				return value
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.RemoveAll(home); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(home, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			nativeHome := test.nativeHome(t)
+			marker := filepath.Join(root, "must-not-execute-"+test.name)
+			command := run(t, home, nativeHome, marker)
+			if test.mutate != nil {
+				test.mutate(t)
+			}
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatal("native-home trampoline accepted invalid authority")
+			}
+			if code := command.ProcessState.ExitCode(); code != 125 {
+				t.Fatalf("native-home trampoline exit code = %d, want 125; output = %q", code, output)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("provider executed after native-home verification failure: %v", err)
+			}
+			if bytes.Contains(output, []byte(home)) {
+				t.Fatalf("native-home failure exposed authority path: %q", output)
+			}
+		})
+	}
+	t.Run("opened directory owner differs from effective uid", func(t *testing.T) {
+		effectiveUID := uint32(os.Geteuid())
+		if effectiveUID == 0 {
+			t.Skip("root execution cannot guarantee a distinct owner without changing a system directory")
+		}
+
+		var directoryPath string
+		var openedStat syscall.Stat_t
+		for _, candidate := range []string{"/", "/System", "/usr", "/var", "/private"} {
+			var stat syscall.Stat_t
+			if err := syscall.Stat(candidate, &stat); err != nil || stat.Uid == effectiveUID {
+				continue
+			}
+			directory, err := os.Open(candidate)
+			if err != nil {
+				continue
+			}
+			err = syscall.Fstat(int(directory.Fd()), &openedStat)
+			_ = directory.Close()
+			if err != nil || openedStat.Uid == effectiveUID {
+				continue
+			}
+			directoryPath = candidate
+			break
+		}
+		if directoryPath == "" {
+			t.Fatal("no readable bounded system directory has an owner distinct from the effective uid")
+		}
+
+		nativeHome := []string{
+			directoryPath,
+			strconv.FormatUint(uint64(openedStat.Dev), 10),
+			strconv.FormatUint(openedStat.Ino, 10),
+			strconv.FormatUint(uint64(effectiveUID), 10),
+		}
+		marker := filepath.Join(root, "must-not-execute-owner-mismatch")
+		command := run(t, directoryPath, nativeHome, marker)
+		output, err := command.CombinedOutput()
+		if err == nil {
+			t.Fatal("native-home trampoline accepted an opened directory with a mismatched owner uid")
+		}
+		if code := command.ProcessState.ExitCode(); code != 125 {
+			t.Fatalf("native-home trampoline exit code = %d, want 125; output = %q", code, output)
+		}
+		if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("provider executed after native-home ownership verification failure: %v", err)
+		}
+		if bytes.Contains(output, []byte(directoryPath)) {
+			t.Fatalf("native-home failure exposed authority path: %q", output)
+		}
+	})
+}
 
 func TestNewRunnerRejectsNilClock(t *testing.T) {
 	if _, err := NewRunner(nil); err == nil {
@@ -118,7 +321,446 @@ func TestRunnerExactArgvEnvironmentWorkingDirectoryAndStdin(t *testing.T) {
 		t.Fatal("observation is invalid")
 	}
 }
+func TestRunnerRecordsProviderPacketTransport(t *testing.T) {
+	packet := runnerTestProviderPacket(t, []byte("packet $(not-shell)"))
+	packetIdentity := packet.Identity()
 
+	t.Run("argv literal has no stdin pipe", func(t *testing.T) {
+		binding, err := ports.NewArgvLiteralProviderPacketBinding(packet, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation := mustRun(t, newTestRunner(t), context.Background(), newProviderHelperRequest(
+			t, t.TempDir(), "record-transport", []string{string(packet.Bytes())}, binding,
+		))
+		assertTermination(t, observation, ports.ProcessTerminationExited)
+		assertExitCode(t, observation, 0)
+		if got, want := string(observation.Stdout()), fmt.Sprintf(
+			"args=%q\nstdin=%q\nstdin_pipe=%t\n", []string{string(packet.Bytes())}, []byte(nil), false,
+		); got != want {
+			t.Fatalf("argv transport helper stdout = %q, want %q", got, want)
+		}
+		assertZeroStdinReceipt(t, observation)
+		assertProviderTransport(t, observation, ports.ProviderPacketChannelArgvLiteral, packetIdentity)
+	})
+
+	t.Run("stdin preserves exact packet and records early close", func(t *testing.T) {
+		binding, err := ports.NewStdinProviderPacketBinding(packet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation := mustRun(t, newTestRunner(t), context.Background(), newProviderHelperRequest(
+			t, t.TempDir(), "record-transport", nil, binding,
+		))
+		assertTermination(t, observation, ports.ProcessTerminationExited)
+		assertExitCode(t, observation, 0)
+		if got, want := string(observation.Stdout()), fmt.Sprintf(
+			"args=%q\nstdin=%q\nstdin_pipe=%t\n", []string(nil), packet.Bytes(), true,
+		); got != want {
+			t.Fatalf("stdin transport helper stdout = %q, want %q", got, want)
+		}
+		receipt := observation.StdinWriteReceipt()
+		if receipt.IntendedByteLength() != int64(len(packet.Bytes())) ||
+			receipt.WrittenByteCount() != int64(len(packet.Bytes())) ||
+			!receipt.Complete() || receipt.SHA256() != runnerTestStdinDigest(packet.Bytes()) {
+			t.Fatalf("stdin receipt = %#v", receipt)
+		}
+		assertProviderTransport(t, observation, ports.ProviderPacketChannelStdin, packetIdentity)
+
+		partialPacket := runnerTestProviderPacket(t, bytes.Repeat([]byte("x"), 8<<20))
+		partialBinding, err := ports.NewStdinProviderPacketBinding(partialPacket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		partial := mustRun(t, newTestRunner(t), context.Background(), newProviderHelperRequest(
+			t, t.TempDir(), "prefix-read", nil, partialBinding,
+		))
+		assertTermination(t, partial, ports.ProcessTerminationStdinIncomplete)
+		partialReceipt := partial.StdinWriteReceipt()
+		if partialReceipt.WrittenByteCount() >= int64(len(partialPacket.Bytes())) || partialReceipt.Complete() {
+			t.Fatalf("partial stdin receipt = %#v, want incomplete prefix", partialReceipt)
+		}
+		assertProviderTransport(t, partial, ports.ProviderPacketChannelStdin, partialPacket.Identity())
+	})
+}
+
+func TestRunnerVerifiesPromptFileProviderPacketTransport(t *testing.T) {
+	packet := runnerTestProviderPacket(t, []byte(`{"packet":"immutable"}`))
+	snapshot := t.TempDir()
+	promptDirectory := filepath.Join(snapshot, "prompt")
+	if err := os.Mkdir(promptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	promptPath := filepath.Join(promptDirectory, "request.json")
+	writePrompt := func(t *testing.T, contents []byte) {
+		t.Helper()
+		if err := os.WriteFile(promptPath, contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newRequest := func(t *testing.T, scenario string, arguments ...string) ports.ProcessRequest {
+		t.Helper()
+		binding, err := ports.NewPromptFileProviderPacketBinding(packet, 4, "@prompt/request.json", snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return newProviderHelperRequest(t, snapshot, scenario, append([]string{"@prompt/request.json"}, arguments...), binding)
+	}
+
+	writePrompt(t, packet.Bytes())
+	observation := mustRun(t, newTestRunner(t), context.Background(), newRequest(t, "record-transport"))
+	assertTermination(t, observation, ports.ProcessTerminationExited)
+	assertExitCode(t, observation, 0)
+	assertZeroStdinReceipt(t, observation)
+	transport := assertProviderTransport(t, observation, ports.ProviderPacketChannelPromptFile, packet.Identity())
+	if transport.PromptFileReference() != "@prompt/request.json" || transport.SnapshotCWD() != snapshot ||
+		transport.PreStartIdentity() != packet.Identity() || transport.PostTerminationIdentity() != packet.Identity() {
+		t.Fatalf("prompt-file transport receipt = %#v", transport)
+	}
+
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T)
+	}{
+		{
+			name: "symlink",
+			setup: func(t *testing.T) {
+				t.Helper()
+				if err := os.Remove(promptPath); err != nil {
+					t.Fatal(err)
+				}
+				target := filepath.Join(snapshot, "target")
+				if err := os.WriteFile(target, packet.Bytes(), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, promptPath); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "nonregular",
+			setup: func(t *testing.T) {
+				t.Helper()
+				if err := os.Remove(promptPath); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(promptPath, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "missing",
+			setup: func(t *testing.T) {
+				t.Helper()
+				if err := os.RemoveAll(promptPath); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "pre-start identity mismatch",
+			setup: func(t *testing.T) {
+				t.Helper()
+				writePrompt(t, []byte(`{"packet":"different!"}`))
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.RemoveAll(promptPath); err != nil {
+				t.Fatal(err)
+			}
+			writePrompt(t, packet.Bytes())
+			test.setup(t)
+			marker := filepath.Join(snapshot, "must-not-start-"+test.name)
+			observation, err := newTestRunner(t).Run(context.Background(), newRequest(t, "packet-marker", marker))
+			if err == nil {
+				t.Fatal("prompt-file verification succeeded")
+			}
+			if _, ok := observation.ProviderPacketTransportReceipt(); ok {
+				t.Fatalf("failed prompt-file verification claimed delivery: %#v", observation)
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("failed prompt-file verification started child: %v", err)
+			}
+		})
+	}
+
+	writePrompt(t, packet.Bytes())
+	ready := filepath.Join(snapshot, "prompt-ready")
+	release := filepath.Join(snapshot, "prompt-release")
+	done := runRunnerAsync(newTestRunner(t), context.Background(), newRequest(t, "packet-barrier", ready, release))
+	if _, err := waitForFile(ready, processTestExecutionTimeout); err != nil {
+		t.Fatal(err)
+	}
+	writePrompt(t, []byte(`{"packet":"mutated!!"}`))
+	releaseHelper(t, release)
+	result := waitForRunnerResultAllowError(t, done)
+	if result.err == nil {
+		t.Fatal("prompt-file mutation before post-check succeeded")
+	}
+	if _, ok := result.observation.ProviderPacketTransportReceipt(); ok {
+		t.Fatalf("post-check mismatch claimed delivery: %#v", result.observation)
+	}
+}
+
+func TestRunnerStartFailureForArgvProviderPacketHasNoTransportReceipt(t *testing.T) {
+	packet := runnerTestProviderPacket(t, []byte("packet"))
+	binding, err := ports.NewArgvLiteralProviderPacketBinding(packet, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingExecutable := filepath.Join(t.TempDir(), "does-not-exist")
+	request, err := ports.NewProviderProcessRequest(
+		missingExecutable,
+		[]string{missingExecutable, string(packet.Bytes())},
+		nil,
+		t.TempDir(),
+		binding,
+		processTestExecutionTimeout,
+		1024,
+		1024,
+		mustConcurrencyKey(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := mustRun(t, newTestRunner(t), context.Background(), request)
+	assertTermination(t, observation, ports.ProcessTerminationStartUnavailable)
+	if _, ok := observation.ProviderPacketTransportReceipt(); ok {
+		t.Fatalf("start failure claimed argv delivery: %#v", observation)
+	}
+}
+func TestRunnerBoundedPostOutputLifecycle(t *testing.T) {
+	const (
+		stabilityGrace   = 100 * time.Millisecond
+		terminationGrace = 100 * time.Millisecond
+		timeout          = 1500 * time.Millisecond
+	)
+	for _, test := range []struct {
+		name                string
+		scenario            string
+		stdoutCap           int64
+		cancel              bool
+		termination         ports.ProcessTermination
+		finalSignal         string
+		hasFrame            bool
+		signals             []postOutputSignalExpectation
+		stability           time.Duration
+		allowPostOutputRace bool
+	}{
+		{
+			name:                "natural exit after strict complete JSON frame",
+			scenario:            "post-output-natural",
+			stdoutCap:           1024,
+			termination:         ports.ProcessTerminationExited,
+			hasFrame:            true,
+			stability:           1300 * time.Millisecond,
+			allowPostOutputRace: true,
+		},
+		{
+			name:        "SIGTERM accepted after stable strict complete JSON frame",
+			scenario:    "post-output-term",
+			stdoutCap:   1024,
+			termination: ports.ProcessTerminationSignaled,
+			finalSignal: "SIGTERM",
+			hasFrame:    true,
+			signals: []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"},
+			},
+		},
+		{
+			name:        "SIGTERM-resistant descendant escalates to SIGKILL",
+			scenario:    "post-output-resistant",
+			stdoutCap:   1024,
+			termination: ports.ProcessTerminationSignaled,
+			finalSignal: "SIGKILL",
+			hasFrame:    true,
+			signals: []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"},
+				{ports.ProcessGroupSignalRequestPostOutputEscalation, "SIGKILL"},
+			},
+		},
+		{
+			name:        "malformed frame never receives post-output signal",
+			scenario:    "post-output-malformed",
+			stdoutCap:   1024,
+			termination: ports.ProcessTerminationExited,
+		},
+		{
+			name:        "incomplete frame never receives post-output signal",
+			scenario:    "post-output-incomplete",
+			stdoutCap:   1024,
+			termination: ports.ProcessTerminationExited,
+		},
+		{
+			name:        "late extra stdout resets frame stability",
+			scenario:    "post-output-late",
+			stdoutCap:   1024,
+			termination: ports.ProcessTerminationTimedOut,
+			finalSignal: "SIGKILL",
+			signals: []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestInternalTeardown, "SIGKILL"},
+			},
+		},
+		{
+			name:        "stdout cap tears down process group without accepting frame",
+			scenario:    "post-output-stdout-large",
+			stdoutCap:   3,
+			termination: ports.ProcessTerminationStdoutLimit,
+			finalSignal: "SIGKILL",
+			signals: []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestInternalTeardown, "SIGKILL"},
+			},
+		},
+		{
+			name:        "cancellation tears down process group without accepting frame",
+			scenario:    "post-output-hold",
+			stdoutCap:   1024,
+			cancel:      true,
+			termination: ports.ProcessTerminationCancelled,
+			finalSignal: "SIGKILL",
+			signals: []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestInternalTeardown, "SIGKILL"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			processGroupPath := filepath.Join(t.TempDir(), "process-group")
+			testStability := test.stability
+			if testStability == 0 {
+				testStability = stabilityGrace
+			}
+			request, packetIdentity := newPostOutputProviderHelperRequest(
+				t,
+				t.TempDir(),
+				test.scenario,
+				[]string{processGroupPath},
+				timeout,
+				test.stdoutCap,
+				testStability,
+				terminationGrace,
+			)
+			ctx := context.Background()
+			var cancel context.CancelFunc
+			if test.cancel {
+				ctx, cancel = context.WithCancel(ctx)
+				defer cancel()
+			}
+			done := runRunnerAsync(newTestRunner(t), ctx, request)
+			processGroupID := readHelperPID(t, processGroupPath)
+			if test.cancel {
+				cancel()
+			}
+			observation := waitForRunnerResult(t, done).observation
+			if test.allowPostOutputRace && observation.Termination() == ports.ProcessTerminationSignaled {
+				assertNoLiveProcessGroup(t, processGroupID)
+				assertBoundedPostOutputEvidence(t, observation, packetIdentity, true, "SIGTERM", []postOutputSignalExpectation{{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"}})
+				return
+			}
+			assertTermination(t, observation, test.termination)
+			assertNoLiveProcessGroup(t, processGroupID)
+			assertBoundedPostOutputEvidence(t, observation, packetIdentity, test.hasFrame, test.finalSignal, test.signals)
+		})
+	}
+}
+
+func TestRunnerBoundedPostOutputUsesSingleTerminalDeadlineWithEscapedPipeDescendant(t *testing.T) {
+	const (
+		stabilityGrace   = 50 * time.Millisecond
+		terminationGrace = 250 * time.Millisecond
+	)
+	processGroupPath := filepath.Join(t.TempDir(), "process-group")
+	escapedPIDPath := filepath.Join(t.TempDir(), "escaped-pid")
+	request, packetIdentity := newPostOutputProviderHelperRequest(
+		t,
+		t.TempDir(),
+		"post-output-escaped-pipe",
+		[]string{processGroupPath, escapedPIDPath},
+		processTestExecutionTimeout,
+		16<<20,
+		stabilityGrace,
+		terminationGrace,
+	)
+	originalSignalProcessGroup := signalProcessGroup
+	sigtermAt := make(chan time.Time, 1)
+	signalProcessGroup = func(processGroupID int, signal syscall.Signal) error {
+		if signal == syscall.SIGTERM {
+			select {
+			case sigtermAt <- time.Now():
+			default:
+			}
+		}
+		return originalSignalProcessGroup(processGroupID, signal)
+	}
+	t.Cleanup(func() {
+		signalProcessGroup = originalSignalProcessGroup
+	})
+	done := runRunnerAsync(newTestRunner(t), context.Background(), request)
+	processGroupID := readHelperPID(t, processGroupPath)
+	escapedPID := readHelperPID(t, escapedPIDPath)
+	escapedGroupID := processGroupForPID(t, escapedPID)
+	t.Cleanup(func() {
+		groupID, err := syscall.Getpgid(escapedPID)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if err != nil {
+			t.Errorf("read escaped helper %d process group: %v", escapedPID, err)
+			return
+		}
+		if groupID != escapedGroupID {
+			t.Errorf("escaped helper %d changed process group from %d to %d; refusing stale cleanup", escapedPID, escapedGroupID, groupID)
+			return
+		}
+		if err := syscall.Kill(-escapedGroupID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("kill escaped helper group %d: %v", escapedGroupID, err)
+			return
+		}
+		deadline := time.Now().Add(processGroupTeardownTimeout)
+		for {
+			err := syscall.Kill(escapedPID, 0)
+			if errors.Is(err, syscall.ESRCH) {
+				return
+			}
+			if err != nil {
+				t.Errorf("probe escaped helper %d after kill: %v", escapedPID, err)
+				return
+			}
+			if !time.Now().Before(deadline) {
+				t.Errorf("escaped helper %d remained after SIGKILL", escapedPID)
+				return
+			}
+			time.Sleep(processGroupProbeInterval)
+		}
+	})
+	if escapedGroupID == processGroupID {
+		t.Fatalf("escaped helper remained in captured process group %d", processGroupID)
+	}
+
+	observation := waitForRunnerResult(t, done).observation
+	var terminalStarted time.Time
+	select {
+	case terminalStarted = <-sigtermAt:
+	default:
+		t.Fatal("runner did not accept the post-output SIGTERM")
+	}
+	if elapsed := time.Since(terminalStarted); elapsed > processGroupTeardownTimeout+250*time.Millisecond {
+		t.Fatalf("runner returned %s after terminal initiation, want no more than one terminal budget", elapsed)
+	}
+	if err := syscall.Kill(escapedPID, 0); err != nil {
+		t.Fatalf("escaped helper was not alive at runner return: %v", err)
+	}
+	if len(observation.Stdout()) <= len(`{"status":"ok"}`) {
+		t.Fatal("escaped descendant did not flood the retained stdout pipe")
+	}
+	assertTermination(t, observation, ports.ProcessTerminationSignaled)
+	assertNoLiveProcessGroup(t, processGroupID)
+	assertBoundedPostOutputEvidence(t, observation, packetIdentity, true, "SIGTERM", []postOutputSignalExpectation{
+		{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"},
+	})
+}
 func TestRunnerSeparatesStreamsAndDefensivelyCopiesObservation(t *testing.T) {
 	runner := newTestRunner(t)
 	request := newHelperRequest(t, t.TempDir(), "streams", nil, nil, nil, processTestExecutionTimeout, 1024, 1024)
@@ -819,10 +1461,6 @@ func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 			if _, err := waitForFile(emitted, processTestExecutionTimeout); err != nil {
 				t.Fatal(err)
 			}
-			if test.mode == "exit" &&
-				!waitForProcessGroupLeaderZombie(processGroupID, processTestExecutionTimeout) {
-				t.Fatalf("process-group leader %d did not become zombie before terminal arbitration", processGroupID)
-			}
 			releaseKill()
 
 			result := waitForRunnerResult(t, done)
@@ -1069,6 +1707,100 @@ func newHelperRequest(
 	}
 	return request
 }
+func newProviderHelperRequest(
+	t *testing.T,
+	workingDirectory string,
+	scenario string,
+	arguments []string,
+	binding ports.ProviderPacketBinding,
+) ports.ProcessRequest {
+	t.Helper()
+	binary := helperBinary(t)
+	argv := []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", scenario}
+	argv = append(argv, arguments...)
+	environment := []ports.EnvironmentVariable{
+		mustEnvironment(t, "KAR_PROCESS_RUNNER_HELPER", "1"),
+		mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
+	}
+	request, err := ports.NewProviderProcessRequest(
+		binary,
+		argv,
+		environment,
+		workingDirectory,
+		binding,
+		processTestExecutionTimeout,
+		4096,
+		1024,
+		mustConcurrencyKey(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+func newPostOutputProviderHelperRequest(
+	t *testing.T,
+	workingDirectory, scenario string,
+	arguments []string,
+	timeout time.Duration,
+	maxStdoutBytes int64,
+	stabilityGrace, terminationGrace time.Duration,
+) (ports.ProcessRequest, ports.ProviderPacketIdentity) {
+	t.Helper()
+	packet := runnerTestProviderPacket(t, []byte(`{"request":"post-output"}`))
+	binding, err := ports.NewStdinProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(
+		ports.ProcessOutputFramingStrictJSON,
+		stabilityGrace,
+		terminationGrace,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := helperBinary(t)
+	argv := []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", scenario}
+	argv = append(argv, arguments...)
+	request, err := ports.NewProviderProcessRequestWithPostOutputLifecycle(
+		binary,
+		argv,
+		[]ports.EnvironmentVariable{
+			mustEnvironment(t, "KAR_PROCESS_RUNNER_HELPER", "1"),
+			mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
+		},
+		workingDirectory,
+		binding,
+		lifecycle,
+		timeout,
+		maxStdoutBytes,
+		1024,
+		mustConcurrencyKey(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request, packet.Identity()
+}
+
+func runnerTestProviderPacket(t *testing.T, value []byte) ports.ProviderPacket {
+	t.Helper()
+	packet, err := ports.NewProviderPacket(value, runnerTestStdinDigest(value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return packet
+}
+
+func mustConcurrencyKey(t *testing.T) ports.ConcurrencyKey {
+	t.Helper()
+	key, err := ports.ParseConcurrencyKey("process-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
 
 func helperBinary(t *testing.T) string {
 	t.Helper()
@@ -1119,7 +1851,17 @@ func waitForRunnerResult(t *testing.T, done <-chan runnerResult) runnerResult {
 			t.Fatal(result.err)
 		}
 		return result
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner did not return")
+		return runnerResult{}
+	}
+}
+func waitForRunnerResultAllowError(t *testing.T, done <-chan runnerResult) runnerResult {
+	t.Helper()
+	select {
+	case result := <-done:
+		return result
+	case <-time.After(3 * time.Second):
 		t.Fatal("runner did not return")
 		return runnerResult{}
 	}
@@ -1249,6 +1991,79 @@ func runnerTestStdinDigest(value []byte) string {
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
 }
+func assertZeroStdinReceipt(t *testing.T, observation ports.ProcessObservation) {
+	t.Helper()
+	receipt := observation.StdinWriteReceipt()
+	if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 ||
+		!receipt.Complete() || receipt.SHA256() != runnerTestStdinDigest(nil) {
+		t.Fatalf("zero-byte stdin receipt = %#v", receipt)
+	}
+}
+
+func assertProviderTransport(
+	t *testing.T,
+	observation ports.ProcessObservation,
+	channel ports.ProviderPacketChannel,
+	identity ports.ProviderPacketIdentity,
+) ports.ProviderPacketTransportReceipt {
+	t.Helper()
+	receipt, ok := observation.ProviderPacketTransportReceipt()
+	if !ok || receipt.Channel() != channel || receipt.PacketIdentity() != identity {
+		t.Fatalf("provider transport receipt = %#v, present=%t", receipt, ok)
+	}
+	return receipt
+}
+func assertBoundedPostOutputEvidence(
+	t *testing.T,
+	observation ports.ProcessObservation,
+	packetIdentity ports.ProviderPacketIdentity,
+	wantFrame bool,
+	wantFinalSignal string,
+	wantRequests []postOutputSignalExpectation,
+) {
+	t.Helper()
+	receipt, ok := observation.LifecycleReceipt()
+	if !ok || !receipt.Valid() || !receipt.ProcessGroupAbsent() || !observation.ProcessGroupAbsent() {
+		t.Fatalf("lifecycle receipt = %#v, present=%t", receipt, ok)
+	}
+	final := receipt.FinalTermination()
+	if wantFinalSignal == "" {
+		if code, ok := final.ExitCode(); !ok || code != 0 {
+			t.Fatalf("final termination = %#v, want exit code 0", final)
+		}
+	} else {
+		processSignal, ok := final.Signal()
+		if !ok || processSignal.Name() != wantFinalSignal {
+			t.Fatalf("final termination = %#v, want %s", final, wantFinalSignal)
+		}
+	}
+	frame, hasFrame := receipt.OutputFrame()
+	if hasFrame != wantFrame {
+		t.Fatalf("output frame = %#v, present=%t, want present=%t", frame, hasFrame, wantFrame)
+	}
+	if hasFrame && (frame.Framing() != ports.ProcessOutputFramingStrictJSON || frame.ByteLength() != int64(len(`{"status":"ok"}`)) || !frame.Valid()) {
+		t.Fatalf("output frame receipt = %#v", frame)
+	}
+	requests := receipt.SignalRequests()
+	if len(requests) != len(wantRequests) {
+		t.Fatalf("signal requests = %#v, want %d requests", requests, len(wantRequests))
+	}
+	for index, want := range wantRequests {
+		got := requests[index]
+		if got.Reason() != want.reason || got.Signal().Name() != want.name || !got.Valid() {
+			t.Fatalf("signal request %d = %#v, want (%q, %q)", index, got, want.reason, want.name)
+		}
+		packet, postOutput := got.PacketIdentity()
+		frameSHA256, hasFrameSHA256 := got.FrameSHA256()
+		if want.reason == ports.ProcessGroupSignalRequestPostOutput || want.reason == ports.ProcessGroupSignalRequestPostOutputEscalation {
+			if !postOutput || packet != packetIdentity || !hasFrameSHA256 || !hasFrame || frameSHA256 != frame.SHA256() {
+				t.Fatalf("post-output signal request %d = %#v", index, got)
+			}
+		} else if postOutput || packet.Valid() || hasFrameSHA256 || frameSHA256 != "" {
+			t.Fatalf("non-post-output signal request %d carried frame evidence: %#v", index, got)
+		}
+	}
+}
 func waitForFile(path string, timeout time.Duration) ([]byte, error) {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -1294,6 +2109,116 @@ func TestRunnerHelperProcess(t *testing.T) {
 	}
 
 	switch arguments[0] {
+	case "native-home-provider":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], "executed") {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	case "post-output-natural":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"status":"ok"}`)
+		os.Exit(0)
+	case "post-output-term":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"status":"ok"}`)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-resistant":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		signal.Ignore(syscall.SIGTERM)
+		child := exec.Command(os.Args[0], "-test.run=^TestRunnerHelperProcess$", "--", "post-output-ignore-term-child")
+		child.Env = os.Environ()
+		child.Stdin = os.Stdin
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"status":"ok"}`)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-ignore-term-child":
+		signal.Ignore(syscall.SIGTERM)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-malformed":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, "not-json")
+		os.Exit(0)
+	case "post-output-incomplete":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"status":`)
+		os.Exit(0)
+	case "post-output-late":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"status":"ok"}`)
+		time.Sleep(10 * time.Millisecond)
+		fmt.Fprint(os.Stdout, "x")
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-stdout-large":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, "abcdef")
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-hold":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-escaped-pipe":
+		if len(arguments) != 3 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		child := exec.Command(os.Args[0], "-test.run=^TestRunnerHelperProcess$", "--", "post-output-escaped-pipe-child", arguments[2])
+		child.Env = os.Environ()
+		child.Stdin = os.Stdin
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			if _, err := os.Stat(arguments[2]); err == nil {
+				break
+			} else if !errors.Is(err, os.ErrNotExist) || !time.Now().Before(deadline) {
+				os.Exit(2)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		fmt.Fprint(os.Stdout, `{"status":"ok"}`)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "post-output-escaped-pipe-child":
+		if len(arguments) != 2 || syscall.Setpgid(0, 0) != nil || !helperWriteMarker(arguments[1], strconv.Itoa(os.Getpid())) {
+			os.Exit(2)
+		}
+		signal.Ignore(syscall.SIGPIPE)
+		time.Sleep(100 * time.Millisecond)
+		flood := bytes.Repeat([]byte("x"), 32768)
+		for {
+			if _, err := os.Stdout.Write(flood); err != nil {
+				time.Sleep(10 * time.Second)
+				os.Exit(0)
+			}
+			time.Sleep(time.Millisecond)
+		}
 	case "record":
 		stdin, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -1316,6 +2241,34 @@ func TestRunnerHelperProcess(t *testing.T) {
 			os.Getenv("KAR_PROCESS_RUNNER_LEAK"),
 			stdin,
 		)
+		os.Exit(0)
+	case "record-transport":
+		stdin, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(2)
+		}
+		info, err := os.Stdin.Stat()
+		if err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprintf(
+			os.Stdout,
+			"args=%q\nstdin=%q\nstdin_pipe=%t\n",
+			arguments[1:],
+			stdin,
+			info.Mode()&os.ModeNamedPipe != 0,
+		)
+		os.Exit(0)
+	case "packet-marker":
+		if len(arguments) != 3 || !helperWriteMarker(arguments[2], "started") {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	case "packet-barrier":
+		if len(arguments) != 4 || !helperWriteMarker(arguments[2], "ready") ||
+			!waitForHelperRelease(arguments[3]) {
+			os.Exit(2)
+		}
 		os.Exit(0)
 	case "prefix-read":
 		var one [1]byte

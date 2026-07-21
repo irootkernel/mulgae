@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 14 under SOT 1.5.0 and the completed implementation boundary through G008. Decision Readiness is **READY**; G001–G008 are **COMPLETE**; G009 is **PENDING AND UNAUTHORIZED**. This is not release authorization.
+This roadmap records Revision 14 under SOT 1.9.0. Decision Readiness remains **READY**; G001–G008 retain historical completion evidence, while G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. Prior G009 evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -14,11 +14,11 @@ This roadmap records Revision 14 under SOT 1.5.0 and the completed implementatio
 | G006 | G3B publication, recovery, reporting | **COMPLETE** |
 | G007 | G4 opt-in provider adapters | **COMPLETE** |
 | G008 | G5 lineage, cleanup, export | **COMPLETE** |
-| G009 | Integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** |
+| G009 | Production review verification | `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` |
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 71 catalog paths, 70 checksummed payloads, 23 schema/example pairs, and 16 G0-required pairs. The separately accepted G002–G008 stories are complete. This boundary does not authorize pending G009 work, release CI, or release assets.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, 25 schema/example pairs, 18 additive G0-required pairs, and 7 frozen-v1 pairs. The separately accepted G002–G008 stories are complete. Prior G009 repository test, `go vet`, race, cleaner, executor-QA, architect-review, and integrated-gate evidence categories are retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; they do not establish current production verification. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -29,13 +29,13 @@ G0 produces the SOT baseline, fixtures, evidence contracts, and authority record
 | G0-1A | Validator, fixture, tool-lock, secure-writer, prompt/evidence/publication/cleanup/authority evidence contracts | Gate A1; exact payload scope only |
 | G0-1B | Non-normative candidate skeleton | G0-1A; cannot leak into normative bytes |
 | G0-2 | Integrated SOT documentation and decisions | G0-1B |
-| G0-3 | Strict schemas, examples, command/doctor/export envelopes, 4 canonical probe argv, and the 71-path/70-payload catalog | G0-2; 23 schema/example pairs, 16 G0-required |
+| G0-3 | Strict schemas, examples, command/doctor/export envelopes, 4 canonical probe argv, and the 85-path/84-payload catalog | G0-2; 25 schema/example pairs, 18 additive G0-required plus 7 frozen-v1 pairs |
 | G0-4 | Freeze candidate bytes, checksums, subtree/root/commit identity, and integrity receipt | G0-3; no authority-eligible probe, assignment, Architect, or Critic evidence exists before this freeze |
 | G0-5 | Issue the candidate-bound evidence Gate, then execute all required provider and `darwin-arm64` platform probes | G0-4; future cells remain non-blocking, unsupported, release-ineligible, and fixed NOT_RUN |
 | G0-6 | Produce the deterministic live six-role assignment, exact 27-entry receipt index, readiness receipt, and `G0_EXTERNAL_JOIN_ORACLE` result | G0-5; no score-based selection and no candidate refreeze after evidence |
 | G0-7 | The single authoritative Architect/Critic review, promotion authorization, authority-ref CAS, and post-verification | G0-6 and a passing `G0_EXTERNAL_JOIN_ORACLE` |
 
-The exact G0 validator set is `p0`, `schema`, `trace`, `marker`, `trust`, `command`, `canonical-argv`, `failure`, `publication`, `prompt`, `evidence`, `cleanup`, `assignment`, `integrity`, `authority`, `checksums-generate`, and `checksums-verify`. Publication validation must prove one total classifier result per case, including `total=true`, `unmapped=0`, `ambiguous=0`, ten named cross-boundary cases, and all P2 outcome exits `0`, `1`, and `4`. Integrity validates the 71-path catalog and 70 checksummed payloads using the raw32 payload-root grammar.
+The exact G0 validator set is `p0`, `schema`, `trace`, `marker`, `trust`, `command`, `canonical-argv`, `failure`, `publication`, `prompt`, `evidence`, `cleanup`, `assignment`, `integrity`, `authority`, `checksums-generate`, and `checksums-verify`. Publication validation must prove one total classifier result per case, including `total=true`, `unmapped=0`, `ambiguous=0`, ten named cross-boundary cases, and all P2 outcome exits `0`, `1`, and `4`. Integrity validates the 85-path catalog and 84 checksummed payloads using the raw32 payload-root grammar.
 Promotion is acyclic: the G0-4 candidate bytes and identity precede candidate-bound G0-5/G0-6 evidence and the single authoritative G0-7 Architect `CLEAR|APPROVE` and Critic `OKAY` review; that review precedes runtime promotion authorization; authorization precedes authority-ref CAS; CAS precedes post-verification and `g0_complete`. A failed or missing predicate stops promotion. No authority-eligible evidence survives a candidate refreeze. Rollback to an absent initial authority uses delete-ref CAS, not a fabricated zero target. `g0_complete` does not itself authorize product work.
 Gate A1/A2 canonical paths are current pointers. Their forward-only issuance and archive verification use the fail-closed protocol in [Artifacts, Lineage, and Storage](08-artifacts-lineage-and-storage.md#15-g0-gate-archive-resolution). Promotion authorization must also bind a fresh candidate-specific authority-ref read whose wire value is exact `ABSENT` or a lowercase 40-hex OID; diagnostic state with `authoritative=false` or a zero-OID sentinel is not promotion evidence.
 
@@ -84,22 +84,22 @@ Acceptance:
 
 Deliver:
 - completed opt-in, evidence-gated adapter construction and `providers`/`doctor` reporting for exactly `kimi`, `zcode`, and `agy`;
-- exact configured-tuple capability evidence and assignment inputs.
+- runtime capability and role-fit evidence, with version, executable path, SHA-256, and adapter profile retained as diagnostic provenance.
 
 Acceptance:
 - standard CI remains network- and credential-free;
 - standalone remains unverified absent injected authority evidence and does not guess, create, or load a hidden authority source;
-- a configured tuple is supported only after its exact tuple evidence is PASS;
-- unavailable, inconclusive, failed, missing, or otherwise non-PASS tuples remain unsupported and block dependent assignments;
-- the only controlled live receipt recorded here is the exact Kimi `local-default` 0.23.6 tuple with binary SHA-256 `50c358...`; this does not claim that all tuples are live-tested or supported;
+- an allowlisted configured family is supported when its runtime capability and role-fit contracts succeed; version, executable path, SHA-256, and adapter profile do not gate ordinary use;
+- unavailable, inconclusive, failed, missing, or otherwise unsuccessful required runtime capabilities remain unsupported and block dependent assignments; a failure does not authorize family substitution;
+- the exact Kimi tuple `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, is historical controlled qualification evidence only; it does not pin ordinary support to that tuple. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate from release/platform status.
 - every unlisted provider family, including `codex` and `claude`, remains disabled and is rejected by strict configuration until a separately approved SOT extension lists it; no such family is an automatic fallback.
 
 ## 7. G008: Lineage, Retention, and Export
 
 G008 delivered:
-- application services and CLI dispatch boundaries for `followup`, `delta`, `rerun`, `clean`, and `export`, alongside the established `review` command;
+- application services and CLI dispatch boundaries for `followup`, `delta`, `rerun`, `clean`, and `export`; fake/composed offline P2 verification does not close production review verification;
 - immutable lineage edges, source/current evidence views, retention planning, tombstones, and redacted export;
-- executable behavior proven through a real composed P2 end-to-end test across root review, followup, delta, and exact rerun, plus focused cleanup and export tests; production standalone operation without canonical recorded provider/evidence authority fails closed with schema-valid typed failures, consistent with G007's opt-in authority rules.
+- executable behavior proven through fake/composed offline P2 workflow coverage across review-shaped, followup, delta, and exact rerun flows, plus focused cleanup and export tests; production `kar review` is composed and wired, but this offline evidence is not a substitute for its required authority gates and family-distinct normal P2 receipts.
 
 G008 acceptance:
 - every workflow creates a new run and preserves source bytes;
@@ -107,7 +107,7 @@ G008 acceptance:
 - dry-run/apply uses fixed epoch and exact plan hash; stale plans fail rather than recompute;
 - export and cleanup use secure paths, reject symlink escape, and keep redaction/export ownership in their application and adapter boundaries.
 
-G008 completion is not the integrated release gate. Its final Go, `go vet`, race, cleaner, executor QA, and architect-review receipts are retained with the durable G008 checkpoint. G009 remains pending and unauthorized, and no release CI or release asset is authorized.
+G008 completion is not the integrated production-review verification gate. Its final Go, `go vet`, race, cleaner, executor QA, and architect-review receipts are retained with the durable G008 checkpoint. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior integrated-gate evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION` and does not establish current production verification. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
 
 ## 8. G6: Future Platform Support Hardening
 
@@ -135,4 +135,4 @@ The following block release or promotion:
 - mutable completed artifacts, non-atomic final writes, stale cleanup application, or CAS retry with altered expected state;
 - absent source/current evidence identity, unversioned machine output, or secret persistence.
 - failure of `G0_EXTERNAL_JOIN_ORACLE`; intended-future cells do not block G0 and remain release-ineligible.
-- G009 integrated-gate review or test receipts not completed and retained by the leader; G008 completion alone never authorizes release CI or release assets.
+- release CI, asset creation, or publication without separate approval; no release asset or action is authorized. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`, and production `kar review` is composed and wired but incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`.

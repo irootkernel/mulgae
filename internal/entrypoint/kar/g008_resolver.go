@@ -2,7 +2,10 @@ package kar
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -17,7 +20,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-const defaultG008StdinLimit int64 = 4096
+const defaultG008StdinLimit int64 = ports.ReviewTargetMaxBytes
 
 // G008RunEnumerator is the filesystem-only namespace projection used to find
 // possible runs. It deliberately has no P2 interpretation authority.
@@ -34,17 +37,19 @@ type G008RequestResolver struct {
 	reader     io.Reader
 	stdinLimit int64
 
-	captureOnce sync.Once
-	captured    []byte
-	captureErr  error
+	captureOnce  sync.Once
+	captureMu    sync.Mutex
+	captured     []byte
+	captureToken string
+	captureErr   error
 
 	diagnosticsMu sync.Mutex
 	diagnostics   []string
 }
 
 // NewG008RequestResolver constructs the production selector resolver. The
-// optional limit permits a smaller integration limit; absent it, the parser's
-// target-value limit is used so captured stdin remains representable there.
+// optional limit permits a smaller integration limit; absent it, the review
+// target byte limit is used.
 func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, enumerator G008RunEnumerator, reader io.Reader, limit ...int64) (*G008RequestResolver, error) {
 	if !root.Valid() {
 		return nil, fmt.Errorf("G008 request resolver: invalid root")
@@ -59,8 +64,8 @@ func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, 
 		return nil, fmt.Errorf("G008 request resolver: stdin reader is required")
 	}
 	stdinLimit := defaultG008StdinLimit
-	if len(limit) > 1 || len(limit) == 1 && limit[0] <= 0 {
-		return nil, fmt.Errorf("G008 request resolver: stdin limit must be positive")
+	if len(limit) > 1 || len(limit) == 1 && (limit[0] <= 0 || limit[0] > ports.ReviewTargetMaxBytes) {
+		return nil, fmt.Errorf("G008 request resolver: stdin limit must be between 1 and %d bytes", ports.ReviewTargetMaxBytes)
 	}
 	if len(limit) == 1 {
 		stdinLimit = limit[0]
@@ -104,14 +109,23 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 			return "", err
 		}
 		run, resolveErr := resolver.queries.ResolveRun(ctx, resolver.root, candidate.RunID)
-		if resolveErr != nil || !run.Valid() || run.Root() != resolver.root || run.SessionID() != candidate.SessionID || run.RunID() != candidate.RunID {
-			diagnostics = append(diagnostics, candidatePath(candidate)+": cannot resolve canonical run")
-			continue
+		if resolveErr != nil {
+			if candidateIsCorruptRun(resolveErr) {
+				diagnostics = append(diagnostics, candidatePath(candidate)+": cannot resolve canonical run")
+				continue
+			}
+			return "", fmt.Errorf("resolve latest run candidate %s: %w", candidatePath(candidate), resolveErr)
+		}
+		if !run.Valid() || run.Root() != resolver.root || run.SessionID() != candidate.SessionID || run.RunID() != candidate.RunID {
+			return "", fmt.Errorf("resolve latest run candidate %s: query returned an invalid run scope", candidatePath(candidate))
 		}
 		review, readErr := resolver.queries.ReadCommitted(ctx, run)
 		if readErr != nil {
-			diagnostics = append(diagnostics, candidatePath(candidate)+": not P2 committed")
-			continue
+			if candidateIsNotP2Committed(readErr) {
+				diagnostics = append(diagnostics, candidatePath(candidate)+": not P2 committed")
+				continue
+			}
+			return "", fmt.Errorf("resolve latest committed candidate %s: %w", candidatePath(candidate), readErr)
 		}
 		createdAt, createdErr := committedCreatedAt(review.ManifestBytes())
 		if createdErr != nil {
@@ -126,9 +140,29 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 	sort.Strings(diagnostics)
 	resolver.setDiagnostics(diagnostics)
 	if !found {
-		return "", fmt.Errorf("resolve latest run: no P2 committed candidates%s", diagnosticSuffix(diagnostics))
+		return "", fmt.Errorf("%w: no P2 committed candidates%s", ErrSelectorUnavailable, diagnosticSuffix(diagnostics))
 	}
 	return latest.runID.String(), nil
+}
+
+func candidateIsCorruptRun(err error) bool {
+	var failure *domain.Failure
+	return errors.As(err, &failure) &&
+		failure.Class() == domain.FailureArtifact &&
+		failure.Reason() == "publication run resolution failed"
+}
+func candidateIsNotP2Committed(err error) bool {
+	var failure *domain.Failure
+	return errors.As(err, &failure) &&
+		failure.Class() == domain.FailureArtifact &&
+		failure.Reason() == "committed review is unavailable without P2 authority"
+}
+
+func attemptSelectorIsUnavailable(err error) bool {
+	var failure *domain.Failure
+	return errors.As(err, &failure) &&
+		failure.Class() == domain.FailureArtifact &&
+		failure.Reason() == "attempt selector does not resolve exactly one committed attempt"
 }
 
 // ResolvePublicationRun resolves an explicit canonical run within this
@@ -170,13 +204,17 @@ func (resolver *G008RequestResolver) ResolveAttempt(ctx context.Context, runSele
 	}
 	attempt, err := resolver.queries.ResolveCommittedAttempt(ctx, run, role, provider)
 	if err != nil {
+		if attemptSelectorIsUnavailable(err) {
+			return "", fmt.Errorf("%w: committed attempt selector did not resolve exactly once", ErrSelectorUnavailable)
+		}
 		return "", fmt.Errorf("resolve attempt: %w", err)
 	}
 	return attempt.AttemptID().String(), nil
 }
 
 // CaptureTarget reads the injected stdin exactly once, freezes the successful
-// bytes, and returns the same immutable parser-bound token on every call.
+// bytes behind an invocation-scoped opaque token, and returns that token on
+// every call. The token contains no review input bytes or input-derived data.
 func (resolver *G008RequestResolver) CaptureTarget(ctx context.Context) (string, error) {
 	if resolver == nil || ctx == nil {
 		return "", fmt.Errorf("capture stdin: invalid resolver or context")
@@ -185,7 +223,21 @@ func (resolver *G008RequestResolver) CaptureTarget(ctx context.Context) (string,
 		return "", err
 	}
 	resolver.captureOnce.Do(func() {
-		resolver.captured, resolver.captureErr = readFrozenStdin(ctx, resolver.reader, resolver.stdinLimit)
+		captured, err := readFrozenStdin(ctx, resolver.reader, resolver.stdinLimit)
+		if err != nil {
+			resolver.captureErr = err
+			return
+		}
+		token, err := newCapturedStdinToken()
+		if err != nil {
+			zeroBytes(captured)
+			resolver.captureErr = err
+			return
+		}
+		resolver.captureMu.Lock()
+		resolver.captured = captured
+		resolver.captureToken = token
+		resolver.captureMu.Unlock()
 	})
 	if resolver.captureErr != nil {
 		return "", resolver.captureErr
@@ -193,16 +245,33 @@ func (resolver *G008RequestResolver) CaptureTarget(ctx context.Context) (string,
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return string(resolver.captured), nil
+	resolver.captureMu.Lock()
+	defer resolver.captureMu.Unlock()
+	if resolver.captureToken == "" {
+		return "", fmt.Errorf("capture stdin: unavailable")
+	}
+	return resolver.captureToken, nil
 }
 
-// CapturedStdin returns a defensive copy of the frozen stdin bytes after a
-// successful capture. It never causes a read.
-func (resolver *G008RequestResolver) CapturedStdin() ([]byte, bool) {
-	if resolver == nil || resolver.captureErr != nil || resolver.captured == nil {
-		return nil, false
+// TakeCapturedStdin transfers a defensive copy of a captured stdin value once.
+// It removes and zeroes the resolver-owned input before returning.
+func (resolver *G008RequestResolver) TakeCapturedStdin(ctx context.Context, token string) ([]byte, error) {
+	if resolver == nil || ctx == nil {
+		return nil, fmt.Errorf("take captured stdin: invalid resolver or context")
 	}
-	return append([]byte(nil), resolver.captured...), true
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	resolver.captureMu.Lock()
+	defer resolver.captureMu.Unlock()
+	if token == "" || token != resolver.captureToken || resolver.captured == nil {
+		return nil, fmt.Errorf("take captured stdin: unknown or already-used token")
+	}
+	captured := append([]byte(nil), resolver.captured...)
+	zeroBytes(resolver.captured)
+	resolver.captured = nil
+	resolver.captureToken = ""
+	return captured, nil
 }
 
 // Diagnostics returns a defensive copy of deterministic latest-selection
@@ -263,7 +332,7 @@ func committedCreatedAt(manifest []byte) (time.Time, error) {
 }
 
 func readFrozenStdin(ctx context.Context, reader io.Reader, limit int64) ([]byte, error) {
-	if reader == nil || limit <= 0 {
+	if reader == nil || limit <= 0 || limit > ports.ReviewTargetMaxBytes {
 		return nil, fmt.Errorf("capture stdin: invalid input")
 	}
 	if err := ctx.Err(); err != nil {
@@ -282,13 +351,34 @@ func readFrozenStdin(ctx context.Context, reader io.Reader, limit int64) ([]byte
 	if int64(len(bytes)) > limit {
 		return nil, fmt.Errorf("capture stdin: input exceeds %d bytes", limit)
 	}
-	if strings.ContainsAny(string(bytes), "\x00\r\n") {
-		return nil, fmt.Errorf("capture stdin: input cannot cross the parser boundary")
+	if containsNUL(bytes) {
+		return nil, fmt.Errorf("capture stdin: input contains NUL")
 	}
 	if !utf8.Valid(bytes) {
 		return nil, fmt.Errorf("capture stdin: input is not valid UTF-8")
 	}
 	return append([]byte(nil), bytes...), nil
+}
+func newCapturedStdinToken() (string, error) {
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("capture stdin: generate token: %w", err)
+	}
+	return stdinCaptureTokenPrefix + hex.EncodeToString(random), nil
+}
+
+func containsNUL(bytes []byte) bool {
+	for _, byte := range bytes {
+		if byte == 0 {
+			return true
+		}
+	}
+	return false
+}
+func zeroBytes(bytes []byte) {
+	for index := range bytes {
+		bytes[index] = 0
+	}
 }
 
 func diagnosticSuffix(diagnostics []string) string {
@@ -298,4 +388,7 @@ func diagnosticSuffix(diagnostics []string) string {
 	return "; diagnostics: " + strings.Join(diagnostics, "; ")
 }
 
-var _ RequestResolver = (*G008RequestResolver)(nil)
+var (
+	_ RequestResolver          = (*G008RequestResolver)(nil)
+	_ ports.CapturedStdinStore = (*G008RequestResolver)(nil)
+)

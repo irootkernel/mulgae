@@ -83,6 +83,37 @@ func TestEnvelopeRendererMapsEveryExitCode(t *testing.T) {
 	}
 }
 
+func TestEnvelopeRendererHonorsCommandOwnedRetryability(t *testing.T) {
+	t.Parallel()
+	diagnostic, err := app.NewDiagnosticWithRetryable(
+		"cli.init",
+		domain.FailureArtifact,
+		"init_write_failed",
+		"The project-local KAR configuration could not be written.",
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.NewCommandFailure(app.CommandInit, app.ExitCodeArtifact, diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := mustEnvelopeRenderer(t, &envelopeValidator{}).Render(context.Background(), result, []byte(`{}`), []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Reasons []commandReason `json:"reasons"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || !envelope.Reasons[0].Retryable {
+		t.Fatalf("reasons = %#v, want retryable init artifact", envelope.Reasons)
+	}
+}
+
 func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 	t.Parallel()
 

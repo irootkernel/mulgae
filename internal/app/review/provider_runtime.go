@@ -167,13 +167,16 @@ func (capture AttemptCapture) Artifacts() []ports.CapturedAttemptArtifact {
 // provider, validation, repair, and evidence verification. It has no scheduler,
 // transition, fallback, or publication authority.
 type ProviderInvocationRuntime struct {
-	provider         ports.ReviewProvider
-	observed         ports.ObservedReviewProvider
-	source           InvocationPromptSource
-	validator        *validation.ReviewValidator
-	verifier         *evidence.Verifier
-	policy           EvidencePolicy
-	allowSourceScope bool
+	provider          ports.ReviewProvider
+	observed          ports.ObservedReviewProvider
+	source            InvocationPromptSource
+	validator         *validation.ReviewValidator
+	verifier          *evidence.Verifier
+	workspace         ports.WorkspaceExecutionAuthority
+	workspaceIdentity ports.WorkspaceSnapshotIdentity
+	hasWorkspace      bool
+	policy            EvidencePolicy
+	allowSourceScope  bool
 
 	mu        sync.Mutex
 	pending   map[domain.AttemptID]InvocationRepairInput
@@ -221,6 +224,26 @@ func NewObservedProviderInvocationRuntime(provider ports.ObservedReviewProvider,
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
 	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
+}
+
+// NewObservedProviderInvocationRuntimeWithWorkspace constructs an observed
+// runtime bound to one capture-owned workspace authority for every invocation.
+func NewObservedProviderInvocationRuntimeWithWorkspace(provider ports.ObservedReviewProvider, source InvocationPromptSource, workspace ports.WorkspaceExecutionAuthority, validator *validation.ReviewValidator, verifier *evidence.Verifier) (*ProviderInvocationRuntime, error) {
+	if nilInterface(workspace) {
+		return nil, fmt.Errorf("provider invocation runtime: nil workspace authority")
+	}
+	identity := workspace.WorkspaceSnapshotIdentity()
+	if !identity.Valid() {
+		return nil, fmt.Errorf("provider invocation runtime: invalid workspace identity")
+	}
+	runtime, err := NewObservedProviderInvocationRuntime(provider, source, validator, verifier)
+	if err != nil {
+		return nil, err
+	}
+	runtime.workspace = workspace
+	runtime.workspaceIdentity = identity
+	runtime.hasWorkspace = true
+	return runtime, nil
 }
 
 // Captures returns defensive captured artifacts in attempt then invocation order.
@@ -398,9 +421,9 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if err := runtime.recordRuntimeArtifact(job, material); err != nil {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
-	providerInvocation, err := ports.NewProviderInvocation(job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), material.Prompt.Stdin(), material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(), material.Prompt.CompleteStdinSHA256())
+	providerInvocation, err := runtime.providerInvocation(job, material)
 	if err != nil {
-		return runtimeCondition(job, AttemptConditionInternalInvariant)
+		return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, err))
 	}
 	var stdout, rawStdout, stderr []byte
 	if runtime.observed != nil {
@@ -580,7 +603,8 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	}
 	clone := &ProviderInvocationRuntime{
 		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
-		validator: runtime.validator, verifier: runtime.verifier, policy: runtime.policy,
+		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
+		workspaceIdentity: runtime.workspaceIdentity, hasWorkspace: runtime.hasWorkspace, policy: runtime.policy,
 		allowSourceScope: allowSourceScope,
 		pending:          clonePending, captures: make(map[captureKey]AttemptCapture),
 		inventory: make(map[captureKey]RuntimeArtifactInventory),
@@ -751,6 +775,27 @@ func (runtime *ProviderInvocationRuntime) recordRuntimeArtifact(job InvocationJo
 	return nil
 }
 
+func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, material RuntimePrompt) (ports.ProviderInvocation, error) {
+	packet, err := ports.NewProviderPacket(material.Prompt.Stdin(), material.Prompt.CompleteStdinSHA256())
+	if err != nil {
+		return ports.ProviderInvocation{}, err
+	}
+	if runtime.hasWorkspace {
+		if !sameWorkspaceSnapshotIdentity(runtime.workspace.WorkspaceSnapshotIdentity(), runtime.workspaceIdentity) {
+			return ports.ProviderInvocation{}, fmt.Errorf("%w: workspace identity changed", ports.ErrWorkspaceSnapshotDrift)
+		}
+		return ports.NewProviderInvocationWithPacketInWorkspace(
+			job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
+			material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
+			runtime.workspace,
+		)
+	}
+	return ports.NewProviderInvocationWithPacket(
+		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
+		material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
+	)
+}
+
 func runtimePurpose(purpose domain.InvocationPurpose) ports.ProviderInvocationPurpose {
 	if purpose == domain.InvocationRepair {
 		return ports.ProviderInvocationRepair
@@ -796,6 +841,9 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	if ctx != nil && ctx.Err() != nil {
 		return runtimeContextCondition(ctx.Err())
 	}
+	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
+		return AttemptConditionSecurityViolation
+	}
 	message := err.Error()
 	switch {
 	case strings.Contains(message, "unavailable"):
@@ -811,14 +859,34 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	}
 }
 func sameProviderInvocation(left, right ports.ProviderInvocation) bool {
-	return left.Role() == right.Role() &&
-		left.ProviderInstance() == right.ProviderInstance() &&
-		left.AttemptID() == right.AttemptID() &&
-		left.Purpose() == right.Purpose() &&
-		left.SourceInvocationID() == right.SourceInvocationID() &&
-		left.ExecutionInvocationID() == right.ExecutionInvocationID() &&
-		left.CompleteStdinSHA256() == right.CompleteStdinSHA256() &&
-		string(left.Stdin()) == string(right.Stdin())
+	if left.Role() != right.Role() ||
+		left.ProviderInstance() != right.ProviderInstance() ||
+		left.AttemptID() != right.AttemptID() ||
+		left.Purpose() != right.Purpose() ||
+		left.SourceInvocationID() != right.SourceInvocationID() ||
+		left.ExecutionInvocationID() != right.ExecutionInvocationID() ||
+		left.CompleteStdinSHA256() != right.CompleteStdinSHA256() ||
+		string(left.Stdin()) != string(right.Stdin()) {
+		return false
+	}
+	leftIdentity, leftHasWorkspace := left.WorkspaceSnapshotIdentity()
+	rightIdentity, rightHasWorkspace := right.WorkspaceSnapshotIdentity()
+	return leftHasWorkspace == rightHasWorkspace &&
+		(!leftHasWorkspace || sameWorkspaceSnapshotIdentity(leftIdentity, rightIdentity))
+}
+
+func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) bool {
+	leftRootDevice, leftRootInode := left.RootIdentity()
+	rightRootDevice, rightRootInode := right.RootIdentity()
+	leftSnapshotDevice, leftSnapshotInode := left.SnapshotFSIdentity()
+	rightSnapshotDevice, rightSnapshotInode := right.SnapshotFSIdentity()
+	return left.SnapshotName() == right.SnapshotName() &&
+		left.ManifestSHA256() == right.ManifestSHA256() &&
+		left.PolicyIdentity() == right.PolicyIdentity() &&
+		leftRootDevice == rightRootDevice &&
+		leftRootInode == rightRootInode &&
+		leftSnapshotDevice == rightSnapshotDevice &&
+		leftSnapshotInode == rightSnapshotInode
 }
 
 func observedStatusCondition(status ports.ProviderExecutionStatus) AttemptCondition {

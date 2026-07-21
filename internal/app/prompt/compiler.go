@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -21,14 +22,20 @@ const (
 	// fail; they are never silently truncated.
 	MaxReviewTargetBytes = 180000
 
-	framePreamble       = "KAR-UNTRUSTED/1\n"
-	framesPreamble      = "\nKAR-FRAMES/1\n"
-	framesEnd           = "KAR-FRAMES-END/1\n"
-	stdinHashDomain     = "KAR-PROVIDER-STDIN/1\x00"
-	sectionHashDomain   = "KAR-PROMPT-SECTION/1\x00"
-	sectionIDHexLength  = 32
-	sha256HexLength     = sha256.Size * 2
-	maximumDecimalBytes = 20
+	framePreamble                     = "KAR-UNTRUSTED/1\n"
+	framesPreamble                    = "\nKAR-FRAMES/1\n"
+	framesEnd                         = "KAR-FRAMES-END/1\n"
+	stdinHashDomain                   = "KAR-PROVIDER-STDIN/1\x00"
+	sectionHashDomain                 = "KAR-PROMPT-SECTION/1\x00"
+	sectionIDHexLength                = 32
+	sha256HexLength                   = sha256.Size * 2
+	maximumDecimalBytes               = 20
+	trustedLayerManifestSchemaVersion = "kar-trusted-layer-manifest.v1"
+	trustedLayerManifestMaximumBytes  = 4096
+	trustedLayerManifestMaximumLayers = 16
+	// TrustedLayerManifestAdapterParameter is the runtime adapter-parameter key
+	// persisted in each publication prompt manifest.
+	TrustedLayerManifestAdapterParameter = "trusted_layer_manifest"
 )
 
 // SectionKind identifies one untrusted frame type in the standalone grammar.
@@ -243,6 +250,8 @@ func NewTrustedLayer(id, version string, content []byte) (TrustedLayer, error) {
 func (layer TrustedLayer) ID() string      { return layer.id }
 func (layer TrustedLayer) Version() string { return layer.version }
 func (layer TrustedLayer) Bytes() []byte   { return cloneBytes(layer.bytes) }
+func (layer TrustedLayer) SHA256() string  { return payloadSHA256(layer.bytes) }
+func (layer TrustedLayer) ByteLength() int { return len(layer.bytes) }
 
 func (layer TrustedLayer) validate() error {
 	if err := validateTemplateLabel("layer id", layer.id); err != nil {
@@ -256,6 +265,31 @@ func (layer TrustedLayer) validate() error {
 	}
 	return nil
 }
+
+// TrustedLayerProvenance is one immutable ordered trusted-layer receipt.
+type TrustedLayerProvenance struct {
+	ordinal    int
+	id         string
+	version    string
+	sha256     string
+	byteLength int
+}
+
+func newTrustedLayerProvenance(ordinal int, layer TrustedLayer) TrustedLayerProvenance {
+	return TrustedLayerProvenance{
+		ordinal: ordinal, id: layer.id, version: layer.version,
+		sha256: payloadSHA256(layer.bytes), byteLength: len(layer.bytes),
+	}
+}
+
+// Ordinal is the one-based layer position in the trusted template.
+func (provenance TrustedLayerProvenance) Ordinal() int { return provenance.ordinal }
+func (provenance TrustedLayerProvenance) ID() string   { return provenance.id }
+func (provenance TrustedLayerProvenance) Version() string {
+	return provenance.version
+}
+func (provenance TrustedLayerProvenance) SHA256() string  { return provenance.sha256 }
+func (provenance TrustedLayerProvenance) ByteLength() int { return provenance.byteLength }
 
 // ComposeTrustedTemplate is the compiler-owned trusted-layer composer. It
 // inserts exactly one blank line between consecutive trusted layers and never
@@ -278,19 +312,39 @@ func ComposeTrustedTemplate(id, version string, layers ...TrustedLayer) (Trusted
 		}
 		content = append(content, layer.bytes...)
 	}
-	return NewTrustedTemplate(id, version, content)
+	provenance := make([]TrustedLayerProvenance, len(layers))
+	for index, layer := range layers {
+		provenance[index] = newTrustedLayerProvenance(index+1, layer)
+	}
+	return newTrustedTemplate(id, version, content, provenance)
 }
 
 // TrustedTemplate holds exact immutable trusted bytes. Its byte getter always
 // returns a copy, and the compiler copies it again when constructed.
 type TrustedTemplate struct {
-	id      string
-	version string
-	bytes   []byte
-	sha256  string
+	id         string
+	version    string
+	bytes      []byte
+	sha256     string
+	provenance []TrustedLayerProvenance
 }
 
 func NewTrustedTemplate(id, version string, content []byte) (TrustedTemplate, error) {
+	return newTrustedTemplate(id, version, content, nil)
+}
+
+// NewTrustedTemplateWithOpaqueLayer constructs a direct template with explicit
+// single-layer provenance. NewTrustedTemplate remains provenance-free for
+// backward compatibility.
+func NewTrustedTemplateWithOpaqueLayer(id, version string, content []byte) (TrustedTemplate, error) {
+	layer, err := NewTrustedLayer(id, version, content)
+	if err != nil {
+		return TrustedTemplate{}, err
+	}
+	return newTrustedTemplate(id, version, content, []TrustedLayerProvenance{newTrustedLayerProvenance(1, layer)})
+}
+
+func newTrustedTemplate(id, version string, content []byte, provenance []TrustedLayerProvenance) (TrustedTemplate, error) {
 	if err := validateTemplateLabel("id", id); err != nil {
 		return TrustedTemplate{}, err
 	}
@@ -301,12 +355,14 @@ func NewTrustedTemplate(id, version string, content []byte) (TrustedTemplate, er
 		return TrustedTemplate{}, fmt.Errorf("trusted template: must not end with LF")
 	}
 	copied := cloneBytes(content)
-	return TrustedTemplate{
-		id:      id,
-		version: version,
-		bytes:   copied,
-		sha256:  payloadSHA256(copied),
-	}, nil
+	template := TrustedTemplate{
+		id: id, version: version, bytes: copied, sha256: payloadSHA256(copied),
+		provenance: cloneTrustedLayerProvenance(provenance),
+	}
+	if err := template.validate(); err != nil {
+		return TrustedTemplate{}, err
+	}
+	return template, nil
 }
 
 func (template TrustedTemplate) ID() string      { return template.id }
@@ -314,6 +370,45 @@ func (template TrustedTemplate) Version() string { return template.version }
 func (template TrustedTemplate) Bytes() []byte   { return cloneBytes(template.bytes) }
 func (template TrustedTemplate) SHA256() string  { return template.sha256 }
 func (template TrustedTemplate) ByteLength() int { return len(template.bytes) }
+
+// TrustedLayerManifest returns caller-owned ordered immutable layer receipts.
+// Direct NewTrustedTemplate values intentionally return an empty manifest.
+func (template TrustedTemplate) TrustedLayerManifest() []TrustedLayerProvenance {
+	return cloneTrustedLayerProvenance(template.provenance)
+}
+
+// TrustedLayerManifestJSON returns a deterministic bounded representation for
+// runtime adapter parameters and publication manifests.
+func (template TrustedTemplate) TrustedLayerManifestJSON() (string, error) {
+	if len(template.provenance) > trustedLayerManifestMaximumLayers {
+		return "", fmt.Errorf("trusted template: layer manifest exceeds %d layers", trustedLayerManifestMaximumLayers)
+	}
+	type layer struct {
+		Ordinal    int    `json:"ordinal"`
+		ID         string `json:"id"`
+		Version    string `json:"version"`
+		SHA256     string `json:"sha256"`
+		ByteLength int    `json:"byte_length"`
+	}
+	encoded := struct {
+		SchemaVersion string  `json:"schema_version"`
+		Layers        []layer `json:"layers"`
+	}{SchemaVersion: trustedLayerManifestSchemaVersion, Layers: make([]layer, len(template.provenance))}
+	for index, provenance := range template.provenance {
+		encoded.Layers[index] = layer{
+			Ordinal: provenance.ordinal, ID: provenance.id, Version: provenance.version,
+			SHA256: provenance.sha256, ByteLength: provenance.byteLength,
+		}
+	}
+	bytes, err := json.Marshal(encoded)
+	if err != nil {
+		return "", fmt.Errorf("trusted template: marshal layer manifest: %w", err)
+	}
+	if len(bytes) > trustedLayerManifestMaximumBytes {
+		return "", fmt.Errorf("trusted template: layer manifest exceeds %d bytes", trustedLayerManifestMaximumBytes)
+	}
+	return string(bytes), nil
+}
 
 func (template TrustedTemplate) validate() error {
 	if err := validateTemplateLabel("id", template.id); err != nil {
@@ -324,6 +419,9 @@ func (template TrustedTemplate) validate() error {
 	}
 	if len(template.bytes) > 0 && template.bytes[len(template.bytes)-1] == '\n' {
 		return fmt.Errorf("trusted template: must not end with LF")
+	}
+	if err := validateTrustedLayerProvenance(template.provenance); err != nil {
+		return err
 	}
 	if template.sha256 != payloadSHA256(template.bytes) {
 		return fmt.Errorf("trusted template: SHA-256 does not match bytes")
@@ -1251,11 +1349,34 @@ func nilInterface(value any) bool {
 }
 func cloneTrustedTemplate(template TrustedTemplate) TrustedTemplate {
 	return TrustedTemplate{
-		id:      template.id,
-		version: template.version,
-		bytes:   cloneBytes(template.bytes),
-		sha256:  template.sha256,
+		id: template.id, version: template.version, bytes: cloneBytes(template.bytes),
+		sha256: template.sha256, provenance: cloneTrustedLayerProvenance(template.provenance),
 	}
+}
+
+func cloneTrustedLayerProvenance(source []TrustedLayerProvenance) []TrustedLayerProvenance {
+	return append([]TrustedLayerProvenance(nil), source...)
+}
+
+func validateTrustedLayerProvenance(provenance []TrustedLayerProvenance) error {
+	for index, layer := range provenance {
+		if layer.ordinal != index+1 {
+			return fmt.Errorf("trusted template: layer manifest ordinal %d is invalid", layer.ordinal)
+		}
+		if err := validateTemplateLabel("layer id", layer.id); err != nil {
+			return err
+		}
+		if err := validateTemplateLabel("layer version", layer.version); err != nil {
+			return err
+		}
+		if !isLowerHexString(layer.sha256, sha256HexLength) {
+			return fmt.Errorf("trusted template: layer manifest SHA-256 is invalid")
+		}
+		if layer.byteLength < 0 {
+			return fmt.Errorf("trusted template: layer manifest byte length is invalid")
+		}
+	}
+	return nil
 }
 
 func cloneSections(sections []FramedSection) []FramedSection {

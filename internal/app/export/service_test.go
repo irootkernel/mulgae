@@ -42,6 +42,9 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 	if manifest.Bundle.SHA256 != digest(first.Bytes) || manifest.Bundle.SizeBytes != int64(len(first.Bytes)) || manifest.Bundle.MemberCount != len(first.Members) {
 		t.Fatal("bundle manifest does not match finished bundle")
 	}
+	if manifest.CurrentIdentity.CurrentExcerptSHA256 != source.CurrentIdentity.CurrentExcerptSHA256 {
+		t.Fatal("manifest lost the current excerpt digest")
+	}
 	if len(first.Members) != 6 {
 		t.Fatalf("member count = %d", len(first.Members))
 	}
@@ -49,16 +52,38 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var evidence []Evidence
+	var decodedMembers []byte
 	for index, file := range reader.File {
 		if file.Name != first.Members[index].Path || !canonicalPathPattern.MatchString(file.Name) {
 			t.Fatalf("unsafe or unordered member %q", file.Name)
 		}
+		member, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(member)
+		closeErr := member.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		decodedMembers = append(decodedMembers, data...)
+		if file.Name == "evidence.json" {
+			if err := json.Unmarshal(data, &evidence); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	contents := string(first.Bytes)
-	if bytes.Contains([]byte(contents), []byte("/Users/alice/private")) {
+	if len(evidence) != 1 || evidence[0].SourceExcerptSHA256 != source.Evidence[0].SourceExcerptSHA256 || evidence[0].CurrentExcerptSHA256 != source.Evidence[0].CurrentExcerptSHA256 {
+		t.Fatalf("evidence digest mapping = %#v", evidence)
+	}
+	if bytes.Contains(decodedMembers, []byte("/Users/alice/private")) {
 		t.Fatal("absolute path was retained")
 	}
-	if !bytes.Contains([]byte(contents), []byte("[redacted-path]")) {
+	if !bytes.Contains(decodedMembers, []byte("[redacted-path]")) {
 		t.Fatal("absolute path was not redacted")
 	}
 	issued, err := ports.NewSecureWriteReceipt(testRoot(t), testBundlePath(t), digest(first.Bytes), int64(len(first.Bytes)), "export_bundle", []string{source.RunID, source.ReviewID})
@@ -75,6 +100,38 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 	}
 	if bytes.Contains(manifestBytes, []byte("raw_provider_output")) {
 		t.Fatal("sidecar unexpectedly embeds bundle contents")
+	}
+}
+func TestBuildRedactedBundlePreservesSelectedFollowupAndHistoricalEvidenceIdentities(t *testing.T) {
+	source := validProjection()
+	source.RunID = "r_018f0d1a-0000-7000-8000-000000000005"
+	source.ReviewID = "018f0d1a-0000-7000-8000-000000000006"
+	source.RunManifest = ImmutableArtifactRef{ArtifactPath: "runs/followup-run-manifest.json", SHA256: testHash("1")}
+	source.ReviewArtifact = ImmutableArtifactRef{ArtifactPath: "reviews/followup-review.json", SHA256: testHash("2")}
+
+	_, manifest, err := BuildRedactedBundle(source, validOptions())
+	if err != nil {
+		t.Fatalf("build followup export: %v", err)
+	}
+	if manifest.ImmutableSource.SessionID != source.SessionID ||
+		manifest.ImmutableSource.RunID != source.RunID ||
+		manifest.ImmutableSource.ReviewID != source.ReviewID ||
+		manifest.ImmutableSource.RunManifestRef != source.RunManifest ||
+		manifest.ImmutableSource.ReviewArtifactRef != source.ReviewArtifact {
+		t.Fatalf("selected immutable source = %#v", manifest.ImmutableSource)
+	}
+	if manifest.SourceIdentity != source.SourceIdentity ||
+		manifest.SourceIdentity.RunID == manifest.ImmutableSource.RunID ||
+		manifest.SourceIdentity.ReviewID == manifest.ImmutableSource.ReviewID {
+		t.Fatalf("historical source identity = %#v, selected = %#v", manifest.SourceIdentity, manifest.ImmutableSource)
+	}
+	if len(manifest.Members) == 0 ||
+		len(source.Evidence) != 1 ||
+		source.Evidence[0].SourceRunID != manifest.SourceIdentity.RunID ||
+		source.Evidence[0].SourceReviewID != manifest.SourceIdentity.ReviewID ||
+		source.Evidence[0].CurrentExcerptSHA256 != source.CurrentIdentity.CurrentExcerptSHA256 ||
+		manifest.CurrentIdentity != source.CurrentIdentity {
+		t.Fatalf("evidence/current identity = %#v/%#v", source.Evidence, manifest.CurrentIdentity)
 	}
 }
 
@@ -97,12 +154,12 @@ func validProjection() VerifiedSourceProjection {
 	return VerifiedSourceProjection{
 		SessionID: "s_018f0d1a-0000-7000-8000-000000000001", RunID: "r_018f0d1a-0000-7000-8000-000000000002", ReviewID: "018f0d1a-0000-7000-8000-000000000003",
 		RunManifest: ImmutableArtifactRef{ArtifactPath: "runs/run-manifest.json", SHA256: testHash("a")}, ReviewArtifact: ImmutableArtifactRef{ArtifactPath: "reviews/review.json", SHA256: testHash("b")},
-		SchemaVersions: []string{"kar-review-artifact.v2", "kar-run-manifest.v2"}, Review: Review{SchemaVersion: "kar-review-artifact.v2", ContentVerdict: "findings"}, Run: Run{SchemaVersion: "kar-run-manifest.v2", State: "completed"},
+		SchemaVersions: []string{"kar-review-artifact.v2", "kar-run-manifest.v2"}, Review: Review{SchemaVersion: "kar-review-artifact.v2", ContentVerdict: string(domain.ContentRequestChanges)}, Run: Run{SchemaVersion: "kar-run-manifest.v2", State: "completed"},
 		Findings:        []Finding{{ID: "FINDING_1", Fingerprint: testHash("c"), Role: "security", Severity: "high", Title: "Path leak", Description: "seen at /Users/alice/private/file.go", Recommendation: "remove it", Confidence: "high", Lifecycle: "open"}},
-		Evidence:        []Evidence{{FindingID: "FINDING_1", SourceSessionID: "s_018f0d1a-0000-7000-8000-000000000001", SourceRunID: "r_018f0d1a-0000-7000-8000-000000000002", SourceReviewID: "018f0d1a-0000-7000-8000-000000000003", SourceFindingID: "FINDING_1", SourceTargetSHA256: testHash("d"), SourceExcerptSHA256: testHash("e"), TargetSHA256: testHash("f"), Path: "internal/app/export/model.go", Side: "head", LineStart: 1, LineEnd: 2, Verification: "verified"}},
+		Evidence:        []Evidence{{FindingID: "FINDING_1", SourceSessionID: "s_018f0d1a-0000-7000-8000-000000000001", SourceRunID: "r_018f0d1a-0000-7000-8000-000000000002", SourceReviewID: "018f0d1a-0000-7000-8000-000000000003", SourceFindingID: "FINDING_1", SourceTargetSHA256: testHash("d"), SourceExcerptSHA256: testHash("e"), TargetSHA256: testHash("f"), CurrentExcerptSHA256: testHash("0"), Path: "internal/app/export/model.go", Side: "head", LineStart: 1, LineEnd: 2, Verification: "verified"}},
 		Redaction:       RedactionManifest{Policy: "redacted_export"},
 		SourceIdentity:  SourceIdentity{SessionID: "s_018f0d1a-0000-7000-8000-000000000001", RunID: "r_018f0d1a-0000-7000-8000-000000000002", ReviewID: "018f0d1a-0000-7000-8000-000000000003", FindingID: "FINDING_1", SourceTargetSHA256: testHash("d"), SourceExcerptSHA256: testHash("e")},
-		CurrentIdentity: CurrentIdentity{TargetSHA256: testHash("f"), Path: "internal/app/export/model.go", Side: "head", LineStart: 1, LineEnd: 2, Verification: "verified"},
+		CurrentIdentity: CurrentIdentity{TargetSHA256: testHash("f"), CurrentExcerptSHA256: testHash("0"), Path: "internal/app/export/model.go", Side: "head", LineStart: 1, LineEnd: 2, Verification: "verified"},
 	}
 }
 
@@ -111,6 +168,33 @@ func validOptions() BuildOptions {
 }
 func testHash(character string) string {
 	return "sha256:" + string(bytes.Repeat([]byte(character), 64))
+}
+
+func decodeBundleMember(t *testing.T, bundle Bundle, name string, destination any) {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(bundle.Bytes), int64(len(bundle.Bytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		member, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		decodeErr := json.NewDecoder(member).Decode(destination)
+		closeErr := member.Close()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		return
+	}
+	t.Fatalf("bundle member %q not found", name)
 }
 
 type exportReader struct {
@@ -229,6 +313,7 @@ func TestExportRedactedRunUsesCommittedReaderAndSecureWriter(t *testing.T) {
 }
 func TestExportRedactedRunAcceptsCommittedNoFindingsProjection(t *testing.T) {
 	source := validProjection()
+	source.Review.ContentVerdict = string(domain.ContentNoFindings)
 	source.Findings = nil
 	source.Evidence = nil
 	source.SourceIdentity.FindingID = ""
@@ -240,12 +325,20 @@ func TestExportRedactedRunAcceptsCommittedNoFindingsProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.ExportRedactedRun(context.Background(), exportRequestFor(source))
+	result, err := service.ExportRedactedRun(context.Background(), exportRequestFor(t, source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(writer.writes) != 2 || len(result.Bundle.Members) != 6 || result.Manifest.SourceIdentity.SourceTargetSHA256 != testHash("f") || result.Manifest.CurrentIdentity.TargetSHA256 != testHash("f") {
-		t.Fatalf("no-findings export = %#v, writes=%d", result.Manifest, len(writer.writes))
+	var findings []Finding
+	decodeBundleMember(t, result.Bundle, "findings.json", &findings)
+	var evidence []Evidence
+	decodeBundleMember(t, result.Bundle, "evidence.json", &evidence)
+	if len(writer.writes) != 2 || len(result.Bundle.Members) != 6 ||
+		len(findings) != 0 || len(evidence) != 0 ||
+		result.Manifest.SourceIdentity.SourceTargetSHA256 != testHash("f") ||
+		result.Manifest.CurrentIdentity.TargetSHA256 != testHash("f") ||
+		result.Manifest.CurrentIdentity.CurrentExcerptSHA256 != "" {
+		t.Fatalf("no-findings export = %#v, findings=%#v, evidence=%#v, writes=%d", result.Manifest, findings, evidence, len(writer.writes))
 	}
 }
 
@@ -257,9 +350,56 @@ func TestExportRedactedRunRejectsUnboundTargetIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(source))
+	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(t, source))
 	if !errors.Is(err, ErrMalformedProjection) || len(writer.writes) != 0 {
 		t.Fatalf("unbound target identity error = %v, writes=%d", err, len(writer.writes))
+	}
+}
+
+func TestExportRedactedRunRejectsMissingOrInvalidCurrentExcerptDigest(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*VerifiedSourceProjection)
+	}{
+		{
+			name: "missing current identity digest",
+			mutate: func(source *VerifiedSourceProjection) {
+				source.CurrentIdentity.CurrentExcerptSHA256 = ""
+			},
+		},
+		{
+			name: "invalid current identity digest",
+			mutate: func(source *VerifiedSourceProjection) {
+				source.CurrentIdentity.CurrentExcerptSHA256 = "sha256:not-a-digest"
+			},
+		},
+		{
+			name: "missing evidence digest",
+			mutate: func(source *VerifiedSourceProjection) {
+				source.Evidence[0].CurrentExcerptSHA256 = ""
+			},
+		},
+		{
+			name: "invalid evidence digest",
+			mutate: func(source *VerifiedSourceProjection) {
+				source.Evidence[0].CurrentExcerptSHA256 = "sha256:not-a-digest"
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			source := validProjection()
+			test.mutate(&source)
+			writer := &exportWriter{}
+			service, err := NewService(exportReader{source: source}, writer, 1<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(t, source))
+			if !errors.Is(err, ErrMalformedProjection) || len(writer.writes) != 0 {
+				t.Fatalf("export error = %v, writes = %d", err, len(writer.writes))
+			}
+		})
 	}
 }
 func TestExportRedactedRunRejectsSecretsBeforeInstallAsSecurityFailure(t *testing.T) {
@@ -271,7 +411,7 @@ func TestExportRedactedRunRejectsSecretsBeforeInstallAsSecurityFailure(t *testin
 		t.Fatal(err)
 	}
 
-	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(source))
+	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(t, source))
 	if !errors.Is(err, ErrSecretDetected) || len(writer.writes) != 0 {
 		t.Fatalf("secret export = %v, writes = %d", err, len(writer.writes))
 	}
@@ -286,7 +426,7 @@ func TestExportRedactedRunPreservesSourceCancellationWithoutInstalling(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(validProjection()))
+	_, err = service.ExportRedactedRun(context.Background(), exportRequestFor(t, validProjection()))
 	if !errors.Is(err, ErrUnverifiedSource) || !errors.Is(err, context.Canceled) || len(writer.writes) != 0 {
 		t.Fatalf("source cancellation = %v, writes = %d", err, len(writer.writes))
 	}
@@ -294,9 +434,12 @@ func TestExportRedactedRunPreservesSourceCancellationWithoutInstalling(t *testin
 
 func TestExportRedactedRunFailsClosedForUnsafeAndInterruptedWrites(t *testing.T) {
 	source := validProjection()
-	root, _ := ports.NewAnchoredRoot("/tmp/kar-export")
-	bundlePath, _ := ports.NewSafeRelativePath("exports/review.zip")
-	manifestPath, _ := ports.NewSafeRelativePath("exports/review.manifest.json")
+	root := testRoot(t)
+	bundlePath := testBundlePath(t)
+	manifestPath, err := ports.NewSafeRelativePath("exports/review.manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := ExportRequest{
 		Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID},
 		Root:   root, BundlePath: bundlePath, ManifestPath: manifestPath,
@@ -388,17 +531,21 @@ func (installer recoverableExportInstaller) Install(ctx context.Context, request
 	return ExportInstallResult{BundleReceipt: state.bundleReceipt, ManifestReceipt: state.manifestReceipt, ManifestBytes: append([]byte(nil), state.manifest...)}, nil
 }
 
-func exportRequestFor(source VerifiedSourceProjection) ExportRequest {
-	root, _ := ports.NewAnchoredRoot("/tmp/kar-export")
-	bundle, _ := ports.NewSafeRelativePath("exports/review.zip")
-	manifest, _ := ports.NewSafeRelativePath("exports/review.manifest.json")
+func exportRequestFor(t *testing.T, source VerifiedSourceProjection) ExportRequest {
+	t.Helper()
+	root := testRoot(t)
+	bundle := testBundlePath(t)
+	manifest, err := ports.NewSafeRelativePath("exports/review.manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return ExportRequest{Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID}, Root: root, BundlePath: bundle, ManifestPath: manifest, ExportID: validOptions().ExportID, CreatedAt: validOptions().CreatedAt}
 }
 
 func TestExportRedactedRunRecoversAfterBundleInstallFailure(t *testing.T) {
 	source := validProjection()
 	state := &recoverableExportState{failAfterBundle: true}
-	request := exportRequestFor(source)
+	request := exportRequestFor(t, source)
 	first, err := NewService(exportReader{source: source}, recoverableExportInstaller{state}, 1<<20)
 	if err != nil {
 		t.Fatal(err)
@@ -429,13 +576,13 @@ func TestExportRedactedRunCancellationAndNoReplaceConflict(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 	cancelErr := func() error {
-		_, err := service.ExportRedactedRun(cancelled, exportRequestFor(source))
+		_, err := service.ExportRedactedRun(cancelled, exportRequestFor(t, source))
 		return err
 	}()
 	if !errors.Is(cancelErr, ErrSecureInstall) || !errors.Is(cancelErr, context.Canceled) || state.bundle != nil {
 		t.Fatalf("cancelled export = %v, bundle=%t", cancelErr, state.bundle != nil)
 	}
-	if _, err := service.ExportRedactedRun(context.Background(), exportRequestFor(source)); err != nil {
+	if _, err := service.ExportRedactedRun(context.Background(), exportRequestFor(t, source)); err != nil {
 		t.Fatal(err)
 	}
 	conflict := validProjection()
@@ -444,7 +591,7 @@ func TestExportRedactedRunCancellationAndNoReplaceConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conflicting.ExportRedactedRun(context.Background(), exportRequestFor(conflict)); !errors.Is(err, ErrSecureInstall) {
+	if _, err := conflicting.ExportRedactedRun(context.Background(), exportRequestFor(t, conflict)); !errors.Is(err, ErrSecureInstall) {
 		t.Fatalf("no-replace conflict error = %v", err)
 	}
 }

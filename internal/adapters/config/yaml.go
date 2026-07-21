@@ -2,9 +2,11 @@ package config
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
-	"io"
+	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,1047 +18,521 @@ import (
 )
 
 const (
-	maxConfiguredLimit = 1_000_000
-	maxOutputBytes     = 1 << 30
-	// maxRawYAMLBytes is the hard pre-parse bound on yaml.v3 parser input.
-	maxRawYAMLBytes = 1 << 20
-	// The remaining limits are post-compose structural semantic budgets.
-	maxYAMLDepth        = 64
-	maxYAMLNodes        = 10_000
-	maxYAMLScalarBytes  = 64 << 10
-	redactedPathSegment = "[<redacted>]"
-	maxSourceLabelBytes = 256
+	maxYAMLDepth       = 64
+	maxYAMLNodes       = 8192
+	maxYAMLScalarBytes = 64 << 10
 )
 
-var byteSizePattern = regexp.MustCompile(`^([1-9][0-9]{0,8})(KiB|MiB|GiB)$`)
-
-var yamlErrorCoordinatePattern = regexp.MustCompile(`(?m)(?:^|yaml:[[:space:]]+|\n[[:space:]]*)line[[:space:]]+([0-9]+)(?::[[:space:]]*(?:column[[:space:]]+)?([0-9]+))?`)
-
-var fixedRoles = []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
-var severities = []string{"info", "low", "medium", "high", "critical", "blocker"}
-
-// DecodeGlobal strictly decodes a global configuration proposal. It performs no
-// merging and returns a zero GlobalConfig whenever any diagnostic is present.
-func DecodeGlobal(source string, data []byte) (GlobalConfig, error) {
-	var zero GlobalConfig
-	schema := globalSchema()
-	document, diagnostics := parseDocument(LayerGlobal, source, data, schema)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
+var (
+	modelPattern               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
+	byteSizePattern            = regexp.MustCompile(`^([1-9][0-9]{0,8})(KiB|MiB|GiB)$`)
+	placeholderPattern         = regexp.MustCompile(`\$\{[^{}]+\}`)
+	pemPrivateKeyHeaderPattern = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY-----`)
+	credentialPrefixes         = []string{"github_pat_", "xoxb-", "xoxp-", "xoxa-", "xoxr-", "sk-", "sk_", "ghp_"}
+	credentialKeys             = map[string]struct{}{
+		"api_key": {}, "apikey": {}, "access_key": {}, "access_token": {},
+		"auth_token": {}, "authorization": {}, "bearer_token": {},
+		"client_secret": {}, "credential": {}, "credentials": {},
+		"password": {}, "passwd": {}, "private_key": {}, "refresh_token": {},
+		"secret": {}, "secret_key": {}, "session_cookie": {}, "session_token": {}, "token": {},
 	}
+	fixedRoles      = []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	fixedSeverities = []string{"info", "low", "medium", "high", "critical", "blocker"}
+)
 
-	root := document.Content[0]
-	validateSchema(root, schema, LayerGlobal, sourceName(source), "$", &diagnostics)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
+// Decode admits the sole local configuration. Defaults are expanded in the
+// returned typed value while EncodeCanonical omits defaulted optional fields.
+func Decode(data []byte) (Config, error) {
+	var zero Config
+	root, err := parseBoundedDocument(data)
+	if err != nil {
+		return zero, err
 	}
-
-	var config GlobalConfig
-	if err := decodeKnown(data, &config); err != nil {
-		return zero, decodeError(LayerGlobal, sourceName(source), root, err)
+	if reason := scanCredentials(root); reason != "" {
+		return zero, reject(reason)
 	}
-
-	locations := indexLocations(root, schema)
-	validateGlobal(&config, locations, sourceName(source), &diagnostics)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
+	if !strictScalarGrammar(root) {
+		return zero, reject(ReasonYAMLInvalid)
 	}
-	return config, nil
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	var decoded Config
+	if err := decoder.Decode(&decoded); err != nil {
+		return zero, reject(ReasonYAMLInvalid)
+	}
+	if err := validate(&decoded); err != nil {
+		return zero, reject(ReasonYAMLInvalid)
+	}
+	return decoded, nil
 }
 
-// DecodeProject strictly decodes a trusted-base, strengthening-only project
-// proposal. It performs no merging and returns a zero ProjectConfig whenever
-// any diagnostic is present.
-func DecodeProject(source string, data []byte) (ProjectConfig, error) {
-	var zero ProjectConfig
-	schema := projectSchema()
-	document, diagnostics := parseDocument(LayerProject, source, data, schema)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
+func parseBoundedDocument(data []byte) (*yaml.Node, error) {
+	if len(data) == 0 || len(data) > MaximumConfigBytes || !utf8.Valid(data) {
+		return nil, reject(ReasonSizeInvalid)
 	}
-
-	root := document.Content[0]
-	validateSchema(root, schema, LayerProject, sourceName(source), "$", &diagnostics)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
-	}
-
-	var config ProjectConfig
-	if err := decodeKnown(data, &config); err != nil {
-		return zero, decodeError(LayerProject, sourceName(source), root, err)
-	}
-
-	locations := indexLocations(root, schema)
-	validateProject(&config, locations, sourceName(source), &diagnostics)
-	if len(diagnostics) != 0 {
-		return zero, newDiagnosticError(diagnostics)
-	}
-	return config, nil
-}
-
-func sourceName(source string) string {
-	if source == "" {
-		return "<memory>"
-	}
-
-	var label strings.Builder
-	label.Grow(min(len(source), maxSourceLabelBytes))
-	lastTruncationPoint := 0
-	for index := 0; index < len(source); {
-		character, width := utf8.DecodeRuneInString(source[index:])
-		var token string
-		switch {
-		case character == utf8.RuneError && width == 1:
-			token = fmt.Sprintf(`\x%02X`, source[index])
-		case unicode.IsControl(character):
-			token = escapedControl(character)
-		default:
-			token = source[index : index+width]
-		}
-		if label.Len()+len(token) > maxSourceLabelBytes {
-			return label.String()[:lastTruncationPoint] + "..."
-		}
-		label.WriteString(token)
-		if label.Len() <= maxSourceLabelBytes-3 {
-			lastTruncationPoint = label.Len()
-		}
-		index += width
-	}
-	return label.String()
-}
-
-func escapedControl(character rune) string {
-	switch character {
-	case '\n':
-		return `\n`
-	case '\r':
-		return `\r`
-	case '\t':
-		return `\t`
-	default:
-		if character <= 0xFF {
-			return fmt.Sprintf(`\x%02X`, character)
-		}
-		return fmt.Sprintf(`\u%04X`, character)
-	}
-}
-
-func min(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
-}
-
-func parseDocument(layer Layer, source string, data []byte, schema *yamlSchema) (*yaml.Node, []Diagnostic) {
-	name := sourceName(source)
-	if len(data) == 0 {
-		return nil, []Diagnostic{diagnosticAt(layer, name, "$", 1, 1, "empty_document", "configuration must contain exactly one mapping document")}
-	}
-	if len(data) > maxRawYAMLBytes {
-		return nil, []Diagnostic{diagnosticAt(layer, name, "$", 1, 1, "yaml_size_limit", "configuration exceeds the 1 MiB YAML input limit")}
-	}
-
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var document yaml.Node
-	if err := decoder.Decode(&document); err != nil {
-		if err == io.EOF {
-			return nil, []Diagnostic{diagnosticAt(layer, name, "$", 1, 1, "empty_document", "configuration must contain exactly one mapping document")}
-		}
-		return nil, []Diagnostic{parseDiagnostic(layer, name, err)}
+	if err := decoder.Decode(&document); err != nil || document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, reject(ReasonYAMLInvalid)
 	}
-
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err != nil {
-			return nil, []Diagnostic{parseDiagnostic(layer, name, err)}
-		}
-		return nil, []Diagnostic{diagnosticAt(layer, name, "$", document.Line, document.Column, "multiple_documents", "configuration must contain exactly one YAML document")}
+	if err := decoder.Decode(&extra); err == nil {
+		return nil, reject(ReasonYAMLInvalid)
 	}
-	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		line, column := nodePosition(&document)
-		return nil, []Diagnostic{diagnosticAt(layer, name, "$", line, column, "invalid_root", "configuration root must be a mapping")}
-	}
-	if diagnostic := yamlBoundDiagnostic(document.Content[0], layer, name); diagnostic != nil {
-		return nil, []Diagnostic{*diagnostic}
-	}
-
-	var diagnostics []Diagnostic
-	inspectYAML(document.Content[0], schema, layer, name, "$", &diagnostics)
-	return &document, diagnostics
-}
-
-func parseDiagnostic(layer Layer, source string, err error) Diagnostic {
-	line, column := errorPosition(err, 1, 1)
-	return diagnosticAt(layer, source, "$", line, column, "invalid_yaml", "configuration contains invalid YAML syntax")
-}
-
-// yamlBoundDiagnostic applies post-compose structural semantic budgets. The raw
-// byte limit above remains the hard bound on parser input memory.
-func yamlBoundDiagnostic(root *yaml.Node, layer Layer, source string) *Diagnostic {
-	type pendingNode struct {
+	type pending struct {
 		node  *yaml.Node
 		depth int
 	}
-	pending := []pendingNode{{node: root, depth: 1}}
+	stack := []pending{{document.Content[0], 1}}
 	nodes := 0
-	for len(pending) != 0 {
-		current := pending[len(pending)-1]
-		pending = pending[:len(pending)-1]
+	for len(stack) != 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 		nodes++
-		if nodes > maxYAMLNodes {
-			line, column := nodePosition(current.node)
-			diagnostic := diagnosticAt(layer, source, "$", line, column, "yaml_node_limit", "configuration exceeds the YAML node limit")
-			return &diagnostic
+		if nodes > maxYAMLNodes || current.depth > maxYAMLDepth || current.node.Kind == yaml.ScalarNode && len(current.node.Value) > maxYAMLScalarBytes {
+			return nil, reject(ReasonYAMLInvalid)
 		}
-		if current.depth > maxYAMLDepth {
-			line, column := nodePosition(current.node)
-			diagnostic := diagnosticAt(layer, source, "$", line, column, "yaml_depth_limit", "configuration exceeds the YAML nesting depth limit")
-			return &diagnostic
+		if current.node.Kind == yaml.AliasNode || current.node.Anchor != "" || current.node.Tag == "!!merge" || !coreTag(current.node.Tag) {
+			return nil, reject(ReasonYAMLInvalid)
 		}
-		if current.node.Kind == yaml.ScalarNode && len(current.node.Value) > maxYAMLScalarBytes {
-			line, column := nodePosition(current.node)
-			diagnostic := diagnosticAt(layer, source, "$", line, column, "yaml_scalar_limit", "configuration contains a scalar that exceeds the YAML scalar size limit")
-			return &diagnostic
-		}
-		for index := len(current.node.Content) - 1; index >= 0; index-- {
-			pending = append(pending, pendingNode{node: current.node.Content[index], depth: current.depth + 1})
-		}
-	}
-	return nil
-}
-
-func decodeKnown(data []byte, destination any) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	return decoder.Decode(destination)
-}
-
-func decodeError(layer Layer, source string, root *yaml.Node, err error) error {
-	line, column := nodePosition(root)
-	line, column = errorPosition(err, line, column)
-	return newDiagnosticError([]Diagnostic{diagnosticAt(layer, source, "$", line, column, "decode_error", "configuration values do not match the schema")})
-}
-
-func errorPosition(err error, fallbackLine, fallbackColumn int) (int, int) {
-	if err == nil {
-		return fallbackLine, fallbackColumn
-	}
-	matches := yamlErrorCoordinatePattern.FindStringSubmatch(err.Error())
-	if len(matches) == 0 {
-		return fallbackLine, fallbackColumn
-	}
-	line, parseErr := strconv.Atoi(matches[1])
-	if parseErr != nil || line < 1 {
-		return fallbackLine, fallbackColumn
-	}
-	if len(matches) < 3 || matches[2] == "" {
-		return line, fallbackColumn
-	}
-	column, parseErr := strconv.Atoi(matches[2])
-	if parseErr != nil || column < 1 {
-		return line, fallbackColumn
-	}
-	return line, column
-}
-
-func inspectYAML(node *yaml.Node, schema *yamlSchema, layer Layer, source, yamlPath string, diagnostics *[]Diagnostic) {
-	if node == nil {
-		return
-	}
-	if node.Anchor != "" {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "anchor_forbidden", "YAML anchors are not allowed")
-	}
-	if node.Kind == yaml.AliasNode {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "alias_forbidden", "YAML aliases are not allowed")
-		return
-	}
-	tag := node.ShortTag()
-	if tag == "!!null" {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "null_forbidden", "configuration fields must not be null")
-		return
-	}
-	if tag == "!!merge" {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "merge_forbidden", "YAML merge keys are not allowed")
-		return
-	}
-	if !isCoreYAMLTag(tag) {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "tag_forbidden", "non-core YAML tags are not allowed")
-	}
-
-	switch node.Kind {
-	case yaml.SequenceNode:
-		var itemSchema *yamlSchema
-		if schema != nil {
-			itemSchema = schema.item
-		}
-		for index, child := range node.Content {
-			inspectYAML(child, itemSchema, layer, source, sequencePath(yamlPath, index), diagnostics)
-		}
-	case yaml.MappingNode:
-		seen := make(map[string]struct{}, len(node.Content)/2)
-		for index := 0; index+1 < len(node.Content); index += 2 {
-			key, value := node.Content[index], node.Content[index+1]
-			if key.ShortTag() == "!!merge" {
-				valuePath := redactedPath(yamlPath)
-				appendNodeDiagnostic(diagnostics, layer, source, valuePath, key, "merge_forbidden", "YAML merge keys are not allowed")
-				inspectYAML(value, nil, layer, source, valuePath, diagnostics)
-				continue
-			}
-			inspectYAML(key, nil, layer, source, yamlPath, diagnostics)
-			if key.Kind != yaml.ScalarNode || key.ShortTag() != "!!str" {
-				appendNodeDiagnostic(diagnostics, layer, source, yamlPath, key, "non_string_key", "mapping keys must be strings")
-				inspectYAML(value, nil, layer, source, redactedPath(yamlPath), diagnostics)
-				continue
-			}
-
-			memberPath, memberSchema, _ := schemaMember(schema, yamlPath, key.Value)
-			valuePath := memberPath
-			if _, exists := seen[key.Value]; exists {
-				appendNodeDiagnostic(diagnostics, layer, source, valuePath, key, "duplicate_key", "mapping key is duplicated")
-			} else {
+		if current.node.Kind == yaml.MappingNode {
+			seen := make(map[string]struct{}, len(current.node.Content)/2)
+			for index := 0; index < len(current.node.Content); index += 2 {
+				key := current.node.Content[index]
+				if key.Kind != yaml.ScalarNode || key.Tag != "!!str" || !asciiScanKey(key.Value) {
+					return nil, reject(ReasonYAMLInvalid)
+				}
+				if _, duplicate := seen[key.Value]; duplicate {
+					return nil, reject(ReasonYAMLInvalid)
+				}
 				seen[key.Value] = struct{}{}
 			}
-			if secretLikeKey(key.Value) {
-				valuePath = redactedPath(yamlPath)
-				appendNodeDiagnostic(diagnostics, layer, source, valuePath, key, "secret_like_field", "secret-like fields are not accepted in configuration")
-			}
-			if layer == LayerProject {
-				if forbidden, reason := forbiddenProjectField(key.Value); forbidden {
-					valuePath = redactedPath(yamlPath)
-					appendNodeDiagnostic(diagnostics, layer, source, valuePath, key, "forbidden_field", reason)
-				}
-			}
-			inspectYAML(value, memberSchema, layer, source, valuePath, diagnostics)
+		}
+		if current.node.Tag == "!!null" {
+			return nil, reject(ReasonYAMLInvalid)
+		}
+		for index := len(current.node.Content) - 1; index >= 0; index-- {
+			stack = append(stack, pending{current.node.Content[index], current.depth + 1})
 		}
 	}
+	return document.Content[0], nil
 }
 
-func isCoreYAMLTag(tag string) bool {
-	switch tag {
-	case "!!str", "!!int", "!!float", "!!bool", "!!null", "!!seq", "!!map", "!!merge":
-		return true
-	default:
+func asciiScanKey(value string) bool {
+	if value == "" {
 		return false
 	}
-}
-
-func secretLikeKey(key string) bool {
-	switch key {
-	case "redact_secrets", "secret_output_policy":
-		return false
-	}
-	collapsed := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(key))
-	return strings.Contains(collapsed, "secret") || strings.Contains(collapsed, "token") || strings.Contains(collapsed, "password") || strings.Contains(collapsed, "credential") || strings.Contains(collapsed, "apikey")
-}
-
-func forbiddenProjectField(key string) (bool, string) {
-	switch strings.ToLower(key) {
-	case "providers", "provider", "provider_definitions", "driver", "status", "bin", "args":
-		return true, "project configuration cannot define providers or provider commands"
-	case "command", "commands", "shell":
-		return true, "project configuration cannot define shell or command execution"
-	case "env", "environment", "env_allowlist":
-		return true, "project configuration cannot configure environment"
-	case "template", "prompt_template", "trusted_templates", "project_prompt_overrides", "project_prompt_source":
-		return true, "project configuration cannot configure trusted templates or prompts"
-	case "allow_project_provider_commands", "allow_project_shell", "cross_process_lane_lock", "strategy", "reject_unknown_fields", "reject_empty_strings", "reject_placeholder_values", "repair", "same_provider", "max_attempts", "directory_mode", "file_mode", "preserve_raw_output", "redact_secrets", "secret_output_policy", "mutation_detection", "follow_symlinks", "symlink":
-		return true, "project configuration cannot set weakening-only policy"
-	default:
-		return false, ""
-	}
-}
-
-type yamlSchema struct {
-	kind       yaml.Kind
-	tag        string
-	fields     map[string]*yamlSchema
-	additional *yamlSchema
-	item       *yamlSchema
-	required   []string
-}
-
-func object(fields map[string]*yamlSchema) *yamlSchema {
-	return &yamlSchema{kind: yaml.MappingNode, tag: "!!map", fields: fields}
-}
-
-func requiredObject(fields map[string]*yamlSchema, required ...string) *yamlSchema {
-	schema := object(fields)
-	schema.required = required
-	return schema
-}
-
-func dictionary(value *yamlSchema) *yamlSchema {
-	return &yamlSchema{kind: yaml.MappingNode, tag: "!!map", additional: value}
-}
-
-func sequence(item *yamlSchema) *yamlSchema {
-	return &yamlSchema{kind: yaml.SequenceNode, tag: "!!seq", item: item}
-}
-
-func scalar(tag string) *yamlSchema {
-	return &yamlSchema{kind: yaml.ScalarNode, tag: tag}
-}
-
-func stringScalar() *yamlSchema {
-	return scalar("!!str")
-}
-
-func boolScalar() *yamlSchema {
-	return scalar("!!bool")
-}
-
-func intScalar() *yamlSchema {
-	return scalar("!!int")
-}
-
-func schemaMember(schema *yamlSchema, parent, key string) (string, *yamlSchema, bool) {
-	if schema == nil {
-		return redactedPath(parent), nil, false
-	}
-	if schema.fields != nil {
-		member, known := schema.fields[key]
-		if !known {
-			return redactedPath(parent), nil, false
-		}
-		return mappingPath(parent, key), member, true
-	}
-	if schema.additional != nil {
-		if validProviderInstanceID(key) {
-			return mappingPath(parent, key), schema.additional, true
-		}
-		return redactedPath(parent), schema.additional, true
-	}
-	return redactedPath(parent), nil, false
-}
-
-func validateSchema(node *yaml.Node, schema *yamlSchema, layer Layer, source, yamlPath string, diagnostics *[]Diagnostic) {
-	if node == nil || schema == nil {
-		return
-	}
-	tag := node.ShortTag()
-	if tag == "!!null" || tag == "!!merge" || !isCoreYAMLTag(tag) || node.Kind == yaml.AliasNode {
-		return
-	}
-	if node.Kind != schema.kind {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "invalid_node_kind", "field must be a "+schemaKindName(schema.kind))
-		return
-	}
-	if tag != schema.tag {
-		appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, "invalid_node_tag", "field must use the "+schema.tag+" YAML tag")
-		return
-	}
-
-	switch schema.kind {
-	case yaml.SequenceNode:
-		for index, child := range node.Content {
-			validateSchema(child, schema.item, layer, source, sequencePath(yamlPath, index), diagnostics)
-		}
-	case yaml.MappingNode:
-		seen := make(map[string]struct{}, len(node.Content)/2)
-		for index := 0; index+1 < len(node.Content); index += 2 {
-			key, value := node.Content[index], node.Content[index+1]
-			if key.Kind != yaml.ScalarNode || key.ShortTag() != "!!str" {
-				continue
-			}
-			memberPath, memberSchema, known := schemaMember(schema, yamlPath, key.Value)
-			if schema.fields != nil && !known {
-				appendNodeDiagnostic(diagnostics, layer, source, memberPath, key, "unknown_field", "field is not allowed by this configuration schema")
-				continue
-			}
-			seen[key.Value] = struct{}{}
-			validateSchema(value, memberSchema, layer, source, memberPath, diagnostics)
-		}
-		for _, key := range schema.required {
-			if _, configured := seen[key]; !configured {
-				appendNodeDiagnostic(diagnostics, layer, source, mappingPath(yamlPath, key), node, "missing_required_field", "field must be configured")
-			}
-		}
-	}
-}
-
-func schemaKindName(kind yaml.Kind) string {
-	switch kind {
-	case yaml.MappingNode:
-		return "mapping"
-	case yaml.SequenceNode:
-		return "sequence"
-	default:
-		return "scalar"
-	}
-}
-
-func globalSchema() *yamlSchema {
-	stringList := sequence(stringScalar())
-	provider := requiredObject(map[string]*yamlSchema{
-		"driver":           stringScalar(),
-		"status":           stringScalar(),
-		"bin":              stringScalar(),
-		"args":             stringList,
-		"concurrency_key":  stringScalar(),
-		"timeout_sec":      intScalar(),
-		"max_stdout_bytes": intScalar(),
-		"max_stderr_bytes": intScalar(),
-	}, "driver", "bin", "concurrency_key", "timeout_sec", "max_stdout_bytes", "max_stderr_bytes")
-	role := requiredObject(map[string]*yamlSchema{
-		"enabled": boolScalar(),
-	}, "enabled")
-	roles := requiredObject(map[string]*yamlSchema{
-		"logic":           role,
-		"security":        role,
-		"maintainability": role,
-		"product":         role,
-		"documentation":   role,
-		"testing":         role,
-	}, "logic", "security", "maintainability", "product", "documentation", "testing")
-	return requiredObject(map[string]*yamlSchema{
-		"version": intScalar(),
-		"runtime": requiredObject(map[string]*yamlSchema{
-			"home": stringScalar(),
-			"path": requiredObject(map[string]*yamlSchema{
-				"inherit": boolScalar(),
-				"prepend": stringList,
-				"append":  stringList,
-			}, "inherit", "prepend"),
-			"env_allowlist":    stringList,
-			"max_active_lanes": intScalar(),
-		}, "home", "path", "env_allowlist", "max_active_lanes"),
-		"execution": requiredObject(map[string]*yamlSchema{
-			"strategy":                stringScalar(),
-			"workspace_access":        stringScalar(),
-			"cross_process_lane_lock": boolScalar(),
-		}, "strategy", "workspace_access", "cross_process_lane_lock"),
-		"providers": dictionary(provider),
-		"roles":     roles,
-		"review": requiredObject(map[string]*yamlSchema{
-			"request_changes_on": stringList,
-		}, "request_changes_on"),
-		"validation": requiredObject(map[string]*yamlSchema{
-			"reject_unknown_fields":     boolScalar(),
-			"reject_empty_strings":      boolScalar(),
-			"reject_placeholder_values": boolScalar(),
-			"evidence": requiredObject(map[string]*yamlSchema{
-				"require_verified_for": stringList,
-			}, "require_verified_for"),
-			"repair": requiredObject(map[string]*yamlSchema{
-				"enabled":       boolScalar(),
-				"max_attempts":  intScalar(),
-				"same_provider": boolScalar(),
-			}, "enabled", "max_attempts", "same_provider"),
-		}, "reject_unknown_fields", "reject_empty_strings", "reject_placeholder_values", "evidence", "repair"),
-		"trust": requiredObject(map[string]*yamlSchema{
-			"required_roles":                  stringList,
-			"project_config":                  stringScalar(),
-			"project_prompt_overrides":        boolScalar(),
-			"project_prompt_source":           stringScalar(),
-			"allow_project_provider_commands": boolScalar(),
-			"allow_project_shell":             boolScalar(),
-		}, "required_roles", "project_config", "project_prompt_overrides", "project_prompt_source", "allow_project_provider_commands", "allow_project_shell"),
-		"resources": requiredObject(map[string]*yamlSchema{
-			"primary_repair_attempts":  intScalar(),
-			"fallback_repair_attempts": intScalar(),
-			"role_max_invocations":     intScalar(),
-			"run_max_invocations":      intScalar(),
-			"run_total_output_cap":     stringScalar(),
-		}, "primary_repair_attempts", "fallback_repair_attempts", "role_max_invocations", "run_max_invocations", "run_total_output_cap"),
-		"ci": requiredObject(map[string]*yamlSchema{
-			"fail_on_severity":      stringList,
-			"degraded_review_fails": boolScalar(),
-		}, "fail_on_severity", "degraded_review_fails"),
-		"artifacts": requiredObject(map[string]*yamlSchema{
-			"root":                stringScalar(),
-			"directory_mode":      stringScalar(),
-			"file_mode":           stringScalar(),
-			"preserve_raw_output": boolScalar(),
-		}, "root", "directory_mode", "file_mode", "preserve_raw_output"),
-		"safety": requiredObject(map[string]*yamlSchema{
-			"redact_secrets":       boolScalar(),
-			"secret_output_policy": stringScalar(),
-			"mutation_detection":   boolScalar(),
-		}, "redact_secrets", "secret_output_policy", "mutation_detection"),
-	}, "version", "runtime", "execution", "providers", "roles", "review", "validation", "trust", "resources", "ci", "artifacts", "safety")
-}
-
-func projectSchema() *yamlSchema {
-	stringList := sequence(stringScalar())
-	role := object(map[string]*yamlSchema{
-		"enabled": boolScalar(),
-		"guide":   stringScalar(),
-	})
-	roles := object(map[string]*yamlSchema{
-		"logic":           role,
-		"security":        role,
-		"maintainability": role,
-		"product":         role,
-		"documentation":   role,
-		"testing":         role,
-	})
-	return object(map[string]*yamlSchema{
-		"version":      intScalar(),
-		"trusted_base": boolScalar(),
-		"project": object(map[string]*yamlSchema{
-			"name":    stringScalar(),
-			"root":    stringScalar(),
-			"context": stringScalar(),
-		}),
-		"execution": object(map[string]*yamlSchema{
-			"workspace_access": stringScalar(),
-		}),
-		"review": object(map[string]*yamlSchema{
-			"required_roles":     stringList,
-			"request_changes_on": stringList,
-		}),
-		"roles": roles,
-		"validation": object(map[string]*yamlSchema{
-			"evidence": object(map[string]*yamlSchema{
-				"require_verified_for": stringList,
-			}),
-		}),
-		"resources": object(map[string]*yamlSchema{
-			"role_max_invocations": intScalar(),
-			"run_max_invocations":  intScalar(),
-			"run_total_output_cap": stringScalar(),
-		}),
-		"ci": object(map[string]*yamlSchema{
-			"fail_on_severity":      stringList,
-			"degraded_review_fails": boolScalar(),
-		}),
-	})
-}
-
-func indexLocations(root *yaml.Node, schema *yamlSchema) map[string]*yaml.Node {
-	locations := map[string]*yaml.Node{"$": root}
-	indexNode(root, schema, "$", locations)
-	return locations
-}
-
-func indexNode(node *yaml.Node, schema *yamlSchema, yamlPath string, locations map[string]*yaml.Node) {
-	if node == nil {
-		return
-	}
-	switch node.Kind {
-	case yaml.SequenceNode:
-		var itemSchema *yamlSchema
-		if schema != nil {
-			itemSchema = schema.item
-		}
-		for index, child := range node.Content {
-			childPath := sequencePath(yamlPath, index)
-			locations[childPath] = child
-			indexNode(child, itemSchema, childPath, locations)
-		}
-	case yaml.MappingNode:
-		for index := 0; index+1 < len(node.Content); index += 2 {
-			key, value := node.Content[index], node.Content[index+1]
-			if key.Kind != yaml.ScalarNode || key.ShortTag() != "!!str" {
-				continue
-			}
-			memberPath, memberSchema, _ := schemaMember(schema, yamlPath, key.Value)
-			if schema != nil && schema.additional != nil {
-				locations[memberPath] = key
-			} else {
-				locations[memberPath] = value
-			}
-			indexNode(value, memberSchema, memberPath, locations)
-		}
-	}
-}
-
-func validateGlobal(config *GlobalConfig, locations map[string]*yaml.Node, source string, diagnostics *[]Diagnostic) {
-	validateVersion(config.Version, "$.version", locations, LayerGlobal, source, diagnostics)
-	validateNonemptyConfigured(config.Runtime.Home, "$.runtime.home", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Runtime.MaxActiveLanes, "$.runtime.max_active_lanes", locations, LayerGlobal, source, diagnostics)
-	validateStringList(config.Runtime.EnvAllowlist, "$.runtime.env_allowlist", nil, locations, LayerGlobal, source, diagnostics)
-
-	validateEnum(config.Execution.Strategy, "$.execution.strategy", []string{"primary_only", "primary_with_fallback"}, locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Execution.WorkspaceAccess, "$.execution.workspace_access", []string{"none", "readonly_snapshot", "project"}, locations, LayerGlobal, source, diagnostics)
-
-	for instanceID, provider := range config.Providers {
-		providerPath := redactedPath("$.providers")
-		if validProviderInstanceID(instanceID) {
-			providerPath = mappingPath("$.providers", instanceID)
-		} else {
-			appendLocationDiagnostic(diagnostics, LayerGlobal, source, providerPath, locations, "invalid_provider_id", "provider instance ID must match [a-z][a-z0-9._-]{0,63}")
-		}
-		validateEnum(provider.Driver, providerPath+".driver", []string{"kimi", "zcode", "agy"}, locations, LayerGlobal, source, diagnostics)
-		validateEnum(provider.Status, providerPath+".status", []string{"unverified"}, locations, LayerGlobal, source, diagnostics)
-		validateNonemptyConfigured(provider.Bin, providerPath+".bin", locations, LayerGlobal, source, diagnostics)
-		validateStringList(provider.Args, providerPath+".args", nil, locations, LayerGlobal, source, diagnostics)
-		if normalized, valid := normalizeConcurrencyKey(provider.ConcurrencyKey); !valid {
-			if _, configured := locations[providerPath+".concurrency_key"]; configured {
-				appendLocationDiagnostic(diagnostics, LayerGlobal, source, providerPath+".concurrency_key", locations, "invalid_concurrency_key", "concurrency key must normalize to an ASCII-lower key matching [a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
-			}
-		} else {
-			provider.ConcurrencyKey = normalized
-			config.Providers[instanceID] = provider
-		}
-		validateConfiguredPositive(provider.TimeoutSec, providerPath+".timeout_sec", locations, LayerGlobal, source, diagnostics)
-		validateConfiguredOutputLimit(provider.MaxStdoutBytes, providerPath+".max_stdout_bytes", locations, LayerGlobal, source, diagnostics)
-		validateConfiguredOutputLimit(provider.MaxStderrBytes, providerPath+".max_stderr_bytes", locations, LayerGlobal, source, diagnostics)
-	}
-
-	validateGlobalRoles(config.Roles, locations, source, diagnostics)
-	validateSeverityList(config.Review.RequestChangesOn, "$.review.request_changes_on", locations, LayerGlobal, source, diagnostics)
-	validateSeverityList(config.Validation.Evidence.RequireVerifiedFor, "$.validation.evidence.require_verified_for", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Validation.Repair.MaxAttempts, "$.validation.repair.max_attempts", locations, LayerGlobal, source, diagnostics)
-	validateRoleList(config.Trust.RequiredRoles, "$.trust.required_roles", locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Trust.ProjectConfig, "$.trust.project_config", []string{"trusted_base_only", "declarative_only"}, locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Trust.ProjectPromptSource, "$.trust.project_prompt_source", []string{"target_base"}, locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Resources.PrimaryRepairAttempts, "$.resources.primary_repair_attempts", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Resources.FallbackRepairAttempts, "$.resources.fallback_repair_attempts", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Resources.RoleMaxInvocations, "$.resources.role_max_invocations", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredPositive(config.Resources.RunMaxInvocations, "$.resources.run_max_invocations", locations, LayerGlobal, source, diagnostics)
-	validateConfiguredByteSize(config.Resources.RunTotalOutputCap, "$.resources.run_total_output_cap", locations, LayerGlobal, source, diagnostics)
-	validateSeverityList(config.CI.FailOnSeverity, "$.ci.fail_on_severity", locations, LayerGlobal, source, diagnostics)
-	validateSafeRelativePath(config.Artifacts.Root, "$.artifacts.root", false, locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Artifacts.DirectoryMode, "$.artifacts.directory_mode", []string{"0700"}, locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Artifacts.FileMode, "$.artifacts.file_mode", []string{"0600"}, locations, LayerGlobal, source, diagnostics)
-	validateEnum(config.Safety.SecretOutputPolicy, "$.safety.secret_output_policy", []string{"block"}, locations, LayerGlobal, source, diagnostics)
-}
-
-func validateProject(config *ProjectConfig, locations map[string]*yaml.Node, source string, diagnostics *[]Diagnostic) {
-	validateVersion(config.Version, "$.version", locations, LayerProject, source, diagnostics)
-	if !config.TrustedBase {
-		appendLocationDiagnostic(diagnostics, LayerProject, source, "$.trusted_base", locations, "trusted_base_required", "trusted_base must be true")
-	}
-	validateNonemptyValue(config.Project.Name, "$.project.name", locations, LayerProject, source, "empty_id", "project name must not be empty", diagnostics)
-	validateRequiredRelativePath(config.Project.Root, "$.project.root", true, locations, LayerProject, source, diagnostics)
-	validateSafeRelativePath(config.Project.Context, "$.project.context", false, locations, LayerProject, source, diagnostics)
-
-	if config.Execution != nil {
-		validateOptionalEnum(config.Execution.WorkspaceAccess, "$.execution.workspace_access", []string{"none", "readonly_snapshot", "project"}, locations, LayerProject, source, diagnostics)
-	}
-	if config.Review != nil {
-		if config.Review.RequiredRoles != nil {
-			validateRoleList(*config.Review.RequiredRoles, "$.review.required_roles", locations, LayerProject, source, diagnostics)
-		}
-		if config.Review.RequestChangesOn != nil {
-			validateSeverityList(*config.Review.RequestChangesOn, "$.review.request_changes_on", locations, LayerProject, source, diagnostics)
-		}
-	}
-	if config.Roles != nil {
-		validateProjectRole(config.Roles.Logic, "$.roles.logic", locations, source, diagnostics)
-		validateProjectRole(config.Roles.Security, "$.roles.security", locations, source, diagnostics)
-		validateProjectRole(config.Roles.Maintainability, "$.roles.maintainability", locations, source, diagnostics)
-		validateProjectRole(config.Roles.Product, "$.roles.product", locations, source, diagnostics)
-		validateProjectRole(config.Roles.Documentation, "$.roles.documentation", locations, source, diagnostics)
-		validateProjectRole(config.Roles.Testing, "$.roles.testing", locations, source, diagnostics)
-	}
-	if config.Validation != nil && config.Validation.Evidence != nil && config.Validation.Evidence.RequireVerifiedFor != nil {
-		validateSeverityList(*config.Validation.Evidence.RequireVerifiedFor, "$.validation.evidence.require_verified_for", locations, LayerProject, source, diagnostics)
-	}
-	if config.Resources != nil {
-		validateOptionalPositive(config.Resources.RoleMaxInvocations, "$.resources.role_max_invocations", locations, LayerProject, source, diagnostics)
-		validateOptionalPositive(config.Resources.RunMaxInvocations, "$.resources.run_max_invocations", locations, LayerProject, source, diagnostics)
-		validateOptionalByteSize(config.Resources.RunTotalOutputCap, "$.resources.run_total_output_cap", locations, LayerProject, source, diagnostics)
-	}
-	if config.CI != nil {
-		if config.CI.FailOnSeverity != nil {
-			validateSeverityList(*config.CI.FailOnSeverity, "$.ci.fail_on_severity", locations, LayerProject, source, diagnostics)
-		}
-		if config.CI.DegradedReviewFails != nil && !*config.CI.DegradedReviewFails {
-			appendLocationDiagnostic(diagnostics, LayerProject, source, "$.ci.degraded_review_fails", locations, "weakening_value", "project CI enforcement may only be set to true")
-		}
-	}
-}
-
-func validateGlobalRoles(roles RolesConfig, locations map[string]*yaml.Node, source string, diagnostics *[]Diagnostic) {
-	for _, role := range []struct {
-		name  string
-		value RoleConfig
-	}{
-		{"logic", roles.Logic},
-		{"security", roles.Security},
-		{"maintainability", roles.Maintainability},
-		{"product", roles.Product},
-		{"documentation", roles.Documentation},
-		{"testing", roles.Testing},
-	} {
-		rolePath := "$.roles." + role.name
-		if _, exists := locations[rolePath]; !exists {
-			appendLocationDiagnostic(diagnostics, LayerGlobal, source, rolePath, locations, "missing_role", "all six fixed roles must be configured")
-			continue
-		}
-		if _, exists := locations[rolePath+".enabled"]; !exists {
-			appendLocationDiagnostic(diagnostics, LayerGlobal, source, rolePath+".enabled", locations, "missing_required_field", "role enabled must be configured")
-		}
-	}
-}
-
-func validateProjectRole(role *ProjectRoleConfig, yamlPath string, locations map[string]*yaml.Node, source string, diagnostics *[]Diagnostic) {
-	if role == nil {
-		return
-	}
-	if role.Enabled != nil && !*role.Enabled {
-		appendLocationDiagnostic(diagnostics, LayerProject, source, yamlPath+".enabled", locations, "weakening_value", "project roles may not be disabled")
-	}
-	if role.Guide != nil && !safeGuide(*role.Guide) {
-		appendLocationDiagnostic(diagnostics, LayerProject, source, yamlPath+".guide", locations, "unsafe_path", "guide must be a nonempty, NUL-free trusted-base reference")
-	}
-}
-
-func validateVersion(version int, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if version != 1 {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "unsupported_version", "version must be 1")
-	}
-}
-
-func validateEnum(value, yamlPath string, allowed []string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured && !contains(allowed, value) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_enum", "value is not an allowed enum member")
-	}
-}
-
-func validateOptionalEnum(value *string, yamlPath string, allowed []string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if value != nil {
-		validateEnum(*value, yamlPath, allowed, locations, layer, source, diagnostics)
-	}
-}
-
-func validateRoleList(values []string, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	validateStringList(values, yamlPath, fixedRoles, locations, layer, source, diagnostics)
-}
-
-func validateSeverityList(values []string, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	validateStringList(values, yamlPath, severities, locations, layer, source, diagnostics)
-}
-
-func validateStringList(values []string, yamlPath string, allowed []string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	seen := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		entryPath := sequencePath(yamlPath, index)
-		if strings.TrimSpace(value) == "" {
-			appendLocationDiagnostic(diagnostics, layer, source, entryPath, locations, "empty_value", "list entries must not be empty")
-			continue
-		}
-		if allowed != nil && !contains(allowed, value) {
-			appendLocationDiagnostic(diagnostics, layer, source, entryPath, locations, "invalid_enum", "value is not an allowed enum member")
-		}
-		if _, exists := seen[value]; exists {
-			appendLocationDiagnostic(diagnostics, layer, source, entryPath, locations, "duplicate_value", "list entries must not be duplicated")
-		}
-		seen[value] = struct{}{}
-	}
-}
-
-func validateNonemptyConfigured(value, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured {
-		validateNonemptyValue(value, yamlPath, locations, layer, source, "empty_value", "value must not be empty", diagnostics)
-	}
-}
-
-func validateNonemptyValue(value, yamlPath string, locations map[string]*yaml.Node, layer Layer, source, code, message string, diagnostics *[]Diagnostic) {
-	if strings.TrimSpace(value) == "" {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, code, message)
-	}
-}
-
-func validateConfiguredPositive(value int, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured && (value <= 0 || value > maxConfiguredLimit) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_limit", fmt.Sprintf("limit must be between 1 and %d", maxConfiguredLimit))
-	}
-}
-
-func validateOptionalPositive(value *int, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if value != nil && (*value <= 0 || *value > maxConfiguredLimit) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_limit", fmt.Sprintf("limit must be between 1 and %d", maxConfiguredLimit))
-	}
-}
-
-func validateConfiguredOutputLimit(value int, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured && (value <= 0 || value > maxOutputBytes) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_limit", fmt.Sprintf("limit must be between 1 and %d", maxOutputBytes))
-	}
-}
-
-func validateConfiguredByteSize(value, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured && !validByteSize(value) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_limit", "output cap must be a bounded positive KiB, MiB, or GiB size")
-	}
-}
-
-func validateOptionalByteSize(value *string, yamlPath string, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if value != nil && !validByteSize(*value) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "invalid_limit", "output cap must be a bounded positive KiB, MiB, or GiB size")
-	}
-}
-
-func validByteSize(value string) bool {
-	matches := byteSizePattern.FindStringSubmatch(value)
-	if len(matches) != 3 {
-		return false
-	}
-	amount, err := strconv.ParseInt(matches[1], 10, 64)
-	if err != nil || amount <= 0 {
-		return false
-	}
-	multiplier := int64(1 << 10)
-	switch matches[2] {
-	case "MiB":
-		multiplier = 1 << 20
-	case "GiB":
-		multiplier = 1 << 30
-	}
-	return amount <= int64(maxOutputBytes)/multiplier
-}
-
-func validateSafeRelativePath(value, yamlPath string, allowDot bool, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; configured && !safeRelativePath(value, allowDot) {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "unsafe_path", "path must be canonical relative and cannot contain absolute, backslash, NUL, dot-dot, or symlink claims")
-	}
-}
-func validateRequiredRelativePath(value, yamlPath string, allowDot bool, locations map[string]*yaml.Node, layer Layer, source string, diagnostics *[]Diagnostic) {
-	if _, configured := locations[yamlPath]; !configured {
-		appendLocationDiagnostic(diagnostics, layer, source, yamlPath, locations, "missing_required_field", "path must be configured")
-		return
-	}
-	validateSafeRelativePath(value, yamlPath, allowDot, locations, layer, source, diagnostics)
-}
-
-func safeRelativePath(value string, allowDot bool) bool {
-	if value == "" || !utf8.ValidString(value) || norm.NFC.String(value) != value || strings.ContainsRune(value, 0) || strings.Contains(value, "\\") || strings.HasPrefix(value, "/") {
-		return false
-	}
-	if len(value) >= 3 && isASCIIAlpha(value[0]) && value[1] == ':' && value[2] == '/' {
-		return false
-	}
-	if path.Clean(value) != value {
-		return false
-	}
-	if value == "." {
-		return allowDot
-	}
-	for _, element := range strings.Split(value, "/") {
-		if element == "" || element == "." || element == ".." || strings.HasPrefix(strings.ToLower(element), "symlink:") {
+	for index := range value {
+		if value[index] < 0x20 || value[index] > 0x7e {
 			return false
 		}
 	}
 	return true
 }
 
-func safeGuide(value string) bool {
-	if strings.HasPrefix(value, "builtin:") {
-		return safeRelativePath(strings.TrimPrefix(value, "builtin:"), false)
+func strictScalarGrammar(root *yaml.Node) bool {
+	var walk func(*yaml.Node, bool) bool
+	walk = func(node *yaml.Node, mappingKey bool) bool {
+		if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+			if node.Value == "" || placeholderPattern.MatchString(node.Value) {
+				return false
+			}
+			for _, character := range node.Value {
+				if unicode.IsControl(character) {
+					return false
+				}
+			}
+			if mappingKey && !asciiKey(node.Value) {
+				return false
+			}
+		}
+		if node.Kind == yaml.MappingNode {
+			for index := 0; index < len(node.Content); index += 2 {
+				if !walk(node.Content[index], true) || !walk(node.Content[index+1], false) {
+					return false
+				}
+			}
+			return true
+		}
+		for _, child := range node.Content {
+			if !walk(child, false) {
+				return false
+			}
+		}
+		return true
 	}
-	return safeRelativePath(value, false)
+	return walk(root, false)
 }
 
-func normalizeConcurrencyKey(value string) (string, bool) {
-	value = norm.NFC.String(value)
-	if !utf8.ValidString(value) || value == "" || len(value) > 64 {
-		return "", false
+func coreTag(tag string) bool {
+	switch tag {
+	case "", "!!map", "!!seq", "!!str", "!!bool", "!!int":
+		return true
+	default:
+		return false
 	}
-	bytes := []byte(value)
-	for index, character := range bytes {
-		if character >= 'A' && character <= 'Z' {
-			bytes[index] = character + ('a' - 'A')
-		}
-	}
-	value = string(bytes)
-	for _, character := range value {
-		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-') {
-			return "", false
-		}
-	}
-	if !isASCIIAlphaNumeric(value[0]) || !isASCIIAlphaNumeric(value[len(value)-1]) {
-		return "", false
-	}
-	return value, true
 }
 
-func validProviderInstanceID(value string) bool {
-	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+func asciiKey(value string) bool {
+	if value == "" {
 		return false
 	}
-	for index := 1; index < len(value); index++ {
-		character := value[index]
-		if (character >= 'a' && character <= 'z') ||
-			(character >= '0' && character <= '9') ||
-			character == '.' || character == '_' || character == '-' {
-			continue
+	for i := range value {
+		c := value[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
 		}
-		return false
 	}
 	return true
 }
 
-func contains(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
+func scanCredentials(root *yaml.Node) ReasonCode {
+	var walk func(*yaml.Node) ReasonCode
+	walk = func(node *yaml.Node) ReasonCode {
+		if node.Kind == yaml.MappingNode {
+			for index := 0; index < len(node.Content); index += 2 {
+				key, value := node.Content[index], node.Content[index+1]
+				if credentialKey(key.Value) {
+					return ReasonCredentialKeyDetected
+				}
+				if value.Kind == yaml.ScalarNode && value.Tag == "!!str" && credentialValue(value.Value) {
+					return ReasonCredentialValueDetected
+				}
+				if reason := walk(value); reason != "" {
+					return reason
+				}
+			}
+		} else if node.Kind == yaml.SequenceNode {
+			for _, child := range node.Content {
+				if child.Kind == yaml.ScalarNode && child.Tag == "!!str" && credentialValue(child.Value) {
+					return ReasonCredentialValueDetected
+				}
+				if reason := walk(child); reason != "" {
+					return reason
+				}
+			}
+		}
+		return ""
+	}
+	return walk(root)
+}
+
+func credentialKey(value string) bool {
+	var b strings.Builder
+	separator := false
+	for index := range value {
+		character := value[index]
+		if character >= 'A' && character <= 'Z' {
+			character += 'a' - 'A'
+		}
+		if character == '-' || character == '_' || character == '.' || character == ' ' {
+			if b.Len() > 0 {
+				separator = true
+			}
+			continue
+		}
+		if separator {
+			b.WriteByte('_')
+			separator = false
+		}
+		b.WriteByte(character)
+	}
+	normalized := strings.Trim(b.String(), "_")
+	if _, exact := credentialKeys[normalized]; exact {
+		return true
+	}
+	for key := range credentialKeys {
+		if strings.HasSuffix(normalized, "_"+key) {
 			return true
 		}
 	}
 	return false
 }
 
-func isASCIIAlpha(character byte) bool {
-	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
-}
-
-func isASCIIAlphaNumeric(character byte) bool {
-	return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
-}
-
-func mappingPath(parent, key string) string {
-	if isPathIdentifier(key) {
-		return parent + "." + key
+func credentialValue(raw string) bool {
+	value := strings.Trim(raw, " ")
+	if pemPrivateKeyHeaderPattern.MatchString(value) {
+		return true
 	}
-	return fmt.Sprintf("%s[%q]", parent, key)
-}
-func redactedPath(parent string) string {
-	return parent + redactedPathSegment
-}
-
-func sequencePath(parent string, index int) string {
-	return fmt.Sprintf("%s[%d]", parent, index)
-}
-
-func isPathIdentifier(value string) bool {
-	if value == "" {
-		return false
+	if len(value) >= 7 && strings.EqualFold(value[:7], "Bearer ") {
+		return visibleToken(value[7:], 16, 4096)
 	}
-	for index, character := range value {
-		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_' || (index > 0 && character >= '0' && character <= '9') {
-			continue
+	if len(value) >= 6 && strings.EqualFold(value[:6], "Basic ") {
+		encoded := value[6:]
+		if len(encoded) >= 8 && len(encoded) <= 4096 {
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			return err == nil && base64.StdEncoding.EncodeToString(decoded) == encoded
 		}
+	}
+	if parsed, err := url.Parse(value); err == nil && parsed.IsAbs() && parsed.User != nil {
+		if password, present := parsed.User.Password(); present && password != "" {
+			return true
+		}
+	}
+	for _, prefix := range credentialPrefixes {
+		if strings.HasPrefix(value, prefix) && admittedToken(value[len(prefix):], 16, maxYAMLScalarBytes) {
+			return true
+		}
+	}
+	if (strings.HasPrefix(value, "AKIA") || strings.HasPrefix(value, "ASIA")) && len(value) == 20 {
+		for _, c := range value[4:] {
+			if !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+				return false
+			}
+		}
+		return true
+	}
+	return strings.HasPrefix(value, "AIza") && len(value) == 39 && admittedGoogleToken(value[4:])
+}
+
+func visibleToken(value string, minimum, maximum int) bool {
+	if len(value) < minimum || len(value) > maximum {
 		return false
+	}
+	for _, r := range value {
+		if r <= 0x20 || r > 0x7e {
+			return false
+		}
 	}
 	return true
 }
 
-func appendLocationDiagnostic(diagnostics *[]Diagnostic, layer Layer, source, yamlPath string, locations map[string]*yaml.Node, code, message string) {
-	node := locations[yamlPath]
-	if node == nil {
-		node = locations["$"]
+func admittedToken(value string, minimum, maximum int) bool {
+	if len(value) < minimum || len(value) > maximum {
+		return false
 	}
-	appendNodeDiagnostic(diagnostics, layer, source, yamlPath, node, code, message)
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
-func appendNodeDiagnostic(diagnostics *[]Diagnostic, layer Layer, source, yamlPath string, node *yaml.Node, code, message string) {
-	line, column := nodePosition(node)
-	*diagnostics = append(*diagnostics, diagnosticAt(layer, source, yamlPath, line, column, code, message))
+func admittedGoogleToken(value string) bool {
+	if len(value) != 35 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
-func diagnosticAt(layer Layer, source, yamlPath string, line, column int, code, message string) Diagnostic {
-	if line < 1 {
-		line = 1
+func validate(config *Config) error {
+	if config.Version != 1 {
+		return fmt.Errorf("version")
 	}
-	if column < 1 {
-		column = 1
+	if !norm.NFC.IsNormalString(config.Project.Name) || visibleRunes(config.Project.Name) < 1 || visibleRunes(config.Project.Name) > 128 {
+		return fmt.Errorf("project name")
 	}
-	return Diagnostic{Layer: layer, Source: sourceName(source), Path: yamlPath, Line: line, Column: column, Code: code, Message: message}
+	if config.Project.Context != "" && !safeContext(config.Project.Context) {
+		return fmt.Errorf("project context")
+	}
+	if !canonicalAbsolute(config.NativeUser.Home) {
+		return fmt.Errorf("native home")
+	}
+	if config.Providers.Count() == 0 {
+		return fmt.Errorf("providers")
+	}
+	if config.Providers.Kimi != nil {
+		if !canonicalAbsolute(config.Providers.Kimi.Executable) {
+			return fmt.Errorf("kimi executable")
+		}
+		if config.Providers.Kimi.Model == "" {
+			config.Providers.Kimi.Model = DefaultKimiModel
+		}
+		if !validModel(config.Providers.Kimi.Model) {
+			return fmt.Errorf("kimi model")
+		}
+		if config.Providers.Kimi.DataHome == "" {
+			config.Providers.Kimi.DataHome = DefaultKimiDataHome(config.NativeUser.Home)
+		}
+		if !canonicalAbsolute(config.Providers.Kimi.DataHome) {
+			return fmt.Errorf("kimi data home")
+		}
+	}
+	if config.Providers.ZCode != nil && (!canonicalAbsolute(config.Providers.ZCode.NodeExecutable) || !canonicalAbsolute(config.Providers.ZCode.Launcher)) {
+		return fmt.Errorf("zcode paths")
+	}
+	if config.Providers.AGY != nil {
+		if !canonicalAbsolute(config.Providers.AGY.Executable) {
+			return fmt.Errorf("agy executable")
+		}
+		if config.Providers.AGY.PermissionMode == "" {
+			config.Providers.AGY.PermissionMode = DefaultAGYPermissionMode
+		}
+		if config.Providers.AGY.PermissionMode != "safe" && config.Providers.AGY.PermissionMode != "dangerously-skip-permissions" {
+			return fmt.Errorf("agy permission")
+		}
+	}
+	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
+		return fmt.Errorf("workspace")
+	}
+	for _, enabled := range []bool{config.Roles.Logic.Enabled, config.Roles.Security.Enabled, config.Roles.Maintainability.Enabled, config.Roles.Product.Enabled, config.Roles.Documentation.Enabled, config.Roles.Testing.Enabled} {
+		if !enabled {
+			return fmt.Errorf("role")
+		}
+	}
+	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic", "security"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
+		return fmt.Errorf("sets")
+	}
+	if config.Validation.Repair.Enabled {
+		if config.Validation.Repair.MaxAttempts != 1 || config.Resources.PrimaryRepairAttempts < 0 || config.Resources.PrimaryRepairAttempts > 1 || config.Resources.FallbackRepairAttempts < 0 || config.Resources.FallbackRepairAttempts > 1 || config.Resources.PrimaryRepairAttempts > config.Validation.Repair.MaxAttempts || config.Resources.FallbackRepairAttempts > config.Validation.Repair.MaxAttempts {
+			return fmt.Errorf("repair")
+		}
+	} else if config.Validation.Repair.MaxAttempts != 0 || config.Resources.PrimaryRepairAttempts != 0 || config.Resources.FallbackRepairAttempts != 0 {
+		return fmt.Errorf("repair disabled")
+	}
+	if config.Resources.MaxActiveLanes < 1 || config.Resources.MaxActiveLanes > 64 {
+		return fmt.Errorf("lanes")
+	}
+	roleCost := 1 + config.Resources.PrimaryRepairAttempts
+	if config.Providers.Count() >= 2 {
+		roleCost += 1 + config.Resources.FallbackRepairAttempts
+	}
+	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*len(fixedRoles) || config.Resources.RunMaxInvocations > 24 {
+		return fmt.Errorf("budgets")
+	}
+	if _, err := parseByteSize(config.Resources.RunTotalOutputCap); err != nil {
+		return err
+	}
+	return nil
 }
 
-func nodePosition(node *yaml.Node) (int, int) {
-	if node == nil {
-		return 1, 1
+func visibleRunes(value string) int {
+	count := 0
+	for _, r := range value {
+		if !unicode.IsControl(r) && !unicode.IsSpace(r) {
+			count++
+		}
 	}
-	line, column := node.Line, node.Column
-	if line < 1 {
-		line = 1
+	return count
+}
+func canonicalAbsolute(value string) bool {
+	return value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && !strings.ContainsRune(value, 0)
+}
+func safeContext(value string) bool {
+	if value == "" || path.IsAbs(value) || path.Clean(value) != value || strings.Contains(value, "\\") || value == "." {
+		return false
 	}
-	if column < 1 {
-		column = 1
+	return value != ".kar" && value != ".gjc" && !strings.HasPrefix(value, ".kar/") && !strings.HasPrefix(value, ".gjc/") && !strings.HasPrefix(value, "../")
+}
+func validModel(value string) bool {
+	if !modelPattern.MatchString(value) || path.IsAbs(value) || strings.Contains(value, "//") {
+		return false
 	}
-	return line, column
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+func validOrderedSet(values, allowed, required []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	rank := make(map[string]int, len(allowed))
+	for index, value := range allowed {
+		rank[value] = index
+	}
+	seen := make(map[string]struct{}, len(values))
+	last := -1
+	for _, value := range values {
+		current, ok := rank[value]
+		if !ok || current <= last {
+			return false
+		}
+		if _, dup := seen[value]; dup {
+			return false
+		}
+		seen[value] = struct{}{}
+		last = current
+	}
+	for _, value := range required {
+		if _, ok := seen[value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+func parseByteSize(value string) (int64, error) {
+	matches := byteSizePattern.FindStringSubmatch(value)
+	if matches == nil {
+		return 0, fmt.Errorf("output cap")
+	}
+	amount, err := strconv.ParseInt(matches[1], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	multiplier := int64(1 << 10)
+	if matches[2] == "MiB" {
+		multiplier = 1 << 20
+	} else if matches[2] == "GiB" {
+		multiplier = 1 << 30
+	}
+	if amount > (1<<30)/multiplier {
+		return 0, fmt.Errorf("output cap")
+	}
+	return amount * multiplier, nil
+}
+
+// EncodeCanonical emits the one stable operator-local representation.
+func EncodeCanonical(config Config) ([]byte, error) {
+	if err := validate(&config); err != nil {
+		return nil, err
+	}
+	q := strconv.Quote
+	var out strings.Builder
+	out.WriteString("version: 1\nproject:\n  name: " + q(config.Project.Name) + "\n")
+	if config.Project.Context != "" {
+		out.WriteString("  context: " + q(config.Project.Context) + "\n")
+	}
+	out.WriteString("native_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
+	if provider := config.Providers.Kimi; provider != nil {
+		out.WriteString("  kimi:\n    executable: " + q(provider.Executable) + "\n")
+		if provider.Model != DefaultKimiModel {
+			out.WriteString("    model: " + q(provider.Model) + "\n")
+		}
+		if provider.DataHome != DefaultKimiDataHome(config.NativeUser.Home) {
+			out.WriteString("    data_home: " + q(provider.DataHome) + "\n")
+		}
+	}
+	if provider := config.Providers.ZCode; provider != nil {
+		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
+	}
+	if provider := config.Providers.AGY; provider != nil {
+		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
+		if provider.PermissionMode != DefaultAGYPermissionMode {
+			out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
+		}
+	}
+	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
+	for _, role := range fixedRoles {
+		out.WriteString("  " + role + ": {enabled: true}\n")
+	}
+	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
+	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
+	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  fallback_repair_attempts: " + strconv.Itoa(config.Resources.FallbackRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n  run_total_output_cap: " + q(config.Resources.RunTotalOutputCap) + "\n")
+	out.WriteString("ci:\n  fail_on_severity: " + quotedList(config.CI.FailOnSeverity) + "\n  degraded_review_fails: " + strconv.FormatBool(config.CI.DegradedReviewFails) + "\n")
+	encoded := []byte(out.String())
+	if _, err := Decode(encoded); err != nil {
+		return nil, fmt.Errorf("canonical config did not round trip: %w", err)
+	}
+	return encoded, nil
+}
+
+func quotedList(values []string) string {
+	parts := make([]string, len(values))
+	for index, value := range values {
+		parts[index] = strconv.Quote(value)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func RunTotalOutputCapBytes(config Config) (int64, error) {
+	return parseByteSize(config.Resources.RunTotalOutputCap)
 }

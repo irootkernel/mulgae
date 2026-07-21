@@ -12,6 +12,7 @@ KAR exposes four related outputs:
 | `report.md` | Human-readable review | Derived |
 
 Raw provider output is execution provenance, not verified review evidence. `consensus.json` is not used in the default primary/fallback strategy.
+Current implementation status is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`: production `kar review` composition is present, but production verification and final closure are not. Full current authority gates and three family-distinct normal P2 receipts remain pending. Prior integrated-gate evidence is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Release CI, asset creation, and publication remain separately approved actions.
 
 ## 2. Final Review Contents
 
@@ -120,23 +121,19 @@ ci:
 
 An optional exhausted role may yield `coverage_status=degraded`, preserve valid content, and project to `ci_decision=pass` or `fail` under trusted policy. A required exhausted role yields `coverage_status=incomplete`; it preserves content and returns exit `4` rather than being relabeled as an ordinary CI rejection. Source/current evidence remains visible with its exact `verification` state; a source reference is never displayed as current `verified` evidence.
 
-CI configuration comes from the trusted-base reducer. Project configuration may strengthen it but cannot loosen required roles, severity, degraded/incomplete enforcement, workspace, provider command, or shell restrictions. Every interactive weakening request is tainted and non-proof; CI rejects it with exit `2`.
+CI configuration comes from the admitted project-local `.kar/config.yaml`. Code-fixed safety floors remain invariants and cannot be weakened by configuration or interactive input.
 
-## 7. CI Modes
+## 7. CI Projection
+
+CI is a trusted policy projection of a committed review artifact, not a `review` command mode. Automation invokes the same documented review command and consumes its committed outcome and JSON command-result envelope.
 
 ```text
-interactive: render report and return the final operational status unless --ci is set
-ci: apply trusted content, coverage, finding, and degradation policy
-json: emit a concise machine status object to stdout
+human: render the command's human result and return its final operational status
+json: emit the command-result envelope to stdout
+CI: evaluate the committed artifact's trusted content, coverage, finding, and degradation policy
 ```
 
-For example:
-
-```bash
-kar review --diff origin/main...HEAD --ci
-```
-
-CI stdout stays concise. Detailed artifacts and all reason codes belong under `.kar/` or an explicitly requested secure export.
+There is no `review --ci` flag and no CI request field. CI stdout stays concise. Detailed artifacts and all reason codes belong under `.kar/` or an explicitly requested secure export.
 
 ## 8. Exit Projection
 
@@ -151,14 +148,16 @@ CI stdout stays concise. Detailed artifacts and all reason codes belong under `.
 | `9` | User or parent-process cancellation |
 | `10` | KAR internal error or invariant violation |
 
+Private target admission uses the exact exit-8 reason `target_private_config_forbidden` for `.kar/config.yaml` and `target_private_namespace_forbidden` for `.kar` or any other descendant. The diagnostic never includes the rejected path bytes.
+
 Exit `3` is not a typed G0 outcome and is reserved. The manifest records every observed failure and reason code even when one exit is selected.
 
 Final exit precedence is:
 
 ```text
 internal error (10)
-> artifact failure (7)
 > security or mutation violation (8)
+> artifact failure (7)
 > cancellation (9)
 > configuration or trust-policy error (2)
 > incomplete required coverage or readiness (4)
@@ -167,6 +166,73 @@ internal error (10)
 ```
 
 This precedence is independent of the publication classifier's durable authority order. Valid P2 takes precedence over lower persisted journal hints; it does not suppress a separately observed higher-priority operational failure.
+
+For `init`, `config`, and `doctor`, a pure `context.Canceled` or
+`context.DeadlineExceeded` from native-home observation is the cancellation
+reason `request_cancelled` at exit `9`. Init retains the already observed
+destination without mutation, config withholds the accepted digest, and doctor
+returns no partial doctor result. Security, artifact, and internal failures
+continue to outrank cancellation.
+
+<!-- BEGIN GENERATED INIT MUTATION OUTCOMES -->
+### Init discovery source contract
+
+Discovery is empty before completion and otherwise contains the fixed Kimi, ZCode, and AGY rows. Unselected families are not observed. Auto discovery retains ordinary unavailable rows when another family is a valid candidate; security failures still dominate after all three rows are assembled. Each row uses only its family-specific source fields:
+
+- `kimi`: `executable_source=override|startup_path|not_discovered|not_selected`, `model_source=override|default_k3|not_selected`, `data_home_source=override|startup_environment|native_home_default|not_selected`
+- `zcode`: `node_executable_source=override|startup_path|not_discovered|not_selected`, `launcher_source=override|bundled|not_discovered|not_selected`
+- `agy`: `executable_source=override|startup_path|not_discovered|not_selected`, `native_home_source=os_account|verified_equal_input|not_selected`, `permission_mode_source=explicit|safe_default|not_selected`
+
+There is no generic `auxiliary_source`.
+
+### Init post-mutation outcome matrix
+
+This table is generated from `internal/app/init.MutationOutcomeSpecs`; manual edits are overwritten. Provider IDs are the admitted candidate/configured set and discovery contains the fixed three rows.
+
+| Write state | Destination | Category / code | Message | Retryable | Exit |
+|---|---|---|---|---:|---:|
+| `committed` | `present` | none / none | none | false | 0 |
+| `existing_untouched` | `present` | configuration / `init_destination_exists` | The project-local KAR configuration already exists. | false | 2 |
+| `existing_untouched` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `existing_untouched` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `existing_untouched` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `not_committed` | `absent` | artifact / `init_write_failed` | The project-local KAR configuration could not be written. | true | 7 |
+| `not_committed` | `not_observed` | artifact / `init_write_failed` | The project-local KAR configuration could not be written. | true | 7 |
+| `not_committed` | `not_observed` | artifact / `init_private_dir_raced` | The private KAR directory changed during initialization. | true | 7 |
+| `private_dir_created_unconfirmed` | `absent` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `present` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `not_observed` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `present` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `not_observed` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | artifact / `init_commit_unconfirmed` | The installed KAR configuration could not be durably confirmed. | true | 7 |
+| `installed_unconfirmed` | `not_observed` | artifact / `init_commit_unconfirmed` | The installed KAR configuration could not be durably confirmed. | true | 7 |
+| `installed_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `committed` | `present` | artifact / `init_result_delivery_failed` | The init result could not be delivered after commit. | true | 7 |
+<!-- END GENERATED INIT MUTATION OUTCOMES -->
 
 ## 9. Status Command
 
@@ -182,25 +248,26 @@ This precedence is independent of the publication classifier's durable authority
 - reader-visible final artifact path only when `publication_status=committed`;
 - actionable next command.
 
-`kar status --json` returns a versioned status object.
+`kar status --run r_019f596a-cf80-7c67-b265-f37053d51ccf --output json` returns a versioned status object.
 
 ## 10. Findings Commands
 
 Examples:
 
 ```bash
-kar findings --latest
-kar findings --run <run_id> --severity high
-kar findings --run <run_id> --role security
-kar excerpt --run <run_id> --finding F001
+kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity high --output json
+kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity critical
+kar excerpt --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F001 \
+  --current-target-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --output json
 ```
 
-Finding lookup must validate the run-scoped reference. `F001` without a run is allowed only when the command has an unambiguous selected run.
+Finding lookup always requires a canonical run ID and a supported minimum severity. Excerpt lookup additionally requires the finding ID and current target SHA-256.
 
 ## 11. Redacted Export
 
 ```bash
-kar export --run latest --redacted --output kar-review.zip
+kar export --run latest --output-path exports/kar-review.zip --output json
 ```
 
 A redacted export may omit:

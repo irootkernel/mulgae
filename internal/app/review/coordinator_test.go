@@ -539,7 +539,7 @@ func TestCoordinatorResultDefensiveCopies(t *testing.T) {
 		t.Fatal("coordinator result leaked a mutable slice")
 	}
 }
-func TestCoordinatorEvidencePolicyIntegration(t *testing.T) {
+func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 	t.Run("verified high is accepted", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, false, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {

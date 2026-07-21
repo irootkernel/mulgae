@@ -1,32 +1,32 @@
 # KAR Implementation Status Checklist
 
-**Status date:** 2026-07-18
+**Status date:** 2026-07-19
 
-SOT 1.5.0 records the authorized implementation boundary after `g0_complete`: G001 through G008 are complete; G009 remains pending and unauthorized until its own execution and release gates are opened.
+SOT 1.9.0 records historical implementation evidence after `g0_complete`; it does not claim current production completion. Production `kar review` composition is wired, but the current production-review status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. Historical integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and append-only. The current provider policy remains unchanged: `kimi`, `zcode`, and `agy` are supported by family and runtime capability contract, while version/path/SHA/profile are diagnostic provenance rather than authorization gates. On macOS, AGY native authentication remains an incomplete production-review requirement: it uses the installed user's captured and inode-revalidated `HOME`/Keychain context without synthetic-home credential projection or user-home mutation; AGY's minimum version is 1.1.4, and this boundary does not establish live P2 success. `doctor` reports installed versions against the initial minimum/verified-latest baselines with red, green, and yellow guidance without denying newer identities. No release assets were authorized or created, and release publication remains subject to separate approval.
 
 ## Goal Completion Snapshot
 
 | Goal | Delivered scope | Status | Repository marker |
 |---|---|---|---|
-| G001 | Authority promotion, post-verification, `g0_complete`, support derivation | **COMPLETE** | `1439c3d` |
-| G002 | Domain and ports foundation | **COMPLETE** | `64ac360` |
-| G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
-| G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, direct process runtime, evidence, outcome axes | **COMPLETE** | `da1939f` |
-| G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
-| G007 | Opt-in evidence-gated provider adapters for exactly `kimi`, `zcode`, and `agy` | **COMPLETE** | `feat(g007)` |
-| G008 | Immutable root/followup/delta/rerun lineage and P2 publication; runtime attempt/target/prompt artifacts; retention/tombstone cleanup; redacted secure export | **COMPLETE** | `feat(g008)` |
-| G009 | Release assets and integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** | — |
+| G001 | Authority promotion, post-verification, `g0_complete`, support derivation | **HISTORICAL — COMPLETE** | `1439c3d` |
+| G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
+| G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
+| G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
+| G005 | Coordinator lanes, direct process runtime, evidence, outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
+| G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
+| G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
+| G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
 
-A checked item below is covered by the recorded completed G001–G008 boundary. G009 work remains unchecked and unauthorized until its own execution gate opens.
+The checked items below preserve historical G001–G009 evidence. They do not establish current production completion: production `kar review` composition is wired, but **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** remains until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains a separate approval.
 
 ## G0 Contract-Freeze Preconditions
 
 - [x] Record a valid session-bound Gate A approval before creating G0 evidence or a candidate.
-- [x] Produce and validate the 71-path catalog and 70-regular-file checksum payload; `CHECKSUMS.sha256` remains self-excluded.
+- [x] Produce and validate the 85-path catalog and 84-regular-file checksum payload; `CHECKSUMS.sha256` remains self-excluded.
 - [x] Complete the exact 17 G0 validator receipts: p0, schema, trace, marker, trust, command, publication, prompt, evidence, cleanup, assignment, canonical-argv, failure, integrity, authority, checksums-generate, and checksums-verify.
 - [x] Obtain complete PASS evidence for `darwin-arm64`: native/local-POSIX plus all 11 platform probes.
-- [x] Obtain provider readiness as all three families in runtime order `kimi`, `zcode`, `agy` × all 16 probes (**48 PASS**), three secure-writer indexes (**3 PASS**), and a live assignment receipt (**PASS**), before changing External Contract Readiness from `UNVERIFIED`.
+- [x] Historical G0 only: obtain provider readiness as all three families in runtime order `kimi`, `zcode`, `agy` × all 16 probes (**48 PASS**), three secure-writer indexes (**3 PASS**), and a live assignment receipt (**PASS**) before the recorded authority promotion. Current runtime readiness evaluates the configured nonempty subset.
 - [x] Retain `linux-amd64`, `linux-arm64`, and `darwin-amd64` only as `intended_future`, non-blocking, unsupported, and release-ineligible inventory; they are not required G0 execution or release targets.
 - [x] Treat provider/platform evidence v1 as byte-identical compatibility-only input; only v2 may enter readiness.
 - [x] Post-verify the promoted authority candidate and record `g0_complete`.
@@ -34,11 +34,11 @@ A checked item below is covered by the recorded completed G001–G008 boundary. 
 
 - [x] Validate the v2 four-axis contract (`content_verdict`, `coverage_status`, `publication_status`, `ci_decision` with reasons) without collapsing one axis into another.
 - [x] Validate separate source and current evidence identities; source evidence must never become current verified evidence.
-- [x] Validate the deterministic six-role/provider assignment reducer, required floor, trusted project strengthening, and run-local non-weakening CLI selection.
+- [x] Validate the deterministic six-role/provider assignment reducer, the code-fixed required floor, admitted project-local additions, and run-local non-weakening CLI selection.
 - [x] Validate the four canonical provider/platform argv arrays, their domain-separated hashes, and bundle hash before any probe; legacy `--evidence-root` and `--index` are rejected.
 - [x] Validate `timeout`, `auth`, `quota`, and `rate_limit` as `repair=none` and `fallback=allowed`; preserve the distinct exhausted-role projections.
 - [x] Validate the publication classifier precedence and all ten named cross-boundary fixtures; persist a journal hint but serialize publication only from durable derived state.
-- [x] Validate the 70-file payload root with the `KAR-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise path sort, NUL, raw 32-byte digest, and LF grammar.
+- [x] Validate the 84-file payload root with the `KAR-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise path sort, NUL, raw 32-byte digest, and LF grammar.
 
 ## P0 Contracts
 
@@ -86,6 +86,7 @@ A checked item below is covered by the recorded completed G001–G008 boundary. 
 - [x] Serialize attempts by concurrency key.
 - [x] Add cross-process lane locking where supported.
 - [x] Implement fake providers before live adapters.
+- [ ] Production-reopened macOS AGY native-auth boundary: use only the captured and inode-revalidated installed-user `HOME`/Keychain context for AGY authentication; do not create a synthetic AGY `HOME`, project credentials, or copy OAuth or installation files. KAR's namespace setup, policy, and cleanup paths must not write, overwrite, zero, or unlink user AGY authentication/settings files; normal provider-owned Keychain/profile refresh may still occur during AGY execution. Preserve the descriptor-bound immutable review CWD and KAR-owned XDG/cache/temp/scratch namespaces; enforce `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. AGY's minimum version is 1.1.4. This remains incomplete pending full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts.
 
 ## Artifacts
 
@@ -102,15 +103,24 @@ A checked item below is covered by the recorded completed G001–G008 boundary. 
 - [x] Keep review verdict separate from CI decision.
 - [x] Implement documented exit-code precedence.
 - [x] Add all required help topics and golden tests.
+- [x] Cover all seven init provider subsets and canonical family order in CLI E2E tests.
+- [x] Emit the rejected init request/result envelope for unambiguous invalid JSON requests.
+- [x] Admit the installed native account before `kar config` exposes an accepted digest.
+- [x] Prove committed init bytes survive stdout short-write and closed-pipe delivery failure.
+- [x] Census embedded help for sole-source, subset, workspace, AGY, durability, transport, and no-migration requirements.
+- [x] Preserve native-home observation cancellation as exit 9 for init/config/doctor without weakening security precedence.
+- [x] Cover auto discovery with zero through three providers in human and JSON CLI E2E tests.
+- [x] Exercise new/existing root-barrier failure, retry, and installed-unconfirmed directory-sync projections at the CLI boundary.
 - [x] Ensure product text never implies approval authority.
 
-## G008 Completion Evidence and G009 Release Gate
+## Historical G009 Integrated v0.1 Gate Evidence
 
-- [x] All JSON examples pass their schemas.
-- [x] Race detector passes coordinator and lane tests.
-- [x] Crash tests show no partial final artifact.
-- [x] Security tests show no fallback after security violation.
-- [x] Retain real composed P2 end-to-end evidence covering root review, followup, delta, and rerun through injected provider authority; production standalone operation without canonical recorded provider/evidence authority remains fail-closed with schema-valid typed failures under G007's opt-in authority rules.
-- [x] Complete the G007 opt-in live provider/version adapter contract item for exactly the authority-gated `kimi`, `zcode`, and `agy` adapters: direct noninteractive profiles, strict output isolation, process bounds/cancellation, tuple/base-argv evidence binding, strict unlisted-family rejection, provider CLI reporting, offline standard tests, and a controlled live exact Kimi tuple PASS for `local-default` 0.23.6 with binary SHA-256 `50c358...`; standalone absence of evidence remains `UNVERIFIED`, and all unavailable, failed, or inconclusive tuples remain unsupported.
-- [x] No P0 issue remains in trust, cancellation, fallback, evidence, or publication through the G008 boundary.
-- [x] Retain final full `go test`, `go vet`, race, checksums/generation/diff, cleaner, executor QA, and final architect-review receipts for G008. This completion does not authorize G009 or release.
+- [x] Historical: retain the exact 17 load-bearing command registry/binary golden and the truthful schema-list v1 rejection.
+- [x] Historical: validate all 23 schema/example pairs and assets.
+- [x] Historical: retain fake/offline canonical lineage evidence from the four-workflow end-to-end execution; this is not production root-review proof.
+- [x] Historical: retain subprocess crash proof and the full domain, security, publication, cancellation, and fallback suites.
+- [x] Historical: full `go test`, `go vet`, and race verification passed with zero recorded P0 blockers.
+- [x] Retain the controlled Kimi historical qualification receipt for the recorded G009 run: `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, its ledger receipt, and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`; it is not a current support boundary.
+- [x] Preserve the append-only provider attempt history: two later 2026-07-18 retries each ended after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; retain those ledger events without replacing the earlier PASS.
+- [x] Keep G0 provider-family evidence for `kimi`, `zcode`, and `agy` separate from current support. Support those families by runtime capability contract without version, executable path, SHA, or profile allowlisting; retain those fields as diagnostic provenance, produce actionable typed capability diagnostics, explicitly block known incompatibilities only, reject unlisted families, and do not automatically substitute providers. Keep `darwin-arm64` as the sole supported platform.
+- [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but the current status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.

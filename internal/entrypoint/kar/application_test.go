@@ -12,22 +12,28 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
+	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
 	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
 	appexport "github.com/irootkernel/kkachi-agent-review/internal/app/export"
 	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
+	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
 	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -38,6 +44,7 @@ const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
 	commandSchemaID               = "https://kar.local/schemas/kar-command-result.v1.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
+	globalConfigAssetID           = "test:legacy-config-source"
 )
 
 type foundationFixture struct {
@@ -55,6 +62,45 @@ type fixedFoundationRequestIDs struct{}
 
 func (fixedFoundationRequestIDs) NewRequestID(time.Time) (string, error) {
 	return foundationRequestID, nil
+}
+
+type doctorIdentityInspector struct {
+	delegate         ports.EnvironmentInspector
+	executableErrors map[string]error
+	nativeHomeErr    error
+	nativeHomeErrors []error
+	nativeHomeCalls  int
+}
+
+func (inspector *doctorIdentityInspector) ObservePlatform(ctx context.Context) (ports.PlatformObservation, error) {
+	return inspector.delegate.ObservePlatform(ctx)
+}
+func (inspector *doctorIdentityInspector) ObserveExecutable(ctx context.Context, name string) (ports.ExecutableObservation, error) {
+	return inspector.delegate.ObserveExecutable(ctx, name)
+}
+func (inspector *doctorIdentityInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
+	if err := inspector.executableErrors[name]; err != nil {
+		return ports.ExecutableObservation{}, err
+	}
+	return inspector.delegate.ObserveExecutableIdentity(ctx, name)
+}
+func (inspector *doctorIdentityInspector) ObserveReadableFileIdentity(ctx context.Context, name string) (ports.FileIdentityObservation, error) {
+	return inspector.delegate.ObserveReadableFileIdentity(ctx, name)
+}
+func (inspector *doctorIdentityInspector) ObserveNativeHomeIdentity(ctx context.Context, path string) (ports.NativeHomeLaunchAuthority, error) {
+	inspector.nativeHomeCalls++
+	if inspector.nativeHomeCalls <= len(inspector.nativeHomeErrors) {
+		if err := inspector.nativeHomeErrors[inspector.nativeHomeCalls-1]; err != nil {
+			return ports.NativeHomeLaunchAuthority{}, err
+		}
+	}
+	if inspector.nativeHomeErr != nil {
+		return ports.NativeHomeLaunchAuthority{}, inspector.nativeHomeErr
+	}
+	return inspector.delegate.ObserveNativeHomeIdentity(ctx, path)
+}
+func (inspector *doctorIdentityInspector) ObservePermission(ctx context.Context, root ports.AnchoredRoot, path ports.SafeRelativePath) (ports.PermissionObservation, error) {
+	return inspector.delegate.ObservePermission(ctx, root, path)
 }
 
 type receiptCapturingFoundationWriter struct {
@@ -78,6 +124,26 @@ func (writer *receiptCapturingFoundationWriter) Write(ctx context.Context, reque
 		writer.afterWrite()
 	}
 	return receipt, drop, err
+}
+
+func (writer *receiptCapturingFoundationWriter) PrepareConfigDirectory(ctx context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
+	installer, ok := writer.delegate.(ports.ConfigInstaller)
+	if !ok {
+		return ports.ConfigDirectoryReceipt{}, errors.New("config installer unavailable")
+	}
+	return installer.PrepareConfigDirectory(ctx, root)
+}
+
+func (writer *receiptCapturingFoundationWriter) InstallConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	installer, ok := writer.delegate.(ports.ConfigInstaller)
+	if !ok {
+		return ports.ConfigInstallReceipt{}, errors.New("config installer unavailable")
+	}
+	receipt, err := installer.InstallConfig(ctx, root, prepared, data)
+	if writer.afterWrite != nil {
+		writer.afterWrite()
+	}
+	return receipt, err
 }
 
 func (writer *receiptCapturingFoundationWriter) reset() {
@@ -159,6 +225,50 @@ type controlledFoundationWriter struct {
 	abortCalls  int
 }
 
+type configFaultWriter struct {
+	writer             ports.SecureFileWriter
+	installer          ports.ConfigInstaller
+	failPrepare        bool
+	failInstall        bool
+	prepareCalls       int
+	installCalls       int
+	lastPrepareReceipt ports.ConfigDirectoryReceipt
+}
+
+func newConfigFaultWriter() *configFaultWriter {
+	writer := filesystem.NewSecureWriter()
+	return &configFaultWriter{writer: writer, installer: writer}
+}
+
+func (writer *configFaultWriter) EnsurePrivateDir(root ports.AnchoredRoot, directory ports.SafeRelativePath) error {
+	return writer.writer.EnsurePrivateDir(root, directory)
+}
+
+func (writer *configFaultWriter) Write(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	return writer.writer.Write(ctx, request)
+}
+
+func (writer *configFaultWriter) PrepareConfigDirectory(ctx context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
+	writer.prepareCalls++
+	receipt, err := writer.installer.PrepareConfigDirectory(ctx, root)
+	writer.lastPrepareReceipt = receipt
+	if err == nil && writer.failPrepare {
+		writer.failPrepare = false
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootSync, ports.ConfigDestinationAbsent, errors.New("injected root sync failure"))
+	}
+	return receipt, err
+}
+
+func (writer *configFaultWriter) InstallConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	writer.installCalls++
+	receipt, err := writer.installer.InstallConfig(ctx, root, prepared, data)
+	if err == nil && writer.failInstall {
+		writer.failInstall = false
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageDirectorySync, ports.ConfigDestinationPresent, errors.New("injected private directory sync failure"))
+	}
+	return receipt, err
+}
+
 func (writer *controlledFoundationWriter) EnsurePrivateDir(ports.AnchoredRoot, ports.SafeRelativePath) error {
 	return nil
 }
@@ -174,6 +284,80 @@ func (writer *controlledFoundationWriter) Write(_ context.Context, request ports
 func TestNewApplicationRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewApplication(Dependencies{}); err == nil {
 		t.Fatal("NewApplication accepted missing dependencies")
+	}
+}
+func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
+	specs := cli.CommandSpecs()
+	handlers := applicationCommandHandlers()
+
+	if len(specs) != 17 {
+		t.Fatalf("canonical registry has %d commands, want 17", len(specs))
+	}
+	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
+		t.Fatalf("application handler map is not complete: %v", err)
+	}
+}
+
+func TestNewApplicationRejectsIncompleteOrDriftedCommandComposition(t *testing.T) {
+	tests := []struct {
+		name     string
+		specs    []cli.CommandSpec
+		handlers map[app.CommandName]applicationCommandHandler
+	}{
+		{
+			name:  "missing handler",
+			specs: cli.CommandSpecs(),
+			handlers: func() map[app.CommandName]applicationCommandHandler {
+				handlers := applicationCommandHandlers()
+				delete(handlers, app.CommandReview)
+				return handlers
+			}(),
+		},
+		{
+			name: "registry metadata order drift",
+			specs: func() []cli.CommandSpec {
+				specs := cli.CommandSpecs()
+				specs[0], specs[1] = specs[1], specs[0]
+				return specs
+			}(),
+			handlers: applicationCommandHandlers(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := newApplication(Dependencies{}, test.specs, test.handlers); err == nil {
+				t.Fatal("newApplication accepted invalid command composition")
+			}
+		})
+	}
+}
+
+func TestApplicationExecuteDispatchesEveryCanonicalCommand(t *testing.T) {
+	specs := cli.CommandSpecs()
+	called := make(map[app.CommandName]int, len(specs))
+	handlers := make(map[app.CommandName]applicationCommandHandler, len(specs))
+	for _, spec := range specs {
+		command := spec.Command()
+		handlers[command] = func(_ *Application, _ context.Context, invocation Invocation, _ string) execution {
+			called[command]++
+			if invocation.Command() != command {
+				t.Fatalf("handler for %q received %q", command, invocation.Command())
+			}
+			return execution{}
+		}
+	}
+	application := &Application{handlers: handlers}
+	for _, spec := range specs {
+		command := spec.Command()
+		result := application.execute(context.Background(), Invocation{command: command}, "/canonical/root")
+		if result.failure != nil {
+			t.Fatalf("execute %q failed: %v", command, result.failure)
+		}
+	}
+	for _, spec := range specs {
+		if called[spec.Command()] != 1 {
+			t.Fatalf("handler %q calls = %d, want 1", spec.Command(), called[spec.Command()])
+		}
 	}
 }
 
@@ -211,9 +395,75 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 		t.Fatalf("malformed usage result = %#v", malformed)
 	}
 
-	future := fixture.application.Run(ctx, []string{"review"}, root)
-	if future.ExitCode() != app.ExitCodeUsage || len(future.Stdout()) != 0 || !bytes.Equal(future.Stderr(), []byte("kar: command is unavailable in this foundation milestone\n")) {
-		t.Fatalf("future command result = %#v", future)
+	unavailable := fixture.application.Run(ctx, []string{"review", "--diff", "git"}, root)
+	if unavailable.ExitCode() != app.ExitCodeReadiness || len(unavailable.Stdout()) != 0 || len(unavailable.Stderr()) == 0 {
+		t.Fatalf("authority-absent review result = %#v", unavailable)
+	}
+}
+
+func TestApplicationRejectedInitJSONUsesInvalidRequestContract(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	for _, test := range []struct {
+		name string
+		argv []string
+	}{
+		{name: "unknown provider", argv: []string{"init", "--providers", "other", "--output", "json"}},
+		{name: "empty provider", argv: []string{"init", "--providers", "", "--output", "json"}},
+		{name: "duplicate provider", argv: []string{"init", "--providers", "kimi,kimi", "--output", "json"}},
+		{name: "mixed auto", argv: []string{"init", "--providers", "auto,kimi", "--output", "json"}},
+		{name: "absent override", argv: []string{"init", "--providers", "agy", "--kimi-model", "k3", "--output", "json"}},
+		{name: "duplicate JSON output", argv: []string{"init", "--providers", "agy", "--output", "json", "--output", "json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
+			if len(result.Stderr()) != 0 {
+				t.Fatalf("rejected JSON stderr = %q, want empty", result.Stderr())
+			}
+			var envelope struct {
+				Request struct {
+					RequestID    string `json:"request_id"`
+					Command      string `json:"command"`
+					RequestState string `json:"request_state"`
+					OutputFormat string `json:"output_format"`
+				} `json:"request"`
+				Reasons []struct {
+					Category  string `json:"category"`
+					Code      string `json:"code"`
+					Message   string `json:"message"`
+					Retryable bool   `json:"retryable"`
+				} `json:"reasons"`
+				Result appinit.InitializeProjectResult `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Request.RequestID != foundationRequestID || envelope.Request.Command != "init" || envelope.Request.RequestState != "invalid" || envelope.Request.OutputFormat != "json" {
+				t.Fatalf("rejected request = %#v", envelope.Request)
+			}
+			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "usage" || envelope.Reasons[0].Code != "init_selection_invalid" || envelope.Reasons[0].Message != "The init selection is invalid." || envelope.Reasons[0].Retryable {
+				t.Fatalf("rejected reasons = %#v", envelope.Reasons)
+			}
+			if err := envelope.Result.Validate(); err != nil || envelope.Result.WriteState != "not_attempted" || envelope.Result.Committed || envelope.Result.DestinationState != ports.ConfigDestinationNotObserved || len(envelope.Result.SelectedProviderIDs) != 0 || len(envelope.Result.CandidateProviderIDs) != 0 || len(envelope.Result.ConfiguredProviderIDs) != 0 || len(envelope.Result.Discovery) != 0 {
+				t.Fatalf("rejected result = %#v, validation = %v", envelope.Result, err)
+			}
+			wantRequest := `"request":{"request_id":"` + foundationRequestID + `","command":"init","request_state":"invalid","output_format":"json"}`
+			if !bytes.Contains(result.Stdout(), []byte(wantRequest)) || !bytes.HasSuffix(result.Stdout(), []byte("\n")) {
+				t.Fatalf("rejected envelope bytes = %q", result.Stdout())
+			}
+		})
+	}
+
+	for _, argv := range [][]string{
+		{"init", "--providers", "other", "--output", "human"},
+		{"init", "--providers", "other", "--output"},
+		{"init", "--providers", "other", "--output", "json", "--output", "human"},
+	} {
+		result := fixture.application.Run(context.Background(), argv, root)
+		if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("kar: invalid command usage\n")) {
+			t.Fatalf("ambiguous rejected usage = %#v", result)
+		}
 	}
 }
 
@@ -242,7 +492,7 @@ func TestApplicationSchemaListShowAndExport(t *testing.T) {
 
 	listJSON := fixture.application.Run(ctx, []string{"schema", "list", "--output", "json"}, root)
 	if listJSON.ExitCode() != app.ExitCodeUsage || len(listJSON.Stdout()) != 0 || !bytes.Equal(listJSON.Stderr(), []byte("kar: invalid command usage\n")) {
-		t.Fatalf("schema list JSON result = %#v", listJSON)
+		t.Fatalf("schema list JSON result = %#v; want usage rejection without a fabricated command-result envelope", listJSON)
 	}
 
 	show := fixture.application.Run(ctx, []string{"schema", "show", commandSchemaID}, root)
@@ -257,6 +507,8 @@ func TestApplicationSchemaListShowAndExport(t *testing.T) {
 	if !bytes.Equal(show.Stdout(), expectedTextOutput(raw)) {
 		t.Fatal("schema show did not preserve embedded schema bytes")
 	}
+	showJSON := fixture.application.Run(ctx, []string{"schema", "show", commandSchemaID, "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, showJSON, app.ExitCodeSuccess)
 
 	export := fixture.application.Run(ctx, []string{"schema", "export", commandSchemaID, "contracts/result.schema.json", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, export, app.ExitCodeSuccess)
@@ -273,11 +525,17 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	ctx := context.Background()
-	argv := []string{"init", "--output", "json"}
+	argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+	if _, ok := fixture.application.writer.(ports.ConfigInstaller); !ok {
+		t.Fatal("fixture writer does not implement ConfigInstaller")
+	}
+	if _, ok := fixture.application.projectReader.(ports.ConfigLocalityAttestor); !ok {
+		t.Fatal("fixture project reader does not implement ConfigLocalityAttestor")
+	}
 
 	first := fixture.application.Run(ctx, argv, root)
 	assertFoundationEnvelope(t, fixture, first, app.ExitCodeSuccess)
-	if _, err := os.Stat(filepath.Join(root, ".kar.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".kar", "config.yaml")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
@@ -285,9 +543,182 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	}
 
 	second := fixture.application.Run(ctx, argv, root)
-	assertFoundationEnvelope(t, fixture, second, app.ExitCodeArtifact)
+	assertFoundationEnvelope(t, fixture, second, app.ExitCodeUsage)
 	if len(second.Stderr()) != 0 || len(second.Stdout()) == 0 {
 		t.Fatalf("JSON initialization failure streams = stdout %q stderr %q", second.Stdout(), second.Stderr())
+	}
+	var failureEnvelope struct {
+		Reasons []struct {
+			Category  string `json:"category"`
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+		Result appinit.InitializeProjectResult `json:"result"`
+	}
+	if err := json.Unmarshal(second.Stdout(), &failureEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(failureEnvelope.Reasons) != 1 || failureEnvelope.Reasons[0].Category != "configuration" ||
+		failureEnvelope.Reasons[0].Code != "init_destination_exists" ||
+		failureEnvelope.Reasons[0].Message != "The project-local KAR configuration already exists." ||
+		failureEnvelope.Reasons[0].Retryable {
+		t.Fatalf("init reason = %#v", failureEnvelope.Reasons)
+	}
+	if failureEnvelope.Result.WriteState != "existing_untouched" || failureEnvelope.Result.DestinationState != ports.ConfigDestinationPresent || len(failureEnvelope.Result.Discovery) != 0 {
+		t.Fatalf("existing init result = %#v", failureEnvelope.Result)
+	}
+}
+
+func TestE2EApplicationInitRootBarrierFailureRetryAndDirectorySync(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		preexisting bool
+		wantState   string
+		wantReason  string
+		wantCreated bool
+	}{
+		{name: "new private directory", wantState: "private_dir_created_unconfirmed", wantReason: "init_private_dir_commit_unconfirmed", wantCreated: true},
+		{name: "existing private directory", preexisting: true, wantState: "private_dir_existing_unconfirmed", wantReason: "init_existing_private_dir_commit_unconfirmed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			writer := newConfigFaultWriter()
+			writer.failPrepare = true
+			fixture := newFoundationFixtureWithWriter(t, writer)
+			root := testAnchoredRoot(t)
+			if test.preexisting {
+				if err := os.Mkdir(filepath.Join(root, ".kar"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+			failed := fixture.application.Run(context.Background(), argv, root)
+			assertFoundationEnvelope(t, fixture, failed, app.ExitCodeArtifact)
+			var envelope struct {
+				Reasons []struct {
+					Code string `json:"code"`
+				} `json:"reasons"`
+				Result appinit.InitializeProjectResult `json:"result"`
+			}
+			if err := json.Unmarshal(failed.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != test.wantReason || envelope.Result.WriteState != test.wantState || envelope.Result.DestinationState != ports.ConfigDestinationAbsent || envelope.Result.Committed || writer.installCalls != 0 || writer.prepareCalls != 1 || writer.lastPrepareReceipt.CreatedByInvocation() != test.wantCreated {
+				t.Fatalf("root barrier failure = reasons %#v result %#v prepare=%d install=%d created=%t", envelope.Reasons, envelope.Result, writer.prepareCalls, writer.installCalls, writer.lastPrepareReceipt.CreatedByInvocation())
+			}
+			entries, err := os.ReadDir(filepath.Join(root, ".kar"))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("root barrier failure left config or temp entries: %v err=%v", entries, err)
+			}
+
+			retried := fixture.application.Run(context.Background(), argv, root)
+			assertFoundationEnvelope(t, fixture, retried, app.ExitCodeSuccess)
+			if writer.prepareCalls != 2 || writer.installCalls != 1 {
+				t.Fatalf("retry barriers = prepare %d install %d", writer.prepareCalls, writer.installCalls)
+			}
+			if _, err := os.Stat(filepath.Join(root, ".kar", "config.yaml")); err != nil {
+				t.Fatalf("retry did not commit config: %v", err)
+			}
+		})
+	}
+
+	t.Run("private directory sync remains installed unconfirmed", func(t *testing.T) {
+		writer := newConfigFaultWriter()
+		writer.failInstall = true
+		fixture := newFoundationFixtureWithWriter(t, writer)
+		root := testAnchoredRoot(t)
+		result := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+		assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+		var envelope struct {
+			Reasons []struct {
+				Code string `json:"code"`
+			} `json:"reasons"`
+			Result appinit.InitializeProjectResult `json:"result"`
+		}
+		if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "init_commit_unconfirmed" || envelope.Result.WriteState != "installed_unconfirmed" || envelope.Result.DestinationState != ports.ConfigDestinationPresent || envelope.Result.Committed || writer.installCalls != 1 {
+			t.Fatalf("directory sync failure = reasons %#v result %#v", envelope.Reasons, envelope.Result)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".kar", "config.yaml")); err != nil {
+			t.Fatalf("installed-unconfirmed config was removed: %v", err)
+		}
+	})
+}
+
+func TestApplicationInitAndDoctorPreserveExactPrivateTargetReason(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		reason string
+		setup  func(*testing.T, foundationFixture, string)
+	}{
+		{
+			name:   "exact config",
+			reason: string(ports.ConfigLocalityTargetPrivateConfigForbidden),
+			setup: func(t *testing.T, _ foundationFixture, root string) {
+				if err := os.Mkdir(filepath.Join(root, ".kar"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, ".kar", "config.yaml"), []byte("version: 1\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runFoundationGit(t, root, "add", "-f", ".kar/config.yaml")
+			},
+		},
+		{
+			name:   "private namespace",
+			reason: string(ports.ConfigLocalityTargetPrivateNamespaceForbidden),
+			setup: func(t *testing.T, fixture foundationFixture, root string) {
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+				cache := filepath.Join(root, ".kar", "cache")
+				if err := os.Mkdir(cache, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(cache, "do-not-leak-private-entry"), []byte("private\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runFoundationGit(t, root, "add", "-f", ".kar/cache/do-not-leak-private-entry")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			test.setup(t, fixture, root)
+
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSecurity)
+			var initEnvelope struct {
+				Reasons []struct {
+					Code string `json:"code"`
+				} `json:"reasons"`
+			}
+			if err := json.Unmarshal(initialized.Stdout(), &initEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(initEnvelope.Reasons) != 1 || initEnvelope.Reasons[0].Code != test.reason {
+				t.Fatalf("init reasons = %#v, want %q", initEnvelope.Reasons, test.reason)
+			}
+
+			diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeSecurity)
+			var doctorEnvelope struct {
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(diagnosed.Stdout(), &doctorEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			if doctorEnvelope.Result.Doctor == nil || !reflect.DeepEqual(doctorEnvelope.Result.Doctor.Config.ReasonCodes, []string{test.reason}) || !reflect.DeepEqual(doctorEnvelope.Result.Doctor.Readiness.ReasonCodes, []string{test.reason}) || len(doctorEnvelope.Result.Doctor.Diagnostics) != 1 || doctorEnvelope.Result.Doctor.Diagnostics[0].Code != test.reason {
+				t.Fatalf("doctor exact locality projection = %#v, want %q", doctorEnvelope.Result.Doctor, test.reason)
+			}
+			if bytes.Contains(initialized.Stdout(), []byte("do-not-leak-private-entry")) || bytes.Contains(diagnosed.Stdout(), []byte("do-not-leak-private-entry")) {
+				t.Fatal("private target path leaked into command output")
+			}
+		})
 	}
 }
 
@@ -297,9 +728,9 @@ func TestApplicationPreservesCommittedSuccessWhenContextCancelsAfterWrite(t *tes
 	ctx, cancel := context.WithCancel(context.Background())
 	fixture.writer.afterWrite = cancel
 
-	result := fixture.application.Run(ctx, []string{"init", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
-	if _, err := os.Stat(filepath.Join(root, ".kar.yaml")); err != nil {
+	result := fixture.application.Run(ctx, []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+	if _, err := os.Stat(filepath.Join(root, ".kar", "config.yaml")); err != nil {
 		t.Fatalf("committed config is absent: %v", err)
 	}
 }
@@ -307,48 +738,246 @@ func TestApplicationPreservesCommittedSuccessWhenContextCancelsAfterWrite(t *tes
 func TestApplicationConfigNoProjectAndCommittedProject(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	ctx := context.Background()
-
-	withoutProjectRoot := testAnchoredRoot(t)
-	withoutProject := fixture.application.Run(ctx, []string{"config", "--project-config", "none", "--output", "json"}, withoutProjectRoot)
-	assertFoundationEnvelope(t, fixture, withoutProject, app.ExitCodeSuccess)
-	assertPersistedConfiguration(t, withoutProjectRoot, withoutProject)
-	assertFoundationConfigReceipt(t, fixture.writer, []string{globalConfigAssetID, "config:resolved-policy:v1"})
-	fixture.writer.reset()
-
 	projectRoot := testAnchoredRoot(t)
-	runFoundationGit(t, projectRoot, "init")
-	initialized := fixture.application.Run(ctx, []string{"init", "--name", "project"}, projectRoot)
+	initialized := fixture.application.Run(ctx, []string{"init", "--name", "project", "--providers", "agy", "--agy-executable", "/bin/sh"}, projectRoot)
 	if initialized.ExitCode() != app.ExitCodeSuccess {
-		t.Fatalf("initialization for committed config = exit %d stderr %q", initialized.ExitCode(), initialized.Stderr())
+		t.Fatalf("initialization = exit %d stdout %q stderr %q", initialized.ExitCode(), initialized.Stdout(), initialized.Stderr())
 	}
-	runFoundationGit(t, projectRoot, "add", ".kar.yaml")
-	runFoundationGit(t, projectRoot, "-c", "user.name=KAR Test", "-c", "user.email=kar@example.test", "commit", "-m", "add project config")
-	commit := foundationGitOutput(t, projectRoot, "rev-parse", "HEAD")
-	if err := os.WriteFile(filepath.Join(projectRoot, ".kar.yaml"), []byte("not: trusted\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fixture.writer.reset()
-
-	withProject := fixture.application.Run(ctx, []string{"config", "--project-config", ".kar.yaml", "--ref", commit, "--mode", "provenance"}, projectRoot)
+	withProject := fixture.application.Run(ctx, []string{"config", "--mode", "provenance"}, projectRoot)
 	if withProject.ExitCode() != app.ExitCodeSuccess {
-		t.Fatalf("committed configuration = exit %d stdout %q stderr %q", withProject.ExitCode(), withProject.Stdout(), withProject.Stderr())
+		t.Fatalf("local configuration = exit %d stdout %q stderr %q", withProject.ExitCode(), withProject.Stdout(), withProject.Stderr())
 	}
-	if len(fixture.writer.requests) != 0 || len(fixture.writer.receipts) != 0 {
-		t.Fatalf("human configuration unexpectedly persisted output: requests %d receipts %d", len(fixture.writer.requests), len(fixture.writer.receipts))
-	}
-
 	var document struct {
-		Mode              string `json:"mode"`
-		ProjectProvenance *struct {
-			Commit string `json:"commit"`
-			Path   string `json:"path"`
-		} `json:"project_provenance"`
+		Mode       string                    `json:"mode"`
+		ConfigURI  string                    `json:"config_uri"`
+		Provenance []appconfig.ProvenanceRow `json:"provenance"`
 	}
 	if err := json.Unmarshal(withProject.Stdout(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.Mode != "provenance" || document.ProjectProvenance == nil || document.ProjectProvenance.Commit != commit || document.ProjectProvenance.Path != ".kar.yaml" {
-		t.Fatalf("committed configuration provenance = %#v", document)
+	if document.Mode != "provenance" || document.ConfigURI != ".kar/config.yaml" || len(document.Provenance) == 0 {
+		t.Fatalf("local configuration provenance = %#v", document)
+	}
+}
+
+func TestAdmitConfiguredNativeAccount(t *testing.T) {
+	wantHome := "/Users/example"
+	for _, test := range []struct {
+		name       string
+		configured string
+		installed  *user.User
+		lookupErr  error
+		euid       int
+		wantErr    bool
+	}{
+		{name: "matching", configured: wantHome, installed: &user.User{Uid: "501", HomeDir: wantHome}, euid: 501},
+		{name: "lookup unavailable", configured: wantHome, lookupErr: errors.New("unavailable"), euid: 501, wantErr: true},
+		{name: "missing account", configured: wantHome, euid: 501, wantErr: true},
+		{name: "invalid uid", configured: wantHome, installed: &user.User{Uid: "invalid", HomeDir: wantHome}, euid: 501, wantErr: true},
+		{name: "uid mismatch", configured: wantHome, installed: &user.User{Uid: "502", HomeDir: wantHome}, euid: 501, wantErr: true},
+		{name: "home mismatch", configured: "/Users/other", installed: &user.User{Uid: "501", HomeDir: wantHome}, euid: 501, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home, uid, err := admitConfiguredNativeAccount(test.configured, test.installed, test.lookupErr, test.euid)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("admission error = %v, wantErr %t", err, test.wantErr)
+			}
+			if !test.wantErr && (home != wantHome || uid != 501) {
+				t.Fatalf("admission = %q/%d", home, uid)
+			}
+		})
+	}
+}
+
+func TestApplicationConfigRejectsNativeAccountAndIdentityMismatch(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	ctx := context.Background()
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(ctx, []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+
+	configPath := filepath.Join(root, ".kar", "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := adapterconfig.YAMLCodec{}
+	config, err := codec.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.NativeUser.Home = filepath.Join(t.TempDir(), "different-native-home")
+	data, err = codec.EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mismatch := fixture.application.Run(ctx, []string{"config", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, mismatch, app.ExitCodeReadiness)
+	var mismatchEnvelope struct {
+		Reasons []struct {
+			Code string `json:"code"`
+		} `json:"reasons"`
+		Result struct {
+			Kind         string `json:"kind"`
+			ConfigSHA256 string `json:"config_sha256"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(mismatch.Stdout(), &mismatchEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(mismatchEnvelope.Reasons) != 1 || mismatchEnvelope.Reasons[0].Code != "readiness_unverified" || mismatchEnvelope.Result.Kind != "configuration_failed" || mismatchEnvelope.Result.ConfigSHA256 != "" {
+		t.Fatalf("native account mismatch = %#v", mismatchEnvelope)
+	}
+
+	installed, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.NativeUser.Home = installed.HomeDir
+	data, err = codec.EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErr: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "native home identity changed")}
+	unsafe := fixture.application.Run(ctx, []string{"config", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, unsafe, app.ExitCodeSecurity)
+}
+
+func TestApplicationNativeHomeCancellationUsesExitNine(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		failAt  int
+		cause   error
+	}{
+		{name: "init first observation cancelled", command: "init", failAt: 1, cause: context.Canceled},
+		{name: "init revalidation deadline", command: "init", failAt: 2, cause: context.DeadlineExceeded},
+		{name: "config first observation cancelled", command: "config", failAt: 1, cause: context.Canceled},
+		{name: "config revalidation deadline", command: "config", failAt: 2, cause: context.DeadlineExceeded},
+		{name: "doctor first observation cancelled", command: "doctor", failAt: 1, cause: context.Canceled},
+		{name: "doctor revalidation deadline", command: "doctor", failAt: 2, cause: context.DeadlineExceeded},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			if test.command != "init" {
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			}
+			errorsByCall := make([]error, test.failAt)
+			errorsByCall[test.failAt-1] = test.cause
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErrors: errorsByCall}
+			argv := []string{test.command, "--output", "json"}
+			if test.command == "init" {
+				argv = []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+			}
+			result := fixture.application.Run(context.Background(), argv, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeCancellation)
+			if len(result.Stderr()) != 0 {
+				t.Fatalf("cancellation stderr = %q", result.Stderr())
+			}
+			var envelope struct {
+				Exit struct {
+					Code int    `json:"code"`
+					Kind string `json:"kind"`
+				} `json:"exit"`
+				Reasons []struct {
+					Category  string `json:"category"`
+					Code      string `json:"code"`
+					Message   string `json:"message"`
+					Retryable bool   `json:"retryable"`
+				} `json:"reasons"`
+				Result json.RawMessage `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Exit.Code != 9 || envelope.Exit.Kind != "cancellation" || len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "cancellation" || envelope.Reasons[0].Code != "request_cancelled" || envelope.Reasons[0].Message != "The command was cancelled." || envelope.Reasons[0].Retryable {
+				t.Fatalf("cancellation envelope = %#v", envelope)
+			}
+			switch test.command {
+			case "init":
+				var projection appinit.InitializeProjectResult
+				if err := json.Unmarshal(envelope.Result, &projection); err != nil || projection.WriteState != "not_attempted" || projection.DestinationState != ports.ConfigDestinationAbsent || projection.Committed || projection.ConfigSHA256 != "" || !reflect.DeepEqual(projection.SelectedProviderIDs, []string{"agy"}) || len(projection.CandidateProviderIDs) != 0 || len(projection.ConfiguredProviderIDs) != 0 || len(projection.Discovery) != 0 {
+					t.Fatalf("cancelled init projection = %#v err=%v", projection, err)
+				}
+				if _, err := os.Lstat(filepath.Join(root, ".kar")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("cancelled init mutated private directory: %v", err)
+				}
+			case "config":
+				var projection struct {
+					Kind         string `json:"kind"`
+					ConfigSHA256 string `json:"config_sha256"`
+				}
+				if err := json.Unmarshal(envelope.Result, &projection); err != nil || projection.Kind != "configuration_failed" || projection.ConfigSHA256 != "" {
+					t.Fatalf("cancelled config projection = %#v err=%v", projection, err)
+				}
+			case "doctor":
+				var projection struct {
+					Doctor    any    `json:"doctor"`
+					Readiness string `json:"readiness"`
+				}
+				if err := json.Unmarshal(envelope.Result, &projection); err != nil || projection.Doctor != nil || projection.Readiness != "unverified" {
+					t.Fatalf("cancelled doctor projection = %#v err=%v", projection, err)
+				}
+			}
+		})
+	}
+}
+
+func TestApplicationNativeHomeCancellationHumanOutput(t *testing.T) {
+	for _, command := range []string{"init", "config", "doctor"} {
+		t.Run(command, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			if command != "init" {
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			}
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErr: context.Canceled}
+			argv := []string{command}
+			if command == "init" {
+				argv = []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh"}
+			}
+			result := fixture.application.Run(context.Background(), argv, root)
+			if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("kar: request was cancelled\n")) {
+				t.Fatalf("human cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+		})
+	}
+}
+
+func TestApplicationHelpRemainsRepositoryIndependent(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	for _, test := range []struct {
+		name   string
+		unborn bool
+	}{{name: "non-git"}, {name: "unborn", unborn: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Chmod(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.unborn {
+				command := exec.Command("/usr/bin/git", "init", "--quiet")
+				command.Dir = root
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("git init: %v: %s", err, output)
+				}
+			}
+			result := fixture.application.Run(context.Background(), []string{"help"}, root)
+			if result.ExitCode() != app.ExitCodeSuccess || len(result.Stdout()) == 0 || len(result.Stderr()) != 0 {
+				t.Fatalf("help = exit %d stdout=%q stderr=%q", result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+		})
 	}
 }
 func TestPersistJSONFailsClosedOnInconsistentAbortCallback(t *testing.T) {
@@ -381,8 +1010,8 @@ func TestPersistJSONFailsClosedOnInconsistentAbortCallback(t *testing.T) {
 		t.Fatalf("abort calls = %d, want 1", writer.abortCalls)
 	}
 
-	result := fixture.application.Run(context.Background(), []string{"config", "--project-config", "none", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+	result := fixture.application.Run(context.Background(), []string{"config", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
 }
 
 func TestPersistJSONClassifiesReturnedSecureWriterRejection(t *testing.T) {
@@ -434,9 +1063,9 @@ func TestApplicationProjectsFailuresToSamePermittedExitsInHumanAndJSON(t *testin
 		exit app.ExitCode
 	}{
 		{name: "help", argv: []string{"help", "security"}, exit: app.ExitCodeUsage},
-		{name: "init", argv: []string{"init"}, exit: app.ExitCodeArtifact},
-		{name: "doctor", argv: []string{"doctor"}, exit: app.ExitCodeArtifact},
-		{name: "config", argv: []string{"config", "--project-config", "none"}, exit: app.ExitCodeSecurity},
+		{name: "init", argv: []string{"init"}, exit: app.ExitCodeCancellation},
+		{name: "doctor", argv: []string{"doctor"}, exit: app.ExitCodeCancellation},
+		{name: "config", argv: []string{"config"}, exit: app.ExitCodeCancellation},
 		{name: "schema", argv: []string{"schema", "show", commandSchemaID}, exit: app.ExitCodeArtifact},
 	}
 	for _, test := range tests {
@@ -456,7 +1085,42 @@ func TestApplicationProjectsFailuresToSamePermittedExitsInHumanAndJSON(t *testin
 	}
 }
 
-func TestApplicationDoctorPersistsValidatedUnverifiedResult(t *testing.T) {
+func TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory(t *testing.T) {
+	diagnosis := doctor.LocalDoctorResult{
+		Readiness: doctor.LocalReadiness{State: "degraded", ExitCode: 0},
+		ProviderInventory: []doctor.LocalProviderInventoryRow{
+			{Family: "kimi", State: "eligible", Reason: "identity_admitted"},
+			{Family: "zcode", State: "not_configured", Reason: "not_configured"},
+			{Family: "agy", State: "not_configured", Reason: "not_configured"},
+		},
+	}
+	output := string(localDoctorHumanOutput(diagnosis))
+	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 3 {
+		t.Fatalf("doctor human output = %q, want ANSI-free fixed inventory", output)
+	}
+}
+
+func TestLocalProviderAdmissionRequiresCompletePassAndFlagsSecurityFailure(t *testing.T) {
+	reader := &foundationEvidenceReader{}
+	evidence, err := reader.ProviderEvidence(context.Background(), "kimi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); !admitted || unsafe {
+		t.Fatalf("complete provider evidence = admitted %t unsafe %t", admitted, unsafe)
+	}
+	evidence.Probes[3].Status = doctor.EvidenceStatusNotRun
+	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); admitted || unsafe {
+		t.Fatalf("incomplete provider evidence = admitted %t unsafe %t", admitted, unsafe)
+	}
+	evidence.Probes[3].Status = doctor.EvidenceStatusPass
+	evidence.Probes[9].Status = doctor.EvidenceStatusFail
+	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); admitted || !unsafe {
+		t.Fatalf("security-failed provider evidence = admitted %t unsafe %t", admitted, unsafe)
+	}
+}
+
+func TestApplicationDoctorReturnsInlineValidatedUnverifiedResult(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -464,12 +1128,36 @@ func TestApplicationDoctorPersistsValidatedUnverifiedResult(t *testing.T) {
 	if len(result.Stderr()) != 0 {
 		t.Fatalf("doctor JSON stderr = %q, want empty", result.Stderr())
 	}
-
-	uri := commandResultURI(t, result.Stdout(), "doctor_result_uri")
-	if uri == "" {
-		t.Fatal("doctor envelope omitted persisted primary output URI")
+	if strings.Contains(string(result.Stdout()), "\x1b[") {
+		t.Fatalf("doctor JSON stdout contains ANSI color: %q", result.Stdout())
 	}
-	contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(uri)))
+	human := fixture.application.Run(context.Background(), []string{"doctor"}, root)
+	if human.ExitCode() != app.ExitCodeReadiness {
+		t.Fatalf("doctor human exit = %d, want %d", human.ExitCode(), app.ExitCodeReadiness)
+	}
+	if strings.Contains(string(human.Stdout()), "\x1b[") {
+		t.Fatalf("doctor human stdout contains ANSI colors: %q", human.Stdout())
+	}
+	if len(human.Stderr()) != 0 {
+		t.Fatalf("doctor human stderr = %q, want empty", human.Stderr())
+	}
+	if !strings.Contains(string(human.Stdout()), "Readiness: unverified\nConfiguration: missing\nProviders:\n") {
+		t.Fatalf("doctor human stdout omitted readiness and provider heading: %q", human.Stdout())
+	}
+
+	var envelope struct {
+		Result struct {
+			DoctorResultURI *string                   `json:"doctor_result_uri"`
+			Doctor          *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.DoctorResultURI != nil || envelope.Result.Doctor == nil {
+		t.Fatalf("doctor result = %#v, want inline artifact and null URI", envelope.Result)
+	}
+	contents, err := json.Marshal(envelope.Result.Doctor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,6 +1166,238 @@ func TestApplicationDoctorPersistsValidatedUnverifiedResult(t *testing.T) {
 		t.Fatalf("persisted doctor result is not schema-valid: %v", err)
 	}
 }
+
+func TestApplicationDoctorClassifiesCredentialAdmissionAsSecurity(t *testing.T) {
+	for _, test := range []struct {
+		name, injected, reason, secret string
+	}{
+		{name: "credential key", injected: "api_key: redacted-do-not-emit\n", reason: "config_credential_key_detected", secret: "redacted-do-not-emit"},
+		{name: "credential value", injected: "note: \"Bearer abcdefghijklmnop\"\n", reason: "config_credential_value_detected", secret: "abcdefghijklmnop"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := &foundationEvidenceReader{}
+			fixture := newFoundationFixtureWithEvidence(t, evidence)
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+
+			configPath := filepath.Join(root, ".kar", "config.yaml")
+			contents, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(configPath, append(contents, []byte(test.injected)...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+			if bytes.Contains(result.Stdout(), []byte(test.secret)) {
+				t.Fatalf("doctor leaked rejected credential material: %q", result.Stdout())
+			}
+			var envelope struct {
+				Reasons []struct {
+					Code string `json:"code"`
+				} `json:"reasons"`
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "security_rejected" || envelope.Result.Doctor == nil ||
+				envelope.Result.Doctor.Config.Status != "unsafe" || envelope.Result.Doctor.Config.Locality != "verified" ||
+				!reflect.DeepEqual(envelope.Result.Doctor.Config.ReasonCodes, []string{test.reason}) ||
+				envelope.Result.Doctor.Readiness.State != "unsafe" || envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeSecurity) ||
+				!reflect.DeepEqual(envelope.Result.Doctor.Readiness.ReasonCodes, []string{test.reason}) || len(evidence.providerCalls) != 0 {
+				t.Fatalf("doctor credential result = %#v, reasons=%#v provider_calls=%v", envelope.Result.Doctor, envelope.Reasons, evidence.providerCalls)
+			}
+
+			human := fixture.application.Run(context.Background(), []string{"doctor"}, root)
+			if human.ExitCode() != app.ExitCodeSecurity || bytes.Contains(human.Stdout(), []byte(test.secret)) || bytes.Contains(human.Stderr(), []byte(test.secret)) {
+				t.Fatalf("doctor human credential result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+			}
+		})
+	}
+}
+
+func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *testing.T) {
+	tests := []struct {
+		name          string
+		initArguments []string
+		wantState     string
+		wantProviders []string
+	}{
+		{
+			name:          "one configured family is degraded",
+			initArguments: []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"},
+			wantState:     "degraded",
+			wantProviders: []string{"agy"},
+		},
+		{
+			name: "two configured families are ready",
+			initArguments: []string{
+				"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/sh", "--output", "json",
+			},
+			wantState:     "ready",
+			wantProviders: []string{"kimi", "agy"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := &foundationEvidenceReader{}
+			fixture := newFoundationFixtureWithEvidence(t, evidence)
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), test.initArguments, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+
+			result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+			var envelope struct {
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != test.wantState ||
+				!reflect.DeepEqual(envelope.Result.Doctor.ConfiguredProviderIDs, test.wantProviders) {
+				t.Fatalf("doctor result = %#v, want %s with providers %v", envelope.Result.Doctor, test.wantState, test.wantProviders)
+			}
+			if !reflect.DeepEqual(evidence.providerCalls, test.wantProviders) {
+				t.Fatalf("evidence calls = %v, want configured families only %v", evidence.providerCalls, test.wantProviders)
+			}
+			for _, row := range envelope.Result.Doctor.ProviderInventory {
+				configured := false
+				for _, family := range test.wantProviders {
+					configured = configured || row.Family == family
+				}
+				if configured && (row.State != "eligible" || row.Reason != "identity_admitted") {
+					t.Fatalf("configured row = %#v, want eligible", row)
+				}
+				if !configured && (row.State != "not_configured" || row.Reason != "not_configured") {
+					t.Fatalf("omitted row = %#v, want not_configured", row)
+				}
+			}
+		})
+	}
+}
+
+func TestApplicationDoctorDegradesWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable(t *testing.T) {
+	evidence := &foundationEvidenceReader{}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{
+		"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/bash", "--output", "json",
+	}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	fixture.application.inspector = &doctorIdentityInspector{
+		delegate: fixture.application.inspector,
+		executableErrors: map[string]error{
+			"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable is unavailable"),
+		},
+	}
+
+	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "degraded" || envelope.Result.Doctor.Readiness.ExitCode != 0 ||
+		envelope.Result.Doctor.ProviderInventory[0].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		!reflect.DeepEqual(evidence.providerCalls, []string{"agy"}) {
+		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
+	}
+}
+
+func TestApplicationDoctorRejectsNativeHomeIdentityFailureBeforeProviderObservation(t *testing.T) {
+	evidence := &foundationEvidenceReader{}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	fixture.application.inspector = &doctorIdentityInspector{
+		delegate:      fixture.application.inspector,
+		nativeHomeErr: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "native home identity changed"),
+	}
+
+	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Config.NativeHomeIdentity != "mismatch" ||
+		!reflect.DeepEqual(envelope.Result.Doctor.Readiness.ReasonCodes, []string{"native_home_mismatch"}) || len(evidence.providerCalls) != 0 {
+		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
+	}
+}
+
+func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(t *testing.T) {
+	evidence := &foundationEvidenceReader{}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{
+		"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/bash", "--output", "json",
+	}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	fixture.application.inspector = &doctorIdentityInspector{
+		delegate: fixture.application.inspector,
+		executableErrors: map[string]error{
+			"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed"),
+		},
+	}
+
+	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[0].Reason != "provider_security_admission_failed" ||
+		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		!reflect.DeepEqual(evidence.providerCalls, []string{"agy"}) {
+		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
+	}
+}
+
+func TestApplicationDoctorKeepsConfiguredProvidersUnverifiedWithoutAuthorityEvidence(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" ||
+		envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeReadiness) ||
+		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_admission_unverified" {
+		t.Fatalf("doctor result = %#v, want explicit unverified authority", envelope.Result.Doctor)
+	}
+}
+
 func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
@@ -550,33 +1470,25 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, doctorResult, app.ExitCodeReadiness)
-	uri := commandResultURI(t, doctorResult.Stdout(), "doctor_result_uri")
-	contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(uri)))
-	if err != nil {
+	var doctorEnvelope struct {
+		Result struct {
+			DoctorResultURI *string                   `json:"doctor_result_uri"`
+			Doctor          *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(doctorResult.Stdout(), &doctorEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	var diagnosis struct {
-		ProviderEvidence []struct {
-			ProviderID    string `json:"provider_id"`
-			EvidenceState string `json:"evidence_state"`
-			EvidenceURI   string `json:"evidence_uri"`
-		} `json:"provider_evidence"`
+	if doctorEnvelope.Result.DoctorResultURI != nil || doctorEnvelope.Result.Doctor == nil {
+		t.Fatalf("doctor envelope = %#v, want inline project-local result", doctorEnvelope.Result)
 	}
-	if err := json.Unmarshal(contents, &diagnosis); err != nil {
-		t.Fatal(err)
-	}
-	if len(diagnosis.ProviderEvidence) != 3 {
-		t.Fatalf("doctor provider evidence rows = %d, want 3", len(diagnosis.ProviderEvidence))
-	}
-	for _, provider := range diagnosis.ProviderEvidence {
-		if provider.EvidenceState != "pass" || provider.EvidenceURI != foundationProviderEvidenceURI {
-			t.Fatalf("doctor provider evidence = %#v, want injected PASS evidence", provider)
-		}
+	if got := doctorEnvelope.Result.Doctor.Config.Status; got != "missing" {
+		t.Fatalf("doctor config status = %q, want missing", got)
 	}
 
-	wantCalls := []string{"kimi", "zcode", "agy", "kimi", "zcode", "agy"}
+	wantCalls := []string{"kimi", "zcode", "agy"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
-		len(evidence.platformCalls) != 2 || evidence.toolsCalls != 2 {
+		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
 	}
 }
@@ -629,15 +1541,266 @@ func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.
 	}
 }
 
-func TestApplicationProvidersLeavesFutureCommandsUnavailable(t *testing.T) {
+func TestApplicationReviewAndPromptFailClosedWithoutAuthority(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	for _, command := range []string{"review", "prompt"} {
-		t.Run(command, func(t *testing.T) {
-			result := fixture.application.Run(context.Background(), []string{command}, root)
-			if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 ||
-				!bytes.Equal(result.Stderr(), []byte("kar: command is unavailable in this foundation milestone\n")) {
-				t.Fatalf("%s result = exit %d stdout %q stderr %q", command, result.ExitCode(), result.Stdout(), result.Stderr())
+	tests := []struct {
+		name string
+		argv []string
+		exit app.ExitCode
+	}{
+		{name: "review", argv: []string{"review", "--diff", "git"}, exit: app.ExitCodeReadiness},
+		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, exit: app.ExitCodeArtifact},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), test.argv, root)
+			if result.ExitCode() != test.exit || len(result.Stdout()) != 0 || len(result.Stderr()) == 0 {
+				t.Fatalf("%s result = exit %d stdout %q stderr %q", test.name, result.ExitCode(), result.Stdout(), result.Stderr())
+			}
+		})
+	}
+}
+
+type reviewRunFake struct {
+	result  ReviewRunResult
+	err     error
+	calls   int
+	ctx     context.Context
+	request ReviewRequest
+	root    ports.AnchoredRoot
+}
+
+func (fake *reviewRunFake) StartReviewRun(ctx context.Context, request ReviewRequest, root ports.AnchoredRoot) (ReviewRunResult, error) {
+	fake.calls++
+	fake.ctx = ctx
+	fake.request = request
+	fake.root = root
+	if fake.err != nil {
+		return ReviewRunResult{}, fake.err
+	}
+	return fake.result, nil
+}
+
+type reviewRunInputSourceFactoryFake struct {
+	calls   int
+	ctx     context.Context
+	request reviewrun.InputCaptureRequest
+	source  reviewrun.ImmutableInputSource
+	err     error
+	events  *[]string
+}
+
+func (fake *reviewRunInputSourceFactoryFake) NewImmutableInputSource(
+	ctx context.Context,
+	request reviewrun.InputCaptureRequest,
+) (reviewrun.ImmutableInputSource, error) {
+	fake.calls++
+	fake.ctx = ctx
+	fake.request = request
+	if fake.events != nil {
+		*fake.events = append(*fake.events, "factory")
+	}
+	return fake.source, fake.err
+}
+
+type typedNilReviewRunInputSourceFactory struct{}
+
+func (*typedNilReviewRunInputSourceFactory) NewImmutableInputSource(
+	context.Context,
+	reviewrun.InputCaptureRequest,
+) (reviewrun.ImmutableInputSource, error) {
+	return nil, nil
+}
+
+type reviewRunInputSourceFake struct {
+	calls  int
+	err    error
+	events *[]string
+}
+
+func (fake *reviewRunInputSourceFake) Capture(context.Context, reviewrun.Request) (reviewrun.CapturedRunInput, error) {
+	fake.calls++
+	if fake.events != nil {
+		*fake.events = append(*fake.events, "capture")
+	}
+	return reviewrun.CapturedRunInput{}, fake.err
+}
+
+func testReviewRunAnchoredRoot(t *testing.T) ports.AnchoredRoot {
+	t.Helper()
+	root, err := ports.NewAnchoredRoot(testAnchoredRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestNewReviewRunServicePreservesNilDependencies(t *testing.T) {
+	factory := &reviewRunInputSourceFactoryFake{}
+	if got := NewReviewRunService(nil, factory); got != nil {
+		t.Fatalf("nil service adapter = %#v, want nil", got)
+	}
+	if got := NewReviewRunService(new(reviewrun.Service), nil); got != nil {
+		t.Fatalf("nil factory adapter = %#v, want nil", got)
+	}
+	var typedNil *typedNilReviewRunInputSourceFactory
+	if got := NewReviewRunService(new(reviewrun.Service), typedNil); got != nil {
+		t.Fatalf("typed-nil factory adapter = %#v, want nil", got)
+	}
+}
+
+func TestReviewRunAdapterCapturesOnceBeforeServiceAndPropagatesRequest(t *testing.T) {
+	root := testReviewRunAnchoredRoot(t)
+	ctx := context.WithValue(context.Background(), "review-run-adapter", "context")
+	request := ReviewRequest{
+		target:       TargetRequest{kind: "diff", value: "HEAD~1"},
+		objective:    "review only the request adapter",
+		hasObjective: true,
+		roles:        []string{"logic"},
+		sessionID:    g006SessionID,
+		hasSessionID: true,
+	}
+	captureErr := errors.New("capture failed")
+	events := []string{}
+	source := &reviewRunInputSourceFake{err: captureErr, events: &events}
+	factory := &reviewRunInputSourceFactoryFake{source: source, events: &events}
+	service := NewReviewRunService(new(reviewrun.Service), factory)
+
+	_, err := service.StartReviewRun(ctx, request, root)
+	if !errors.Is(err, captureErr) {
+		t.Fatalf("StartReviewRun error = %v, want capture error", err)
+	}
+	if factory.calls != 1 || source.calls != 1 {
+		t.Fatalf("factory calls = %d, source captures = %d, want 1 each", factory.calls, source.calls)
+	}
+	if !reflect.DeepEqual(events, []string{"factory", "capture"}) {
+		t.Fatalf("call order = %#v, want factory before service capture", events)
+	}
+	capturedObjective, hasObjective := factory.request.Objective()
+	if factory.ctx != ctx || factory.request.Root() != root || factory.request.Target().Kind() != ports.ReviewTargetDiff ||
+		factory.request.Target().Value() != "HEAD~1" || !hasObjective || string(capturedObjective) != request.objective {
+		t.Fatalf("factory input = %#v, want exact typed context/request/root", factory.request)
+	}
+}
+
+func TestReviewRunAdapterRejectsMalformedRequestBeforeCapture(t *testing.T) {
+	factory := &reviewRunInputSourceFactoryFake{}
+	service := NewReviewRunService(new(reviewrun.Service), factory)
+
+	_, err := service.StartReviewRun(context.Background(), ReviewRequest{}, testReviewRunAnchoredRoot(t))
+	if err == nil {
+		t.Fatal("StartReviewRun accepted malformed request")
+	}
+	if factory.calls != 0 {
+		t.Fatalf("factory calls = %d, want 0", factory.calls)
+	}
+}
+
+func TestReviewRunAdapterPropagatesFactoryError(t *testing.T) {
+	factoryErr := errors.New("factory failed")
+	factory := &reviewRunInputSourceFactoryFake{err: factoryErr}
+	service := NewReviewRunService(new(reviewrun.Service), factory)
+	request := ReviewRequest{target: TargetRequest{kind: "diff", value: "HEAD"}, roles: []string{"logic"}}
+
+	_, err := service.StartReviewRun(context.Background(), request, testReviewRunAnchoredRoot(t))
+	if !errors.Is(err, factoryErr) {
+		t.Fatalf("StartReviewRun error = %v, want factory error", err)
+	}
+	if factory.calls != 1 {
+		t.Fatalf("factory calls = %d, want 1", factory.calls)
+	}
+}
+
+func TestApplicationReviewRunServiceSeam(t *testing.T) {
+	root := testAnchoredRoot(t)
+	valid := NewReviewRunResult(
+		g006SessionID,
+		"r_019f596a-d050-79e7-b2b7-59822f012273",
+		".kar/runs/manifest.json",
+		g006ReviewArtifactURI,
+		g008CommittedTerminalExit(t, domain.ExitCommittedPass),
+	)
+	classified, err := domain.NewFailure("test.review", domain.FailureArtifact, "review artifact unavailable", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name      string
+		service   ReviewRunService
+		result    ReviewRunResult
+		err       error
+		wantExit  app.ExitCode
+		wantCalls int
+	}{
+		{name: "absent", wantExit: app.ExitCodeReadiness},
+		{name: "typed nil", service: (*reviewRunFake)(nil), wantExit: app.ExitCodeReadiness},
+		{name: "success", result: valid, wantExit: app.ExitCodeSuccess, wantCalls: 1},
+		{name: "malformed result", result: ReviewRunResult{}, wantExit: app.ExitCodeInternal, wantCalls: 1},
+		{name: "classified failure", err: classified, wantExit: app.ExitCodeArtifact, wantCalls: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			fake := &reviewRunFake{result: test.result, err: test.err}
+			if test.service != nil {
+				fixture.application.reviewRuns = test.service
+			} else if test.wantCalls != 0 {
+				fixture.application.reviewRuns = fake
+			}
+			ctx := context.WithValue(context.Background(), "review-context", test.name)
+			argv := []string{"review", "--diff", "git"}
+			if test.wantCalls != 0 {
+				argv = append(argv, "--output", "json")
+			}
+			result := fixture.application.Run(ctx, argv, root)
+			if result.ExitCode() != test.wantExit {
+				t.Fatalf("exit = %d, want %d; stdout = %q stderr = %q", result.ExitCode(), test.wantExit, result.Stdout(), result.Stderr())
+			}
+			if fake.calls != test.wantCalls {
+				t.Fatalf("service calls = %d, want %d", fake.calls, test.wantCalls)
+			}
+			if test.wantCalls == 0 {
+				if len(result.Stdout()) != 0 || len(result.Stderr()) == 0 {
+					t.Fatalf("unavailable result = stdout %q stderr %q", result.Stdout(), result.Stderr())
+				}
+				return
+			}
+			if fake.ctx != ctx {
+				t.Fatal("service did not receive the invocation context")
+			}
+			expectedRoot, err := ports.NewAnchoredRoot(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fake.root != expectedRoot {
+				t.Fatalf("service root = %#v, want %#v", fake.root, expectedRoot)
+			}
+			if got := fake.request.Roles(); !reflect.DeepEqual(got, []string{"logic", "security", "maintainability", "product", "documentation", "testing"}) {
+				t.Fatalf("service review roles = %#v", got)
+			}
+			if test.name == "success" {
+				assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+				var envelope struct {
+					Result struct {
+						Kind              string `json:"kind"`
+						SessionID         string `json:"session_id"`
+						RunID             string `json:"run_id"`
+						RunManifestURI    string `json:"run_manifest_uri"`
+						ReviewArtifactURI string `json:"review_artifact_uri"`
+					} `json:"result"`
+				}
+				if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+					t.Fatal(err)
+				}
+				if envelope.Result.Kind != "review_started" ||
+					envelope.Result.SessionID != g006SessionID ||
+					envelope.Result.RunID != "r_019f596a-d050-79e7-b2b7-59822f012273" ||
+					envelope.Result.RunManifestURI != ".kar/runs/manifest.json" ||
+					envelope.Result.ReviewArtifactURI != g006ReviewArtifactURI {
+					t.Fatalf("review result = %#v", envelope.Result)
+				}
+				return
 			}
 		})
 	}
@@ -691,6 +1854,7 @@ type g008ResolverFake struct {
 	runCalls     []string
 	attemptCalls []g008AttemptResolution
 	targetCalls  int
+	err          error
 }
 
 type g008AttemptResolution struct {
@@ -701,17 +1865,56 @@ type g008AttemptResolution struct {
 
 func (fake *g008ResolverFake) ResolveRun(_ context.Context, selector string) (string, error) {
 	fake.runCalls = append(fake.runCalls, selector)
+	if fake.err != nil {
+		return "", fake.err
+	}
 	return testRunID, nil
 }
 
 func (fake *g008ResolverFake) ResolveAttempt(_ context.Context, runID, role, provider string) (string, error) {
 	fake.attemptCalls = append(fake.attemptCalls, g008AttemptResolution{runID: runID, role: role, provider: provider})
+	if fake.err != nil {
+		return "", fake.err
+	}
 	return testAttemptID, nil
 }
 
 func (fake *g008ResolverFake) CaptureTarget(context.Context) (string, error) {
 	fake.targetCalls++
-	return "captured.patch", nil
+	if fake.err != nil {
+		return "", fake.err
+	}
+	return "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil
+}
+
+func TestApplicationPreservesResolverOperationalFailures(t *testing.T) {
+	artifact, err := domain.NewFailure("resolver.read", domain.FailureArtifact, "artifact read failed", errors.New("read failed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	security, err := domain.NewFailure("resolver.read", domain.FailureSecurityPolicy, "resolver policy rejected", errors.New("policy rejected"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+		exit app.ExitCode
+	}{
+		{name: "cancelled", err: context.Canceled, exit: app.ExitCodeCancellation},
+		{name: "artifact", err: artifact, exit: app.ExitCodeArtifact},
+		{name: "security", err: security, exit: app.ExitCodeSecurity},
+		{name: "internal", err: errors.New("resolver failed"), exit: app.ExitCodeInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			fixture.application.requestResolver = &g008ResolverFake{err: test.err}
+			result := fixture.application.Run(context.Background(), []string{"export", "--run", "latest", "--output-path", "export.zip"}, testAnchoredRoot(t))
+			if result.ExitCode() != test.exit || len(result.Stdout()) != 0 || len(result.Stderr()) == 0 {
+				t.Fatalf("resolver failure result = exit %d stdout %q stderr %q, want exit %d", result.ExitCode(), result.Stdout(), result.Stderr(), test.exit)
+			}
+		})
+	}
 }
 
 type g008FollowupE2EFake struct {
@@ -863,7 +2066,7 @@ func (g008RequestResolver) ResolveAttempt(context.Context, string, string, strin
 }
 
 func (g008RequestResolver) CaptureTarget(context.Context) (string, error) {
-	return "captured.patch", nil
+	return "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil
 }
 
 func (fake *g006QueryFake) ResolveRun(_ context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
@@ -1134,10 +2337,6 @@ func TestApplicationG006ReportRejectsReservedControlNamespaces(t *testing.T) {
 		".Git/reports/review.md",
 		".gjc/reports/review.md",
 		".GJC/reports/review.md",
-		".kar.yaml",
-		".KAR.YML",
-		".kar.yaml/reports/review.md",
-		".KAR.YML/reports/review.md",
 	} {
 		t.Run(outputPath, func(t *testing.T) {
 			query := newG006QueryFake()
@@ -1165,7 +2364,7 @@ func TestPersistReportMarkdownRejectsReservedDestinationWithoutWriterIO(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination, err := ports.NewSafeRelativePath(".KAR.YAML/reports/review.md")
+	destination, err := ports.NewSafeRelativePath(".KAR/reports/review.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1243,6 +2442,29 @@ func TestG006OperationalFailureExitsAreNotCoerced(t *testing.T) {
 	}
 }
 
+func TestProjectLocalCommandCancellationExitsAreNotCoerced(t *testing.T) {
+	for _, command := range []app.CommandName{app.CommandInit, app.CommandConfig, app.CommandDoctor} {
+		t.Run(string(command), func(t *testing.T) {
+			failure := executionFailureFor(command, context.Canceled, domain.FailureSecurityPolicy)
+			if failure.class != domain.FailureCancelled || failure.exit != app.ExitCodeCancellation || !permittedFailureExit(command, failure.exit) || projectedFailureExit(command, failure.exit) != app.ExitCodeCancellation {
+				t.Fatalf("cancellation projection = class %s exit %d", failure.class, failure.exit)
+			}
+		})
+	}
+}
+
+func TestExecutionFailurePreservesClosedLocalityReason(t *testing.T) {
+	cause := ports.NewConfigLocalityViolation(ports.ConfigLocalityTargetPrivateConfigForbidden, nil)
+	err, createErr := domain.NewFailure("review.composition", domain.FailureSecurityPolicy, string(ports.ConfigLocalityTargetPrivateConfigForbidden), cause)
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	failure := executionFailureFor(app.CommandReview, err, domain.FailureArtifact)
+	if failure.code != string(ports.ConfigLocalityTargetPrivateConfigForbidden) || failure.exit != app.ExitCodeSecurity {
+		t.Fatalf("failure = %s/exit %d", failure.code, failure.exit)
+	}
+}
+
 func TestG006OperationalFailureExitPrecedence(t *testing.T) {
 	internal := mustG006Failure(t, domain.FailureInternal)
 	artifact := mustG006Failure(t, domain.FailureArtifact)
@@ -1255,7 +2477,7 @@ func TestG006OperationalFailureExitPrecedence(t *testing.T) {
 		exit app.ExitCode
 	}{
 		{name: "internal over all", err: errors.Join(context.Canceled, security, artifact, internal), exit: app.ExitCodeInternal},
-		{name: "artifact over security and cancellation", err: errors.Join(context.Canceled, security, artifact), exit: app.ExitCodeArtifact},
+		{name: "security over artifact and cancellation", err: errors.Join(context.Canceled, security, artifact), exit: app.ExitCodeSecurity},
 		{name: "raw cleanup observation over cancellation", err: errors.Join(context.Canceled, errors.New("temporary cleanup durability observation failed")), exit: app.ExitCodeArtifact},
 		{name: "security over cancellation", err: errors.Join(context.Canceled, security), exit: app.ExitCodeSecurity},
 		{name: "cancellation over configuration", err: errors.Join(configuration, context.Canceled), exit: app.ExitCodeCancellation},
@@ -1682,7 +2904,7 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 		t.Fatal("NewApplication accepted a partial online G008 dependency group")
 	}
 }
-func TestApplicationG008FakeWorkflowE2E(t *testing.T) {
+func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 	tests := []struct {
 		name   string
 		argv   []string
@@ -1888,7 +3110,7 @@ func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 			t.Fatalf("followup calls = requests %#v runs %#v target calls %d", fakes.followup.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
 		}
 		request := fakes.followup.requests[0]
-		if request.SourceRunID.String() != testRunID || request.FindingID != "F001" || string(request.Target.Kind) != "stdin" || request.Target.Value != "captured.patch" ||
+		if request.SourceRunID.String() != testRunID || request.FindingID != "F001" || string(request.Target.Kind) != "stdin" || request.Target.Value != "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
 			request.Objective == nil || *request.Objective != "verify fix" || request.Role == nil || *request.Role != domain.RoleSecurity {
 			t.Fatalf("followup request = %#v", request)
 		}
@@ -1900,7 +3122,7 @@ func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 			t.Fatalf("delta calls = requests %#v runs %#v target calls %d", fakes.delta.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
 		}
 		request := fakes.delta.requests[0]
-		if request.SourceRunID.String() != testRunID || string(request.Target.Kind) != "stdin" || request.Target.Value != "captured.patch" ||
+		if request.SourceRunID.String() != testRunID || string(request.Target.Kind) != "stdin" || request.Target.Value != "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
 			!reflect.DeepEqual(request.Roles, []domain.Role{domain.RoleLogic, domain.RoleTesting}) {
 			t.Fatalf("delta request = %#v", request)
 		}
@@ -1973,16 +3195,23 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 	fixture.application = application
 	return fixture
 }
-func TestProductionKARCompositionFailsClosedWithoutG008Authority(t *testing.T) {
+func TestE2EProductionKARCompositionFailsClosedAtLiveBoundaries(t *testing.T) {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(t.TempDir(), "kar")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/kar")
-	build.Dir = repositoryRoot
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build production kar: %v: %s", err, output)
+	binary := os.Getenv("KAR_E2E_BINARY")
+	if binary == "" {
+		binary = filepath.Join(t.TempDir(), "kar")
+		build := exec.Command(
+			"go", "build", "-trimpath",
+			"-ldflags", "-X main.buildProduct=kar -X main.buildVersion=v1.4.2 -X main.buildCommit=0123456789abcdef0123456789abcdef01234567",
+			"-o", binary, "./cmd/kar",
+		)
+		build.Dir = repositoryRoot
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build production kar: %v: %s", err, output)
+		}
 	}
 
 	fixture := newFoundationFixture(t)
@@ -2007,10 +3236,21 @@ func TestProductionKARCompositionFailsClosedWithoutG008Authority(t *testing.T) {
 			t.Fatalf("production G001-G007 command %v exit = %d stderr %q", argv, exit, stderr)
 		}
 	}
-	for _, command := range []string{"review", "prompt"} {
-		if stdout, stderr, exit := run(command); exit != app.ExitCodeUsage || len(stdout) != 0 ||
-			!bytes.Equal(stderr, []byte("kar: command is unavailable in this foundation milestone\n")) {
-			t.Fatalf("production future command %s = exit %d stdout %q stderr %q", command, exit, stdout, stderr)
+	for _, test := range []struct {
+		name string
+		argv []string
+		exit app.ExitCode
+	}{
+		{name: "review", argv: []string{"review", "--diff", "git", "--output", "json"}, exit: app.ExitCodeUsage},
+		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"}, exit: app.ExitCodeArtifact},
+	} {
+		if stdout, stderr, exit := run(test.argv...); exit != test.exit || len(stdout) == 0 || len(stderr) != 0 {
+			t.Fatalf("production fail-closed command %s = exit %d stdout %q stderr %q", test.name, exit, stdout, stderr)
+		} else {
+			schema := mustFoundationAssetID(t, commandSchemaID)
+			if err := fixture.validator.Validate(context.Background(), schema, stdout); err != nil {
+				t.Fatalf("production fail-closed envelope %s is invalid: %v", test.name, err)
+			}
 		}
 	}
 	for _, argv := range [][]string{
@@ -2035,7 +3275,7 @@ func TestProductionKARCompositionFailsClosedWithoutG008Authority(t *testing.T) {
 	}
 	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
 }
-func TestProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSource(t *testing.T) {
+func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSource(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)
 	fixture.provider.logicNoFindings = true
 	root := fixture.executeAndPublishRoot(t)
@@ -2053,6 +3293,45 @@ func TestProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSour
 	if !result.Redacted || result.BundleURI != "exports/no-findings.zip" || result.ExportManifestURI != "exports/no-findings.manifest.json" {
 		t.Fatalf("no-findings export result = %#v", result)
 	}
+	manifestBytes, err := os.ReadFile(filepath.Join(fixture.root.String(), result.ExportManifestURI))
+	if err != nil {
+		t.Fatalf("read no-findings export manifest: %v", err)
+	}
+	exportManifestSchema := mustFoundationAssetID(t, "https://kar.local/schemas/kar-export-manifest.v1.schema.json")
+	if err := fixture.validator.Validate(context.Background(), exportManifestSchema, manifestBytes); err != nil {
+		t.Fatalf("no-findings export manifest is not schema-valid: %v", err)
+	}
+	var manifest appexport.ExportManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode no-findings export manifest: %v", err)
+	}
+	if manifest.ImmutableSource.SessionID != root.SessionID.String() ||
+		manifest.ImmutableSource.RunID != root.RunID.String() ||
+		manifest.ImmutableSource.ReviewID != root.ReviewID.String() {
+		t.Fatalf("no-findings selected immutable source = %#v", manifest.ImmutableSource)
+	}
+	var manifestFields struct {
+		SourceIdentity  map[string]json.RawMessage `json:"source_identity"`
+		CurrentIdentity map[string]json.RawMessage `json:"current_identity"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifestFields); err != nil {
+		t.Fatalf("decode no-findings export identity fields: %v", err)
+	}
+	if manifest.SourceIdentity.FindingID != "" ||
+		manifest.SourceIdentity.SourceExcerptSHA256 != "" ||
+		manifest.CurrentIdentity.TargetSHA256 == "" ||
+		manifest.CurrentIdentity.CurrentExcerptSHA256 != "" ||
+		manifest.CurrentIdentity.Path != "" ||
+		manifest.CurrentIdentity.Side != "" ||
+		manifest.CurrentIdentity.LineStart != 0 ||
+		manifest.CurrentIdentity.LineEnd != 0 ||
+		manifest.CurrentIdentity.Verification != "" ||
+		manifestFields.SourceIdentity["finding_id"] != nil ||
+		manifestFields.SourceIdentity["source_excerpt_sha256"] != nil ||
+		len(manifestFields.CurrentIdentity) != 1 ||
+		manifestFields.CurrentIdentity["target_sha256"] == nil {
+		t.Fatalf("no-findings manifest identities = %#v/%#v", manifest.SourceIdentity, manifest.CurrentIdentity)
+	}
 	run, err := fixture.queries.ResolveRun(context.Background(), fixture.root, root.RunID)
 	if err != nil {
 		t.Fatal(err)
@@ -2060,6 +3339,10 @@ func TestProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSour
 	committed, err := fixture.queries.ReadCommitted(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if manifest.SourceIdentity.SourceTargetSHA256 != committed.TargetSHA256() ||
+		manifest.CurrentIdentity.TargetSHA256 != committed.TargetSHA256() {
+		t.Fatalf("no-findings manifest target identities = %#v/%#v", manifest.SourceIdentity, manifest.CurrentIdentity)
 	}
 	projection, err := (p2ExportProjectionReader{committed: committed}).ReadCommittedProjection(context.Background(), appexport.ExportSource{
 		SessionID: root.SessionID.String(), RunID: root.RunID.String(), ReviewID: root.ReviewID.String(),
@@ -2346,6 +3629,8 @@ func testAnchoredRoot(t *testing.T) string {
 	if _, err := ports.NewAnchoredRoot(root); err != nil {
 		t.Fatal(err)
 	}
+	runFoundationGit(t, root, "init", "-q")
+	runFoundationGit(t, root, "-c", "user.name=KAR Test", "-c", "user.email=kar@example.test", "commit", "--allow-empty", "-q", "-m", "initial")
 	return root
 }
 

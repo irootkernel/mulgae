@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -165,13 +166,15 @@ func TestCaptureRejectsMalformedResolvedObjectIDs(t *testing.T) {
 	}
 }
 
-func TestTrustedReadUsesOnlyResolvedCommitPathAndCopiesBytes(t *testing.T) {
+func TestTrustedReadUsesImmutableTreeBlobAndCopiesBytes(t *testing.T) {
 	root := scriptedGitRoot(t)
 	commitText := strings.Repeat("d", 40)
+	blobText := strings.Repeat("e", 40)
 	contents := []byte("provider: kimi\n")
 	runner := &scriptedRunner{responses: []scriptedResponse{
 		{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", "trusted-base^{commit}"}, stdout: []byte(commitText + "\n")},
-		{canonical: true, args: []string{"cat-file", "blob", commitText + ":config/project.yaml"}, stdout: contents},
+		{canonical: true, args: trustedReadTreeArgs(commitText, "config/project.yaml"), stdout: treeEntry("100644", "blob", blobText, "config/project.yaml")},
+		{canonical: true, args: []string{"cat-file", "blob", blobText}, stdout: contents},
 	}}
 	adapter, err := New(runner)
 	if err != nil {
@@ -189,14 +192,18 @@ func TestTrustedReadUsesOnlyResolvedCommitPathAndCopiesBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !matchesCanonicalCommand(runner.commands[1], []string{"cat-file", "blob", commitText + ":config/project.yaml"}) {
-		t.Fatalf("trusted read argv = %v, want canonical cat-file command", runner.commands[1].Argv())
+	if !matchesCanonicalCommand(runner.commands[1], trustedReadTreeArgs(commitText, file.String())) {
+		t.Fatalf("trusted tree argv = %v, want canonical ls-tree command", runner.commands[1].Argv())
+	}
+	if !matchesCanonicalCommand(runner.commands[2], []string{"cat-file", "blob", blobText}) {
+		t.Fatalf("trusted read argv = %v, want canonical cat-file command", runner.commands[2].Argv())
 	}
 	read[0] = 'X'
 	if contents[0] != 'p' {
 		t.Fatal("ReadFileAtCommit returned aliased runner bytes")
 	}
 }
+
 func TestTrustedReadExactOIDIgnoresReferenceMetadata(t *testing.T) {
 	root := t.TempDir()
 	gitDir := filepath.Join(root, ".git")
@@ -210,6 +217,7 @@ func TestTrustedReadExactOIDIgnoresReferenceMetadata(t *testing.T) {
 	}
 
 	commitText := strings.Repeat("e", 40)
+	blobText := strings.Repeat("f", 40)
 	commit, err := ports.ParseGitObjectID(commitText)
 	if err != nil {
 		t.Fatal(err)
@@ -218,11 +226,10 @@ func TestTrustedReadExactOIDIgnoresReferenceMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &scriptedRunner{responses: []scriptedResponse{{
-		canonical: true,
-		args:      []string{"cat-file", "blob", commitText + ":config/project.yaml"},
-		stdout:    []byte("provider: kimi\n"),
-	}}}
+	runner := &scriptedRunner{responses: []scriptedResponse{
+		{canonical: true, args: trustedReadTreeArgs(commitText, file.String()), stdout: treeEntry("100644", "blob", blobText, file.String())},
+		{canonical: true, args: []string{"cat-file", "blob", blobText}, stdout: []byte("provider: kimi\n")},
+	}}
 	adapter, err := New(runner)
 	if err != nil {
 		t.Fatal(err)
@@ -235,9 +242,67 @@ func TestTrustedReadExactOIDIgnoresReferenceMetadata(t *testing.T) {
 	if string(contents) != "provider: kimi\n" {
 		t.Fatalf("trusted file contents = %q", contents)
 	}
-	if runner.next != 1 || len(runner.commands) != 1 {
-		t.Fatalf("exact OID read executed %d commands, want one", len(runner.commands))
+	if runner.next != 2 || len(runner.commands) != 2 {
+		t.Fatalf("exact OID read executed %d commands, want two", len(runner.commands))
 	}
+}
+
+func TestTrustedReadTreeMembershipFailuresAreFailClosed(t *testing.T) {
+	root := scriptedGitRoot(t)
+	commitText := strings.Repeat("a", 40)
+	blobText := strings.Repeat("b", 40)
+	commit, err := ports.ParseGitObjectID(commitText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := ports.NewSafeRelativePath(".kar.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runnerFailure := errors.New("runner failure")
+
+	for _, test := range []struct {
+		name           string
+		response       scriptedResponse
+		wantNotExist   bool
+		wantUnderlying error
+	}{
+		{name: "absent", response: scriptedResponse{canonical: true, args: trustedReadTreeArgs(commitText, file.String())}, wantNotExist: true},
+		{name: "wrong type", response: scriptedResponse{canonical: true, args: trustedReadTreeArgs(commitText, file.String()), stdout: treeEntry("120000", "blob", blobText, file.String())}},
+		{name: "malformed", response: scriptedResponse{canonical: true, args: trustedReadTreeArgs(commitText, file.String()), stdout: []byte("100644 blob " + blobText + "\t" + file.String())}},
+		{name: "duplicate", response: scriptedResponse{canonical: true, args: trustedReadTreeArgs(commitText, file.String()), stdout: append(treeEntry("100644", "blob", blobText, file.String()), treeEntry("100644", "blob", blobText, file.String())...)}},
+		{name: "runner failure", response: scriptedResponse{canonical: true, args: trustedReadTreeArgs(commitText, file.String()), err: &CommandError{cause: runnerFailure}}, wantUnderlying: runnerFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{responses: []scriptedResponse{test.response}}
+			adapter, err := New(runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = adapter.ReadFileAtCommit(context.Background(), root, commit, file)
+			if err == nil {
+				t.Fatal("ReadFileAtCommit succeeded")
+			}
+			if errors.Is(err, fs.ErrNotExist) != test.wantNotExist {
+				t.Fatalf("errors.Is(err, fs.ErrNotExist) = %v, want %v (%v)", errors.Is(err, fs.ErrNotExist), test.wantNotExist, err)
+			}
+			if test.wantUnderlying != nil && !errors.Is(err, test.wantUnderlying) {
+				t.Fatalf("runner failure = %v, want %v", err, test.wantUnderlying)
+			}
+			if len(runner.commands) != 1 {
+				t.Fatalf("executed %d commands, want only tree membership check", len(runner.commands))
+			}
+		})
+	}
+}
+
+func trustedReadTreeArgs(commit, file string) []string {
+	return []string{"ls-tree", "-z", "--full-tree", commit, "--", ":(literal)" + file}
+}
+
+func treeEntry(mode, objectType, objectID, file string) []byte {
+	return []byte(fmt.Sprintf("%s %s %s\t%s\x00", mode, objectType, objectID, file))
 }
 
 func TestDeterministicEnvironmentDisablesReplacementAndLazyFetch(t *testing.T) {
@@ -525,12 +590,20 @@ func TestCanonicalCleanupFailureClearsResultsAndPreservesCauses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				runner := &scriptedRunner{responses: []scriptedResponse{{
-					canonical: true,
-					args:      []string{"cat-file", "blob", commit.String() + ":" + file.String()},
-					stdout:    []byte("provider: test\n"),
-					err:       primaryErr,
-				}}}
+				blob := strings.Repeat("b", 40)
+				runner := &scriptedRunner{responses: []scriptedResponse{
+					{
+						canonical: true,
+						args:      trustedReadTreeArgs(commit.String(), file.String()),
+						stdout:    treeEntry("100644", "blob", blob, file.String()),
+						err:       primaryErr,
+					},
+					{
+						canonical: true,
+						args:      []string{"cat-file", "blob", blob},
+						stdout:    []byte("provider: test\n"),
+					},
+				}}
 				adapter := cleanupFailureAdapter(t, runner, cleanupErr)
 				data, err := adapter.ReadFileAtCommit(context.Background(), root, commit, file)
 				return data == nil, err

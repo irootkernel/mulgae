@@ -14,6 +14,157 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
+func TestReducePublicationEvidenceUsesTotalAuthorityReducer(t *testing.T) {
+	t.Parallel()
+
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetPatch, SHA256: strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding, err := domain.NewFinding(domain.FindingInput{
+		Severity: domain.SeverityLow, Path: "internal/example.go", LineStart: 1,
+		Role: domain.RoleLogic, ProviderInstance: "logic-provider", Title: "low",
+		Description: "description", Recommendation: "recommendation", Confidence: domain.ConfidenceLow,
+		Lifecycle: domain.FindingOpen, EvidenceState: domain.EvidenceUnverified,
+		NormalizedRuleCategory: "low", NormalizedEvidenceRegion: "line one",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+		TargetSHA256: "sha256:" + target.SHA256(), Side: evidence.SideWorktree,
+		Path: "internal/example.go", LineStart: 1, LineEnd: 1, Quote: "line one\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable, err := evidence.NewVerifier(publicationEvidenceReader{availability: evidence.ImmutableTargetUnavailable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailableReceipt, err := unavailable.VerifyCurrent(context.Background(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, authoritative, err := reducePublicationEvidence(
+		[]evidence.CurrentReceipt{unavailableReceipt}, finding, target, "F001",
+	)
+	if err != nil || authoritative || len(items) != 0 {
+		t.Fatalf("allowed low patch exception = (%#v, %t, %v), want no authority or excerpts", items, authoritative, err)
+	}
+
+	verified, err := evidence.NewVerifier(publicationEvidenceReader{
+		availability: evidence.ImmutableTargetAvailable, bytes: []byte("line one\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifiedReceipt, err := verified.VerifyCurrent(context.Background(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reducePublicationEvidence(
+		[]evidence.CurrentReceipt{verifiedReceipt, unavailableReceipt}, finding, target, "F001",
+	); err == nil {
+		t.Fatal("mixed evidence authority was accepted")
+	}
+}
+
+type publicationEvidenceReader struct {
+	availability evidence.ImmutableTargetAvailability
+	bytes        []byte
+}
+
+func (reader publicationEvidenceReader) ReadImmutableTarget(
+	context.Context,
+	string,
+	evidence.Side,
+	ports.SafeRelativePath,
+) (evidence.ImmutableTargetAvailability, []byte, error) {
+	return reader.availability, append([]byte(nil), reader.bytes...), nil
+}
+func TestPrepareNoChangeCandidateSerializesZeroAttempts(t *testing.T) {
+	t.Parallel()
+
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetGit, SHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		RepositoryID: "repository:test", BaseObjectID: strings.Repeat("a", 40),
+		HeadObjectID: strings.Repeat("b", 40), HeadTreeObjectID: strings.Repeat("c", 40),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := PrepareNoChangeCandidate(sessionID, runID, target,
+		[]domain.Role{domain.RoleLogic, domain.RoleSecurity}, domain.SeverityHigh, NoChangeProvenance{
+			BuildProduct: "kar", BuildVersion: "test", BuildCommit: "0123456789abcdef",
+			SnapshotManifestSHA256:   "sha256:" + strings.Repeat("a", 64),
+			WorkspaceTerminalReceipt: "workspace-terminal:v1:sha256:" + strings.Repeat("b", 64),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !candidate.Valid() {
+		t.Fatal("no-change candidate is invalid")
+	}
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final finalReviewWire
+	var manifest runManifestWire
+	if err := json.Unmarshal(bundle.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Attempts) != 0 || len(final.Findings) != 0 || len(final.RoleOutcomes) != 2 {
+		t.Fatalf("no-change publication retained attempts, findings, or roles: %#v", manifest)
+	}
+	for _, role := range final.RoleOutcomes {
+		if role.Outcome != "not_applicable" || role.AttemptID != nil || role.ProviderInstance != nil || role.SelectedVia != nil {
+			t.Fatalf("role outcome is not provider-free: %#v", role)
+		}
+	}
+}
+
+func TestProductionPublicationContextCopiesAndRejectsIncompleteProvenance(t *testing.T) {
+	t.Parallel()
+	provenance := ProductionReviewProvenance{
+		BuildProduct: "kar", BuildVersion: "1.9.0", BuildCommit: "abc123",
+		SnapshotManifestSHA256: sha256Identifier([]byte("snapshot")), WorkspaceTerminalReceipt: sha256Identifier([]byte("workspace-terminal")),
+		Providers: []ProductionProviderProvenance{{
+			Family: "kimi", Instance: "kimi-main", Version: "0.23.6", Executable: "/private/bin/kimi",
+			ExecutableSHA256: sha256Identifier([]byte("kimi")), Launcher: "/private/bin/kimi",
+			LauncherSHA256: sha256Identifier([]byte("kimi")), ProfileGeneration: "generation", AdapterProfile: "kimi-default",
+			QualificationReceiptIDs: []string{sha256Identifier([]byte("qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("transport"))},
+			NamespaceTerminalReceipt: sha256Identifier([]byte("namespace-terminal")),
+		}},
+	}
+	context, err := NewProductionPublicationContext(provenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance.Providers[0].QualificationReceiptIDs[0] = sha256Identifier([]byte("mutated"))
+	if got := context.immutableProductionProvenance().Providers[0].QualificationReceiptIDs[0]; got != sha256Identifier([]byte("qualification")) {
+		t.Fatalf("context retained caller mutation: %q", got)
+	}
+	incomplete := provenance
+	incomplete.Providers[0].NamespaceTerminalReceipt = ""
+	if _, err := NewProductionPublicationContext(incomplete); err == nil {
+		t.Fatal("incomplete production provenance was accepted")
+	}
+}
 func TestPreparedCandidateRejectsMalformedAndUnvalidatedBuild(t *testing.T) {
 	t.Parallel()
 	candidate := PreparedCandidate{}
@@ -75,7 +226,7 @@ func TestRunSupportArtifactIdentityRecognizesOnlyCanonicalPromptManifests(t *tes
 func TestPreparedCandidateRejectsMismatchedExcerptIdentity(t *testing.T) {
 	t.Parallel()
 	candidate := publicationTestCandidate(t, true)
-	candidate.findings[0].evidence[0].excerptSHA256 = "sha256:" + strings.Repeat("c", 64)
+	candidate.findings[0].evidence[0].currentExcerptSHA256 = "sha256:" + strings.Repeat("c", 64)
 	if candidate.Valid() {
 		t.Fatal("candidate accepted excerpt bytes that do not match the verified excerpt identity")
 	}
@@ -459,6 +610,64 @@ func TestValidatedCandidateSHA256BindsRuntimeInventory(t *testing.T) {
 		})
 	}
 }
+func TestValidatedCandidateSHA256BindsProductionProvenance(t *testing.T) {
+	t.Parallel()
+
+	baseline := publicationTestCandidate(t, false)
+	want := baseline.ValidatedCandidateSHA256()
+	cases := []struct {
+		name   string
+		mutate func(*PreparedCandidate)
+	}{
+		{"build product", func(c *PreparedCandidate) { c.production.BuildProduct = "other-kar" }},
+		{"build version", func(c *PreparedCandidate) { c.production.BuildVersion, c.kar.version = "0.2.0", "0.2.0" }},
+		{"build commit", func(c *PreparedCandidate) {
+			c.production.BuildCommit, c.kar.commit = "fedcba9876543210", "fedcba9876543210"
+		}},
+		{"objective digest", func(c *PreparedCandidate) { c.production.ObjectiveSHA256 = sha256Identifier([]byte("other objective")) }},
+		{"objective presence", func(c *PreparedCandidate) { c.production.HasObjective, c.production.ObjectiveSHA256 = false, "" }},
+		{"snapshot digest", func(c *PreparedCandidate) {
+			c.production.SnapshotManifestSHA256 = sha256Identifier([]byte("other snapshot"))
+		}},
+		{"workspace receipt", func(c *PreparedCandidate) {
+			c.production.WorkspaceTerminalReceipt = sha256Identifier([]byte("other workspace"))
+		}},
+		{"family", func(c *PreparedCandidate) { c.production.Providers[0].Family = "aaa" }},
+		{"instance", func(c *PreparedCandidate) { c.production.Providers[0].Instance = "agy-other" }},
+		{"provider version", func(c *PreparedCandidate) { c.production.Providers[0].Version = "2.0.0" }},
+		{"executable", func(c *PreparedCandidate) { c.production.Providers[0].Executable = "/private/bin/other-agy" }},
+		{"executable digest", func(c *PreparedCandidate) {
+			c.production.Providers[0].ExecutableSHA256 = sha256Identifier([]byte("other executable"))
+		}},
+		{"launcher", func(c *PreparedCandidate) { c.production.Providers[0].Launcher = "/private/bin/other-launcher" }},
+		{"launcher digest", func(c *PreparedCandidate) {
+			c.production.Providers[0].LauncherSHA256 = sha256Identifier([]byte("other launcher"))
+		}},
+		{"profile generation", func(c *PreparedCandidate) { c.production.Providers[0].ProfileGeneration = "generation-2" }},
+		{"adapter profile", func(c *PreparedCandidate) { c.production.Providers[0].AdapterProfile = "other-profile" }},
+		{"qualification receipt", func(c *PreparedCandidate) {
+			c.production.Providers[0].QualificationReceiptIDs[0] = sha256Identifier([]byte("other qualification"))
+		}},
+		{"packet receipt", func(c *PreparedCandidate) {
+			c.production.Providers[0].PacketTransportReceiptIDs[0] = sha256Identifier([]byte("other transport"))
+		}},
+		{"namespace receipt", func(c *PreparedCandidate) {
+			c.production.Providers[0].NamespaceTerminalReceipt = sha256Identifier([]byte("other namespace"))
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := publicationTestCandidate(t, false)
+			test.mutate(&candidate)
+			if !candidate.Valid() {
+				t.Fatal("mutation produced an invalid candidate")
+			}
+			if got := candidate.ValidatedCandidateSHA256(); got == want {
+				t.Fatal("production mutation did not change candidate digest")
+			}
+		})
+	}
+}
 
 func appendPublicationRuntimeRepairInvocation(t *testing.T, candidate *PreparedCandidate) {
 	t.Helper()
@@ -563,13 +772,23 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 		},
 		threshold: domain.SeverityHigh,
 		kar:       preparedKAR{version: "0.1.0", commit: "0123456789abcdef"},
-		axes:      preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
-		roles:     roles,
-		findings:  []preparedFinding{},
-		failures:  []preparedFailure{},
-		limits:    []string{},
-		reasons:   []string{"policy_evaluated"},
-		exitCode:  int(domain.ExitCommittedPass),
+		production: &ProductionReviewProvenance{
+			BuildProduct: "kar", BuildVersion: "0.1.0", BuildCommit: "0123456789abcdef",
+			ObjectiveSHA256: sha256Identifier([]byte("objective")), HasObjective: true,
+			SnapshotManifestSHA256:   sha256Identifier([]byte("snapshot")),
+			WorkspaceTerminalReceipt: sha256Identifier([]byte("workspace-terminal")),
+			Providers: []ProductionProviderProvenance{
+				{Family: "agy", Instance: "agy-security", Version: "1.1.4", Executable: "/private/bin/agy", ExecutableSHA256: sha256Identifier([]byte("agy")), Launcher: "/private/bin/agy", LauncherSHA256: sha256Identifier([]byte("agy")), ProfileGeneration: "generation-1", AdapterProfile: "agy-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("agy-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("agy-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("agy-terminal"))},
+				{Family: "kimi", Instance: "kimi-logic", Version: "0.23.6", Executable: "/private/bin/kimi", ExecutableSHA256: sha256Identifier([]byte("kimi")), Launcher: "/private/bin/kimi", LauncherSHA256: sha256Identifier([]byte("kimi")), ProfileGeneration: "generation-1", AdapterProfile: "kimi-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("kimi-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("kimi-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("kimi-terminal"))},
+			},
+		},
+		axes:     preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
+		roles:    roles,
+		findings: []preparedFinding{},
+		failures: []preparedFailure{},
+		limits:   []string{},
+		reasons:  []string{"policy_evaluated"},
+		exitCode: int(domain.ExitCommittedPass),
 	}
 	if withFinding {
 		candidate.axes = preparedAxes{content: domain.ContentRequestChanges, coverage: domain.CoverageComplete, ci: domain.CIFail}
@@ -582,7 +801,7 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 			recommendation: "Correct the reviewed implementation.", confidence: domain.ConfidenceHigh, lifecycle: domain.FindingOpen,
 			evidence: []preparedEvidence{{
 				targetSHA256: shaA, side: evidence.SideHead, path: "internal/app/review.go", lineStart: 1, lineEnd: 1,
-				quote: string(excerptBytes), excerptSHA256: excerptSHA256, excerpt: excerptBytes,
+				quote: string(excerptBytes), currentExcerptSHA256: excerptSHA256, excerpt: excerptBytes,
 			}},
 		}}
 	}

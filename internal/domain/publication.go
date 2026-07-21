@@ -147,9 +147,9 @@ func (code OperationalExitCode) priority() int {
 	switch code {
 	case ExitInternalError:
 		return 8
-	case ExitArtifactFailure:
-		return 7
 	case ExitSecurityViolation:
+		return 7
+	case ExitArtifactFailure:
 		return 6
 	case ExitCancelled:
 		return 5
@@ -505,7 +505,7 @@ func (decision OperationalExitDecision) Reasons() []ExitReason {
 }
 
 // ReduceOperationalExit is a pure reduction with precedence
-// 10 > 7 > 8 > 9 > 2 > 4 > 1 > 0. It retains every input reason unchanged.
+// 10 > 8 > 7 > 9 > 2 > 4 > 1 > 0. It retains every input reason unchanged.
 func ReduceOperationalExit(input OperationalExitInput) (OperationalExitDecision, error) {
 	if err := input.validate(); err != nil {
 		return OperationalExitDecision{}, fmt.Errorf("reduce operational exit: %w", err)

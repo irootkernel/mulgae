@@ -308,8 +308,8 @@ func TestReduceOperationalExitPairwisePrecedenceAndReasonRetention(t *testing.T)
 
 	precedence := []OperationalExitCode{
 		ExitInternalError,
-		ExitArtifactFailure,
 		ExitSecurityViolation,
+		ExitArtifactFailure,
 		ExitCancelled,
 		ExitConfiguration,
 		ExitIncompleteCoverage,

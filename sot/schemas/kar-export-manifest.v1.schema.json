@@ -62,9 +62,7 @@
         "session_id",
         "run_id",
         "review_id",
-        "finding_id",
-        "source_target_sha256",
-        "source_excerpt_sha256"
+        "source_target_sha256"
       ],
       "properties": {
         "session_id": {
@@ -86,21 +84,35 @@
         "source_excerpt_sha256": {
           "$ref": "#/$defs/sha256"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["finding_id"] },
+              { "required": ["source_excerpt_sha256"] }
+            ]
+          }
+        },
+        {
+          "required": [
+            "finding_id",
+            "source_excerpt_sha256"
+          ]
+        }
+      ]
     },
     "current_identity": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "target_sha256",
-        "path",
-        "side",
-        "line_start",
-        "line_end",
-        "verification"
+        "target_sha256"
       ],
       "properties": {
         "target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "current_excerpt_sha256": {
           "$ref": "#/$defs/sha256"
         },
         "path": {
@@ -132,7 +144,31 @@
             "unverifiable"
           ]
         }
-      }
+      },
+      "oneOf": [
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["current_excerpt_sha256"] },
+              { "required": ["path"] },
+              { "required": ["side"] },
+              { "required": ["line_start"] },
+              { "required": ["line_end"] },
+              { "required": ["verification"] }
+            ]
+          }
+        },
+        {
+          "required": [
+            "current_excerpt_sha256",
+            "path",
+            "side",
+            "line_start",
+            "line_end",
+            "verification"
+          ]
+        }
+      ]
     },
     "secure_writer": {
       "type": "object",

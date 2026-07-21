@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -111,6 +112,98 @@ func TestSecureWriterWritesPrivateFileWithReceipt(t *testing.T) {
 	assertPrivateRegularFile(t, filepath.Join(root, "nested", "artifact.json"))
 	assertPrivateDirectory(t, filepath.Join(root, "nested"))
 	assertNoSecureWriterTemps(t, filepath.Join(root, "nested"))
+}
+func TestSecureWriterCrashBeforeRenameLeavesOnlyTemporaryFile(t *testing.T) {
+	const (
+		helperRootEnv = "KAR_SECUREWRITER_CRASH_BEFORE_RENAME_ROOT"
+		helperExit    = 97
+	)
+	if root := os.Getenv(helperRootEnv); root != "" {
+		writer := NewSecureWriter()
+		operations := writer.operationSet()
+		operations.renameatxNp = func(oldDirectoryFD int, oldName string, newDirectoryFD int, newName string, flags uint32) error {
+			if oldDirectoryFD != newDirectoryFD || !strings.HasPrefix(oldName, ".securewriter-") || newName != "artifact.json" || flags != unix.RENAME_EXCL {
+				os.Exit(helperExit + 1)
+			}
+			os.Exit(helperExit)
+			return nil
+		}
+		writer.operations = operations
+		_, _, err := writer.Write(
+			context.Background(),
+			secureWriteRequest(t, root, "nested/artifact.json", strings.NewReader("crash-proof content"), 1024, func(error) {
+				t.Fatal("Abort called")
+			}),
+		)
+		t.Fatalf("Write() returned instead of terminating at rename boundary: %v", err)
+	}
+
+	root := privateTempRoot(t)
+	command := exec.Command(os.Args[0], "-test.run=^TestSecureWriterCrashBeforeRenameLeavesOnlyTemporaryFile$")
+	command.Env = append(os.Environ(), helperRootEnv+"="+root)
+	if err := command.Run(); err == nil {
+		t.Fatal("crash helper exited successfully")
+	} else if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != helperExit {
+		t.Fatalf("crash helper error = %v, want exit status %d", err, helperExit)
+	}
+
+	directory := filepath.Join(root, "nested")
+	finalPath := filepath.Join(directory, "artifact.json")
+	if _, err := os.Lstat(finalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canonical final after crash = %v, want absent", err)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), ".securewriter-") {
+		t.Fatalf("crash directory entries = %#v, want one secure-writer temporary file", entries)
+	}
+	temporaryPath := filepath.Join(directory, entries[0].Name())
+	assertPrivateRegularFile(t, temporaryPath)
+	temporary, err := os.ReadFile(temporaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(temporary) != "crash-proof content" || len(temporary) > 1024 {
+		t.Fatalf("crash temporary content = %q (%d bytes), want bounded staged content", temporary, len(temporary))
+	}
+
+	writer := NewSecureWriter()
+	receipt, drop, err := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/artifact.json", strings.NewReader("recovered content"), 1024, func(error) {
+			t.Fatal("Abort called")
+		}),
+	)
+	if err != nil || drop != nil {
+		t.Fatalf("recovery Write() = (drop %#v, error %v), want success", drop, err)
+	}
+	assertReceiptLineage(t, receipt, root, "nested/artifact.json", []byte("recovered content"))
+	content, err := os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "recovered content" {
+		t.Fatalf("recovered canonical content = %q, want recovered content", content)
+	}
+
+	replacement, replacementDrop, replacementErr := writer.Write(
+		context.Background(),
+		secureWriteRequest(t, root, "nested/artifact.json", strings.NewReader("replacement"), 1024, func(error) {
+			t.Fatal("Abort called")
+		}),
+	)
+	if replacementErr == nil || replacementDrop != nil || !zeroReceipt(replacement) {
+		t.Fatalf("replacement after recovery = (receipt %#v, drop %#v, error %v), want fail-closed refusal", replacement, replacementDrop, replacementErr)
+	}
+	content, err = os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "recovered content" {
+		t.Fatalf("failed replacement changed canonical content to %q", content)
+	}
 }
 
 func TestSecureWriterRejectsExistingDestinationWithoutReplacement(t *testing.T) {

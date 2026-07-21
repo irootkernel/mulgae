@@ -238,13 +238,14 @@ func reviewRequest(t *testing.T, assignments []Assignment, objective string) Req
 	common := testTrustedLayer(t, "common", "Common review constraints.")
 	run := testTrustedLayer(t, "review-run", "This is a review run.")
 	json := testTrustedLayer(t, "json-output", "Return JSON only.")
+	repair := testTrustedLayer(t, "repair", "Repair only the allowed provider-owned fields.")
 	logic := testTrustedLayer(t, "logic", "Review logic defects.")
 	security := testTrustedLayer(t, "security", "Review security defects.")
 	maintainability := testTrustedLayer(t, "maintainability", "Review maintainability defects.")
 	product := testTrustedLayer(t, "product", "Review product defects.")
 	documentation := testTrustedLayer(t, "documentation", "Review documentation defects.")
 	testingLayer := testTrustedLayer(t, "testing", "Review testing defects.")
-	templates, err := NewTemplateSet(common, run, json, map[domain.Role]prompt.TrustedLayer{
+	templates, err := NewTemplateSet(common, run, json, repair, map[domain.Role]prompt.TrustedLayer{
 		domain.RoleLogic:           logic,
 		domain.RoleSecurity:        security,
 		domain.RoleMaintainability: maintainability,

@@ -25,7 +25,11 @@ import (
 )
 
 const (
-	// ProviderReviewSchemaID is the sole authoritative provider review schema.
+	// ProviderReviewWireSchemaID validates the provider-owned v2 projection
+	// before KAR injects target identity and verification state.
+	ProviderReviewWireSchemaID = "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json"
+	// ProviderReviewSchemaID validates the normalized v2 envelope after trusted
+	// target identity and claimed verification have been injected.
 	ProviderReviewSchemaID = "https://kar.local/schemas/kar-provider-review-output.v2.schema.json"
 	repairPatchSchemaID    = "urn:kar:schema:repair-patch:v1"
 	maxRepairOperations    = 100
@@ -130,16 +134,18 @@ func (review ValidatedReview) EvidenceClaims() []FindingEvidenceClaims {
 }
 func (review ValidatedReview) Repaired() bool { return review.repairedRaw != nil }
 
-// ReviewValidator validates provider-only JSON and injects trusted current
-// target identity before invoking the authoritative v2 schema.
+// ReviewValidator validates provider-only JSON against the provider-wire schema,
+// injects trusted current target identity, then validates the normalized v2
+// envelope.
 type ReviewValidator struct {
 	schemaValidator SchemaValidator
 	schemaID        ports.AssetID
+	wireSchemaID    ports.AssetID
 }
 
-// NewReviewValidator creates a validator for the one authoritative v2 review
-// schema. Supplying a different schema is rejected rather than silently
-// weakening this boundary.
+// NewReviewValidator creates a validator for the normalized v2 review schema.
+// The provider wire schema is fixed separately so callers cannot weaken the
+// ownership boundary by choosing a different pre-injection schema.
 func NewReviewValidator(schemaValidator SchemaValidator, schemaID ports.AssetID) (*ReviewValidator, error) {
 	if nilSchemaValidator(schemaValidator) {
 		return nil, fmt.Errorf("review validation: nil schema validator")
@@ -147,7 +153,11 @@ func NewReviewValidator(schemaValidator SchemaValidator, schemaID ports.AssetID)
 	if !schemaID.Valid() || schemaID.String() != ProviderReviewSchemaID {
 		return nil, fmt.Errorf("review validation: schema ID must be %q", ProviderReviewSchemaID)
 	}
-	return &ReviewValidator{schemaValidator: schemaValidator, schemaID: schemaID}, nil
+	wireSchemaID, err := ports.ParseAssetID(ProviderReviewWireSchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("review validation: provider wire schema ID: %w", err)
+	}
+	return &ReviewValidator{schemaValidator: schemaValidator, schemaID: schemaID, wireSchemaID: wireSchemaID}, nil
 }
 
 // Validate parses exactly one provider JSON object, rejects system-owned
@@ -168,7 +178,7 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 	if err := ctx.Err(); err != nil {
 		return ValidatedReview{}, nil, fmt.Errorf("review validation: context: %w", err)
 	}
-	if nilSchemaValidator(validator.schemaValidator) || !validator.schemaID.Valid() || validator.schemaID.String() != ProviderReviewSchemaID {
+	if nilSchemaValidator(validator.schemaValidator) || !validator.schemaID.Valid() || validator.schemaID.String() != ProviderReviewSchemaID || !validator.wireSchemaID.Valid() || validator.wireSchemaID.String() != ProviderReviewWireSchemaID {
 		return ValidatedReview{}, nil, fmt.Errorf("review validation: invalid validator configuration")
 	}
 	trustedTarget, err := validateScope(scope)
@@ -188,6 +198,21 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 	}
 	if err := guardProviderReview(provider); err != nil {
 		return ValidatedReview{}, nil, err
+	}
+	if err := validator.schemaValidator.Validate(ctx, validator.wireSchemaID, raw); err != nil {
+		inspection := inspectReview(provider, trustedTarget)
+		schemaErr := fmt.Errorf("review validation: provider wire schema: %w", err)
+		if inspection.hasFatal() {
+			return ValidatedReview{}, nil, errors.Join(schemaErr, inspection.error())
+		}
+		if classifyRepair && isProviderDocumentViolation(err) && inspection.repairOnly() {
+			plan, planErr := newFillRepairPlan(raw, inspection.repairable)
+			if planErr != nil {
+				return ValidatedReview{}, nil, errors.Join(schemaErr, inspection.error(), planErr)
+			}
+			return ValidatedReview{}, plan, schemaErr
+		}
+		return ValidatedReview{}, nil, schemaErr
 	}
 
 	candidate, err := injectTrustedCurrentTarget(provider, trustedTarget)
@@ -252,10 +277,7 @@ func validateScope(scope ReviewValidationScope) (string, error) {
 }
 
 func canonicalTargetSHA256(value string) (string, error) {
-	digest := value
-	if strings.HasPrefix(digest, "sha256:") {
-		digest = strings.TrimPrefix(digest, "sha256:")
-	}
+	digest := strings.TrimPrefix(value, "sha256:")
 	if len(digest) != sha256.Size*2 {
 		return "", fmt.Errorf("review validation: trusted target SHA-256 must be lowercase hexadecimal")
 	}

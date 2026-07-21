@@ -261,6 +261,7 @@ func TestChildPublicationLineageSerialization(t *testing.T) {
 			t.Fatal(err)
 		}
 		candidate := publicationTestCandidate(t, true)
+		candidate.production = nil
 		if test.runType == domain.RunTypeFollowup {
 			for findingIndex := range candidate.findings {
 				for evidenceIndex := range candidate.findings[findingIndex].evidence {
@@ -270,7 +271,7 @@ func TestChildPublicationLineageSerialization(t *testing.T) {
 					item.sourceReviewID = sourceReview.String()
 					item.sourceFindingID = finding
 					item.sourceTargetSHA256 = candidate.target.sha256
-					item.sourceExcerptSHA256 = item.excerptSHA256
+					item.sourceExcerptSHA256 = item.currentExcerptSHA256
 				}
 			}
 			candidate.followup = &preparedFollowupOutcome{
@@ -557,6 +558,50 @@ func TestPublishPersistsAndPublishesInDurableOrder(t *testing.T) {
 	}
 	publicationServiceAssertJournalCAS(t, store.replacements)
 }
+func TestPublishNextUsesRootBoundEpochTransaction(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		if root != fixture.root {
+			t.Fatalf("transaction root = %#v, want %#v", root, fixture.root)
+		}
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.PublishNext(context.Background(), fixture.root, fixture.candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
+		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
+	}
+	if !publicationServiceCallsEqual(store.calls, []string{
+		"next_epoch", "issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal", "install",
+		"journal", "commit", "journal", "status", "journal", "observe",
+	}) {
+		t.Fatalf("publication calls = %#v", store.calls)
+	}
+}
+
+func TestPublishNextRejectsStoreWithoutAtomicEpochTransaction(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	service, err := NewService(&publicationServiceStore{}, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PublishNext(context.Background(), fixture.root, fixture.candidate); err == nil {
+		t.Fatal("PublishNext accepted a store without atomic epoch transaction support")
+	}
+}
+
 func TestPublishReturnsVerifiedPromptManifestIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -2439,8 +2484,20 @@ type publicationServiceScriptedStore struct {
 	commit           func(ports.PreparedComposite) (ports.CompositeCommitResult, error)
 	snapshot         func() (ports.CommittedPublicationSnapshot, error)
 	diagnostic       func(ports.CorruptionDiagnosticRequest) (ports.CorruptionDiagnosticResult, error)
+	withNextEpoch    func(context.Context, ports.AnchoredRoot, func(context.Context, uint64) error) error
 }
 
+func (store *publicationServiceScriptedStore) WithNextPublicationEpoch(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	publish func(context.Context, uint64) error,
+) error {
+	store.calls = append(store.calls, "next_epoch")
+	if store.withNextEpoch == nil {
+		return errors.New("unexpected next epoch transaction")
+	}
+	return store.withNextEpoch(ctx, root, publish)
+}
 func (store *publicationServiceScriptedStore) IssueReviewID(_ context.Context, request ports.IssueReviewIDRequest) (ports.IssuedReviewID, error) {
 	store.calls = append(store.calls, "issue")
 	store.issueRequests = append(store.issueRequests, request)

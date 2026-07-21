@@ -58,19 +58,20 @@ type Finding struct {
 
 // Evidence holds only identity and reducer-owned verification fields.
 type Evidence struct {
-	FindingID           string `json:"finding_id"`
-	SourceSessionID     string `json:"source_session_id"`
-	SourceRunID         string `json:"source_run_id"`
-	SourceReviewID      string `json:"source_review_id"`
-	SourceFindingID     string `json:"source_finding_id"`
-	SourceTargetSHA256  string `json:"source_target_sha256"`
-	SourceExcerptSHA256 string `json:"source_excerpt_sha256"`
-	TargetSHA256        string `json:"target_sha256"`
-	Path                string `json:"path"`
-	Side                string `json:"side"`
-	LineStart           int    `json:"line_start"`
-	LineEnd             int    `json:"line_end"`
-	Verification        string `json:"verification"`
+	FindingID            string `json:"finding_id"`
+	SourceSessionID      string `json:"source_session_id"`
+	SourceRunID          string `json:"source_run_id"`
+	SourceReviewID       string `json:"source_review_id"`
+	SourceFindingID      string `json:"source_finding_id"`
+	SourceTargetSHA256   string `json:"source_target_sha256"`
+	SourceExcerptSHA256  string `json:"source_excerpt_sha256"`
+	TargetSHA256         string `json:"target_sha256"`
+	CurrentExcerptSHA256 string `json:"current_excerpt_sha256"`
+	Path                 string `json:"path"`
+	Side                 string `json:"side"`
+	LineStart            int    `json:"line_start"`
+	LineEnd              int    `json:"line_end"`
+	Verification         string `json:"verification"`
 }
 
 type RedactionManifest struct {
@@ -82,18 +83,19 @@ type SourceIdentity struct {
 	SessionID           string `json:"session_id"`
 	RunID               string `json:"run_id"`
 	ReviewID            string `json:"review_id"`
-	FindingID           string `json:"finding_id"`
+	FindingID           string `json:"finding_id,omitempty"`
 	SourceTargetSHA256  string `json:"source_target_sha256"`
-	SourceExcerptSHA256 string `json:"source_excerpt_sha256"`
+	SourceExcerptSHA256 string `json:"source_excerpt_sha256,omitempty"`
 }
 
 type CurrentIdentity struct {
-	TargetSHA256 string `json:"target_sha256"`
-	Path         string `json:"path"`
-	Side         string `json:"side"`
-	LineStart    int    `json:"line_start"`
-	LineEnd      int    `json:"line_end"`
-	Verification string `json:"verification"`
+	TargetSHA256         string `json:"target_sha256"`
+	CurrentExcerptSHA256 string `json:"current_excerpt_sha256,omitempty"`
+	Path                 string `json:"path,omitempty"`
+	Side                 string `json:"side,omitempty"`
+	LineStart            int    `json:"line_start,omitempty"`
+	LineEnd              int    `json:"line_end,omitempty"`
+	Verification         string `json:"verification,omitempty"`
 }
 
 // BuildOptions identifies deterministic package construction. The manifest is

@@ -9,9 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/user"
+	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
+	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
 	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
 	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
@@ -21,51 +26,173 @@ import (
 	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/providers"
 	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const (
-	globalConfigAssetID = "defaults:global-config"
-	doctorResultSchema  = "https://kar.local/schemas/kar-doctor-result.v1.schema.json"
+	doctorResultSchema = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
 )
 
+type applicationCommandHandler func(*Application, context.Context, Invocation, string) execution
+
 func (application *Application) execute(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
-	switch invocation.Command() {
-	case app.CommandHelp:
-		return application.handleHelp(ctx, invocation)
-	case app.CommandSchema:
-		return application.handleSchema(ctx, invocation)
-	case app.CommandInit:
-		return application.handleInit(ctx, invocation)
-	case app.CommandConfig:
-		return application.handleConfig(ctx, invocation)
-	case app.CommandDoctor:
-		return application.handleDoctor(ctx, invocation)
-	case app.CommandProviders:
-		return application.handleProviders(ctx, invocation)
-	case app.CommandStatus:
-		return application.handleStatus(ctx, invocation, canonicalProjectRoot)
-	case app.CommandReport:
-		return application.handleReport(ctx, invocation, canonicalProjectRoot)
-	case app.CommandFindings:
-		return application.handleFindings(ctx, invocation, canonicalProjectRoot)
-	case app.CommandExcerpt:
-		return application.handleExcerpt(ctx, invocation, canonicalProjectRoot)
-	case app.CommandFollowup:
-		return application.handleFollowup(ctx, invocation)
-	case app.CommandDelta:
-		return application.handleDelta(ctx, invocation)
-	case app.CommandRerun:
-		return application.handleRerun(ctx, invocation)
-	case app.CommandClean:
-		return application.handleClean(ctx, invocation)
-	case app.CommandExport:
-		return application.handleExport(ctx, invocation, canonicalProjectRoot)
-	default:
+	handler, present := application.handlers[invocation.Command()]
+	if !present || handler == nil {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unsupported foundation dispatch"), domain.FailureInternal)}
 	}
+	return handler(application, ctx, invocation, canonicalProjectRoot)
+}
+
+func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler {
+	return map[app.CommandName]applicationCommandHandler{
+		app.CommandHelp: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleHelp(ctx, invocation)
+		},
+		app.CommandSchema: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleSchema(ctx, invocation)
+		},
+		app.CommandInit: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleInit(ctx, invocation)
+		},
+		app.CommandConfig: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleConfig(ctx, invocation)
+		},
+		app.CommandDoctor: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleDoctor(ctx, invocation)
+		},
+		app.CommandProviders: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleProviders(ctx, invocation)
+		},
+		app.CommandStatus: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleStatus(ctx, invocation, root)
+		},
+		app.CommandReport: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleReport(ctx, invocation, root)
+		},
+		app.CommandFindings: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleFindings(ctx, invocation, root)
+		},
+		app.CommandExcerpt: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleExcerpt(ctx, invocation, root)
+		},
+		app.CommandReview: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleReview(ctx, invocation, root)
+		},
+		app.CommandPrompt: func(application *Application, _ context.Context, invocation Invocation, _ string) execution {
+			return application.handlePrompt(invocation)
+		},
+		app.CommandFollowup: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleFollowup(ctx, invocation)
+		},
+		app.CommandDelta: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleDelta(ctx, invocation)
+		},
+		app.CommandRerun: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleRerun(ctx, invocation)
+		},
+		app.CommandClean: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleClean(ctx, invocation)
+		},
+		app.CommandExport: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleExport(ctx, invocation, root)
+		},
+	}
+}
+
+func validateApplicationCommandHandlers(specs []cli.CommandSpec, handlers map[app.CommandName]applicationCommandHandler) error {
+	if err := cli.ValidateCommandSpecs(specs); err != nil {
+		return err
+	}
+	if len(handlers) != len(specs) {
+		return fmt.Errorf("got %d command handlers, want %d", len(handlers), len(specs))
+	}
+	for _, spec := range specs {
+		handler, present := handlers[spec.Command()]
+		if !present || handler == nil {
+			return fmt.Errorf("command %q requires a handler", spec.Command())
+		}
+	}
+	for command := range handlers {
+		if !command.Valid() {
+			return fmt.Errorf("handler registered for unknown command %q", command)
+		}
+	}
+	return nil
+}
+
+func cloneApplicationHandlers(handlers map[app.CommandName]applicationCommandHandler) map[app.CommandName]applicationCommandHandler {
+	clone := make(map[app.CommandName]applicationCommandHandler, len(handlers))
+	for command, handler := range handlers {
+		clone[command] = handler
+	}
+	return clone
+}
+
+func (application *Application) handleReview(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
+	request, available := invocation.Review()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	if nilApplicationDependency(application.reviewRuns) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("review provider authority unavailable"), domain.FailureProviderUnavailable)}
+	}
+	projectRoot, _, err := publicationRoots(canonicalProjectRoot)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	reviewRuns := application.reviewRuns
+	if preparer, ok := reviewRuns.(ReviewRunServicePreparer); ok {
+		reviewRuns, err = preparer.PrepareReviewRun(ctx, projectRoot)
+		if err != nil {
+			return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
+		}
+	}
+	artifactDirectory, err := ports.NewSafeRelativePath(".kar")
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	if err := application.writer.EnsurePrivateDir(projectRoot, artifactDirectory); err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureArtifact, "private publication root unavailable", err), domain.FailureArtifact)}
+	}
+	result, err := reviewRuns.StartReviewRun(ctx, request, projectRoot)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
+	}
+	if err := result.Validate(); err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	sessionID, runID := result.SessionID(), result.RunID()
+	runManifestURI, reviewArtifactURI := result.RunManifestURI(), result.ReviewArtifactURI()
+	exit, reasons, err := committedTerminalOutcome(result.TerminalExit())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	data, err := json.Marshal(struct {
+		Kind              string `json:"kind"`
+		SessionID         string `json:"session_id"`
+		RunID             string `json:"run_id"`
+		RunManifestURI    string `json:"run_manifest_uri"`
+		ReviewArtifactURI string `json:"review_artifact_uri"`
+	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{
+		human:            []byte("review started: " + runID),
+		data:             data,
+		exit:             exit,
+		committedReasons: reasons,
+	}
+}
+
+func (application *Application) handlePrompt(invocation Invocation) execution {
+	if _, available := invocation.Prompt(); !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	return execution{failure: executionFailureFor(invocation.Command(), errors.New("prompt artifact authority unavailable"), domain.FailureArtifact)}
 }
 func (application *Application) handleFollowup(ctx context.Context, invocation Invocation) execution {
 	request, available := invocation.Followup()
@@ -475,54 +602,179 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	var contextPath *ports.SafeRelativePath
-	if raw, present := request.ContextPath(); present {
-		parsed, err := ports.NewSafeRelativePath(raw)
-		if err != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-		}
-		contextPath = &parsed
+	contextPath, _ := request.ContextPath()
+	installer, ok := application.writer.(ports.ConfigInstaller)
+	if !ok {
+		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_installer_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
 	}
-	service, err := appinit.NewService(application.writer, application.clock)
+	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
+	if !ok {
+		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_attestor_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
+	}
+	mode, providerIDs := request.Selection()
+	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
+	kimiExecutable, kimiModel, kimiDataHome := request.KimiOverrides()
+	zcodeNode, zcodeLauncher := request.ZCodeOverrides()
+	agyExecutable, agyPermission := request.AGYOverrides()
+
+	// Destination proof precedes native-account inspection so an existing
+	// project-local authority wins deterministically and native failures can
+	// truthfully report an observed-absent destination.
+	initialSource, err := adapterconfig.NewLocalConfigSource(root, true)
+	if err != nil {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local KAR configuration failed locality admission.", false)
+	}
+	initialProof, err := initialSource.Observation().Proof()
+	if err != nil {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local KAR configuration failed locality admission.", false)
+	}
+	initialRequest, err := ports.NewConfigLocalityRequest(root, initialProof, nil, nil)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	initialLocality, err := attestor.Attest(ctx, initialRequest)
+	if err != nil {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local KAR configuration failed locality admission.", false)
+	}
+	if err := revalidateConfigLocality(ctx, initialSource, attestor, initialRequest, initialLocality); err != nil {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_drifted"), "The project-local KAR configuration failed locality admission.", false)
+	}
+	if initialSource.Present() {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationPresent, domain.FailureConfiguration, "init_destination_exists", "The project-local KAR configuration already exists.", false)
+	}
+	nativeUser, err := user.Current()
+	if err != nil || nativeUser == nil {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureProviderUnavailable, "init_native_account_unavailable", "The native user account is unavailable.", false)
+	}
+	uid, err := strconv.ParseUint(nativeUser.Uid, 10, 32)
+	if err != nil || int(uid) != os.Geteuid() {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_account_mismatch", "The native user account does not match the effective user.", false)
+	}
+	nativeHome := nativeUser.HomeDir
+	assertedNativeHome, nativeHomeAsserted := request.NativeHome()
+	if nativeHomeAsserted && assertedNativeHome != nativeHome {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The asserted native home does not match the installed user.", false)
+	}
+	nativeHomeAuthority, err := application.inspector.ObserveNativeHomeIdentity(ctx, nativeHome)
+	if contextCancellation(err) {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureCancelled, "request_cancelled", "The command was cancelled.", false)
+	}
+	if err != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != nativeHome || nativeHomeAuthority.EffectiveUID() != uint32(os.Geteuid()) {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The installed native home failed descriptor identity admission.", false)
+	}
+	var prevalidatedCommitted []byte
+	var prevalidatedCommittedData []byte
+	prevalidator := appinit.ResultPrevalidatorFunc(func(prevalidationContext context.Context, outcome appinit.PrevalidatedOutcome) error {
+		result := outcome.Result
+		if err := outcome.Validate(); err != nil {
+			return err
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		requestJSON, available, err := envelopeRequestJSON(invocation)
+		if err != nil || !available {
+			return errors.New("init result prevalidation request unavailable")
+		}
+		if outcome.Failure == nil {
+			if !result.Committed {
+				return errors.New("init result prevalidation failure metadata unavailable")
+			}
+			prevalidatedCommittedData = append([]byte(nil), data...)
+			commandResult, resultErr := app.NewCommandSuccess(app.CommandInit, data)
+			if resultErr != nil {
+				return resultErr
+			}
+			output, renderErr := application.renderer.Render(prevalidationContext, commandResult, requestJSON, nil)
+			if renderErr == nil {
+				prevalidatedCommitted = output
+			}
+			err = renderErr
+			return err
+		}
+		failure := outcome.Failure
+		diagnostic, err := app.NewDiagnosticWithRetryable("cli.init", failure.Class(), failure.Code(), failure.Message(), failure.Retryable())
+		if err != nil {
+			return err
+		}
+		commandResult, err := app.NewCommandFailure(app.CommandInit, requestedExit(failure.Class()), diagnostic)
+		if err != nil {
+			return err
+		}
+		_, err = application.renderer.Render(prevalidationContext, commandResult, requestJSON, data)
+		return err
+	})
+	service, err := appinit.NewService(installer, application.inspector, attestor, prevalidator, application.clock, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	if err != nil {
+		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_service_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
+	}
+	nativeHomeCurrent, err := application.inspector.ObserveNativeHomeIdentity(ctx, nativeHome)
+	if contextCancellation(err) {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureCancelled, "request_cancelled", "The command was cancelled.", false)
+	}
+	if err != nil || !sameNativeHomeAuthority(nativeHomeAuthority, nativeHomeCurrent) {
+		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The installed native home changed during admission.", false)
 	}
 	initialized, err := service.InitializeProject(ctx, appinit.InitializeProjectRequest{
-		ProjectRoot:         root,
-		ProjectName:         request.ProjectName(),
-		ContextPath:         contextPath,
-		IntendedProviderIDs: request.IntendedProviderIDs(),
+		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, NativeHome: nativeHome,
+		NativeHomeAsserted: nativeHomeAsserted,
+		Selection:          selection,
+		Overrides:          appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission},
 	})
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	if initialized.ConfigReceipt.Destination().String() != ".kar.yaml" {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("initialization receipt mismatch"), domain.FailureArtifact)}
-	}
-	for _, provider := range initialized.ProviderStatuses {
-		if provider.Status != "unverified" {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("provider status promoted"), domain.FailureInternal)}
+		data, marshalErr := json.Marshal(initialized)
+		if marshalErr != nil {
+			return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_result_prevalidation_failed", stage: "cli.init", exit: app.ExitCodeInternal}}
 		}
+		failure := executionFailureFor(invocation.Command(), err, domain.FailureArtifact)
+		var initFailure *appinit.Failure
+		if errors.As(err, &initFailure) {
+			failure.class = initFailure.Class()
+			failure.code = initFailure.Code()
+			failure.message = initFailure.Message()
+			failure.retryable = initFailure.Retryable()
+			failure.hasRetryable = true
+			failure.exit = requestedExit(failure.class)
+		}
+		if failure.code == "init_result_prevalidation_failed" {
+			return execution{direct: &Result{stderr: []byte("kar: internal command-result prevalidation failed\n"), exit: app.ExitCodeInternal}}
+		}
+		return execution{human: []byte(initFailureHuman(initialized, failure.code)), failureData: data, failure: failure}
 	}
-	projectConfigURI := initialized.ConfigReceipt.Destination().String()
-	data, err := json.Marshal(struct {
-		Kind                string   `json:"kind"`
-		ProjectConfigURI    string   `json:"project_config_uri"`
-		IntendedProviderIDs []string `json:"intended_provider_ids"`
-	}{"initialized", projectConfigURI, request.IntendedProviderIDs()})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	data := prevalidatedCommittedData
+	if len(data) == 0 {
+		return execution{direct: &Result{stderr: []byte("kar: init committed .kar/config.yaml; result delivery failed\n"), exit: app.ExitCodeArtifact}}
+	}
+	if invocation.OutputFormat() == OutputFormatJSON {
+		if len(prevalidatedCommitted) == 0 {
+			return execution{direct: &Result{stderr: []byte("kar: init committed .kar/config.yaml; result delivery failed\n"), exit: app.ExitCodeArtifact}}
+		}
+		return execution{direct: &Result{stdout: prevalidatedCommitted, exit: app.ExitCodeSuccess}}
 	}
 	var output strings.Builder
 	output.WriteString("initialized: ")
-	output.WriteString(projectConfigURI)
-	for _, provider := range initialized.ProviderStatuses {
-		output.WriteByte('\n')
-		output.WriteString(provider.ID)
-		output.WriteString(": ")
-		output.WriteString(provider.Status)
-	}
+	output.WriteString(initialized.ConfigURI)
+	output.WriteString("\nproviders: ")
+	output.WriteString(strings.Join(initialized.ConfiguredProviderIDs, ","))
 	return execution{human: []byte(output.String()), data: data}
+}
+
+func initObservedFailure(invocation Invocation, selection appinit.Selection, destination ports.ConfigDestinationState, class domain.FailureClass, code, message string, retryable bool) execution {
+	result, err := appinit.NewObservedFailureResult(selection, destination)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	failure := &executionFailure{class: class, code: code, message: message, retryable: retryable, hasRetryable: true, stage: "cli.init", exit: requestedExit(class)}
+	resultExecution := execution{failureData: data, failure: failure}
+	if class != domain.FailureCancelled {
+		resultExecution.human = []byte(initFailureHuman(result, code))
+	}
+	return resultExecution
 }
 
 func (application *Application) handleConfig(ctx context.Context, invocation Invocation) execution {
@@ -534,78 +786,80 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	globalID, err := ports.ParseAssetID(globalConfigAssetID)
+	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
+	if !ok {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("config locality attestor unavailable"), domain.FailureInternal)}
+	}
+	source, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		class := domain.FailureConfiguration
+		if os.IsNotExist(err) {
+			class = domain.FailureProviderUnavailable
+		}
+		return execution{failure: executionFailureFor(invocation.Command(), err, class)}
+	}
+	proof, err := source.Observation().Proof()
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
+	}
+	localityRequest, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
-	metadata, globalYAML, err := application.catalog.Read(ctx, globalID)
+	locality, err := attestor.Attest(ctx, localityRequest)
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
 	}
-	globalDigest := sha256.Sum256(globalYAML)
-	if metadata.ID() != globalID ||
-		metadata.Kind() != ports.AssetKindDefaults ||
-		metadata.ByteLength() != int64(len(globalYAML)) ||
-		metadata.SHA256() != "sha256:"+hex.EncodeToString(globalDigest[:]) {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("global default metadata mismatch"), domain.FailureArtifact)}
+	if err := revalidateConfigLocality(ctx, source, attestor, localityRequest, locality); err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
 	}
-
-	resolveRequest := appconfig.ResolveRequest{GlobalYAML: globalYAML}
-	if rawPath, enabled := request.ProjectConfigPath(); enabled {
-		path, err := ports.NewSafeRelativePath(rawPath)
-		if err != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-		}
-		expectedCommit, err := ports.ParseGitObjectID(request.Reference())
-		if err != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-		}
-		resolveRequest.Project = &appconfig.ProjectConfigRequest{
-			Root:           root,
-			ExpectedCommit: expectedCommit,
-			Reference:      expectedCommit.String(),
-			Path:           &path,
-		}
-	}
-	service, err := appconfig.NewService(application.projectReader)
+	resolved, err := appconfig.NewService(adapterconfig.YAMLCodec{}).Resolve(ctx, appconfig.ResolveRequest{Source: source})
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+		class := domain.FailureConfiguration
+		if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
+			class = domain.FailureSecurityPolicy
+		}
+		return execution{failure: executionFailureFor(invocation.Command(), err, class)}
 	}
-	resolved, err := service.Resolve(ctx, resolveRequest)
+	installed, installedErr := user.Current()
+	nativeHome, effectiveUID, err := admitConfiguredNativeAccount(resolved.Config().Raw().NativeUser.Home, installed, installedErr, os.Geteuid())
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureProviderUnavailable)}
+	}
+	nativeHomeAuthority, err := application.inspector.ObserveNativeHomeIdentity(ctx, nativeHome)
+	if contextCancellation(err) {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureCancelled)}
+	}
+	if err != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != nativeHome || nativeHomeAuthority.EffectiveUID() != effectiveUID {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("configured native home failed descriptor identity admission"), domain.FailureSecurityPolicy)}
+	}
+	if err := revalidateConfigLocality(ctx, source, attestor, localityRequest, locality); err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
+	}
+	nativeHomeCurrent, err := application.inspector.ObserveNativeHomeIdentity(ctx, nativeHome)
+	if contextCancellation(err) {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureCancelled)}
+	}
+	if err != nil || !sameNativeHomeAuthority(nativeHomeAuthority, nativeHomeCurrent) {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("configured native home changed during admission"), domain.FailureSecurityPolicy)}
 	}
 	output, err := resolvedConfigOutput(request, resolved)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 
-	if invocation.OutputFormat() == OutputFormatHuman {
-		return execution{human: output, data: nil}
+	return execution{human: output, data: output}
+}
+
+func admitConfiguredNativeAccount(configuredHome string, installed *user.User, installedErr error, effectiveUID int) (string, uint32, error) {
+	if installedErr != nil || installed == nil || installed.HomeDir == "" || effectiveUID < 0 {
+		return "", 0, errors.New("native user account is unavailable")
 	}
-	destination, err := ports.NewSafeRelativePath(".kar/config/" + invocation.RequestID() + ".json")
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	installedUID, err := strconv.ParseUint(installed.Uid, 10, 32)
+	if err != nil || uint64(effectiveUID) != installedUID || configuredHome != installed.HomeDir {
+		return "", 0, errors.New("configured native account does not match the effective user")
 	}
-	directory, err := ports.NewSafeRelativePath(".kar/config")
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	sourceIDs := configResolutionSourceIDs(resolved)
-	receipt, err := application.persistJSON(ctx, root, directory, destination, "config_resolution", sourceIDs, output)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	uri := receipt.Destination().String()
-	data, err := json.Marshal(struct {
-		Kind              string `json:"kind"`
-		ResolvedPolicyURI string `json:"resolved_policy_uri"`
-		PolicySHA256      string `json:"policy_sha256"`
-	}{"configuration_resolved", uri, receipt.SHA256()})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	return execution{human: output, data: data}
+	return installed.HomeDir, uint32(effectiveUID), nil
 }
 
 func (application *Application) handleDoctor(ctx context.Context, invocation Invocation) execution {
@@ -617,13 +871,9 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	service, err := doctor.NewService(application.clock, application.catalog, application.inspector, application.evidenceReader, root)
+	diagnosis, err := application.diagnoseLocalDoctor(ctx, root)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	diagnosis, err := service.DiagnoseEnvironment(ctx)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
 	raw, err := json.Marshal(diagnosis)
 	if err != nil {
@@ -637,56 +887,330 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
 
+	human := localDoctorHumanOutput(diagnosis)
 	if invocation.OutputFormat() == OutputFormatHuman {
-		if diagnosis.Readiness.State == doctor.ReadinessReady {
-			return execution{human: raw, data: nil}
+		if diagnosis.Readiness.ExitCode == 0 {
+			return execution{human: human, data: nil}
+		}
+		class := domain.FailureProviderUnavailable
+		code := "readiness_unverified"
+		if diagnosis.Readiness.State == "unsafe" {
+			class, code = domain.FailureSecurityPolicy, "security_rejected"
 		}
 		return execution{
-			human: raw,
+			human: human,
 			failure: &executionFailure{
-				class: domain.FailureProviderUnavailable,
-				code:  "readiness_unverified",
+				class: class,
+				code:  code,
 				stage: "cli.doctor",
-				exit:  app.ExitCodeReadiness,
+				exit:  app.ExitCode(diagnosis.Readiness.ExitCode),
 			},
 		}
 	}
 
-	destination, err := ports.NewSafeRelativePath(".kar/diagnostics/" + invocation.RequestID() + ".json")
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	directory, err := ports.NewSafeRelativePath(".kar/diagnostics")
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	receipt, err := application.persistJSON(ctx, root, directory, destination, "doctor_result", []string{doctorResultSchema}, raw)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	uri := receipt.Destination().String()
 	data, err := json.Marshal(struct {
-		Kind            string `json:"kind"`
-		DoctorResultURI string `json:"doctor_result_uri"`
-		Readiness       string `json:"readiness"`
-	}{"diagnosed", uri, string(diagnosis.Readiness.State)})
+		Kind            string                    `json:"kind"`
+		DoctorResultURI *string                   `json:"doctor_result_uri"`
+		Readiness       string                    `json:"readiness"`
+		Doctor          *doctor.LocalDoctorResult `json:"doctor"`
+	}{"diagnosed", nil, diagnosis.Readiness.State, &diagnosis})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
-	if diagnosis.Readiness.State == doctor.ReadinessReady {
-		return execution{human: raw, data: data}
+	if diagnosis.Readiness.ExitCode == 0 {
+		return execution{human: human, data: data}
+	}
+	class := domain.FailureProviderUnavailable
+	code := "readiness_unverified"
+	if diagnosis.Readiness.State == "unsafe" {
+		class, code = domain.FailureSecurityPolicy, "security_rejected"
 	}
 	return execution{
-		human:       raw,
+		human:       human,
 		data:        data,
 		failureData: data,
 		failure: &executionFailure{
-			class: domain.FailureProviderUnavailable,
-			code:  "readiness_unverified",
+			class: class,
+			code:  code,
 			stage: "cli.doctor",
-			exit:  app.ExitCodeReadiness,
+			exit:  app.ExitCode(diagnosis.Readiness.ExitCode),
 		},
 	}
+}
+
+func (application *Application) diagnoseLocalDoctor(ctx context.Context, root ports.AnchoredRoot) (doctor.LocalDoctorResult, error) {
+	now := application.clock.Now().UTC()
+	base := doctor.LocalDoctorResult{
+		SchemaVersion: doctor.LocalSchemaVersion, CheckedAt: now, ProjectRootURI: ".",
+		Config:                doctor.LocalConfigProjection{Status: "missing", URI: adapterconfig.ConfigRelativePath, Authority: "project_local", Locality: "not_observed", TargetCommitOIDs: []string{}, ReasonCodes: []string{"config_missing"}},
+		ConfiguredProviderIDs: []string{},
+		ProviderInventory:     []doctor.LocalProviderInventoryRow{{Family: "kimi", State: "not_observed", Reason: "config_not_ready"}, {Family: "zcode", State: "not_observed", Reason: "config_not_ready"}, {Family: "agy", State: "not_observed", Reason: "config_not_ready"}},
+		Assignment:            doctor.LocalAssignmentProjection{State: "not_observed", Resilience: "not_observed"},
+		PlatformEvidence:      []doctor.LocalPlatformEvidence{{Cell: runtime.GOOS + "-" + runtime.GOARCH, Native: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"}},
+		ToolsLock:             doctor.LocalToolsLock{State: "not_observed"},
+		Readiness:             doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_missing"}},
+		Diagnostics:           []doctor.LocalDiagnostic{{Code: "config_missing", Category: "readiness", Message: "Project-local KAR configuration is missing.", Redacted: true}},
+	}
+	source, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return base, base.Validate()
+		}
+		reason := configLocalityFailureCode(err, "config_locality_unsafe")
+		base.Config.Status, base.Config.Locality = "unsafe", "rejected"
+		base.Config.ReasonCodes = []string{reason}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local KAR configuration failed security admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
+	if !ok {
+		return doctor.LocalDoctorResult{}, fmt.Errorf("doctor locality attestor unavailable")
+	}
+	data, identity, err := source.Read()
+	if err != nil {
+		return doctor.LocalDoctorResult{}, err
+	}
+	proof, err := source.Proof()
+	if err != nil {
+		return doctor.LocalDoctorResult{}, err
+	}
+	request, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
+	if err != nil {
+		return doctor.LocalDoctorResult{}, err
+	}
+	locality, err := attestor.Attest(ctx, request)
+	if err != nil {
+		reason := configLocalityFailureCode(err, "config_locality_unsafe")
+		base.Config.Status, base.Config.Locality = "unsafe", "rejected"
+		base.Config.ReasonCodes = []string{reason}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local KAR configuration failed locality admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	if err := revalidateConfigLocality(ctx, source, attestor, request, locality); err != nil {
+		reason := configLocalityFailureCode(err, "config_locality_drifted")
+		base.Config.Status, base.Config.Locality = "drifted", "drifted"
+		base.Config.ReasonCodes = []string{reason}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local KAR configuration changed during admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	config, err := adapterconfig.Decode(data)
+	if err != nil {
+		if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
+			reason := string(admission.Reason())
+			base.Config.Status, base.Config.Locality = "unsafe", "verified"
+			base.Config.ReasonCodes = []string{reason}
+			base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+			base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local KAR configuration contains prohibited credential material.", Redacted: true}}
+			return base, base.Validate()
+		}
+		base.Config.Status, base.Config.Locality = "invalid", "verified"
+		base.Config.ReasonCodes = []string{"config_yaml_invalid"}
+		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_yaml_invalid"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "config_yaml_invalid", Category: "configuration", Message: "Project-local KAR configuration is invalid.", Redacted: true}}
+		return base, base.Validate()
+	}
+	if err := revalidateConfigLocality(ctx, source, attestor, request, locality); err != nil {
+		reason := configLocalityFailureCode(err, "config_locality_drifted")
+		base.Config.Status, base.Config.Locality = "drifted", "drifted"
+		base.Config.ReasonCodes = []string{reason}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local KAR configuration changed during admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	head, _ := locality.Checkout()
+	indexDigest, _, _ := locality.Index()
+	base.Config = doctor.LocalConfigProjection{Status: "ready", URI: adapterconfig.ConfigRelativePath, SHA256: identity.SHA256(), Authority: "project_local", Locality: "verified", CheckoutHeadOID: head, IndexEntriesSHA256: indexDigest, TargetCommitOIDs: locality.ApplicableCommitOIDs(), ProvenanceState: "accepted", ReasonCodes: []string{}}
+	installed, userErr := user.Current()
+	installedUID := uint64(0)
+	var installedUIDErr error
+	if installed != nil {
+		installedUID, installedUIDErr = strconv.ParseUint(installed.Uid, 10, 32)
+	}
+	if userErr != nil || installed == nil || installedUIDErr != nil || installed.HomeDir != config.NativeUser.Home || int(installedUID) != os.Geteuid() {
+		base.Config.Status = "unsafe"
+		base.Config.NativeHomeIdentity = "mismatch"
+		base.Config.ReasonCodes = []string{"native_home_mismatch"}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home does not match the installed user.", Redacted: true}}
+		return base, base.Validate()
+	}
+	nativeHomeAuthority, nativeHomeErr := application.inspector.ObserveNativeHomeIdentity(ctx, installed.HomeDir)
+	if contextCancellation(nativeHomeErr) {
+		return doctor.LocalDoctorResult{}, nativeHomeErr
+	}
+	if nativeHomeErr != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != installed.HomeDir || nativeHomeAuthority.EffectiveUID() != uint32(os.Geteuid()) {
+		base.Config.Status = "unsafe"
+		base.Config.NativeHomeIdentity = "mismatch"
+		base.Config.ReasonCodes = []string{"native_home_mismatch"}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home failed descriptor identity admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	base.Config.NativeHomeIdentity = "verified"
+	base.ConfiguredProviderIDs = config.Providers.Families()
+	configured := make(map[reviewrun.Family][]string, len(base.ConfiguredProviderIDs))
+	if provider := config.Providers.Kimi; provider != nil {
+		configured[reviewrun.FamilyKimi] = []string{provider.Executable}
+	}
+	if provider := config.Providers.ZCode; provider != nil {
+		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
+	}
+	if provider := config.Providers.AGY; provider != nil {
+		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
+	}
+	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, application.inspector, configured)
+	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
+	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
+		securityDiscoveryFamilies[family] = struct{}{}
+	}
+	if discoveryErr != nil && len(securityDiscoveryFamilies) == 0 {
+		return doctor.LocalDoctorResult{}, discoveryErr
+	}
+	profileByFamily := make(map[string]reviewrun.DiscoveredProviderProfile, len(profiles))
+	for _, profile := range profiles {
+		profileByFamily[string(profile.Family())] = profile
+	}
+	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 3)
+	eligible := 0
+	unsafeAdmission := len(securityDiscoveryFamilies) > 0
+	for _, family := range []string{"kimi", "zcode", "agy"} {
+		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "not_configured", Reason: "not_configured"})
+			continue
+		}
+		if _, unsafeIdentity := securityDiscoveryFamilies[reviewrun.Family(family)]; unsafeIdentity {
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: "provider_security_admission_failed"})
+			continue
+		}
+		profile := profileByFamily[family]
+		if profile.Executable() == "" || profile.Launcher() == "" {
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: "configured_identity_unavailable"})
+			continue
+		}
+		if nilApplicationDependency(application.evidenceReader) {
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: "provider_admission_unverified"})
+			continue
+		}
+		evidence, evidenceErr := application.evidenceReader.ProviderEvidence(ctx, family)
+		admitted, unsafe := localProviderAdmission(evidence, family)
+		if evidenceErr != nil || !admitted {
+			unsafeAdmission = unsafeAdmission || unsafe
+			reason := "provider_admission_unverified"
+			if unsafe {
+				reason = "provider_security_admission_failed"
+			}
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: reason})
+			continue
+		}
+		eligible++
+		base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "eligible", Reason: "identity_admitted"})
+	}
+	nativeHomeCurrent, nativeHomeErr := application.inspector.ObserveNativeHomeIdentity(ctx, installed.HomeDir)
+	if contextCancellation(nativeHomeErr) {
+		return doctor.LocalDoctorResult{}, nativeHomeErr
+	}
+	if nativeHomeErr != nil || !sameNativeHomeAuthority(nativeHomeAuthority, nativeHomeCurrent) {
+		base.Config.Status = "unsafe"
+		base.Config.NativeHomeIdentity = "mismatch"
+		base.Config.ReasonCodes = []string{"native_home_mismatch"}
+		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home changed during admission.", Redacted: true}}
+		return base, base.Validate()
+	}
+	switch {
+	case unsafeAdmission:
+		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"provider_security_admission_failed"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_security_admission_failed", Category: "security", Message: "A configured provider failed security admission.", Redacted: true}}
+	case eligible == 0:
+		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
+		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_unavailable"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_unavailable", Category: "readiness", Message: "A configured provider is unavailable.", Redacted: true}}
+	case eligible == 1:
+		base.Assignment = doctor.LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"}
+		base.Readiness = doctor.LocalReadiness{State: "degraded", ExitCode: 0, ReasonCodes: []string{"provider_resilience_degraded"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_resilience_degraded", Category: "readiness", Message: "All roles have a primary provider but no fallback provider.", Redacted: true}}
+	default:
+		base.Assignment = doctor.LocalAssignmentProjection{State: "ready", Resilience: "ready"}
+		base.Readiness = doctor.LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}
+		base.Diagnostics = []doctor.LocalDiagnostic{}
+	}
+	return base, base.Validate()
+}
+
+func sameNativeHomeAuthority(left, right ports.NativeHomeLaunchAuthority) bool {
+	return left.Valid() && right.Valid() &&
+		left.Path() == right.Path() &&
+		left.Device() == right.Device() &&
+		left.Inode() == right.Inode() &&
+		left.EffectiveUID() == right.EffectiveUID()
+}
+
+func contextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func revalidateConfigLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+	if source == nil || attestor == nil {
+		return fmt.Errorf("config locality unavailable")
+	}
+	if err := source.Revalidate(); err != nil {
+		return err
+	}
+	if err := attestor.Revalidate(ctx, request, expected); err != nil {
+		return err
+	}
+	return source.Revalidate()
+}
+
+func configLocalityFailureCode(err error, fallback string) string {
+	if reason, ok := ports.ConfigLocalityReasonFromError(err); ok {
+		return string(reason)
+	}
+	return fallback
+}
+
+func localProviderAdmission(evidence doctor.ProviderV2Evidence, family string) (admitted, unsafe bool) {
+	if evidence.SchemaID != "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
+		return false, false
+	}
+	if _, err := hex.DecodeString(evidence.SHA256); err != nil || evidence.SecureWriterIndexStatus != doctor.EvidenceStatusPass || evidence.AssignmentStatus != doctor.EvidenceStatusPass {
+		return false, evidence.SecureWriterIndexStatus == doctor.EvidenceStatusFail
+	}
+	required := map[string]bool{
+		"PV-VERSION": false, "PV-NONINTERACTIVE": false, "PV-PROMPT-TRANSPORT": false, "PV-JSON-ONLY": false,
+		"PV-STDOUT-STDERR": false, "PV-CANCELLATION": false, "PV-OUTPUT-CAP": false, "PV-AUTH-CACHE-CONCURRENCY": false,
+		"PV-EXIT-CLASSIFICATION": false, "PV-CWD-ISOLATION": false, "PV-ROLE-FIT-logic": false, "PV-ROLE-FIT-security": false,
+		"PV-ROLE-FIT-maintainability": false, "PV-ROLE-FIT-product": false, "PV-ROLE-FIT-documentation": false, "PV-ROLE-FIT-testing": false,
+	}
+	if len(evidence.Probes) != len(required) {
+		return false, false
+	}
+	for _, probe := range evidence.Probes {
+		seen, known := required[probe.ID]
+		if !known || seen {
+			return false, false
+		}
+		required[probe.ID] = true
+		if probe.Status != doctor.EvidenceStatusPass {
+			securityProbe := probe.ID == "PV-CWD-ISOLATION" || probe.ID == "PV-PROMPT-TRANSPORT" || probe.ID == "PV-STDOUT-STDERR"
+			return false, securityProbe && probe.Status == doctor.EvidenceStatusFail
+		}
+	}
+	return true, false
+}
+
+func localDoctorHumanOutput(diagnosis doctor.LocalDoctorResult) []byte {
+	var output strings.Builder
+	fmt.Fprintf(&output, "Readiness: %s\nConfiguration: %s\nProviders:\n", diagnosis.Readiness.State, diagnosis.Config.Status)
+	for _, row := range diagnosis.ProviderInventory {
+		fmt.Fprintf(&output, "- %s: %s\n", row.Family, row.State)
+	}
+	return []byte(output.String())
 }
 func (application *Application) handleProviders(ctx context.Context, invocation Invocation) execution {
 	data, err := providersResultData(0, nil)
@@ -1110,14 +1634,12 @@ func findingsHumanOutput(findings FindingsView) []byte {
 }
 
 type configurationOutput struct {
-	Mode              ConfigMode                      `json:"mode"`
-	Policy            json.RawMessage                 `json:"policy"`
-	ProjectProvenance *configurationProjectProvenance `json:"project_provenance"`
-}
-
-type configurationProjectProvenance struct {
-	Commit string `json:"commit"`
-	Path   string `json:"path"`
+	Kind         string                    `json:"kind"`
+	Mode         ConfigMode                `json:"mode"`
+	ConfigURI    string                    `json:"config_uri"`
+	ConfigSHA256 string                    `json:"config_sha256"`
+	Policy       json.RawMessage           `json:"policy,omitempty"`
+	Provenance   []appconfig.ProvenanceRow `json:"provenance,omitempty"`
 }
 
 func resolvedConfigOutput(request ConfigRequest, resolved appconfig.Resolution) ([]byte, error) {
@@ -1125,25 +1647,26 @@ func resolvedConfigOutput(request ConfigRequest, resolved appconfig.Resolution) 
 	if !json.Valid(policy) {
 		return nil, errors.New("redacted policy JSON is invalid")
 	}
-	var provenance *configurationProjectProvenance
-	if project, available := resolved.Project(); available {
-		provenance = &configurationProjectProvenance{
-			Commit: project.Commit().String(),
-			Path:   project.Path().String(),
-		}
+	output := configurationOutput{Kind: "configuration_resolved", Mode: request.Mode(), ConfigURI: resolved.URI(), ConfigSHA256: resolved.SHA256()}
+	if request.Mode() == ConfigModeProvenance {
+		output.Provenance = resolved.Provenance()
+	} else {
+		output.Policy = json.RawMessage(policy)
 	}
-	return json.Marshal(configurationOutput{
-		Mode:              request.Mode(),
-		Policy:            json.RawMessage(policy),
-		ProjectProvenance: provenance,
-	})
+	return json.Marshal(output)
 }
-func configResolutionSourceIDs(resolved appconfig.Resolution) []string {
-	sourceIDs := []string{globalConfigAssetID, "config:resolved-policy:v1"}
-	if project, available := resolved.Project(); available {
-		sourceIDs = append(sourceIDs, "config:project:"+project.Commit().String()+":"+project.Path().String())
+
+func initFailureHuman(result appinit.InitializeProjectResult, code string) string {
+	switch code {
+	case "init_destination_exists":
+		return "kar: .kar/config.yaml already exists"
+	case "init_private_dir_commit_unconfirmed", "init_existing_private_dir_commit_unconfirmed":
+		return "kar: private KAR directory durability is unconfirmed"
+	case "init_commit_unconfirmed":
+		return "kar: .kar/config.yaml was installed but durability is unconfirmed"
+	default:
+		return "kar: initialization failed (" + code + ")"
 	}
-	return sourceIDs
 }
 
 func schemaResultData(schemaID string, exportURI *string) ([]byte, error) {
@@ -1330,9 +1853,7 @@ func reportOutputUsesControlNamespace(outputPath string) bool {
 	switch {
 	case strings.EqualFold(namespace, ".kar"),
 		strings.EqualFold(namespace, ".git"),
-		strings.EqualFold(namespace, ".gjc"),
-		strings.EqualFold(namespace, ".kar.yaml"),
-		strings.EqualFold(namespace, ".kar.yml"):
+		strings.EqualFold(namespace, ".gjc"):
 		return true
 	default:
 		return false

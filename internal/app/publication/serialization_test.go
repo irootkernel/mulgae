@@ -108,6 +108,26 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 		got.Current.TargetSHA256 != final.Target.ContentSHA256 || got.Current.Verification != "verified" {
 		t.Fatalf("final evidence provenance is inconsistent: %#v", got)
 	}
+	if final.Provenance.Production == nil {
+		t.Fatal("final artifact omits production provenance")
+	}
+	production := final.Provenance.Production
+	if production.BuildProduct != "kar" || production.BuildVersion != "0.1.0" ||
+		production.BuildCommit != "0123456789abcdef" || !production.ObjectivePresent ||
+		production.ObjectiveSHA256 == nil || production.SnapshotManifestSHA256 == "" ||
+		production.WorkspaceTerminalReceipt != sha256Identifier([]byte("workspace-terminal")) || len(production.Providers) != 2 {
+		t.Fatalf("final production provenance is incomplete: %#v", production)
+	}
+	for _, provider := range production.Providers {
+		if provider.Family == "" || provider.Instance == "" || provider.Version == "" ||
+			provider.Executable == "" || provider.ExecutableSHA256 == "" ||
+			provider.Launcher == "" || provider.LauncherSHA256 == "" ||
+			provider.ProfileGeneration == "" || provider.AdapterProfile == "" ||
+			len(provider.QualificationReceiptIDs) == 0 || len(provider.PacketTransportReceiptIDs) == 0 ||
+			provider.NamespaceTerminalReceipt == "" {
+			t.Fatalf("final provider provenance is incomplete: %#v", provider)
+		}
+	}
 	if bytes.Contains(bytes.ToLower(first.Final().Bytes()), []byte("organizational approval")) {
 		t.Fatal("final artifact includes organizational approval text")
 	}
@@ -297,4 +317,65 @@ func assetIDStrings(ids []ports.AssetID) []string {
 		values[index] = id.String()
 	}
 	return values
+}
+func TestFinalProductionProvenanceRejectsEachMutatedField(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseline finalReviewWire
+	if err := unmarshalExact(bundle.Final().Bytes(), &baseline); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(*finalReviewWire)
+	}{
+		{"build product", func(f *finalReviewWire) { f.Provenance.Production.BuildProduct = "" }},
+		{"build version", func(f *finalReviewWire) { f.Provenance.Production.BuildVersion = "9.9.9" }},
+		{"build commit", func(f *finalReviewWire) { f.Provenance.Production.BuildCommit = "other" }},
+		{"objective presence", func(f *finalReviewWire) { f.Provenance.Production.ObjectivePresent = false }},
+		{"objective digest", func(f *finalReviewWire) { value := ""; f.Provenance.Production.ObjectiveSHA256 = &value }},
+		{"snapshot digest", func(f *finalReviewWire) { f.Provenance.Production.SnapshotManifestSHA256 = "" }},
+		{"workspace receipt", func(f *finalReviewWire) { f.Provenance.Production.WorkspaceTerminalReceipt = "" }},
+		{"family", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].Family = "" }},
+		{"instance", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].Instance = "" }},
+		{"provider version", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].Version = "" }},
+		{"executable", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].Executable = "" }},
+		{"executable digest", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].ExecutableSHA256 = "" }},
+		{"launcher", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].Launcher = "" }},
+		{"launcher digest", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].LauncherSHA256 = "" }},
+		{"profile generation", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].ProfileGeneration = "" }},
+		{"adapter profile", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].AdapterProfile = "" }},
+		{"qualification receipt", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].QualificationReceiptIDs[0] = "" }},
+		{"packet receipt", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].PacketTransportReceiptIDs[0] = "" }},
+		{"namespace receipt", func(f *finalReviewWire) { f.Provenance.Production.Providers[0].NamespaceTerminalReceipt = "" }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			final := baseline
+			final.Provenance.Production = cloneProductionWire(baseline.Provenance.Production)
+			test.mutate(&final)
+			if err := validateFinalProductionProvenance(final); err == nil {
+				t.Fatal("reader accepted mutated production provenance")
+			}
+		})
+	}
+}
+
+func cloneProductionWire(value *productionProvenanceWire) *productionProvenanceWire {
+	result := *value
+	if value.ObjectiveSHA256 != nil {
+		objective := *value.ObjectiveSHA256
+		result.ObjectiveSHA256 = &objective
+	}
+	result.Providers = append([]productionProviderWire(nil), value.Providers...)
+	for index := range result.Providers {
+		result.Providers[index].QualificationReceiptIDs = append([]string(nil), value.Providers[index].QualificationReceiptIDs...)
+		result.Providers[index].PacketTransportReceiptIDs = append([]string(nil), value.Providers[index].PacketTransportReceiptIDs...)
+	}
+	return &result
 }

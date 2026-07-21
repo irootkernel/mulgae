@@ -88,6 +88,10 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 	if err != nil {
 		return nil, err
 	}
+	var requestValue any = request
+	if commandResult.Command() == app.CommandInit && request["request_state"] == "invalid" {
+		requestValue = json.RawMessage(cloneEnvelopeBytes(requestRaw))
+	}
 
 	resultRaw := failureResultRaw
 	if commandResult.OK() || commandResult.CommittedOutcome() {
@@ -142,7 +146,7 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 	candidate, err := json.Marshal(commandEnvelope{
 		SchemaVersion: commandResultSchemaVersion,
 		Command:       commandResult.Command(),
-		Request:       request,
+		Request:       requestValue,
 		CompletedAt:   completedAt,
 		Exit: commandExit{
 			Code: int(commandResult.ExitCode()),
@@ -169,7 +173,7 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 type commandEnvelope struct {
 	SchemaVersion string          `json:"schema_version"`
 	Command       app.CommandName `json:"command"`
-	Request       map[string]any  `json:"request"`
+	Request       any             `json:"request"`
 	CompletedAt   string          `json:"completed_at"`
 	Exit          commandExit     `json:"exit"`
 	Reasons       []commandReason `json:"reasons"`
@@ -240,6 +244,9 @@ func reasonForDiagnostic(diagnostic app.Diagnostic) (commandReason, error) {
 	if err != nil {
 		return commandReason{}, err
 	}
+	if diagnostic.Stage() == "cli.init" && diagnostic.MachineCode() == "init_selection_invalid" && diagnostic.FailureClass() == domain.FailureConfiguration {
+		category = "usage"
+	}
 
 	artifactURI := diagnostic.ArtifactPath()
 	var artifact *string
@@ -250,7 +257,7 @@ func reasonForDiagnostic(diagnostic app.Diagnostic) (commandReason, error) {
 		Category:    category,
 		Code:        diagnostic.MachineCode(),
 		Message:     diagnostic.Message(),
-		Retryable:   diagnostic.FailureClass().FallbackAllowed(),
+		Retryable:   diagnostic.Retryable(),
 		ArtifactURI: artifact,
 	}, nil
 }

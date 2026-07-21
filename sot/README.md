@@ -1,31 +1,32 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.5.0**
-**Date:** 2026-07-18
+**Development Specification v1.9.0**
+**Date:** 2026-07-19
 **Primary binary:** `kar`
 **Implementation target:** Go
 
 KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It captures an immutable review target, composes role-specific prompt packets, executes provider instances through serialized lanes, validates and repairs structured output, verifies evidence, and publishes a durable review artifact.
 
 KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
+CI is a trusted projection of a committed artifact, not a `review` command mode: `review --ci` and a CI request field are unsupported.
 
-## SOT 1.5.0 Contract and Implementation Baseline
+## SOT 1.9.0 Contract and Implementation Baseline
 
-This package preserves the 71-path/70-payload SOT contract and records the completed implementation boundary through G008. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload.
+This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. Production `kar review` composition is wired, but production closure remains separately gated by current qualification, security, and P2 provenance.
 
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |
-| Implementation | **G001–G008 COMPLETE; G009 PENDING AND UNAUTHORIZED** |
-| External contract | **G0 EVIDENCE VERIFIED; G007 OPT-IN ADAPTERS EVIDENCE-GATED** |
+| Implementation | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** |
+| External contract | **G0 EVIDENCE VERIFIED; G007 ADAPTERS SUPPORT `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 
-The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. G008 is complete with retained implementation, verification, cleanup, QA, and architecture-review evidence. G009 remains pending and unauthorized; this status record does not authorize product/release CI jobs or release assets.
+The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. Historical G008 evidence retained implementation, verification, cleanup, QA, and architecture-review records. Historical G009 integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** with zero recorded P0 blockers. No release assets were authorized or created, and release publication remains subject to separate approval.
 
 Revision 14 keeps `darwin-arm64` as the sole G0 `required`/blocking native platform. G001 completed the G0 support derivation for that platform. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain `intended_future`, unsupported, and release-ineligible.
 
-Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for exactly `kimi`, `zcode`, and `agy`. G007 adds opt-in, evidence-gated adapters only for those families: direct noninteractive profiles, strict output isolation, process bounds and cancellation, tuple/base-argv evidence binding, strict rejection of unlisted families, and provider CLI reporting. Production standalone operation without a canonical recorded provider/evidence authority fails closed with schema-valid typed failures. G008 completes immutable root/followup/delta/rerun publication and lineage, raw and repaired attempt artifacts, runtime target and prompt inventories, retention/tombstone cleanup, and redacted secure export, including a real composed P2 end-to-end test across all four run types. A configured tuple is unsupported unless it has PASS evidence; unavailable, failed, and inconclusive tuples remain unsupported.
+Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for exactly `kimi`, `zcode`, and `agy`; that G0 family qualification evidence remains separate from current runtime support. G007 provides adapters for those families with direct noninteractive profiles, strict output isolation, process bounds and cancellation, runtime-capability validation, strict rejection of unlisted families, and provider CLI reporting. A configured `kimi`, `zcode`, or `agy` instance is supported when its family and runtime capability contract are satisfied; user version pins, executable paths, SHA allowlists, and profiles are diagnostic provenance for issue reports and reproducibility, never general runtime authorization. Unknown or new versions are not denied solely for identity. Capability failures produce actionable typed diagnostics, and known incompatibilities may be explicitly blocked. No automatic provider substitution occurs. Historical G008 evidence covers fake/offline root/followup/delta/rerun lineage and P2 publication proof, raw and repaired attempt artifacts, runtime target and prompt inventories, retention/tombstone cleanup, and redacted secure export; it is not production root-review proof. The retained controlled Kimi tuple receipt is historical qualification evidence, not a current support boundary.
 
-Current independent oracles remain: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **71/70**; schema/example relationships **23**; and G0-required pairs **16**.
+Current independent oracles are: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **85/84**; and schema/example relationships **25**.
 
 
 ## Canonical Artifact Contract
@@ -105,16 +106,18 @@ flowchart LR
 | [Decision Log and Verification Items](docs/14-decision-log.md) | Accepted design decisions and the small set of provider-specific items to verify |
 | [Glossary](docs/15-glossary.md) | Canonical terminology used throughout the specification |
 | [Mandatory Field and Ownership Matrix](docs/16-field-ownership-matrix.md) | Field-by-field ownership, required-value, repair, and publication rules |
-| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | G001–G008 complete and G009 pending and unauthorized |
+| [Superseded Authority Ledger](docs/17-superseded-authority-ledger.md) | Historical configuration and readiness language that is no longer runtime authority |
+| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Historical G001–G008 evidence; G009 **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** |
 
 ## Machine-Readable Contracts
 
-All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compatibility contracts; provider/platform v1 evidence is compatibility-only and cannot enter readiness. The v2 contracts and v2 provider/platform evidence define the SOT 1.5.0 baseline and the only G0 readiness authority.
+All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts remain frozen. Project-local doctor output uses `kar-doctor-result.v2`; provider/platform v1 evidence is compatibility-only and cannot enter readiness.
 
 | Contract | File |
 |---|---|
 | Provider review output v1 | [kar-provider-review-output.v1.schema.json](schemas/kar-provider-review-output.v1.schema.json) |
 | Provider review output v2 | [kar-provider-review-output.v2.schema.json](schemas/kar-provider-review-output.v2.schema.json) |
+| Provider review wire v2 | [kar-provider-review-wire.v2.schema.json](schemas/kar-provider-review-wire.v2.schema.json) |
 | Provider followup output v1 | [kar-provider-followup-output.v1.schema.json](schemas/kar-provider-followup-output.v1.schema.json) |
 | Provider followup output v2 | [kar-provider-followup-output.v2.schema.json](schemas/kar-provider-followup-output.v2.schema.json) |
 | Final review artifact v1 | [kar-review-artifact.v1.schema.json](schemas/kar-review-artifact.v1.schema.json) |
@@ -128,7 +131,8 @@ All schemas use JSON Schema Draft 2020-12. The v1 contracts remain frozen compat
 | Repair patch | [kar-repair-patch.v1.schema.json](schemas/kar-repair-patch.v1.schema.json) |
 | Prompt manifest | [kar-prompt-manifest.v1.schema.json](schemas/kar-prompt-manifest.v1.schema.json) |
 | Command result envelope | [kar-command-result.v1.schema.json](schemas/kar-command-result.v1.schema.json) |
-| Doctor result | [kar-doctor-result.v1.schema.json](schemas/kar-doctor-result.v1.schema.json) |
+| Doctor result v1 (compatibility) | [kar-doctor-result.v1.schema.json](schemas/kar-doctor-result.v1.schema.json) |
+| Project-local doctor result v2 | [kar-doctor-result.v2.schema.json](schemas/kar-doctor-result.v2.schema.json) |
 | Clean plan | [kar-clean-plan.v1.schema.json](schemas/kar-clean-plan.v1.schema.json) |
 | Export manifest | [kar-export-manifest.v1.schema.json](schemas/kar-export-manifest.v1.schema.json) |
 | G0 file catalog | [kar-g0-file-catalog.v1.schema.json](schemas/kar-g0-file-catalog.v1.schema.json) |
@@ -142,10 +146,10 @@ See [schemas/README.md](schemas/README.md) for validation responsibilities and t
 
 | Example | File |
 |---|---|
-| Global user configuration | [global-config.yaml](examples/global-config.yaml) |
-| Project configuration | [project-config.yaml](examples/project-config.yaml) |
+| Project-local operator configuration | [local-config.yaml](examples/local-config.yaml) |
 | Valid provider review output v1 | [provider-review-output.valid.json](examples/provider-review-output.valid.json) |
 | Valid provider review output v2 | [provider-review-output.v2.valid.json](examples/provider-review-output.v2.valid.json) |
+| Valid provider review wire v2 | [provider-review-wire.v2.valid.json](examples/provider-review-wire.v2.valid.json) |
 | Valid provider followup output v1 | [provider-followup-output.valid.json](examples/provider-followup-output.valid.json) |
 | Valid provider followup output v2 | [provider-followup-output.v2.valid.json](examples/provider-followup-output.v2.valid.json) |
 | Repair request | [repair-request.json](examples/repair-request.json) |
@@ -159,7 +163,8 @@ See [schemas/README.md](schemas/README.md) for validation responsibilities and t
 | Validation receipt | [validation-receipt.v1.valid.json](examples/validation-receipt.v1.valid.json) |
 | Prompt manifest | [prompt-manifest.v1.valid.json](examples/prompt-manifest.v1.valid.json) |
 | Command result envelope | [command-result.v1.valid.json](examples/command-result.v1.valid.json) |
-| Doctor result | [doctor-result.v1.valid.json](examples/doctor-result.v1.valid.json) |
+| Doctor result v1 (compatibility) | [doctor-result.v1.valid.json](examples/doctor-result.v1.valid.json) |
+| Project-local doctor result v2 | [doctor-result.v2.valid.json](examples/doctor-result.v2.valid.json) |
 | Clean plan | [clean-plan.v1.valid.json](examples/clean-plan.v1.valid.json) |
 | Export manifest | [export-manifest.v1.valid.json](examples/export-manifest.v1.valid.json) |
 | G0 file catalog | [g0-file-catalog.v1.valid.json](examples/g0-file-catalog.v1.valid.json) |
@@ -176,35 +181,39 @@ kar init
 kar doctor
 kar review --diff origin/main...HEAD \
   --objective "Review this change before merge."
-kar report --latest
-kar findings --latest
+kar report --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
+  --output-path reports/review.md --output json
+kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
+  --severity high --output json
 ```
 
 A remediation check creates a new run in the same session:
 
 ```bash
-kar followup --run latest --finding F001 \
+kar followup --run latest --finding F001 --diff git \
   --objective "Verify only whether the original issue is resolved."
 ```
 
 ## Recorded Implementation Progress
 
-The repository records the following implementation boundary. These commits reconstruct goal-sized history from the accepted final tree; intermediate commits are organizational boundaries. G001 through G008 are complete; G009 remains separately gated, pending, and unauthorized.
+The repository records the following historical implementation evidence. These commits reconstruct goal-sized history from the accepted final tree; intermediate commits are organizational boundaries. The historical integrated-gate classification is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but the current status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|
-| G001 | Authority promotion, post-verification, `g0_complete`, SOT baseline | **COMPLETE** | `1439c3d` |
-| G002 | Domain and ports foundation | **COMPLETE** | `64ac360` |
-| G003 | Trusted adapters, embedded contracts, foundation CLI | **COMPLETE** | `905030c` |
-| G004 | Prompt validation, bounded repair, fake review slice | **COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, process runtime, evidence, completion axes | **COMPLETE** | `da1939f` |
-| G006 | Publication recovery, reporting, query commands | **COMPLETE** | `feat(g006)` |
-| G007 | Opt-in evidence-gated provider adapters for exactly `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, tuple/base-argv binding, unlisted-family rejection, and provider CLI reporting | **COMPLETE** | `feat(g007)` |
-| G008 | Immutable root/followup/delta/rerun lineage and P2 publication; runtime attempt/target/prompt artifacts; retention/tombstone cleanup; redacted secure export | **COMPLETE** | `feat(g008)` |
-| G009 | Release assets and integrated v0.1 release gate | **PENDING AND UNAUTHORIZED** | — |
+| G001 | Authority promotion, post-verification, `g0_complete`, SOT baseline | **HISTORICAL — COMPLETE** | `1439c3d` |
+| G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
+| G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
+| G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
+| G005 | Coordinator lanes, process runtime, evidence, completion axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
+| G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, runtime-capability diagnostics, provenance capture, unlisted-family rejection, and provider CLI reporting | **HISTORICAL — COMPLETE** | `feat(g007)` |
+| G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
+| G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
 
-The controlled live exact Kimi tuple PASS is limited to `local-default` 0.23.6 with binary SHA-256 `50c358...`. Offline standard tests cover the adapter surface. This is not a claim that every configured tuple is supported; PASS evidence remains required for each tuple.
+The controlled Kimi qualification receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with a retained ledger receipt and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`. Offline standard tests cover the adapter surface. This historical PASS qualifies the recorded run; it neither restricts current family/capability support to that tuple nor requires PASS evidence for every configured tuple.
+
+The controlled provider attempt history is append-only. Two later opt-in retries on 2026-07-18, after that retained PASS, each exited after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; the durable G009 ledger records both outcomes. Those external liveness retries do not erase the earlier PASS or alter current support policy, but they remain part of the final evidence record.
 
 ## Status of Provider Support
 
-G001 established the required G0 provider/platform readiness evidence. G007 implements opt-in, evidence-gated adapter support for exactly `kimi`, `zcode`, and `agy`; `codex`, `claude`, and every unlisted family remain rejected, disabled, non-default, and ineligible for automatic fallback. Future platforms remain unsupported and release-ineligible.
+G001 established the required G0 provider/platform readiness evidence. G007 supports `kimi`, `zcode`, and `agy` by family identity and runtime capability contract; version, path, SHA, and profile remain recorded diagnostic provenance rather than authorization gates. `codex`, `claude`, and every unlisted family remain rejected, disabled, non-default, and ineligible for automatic fallback. Future platforms remain unsupported and release-ineligible.

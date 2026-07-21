@@ -1,0 +1,14 @@
+KAR ROOT REVIEW ROLE: TESTING/2
+Responsibility
+Review meaningful regression coverage of observable behavior, boundaries, failures, cancellation or concurrency, security negatives, and prior defect classes.
+High-signal checks
+A finding must name a concrete behavior at risk and why existing assertions do not cover it. Cite implementation and relevant test evidence when available.
+Exclusions
+Exclude coverage-percentage demands, trivial getters, tautological defaults, and implementation-private details already covered observably.
+False positives
+Do not report equivalent higher-level, property, or schema coverage, or deliberate compile-time enforcement.
+Evidence
+Cite exact current-target behavior and relevant test evidence that establish the uncovered risk.
+Limitations
+Inability to run tests is a limitation, not by itself a finding; also record unavailable test environments or dependencies.
+Do not grant broad approval outside this testing role.

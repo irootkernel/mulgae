@@ -46,6 +46,7 @@ type CommittedReview struct {
 	findings        []Finding
 	finalBytes      []byte
 	manifestBytes   []byte
+	lineage         CommittedLineage
 }
 
 // SessionID returns the committed review's session identity.
@@ -120,6 +121,91 @@ func (review CommittedReview) FinalBytes() []byte { return cloneBytes(review.fin
 // ManifestBytes returns a caller-owned copy of the exact committed manifest bytes.
 func (review CommittedReview) ManifestBytes() []byte { return cloneBytes(review.manifestBytes) }
 
+// Lineage returns the immutable, semantically verified run lineage.
+func (review CommittedReview) Lineage() CommittedLineage { return review.lineage.clone() }
+
+// CommittedLineage is the canonical immutable lineage projection for a committed review.
+type CommittedLineage struct {
+	parentRunID      *domain.RunID
+	sourceRunID      *domain.RunID
+	sourceReviewID   *domain.ReviewID
+	sourceFindingRef *string
+	replayMode       *ReplayMode
+}
+
+// ReplayMode is the validated prompt authority mode for a rerun.
+type ReplayMode string
+
+const (
+	ReplayModeExact     ReplayMode = "exact"
+	ReplayModeRecompose ReplayMode = "recompose"
+)
+
+// ParentRunID returns the parent run identity for a child review.
+func (lineage CommittedLineage) ParentRunID() (domain.RunID, bool) {
+	if lineage.parentRunID == nil {
+		return domain.RunID{}, false
+	}
+	return *lineage.parentRunID, true
+}
+
+// SourceRunID returns the source run identity for a child review.
+func (lineage CommittedLineage) SourceRunID() (domain.RunID, bool) {
+	if lineage.sourceRunID == nil {
+		return domain.RunID{}, false
+	}
+	return *lineage.sourceRunID, true
+}
+
+// SourceReviewID returns the source review identity for a child review.
+func (lineage CommittedLineage) SourceReviewID() (domain.ReviewID, bool) {
+	if lineage.sourceReviewID == nil {
+		return domain.ReviewID{}, false
+	}
+	return *lineage.sourceReviewID, true
+}
+
+// SourceFindingRef returns the source finding reference for a followup review.
+func (lineage CommittedLineage) SourceFindingRef() (string, bool) {
+	if lineage.sourceFindingRef == nil {
+		return "", false
+	}
+	return *lineage.sourceFindingRef, true
+}
+
+// ReplayMode returns the replay authority mode for a rerun review.
+func (lineage CommittedLineage) ReplayMode() (ReplayMode, bool) {
+	if lineage.replayMode == nil {
+		return "", false
+	}
+	return *lineage.replayMode, true
+}
+
+func (lineage CommittedLineage) clone() CommittedLineage {
+	result := lineage
+	if lineage.parentRunID != nil {
+		value := *lineage.parentRunID
+		result.parentRunID = &value
+	}
+	if lineage.sourceRunID != nil {
+		value := *lineage.sourceRunID
+		result.sourceRunID = &value
+	}
+	if lineage.sourceReviewID != nil {
+		value := *lineage.sourceReviewID
+		result.sourceReviewID = &value
+	}
+	if lineage.sourceFindingRef != nil {
+		value := *lineage.sourceFindingRef
+		result.sourceFindingRef = &value
+	}
+	if lineage.replayMode != nil {
+		value := *lineage.replayMode
+		result.replayMode = &value
+	}
+	return result
+}
+
 // FollowupOutcome is the immutable committed resolution for a followup review.
 type FollowupOutcome struct {
 	resolution domain.FollowupResolution
@@ -140,19 +226,20 @@ func (outcome FollowupOutcome) Evidence() []FollowupEvidence {
 
 // FollowupEvidence is one immutable committed followup evidence claim.
 type FollowupEvidence struct {
-	sourceSessionID     domain.SessionID
-	sourceRunID         domain.RunID
-	sourceReviewID      domain.ReviewID
-	sourceFindingID     string
-	sourceTargetSHA256  string
-	sourceExcerptSHA256 string
-	targetSHA256        string
-	side                evidence.Side
-	path                ports.SafeRelativePath
-	lineStart           int
-	lineEnd             int
-	quote               string
-	verification        evidence.ReceiptStatus
+	sourceSessionID      domain.SessionID
+	sourceRunID          domain.RunID
+	sourceReviewID       domain.ReviewID
+	sourceFindingID      string
+	sourceTargetSHA256   string
+	sourceExcerptSHA256  string
+	targetSHA256         string
+	currentExcerptSHA256 string
+	side                 evidence.Side
+	path                 ports.SafeRelativePath
+	lineStart            int
+	lineEnd              int
+	quote                string
+	verification         evidence.ReceiptStatus
 }
 
 func (item FollowupEvidence) SourceSessionID() domain.SessionID { return item.sourceSessionID }
@@ -161,6 +248,7 @@ func (item FollowupEvidence) SourceReviewID() domain.ReviewID   { return item.so
 func (item FollowupEvidence) SourceFindingID() string           { return item.sourceFindingID }
 func (item FollowupEvidence) SourceTargetSHA256() string        { return item.sourceTargetSHA256 }
 func (item FollowupEvidence) SourceExcerptSHA256() string       { return item.sourceExcerptSHA256 }
+func (item FollowupEvidence) CurrentExcerptSHA256() string      { return item.currentExcerptSHA256 }
 func (item FollowupEvidence) TargetSHA256() string              { return item.targetSHA256 }
 func (item FollowupEvidence) Side() evidence.Side               { return item.side }
 func (item FollowupEvidence) Path() ports.SafeRelativePath      { return item.path }
@@ -401,19 +489,20 @@ func (finding Finding) Evidence() []Evidence { return cloneEvidence(finding.evid
 
 // Evidence binds one source identity to one current immutable-target claim.
 type Evidence struct {
-	sourceSessionID     domain.SessionID
-	sourceRunID         domain.RunID
-	sourceReviewID      domain.ReviewID
-	sourceFindingID     string
-	sourceTargetSHA256  string
-	sourceExcerptSHA256 string
-	targetSHA256        string
-	side                evidence.Side
-	path                ports.SafeRelativePath
-	lineStart           int
-	lineEnd             int
-	quote               string
-	verification        evidence.ReceiptStatus
+	sourceSessionID      domain.SessionID
+	sourceRunID          domain.RunID
+	sourceReviewID       domain.ReviewID
+	sourceFindingID      string
+	sourceTargetSHA256   string
+	sourceExcerptSHA256  string
+	targetSHA256         string
+	currentExcerptSHA256 string
+	side                 evidence.Side
+	path                 ports.SafeRelativePath
+	lineStart            int
+	lineEnd              int
+	quote                string
+	verification         evidence.ReceiptStatus
 }
 
 // SourceSessionID returns the source review session identity.
@@ -433,6 +522,9 @@ func (item Evidence) SourceTargetSHA256() string { return item.sourceTargetSHA25
 
 // SourceExcerptSHA256 returns the source excerpt digest.
 func (item Evidence) SourceExcerptSHA256() string { return item.sourceExcerptSHA256 }
+
+// CurrentExcerptSHA256 returns the current verified excerpt digest.
+func (item Evidence) CurrentExcerptSHA256() string { return item.currentExcerptSHA256 }
 
 // TargetSHA256 returns the current immutable target digest.
 func (item Evidence) TargetSHA256() string { return item.targetSHA256 }
@@ -618,19 +710,47 @@ type sourceEvidenceDTO struct {
 }
 
 type currentEvidenceDTO struct {
-	TargetSHA256 string `json:"target_sha256"`
-	Side         string `json:"side"`
-	Path         string `json:"path"`
-	LineStart    int    `json:"line_start"`
-	LineEnd      int    `json:"line_end"`
-	Quote        string `json:"quote"`
-	Verification string `json:"verification"`
+	TargetSHA256         string `json:"target_sha256"`
+	Side                 string `json:"side"`
+	Path                 string `json:"path"`
+	LineStart            int    `json:"line_start"`
+	LineEnd              int    `json:"line_end"`
+	Quote                string `json:"quote"`
+	CurrentExcerptSHA256 string `json:"current_excerpt_sha256"`
+	Verification         string `json:"verification"`
 }
 
 type provenanceDTO struct {
-	AggregationPath     string `json:"aggregation_path"`
-	FinalValidationPath string `json:"final_validation_path"`
-	ManifestPath        string `json:"manifest_path"`
+	AggregationPath     string                   `json:"aggregation_path"`
+	FinalValidationPath string                   `json:"final_validation_path"`
+	ManifestPath        string                   `json:"manifest_path"`
+	Production          *productionProvenanceDTO `json:"production,omitempty"`
+}
+
+type productionProvenanceDTO struct {
+	BuildProduct             string                  `json:"build_product"`
+	BuildVersion             string                  `json:"build_version"`
+	BuildCommit              string                  `json:"build_commit"`
+	ObjectiveSHA256          *string                 `json:"objective_sha256"`
+	ObjectivePresent         bool                    `json:"objective_present"`
+	SnapshotManifestSHA256   string                  `json:"snapshot_manifest_sha256"`
+	WorkspaceTerminalReceipt string                  `json:"workspace_terminal_receipt"`
+	Providers                []productionProviderDTO `json:"providers"`
+}
+
+type productionProviderDTO struct {
+	Family                    string   `json:"family"`
+	Instance                  string   `json:"instance"`
+	Version                   string   `json:"version"`
+	Executable                string   `json:"executable"`
+	ExecutableSHA256          string   `json:"executable_sha256"`
+	Launcher                  string   `json:"launcher"`
+	LauncherSHA256            string   `json:"launcher_sha256"`
+	ProfileGeneration         string   `json:"profile_generation"`
+	AdapterProfile            string   `json:"adapter_profile"`
+	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
+	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
+	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
 }
 
 type manifestDTO struct {

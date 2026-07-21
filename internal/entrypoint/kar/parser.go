@@ -8,18 +8,28 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
 	maximumPathLength             = 4096
 	maximumSchemaIdentifierLength = 1024
 )
+const (
+	stdinCaptureTokenPrefix = "stdin-capture-v1-"
+	stdinCaptureTokenBytes  = 32
+)
 
 // ErrUsage marks an argument error that the CLI must render with exit code 2.
 var ErrUsage = errors.New("kar usage error")
+
+// ErrSelectorUnavailable marks a syntactically valid selector that has no unique match.
+var ErrSelectorUnavailable = errors.New("kar selector unavailable")
 
 // Parse converts command-line arguments into one immutable KAR invocation. The
 // caller must supply a canonical default project root and a UUIDv7 request ID.
@@ -53,6 +63,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseInit(remaining, defaultProjectRoot, requestID)
 	case app.CommandDoctor:
 		return parseDoctor(remaining, defaultProjectRoot, requestID)
+	case app.CommandReview:
+		return parseReview(remaining, requestID)
 	case app.CommandStatus:
 		return parseStatus(remaining, requestID)
 	case app.CommandReport:
@@ -65,6 +77,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseExcerpt(remaining, requestID)
 	case app.CommandConfig:
 		return parseConfig(remaining, defaultProjectRoot, requestID)
+	case app.CommandPrompt:
+		return parsePrompt(remaining, requestID)
 	case app.CommandSchema:
 		return parseSchema(remaining, defaultProjectRoot, requestID)
 	case app.CommandFollowup:
@@ -99,6 +113,11 @@ func ParseResolved(ctx context.Context, arguments []string, defaultProjectRoot, 
 	normalized := cloneStrings(arguments)
 	var err error
 	switch normalized[0] {
+	case string(app.CommandReview):
+		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
+		if err != nil {
+			return Invocation{}, err
+		}
 	case string(app.CommandFollowup):
 		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
 			return Invocation{}, err
@@ -147,7 +166,10 @@ func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolv
 		}
 		runID, err := resolver.ResolveRun(ctx, "latest")
 		if err != nil {
-			return usageError("resolve latest run: %v", err)
+			if errors.Is(err, ErrSelectorUnavailable) {
+				return usageError("resolve latest run: %v", err)
+			}
+			return fmt.Errorf("resolve latest run: %w", err)
 		}
 		arguments[index+1] = runID
 		return nil
@@ -175,9 +197,12 @@ func resolveCapturedStdin(ctx context.Context, arguments []string, resolver Requ
 	}
 	value, err := resolver.CaptureTarget(ctx)
 	if err != nil {
-		return nil, usageError("capture stdin target: %v", err)
+		if errors.Is(err, ErrSelectorUnavailable) {
+			return nil, usageError("capture stdin target: %v", err)
+		}
+		return nil, fmt.Errorf("capture stdin target: %w", err)
 	}
-	if !validTargetValue(value) {
+	if !validCapturedStdinToken(value) {
 		return nil, usageError("captured stdin target is malformed")
 	}
 	normalized := make([]string, 0, len(arguments)+1)
@@ -220,7 +245,10 @@ func resolveRerunSelector(ctx context.Context, arguments []string, resolver Requ
 	}
 	attemptID, err := resolver.ResolveAttempt(ctx, runID, role, provider)
 	if err != nil {
-		return nil, usageError("resolve rerun attempt: %v", err)
+		if errors.Is(err, ErrSelectorUnavailable) {
+			return nil, usageError("resolve rerun attempt: %v", err)
+		}
+		return nil, fmt.Errorf("resolve rerun attempt: %w", err)
 	}
 	normalized := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
@@ -325,11 +353,10 @@ func parseHelp(arguments []string, requestID string) (Invocation, error) {
 
 func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--project-root": true,
-		"--name":         true,
-		"--context":      true,
-		"--providers":    true,
-		"--output":       true,
+		"--project-root": true, "--name": true, "--context": true, "--providers": true,
+		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
+		"--zcode-node-executable": true, "--zcode-launcher": true,
+		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -350,10 +377,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 
 	request := InitRequest{
-		projectRoot:         projectRoot,
-		projectName:         projectName,
-		intendedProviderIDs: []string{"kimi", "zcode", "agy"},
-		overwrite:           false,
+		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto",
 	}
 	if value, present := options["--context"]; present {
 		if !validRelativePath(value) {
@@ -363,38 +387,76 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		request.hasContextPath = true
 	}
 	if value, present := options["--providers"]; present {
-		providers, parseErr := parseProviderCSV(value, intendedProvider)
-		if parseErr != nil {
-			return Invocation{}, parseErr
+		if value != "auto" {
+			providers, parseErr := parseProviderCSV(value, intendedProvider)
+			if parseErr != nil {
+				return Invocation{}, parseErr
+			}
+			request.selectionMode = "selected"
+			request.providerIDs = canonicalProviderOrder(providers)
 		}
-		request.intendedProviderIDs = providers
+	}
+	for flag, destination := range map[string]*string{"--kimi-executable": &request.kimiExecutable, "--kimi-model": &request.kimiModel, "--kimi-data-home": &request.kimiDataHome, "--zcode-node-executable": &request.zcodeNodeExecutable, "--zcode-launcher": &request.zcodeLauncher, "--agy-executable": &request.agyExecutable, "--agy-permission-mode": &request.agyPermissionMode} {
+		if value, present := options[flag]; present {
+			*destination = value
+		}
+	}
+	if value, present := options["--native-home"]; present {
+		if !validAbsoluteRoot(value) {
+			return Invocation{}, usageError("native home is not canonical")
+		}
+		request.nativeHome = value
+		request.hasNativeHome = true
+	}
+	for _, value := range []string{request.kimiExecutable, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable} {
+		if value != "" && !validAbsoluteRoot(value) {
+			return Invocation{}, usageError("provider path is not canonical")
+		}
+	}
+	if request.agyPermissionMode != "" && request.agyPermissionMode != "safe" && request.agyPermissionMode != "dangerously-skip-permissions" {
+		return Invocation{}, usageError("unsupported AGY permission mode")
+	}
+	if request.selectionMode == "selected" {
+		selected := request.providerIDs
+		if !containsString(selected, "kimi") && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
+			return Invocation{}, usageError("Kimi override requires Kimi selection")
+		}
+		if !containsString(selected, "zcode") && (request.zcodeNodeExecutable != "" || request.zcodeLauncher != "") {
+			return Invocation{}, usageError("ZCode override requires ZCode selection")
+		}
+		if !containsString(selected, "agy") && (request.agyExecutable != "" || request.agyPermissionMode != "") {
+			return Invocation{}, usageError("AGY override requires AGY selection")
+		}
 	}
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
 		return Invocation{}, err
 	}
-	if outputFormat == OutputFormatJSON {
-		if _, present := options["--name"]; present {
-			return Invocation{}, usageError("JSON init cannot represent --name")
-		}
-		if _, present := options["--context"]; present {
-			return Invocation{}, usageError("JSON init cannot represent --context")
-		}
+	type selectionJSON struct {
+		Mode        string   `json:"mode"`
+		ProviderIDs []string `json:"provider_ids,omitempty"`
+	}
+	type overridesJSON struct {
+		KimiExecutable      string `json:"kimi_executable,omitempty"`
+		KimiModel           string `json:"kimi_model,omitempty"`
+		KimiDataHome        string `json:"kimi_data_home,omitempty"`
+		ZCodeNodeExecutable string `json:"zcode_node_executable,omitempty"`
+		ZCodeLauncher       string `json:"zcode_launcher,omitempty"`
+		AGYExecutable       string `json:"agy_executable,omitempty"`
+		AGYPermissionMode   string `json:"agy_permission_mode,omitempty"`
 	}
 	requestJSON, err := marshalRequest(struct {
-		RequestID           string       `json:"request_id"`
-		Command             string       `json:"command"`
-		ProjectRoot         string       `json:"project_root"`
-		IntendedProviderIDs []string     `json:"intended_provider_ids"`
-		Overwrite           bool         `json:"overwrite"`
-		OutputFormat        OutputFormat `json:"output_format"`
+		RequestID    string        `json:"request_id"`
+		Command      string        `json:"command"`
+		ProjectRoot  string        `json:"project_root"`
+		ProjectName  string        `json:"project_name"`
+		Context      *string       `json:"context"`
+		Selection    selectionJSON `json:"selection"`
+		Overrides    overridesJSON `json:"overrides"`
+		Overwrite    bool          `json:"overwrite"`
+		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID:           requestID,
-		Command:             string(app.CommandInit),
-		ProjectRoot:         request.projectRoot,
-		IntendedProviderIDs: cloneStrings(request.intendedProviderIDs),
-		Overwrite:           request.overwrite,
-		OutputFormat:        outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -408,6 +470,27 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		hasRequestJSON: true,
 		init:           &request,
 	}, nil
+}
+
+// rejectedInitJSONIntent reports whether an invalid init argv still expresses
+// an unambiguous machine-output request. Duplicate --output json flags remain
+// invalid usage, but they do not make the requested representation ambiguous.
+func rejectedInitJSONIntent(argv []string) bool {
+	if len(argv) == 0 || argv[0] != string(app.CommandInit) {
+		return false
+	}
+	found := false
+	for index := 1; index < len(argv); index++ {
+		if argv[index] != "--output" {
+			continue
+		}
+		if index+1 >= len(argv) || argv[index+1] != string(OutputFormatJSON) {
+			return false
+		}
+		found = true
+		index++
+	}
+	return found
 }
 
 func parseProviders(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
@@ -484,6 +567,140 @@ func parseProviders(arguments []string, defaultProjectRoot, requestID string) (I
 	}, nil
 }
 
+func parseReview(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
+		"--roles": true, "--session": true, "--output": true,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("review accepts no positional arguments")
+	}
+	target, err := optionTarget(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ReviewRequest{target: target}
+	if objective, present := options["--objective"]; present {
+		if !validObjective(objective) {
+			return Invocation{}, usageError("review objective is malformed")
+		}
+		request.objective, request.hasObjective = objective, true
+	}
+	if rolesValue, present := options["--roles"]; present {
+		request.roles, err = parseCanonicalRolesCSV(rolesValue)
+		if err != nil {
+			return Invocation{}, err
+		}
+	} else {
+		request.roles = fixedRoleNames()
+	}
+	if sessionID, present := options["--session"]; present {
+		session, parseErr := domain.ParseSessionID(sessionID)
+		if parseErr != nil {
+			return Invocation{}, usageError("session ID is not a canonical UUIDv7")
+		}
+		request.sessionID, request.hasSessionID = session.String(), true
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	var objective, sessionID *string
+	if request.hasObjective {
+		objective = &request.objective
+	}
+	if request.hasSessionID {
+		sessionID = &request.sessionID
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID string `json:"request_id"`
+		Command   string `json:"command"`
+		Target    struct {
+			Kind  string `json:"kind"`
+			Value string `json:"value"`
+		} `json:"target"`
+		Objective    *string      `json:"objective"`
+		Roles        []string     `json:"roles"`
+		SessionID    *string      `json:"session_id"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{
+		requestID, string(app.CommandReview), struct {
+			Kind  string `json:"kind"`
+			Value string `json:"value"`
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), sessionID, outputFormat,
+	})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command: app.CommandReview, availability: AvailabilityFoundation, requestID: requestID,
+		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, review: &request,
+	}, nil
+}
+
+func parsePrompt(arguments []string, requestID string) (Invocation, error) {
+	options := make(map[string]string, 3)
+	includeGuardedBytes := false
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		switch argument {
+		case "--include-guarded-bytes":
+			if includeGuardedBytes {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			if index+1 < len(arguments) && !strings.HasPrefix(arguments[index+1], "--") {
+				return Invocation{}, usageError("boolean flag does not accept a value")
+			}
+			includeGuardedBytes = true
+		case "--run", "--attempt", "--output":
+			if _, duplicate := options[argument]; duplicate {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+				return Invocation{}, usageError("flag value is missing")
+			}
+			options[argument] = arguments[index+1]
+			index++
+		default:
+			return Invocation{}, usageError("prompt accepts no positional arguments or unknown flags")
+		}
+	}
+	runID, err := optionRunID(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	attemptValue, present := options["--attempt"]
+	if !present {
+		return Invocation{}, usageError("prompt requires --attempt")
+	}
+	attemptID, err := domain.ParseAttemptID(attemptValue)
+	if err != nil {
+		return Invocation{}, usageError("attempt ID is not a canonical UUIDv7")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := PromptRequest{runID: runID, attemptID: attemptID.String(), includeGuardedBytes: includeGuardedBytes}
+	requestJSON, err := marshalRequest(struct {
+		RequestID           string       `json:"request_id"`
+		Command             string       `json:"command"`
+		RunID               string       `json:"run_id"`
+		AttemptID           string       `json:"attempt_id"`
+		IncludeGuardedBytes bool         `json:"include_guarded_bytes"`
+		OutputFormat        OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandPrompt), request.runID, request.attemptID, request.includeGuardedBytes, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command: app.CommandPrompt, availability: AvailabilityFoundation, requestID: requestID,
+		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, prompt: &request,
+	}, nil
+}
 func parseDoctor(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true,
@@ -723,7 +940,7 @@ func parseExcerpt(arguments []string, requestID string) (Invocation, error) {
 		return Invocation{}, usageError("excerpt requires --finding")
 	}
 	if !validFindingID(findingID) {
-		return Invocation{}, usageError("finding ID must match Fddd+")
+		return Invocation{}, usageError("finding ID is malformed")
 	}
 	currentTargetSHA256, present := options["--current-target-sha256"]
 	if !present {
@@ -772,11 +989,7 @@ func parseExcerpt(arguments []string, requestID string) (Invocation, error) {
 
 func parseConfig(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--project-root":   true,
-		"--ref":            true,
-		"--project-config": true,
-		"--mode":           true,
-		"--output":         true,
+		"--project-root": true, "--mode": true, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -792,29 +1005,6 @@ func parseConfig(arguments []string, defaultProjectRoot, requestID string) (Invo
 		projectRoot: projectRoot,
 		mode:        ConfigModeEffective,
 	}
-	reference, hasReference := options["--ref"]
-	if hasReference {
-		if !validGitObjectID(reference) {
-			return Invocation{}, usageError("reference must be an exact lowercase Git object ID")
-		}
-		request.reference = reference
-	}
-	if value, present := options["--project-config"]; present {
-		if value == "none" {
-			request.projectConfigEnabled = false
-		} else if !validRelativePath(value) {
-			return Invocation{}, usageError("project configuration path is not a safe relative path")
-		} else {
-			request.projectConfigPath = value
-			request.projectConfigEnabled = true
-		}
-	}
-	if request.projectConfigEnabled && !hasReference {
-		return Invocation{}, usageError("project configuration requires an exact --ref object ID")
-	}
-	if !request.projectConfigEnabled && hasReference {
-		return Invocation{}, usageError("--ref requires an enabled --project-config")
-	}
 	if value, present := options["--mode"]; present {
 		switch ConfigMode(value) {
 		case ConfigModeEffective, ConfigModeProvenance:
@@ -826,9 +1016,6 @@ func parseConfig(arguments []string, defaultProjectRoot, requestID string) (Invo
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
 		return Invocation{}, err
-	}
-	if outputFormat == OutputFormatJSON && request.projectConfigEnabled {
-		return Invocation{}, usageError("JSON config cannot represent immutable project configuration inputs")
 	}
 	requestJSON, err := marshalRequest(struct {
 		RequestID    string       `json:"request_id"`
@@ -1254,9 +1441,50 @@ func parseRolesCSV(value string) ([]string, error) {
 	}
 	return roles, nil
 }
+func fixedRoleNames() []string {
+	fixedRoles := domain.FixedRoleOrder()
+	roles := make([]string, len(fixedRoles))
+	for index, role := range fixedRoles {
+		roles[index] = string(role)
+	}
+	return roles
+}
+
+func parseCanonicalRolesCSV(value string) ([]string, error) {
+	roles, err := parseRolesCSV(value)
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[domain.Role]struct{}, len(roles))
+	for _, role := range roles {
+		parsed := domain.Role(role)
+		if !parsed.Valid() {
+			return nil, usageError("role list contains an unsupported role")
+		}
+		selected[parsed] = struct{}{}
+	}
+	canonical := make([]string, 0, len(roles))
+	for _, role := range domain.FixedRoleOrder() {
+		if _, present := selected[role]; present {
+			canonical = append(canonical, string(role))
+		}
+	}
+	return canonical, nil
+}
 
 func validTargetValue(value string) bool {
 	return value != "" && len(value) <= maximumPathLength && !strings.ContainsAny(value, "\x00\r\n")
+}
+func validCapturedStdinToken(value string) bool {
+	if len(value) != len(stdinCaptureTokenPrefix)+stdinCaptureTokenBytes*2 || !strings.HasPrefix(value, stdinCaptureTokenPrefix) {
+		return false
+	}
+	for _, character := range value[len(stdinCaptureTokenPrefix):] {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validObjective(value string) bool {
@@ -1363,7 +1591,7 @@ func optionOutputFormat(options map[string]string) (OutputFormat, error) {
 }
 
 func parseProviderCSV(value string, allowed func(string) bool) ([]string, error) {
-	if value == "" || strings.ContainsAny(value, "\x00\r\n") {
+	if value == "" || strings.ContainsAny(value, "\x00\r\n \t") {
 		return nil, usageError("provider list is malformed")
 	}
 	values := strings.Split(value, ",")
@@ -1380,6 +1608,31 @@ func parseProviderCSV(value string, allowed func(string) bool) ([]string, error)
 		providers = append(providers, provider)
 	}
 	return providers, nil
+}
+
+func canonicalProviderOrder(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, family := range []string{"kimi", "zcode", "agy"} {
+		if containsString(values, family) {
+			result = append(result, family)
+		}
+	}
+	return result
+}
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+func optionalString(value string, present bool) *string {
+	if !present {
+		return nil
+	}
+	copyValue := value
+	return &copyValue
 }
 
 func intendedProvider(value string) bool {
@@ -1426,26 +1679,19 @@ func validRelativePath(value string) bool {
 }
 
 func validProjectName(value string) bool {
-	if len(value) == 0 || len(value) > 64 {
+	if !utf8.ValidString(value) || !norm.NFC.IsNormalString(value) {
 		return false
 	}
-	for index := range value {
-		character := value[index]
-		if index == 0 || index == len(value)-1 {
-			if !lowerAlphaNumeric(character) {
-				return false
-			}
-			continue
-		}
-		if !lowerAlphaNumeric(character) && character != '.' && character != '-' && character != '_' {
+	visible := 0
+	for _, character := range value {
+		if unicode.IsControl(character) {
 			return false
 		}
+		if !unicode.IsSpace(character) {
+			visible++
+		}
 	}
-	return true
-}
-
-func lowerAlphaNumeric(character byte) bool {
-	return character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
+	return visible >= 1 && visible <= 128
 }
 
 func validMinimumSeverity(value domain.Severity) bool {
@@ -1462,15 +1708,7 @@ func validMinimumSeverity(value domain.Severity) bool {
 }
 
 func validFindingID(value string) bool {
-	if len(value) < 4 || len(value) > 64 || value[0] != 'F' {
-		return false
-	}
-	for _, character := range value[1:] {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
+	return validCommandFindingID(value)
 }
 
 func validSHA256Identifier(value string) bool {

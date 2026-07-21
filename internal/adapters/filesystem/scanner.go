@@ -2,7 +2,10 @@
 
 package filesystem
 
-const scannerOverlap = 64
+const (
+	scannerOverlap   = 64
+	scannerChunkSize = scannerOverlap
+)
 
 type scanMatch struct {
 	detector string

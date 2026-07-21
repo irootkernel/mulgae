@@ -12,6 +12,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,8 @@ import (
 )
 
 const (
+	// processGroupTeardownTimeout is the entire terminal-sequence budget,
+	// measured once when terminal handling begins.
 	processGroupTeardownTimeout = time.Second
 	processGroupProbeInterval   = 10 * time.Millisecond
 	darwinProcessStateZombie    = 5
@@ -181,11 +186,20 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: invalid process request")
 	}
 
+	binding, providerRequest := request.ProviderPacketBinding()
 	stdin := request.Stdin()
+	needsStdinPipe := !providerRequest || binding.Channel() == ports.ProviderPacketChannelStdin
 	expectedStdinSHA256 := stdinWriteSHA256(stdin)
 	initialReceipt, err := stdinReceipt(stdin, 0)
 	if err != nil {
 		return ports.ProcessObservation{}, err
+	}
+	var preStartIdentity ports.ProviderPacketIdentity
+	if providerRequest && binding.Channel() == ports.ProviderPacketChannelPromptFile {
+		preStartIdentity, err = promptFileIdentity(binding)
+		if err != nil {
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: verify prompt file before start: %w", err)
+		}
 	}
 	startedAt, err := runner.timestamp()
 	if err != nil {
@@ -213,31 +227,98 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	argv := request.Argv()
 	environment := explicitEnvironment(request.Environment())
 	child := &exec.Cmd{
-		Path:        request.Executable(),
-		Args:        argv,
-		Dir:         request.WorkingDirectory(),
 		Env:         environment,
 		Stdout:      stdoutWriter,
 		Stderr:      stderrWriter,
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
-	stdinWriter, err := child.StdinPipe()
-	if err != nil {
-		_ = stdoutWriter.Close()
-		_ = stderrWriter.Close()
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: create stdin pipe: %w", err)
+	var launchDirectory *os.File
+	if boundDirectory, root, bound := request.BoundLaunchDirectory(); bound {
+		defer boundDirectory.Close()
+		if root.Path() != request.WorkingDirectory() {
+			_ = stdoutWriter.Close()
+			_ = stderrWriter.Close()
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: bound directory does not match diagnostic working directory")
+		}
+		duplicate, err := unix.Dup(int(boundDirectory.Fd()))
+		if err != nil {
+			_ = stdoutWriter.Close()
+			_ = stderrWriter.Close()
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: duplicate bound launch directory: %w", err)
+		}
+		launchDirectory = os.NewFile(uintptr(duplicate), root.Path())
+		karExecutable, err := os.Executable()
+		if err != nil {
+			_ = launchDirectory.Close()
+			_ = stdoutWriter.Close()
+			_ = stderrWriter.Close()
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: resolve trusted KAR executable: %w", err)
+		}
+		karExecutable, err = filepath.Abs(karExecutable)
+		if err != nil {
+			_ = launchDirectory.Close()
+			_ = stdoutWriter.Close()
+			_ = stderrWriter.Close()
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: canonicalize trusted KAR executable: %w", err)
+		}
+		if authority, protected := request.NativeHomeLaunchAuthority(); protected {
+			child.Path = karExecutable
+			child.Args = append([]string{
+				karExecutable,
+				fdExecNativeHomeHiddenArgument,
+				strconv.Itoa(3),
+				request.Executable(),
+				authority.Path(),
+				strconv.FormatUint(authority.Device(), 10),
+				strconv.FormatUint(authority.Inode(), 10),
+				strconv.FormatUint(uint64(authority.EffectiveUID()), 10),
+			}, argv[1:]...)
+			child.ExtraFiles = []*os.File{launchDirectory}
+		} else {
+			child.Path = karExecutable
+			child.Args = append([]string{karExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
+			child.ExtraFiles = []*os.File{launchDirectory}
+		}
+	} else {
+		child.Path = request.Executable()
+		child.Args = argv
+		child.Dir = request.WorkingDirectory()
+	}
+	var stdinWriter io.WriteCloser
+	if needsStdinPipe {
+		stdinWriter, err = child.StdinPipe()
+		if err != nil {
+			if launchDirectory != nil {
+				_ = launchDirectory.Close()
+			}
+			_ = stdoutWriter.Close()
+			_ = stderrWriter.Close()
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: create stdin pipe: %w", err)
+		}
 	}
 	if ctx.Err() != nil {
-		_ = stdinWriter.Close()
+		_ = closeStdin(stdinWriter)
+		if launchDirectory != nil {
+			_ = launchDirectory.Close()
+		}
 		_ = stdoutWriter.Close()
 		_ = stderrWriter.Close()
 		return runner.observation(nil, nil, nil, ports.ProcessTerminationCancelled, initialReceipt, startedAt)
 	}
 	if err := child.Start(); err != nil {
-		_ = stdinWriter.Close()
+		_ = closeStdin(stdinWriter)
+		if launchDirectory != nil {
+			_ = launchDirectory.Close()
+		}
 		_ = stdoutWriter.Close()
 		_ = stderrWriter.Close()
 		return runner.observation(nil, nil, nil, classifyStartFailure(request, err), initialReceipt, startedAt)
+	}
+	if launchDirectory != nil {
+		if err := launchDirectory.Close(); err != nil {
+			cleanupErr := cleanupStartedChild(child, child.Process.Pid, stdinWriter, stdoutWriter, stderrWriter)
+			return ports.ProcessObservation{}, fmt.Errorf("process runner: close bound launch directory: %w", errors.Join(err, cleanupErr))
+		}
 	}
 
 	processGroupID, err := captureProcessGroup(child.Process.Pid)
@@ -249,6 +330,13 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		cleanupErr := cleanupStartedChild(child, processGroupID, stdinWriter)
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: close parent output pipes: %w", errors.Join(err, cleanupErr))
 	}
+	if lifecycle, ok := request.PostOutputLifecycle(); ok {
+		return runner.runBoundedPostOutput(
+			ctx, timer, request, child, processGroupID, stdoutReader, stderrReader, stdinWriter,
+			stdin, initialReceipt, expectedStdinSHA256, binding, providerRequest,
+			preStartIdentity, lifecycle, startedAt,
+		)
+	}
 
 	stdout := cappedCapture{limit: request.MaxStdoutBytes()}
 	stderr := cappedCapture{limit: request.MaxStderrBytes()}
@@ -257,7 +345,9 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	go copyStream(stderrStream, stderrReader, &stderr, streamResults)
 
 	stdinResults := make(chan stdinResult, 1)
-	go copyStdin(stdinWriter, stdin, stdinResults)
+	if needsStdinPipe {
+		go copyStdin(stdinWriter, stdin, stdinResults)
+	}
 
 	waitResult := make(chan error, 1)
 
@@ -269,11 +359,12 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		waited             bool
 		waitErr            error
 		streamsRead        int
-		stdinWritten       bool
-		stdinReceipt       ports.StdinWriteReceipt
+		stdinWritten       = !needsStdinPipe
+		stdinReceipt       = initialReceipt
 		groupDispositioned bool
 		tearingDown        bool
 		teardownErr        error
+		teardownDeadline   time.Time
 		teardownTimer      *time.Timer
 		signals            terminationSignals
 	)
@@ -329,12 +420,20 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 
 		if !tearingDown && (signals.termination() != "" || signals.internal != nil) {
 			tearingDown = true
-			teardownErr = killProcessGroup(processGroupID)
-			if teardownErr == nil {
+			teardownDeadline = time.Now().Add(processGroupTeardownTimeout)
+			switch err := signalProcessGroup(processGroupID, syscall.SIGKILL); {
+			case err == nil, errors.Is(err, syscall.ESRCH):
 				groupDispositioned = true
+			case errors.Is(err, syscall.EPERM):
+				// Darwin can report EPERM after the group has crossed into an
+				// exiting state. Reap the direct child and require bounded
+				// absence verification before accepting that race.
+				groupDispositioned = true
+			default:
+				teardownErr = fmt.Errorf("process runner: kill child process group: %w", err)
 			}
-			_ = stdinWriter.Close()
-			teardownTimer = time.NewTimer(processGroupTeardownTimeout)
+			_ = closeStdin(stdinWriter)
+			teardownTimer = time.NewTimer(max(0, time.Until(teardownDeadline)))
 		}
 		if groupDispositioned && !waitStarted {
 			waitStarted = true
@@ -359,7 +458,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 				stdinReceipt = result.receipt
 				signals.recordStdin(result)
 			case <-teardownTimer.C:
-				closeErr := errors.Join(stdinWriter.Close(), stdoutReader.Close(), stderrReader.Close())
+				closeErr := errors.Join(closeStdin(stdinWriter), stdoutReader.Close(), stderrReader.Close())
 				return ports.ProcessObservation{}, fmt.Errorf(
 					"process runner: bounded group teardown did not complete: %w",
 					errors.Join(teardownErr, closeErr),
@@ -400,6 +499,13 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	) {
 	}
 	snapshotTerminalFacts(ctx, timer, &signals)
+	if tearingDown {
+		if err := verifyProcessGroupAbsent(processGroupID, teardownDeadline); err != nil {
+			return ports.ProcessObservation{}, err
+		}
+	} else if err := verifyProcessGroupAbsentAfterNaturalCompletion(processGroupID); err != nil {
+		return ports.ProcessObservation{}, err
+	}
 
 	if teardownErr != nil {
 		return ports.ProcessObservation{}, teardownErr
@@ -408,7 +514,11 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		return ports.ProcessObservation{}, signals.internal
 	}
 	if termination := signals.termination(); termination != "" {
-		return runner.observation(stdout.bytes, stderr.bytes, nil, termination, stdinReceipt, startedAt)
+		transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
+		if err != nil {
+			return ports.ProcessObservation{}, err
+		}
+		return runner.observationWithTransport(stdout.bytes, stderr.bytes, nil, termination, stdinReceipt, transportReceipt, startedAt)
 	}
 	if err := normalWaitError(waitErr); err != nil {
 		return ports.ProcessObservation{}, err
@@ -417,15 +527,21 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	if err != nil {
 		return ports.ProcessObservation{}, err
 	}
-	if signal != nil {
-		return runner.signaledObservation(stdout.bytes, stderr.bytes, *signal, stdinReceipt, startedAt)
+	transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
+	if err != nil {
+		return ports.ProcessObservation{}, err
 	}
-	return runner.observation(stdout.bytes, stderr.bytes, exitCode, ports.ProcessTerminationExited, stdinReceipt, startedAt)
+	if signal != nil {
+		return runner.signaledObservation(stdout.bytes, stderr.bytes, *signal, stdinReceipt, transportReceipt, startedAt)
+	}
+	return runner.observationWithTransport(stdout.bytes, stderr.bytes, exitCode, ports.ProcessTerminationExited, stdinReceipt, transportReceipt, startedAt)
 }
 func (runner *Runner) signaledObservation(
-	stdout, stderr []byte,
+	stdout []byte,
+	stderr []byte,
 	signal ports.ProcessSignal,
 	stdinWriteReceipt ports.StdinWriteReceipt,
+	transportReceipt *ports.ProviderPacketTransportReceipt,
 	startedAt time.Time,
 ) (ports.ProcessObservation, error) {
 	endedAt, err := runner.timestamp()
@@ -438,20 +554,383 @@ func (runner *Runner) signaledObservation(
 			EndedAt:   endedAt,
 		}
 	}
-	observation, err := ports.NewProcessObservation(
-		stdout,
-		stderr,
-		nil,
-		ports.ProcessTerminationSignaled,
-		stdinWriteReceipt,
-		startedAt,
-		endedAt,
-		signal,
-	)
+
+	var observation ports.ProcessObservation
+	if transportReceipt != nil {
+		observation, err = ports.NewProviderProcessObservation(
+			stdout,
+			stderr,
+			nil,
+			ports.ProcessTerminationSignaled,
+			stdinWriteReceipt,
+			*transportReceipt,
+			startedAt,
+			endedAt,
+			signal,
+		)
+	} else {
+		observation, err = ports.NewProcessObservation(
+			stdout,
+			stderr,
+			nil,
+			ports.ProcessTerminationSignaled,
+			stdinWriteReceipt,
+			startedAt,
+			endedAt,
+			signal,
+		)
+	}
 	if err != nil {
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct signaled observation: %w", err)
 	}
 	return observation, nil
+}
+
+type outputChunk struct {
+	stream streamKind
+	bytes  []byte
+	err    error
+}
+
+func readOutputChunks(stream streamKind, reader *os.File, output chan<- outputChunk, cancelled <-chan struct{}, complete chan<- struct{}) {
+	defer func() {
+		_ = reader.Close()
+		complete <- struct{}{}
+	}()
+	buffer := make([]byte, 32768)
+	send := func(chunk outputChunk) bool {
+		select {
+		case <-cancelled:
+			return false
+		default:
+		}
+		select {
+		case <-cancelled:
+			return false
+		case output <- chunk:
+			return true
+		}
+	}
+	for {
+		count, err := reader.Read(buffer)
+		if count > 0 && !send(outputChunk{stream: stream, bytes: append([]byte(nil), buffer[:count]...)}) {
+			return
+		}
+		if err != nil {
+			select {
+			case <-cancelled:
+				return
+			default:
+			}
+			if errors.Is(err, io.EOF) {
+				send(outputChunk{stream: stream})
+			} else {
+				send(outputChunk{stream: stream, err: err})
+			}
+			return
+		}
+	}
+}
+
+func processSignalName(signal syscall.Signal) string {
+	switch signal {
+	case syscall.SIGTERM:
+		return "SIGTERM"
+	case syscall.SIGKILL:
+		return "SIGKILL"
+	default:
+		return fmt.Sprintf("SIG%d", signal)
+	}
+}
+func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Timer, request ports.ProcessRequest, child *exec.Cmd, pgid int, out, errOut *os.File, in io.WriteCloser, stdin []byte, initial ports.StdinWriteReceipt, expected string, binding ports.ProviderPacketBinding, provider bool, pre ports.ProviderPacketIdentity, lifecycle ports.BoundedPostOutputLifecycle, started time.Time) (ports.ProcessObservation, error) {
+	stdout, stderr := cappedCapture{limit: request.MaxStdoutBytes()}, cappedCapture{limit: request.MaxStderrBytes()}
+	chunks := make(chan outputChunk, 8)
+	producerCancelled := make(chan struct{})
+	producerComplete := make(chan struct{}, 2)
+	go readOutputChunks(stdoutStream, out, chunks, producerCancelled, producerComplete)
+	go readOutputChunks(stderrStream, errOut, chunks, producerCancelled, producerComplete)
+	stdinResults := make(chan stdinResult, 1)
+	needsStdin := !provider || binding.Channel() == ports.ProviderPacketChannelStdin
+	stdinDone, outDone, errDone, waited := !needsStdin, false, false, false
+	receipt := initial
+	if needsStdin {
+		go copyStdin(in, stdin, stdinResults)
+	}
+	waitResults := make(chan error, 1)
+	go func() { waitResults <- child.Wait() }()
+	var signals terminationSignals
+	var requests []ports.ProcessGroupSignalRequestReceipt
+	var frame ports.ProcessOutputFrameReceipt
+	hasFrame, termSent, escalated, groupAbsent := false, false, false, false
+	var waitErr, cleanupErr error
+	var stable, termination, terminal *time.Timer
+	var stableC, terminationC, terminalC <-chan time.Time
+	var terminalDeadline time.Time
+	beginTerminal := func() {
+		if !terminalDeadline.IsZero() {
+			return
+		}
+		terminalDeadline = time.Now().Add(processGroupTeardownTimeout)
+		terminal = time.NewTimer(max(0, time.Until(terminalDeadline)))
+		terminalC = terminal.C
+	}
+	remainingTerminalBudget := func() time.Duration {
+		if terminalDeadline.IsZero() {
+			panic("process runner: terminal deadline is not initialized")
+		}
+		return max(0, time.Until(terminalDeadline))
+	}
+	producersClosed, producersJoined := false, 0
+	closeOwnedStreams := func() {
+		if producersClosed {
+			return
+		}
+		producersClosed = true
+		close(producerCancelled)
+		_ = out.Close()
+		_ = errOut.Close()
+		_ = closeStdin(in)
+	}
+	defer func() {
+		if stable != nil {
+			stable.Stop()
+		}
+		if termination != nil {
+			termination.Stop()
+		}
+		if terminal != nil {
+			terminal.Stop()
+		}
+		closeOwnedStreams()
+	}()
+	send := func(reason ports.ProcessGroupSignalRequestReason, signal syscall.Signal, post bool) error {
+		if groupAbsent {
+			return nil
+		}
+		err := signalProcessGroup(pgid, signal)
+		if errors.Is(err, syscall.ESRCH) {
+			groupAbsent = true
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("process runner: signal process group: %w", err)
+		}
+		fact, err := ports.NewProcessSignal(int(signal), processSignalName(signal))
+		if err != nil {
+			return err
+		}
+		var item ports.ProcessGroupSignalRequestReceipt
+		if post {
+			if reason == ports.ProcessGroupSignalRequestPostOutputEscalation {
+				item, err = ports.NewAcceptedPostOutputEscalationProcessGroupSignalRequestReceipt(fact, binding.PacketIdentity(), frame)
+			} else {
+				item, err = ports.NewAcceptedPostOutputProcessGroupSignalRequestReceipt(fact, binding.PacketIdentity(), frame)
+			}
+		} else {
+			item, err = ports.NewAcceptedProcessGroupSignalRequestReceipt(reason, fact)
+		}
+		if err == nil {
+			requests = append(requests, item)
+		}
+		return err
+	}
+	for !(outDone && errDone && stdinDone && waited && producersJoined == 2) {
+		if ctx.Err() != nil {
+			signals.cancelled = true
+		}
+		select {
+		case <-outer.C:
+			signals.timedOut = true
+		default:
+		}
+		if stdinDone && receipt.Valid() && (!receipt.Complete() || receipt.SHA256() != expected) {
+			signals.stdinIncomplete = true
+		}
+		if (signals.termination() != "" || signals.internal != nil) && !termSent {
+			beginTerminal()
+			if err := send(ports.ProcessGroupSignalRequestInternalTeardown, syscall.SIGKILL, false); err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
+				if signals.internal == nil {
+					signals.internal = err
+				}
+			} else {
+				escalated = true
+			}
+			termSent = true
+			closeOwnedStreams()
+		}
+		select {
+		case chunk := <-chunks:
+			if chunk.err != nil {
+				if signals.internal == nil {
+					signals.internal = fmt.Errorf("process runner: capture stream: %w", chunk.err)
+				}
+				continue
+			}
+			if chunk.bytes == nil {
+				if chunk.stream == stdoutStream {
+					outDone = true
+				} else {
+					errDone = true
+				}
+				continue
+			}
+			capture := &stdout
+			if chunk.stream == stderrStream {
+				capture = &stderr
+			}
+			if _, err := capture.Write(chunk.bytes); err != nil {
+				if chunk.stream == stdoutStream {
+					signals.stdoutFull = true
+				} else {
+					signals.stderrFull = true
+				}
+				continue
+			}
+			if chunk.stream == stdoutStream && !termSent {
+				hasFrame = false
+				if stable != nil {
+					stable.Stop()
+				}
+				stableC = nil
+				if candidate, err := ports.NewProcessOutputFrameReceipt(lifecycle.Framing(), stdout.bytes, lifecycle.StabilityGrace()); err == nil {
+					frame, hasFrame = candidate, true
+					stable = time.NewTimer(lifecycle.StabilityGrace())
+					stableC = stable.C
+				}
+			}
+		case result := <-stdinResults:
+			stdinDone, receipt = true, result.receipt
+			signals.recordStdin(result)
+		case waitErr = <-waitResults:
+			waited = true
+		case <-producerComplete:
+			producersJoined++
+		case <-stableC:
+			stableC = nil
+			if hasFrame && signals.termination() == "" && !termSent {
+				before := len(requests)
+				beginTerminal()
+				if err := send(ports.ProcessGroupSignalRequestPostOutput, syscall.SIGTERM, true); err != nil {
+					if signals.internal == nil {
+						signals.internal = err
+					}
+				}
+				termSent = true
+				_ = closeStdin(in)
+				if len(requests) > before {
+					termination = time.NewTimer(min(lifecycle.TerminationGrace(), remainingTerminalBudget()))
+					terminationC = termination.C
+				}
+			}
+		case <-terminationC:
+			terminationC = nil
+			members, err := probeProcessGroup(pgid)
+			if err != nil {
+				if signals.internal == nil {
+					signals.internal = fmt.Errorf("process runner: probe process group: %w", err)
+				}
+				continue
+			}
+			if members.absent() {
+				groupAbsent = true
+				closeOwnedStreams()
+			} else {
+				if err := send(ports.ProcessGroupSignalRequestPostOutputEscalation, syscall.SIGKILL, true); err != nil {
+					cleanupErr = errors.Join(cleanupErr, err)
+					if signals.internal == nil {
+						signals.internal = err
+					}
+				} else {
+					escalated = true
+				}
+				closeOwnedStreams()
+			}
+		case <-terminalC:
+			terminalC = nil
+			if termSent && !escalated && !groupAbsent {
+				if err := send(ports.ProcessGroupSignalRequestPostOutputEscalation, syscall.SIGKILL, true); err != nil {
+					cleanupErr = errors.Join(cleanupErr, err)
+					if signals.internal == nil {
+						signals.internal = err
+					}
+				} else {
+					escalated = true
+				}
+			}
+			closeOwnedStreams()
+			if !stdinDone {
+				select {
+				case result := <-stdinResults:
+					stdinDone, receipt = true, result.receipt
+					signals.recordStdin(result)
+				default:
+				}
+			}
+			if !waited || producersJoined != 2 || !stdinDone {
+				return ports.ProcessObservation{}, errors.Join(
+					signals.internal,
+					cleanupErr,
+					errors.New("process runner: terminal cleanup did not complete before terminal deadline"),
+				)
+			}
+			outDone, errDone = true, true
+		case <-ctx.Done():
+			signals.cancelled = true
+		case <-outer.C:
+			signals.timedOut = true
+		}
+	}
+	var absenceErr error
+	if terminalDeadline.IsZero() {
+		absenceErr = verifyProcessGroupAbsentAfterNaturalCompletion(pgid)
+	} else if !groupAbsent {
+		absenceErr = verifyProcessGroupAbsent(pgid, terminalDeadline)
+	}
+	if signals.internal != nil || cleanupErr != nil || absenceErr != nil {
+		return ports.ProcessObservation{}, errors.Join(signals.internal, cleanupErr, absenceErr)
+	}
+	if err := normalWaitError(waitErr); err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	exit, signal, err := processExitStatus(child.ProcessState)
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	var final ports.ProcessFinalTermination
+	if signal != nil {
+		final, err = ports.NewSignaledProcessFinalTermination(*signal)
+	} else {
+		final, err = ports.NewExitedProcessFinalTermination(*exit)
+	}
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	disposition := signals.termination()
+	if disposition == "" {
+		if escalated {
+			disposition = ports.ProcessTerminationSignaled
+		} else if signal != nil {
+			disposition = ports.ProcessTerminationSignaled
+		} else {
+			disposition = ports.ProcessTerminationExited
+		}
+	}
+	transport, err := providerTransportReceipt(binding, provider, pre)
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	frames := []ports.ProcessOutputFrameReceipt(nil)
+	if hasFrame {
+		frames = append(frames, frame)
+	}
+	lifecycleReceipt, err := ports.NewProcessLifecycleReceipt(final, true, requests, frames...)
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	return runner.observationWithLifecycleTransport(
+		stdout.bytes, stderr.bytes, disposition, receipt, *transport, lifecycleReceipt, started,
+	)
 }
 
 func explicitEnvironment(environment []ports.EnvironmentVariable) []string {
@@ -565,6 +1044,119 @@ func stdinWriteSHA256(value []byte) string {
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
 }
+func providerTransportReceipt(
+	binding ports.ProviderPacketBinding,
+	providerRequest bool,
+	preStartIdentity ports.ProviderPacketIdentity,
+) (*ports.ProviderPacketTransportReceipt, error) {
+	if !providerRequest {
+		return nil, nil
+	}
+
+	packetIdentity := binding.PacketIdentity()
+	var (
+		receipt ports.ProviderPacketTransportReceipt
+		err     error
+	)
+	switch binding.Channel() {
+	case ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketChannelStdin:
+		receipt, err = ports.NewProviderPacketTransportReceipt(
+			binding.Channel(), packetIdentity, "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+		)
+	case ports.ProviderPacketChannelPromptFile:
+		postTerminationIdentity, identityErr := promptFileIdentity(binding)
+		if identityErr != nil {
+			return nil, fmt.Errorf("process runner: verify prompt file after termination: %w", identityErr)
+		}
+		receipt, err = ports.NewProviderPacketTransportReceipt(
+			binding.Channel(),
+			packetIdentity,
+			binding.PromptFileReference(),
+			binding.SnapshotCWD(),
+			preStartIdentity,
+			postTerminationIdentity,
+		)
+	default:
+		return nil, fmt.Errorf("process runner: unsupported provider packet channel")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("process runner: construct provider transport receipt: %w", err)
+	}
+	return &receipt, nil
+}
+
+func promptFileIdentity(binding ports.ProviderPacketBinding) (ports.ProviderPacketIdentity, error) {
+	reference := binding.PromptFileReference()
+	path := strings.TrimPrefix(reference, "@")
+	if reference == path || filepath.IsAbs(path) || filepath.Clean(path) != path || path == "." || path == ".." ||
+		strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+		return ports.ProviderPacketIdentity{}, errors.New("invalid prompt file reference")
+	}
+
+	directoryFD, err := unix.Open(binding.SnapshotCWD(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return ports.ProviderPacketIdentity{}, fmt.Errorf("open snapshot working directory: %w", err)
+	}
+	defer func() {
+		_ = unix.Close(directoryFD)
+	}()
+
+	parts := strings.Split(path, string(filepath.Separator))
+	for _, part := range parts[:len(parts)-1] {
+		nextDirectoryFD, openErr := unix.Openat(directoryFD, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if openErr != nil {
+			return ports.ProviderPacketIdentity{}, fmt.Errorf("open prompt file directory: %w", openErr)
+		}
+		_ = unix.Close(directoryFD)
+		directoryFD = nextDirectoryFD
+	}
+
+	fileFD, err := unix.Openat(directoryFD, parts[len(parts)-1], unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return ports.ProviderPacketIdentity{}, fmt.Errorf("open prompt file: %w", err)
+	}
+	file := os.NewFile(uintptr(fileFD), "prompt-file")
+	defer file.Close()
+
+	var stat unix.Stat_t
+	if err := unix.Fstat(fileFD, &stat); err != nil {
+		return ports.ProviderPacketIdentity{}, fmt.Errorf("stat prompt file: %w", err)
+	}
+	expected := binding.PacketIdentity()
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return ports.ProviderPacketIdentity{}, errors.New("prompt file is not regular")
+	}
+	if stat.Size != int64(expected.ByteLength()) {
+		return ports.ProviderPacketIdentity{}, errors.New("prompt file size does not match packet identity")
+	}
+
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte{0})
+	written, err := io.CopyN(hash, file, stat.Size)
+	if err != nil {
+		return ports.ProviderPacketIdentity{}, fmt.Errorf("read prompt file: %w", err)
+	}
+	if written != stat.Size {
+		return ports.ProviderPacketIdentity{}, errors.New("prompt file size changed while reading")
+	}
+	var extra [1]byte
+	extraBytes, readErr := file.Read(extra[:])
+	if extraBytes != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
+		return ports.ProviderPacketIdentity{}, errors.New("prompt file exceeds packet identity")
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != expected.CompleteSHA256() {
+		return ports.ProviderPacketIdentity{}, errors.New("prompt file digest does not match packet identity")
+	}
+	return expected, nil
+}
+
+func closeStdin(writer io.WriteCloser) error {
+	if writer == nil {
+		return nil
+	}
+	return writer.Close()
+}
 
 func consumeRunnerCompletion(
 	waited *bool,
@@ -643,7 +1235,7 @@ func cleanupStartedChild(
 	outputWriters ...*os.File,
 ) error {
 	closeErrors := make([]error, 0, len(outputWriters)+1)
-	closeErrors = append(closeErrors, stdinWriter.Close())
+	closeErrors = append(closeErrors, closeStdin(stdinWriter))
 	for _, writer := range outputWriters {
 		closeErrors = append(closeErrors, writer.Close())
 	}
@@ -658,6 +1250,10 @@ func cleanupStartedChild(
 // deliberately never consults a leader PID, because that leader may already
 // have exited while descendants retain inherited descriptors.
 func killProcessGroup(processGroupID int) error {
+	return killProcessGroupBefore(processGroupID, time.Now().Add(processGroupTeardownTimeout))
+}
+
+func killProcessGroupBefore(processGroupID int, deadline time.Time) error {
 	if processGroupID <= 0 {
 		return fmt.Errorf("process runner: invalid child process group")
 	}
@@ -670,7 +1266,7 @@ func killProcessGroup(processGroupID int) error {
 			return nil
 		}
 		if errors.Is(err, syscall.EPERM) {
-			if verifyErr := verifyProcessGroupZombieOnly(processGroupID); verifyErr == nil {
+			if verifyErr := verifyProcessGroupZombieOnlyBefore(processGroupID, deadline); verifyErr == nil {
 				return nil
 			} else {
 				return fmt.Errorf(
@@ -681,13 +1277,16 @@ func killProcessGroup(processGroupID int) error {
 		}
 		return fmt.Errorf("process runner: kill child process group: %w", err)
 	}
-	if err := verifyProcessGroupTerminated(processGroupID); err != nil {
+	if err := verifyProcessGroupTerminatedBefore(processGroupID, deadline); err != nil {
 		return err
 	}
 	return nil
 }
 func verifyProcessGroupZombieOnly(processGroupID int) error {
-	deadline := time.Now().Add(processGroupTeardownTimeout)
+	return verifyProcessGroupZombieOnlyBefore(processGroupID, time.Now().Add(processGroupTeardownTimeout))
+}
+
+func verifyProcessGroupZombieOnlyBefore(processGroupID int, deadline time.Time) error {
 	observedMember := false
 	for {
 		membership, err := probeProcessGroup(processGroupID)
@@ -719,13 +1318,19 @@ func verifyProcessGroupZombieOnly(processGroupID int) error {
 }
 
 func verifyProcessGroupTerminated(processGroupID int) error {
-	deadline := time.Now().Add(processGroupTeardownTimeout)
+	return verifyProcessGroupTerminatedBefore(processGroupID, time.Now().Add(processGroupTeardownTimeout))
+}
+
+func verifyProcessGroupTerminatedBefore(processGroupID int, deadline time.Time) error {
 	for {
 		membership, err := probeProcessGroup(processGroupID)
 		if err != nil {
 			return fmt.Errorf("process runner: probe child process group after SIGKILL: %w", err)
 		}
-		if membership.absent() || membership.zombieOnly() {
+		if membership.absent() {
+			return nil
+		}
+		if membership.zombieOnly() {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
@@ -737,6 +1342,34 @@ func verifyProcessGroupTerminated(processGroupID int) error {
 			)
 		}
 		time.Sleep(processGroupProbeInterval)
+	}
+}
+
+func verifyProcessGroupAbsentAfterNaturalCompletion(processGroupID int) error {
+	return verifyProcessGroupAbsent(processGroupID, time.Now().Add(processGroupTeardownTimeout))
+}
+
+func verifyProcessGroupAbsent(processGroupID int, deadline time.Time) error {
+	if deadline.IsZero() {
+		return errors.New("process runner: missing terminal deadline")
+	}
+	for {
+		membership, err := probeProcessGroup(processGroupID)
+		if err != nil {
+			return fmt.Errorf("process runner: probe child process group after reap: %w", err)
+		}
+		if membership.absent() {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf(
+				"process runner: child process group %d remains after reap (%d live, %d zombie)",
+				processGroupID,
+				membership.liveMembers,
+				membership.zombieMembers,
+			)
+		}
+		time.Sleep(min(processGroupProbeInterval, time.Until(deadline)))
 	}
 }
 

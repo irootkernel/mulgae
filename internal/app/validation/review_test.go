@@ -181,10 +181,10 @@ func TestReviewValidatorInjectsTrustedIdentityAndNormalizesFindings(t *testing.T
 	if plan != nil {
 		t.Fatalf("repair plan = %#v, want nil", plan)
 	}
-	if len(schema.calls) != 1 || schema.calls[0].id.String() != ProviderReviewSchemaID {
+	if len(schema.calls) != 2 || schema.calls[0].id.String() != ProviderReviewWireSchemaID || schema.calls[1].id.String() != ProviderReviewSchemaID {
 		t.Fatalf("schema calls = %#v", schema.calls)
 	}
-	candidate, err := decodeJSONObject(schema.calls[0].raw, "candidate")
+	candidate, err := decodeJSONObject(schema.calls[1].raw, "candidate")
 	if err != nil {
 		t.Fatal(err)
 	}

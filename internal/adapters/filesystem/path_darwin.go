@@ -20,6 +20,8 @@ const (
 type privateDirectoryIdentity struct {
 	device uint64
 	inode  uint64
+	uid    uint32
+	mode   uint32
 }
 
 func privateDirectoryIdentityForFD(fd int) (privateDirectoryIdentity, error) {
@@ -30,7 +32,7 @@ func privateDirectoryIdentityForFD(fd int) (privateDirectoryIdentity, error) {
 	if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return privateDirectoryIdentity{}, fmt.Errorf("private directory identity is not a directory")
 	}
-	return privateDirectoryIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino)}, nil
+	return privateDirectoryIdentity{device: uint64(stat.Dev), inode: uint64(stat.Ino), uid: stat.Uid, mode: uint32(stat.Mode & 0o7777)}, nil
 }
 
 func revalidatePrivateDirectory(
@@ -139,8 +141,9 @@ func verifyAnchoredDirectory(fd int) error {
 	if stat.Uid != uint32(os.Geteuid()) {
 		return fmt.Errorf("anchored directory is not owned by the current user")
 	}
-	if stat.Mode&0o022 != 0 {
-		return fmt.Errorf("anchored directory is writable by another principal")
+	mode := stat.Mode & 0o7777
+	if mode != 0o700 && mode != 0o750 && mode != 0o755 {
+		return fmt.Errorf("anchored directory mode is not allowed")
 	}
 	return nil
 }

@@ -124,11 +124,34 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 	for _, finding := range findings {
 		projection.Findings = append(projection.Findings, appexport.Finding{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), Severity: string(finding.Severity()), Title: finding.Title(), Description: finding.Description(), Recommendation: finding.Recommendation(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle())})
 		for _, evidence := range finding.Evidence() {
-			item := appexport.Evidence{FindingID: finding.ID(), SourceSessionID: evidence.SourceSessionID().String(), SourceRunID: evidence.SourceRunID().String(), SourceReviewID: evidence.SourceReviewID().String(), SourceFindingID: evidence.SourceFindingID(), SourceTargetSHA256: evidence.SourceTargetSHA256(), SourceExcerptSHA256: evidence.SourceExcerptSHA256(), TargetSHA256: evidence.TargetSHA256(), Path: evidence.Path().String(), Side: string(evidence.Side()), LineStart: evidence.LineStart(), LineEnd: evidence.LineEnd(), Verification: string(evidence.Verification())}
+			item := appexport.Evidence{FindingID: finding.ID(), SourceSessionID: evidence.SourceSessionID().String(), SourceRunID: evidence.SourceRunID().String(), SourceReviewID: evidence.SourceReviewID().String(), SourceFindingID: evidence.SourceFindingID(), SourceTargetSHA256: evidence.SourceTargetSHA256(), SourceExcerptSHA256: evidence.SourceExcerptSHA256(), TargetSHA256: evidence.TargetSHA256(), CurrentExcerptSHA256: evidence.CurrentExcerptSHA256(), Path: evidence.Path().String(), Side: string(evidence.Side()), LineStart: evidence.LineStart(), LineEnd: evidence.LineEnd(), Verification: string(evidence.Verification())}
 			projection.Evidence = append(projection.Evidence, item)
 			if projection.SourceIdentity.FindingID == "" {
 				projection.SourceIdentity = appexport.SourceIdentity{SessionID: item.SourceSessionID, RunID: item.SourceRunID, ReviewID: item.SourceReviewID, FindingID: item.SourceFindingID, SourceTargetSHA256: item.SourceTargetSHA256, SourceExcerptSHA256: item.SourceExcerptSHA256}
-				projection.CurrentIdentity = appexport.CurrentIdentity{TargetSHA256: item.TargetSHA256, Path: item.Path, Side: item.Side, LineStart: item.LineStart, LineEnd: item.LineEnd, Verification: item.Verification}
+				projection.CurrentIdentity = appexport.CurrentIdentity{TargetSHA256: item.TargetSHA256, CurrentExcerptSHA256: item.CurrentExcerptSHA256, Path: item.Path, Side: item.Side, LineStart: item.LineStart, LineEnd: item.LineEnd, Verification: item.Verification}
+			}
+		}
+	}
+	if projection.SourceIdentity.FindingID == "" {
+		if outcome, ok := committed.FollowupOutcome(); ok {
+			evidence := outcome.Evidence()
+			if len(evidence) > 0 {
+				item := evidence[0]
+				projection.SourceIdentity = appexport.SourceIdentity{
+					SessionID:          item.SourceSessionID().String(),
+					RunID:              item.SourceRunID().String(),
+					ReviewID:           item.SourceReviewID().String(),
+					SourceTargetSHA256: item.SourceTargetSHA256(),
+				}
+				projection.CurrentIdentity = appexport.CurrentIdentity{
+					TargetSHA256:         item.TargetSHA256(),
+					CurrentExcerptSHA256: item.CurrentExcerptSHA256(),
+					Path:                 item.Path().String(),
+					Side:                 string(item.Side()),
+					LineStart:            item.LineStart(),
+					LineEnd:              item.LineEnd(),
+					Verification:         string(item.Verification()),
+				}
 			}
 		}
 	}

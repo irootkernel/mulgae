@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
@@ -23,45 +24,88 @@ func (purpose ProviderInvocationPurpose) Valid() bool {
 	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRepair
 }
 
-// ProviderInvocation is the immutable trusted input to a review provider.
-// Stdin returns caller-owned bytes.
+// ProviderPacketIdentity is the immutable v1 identity of the complete provider
+// packet. Its digest algorithm is retained for continuity, not transport claims.
+type ProviderPacketIdentity struct {
+	byteLength     int
+	completeSHA256 string
+}
+
+// NewProviderPacketIdentity validates a non-empty complete packet identity.
+func NewProviderPacketIdentity(byteLength int, completeSHA256 string) (ProviderPacketIdentity, error) {
+	if byteLength <= 0 {
+		return ProviderPacketIdentity{}, fmt.Errorf("provider packet identity: byte length must be positive")
+	}
+	if err := validateRawSHA256(completeSHA256); err != nil {
+		return ProviderPacketIdentity{}, fmt.Errorf("provider packet identity: invalid complete SHA-256: %w", err)
+	}
+	return ProviderPacketIdentity{byteLength: byteLength, completeSHA256: completeSHA256}, nil
+}
+
+func (identity ProviderPacketIdentity) ByteLength() int        { return identity.byteLength }
+func (identity ProviderPacketIdentity) CompleteSHA256() string { return identity.completeSHA256 }
+func (identity ProviderPacketIdentity) Valid() bool {
+	_, err := NewProviderPacketIdentity(identity.byteLength, identity.completeSHA256)
+	return err == nil
+}
+
+// ProviderPacket is immutable complete provider input.
+type ProviderPacket struct {
+	bytes    []byte
+	identity ProviderPacketIdentity
+}
+
+// NewProviderPacketFromBytes constructs the canonical v1 packet identity from
+// the complete bytes. Callers that do not already possess a trusted v1 digest
+// should use this constructor rather than reproducing the domain separator.
+func NewProviderPacketFromBytes(bytes []byte) (ProviderPacket, error) {
+	return NewProviderPacket(bytes, providerPacketDigest(bytes))
+}
+
+// NewProviderPacket retains a defensive copy and validates its v1 identity.
+func NewProviderPacket(bytes []byte, completeSHA256 string) (ProviderPacket, error) {
+	identity, err := NewProviderPacketIdentity(len(bytes), completeSHA256)
+	if err != nil {
+		return ProviderPacket{}, err
+	}
+	if providerPacketDigest(bytes) != identity.completeSHA256 {
+		return ProviderPacket{}, fmt.Errorf("provider packet: complete SHA-256 does not match bytes")
+	}
+	return ProviderPacket{bytes: cloneBytes(bytes), identity: identity}, nil
+}
+
+func (packet ProviderPacket) Bytes() []byte                    { return cloneBytes(packet.bytes) }
+func (packet ProviderPacket) Identity() ProviderPacketIdentity { return packet.identity }
+func (packet ProviderPacket) Valid() bool {
+	canonical, err := NewProviderPacket(packet.bytes, packet.identity.completeSHA256)
+	return err == nil && canonical.identity == packet.identity
+}
+
+// ProviderInvocation is immutable trusted input to a review provider.
 type ProviderInvocation struct {
 	role                  domain.Role
 	providerInstance      string
 	attemptID             domain.AttemptID
 	purpose               ProviderInvocationPurpose
-	stdin                 []byte
+	packet                ProviderPacket
 	sourceInvocationID    string
 	executionInvocationID string
-	completeStdinSHA256   string
+	workspace             WorkspaceExecutionAuthority
+	workspaceIdentity     WorkspaceSnapshotIdentity
+	hasWorkspace          bool
 }
 
-// NewProviderInvocation validates trusted provider invocation identity and
-// retains a defensive copy of stdin.
-func NewProviderInvocation(
-	role domain.Role,
-	providerInstance string,
-	attemptID domain.AttemptID,
-	purpose ProviderInvocationPurpose,
-	stdin []byte,
-	sourceInvocationID string,
-	executionInvocationID string,
-	completeStdinSHA256 string,
+// NewProviderInvocationWithPacket validates trusted provider invocation identity.
+func NewProviderInvocationWithPacket(
+	role domain.Role, providerInstance string, attemptID domain.AttemptID,
+	purpose ProviderInvocationPurpose, packet ProviderPacket,
+	sourceInvocationID, executionInvocationID string,
 ) (ProviderInvocation, error) {
-	if !role.Valid() {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid role %q", role)
+	if !role.Valid() || !validProviderInstanceID(providerInstance) {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid role or provider instance")
 	}
-	if !validProviderInstanceID(providerInstance) {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid provider instance %q", providerInstance)
-	}
-	if _, err := domain.ParseAttemptID(attemptID.String()); err != nil {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid attempt ID: %w", err)
-	}
-	if !purpose.Valid() {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid purpose %q", purpose)
-	}
-	if len(stdin) == 0 {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: stdin must be non-empty")
+	if _, err := domain.ParseAttemptID(attemptID.String()); err != nil || !purpose.Valid() || !packet.Valid() {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid attempt ID, purpose, or packet")
 	}
 	if err := validateProviderInvocationID(sourceInvocationID, "i_"); err != nil {
 		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid source invocation ID: %w", err)
@@ -69,91 +113,119 @@ func NewProviderInvocation(
 	if err := validateProviderInvocationID(executionInvocationID, ""); err != nil {
 		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid execution invocation ID: %w", err)
 	}
-	if err := validateRawSHA256(completeStdinSHA256); err != nil {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid complete stdin SHA-256: %w", err)
-	}
-	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
-	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write(stdin)
-	if completeStdinSHA256 != hex.EncodeToString(hash.Sum(nil)) {
-		return ProviderInvocation{}, fmt.Errorf("provider invocation: complete stdin SHA-256 does not match stdin bytes")
-	}
-	return ProviderInvocation{
-		role:                  role,
-		providerInstance:      providerInstance,
-		attemptID:             attemptID,
-		purpose:               purpose,
-		stdin:                 cloneBytes(stdin),
-		sourceInvocationID:    sourceInvocationID,
-		executionInvocationID: executionInvocationID,
-		completeStdinSHA256:   completeStdinSHA256,
-	}, nil
+	canonicalPacket, _ := NewProviderPacket(packet.Bytes(), packet.Identity().CompleteSHA256())
+	return ProviderInvocation{role: role, providerInstance: providerInstance, attemptID: attemptID, purpose: purpose, packet: canonicalPacket, sourceInvocationID: sourceInvocationID, executionInvocationID: executionInvocationID}, nil
 }
 
-// Role returns the coordinator-selected review role.
-func (invocation ProviderInvocation) Role() domain.Role { return invocation.role }
+// NewProviderInvocationWithPacketInWorkspace binds a provider invocation to the
+// capture-owned workspace authority. The authority's immutable identity is
+// captured once; execution consumers must not infer authority from prompt paths.
+func NewProviderInvocationWithPacketInWorkspace(
+	role domain.Role, providerInstance string, attemptID domain.AttemptID,
+	purpose ProviderInvocationPurpose, packet ProviderPacket,
+	sourceInvocationID, executionInvocationID string, workspace WorkspaceExecutionAuthority,
+) (ProviderInvocation, error) {
+	if nilWorkspaceExecutionAuthority(workspace) {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: nil workspace authority")
+	}
+	identity := workspace.WorkspaceSnapshotIdentity()
+	if !identity.Valid() {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid workspace identity")
+	}
+	invocation, err := NewProviderInvocationWithPacket(
+		role, providerInstance, attemptID, purpose, packet, sourceInvocationID, executionInvocationID,
+	)
+	if err != nil {
+		return ProviderInvocation{}, err
+	}
+	invocation.workspace = workspace
+	invocation.workspaceIdentity = identity
+	invocation.hasWorkspace = true
+	return invocation, nil
+}
 
-// ProviderInstance returns the coordinator-selected provider instance ID.
-func (invocation ProviderInvocation) ProviderInstance() string { return invocation.providerInstance }
+// NewProviderInvocation is the source-compatible stdin-named packet wrapper.
+func NewProviderInvocation(role domain.Role, providerInstance string, attemptID domain.AttemptID, purpose ProviderInvocationPurpose, stdin []byte, sourceInvocationID, executionInvocationID, completeStdinSHA256 string) (ProviderInvocation, error) {
+	packet, err := NewProviderPacket(stdin, completeStdinSHA256)
+	if err != nil {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: %w", err)
+	}
+	return NewProviderInvocationWithPacket(role, providerInstance, attemptID, purpose, packet, sourceInvocationID, executionInvocationID)
+}
 
-// AttemptID returns the coordinator-created attempt ID.
-func (invocation ProviderInvocation) AttemptID() domain.AttemptID { return invocation.attemptID }
-
-// Purpose returns the coordinator-selected invocation purpose.
+func (invocation ProviderInvocation) Role() domain.Role                  { return invocation.role }
+func (invocation ProviderInvocation) ProviderInstance() string           { return invocation.providerInstance }
+func (invocation ProviderInvocation) AttemptID() domain.AttemptID        { return invocation.attemptID }
 func (invocation ProviderInvocation) Purpose() ProviderInvocationPurpose { return invocation.purpose }
+func (invocation ProviderInvocation) Packet() ProviderPacket {
+	packet, _ := NewProviderPacket(invocation.packet.Bytes(), invocation.packet.Identity().CompleteSHA256())
+	return packet
+}
+func (invocation ProviderInvocation) PacketBytes() []byte { return invocation.packet.Bytes() }
+func (invocation ProviderInvocation) InputIdentity() ProviderPacketIdentity {
+	return invocation.packet.Identity()
+}
 
-// Stdin returns a caller-owned copy of the exact provider stdin bytes.
-func (invocation ProviderInvocation) Stdin() []byte { return cloneBytes(invocation.stdin) }
-
-// SourceInvocationID returns the fresh source invocation ID.
+// Stdin is a deprecated packet alias retained for source compatibility.
+func (invocation ProviderInvocation) Stdin() []byte { return invocation.PacketBytes() }
 func (invocation ProviderInvocation) SourceInvocationID() string {
 	return invocation.sourceInvocationID
 }
-
-// ExecutionInvocationID returns the fresh execution invocation ID.
 func (invocation ProviderInvocation) ExecutionInvocationID() string {
 	return invocation.executionInvocationID
 }
 
-// CompleteStdinSHA256 returns the raw SHA-256 identity of the complete stdin stream.
+// ExecutionWorkspace returns the capture-owned execution authority when this
+// invocation was created for a production workspace.
+func (invocation ProviderInvocation) ExecutionWorkspace() (WorkspaceExecutionAuthority, bool) {
+	return invocation.workspace, invocation.hasWorkspace
+}
+
+// WorkspaceSnapshotIdentity returns the immutable identity captured with the
+// execution authority, without exposing execution authority through prompt data.
+func (invocation ProviderInvocation) WorkspaceSnapshotIdentity() (WorkspaceSnapshotIdentity, bool) {
+	return invocation.workspaceIdentity, invocation.hasWorkspace
+}
+
+// CompleteStdinSHA256 is a deprecated packet identity alias.
 func (invocation ProviderInvocation) CompleteStdinSHA256() string {
-	return invocation.completeStdinSHA256
+	return invocation.InputIdentity().CompleteSHA256()
 }
 
-// ProviderResult is the immutable raw result returned by a review provider.
-// Stdout returns caller-owned bytes. It deliberately carries no role, attempt,
-// or final-outcome authority.
+// ProviderResult is immutable raw provider output bound to a complete packet identity.
 type ProviderResult struct {
-	stdout              []byte
-	stdinByteLength     int
-	completeStdinSHA256 string
+	stdout        []byte
+	inputIdentity ProviderPacketIdentity
 }
 
-// NewProviderResult validates raw provider result identity and retains a
-// defensive copy of stdout.
+func NewProviderResultForInput(stdout []byte, identity ProviderPacketIdentity) (ProviderResult, error) {
+	if !identity.Valid() {
+		return ProviderResult{}, fmt.Errorf("provider result: invalid input identity")
+	}
+	return ProviderResult{stdout: cloneBytes(stdout), inputIdentity: identity}, nil
+}
+
+// NewProviderResult is the source-compatible stdin-named identity wrapper.
 func NewProviderResult(stdout []byte, stdinByteLength int, completeStdinSHA256 string) (ProviderResult, error) {
-	if stdinByteLength <= 0 {
-		return ProviderResult{}, fmt.Errorf("provider result: stdin byte length must be positive")
+	identity, err := NewProviderPacketIdentity(stdinByteLength, completeStdinSHA256)
+	if err != nil {
+		return ProviderResult{}, err
 	}
-	if err := validateRawSHA256(completeStdinSHA256); err != nil {
-		return ProviderResult{}, fmt.Errorf("provider result: invalid complete stdin SHA-256: %w", err)
-	}
-	return ProviderResult{
-		stdout:              cloneBytes(stdout),
-		stdinByteLength:     stdinByteLength,
-		completeStdinSHA256: completeStdinSHA256,
-	}, nil
+	return NewProviderResultForInput(stdout, identity)
 }
 
-// Stdout returns a caller-owned copy of the raw provider stdout bytes.
-func (result ProviderResult) Stdout() []byte { return cloneBytes(result.stdout) }
+func (result ProviderResult) Stdout() []byte                        { return cloneBytes(result.stdout) }
+func (result ProviderResult) InputIdentity() ProviderPacketIdentity { return result.inputIdentity }
+func (result ProviderResult) InputByteLength() int                  { return result.inputIdentity.ByteLength() }
+func (result ProviderResult) CompleteInputSHA256() string {
+	return result.inputIdentity.CompleteSHA256()
+}
 
-// StdinByteLength returns the exact number of bytes written to provider stdin.
-func (result ProviderResult) StdinByteLength() int { return result.stdinByteLength }
+// StdinByteLength is a deprecated packet identity alias.
+func (result ProviderResult) StdinByteLength() int { return result.InputByteLength() }
 
-// CompleteStdinSHA256 returns the raw SHA-256 identity of the written stdin stream.
-func (result ProviderResult) CompleteStdinSHA256() string { return result.completeStdinSHA256 }
+// CompleteStdinSHA256 is a deprecated packet identity alias.
+func (result ProviderResult) CompleteStdinSHA256() string { return result.CompleteInputSHA256() }
 
 // ReviewProvider is the only boundary used to invoke a review provider.
 type ReviewProvider interface {
@@ -174,6 +246,18 @@ func validProviderInstanceID(value string) bool {
 		return false
 	}
 	return true
+}
+func nilWorkspaceExecutionAuthority(authority WorkspaceExecutionAuthority) bool {
+	if authority == nil {
+		return true
+	}
+	value := reflect.ValueOf(authority)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func validateProviderInvocationID(value, prefix string) error {
@@ -221,4 +305,11 @@ func validateRawSHA256(value string) error {
 		}
 	}
 	return nil
+}
+func providerPacketDigest(packet []byte) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(packet)
+	return hex.EncodeToString(hash.Sum(nil))
 }

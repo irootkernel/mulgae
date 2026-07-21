@@ -157,7 +157,7 @@ func prepareFollowupFindings(input FollowupCandidateInput, currentTargetSHA256 s
 		if err != nil || receipt.Status() != evidence.ReceiptVerified || receipt.ReasonCode() != evidence.ReasonVerified {
 			return preparedEvidence{}, fmt.Errorf("followup publication: current evidence is not verified")
 		}
-		return preparedEvidence{targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(), lineEnd: claim.LineEnd(), quote: claim.Quote(), excerptSHA256: receipt.ExcerptSHA256(), excerpt: receipt.Excerpt(), sourceSessionID: item.Source.SessionID, sourceRunID: item.Source.RunID, sourceReviewID: item.Source.ReviewID, sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256, sourceExcerptSHA256: item.Source.SourceExcerptSHA256}, nil
+		return preparedEvidence{targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(), lineEnd: claim.LineEnd(), quote: claim.Quote(), currentExcerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(receipt.Excerpt()), sourceSessionID: item.Source.SessionID, sourceRunID: item.Source.RunID, sourceReviewID: item.Source.ReviewID, sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256, sourceExcerptSHA256: item.Source.SourceExcerptSHA256}, nil
 	}
 	outcomeEvidence := make([]preparedEvidence, len(output.Evidence))
 	for index, item := range output.Evidence {
@@ -166,6 +166,9 @@ func prepareFollowupFindings(input FollowupCandidateInput, currentTargetSHA256 s
 			return nil, preparedFollowupOutcome{}, err
 		}
 		outcomeEvidence[index] = prepared
+	}
+	if err := canonicalizePreparedEvidence(outcomeEvidence); err != nil {
+		return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: outcome evidence ordering: %w", err)
 	}
 	findings := make([]preparedFinding, len(output.NewFindings))
 	for index, item := range output.NewFindings {
@@ -179,6 +182,9 @@ func prepareFollowupFindings(input FollowupCandidateInput, currentTargetSHA256 s
 				return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: finding %d evidence %d: %w", index, evidenceIndex, err)
 			}
 			evidenceItems[evidenceIndex] = prepared
+		}
+		if err := canonicalizePreparedEvidence(evidenceItems); err != nil {
+			return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: finding %d evidence ordering: %w", index, err)
 		}
 		finding, err := domain.NewFinding(domain.FindingInput{Severity: item.Severity, Path: evidenceItems[0].path, LineStart: evidenceItems[0].lineStart, Role: input.Output.Role(), ProviderInstance: input.Provider, Title: item.Title, Description: item.Description, Recommendation: item.Recommendation, Confidence: item.Confidence, Lifecycle: domain.FindingOpen, EvidenceState: domain.EvidenceVerified, NormalizedRuleCategory: item.Title, NormalizedEvidenceRegion: evidenceItems[0].quote})
 		if err != nil {

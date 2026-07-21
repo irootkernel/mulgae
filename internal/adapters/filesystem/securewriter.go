@@ -77,6 +77,7 @@ func (err *InstalledButUndurableError) Receipt() ports.SecureWriteReceipt {
 
 type secureWriterOperations struct {
 	fsync         func(int) error
+	write         func(int, []byte) (int, error)
 	close         func(int) error
 	unlinkat      func(int, string, int) error
 	renameatxNp   func(int, string, int, string, uint32) error
@@ -91,6 +92,7 @@ type secureFileIdentity struct {
 func defaultSecureWriterOperations() secureWriterOperations {
 	return secureWriterOperations{
 		fsync:       unix.Fsync,
+		write:       unix.Write,
 		close:       unix.Close,
 		unlinkat:    unix.Unlinkat,
 		renameatxNp: unix.RenameatxNp,
@@ -101,6 +103,9 @@ func (operations secureWriterOperations) withDefaults() secureWriterOperations {
 	defaults := defaultSecureWriterOperations()
 	if operations.fsync == nil {
 		operations.fsync = defaults.fsync
+	}
+	if operations.write == nil {
+		operations.write = defaults.write
 	}
 	if operations.close == nil {
 		operations.close = defaults.close
@@ -564,8 +569,12 @@ func removeInstalledFile(
 }
 
 func writeAll(fd int, data []byte) error {
+	return writeAllWith(fd, data, unix.Write)
+}
+
+func writeAllWith(fd int, data []byte, write func(int, []byte) (int, error)) error {
 	for len(data) > 0 {
-		count, err := unix.Write(fd, data)
+		count, err := write(fd, data)
 		if count < 0 || count > len(data) {
 			return fmt.Errorf("invalid write count")
 		}

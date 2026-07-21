@@ -25,6 +25,12 @@ type Service struct {
 	maxBytes  int64
 }
 
+// PublicationCommitter is the root-bound publication boundary used by root-review
+// orchestration. It deliberately does not expose caller-selected epochs.
+type PublicationCommitter interface {
+	PublishNext(context.Context, ports.AnchoredRoot, PreparedCandidate) (PublicationResult, error)
+}
+
 // PublicationResult is a defensive result of a completed P2 publication or a
 // recovery observation that must resume collection. Snapshot is present only
 // when P2 is authoritative.
@@ -153,6 +159,57 @@ func (service *Service) PublishFollowup(
 		return PublicationResult{}, fmt.Errorf("publish followup: %w", err)
 	}
 	return service.Publish(ctx, artifactRoot, candidate, epoch)
+}
+
+// PublishNext selects and commits the next root-scoped durable epoch as one
+// store-authorized transaction. It is the production entry point; Publish
+// remains available for compatibility callers that explicitly control epochs.
+func (service *Service) PublishNext(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate PreparedCandidate,
+) (PublicationResult, error) {
+	if service == nil {
+		return PublicationResult{}, fmt.Errorf("publish next: nil service")
+	}
+	if err := service.ready(ctx, "publish-next.validate"); err != nil {
+		return PublicationResult{}, err
+	}
+	if !artifactRoot.Valid() || !candidate.Valid() {
+		return PublicationResult{}, publicationFailure("publish-next.validate", domain.FailureConfiguration, "invalid publication input", nil)
+	}
+	committer, ok := service.store.(ports.PublicationEpochCommitStore)
+	if !ok {
+		return PublicationResult{}, publicationFailure("publish-next.validate", domain.FailureConfiguration, "publication store does not support atomic epoch commits", nil)
+	}
+
+	var result PublicationResult
+	called := false
+	err := committer.WithNextPublicationEpoch(ctx, artifactRoot, func(commitCtx context.Context, epoch uint64) error {
+		if called {
+			return publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store invoked epoch commit callback more than once", nil)
+		}
+		called = true
+		if commitCtx == nil {
+			return publicationFailure("publish-next.commit", domain.FailureConfiguration, "publication store supplied nil commit context", nil)
+		}
+		if epoch == 0 {
+			return publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store supplied zero epoch", nil)
+		}
+		published, publishErr := service.Publish(commitCtx, artifactRoot, candidate, epoch)
+		if publishErr != nil {
+			return publishErr
+		}
+		result = published
+		return nil
+	})
+	if err != nil {
+		return PublicationResult{}, fmt.Errorf("publish next: %w", err)
+	}
+	if !called {
+		return PublicationResult{}, publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store did not commit an epoch", nil)
+	}
+	return result, nil
 }
 
 // Publish validates a candidate before issuing its ReviewID, writes all
@@ -507,10 +564,9 @@ func (service *Service) Recover(ctx context.Context, run ports.PublicationRun) (
 				if err != nil {
 					return PublicationResult{}, publicationFailure("recover.final_staged", domain.FailureArtifact, "journal transition is invalid", err)
 				}
-				if recovered, err := service.replaceJournal(ctx, run, journal, expectationForObserved(material.Journal())); err != nil {
+				_, err = service.replaceJournal(ctx, run, journal, expectationForObserved(material.Journal()))
+				if err != nil {
 					return PublicationResult{}, err
-				} else if recovered {
-					continue
 				}
 			}
 		case domain.RecoveryActionInstallStagedFinal:
@@ -619,10 +675,9 @@ func (service *Service) Recover(ctx context.Context, run ports.PublicationRun) (
 			if err != nil {
 				return PublicationResult{}, publicationFailure("recover.manifest_committed", domain.FailureArtifact, "journal transition is invalid", err)
 			}
-			if recovered, err := service.replaceJournal(ctx, run, journal, expectationForObserved(material.Journal())); err != nil {
+			_, err = service.replaceJournal(ctx, run, journal, expectationForObserved(material.Journal()))
+			if err != nil {
 				return PublicationResult{}, err
-			} else if recovered {
-				continue
 			}
 		default:
 			return PublicationResult{}, publicationFailure("recover.classify", domain.FailureArtifact, "unsupported recovery action", nil)

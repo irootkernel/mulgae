@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -570,6 +571,87 @@ func (observation ExecutableObservation) Version() string { return observation.v
 // SHA256 returns the optional executable provenance hash.
 func (observation ExecutableObservation) SHA256() string { return observation.sha256 }
 
+// FileIdentityObservation describes one identity-only readable file lookup.
+// A found file has a canonical absolute path and optional content hash, but no
+// executable or version semantics.
+type FileIdentityObservation struct {
+	name         string
+	found        bool
+	resolvedPath string
+	sha256       string
+}
+
+// NewFileIdentityObservation validates one readable file identity observation.
+func NewFileIdentityObservation(name string, found bool, resolvedPath, sha256 string) (FileIdentityObservation, error) {
+	if err := validateRedactedText(name, 256); err != nil || name == "" {
+		return FileIdentityObservation{}, fmt.Errorf("file identity observation: name must be non-empty and safe")
+	}
+	if !found {
+		if resolvedPath != "" || sha256 != "" {
+			return FileIdentityObservation{}, fmt.Errorf("file identity observation: absent file has provenance")
+		}
+		return FileIdentityObservation{name: name}, nil
+	}
+	if err := validateAnchoredRoot(resolvedPath); err != nil {
+		return FileIdentityObservation{}, fmt.Errorf("file identity observation: resolved path: %w", err)
+	}
+	if sha256 != "" {
+		if err := validateSHA256(sha256); err != nil {
+			return FileIdentityObservation{}, fmt.Errorf("file identity observation: %w", err)
+		}
+	}
+	return FileIdentityObservation{name: name, found: true, resolvedPath: resolvedPath, sha256: sha256}, nil
+}
+
+func (observation FileIdentityObservation) Name() string         { return observation.name }
+func (observation FileIdentityObservation) Found() bool          { return observation.found }
+func (observation FileIdentityObservation) ResolvedPath() string { return observation.resolvedPath }
+func (observation FileIdentityObservation) SHA256() string       { return observation.sha256 }
+
+// IdentityObservationFailureKind classifies failures that are safe for
+// provider-family scoped admission handling. Unknown failures remain ordinary
+// errors and must not be downgraded by callers.
+type IdentityObservationFailureKind string
+
+const (
+	IdentityObservationUnavailable IdentityObservationFailureKind = "unavailable"
+	IdentityObservationSecurity    IdentityObservationFailureKind = "security"
+)
+
+// IdentityObservationError is a redacted, typed identity-observation failure.
+type IdentityObservationError struct {
+	kind IdentityObservationFailureKind
+	text string
+}
+
+// NewIdentityObservationError constructs a redacted classified failure.
+func NewIdentityObservationError(kind IdentityObservationFailureKind, text string) error {
+	if kind != IdentityObservationUnavailable && kind != IdentityObservationSecurity {
+		return fmt.Errorf("identity observation: invalid failure kind")
+	}
+	if err := validateRedactedText(text, 256); err != nil || text == "" {
+		return fmt.Errorf("identity observation: invalid failure text")
+	}
+	return &IdentityObservationError{kind: kind, text: text}
+}
+
+func (failure *IdentityObservationError) Error() string {
+	if failure == nil {
+		return "identity observation failed"
+	}
+	return failure.text
+}
+
+// IdentityObservationFailure returns the classified failure kind when err is
+// safe for family-scoped admission handling.
+func IdentityObservationFailure(err error) (IdentityObservationFailureKind, bool) {
+	var failure *IdentityObservationError
+	if !errors.As(err, &failure) || failure == nil {
+		return "", false
+	}
+	return failure.kind, true
+}
+
 // PermissionObservation records access bits for one approved relative path.
 type PermissionObservation struct {
 	path       SafeRelativePath
@@ -608,6 +690,9 @@ func (observation PermissionObservation) Executable() bool { return observation.
 type EnvironmentInspector interface {
 	ObservePlatform(context.Context) (PlatformObservation, error)
 	ObserveExecutable(context.Context, string) (ExecutableObservation, error)
+	ObserveExecutableIdentity(context.Context, string) (ExecutableObservation, error)
+	ObserveReadableFileIdentity(context.Context, string) (FileIdentityObservation, error)
+	ObserveNativeHomeIdentity(context.Context, string) (NativeHomeLaunchAuthority, error)
 	ObservePermission(context.Context, AnchoredRoot, SafeRelativePath) (PermissionObservation, error)
 }
 

@@ -48,7 +48,7 @@ func TestApplyRepairFillsOnlyAnAllowedMissingProviderValue(t *testing.T) {
 	if string(review.RepairedRaw()) != string(patched) {
 		t.Fatal("RepairedRaw leaked mutable storage")
 	}
-	if len(schema.calls) != 3 || schema.calls[1].id.String() != repairPatchSchemaID || schema.calls[2].id.String() != ProviderReviewSchemaID {
+	if len(schema.calls) != 5 || schema.calls[0].id.String() != ProviderReviewWireSchemaID || schema.calls[1].id.String() != ProviderReviewSchemaID || schema.calls[2].id.String() != repairPatchSchemaID || schema.calls[3].id.String() != ProviderReviewWireSchemaID || schema.calls[4].id.String() != ProviderReviewSchemaID {
 		t.Fatalf("schema calls = %#v", schema.calls)
 	}
 }

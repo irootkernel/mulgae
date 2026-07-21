@@ -3,9 +3,11 @@
 package gittarget
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"sync"
 
@@ -181,9 +183,21 @@ func (adapter *Adapter) ReadFileAtCommit(ctx context.Context, root ports.Anchore
 		data = nil
 	})
 
-	result, err := adapter.run(ctx, repository.command(
-		"cat-file", "blob", commit.String()+":"+file.String(),
+	tree, err := adapter.run(ctx, repository.command(
+		"ls-tree", "-z", "--full-tree", commit.String(), "--", ":(literal)"+file.String(),
 	))
+	if err != nil {
+		return nil, err
+	}
+	blob, err := parseRegularBlobTreeEntry(tree.Stdout, file)
+	if err != nil {
+		return nil, err
+	}
+	if !blob.Valid() {
+		return nil, fmt.Errorf("Git tree path %q: %w", file.String(), fs.ErrNotExist)
+	}
+
+	result, err := adapter.run(ctx, repository.command("cat-file", "blob", blob.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +290,33 @@ func parseSingleLine(value []byte, field string, maximumLength int) (string, err
 		return "", fmt.Errorf("Git %s output must be non-empty canonical text", field)
 	}
 	return text, nil
+}
+func parseRegularBlobTreeEntry(value []byte, file ports.SafeRelativePath) (ports.GitObjectID, error) {
+	if len(value) == 0 {
+		return ports.GitObjectID{}, nil
+	}
+	if value[len(value)-1] != '\x00' {
+		return ports.GitObjectID{}, fmt.Errorf("Git tree entry output must be NUL-terminated")
+	}
+
+	entries := bytes.Split(value[:len(value)-1], []byte{'\x00'})
+	if len(entries) != 1 || len(entries[0]) == 0 {
+		return ports.GitObjectID{}, fmt.Errorf("Git tree entry output must contain exactly one entry")
+	}
+	parts := bytes.SplitN(entries[0], []byte{'\t'}, 2)
+	if len(parts) != 2 || string(parts[1]) != file.String() {
+		return ports.GitObjectID{}, fmt.Errorf("Git tree entry output must name the requested path exactly")
+	}
+
+	fields := strings.Split(string(parts[0]), " ")
+	if len(fields) != 3 || (fields[0] != "100644" && fields[0] != "100755") || fields[1] != "blob" {
+		return ports.GitObjectID{}, fmt.Errorf("Git tree entry output must describe one regular blob")
+	}
+	blob, err := ports.ParseGitObjectID(fields[2])
+	if err != nil {
+		return ports.GitObjectID{}, fmt.Errorf("Git tree entry object ID: %w", err)
+	}
+	return blob, nil
 }
 
 func validateReference(reference string) error {

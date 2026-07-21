@@ -1,6 +1,7 @@
 package report
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,7 +19,7 @@ import (
 
 func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 	run, review := reportCommittedFixture(t)
-	reader := &reportReader{review: review, excerpt: []byte("line one\nline two\n")}
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
 	service := mustReportService(t, reader)
 
 	first, err := service.Render(context.Background(), run)
@@ -34,6 +35,9 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 	}
 	if reader.readCalls != 2 || reader.excerptCalls != 2 {
 		t.Fatalf("reader calls = read %d, excerpt %d; want exactly one of each per render", reader.readCalls, reader.excerptCalls)
+	}
+	if len(reader.excerptIndexes) != 2 || reader.excerptIndexes[0] != 1 || reader.excerptIndexes[1] != 1 {
+		t.Fatalf("excerpt indexes = %v, want canonical index 1 for each render", reader.excerptIndexes)
 	}
 	for _, target := range reader.excerptTargets {
 		if target != review.TargetSHA256() {
@@ -68,10 +72,11 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		"description",
 		"recommendation",
 		review.Findings()[0].Evidence()[0].SourceExcerptSHA256(),
+		review.Findings()[0].Evidence()[0].CurrentExcerptSHA256(),
 		"worktree",
 		"internal/example.go",
 		"verified",
-		"line one\nline two\n",
+		base64.StdEncoding.EncodeToString([]byte("line one\nline two")),
 		"provider telemetry was unavailable",
 		"aggregation.json",
 		"validation/final-validation.json",
@@ -81,8 +86,8 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 			t.Errorf("rendered report does not contain %q", expected)
 		}
 	}
-	if !strings.Contains(output, "```text\nline one\nline two\n```") {
-		t.Fatal("rendered report does not contain the verified excerpt in a fenced text block")
+	if !strings.Contains(output, "Verified excerpt (base64, exact bytes):") {
+		t.Fatal("rendered report does not label the exact base64 excerpt")
 	}
 	for _, forbidden := range []string{"approval", "approved", "authorize", "authorization", "waiver"} {
 		if strings.Contains(strings.ToLower(output), forbidden) {
@@ -106,16 +111,96 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		t.Fatal("Report source identities do not match the committed review")
 	}
 }
+func TestCanonicalReportEvidenceItemsSupportsBoundedDeterministicEvidence(t *testing.T) {
+	makeEvidence := func(index int) reportEvidenceDTO {
+		quote := fmt.Sprintf("excerpt %02d\n", index)
+		return reportEvidenceDTO{
+			Source: reportSourceEvidenceDTO{
+				SessionID:           "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+				RunID:               "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+				ReviewID:            "019f596a-d174-7321-b920-c2d312c82cc2",
+				FindingID:           "F001",
+				SourceTargetSHA256:  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				SourceExcerptSHA256: fmt.Sprintf("sha256:%064x", index+1),
+			},
+			Current: reportCurrentEvidenceDTO{
+				TargetSHA256:         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Side:                 "worktree",
+				Path:                 fmt.Sprintf("internal/example-%02d.go", index),
+				LineStart:            index + 1,
+				LineEnd:              index + 1,
+				Quote:                quote,
+				CurrentExcerptSHA256: reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", fmt.Sprintf("internal/example-%02d.go", index), index+1, index+1, []byte(quote)),
+				Verification:         "verified",
+			},
+		}
+	}
+	for _, count := range []int{1, 2, 20} {
+		items := make([]reportEvidenceDTO, count)
+		for index := range items {
+			items[index] = makeEvidence(index + 1)
+		}
+		ordered, err := canonicalReportEvidenceItems(items)
+		if err != nil || len(ordered) != count {
+			t.Fatalf("canonicalReportEvidenceItems(%d) = %d items, %v", count, len(ordered), err)
+		}
+		for index := 1; index < len(ordered); index++ {
+			if canonicalReportEvidenceKey(ordered[index-1]) >= canonicalReportEvidenceKey(ordered[index]) {
+				t.Fatalf("canonical report evidence order is not strict at %d", index)
+			}
+		}
+	}
+	collision := makeEvidence(1)
+	if _, err := canonicalReportEvidenceItems([]reportEvidenceDTO{collision, collision}); err == nil {
+		t.Fatal("canonicalReportEvidenceItems accepted a full-tuple collision")
+	}
+
+	distinctExcerpt := makeEvidence(2)
+	distinctExcerpt.Source = collision.Source
+	distinctExcerpt.Current.Path = collision.Current.Path
+	distinctExcerpt.Current.LineStart = collision.Current.LineStart
+	distinctExcerpt.Current.LineEnd = collision.Current.LineEnd
+	distinctExcerpt.Current.CurrentExcerptSHA256 = reportCurrentExcerptDigest(
+		t,
+		distinctExcerpt.Current.TargetSHA256,
+		distinctExcerpt.Current.Side,
+		distinctExcerpt.Current.Path,
+		distinctExcerpt.Current.LineStart,
+		distinctExcerpt.Current.LineEnd,
+		[]byte(distinctExcerpt.Current.Quote),
+	)
+	items := []reportEvidenceDTO{collision, distinctExcerpt}
+	if canonicalReportEvidenceKey(items[1]) < canonicalReportEvidenceKey(items[0]) {
+		items[0], items[1] = items[1], items[0]
+	}
+	ordered, err := canonicalReportEvidenceItems(items)
+	if err != nil {
+		t.Fatalf("canonicalReportEvidenceItems() rejected distinct excerpts: %v", err)
+	}
+	if len(ordered) != 2 || ordered[0].Current.CurrentExcerptSHA256 == ordered[1].Current.CurrentExcerptSHA256 {
+		t.Fatalf("canonicalReportEvidenceItems() did not retain distinct excerpt identities: %#v", ordered)
+	}
+}
 func TestRenderIncludesCommittedFollowupOutcome(t *testing.T) {
-	outcome := `"followup_outcome":{"resolution":"partially_resolved","rationale":"some remediation is verified","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F000","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two\n","verification":"verified"}}]},`
+	outcome := `"followup_outcome":{"resolution":"partially_resolved","rationale":"some remediation is verified","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","current_excerpt_sha256":%q,"verification":"verified"}}]},`
 	mutate := func(value string) string {
 		value = strings.ReplaceAll(value, `"run_type":"review"`, `"run_type":"followup"`)
-		return strings.Replace(value, `"target":{`, outcome+`"target":{`, 1)
+		value = strings.Replace(value,
+			`"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`,
+			`"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":"F001","replay_mode":null`,
+			1,
+		)
+		value = strings.Replace(value,
+			`"run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","review_id":"019f596a-d174-7321-b920-c2d312c82cc2","finding_id":"F001"`,
+			`"run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001"`,
+			1,
+		)
+		return strings.Replace(value, `"target":{`, fmt.Sprintf(outcome, reportSHA([]byte("historical source excerpt")), reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, []byte("line one\nline two")))+`"target":{`, 1)
 	}
 	run, review := reportCommittedFixtureWithMutations(t, mutate, mutate)
-	rendered, err := mustReportService(t, &reportReader{review: review, excerpt: []byte("line one\nline two\n")}).Render(context.Background(), run)
+	rendered, err := mustReportService(t, &reportReader{review: review, excerpt: []byte("line one\nline two")}).Render(context.Background(), run)
 	if err != nil {
-		t.Fatalf("Render() error = %v", err)
+		t.Fatalf("Render() error = %v: %v", err, errors.Unwrap(err))
 	}
 	if !strings.Contains(string(rendered.Bytes()), "# Follow-up outcome\n\n- **Resolution:** `partially_resolved`\n") ||
 		!strings.Contains(string(rendered.Bytes()), "some remediation is verified") {
@@ -312,6 +397,126 @@ func TestRenderMarkdownRejectsFinalViewMismatchesBeforeExcerptAccess(t *testing.
 func reportString(value string) *string {
 	return &value
 }
+func TestRenderValidatesProductionProvenance(t *testing.T) {
+	validProduction := reportProductionProvenanceJSON()
+	run, review := reportCommittedFixtureWithFinal(t, func(final string) string {
+		return replaceReportFixtureString(t, final,
+			`"manifest_path":"manifest.json"}`,
+			`"manifest_path":"manifest.json","production":`+validProduction+`}`,
+		)
+	})
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
+	rendered, err := mustReportService(t, reader).Render(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Render() with valid production provenance error = %v", err)
+	}
+	if strings.Contains(string(rendered.Bytes()), "/private/bin/provider") {
+		t.Fatal("rendered report exposed production executable path")
+	}
+
+	cases := []struct {
+		name        string
+		replacement string
+		decodeFails bool
+	}{
+		{name: "build metadata mismatch", replacement: strings.Replace(validProduction, `"build_commit":"abc123"`, `"build_commit":"other"`, 1)},
+		{name: "objective pairing mismatch", replacement: strings.Replace(validProduction, `"objective_present":true`, `"objective_present":false`, 1)},
+		{name: "invalid executable digest", replacement: strings.Replace(validProduction, `"executable_sha256":"sha256:`, `"executable_sha256":"sha512:`, 1)},
+		{name: "launcher pair mismatch", replacement: strings.Replace(validProduction,
+			`"launcher":"","launcher_sha256":""`, `"launcher":"/private/bin/launcher","launcher_sha256":""`, 1)},
+		{name: "invalid provider instance", replacement: strings.Replace(validProduction, `"instance":"alpha-1"`, `"instance":"Alpha-1"`, 1)},
+		{name: "unordered providers", replacement: strings.Replace(validProduction,
+			`}]}`, `},`+reportProductionProviderJSON("alpha", "alpha-0")+`]}`, 1)},
+		{name: "unordered receipts", replacement: strings.Replace(validProduction,
+			`"qualification_receipt_ids":["qualification:a`, `"qualification_receipt_ids":["qualification:c`, 1)},
+		{name: "invalid receipt grammar", replacement: strings.Replace(validProduction,
+			`"workspace_terminal_receipt":"workspace:`, `"workspace_terminal_receipt":"Workspace:`, 1)},
+		{name: "unknown production field", replacement: strings.Replace(validProduction, `{"build_product"`, `{"unknown":true,"build_product"`, 1), decodeFails: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, review := reportCommittedFixture(t)
+			raw := replaceReportFixtureString(t, string(review.FinalBytes()),
+				`"manifest_path":"manifest.json"}`,
+				`"manifest_path":"manifest.json","production":`+test.replacement+`}`,
+			)
+			final, err := decodeReportFinal([]byte(raw))
+			if test.decodeFails {
+				if err == nil {
+					t.Fatal("decodeReportFinal() accepted malformed production provenance")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decodeReportFinal() error = %v", err)
+			}
+			if err := final.consistentWith(review); err == nil {
+				t.Fatal("consistentWith() accepted invalid production provenance")
+			}
+		})
+	}
+}
+
+func TestRenderAllowsAbsentProductionProvenanceForNonProductionReview(t *testing.T) {
+	run, review := reportCommittedFixture(t)
+	_, err := mustReportService(t, &reportReader{review: review, excerpt: []byte("line one\nline two")}).Render(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Render() without production provenance error = %v", err)
+	}
+}
+func TestValidateReportProductionProvenanceRejectsChildAndNoChangeRoots(t *testing.T) {
+	_, review := reportCommittedFixture(t)
+	raw := replaceReportFixtureString(t, string(review.FinalBytes()),
+		`"manifest_path":"manifest.json"}`,
+		`"manifest_path":"manifest.json","production":`+reportProductionProvenanceJSON()+`}`,
+	)
+	final, err := decodeReportFinal([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*reportFinalDTO)
+	}{
+		{name: "child", mutate: func(value *reportFinalDTO) { value.RunType = "followup" }},
+		{name: "no change", mutate: func(value *reportFinalDTO) {
+			value.Target.ContentSHA256 = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := final
+			test.mutate(&candidate)
+			if err := validateReportProductionProvenance(candidate); err == nil {
+				t.Fatal("validateReportProductionProvenance() accepted prohibited production provenance")
+			}
+		})
+	}
+}
+
+func reportProductionProvenanceJSON() string {
+	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const receiptA = "qualification:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const receiptB = "qualification:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const transport = "transport:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	const namespace = "namespace:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	const workspace = "workspace:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	return `{"build_product":"kar","build_version":"0.1.0","build_commit":"abc123","objective_sha256":"` + digest +
+		`","objective_present":true,"snapshot_manifest_sha256":"` + digest +
+		`","workspace_terminal_receipt":"` + workspace +
+		`","providers":[{"family":"alpha","instance":"alpha-1","version":"1.0.0","executable":"/private/bin/provider","executable_sha256":"` + digest +
+		`","launcher":"","launcher_sha256":"","profile_generation":"generation-1","adapter_profile":"profile-1","qualification_receipt_ids":["` + receiptA + `","` + receiptB +
+		`"],"packet_transport_receipt_ids":["` + transport + `"],"namespace_terminal_receipt":"` + namespace + `"}]}`
+}
+func reportProductionProviderJSON(family, instance string) string {
+	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const receipt = "qualification:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	const transport = "transport:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	const namespace = "namespace:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	return `{"family":"` + family + `","instance":"` + instance +
+		`","version":"1.0.0","executable":"/private/bin/provider","executable_sha256":"` + digest +
+		`","launcher":"","launcher_sha256":"","profile_generation":"generation-1","adapter_profile":"profile-1","qualification_receipt_ids":["` + receipt +
+		`"],"packet_transport_receipt_ids":["` + transport + `"],"namespace_terminal_receipt":"` + namespace + `"}`
+}
 func TestRenderRejectsInvalidProvenanceReferences(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -340,7 +545,7 @@ func TestRenderRejectsInvalidProvenanceReferences(t *testing.T) {
 			run, review := reportCommittedFixtureWithFinal(t, func(final string) string {
 				return replaceReportFixtureString(t, final, testCase.current, testCase.replacement)
 			})
-			reader := &reportReader{review: review, excerpt: []byte("line one\nline two\n")}
+			reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
 
 			_, err := mustReportService(t, reader).Render(context.Background(), run)
 			assertReportArtifactFailure(t, err)
@@ -351,7 +556,7 @@ func TestRenderRejectsInvalidProvenanceReferences(t *testing.T) {
 	}
 }
 
-func TestRenderRejectsExcerptThatDoesNotMatchSourceIdentity(t *testing.T) {
+func TestRenderRejectsExcerptThatDoesNotMatchCurrentIdentity(t *testing.T) {
 	run, review := reportCommittedFixture(t)
 	reader := &reportReader{review: review, excerpt: []byte("different excerpt\n")}
 
@@ -361,11 +566,25 @@ func TestRenderRejectsExcerptThatDoesNotMatchSourceIdentity(t *testing.T) {
 		t.Fatalf("RenderExcerpt calls = %d, want one read", reader.excerptCalls)
 	}
 }
+func TestRenderMarkdownRejectsWrongCurrentExcerptDigest(t *testing.T) {
+	run, review := reportCommittedFixture(t)
+	final, err := decodeReportFinal(review.FinalBytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	final.Findings[0].Evidence[0].Current.CurrentExcerptSHA256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	reader := &reportReader{excerpt: []byte("line one\nline two")}
+	_, err = renderMarkdown(context.Background(), reader, run, review, final)
+	assertReportArtifactFailure(t, err)
+	if reader.excerptCalls != 0 {
+		t.Fatalf("RenderExcerpt calls = %d, want no read for invalid current excerpt digest", reader.excerptCalls)
+	}
+}
 func TestRenderPreservesExactVerifiedExcerptBytes(t *testing.T) {
 	t.Parallel()
 
-	defaultExcerpt := []byte("line one\nline two\n")
-	defaultDigest := reportExactExcerptDigest(t, defaultExcerpt)
+	defaultExcerpt := []byte("line one\nline two")
 	for _, test := range []struct {
 		name    string
 		excerpt []byte
@@ -374,14 +593,22 @@ func TestRenderPreservesExactVerifiedExcerptBytes(t *testing.T) {
 		{name: "no final LF", excerpt: []byte("line one\nline two")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			excerptDigest := reportExactExcerptDigest(t, test.excerpt)
+			excerptDigest := reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, test.excerpt)
 			run, review := reportCommittedFixtureWithFinal(t, func(final string) string {
-				final = replaceReportFixtureString(
-					t,
-					final,
-					fmt.Sprintf(`"source_excerpt_sha256":%q`, defaultDigest),
-					fmt.Sprintf(`"source_excerpt_sha256":%q`, excerptDigest),
-				)
+				const prefix = `"current_excerpt_sha256":"`
+				start := strings.Index(final, prefix)
+				if start < 0 {
+					t.Fatal("fixture has no current excerpt digest")
+				}
+				valueStart := start + len(prefix)
+				valueEnd := strings.IndexByte(final[valueStart:], '"')
+				if valueEnd < 0 {
+					t.Fatal("fixture current excerpt digest is unterminated")
+				}
+				final = final[:valueStart] + excerptDigest + final[valueStart+valueEnd:]
+				if bytes.Equal(test.excerpt, defaultExcerpt) {
+					return final
+				}
 				return replaceReportFixtureString(
 					t,
 					final,
@@ -423,7 +650,7 @@ func TestRenderSafelyBoundsProviderMarkdownAndHTML(t *testing.T) {
 			return strings.ReplaceAll(manifest, `"logic-provider"`, fmt.Sprintf("%q", provider))
 		},
 	)
-	reader := &reportReader{review: review, excerpt: []byte("line one\nline two\n")}
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
 
 	report, err := mustReportService(t, reader).Render(context.Background(), run)
 	if err != nil {
@@ -465,7 +692,7 @@ func TestRenderRendersSkippedRoleProvenanceAsAbsent(t *testing.T) {
 			return replaceReportFixtureString(t, withoutFallbackFailure, maintainabilityPrimaryFailure+",", "")
 		},
 	)
-	reader := &reportReader{review: review, excerpt: []byte("line one\nline two\n")}
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
 
 	report, err := mustReportService(t, reader).Render(context.Background(), run)
 	if err != nil {
@@ -553,6 +780,7 @@ type reportReader struct {
 	readCalls      int
 	excerptCalls   int
 	excerptTargets []string
+	excerptIndexes []int
 	afterExcerpt   func()
 }
 
@@ -568,6 +796,17 @@ func (reader *reportReader) RenderExcerpt(_ context.Context, _ ports.Publication
 		reader.afterExcerpt()
 	}
 	return append([]byte(nil), reader.excerpt...), reader.excerptErr
+}
+
+func (reader *reportReader) RenderExcerptAt(
+	ctx context.Context,
+	run ports.PublicationRun,
+	findingID string,
+	targetSHA256 string,
+	evidenceIndex int,
+) ([]byte, error) {
+	reader.excerptIndexes = append(reader.excerptIndexes, evidenceIndex)
+	return reader.RenderExcerpt(ctx, run, findingID, targetSHA256)
 }
 
 func mustReportService(t *testing.T, reader CommittedReader) *Service {
@@ -638,38 +877,24 @@ func reportCommittedFixtureWithMutations(
 		t.Fatal(err)
 	}
 
-	excerptBytes := []byte("line one\nline two\n")
-	excerptClaim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-		TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		Side:         evidence.SideWorktree,
-		Path:         "internal/example.go",
-		LineStart:    1,
-		LineEnd:      2,
-		Quote:        string(excerptBytes),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceExcerptSHA256, err := excerptClaim.ExcerptSHA256(excerptBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
+	excerptBytes := []byte("line one\nline two")
+	currentExcerptSHA256 := reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, excerptBytes)
 	finalBytes := []byte(fmt.Sprintf(`{
 		"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
 		"kar":{"version":"0.1.0","commit":"abc123"},
-		"immutable_lineage":{"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":"F000","replay_mode":"exact","lineage_edge_path":%q,"lineage_edge_sha256":%q},
+		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222"},
 		"validation":{"status":"repaired_valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed_with_warnings"},
 		"content_verdict":"request_changes","coverage_status":"degraded","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","degraded_coverage"],
-		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"trusted_base"},
+		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"project_local"},
 		"role_outcomes":[
 			{"role":"logic","required":true,"outcome":"completed","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","provider_instance":"logic-provider","selected_via":"primary","valid_finding_ids":["F001"],"failure_reason":null,"limitations":["logic evidence was restricted to changed files"]},
 			{"role":"security","required":true,"outcome":"completed","attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","provider_instance":"security-provider","selected_via":"primary","valid_finding_ids":[],"failure_reason":null,"limitations":[]},
 			{"role":"maintainability","required":false,"outcome":"failed","attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e","provider_instance":"maintainability-fallback","selected_via":"fallback","valid_finding_ids":[],"failure_reason":"provider_unavailable","limitations":["optional role did not complete"]}
 		],
-		"findings":[{"id":"F001","fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","role":"logic","provider_instance":"logic-provider","severity":"high","title":"title","description":"description","evidence":[{"source":{"session_id":%q,"run_id":%q,"review_id":%q,"finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two\n","verification":"verified"}}],"recommendation":"recommendation","confidence":"high","lifecycle":"open"}],
+		"findings":[{"id":"F001","fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","role":"logic","provider_instance":"logic-provider","severity":"high","title":"title","description":"description","evidence":[{"source":{"session_id":%q,"run_id":%q,"review_id":%q,"finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","current_excerpt_sha256":%q,"verification":"verified"}}],"recommendation":"recommendation","confidence":"high","lifecycle":"open"}],
 		"limitations":["provider telemetry was unavailable"],"provenance":{"aggregation_path":"aggregation.json","final_validation_path":"validation/final-validation.json","manifest_path":"manifest.json"}
-	}`, sessionID.String(), runID.String(), reviewID.String(), edgePath.String(), edge.SHA256(), sessionID.String(), runID.String(), reviewID.String(), sourceExcerptSHA256))
+	}`, sessionID.String(), runID.String(), reviewID.String(), edgePath.String(), edge.SHA256(), sessionID.String(), runID.String(), reviewID.String(), reportSHA([]byte("historical source excerpt")), currentExcerptSHA256))
 	if finalMutate != nil {
 		finalBytes = []byte(finalMutate(string(finalBytes)))
 	}
@@ -684,7 +909,7 @@ func reportCommittedFixtureWithMutations(
 
 	manifestBytes := []byte(fmt.Sprintf(`{
 		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"degraded","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
-		"immutable_lineage":{"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":"F000","replay_mode":"exact","lineage_edge_path":%q,"lineage_edge_sha256":%q},
+		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security","maintainability"],"required_roles":["logic","security"],"attempts":[{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","role":"security","provider_instance":"security-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-primary","selected_as":"primary","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ae-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-fallback","selected_as":"fallback","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ad-77c2-8b68-0bd73e911b2e/status.json","invocation_count":1}],
 		"content_verdict":"request_changes","coverage_status":"degraded","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","degraded_coverage"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
 		"recovery_journal":{"expected_staged":null,"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q},
@@ -728,7 +953,7 @@ func reportCommittedFixtureWithMutations(
 	service, err := query.NewService(
 		&reportQueryStore{observation: observation, snapshot: snapshot},
 		reportValidator{},
-		&reportTargetReader{availability: evidence.ImmutableTargetAvailable, bytes: []byte("line one\nline two\n")},
+		&reportTargetReader{availability: evidence.ImmutableTargetAvailable, bytes: []byte("line one\nline two")},
 		1<<20,
 	)
 	if err != nil {
@@ -736,7 +961,7 @@ func reportCommittedFixtureWithMutations(
 	}
 	review, err := service.ReadCommitted(context.Background(), run)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: %v", err, errors.Unwrap(err))
 	}
 	return run, review
 }
@@ -837,14 +1062,22 @@ func reportSHA(value []byte) string {
 	sum := sha256.Sum256(value)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
-func reportExactExcerptDigest(t *testing.T, excerpt []byte) string {
+func reportCurrentExcerptDigest(
+	t *testing.T,
+	targetSHA256 string,
+	side string,
+	path string,
+	lineStart int,
+	lineEnd int,
+	excerpt []byte,
+) string {
 	t.Helper()
 	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-		TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		Side:         evidence.SideWorktree,
-		Path:         "internal/example.go",
-		LineStart:    1,
-		LineEnd:      2,
+		TargetSHA256: targetSHA256,
+		Side:         evidence.Side(side),
+		Path:         path,
+		LineStart:    lineStart,
+		LineEnd:      lineEnd,
 		Quote:        string(excerpt),
 	})
 	if err != nil {

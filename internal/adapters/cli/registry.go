@@ -15,7 +15,7 @@ const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests
 const fixedCommandSpecCount = 17
 
 const (
-	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v1.schema.json"
+	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
 	runManifestContractURI              = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
 	reviewArtifactContractURI           = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
 	providerFollowupOutputContractURI   = "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json"
@@ -25,23 +25,9 @@ const (
 	exportManifestContractURI           = "https://kar.local/schemas/kar-export-manifest.v1.schema.json"
 )
 
-// Availability records whether a command is executable in the current milestone.
-type Availability string
-
-const (
-	AvailabilityFoundation      Availability = "foundation"
-	AvailabilityFutureMilestone Availability = "future_milestone"
-)
-
-// Valid reports whether availability is assigned by the fixed command surface.
-func (availability Availability) Valid() bool {
-	return availability == AvailabilityFoundation || availability == AvailabilityFutureMilestone
-}
-
 // CommandSpec is immutable metadata for one command in the fixed KAR surface.
 type CommandSpec struct {
 	command            app.CommandName
-	availability       Availability
 	owner              string
 	service            string
 	requestContractURI string
@@ -51,9 +37,6 @@ type CommandSpec struct {
 
 // Command returns the command named by this specification.
 func (spec CommandSpec) Command() app.CommandName { return spec.command }
-
-// Availability reports whether the command is executable in this milestone.
-func (spec CommandSpec) Availability() Availability { return spec.availability }
 
 // Owner returns the application package that owns the command.
 func (spec CommandSpec) Owner() string { return spec.owner }
@@ -79,8 +62,14 @@ func CommandSpecs() []CommandSpec {
 	return canonicalCommandSpecs()
 }
 
-// NewDispatcher validates a complete canonical registry and the foundation-only
-// handler set before constructing an immutable dispatcher.
+// ValidateCommandSpecs rejects a registry that is incomplete or whose command
+// metadata differs from the canonical KAR contract.
+func ValidateCommandSpecs(specs []CommandSpec) error {
+	return validateCommandSpecs(specs)
+}
+
+// NewDispatcher validates a complete canonical registry and handler set before
+// constructing an immutable dispatcher.
 func NewDispatcher(specs []CommandSpec, handlers map[app.CommandName]Handler) (*Dispatcher, error) {
 	if err := validateCommandSpecs(specs); err != nil {
 		return nil, err
@@ -104,30 +93,29 @@ func NewDispatcher(specs []CommandSpec, handlers map[app.CommandName]Handler) (*
 
 func canonicalCommandSpecs() []CommandSpec {
 	return []CommandSpec{
-		newCommandSpec(app.CommandInit, AvailabilityFoundation, "internal/app/init", "InitializeProject", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),
-		newCommandSpec(app.CommandDoctor, AvailabilityFoundation, "internal/app/doctor", "DiagnoseEnvironment", []string{doctorResultContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
-		newCommandSpec(app.CommandReview, AvailabilityFutureMilestone, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandFollowup, AvailabilityFutureMilestone, "internal/app/followup", "StartFollowupRun", []string{providerFollowupOutputContractURI, runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandDelta, AvailabilityFutureMilestone, "internal/app/delta", "StartDeltaRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandRerun, AvailabilityFutureMilestone, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandStatus, AvailabilityFoundation, "internal/app/query", "ReadRunStatus", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandReport, AvailabilityFoundation, "internal/app/report", "RenderReport", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandFindings, AvailabilityFoundation, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandExcerpt, AvailabilityFoundation, "internal/app/query", "RenderExcerpt", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandProviders, AvailabilityFoundation, "internal/app/providers", "ListProviderProfiles", []string{providerContractEvidenceContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
-		newCommandSpec(app.CommandConfig, AvailabilityFoundation, "internal/app/config", "ResolveConfiguration", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeSecurity}),
-		newCommandSpec(app.CommandPrompt, AvailabilityFutureMilestone, "internal/app/prompt", "InspectPrompt", []string{promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandSchema, AvailabilityFoundation, "internal/app/schema", "InspectSchema", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),
-		newCommandSpec(app.CommandClean, AvailabilityFutureMilestone, "internal/app/clean", "PlanAndApplyRetention", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
-		newCommandSpec(app.CommandExport, AvailabilityFutureMilestone, "internal/app/export", "ExportRedactedRun", []string{exportManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
-		newCommandSpec(app.CommandHelp, AvailabilityFoundation, "internal/app/help", "RenderHelp", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
+		newCommandSpec(app.CommandInit, "internal/app/init", "InitializeProject", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandDoctor, "internal/app/doctor", "DiagnoseEnvironment", []string{doctorResultContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandFollowup, "internal/app/followup", "StartFollowupRun", []string{providerFollowupOutputContractURI, runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandDelta, "internal/app/delta", "StartDeltaRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandStatus, "internal/app/query", "ReadRunStatus", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandReport, "internal/app/report", "RenderReport", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandFindings, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandExcerpt, "internal/app/query", "RenderExcerpt", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandProviders, "internal/app/providers", "ListProviderProfiles", []string{providerContractEvidenceContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandConfig, "internal/app/config", "ResolveConfiguration", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandPrompt, "internal/app/prompt", "InspectPrompt", []string{promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandSchema, "internal/app/schema", "InspectSchema", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),
+		newCommandSpec(app.CommandClean, "internal/app/clean", "PlanAndApplyRetention", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandExport, "internal/app/export", "ExportRedactedRun", []string{exportManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandHelp, "internal/app/help", "RenderHelp", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
 	}
 }
 
-func newCommandSpec(command app.CommandName, availability Availability, owner string, service string, outputs []string, exits []app.ExitCode) CommandSpec {
+func newCommandSpec(command app.CommandName, owner string, service string, outputs []string, exits []app.ExitCode) CommandSpec {
 	return CommandSpec{
 		command:            command,
-		availability:       availability,
 		owner:              owner,
 		service:            service,
 		requestContractURI: commandRequestPointerPrefix + string(command),
@@ -208,24 +196,18 @@ func validateHandlers(specs []CommandSpec, handlers map[app.CommandName]Handler)
 		byCommand[spec.command] = spec
 	}
 	for command, handler := range handlers {
-		spec, known := byCommand[command]
+		_, known := byCommand[command]
 		if !known {
 			return fmt.Errorf("cli registry: handler registered for unknown command %q", command)
 		}
-		if spec.availability != AvailabilityFoundation {
-			return fmt.Errorf("cli registry: future command %q must not have a handler", command)
-		}
 		if handlerIsNil(handler) {
-			return fmt.Errorf("cli registry: foundation command %q has a nil handler", command)
+			return fmt.Errorf("cli registry: command %q has a nil handler", command)
 		}
 	}
 	for _, spec := range specs {
-		if spec.availability != AvailabilityFoundation {
-			continue
-		}
 		handler, present := handlers[spec.command]
 		if !present || handlerIsNil(handler) {
-			return fmt.Errorf("cli registry: foundation command %q requires a handler", spec.command)
+			return fmt.Errorf("cli registry: command %q requires a handler", spec.command)
 		}
 	}
 	return nil
@@ -233,7 +215,6 @@ func validateHandlers(specs []CommandSpec, handlers map[app.CommandName]Handler)
 
 func commandSpecEqual(left CommandSpec, right CommandSpec) bool {
 	if left.command != right.command ||
-		left.availability != right.availability ||
 		left.owner != right.owner ||
 		left.service != right.service ||
 		left.requestContractURI != right.requestContractURI ||
@@ -293,7 +274,6 @@ func cloneCommandSpecs(specs []CommandSpec) []CommandSpec {
 	for index, spec := range specs {
 		cloned[index] = CommandSpec{
 			command:            spec.command,
-			availability:       spec.availability,
 			owner:              spec.owner,
 			service:            spec.service,
 			requestContractURI: spec.requestContractURI,

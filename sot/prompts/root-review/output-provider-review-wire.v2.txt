@@ -1,0 +1,23 @@
+KAR ROOT REVIEW OUTPUT CONTRACT/2
+Return one UTF-8 RFC 8259 JSON object only. No Markdown, code fence, commentary, prefix, suffix, or second JSON value.
+This is an instance of the provider-owned root-review wire contract, not a schema document.
+Top level: exactly schema_version, summary, completeness, limitations, findings.
+schema_version: exactly "kar-provider-review-output.v2".
+summary: meaningful string, 1..4000 Unicode scalar values; it must agree with findings and completeness.
+completeness: exactly "complete" or "incomplete".
+limitations: array of 0..20 unique meaningful strings, each at most 2000 scalar values. incomplete requires at least one material limitation. complete must not claim material target scope was unreadable.
+findings: array of 0..200 finding objects.
+Each finding has exactly severity, title, description, evidence, recommendation, confidence.
+severity: exactly one of info, low, medium, high, critical, blocker.
+title: meaningful string, at most 300 scalar values.
+description and recommendation: meaningful strings, each at most 12000 scalar values.
+confidence: exactly low, medium, or high.
+evidence: array of 1..20 objects; each has exactly current.
+current has exactly path, line_start, line_end, side, quote.
+path: UTF-8 NFC canonical slash-relative target path, at most 4096 scalar values; no absolute path, backslash, empty/dot/dotdot segment, NUL, CR, LF, doubled slash, or trailing slash.
+line_start and line_end: positive one-based inclusive integers with line_end >= line_start.
+side: exactly base, head, or worktree.
+quote: meaningful exact target text for that inclusive range.
+Do not emit target_sha256, verification, source, any session/run/attempt/review/finding ID, role/provider identity, lifecycle/evidence state, verdict/coverage/CI/publication state, hashes, or any other field. KAR injects target_sha256 and verification="claimed", then independently verifies the claim. A provider can never emit verified, stale, invalid, or unverifiable authority.
+The free-text placeholders N/A, TBD, TODO, unknown, none, and - are invalid when used as the entire value.
+If there are no supported findings, return findings:[] with a truthful summary; do not invent evidence. Use limitations only for actual review constraints.

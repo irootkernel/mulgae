@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app"
@@ -27,39 +26,46 @@ func (handler *testHandler) Execute(_ context.Context, args []string) (app.Comma
 	return handler.result, handler.err
 }
 
-func TestDispatchRefusesFutureCommandWithoutHandlerSideEffects(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+func TestDispatchExecutesEveryRegisteredCommand(t *testing.T) {
+	handlers := testCommandHandlers(t)
 	dispatcher, err := NewDispatcher(CommandSpecs(), handlers)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := dispatcher.Dispatch(context.Background(), app.CommandReview, []string{"untrusted-secret"})
+	for _, specification := range CommandSpecs() {
+		command := specification.Command()
+		t.Run(string(command), func(t *testing.T) {
+			result, err := dispatcher.Dispatch(context.Background(), command, []string{"request"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.OK() || result.Command() != command || result.ExitCode() != app.ExitCodeSuccess {
+				t.Fatalf("result = ok:%v command:%q exit:%d", result.OK(), result.Command(), result.ExitCode())
+			}
+			if handlers[command].(*testHandler).calls != 1 {
+				t.Fatalf("handler calls = %d, want 1", handlers[command].(*testHandler).calls)
+			}
+		})
+	}
+}
+
+func TestDispatchRejectsMissingHandlerAsInvariant(t *testing.T) {
+	handlers := testCommandHandlers(t)
+	dispatcher, err := NewDispatcher(CommandSpecs(), handlers)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.OK() || result.Command() != app.CommandReview || result.ExitCode() != app.ExitCodeUsage {
-		t.Fatalf("future result = ok:%v command:%q exit:%d", result.OK(), result.Command(), result.ExitCode())
-	}
-	diagnostics := result.Diagnostics()
-	if len(diagnostics) != 1 {
-		t.Fatalf("future diagnostics = %d, want 1", len(diagnostics))
-	}
-	diagnostic := diagnostics[0]
-	if diagnostic.FailureClass() != domain.FailureConfiguration || diagnostic.MachineCode() != "command_unavailable_in_g003" {
-		t.Fatalf("future diagnostic = class:%q code:%q", diagnostic.FailureClass(), diagnostic.MachineCode())
-	}
-	if strings.Contains(diagnostic.Message(), "untrusted-secret") || diagnostic.Message() != "Command is unavailable in G003." {
-		t.Fatalf("future message = %q", diagnostic.Message())
-	}
-	for command, handler := range handlers {
-		if handler.(*testHandler).calls != 0 {
-			t.Fatalf("handler %q was called", command)
-		}
+	delete(dispatcher.handlers, app.CommandReview)
+
+	result, err := dispatcher.Dispatch(context.Background(), app.CommandReview, nil)
+	assertDispatcherInvariantError(t, result, err)
+	if handlers[app.CommandReview].(*testHandler).calls != 0 {
+		t.Fatal("review handler was called")
 	}
 }
 func TestDispatchRejectsMissingCanonicalSpecAsInvariant(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+	handlers := testCommandHandlers(t)
 	dispatcher, err := NewDispatcher(CommandSpecs(), handlers)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +82,7 @@ func TestDispatchRejectsMissingCanonicalSpecAsInvariant(t *testing.T) {
 }
 
 func TestDispatchRejectsInvalidCommandNameWithoutCallingHandler(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+	handlers := testCommandHandlers(t)
 	dispatcher, err := NewDispatcher(CommandSpecs(), handlers)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +106,7 @@ func TestDispatchRejectsInvalidCommandNameWithoutCallingHandler(t *testing.T) {
 }
 
 func TestDispatchRejectsHandlerCommandMismatchAsInvariant(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+	handlers := testCommandHandlers(t)
 	mismatch, err := app.NewCommandSuccess(app.CommandDoctor, []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +126,7 @@ func TestDispatchRejectsHandlerCommandMismatchAsInvariant(t *testing.T) {
 }
 
 func TestDispatchPreservesWrappedHandlerError(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+	handlers := testCommandHandlers(t)
 	result, err := app.NewCommandSuccess(app.CommandInit, []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +153,7 @@ func TestDispatchPreservesWrappedHandlerError(t *testing.T) {
 }
 
 func TestDispatchRejectsUndeclaredHandlerFailureExitAsInvariant(t *testing.T) {
-	handlers := testFoundationHandlers(t)
+	handlers := testCommandHandlers(t)
 	diagnostic, err := app.NewDiagnostic(
 		"test",
 		domain.FailureConfiguration,
@@ -164,7 +170,7 @@ func TestDispatchRejectsUndeclaredHandlerFailureExitAsInvariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, err := app.NewCommandFailure(app.CommandInit, app.ExitCodeReadiness, diagnostic)
+	failure, err := app.NewCommandFailure(app.CommandInit, app.ExitCodeCancellation, diagnostic)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,10 +187,50 @@ func TestDispatchRejectsUndeclaredHandlerFailureExitAsInvariant(t *testing.T) {
 		t.Fatalf("failing handler calls = %d, want 1", failingHandler.calls)
 	}
 }
+func TestDispatchReturnsDeclaredReadinessFailure(t *testing.T) {
+	handlers := testCommandHandlers(t)
+	diagnostic, err := app.NewDiagnostic(
+		"test",
+		domain.FailureConfiguration,
+		"service_not_ready",
+		"Service is not ready.",
+		"",
+		"",
+		domain.AttemptID{},
+		false,
+		false,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := app.NewCommandFailure(app.CommandReview, app.ExitCodeReadiness, diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &testHandler{result: failure}
+	handlers[app.CommandReview] = handler
+	dispatcher, err := NewDispatcher(CommandSpecs(), handlers)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-func TestDispatchPassesFoundationResultAndDefensivelyCopiesArgs(t *testing.T) {
-	handlers := testFoundationHandlers(t)
-	result, err := app.NewCommandSuccess(app.CommandInit, []byte(`{"foundation":"result"}`))
+	result, err := dispatcher.Dispatch(context.Background(), app.CommandReview, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK() || result.Command() != app.CommandReview || result.ExitCode() != app.ExitCodeReadiness {
+		t.Fatalf("readiness result = ok:%v command:%q exit:%d", result.OK(), result.Command(), result.ExitCode())
+	}
+	if handler.calls != 1 {
+		t.Fatalf("readiness handler calls = %d, want 1", handler.calls)
+	}
+}
+
+func TestDispatchPassesCommandResultAndDefensivelyCopiesArgs(t *testing.T) {
+	handlers := testCommandHandlers(t)
+	result, err := app.NewCommandSuccess(app.CommandInit, []byte(`{"command":"result"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,8 +246,8 @@ func TestDispatchPassesFoundationResultAndDefensivelyCopiesArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK() || got.Command() != app.CommandInit || got.ExitCode() != app.ExitCodeSuccess || string(got.Data()) != `{"foundation":"result"}` {
-		t.Fatalf("foundation result = ok:%v command:%q exit:%d data:%q", got.OK(), got.Command(), got.ExitCode(), got.Data())
+	if !got.OK() || got.Command() != app.CommandInit || got.ExitCode() != app.ExitCodeSuccess || string(got.Data()) != `{"command":"result"}` {
+		t.Fatalf("command result = ok:%v command:%q exit:%d data:%q", got.OK(), got.Command(), got.ExitCode(), got.Data())
 	}
 	if handler.calls != 1 || len(handler.gotArgs) != 1 || handler.gotArgs[0] != "original" {
 		t.Fatalf("handler calls/args = %d/%q", handler.calls, handler.gotArgs)

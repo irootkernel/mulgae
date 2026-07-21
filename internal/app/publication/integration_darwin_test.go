@@ -26,7 +26,7 @@ func (ids publicationIntegrationIDs) NewReviewID(time.Time) (domain.ReviewID, er
 	return ids.reviewID, nil
 }
 
-func TestPublicationFilesystemQueryReportAndRecoveryEndToEnd(t *testing.T) {
+func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	ctx := context.Background()
 	catalog := builtin.NewCatalog()
 	validator, err := jsonschema.New(ctx, catalog)
@@ -262,7 +262,7 @@ func TestPublicationFilesystemQueryReportAndRecoveryEndToEnd(t *testing.T) {
 	assertPublicationIntegrationFilesEqual(t, rootPath, immutable, before)
 }
 
-func TestPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
+func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
 	ctx := context.Background()
 	catalog := builtin.NewCatalog()
 	validator, err := jsonschema.New(ctx, catalog)

@@ -20,8 +20,7 @@ There is no intermediate `runs/` directory in the canonical path.
 
 ```text
 .kar/
-  context.md
-  prompts/
+  config.yaml
   cache/
 
   s_<session-uuidv7>/
@@ -212,11 +211,10 @@ Recommended defaults on Unix-like systems are `0700` for `.kar/` and session/run
 `kar init` proposes:
 
 ```gitignore
-.kar/s_*/
-.kar/cache/
+.kar/
 ```
 
-Teams may intentionally version `.kar/context.md` and approved `.kar/prompts/`; session artifacts remain ignored by default.
+`kar init` never edits ignore files. Operators should ignore the entire private `.kar/` namespace; configuration, captured context references, prompt packets, and run artifacts are never versioned authority.
 
 ## 11. Retention, Export, and Transitive Protection
 

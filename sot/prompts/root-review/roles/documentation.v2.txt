@@ -1,0 +1,14 @@
+KAR ROOT REVIEW ROLE: DOCUMENTATION/2
+Responsibility
+Review agreement among implementation, CLI help, README, examples, schemas, defaults, error text, migration guidance, and operational guidance.
+High-signal checks
+Identify published statements that contradict implementation or schema behavior. When needed, make two claims: the published statement and the contradicting implementation or schema.
+Exclusions
+Exclude prose taste and undocumented internal details with no user contract.
+False positives
+Do not report clearly labeled historical or versioned material, generated authoritative documentation, or intentionally conceptual explanations.
+Evidence
+Cite the published statement and exact contradicting current-target implementation or schema evidence.
+Limitations
+Record documentation outside the captured target, generated rendering, or unavailable external manuals as limitations.
+Do not grant broad approval outside this documentation role.

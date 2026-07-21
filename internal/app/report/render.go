@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	appevidence "github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
@@ -127,19 +130,45 @@ type reportSourceEvidenceDTO struct {
 }
 
 type reportCurrentEvidenceDTO struct {
-	TargetSHA256 string `json:"target_sha256"`
-	Side         string `json:"side"`
-	Path         string `json:"path"`
-	LineStart    int    `json:"line_start"`
-	LineEnd      int    `json:"line_end"`
-	Quote        string `json:"quote"`
-	Verification string `json:"verification"`
+	TargetSHA256         string `json:"target_sha256"`
+	Side                 string `json:"side"`
+	Path                 string `json:"path"`
+	LineStart            int    `json:"line_start"`
+	LineEnd              int    `json:"line_end"`
+	Quote                string `json:"quote"`
+	CurrentExcerptSHA256 string `json:"current_excerpt_sha256"`
+	Verification         string `json:"verification"`
 }
 
 type reportProvenanceDTO struct {
-	AggregationPath     string `json:"aggregation_path"`
-	FinalValidationPath string `json:"final_validation_path"`
-	ManifestPath        string `json:"manifest_path"`
+	AggregationPath     string                         `json:"aggregation_path"`
+	FinalValidationPath string                         `json:"final_validation_path"`
+	ManifestPath        string                         `json:"manifest_path"`
+	Production          *reportProductionProvenanceDTO `json:"production,omitempty"`
+}
+type reportProductionProvenanceDTO struct {
+	BuildProduct             string                        `json:"build_product"`
+	BuildVersion             string                        `json:"build_version"`
+	BuildCommit              string                        `json:"build_commit"`
+	ObjectiveSHA256          *string                       `json:"objective_sha256"`
+	ObjectivePresent         bool                          `json:"objective_present"`
+	SnapshotManifestSHA256   string                        `json:"snapshot_manifest_sha256"`
+	WorkspaceTerminalReceipt string                        `json:"workspace_terminal_receipt"`
+	Providers                []reportProductionProviderDTO `json:"providers"`
+}
+type reportProductionProviderDTO struct {
+	Family                    string   `json:"family"`
+	Instance                  string   `json:"instance"`
+	Version                   string   `json:"version"`
+	Executable                string   `json:"executable"`
+	ExecutableSHA256          string   `json:"executable_sha256"`
+	Launcher                  string   `json:"launcher"`
+	LauncherSHA256            string   `json:"launcher_sha256"`
+	ProfileGeneration         string   `json:"profile_generation"`
+	AdapterProfile            string   `json:"adapter_profile"`
+	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
+	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
+	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
 }
 
 func decodeReportFinal(raw []byte) (reportFinalDTO, error) {
@@ -271,6 +300,9 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 	if _, err := canonicalReportProvenance(final.Provenance, review); err != nil {
 		return fmt.Errorf("final provenance does not match the committed query view: %w", err)
 	}
+	if err := validateReportProductionProvenance(final); err != nil {
+		return fmt.Errorf("final production provenance is invalid: %w", err)
+	}
 
 	roles := review.Roles()
 	if len(final.RoleOutcomes) != len(roles) {
@@ -307,24 +339,18 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 			return fmt.Errorf("finding %d does not match the committed query view", index)
 		}
 		evidence := finding.Evidence()
-		if len(evidence) != 1 || len(value.Evidence) != 1 {
-			return fmt.Errorf("finding %d must have exactly one evidence item", index)
+		items, err := canonicalReportEvidenceItems(value.Evidence)
+		if err != nil {
+			return fmt.Errorf("finding %d evidence is invalid: %w", index, err)
 		}
-		claim := evidence[0]
-		item := value.Evidence[0]
-		if item.Source.SessionID != claim.SourceSessionID().String() ||
-			item.Source.RunID != claim.SourceRunID().String() ||
-			item.Source.ReviewID != claim.SourceReviewID().String() ||
-			item.Source.FindingID != claim.SourceFindingID() ||
-			item.Source.SourceTargetSHA256 != claim.SourceTargetSHA256() ||
-			item.Source.SourceExcerptSHA256 != claim.SourceExcerptSHA256() ||
-			item.Current.TargetSHA256 != claim.TargetSHA256() ||
-			item.Current.Side != string(claim.Side()) ||
-			item.Current.Path != claim.Path().String() ||
-			item.Current.LineStart != claim.LineStart() ||
-			item.Current.LineEnd != claim.LineEnd() ||
-			item.Current.Verification != string(claim.Verification()) {
-			return fmt.Errorf("finding %d evidence does not match the committed query view", index)
+		if len(evidence) != len(items) {
+			return fmt.Errorf("finding %d evidence count does not match the committed query view", index)
+		}
+		for evidenceIndex, claim := range evidence {
+			item := items[evidenceIndex]
+			if !sameReportEvidence(item, claim) {
+				return fmt.Errorf("finding %d evidence %d does not match the committed query view", index, evidenceIndex+1)
+			}
 		}
 	}
 	return nil
@@ -359,6 +385,7 @@ func (final reportFinalDTO) consistentFollowupOutcome(review query.CommittedRevi
 			value.Current.LineStart != item.LineStart() ||
 			value.Current.LineEnd != item.LineEnd() ||
 			value.Current.Quote != item.Quote() ||
+			value.Current.CurrentExcerptSHA256 != item.CurrentExcerptSHA256() ||
 			value.Current.Verification != string(item.Verification()) {
 			return fmt.Errorf("evidence %d differs", index)
 		}
@@ -425,6 +452,119 @@ func canonicalReportProvenance(
 		FinalValidationPath: finalValidation,
 		ManifestPath:        manifest,
 	}, nil
+}
+func validateReportProductionProvenance(final reportFinalDTO) error {
+	production := final.Provenance.Production
+	if final.RunType != "review" {
+		if production != nil {
+			return errors.New("child final review cannot contain production provenance")
+		}
+		return nil
+	}
+	if production == nil {
+		return nil
+	}
+	if final.Target.ContentSHA256 == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		return errors.New("no-change final review cannot contain production provenance")
+	}
+	if production.ObjectivePresent != (production.ObjectiveSHA256 != nil) {
+		return errors.New("objective presence does not match identity")
+	}
+	if !reportSafeText(production.BuildProduct, 128) || !reportSafeText(production.BuildVersion, 128) ||
+		!reportSafeText(production.BuildCommit, 128) || !validReportSHA256(production.SnapshotManifestSHA256) ||
+		!validReportReceiptID(production.WorkspaceTerminalReceipt) || len(production.Providers) == 0 {
+		return errors.New("build, snapshot, workspace, or providers are incomplete")
+	}
+	if production.ObjectiveSHA256 != nil && !validReportSHA256(*production.ObjectiveSHA256) {
+		return errors.New("objective identity is invalid")
+	}
+	if production.BuildVersion != final.KAR.Version || !sameReportOptionalString(final.KAR.Commit, production.BuildCommit, true) {
+		return errors.New("build metadata does not match KAR")
+	}
+	for index, provider := range production.Providers {
+		if !reportSafeText(provider.Family, 64) || !validReportProviderInstance(provider.Instance) ||
+			!reportSafeText(provider.Version, 128) || !reportSafeText(provider.Executable, 1024) ||
+			!validReportSHA256(provider.ExecutableSHA256) || !reportSafeText(provider.ProfileGeneration, 256) ||
+			!reportSafeText(provider.AdapterProfile, 256) || !validReportReceiptID(provider.NamespaceTerminalReceipt) ||
+			len(provider.QualificationReceiptIDs) == 0 || len(provider.PacketTransportReceiptIDs) == 0 {
+			return fmt.Errorf("provider %d is incomplete", index)
+		}
+		if (provider.Launcher == "") != (provider.LauncherSHA256 == "") ||
+			provider.Launcher != "" && (!reportSafeText(provider.Launcher, 1024) || !validReportSHA256(provider.LauncherSHA256)) {
+			return fmt.Errorf("provider %d launcher identity is invalid", index)
+		}
+		key := provider.Family + "\x00" + provider.Instance
+		if index > 0 && key <= production.Providers[index-1].Family+"\x00"+production.Providers[index-1].Instance {
+			return errors.New("providers are duplicated or unordered")
+		}
+		for _, receipts := range [][]string{provider.QualificationReceiptIDs, provider.PacketTransportReceiptIDs} {
+			for receiptIndex, receipt := range receipts {
+				if !validReportReceiptID(receipt) {
+					return errors.New("provider receipt identity is invalid")
+				}
+				if receiptIndex > 0 && receipts[receiptIndex-1] >= receipt {
+					return errors.New("provider receipt identities are not ordered")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func reportSafeText(value string, maximum int) bool {
+	if value == "" || len(value) > maximum || !utf8.ValidString(value) || strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, character := range value {
+		if character == '\r' || character == 0 || unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+func validReportProviderInstance(value string) bool {
+	if !reportSafeText(value, 128) || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') ||
+			character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validReportSHA256(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range value[len("sha256:"):] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validReportReceiptID(value string) bool {
+	separator := strings.LastIndexByte(value, ':')
+	if separator <= 0 || len(value) != separator+1+64 {
+		return false
+	}
+	for _, character := range value[:separator] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != ':' && character != '-' {
+			return false
+		}
+	}
+	for _, character := range value[separator+1:] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func canonicalReportProvenancePath(review query.CommittedReview, value string) (string, error) {
@@ -500,6 +640,7 @@ func renderMarkdown(
 			writeField(&output, "Source finding ID", evidence.SourceFindingID())
 			writeField(&output, "Source target SHA-256", evidence.SourceTargetSHA256())
 			writeField(&output, "Source excerpt SHA-256", evidence.SourceExcerptSHA256())
+			writeField(&output, "Current excerpt SHA-256", evidence.CurrentExcerptSHA256())
 			writeField(&output, "Current target SHA-256", evidence.TargetSHA256())
 			writeField(&output, "Current side", string(evidence.Side()))
 			writeField(&output, "Current path", evidence.Path().String())
@@ -558,10 +699,9 @@ func renderMarkdown(
 			return nil, err
 		}
 		claims := finding.Evidence()
-		if len(claims) != 1 {
-			return nil, reportFailure(domain.FailureArtifact, "committed finding must have exactly one evidence item", nil)
+		if len(claims) == 0 || len(claims) > 20 {
+			return nil, reportFailure(domain.FailureArtifact, "committed finding evidence count is invalid", nil)
 		}
-		evidence := claims[0]
 
 		writeSubheading(&output, finding.ID()+" — "+finding.Title())
 		writeField(&output, "Severity", string(finding.Severity()))
@@ -572,39 +712,42 @@ func renderMarkdown(
 		writeField(&output, "Fingerprint", finding.Fingerprint())
 		writeTextBlock(&output, "Explanation", finding.Description())
 		writeTextBlock(&output, "Recommendation", finding.Recommendation())
-		writeText(&output, "Evidence 1:")
-		writeField(&output, "Source session ID", evidence.SourceSessionID().String())
-		writeField(&output, "Source run ID", evidence.SourceRunID().String())
-		writeField(&output, "Source review ID", evidence.SourceReviewID().String())
-		writeField(&output, "Source finding ID", evidence.SourceFindingID())
-		writeField(&output, "Source target SHA-256", evidence.SourceTargetSHA256())
-		writeField(&output, "Source excerpt SHA-256", evidence.SourceExcerptSHA256())
-		writeField(&output, "Current target SHA-256", evidence.TargetSHA256())
-		writeField(&output, "Current side", string(evidence.Side()))
-		writeField(&output, "Current path", evidence.Path().String())
-		writeField(&output, "Current lines", fmt.Sprintf("%d-%d", evidence.LineStart(), evidence.LineEnd()))
-		writeField(&output, "Committed verification", string(evidence.Verification()))
+		for evidenceIndex, item := range claims {
+			writeText(&output, fmt.Sprintf("Evidence %d:", evidenceIndex+1))
+			writeField(&output, "Source session ID", item.SourceSessionID().String())
+			writeField(&output, "Source run ID", item.SourceRunID().String())
+			writeField(&output, "Source review ID", item.SourceReviewID().String())
+			writeField(&output, "Source finding ID", item.SourceFindingID())
+			writeField(&output, "Source target SHA-256", item.SourceTargetSHA256())
+			writeField(&output, "Source excerpt SHA-256", item.SourceExcerptSHA256())
+			writeField(&output, "Current excerpt SHA-256", item.CurrentExcerptSHA256())
+			writeField(&output, "Current target SHA-256", item.TargetSHA256())
+			writeField(&output, "Current side", string(item.Side()))
+			writeField(&output, "Current path", item.Path().String())
+			writeField(&output, "Current lines", fmt.Sprintf("%d-%d", item.LineStart(), item.LineEnd()))
+			writeField(&output, "Committed verification", string(item.Verification()))
 
-		excerpt, err := reader.RenderExcerpt(ctx, run, finding.ID(), review.TargetSHA256())
-		failure := reduceReportFailure(err)
-		if err != nil && failure.rank > 4 {
-			return nil, err
-		}
-		if contextErr := reportContextFailure(ctx); contextErr != nil {
-			return nil, contextErr
-		}
-		if err == nil {
-			if !utf8.Valid(excerpt) {
-				return nil, reportFailure(domain.FailureInternal, "verified excerpt is not valid UTF-8", nil)
+			excerpt, err := renderEvidenceExcerpt(ctx, reader, run, finding.ID(), review.TargetSHA256(), evidenceIndex+1)
+			failure := reduceReportFailure(err)
+			if err != nil && failure.rank > 4 {
+				return nil, err
 			}
-			if !reportExcerptMatchesSourceIdentity(excerpt, evidence) {
-				return nil, reportFailure(domain.FailureArtifact, "verified excerpt does not match the committed source excerpt identity", nil)
+			if contextErr := reportContextFailure(ctx); contextErr != nil {
+				return nil, contextErr
 			}
-			writeVerifiedExcerpt(&output, excerpt)
-		} else if failure.readiness {
-			writeField(&output, "Re-read verification state", failure.state)
-		} else {
-			return nil, err
+			if err == nil {
+				if !utf8.Valid(excerpt) {
+					return nil, reportFailure(domain.FailureInternal, "verified excerpt is not valid UTF-8", nil)
+				}
+				if !reportExcerptMatchesCurrentIdentity(excerpt, item) {
+					return nil, reportFailure(domain.FailureArtifact, "verified excerpt does not match the committed current excerpt identity", nil)
+				}
+				writeVerifiedExcerpt(&output, excerpt)
+			} else if failure.readiness {
+				writeField(&output, "Re-read verification state", failure.state)
+			} else {
+				return nil, err
+			}
 		}
 		writeBlankLine(&output)
 	}
@@ -667,6 +810,96 @@ func renderMarkdown(
 		return nil, reportFailure(domain.FailureInternal, "rendered report violates the UTF-8 LF contract", nil)
 	}
 	return rendered, nil
+}
+func renderEvidenceExcerpt(
+	ctx context.Context,
+	reader CommittedReader,
+	run ports.PublicationRun,
+	findingID string,
+	targetSHA256 string,
+	evidenceIndex int,
+) ([]byte, error) {
+	return reader.RenderExcerptAt(ctx, run, findingID, targetSHA256, evidenceIndex)
+}
+
+func canonicalReportEvidenceItems(items []reportEvidenceDTO) ([]reportEvidenceDTO, error) {
+	if len(items) == 0 || len(items) > 20 {
+		return nil, fmt.Errorf("evidence count must be between 1 and 20")
+	}
+	ordered := append([]reportEvidenceDTO(nil), items...)
+	for _, item := range ordered {
+		claim, err := appevidence.NewCurrentClaim(appevidence.CurrentClaimInput{
+			TargetSHA256: item.Current.TargetSHA256,
+			Side:         appevidence.Side(item.Current.Side),
+			Path:         item.Current.Path,
+			LineStart:    item.Current.LineStart,
+			LineEnd:      item.Current.LineEnd,
+			Quote:        item.Current.Quote,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("current evidence is invalid: %w", err)
+		}
+		currentExcerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+		if err != nil || currentExcerptSHA256 != item.Current.CurrentExcerptSHA256 {
+			return nil, fmt.Errorf("current excerpt identity is invalid")
+		}
+	}
+	sort.Slice(ordered, func(left, right int) bool {
+		return canonicalReportEvidenceKey(ordered[left]) < canonicalReportEvidenceKey(ordered[right])
+	})
+	for index := range items {
+		if canonicalReportEvidenceKey(items[index]) != canonicalReportEvidenceKey(ordered[index]) {
+			return nil, fmt.Errorf("evidence order is not canonical")
+		}
+	}
+	for index := 1; index < len(ordered); index++ {
+		if canonicalReportEvidenceKey(ordered[index-1]) == canonicalReportEvidenceKey(ordered[index]) {
+			return nil, fmt.Errorf("evidence tuple is duplicated")
+		}
+	}
+	return ordered, nil
+}
+
+func canonicalReportEvidenceKey(item reportEvidenceDTO) string {
+	fields := []string{
+		item.Source.SessionID,
+		item.Source.RunID,
+		item.Source.ReviewID,
+		item.Source.FindingID,
+		item.Source.SourceTargetSHA256,
+		item.Source.SourceExcerptSHA256,
+		item.Current.CurrentExcerptSHA256,
+		item.Current.TargetSHA256,
+		item.Current.Side,
+		item.Current.Path,
+		strconv.Itoa(item.Current.LineStart),
+		strconv.Itoa(item.Current.LineEnd),
+		item.Current.Verification,
+	}
+	var key strings.Builder
+	for _, field := range fields {
+		key.WriteString(strconv.Itoa(len(field)))
+		key.WriteByte(':')
+		key.WriteString(field)
+		key.WriteByte('|')
+	}
+	return key.String()
+}
+
+func sameReportEvidence(item reportEvidenceDTO, claim query.Evidence) bool {
+	return item.Source.SessionID == claim.SourceSessionID().String() &&
+		item.Source.RunID == claim.SourceRunID().String() &&
+		item.Source.ReviewID == claim.SourceReviewID().String() &&
+		item.Source.FindingID == claim.SourceFindingID() &&
+		item.Source.SourceTargetSHA256 == claim.SourceTargetSHA256() &&
+		item.Source.SourceExcerptSHA256 == claim.SourceExcerptSHA256() &&
+		item.Current.TargetSHA256 == claim.TargetSHA256() &&
+		item.Current.CurrentExcerptSHA256 == claim.CurrentExcerptSHA256() &&
+		item.Current.Side == string(claim.Side()) &&
+		item.Current.Path == claim.Path().String() &&
+		item.Current.LineStart == claim.LineStart() &&
+		item.Current.LineEnd == claim.LineEnd() &&
+		item.Current.Verification == string(claim.Verification())
 }
 
 type reportFailureSelection struct {
@@ -797,7 +1030,7 @@ func reportFailurePrecedence(class domain.FailureClass) int {
 		return 0
 	}
 }
-func reportExcerptMatchesSourceIdentity(excerpt []byte, item query.Evidence) bool {
+func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bool {
 	claim, err := appevidence.NewCurrentClaim(appevidence.CurrentClaimInput{
 		TargetSHA256: item.TargetSHA256(),
 		Side:         item.Side(),
@@ -810,7 +1043,7 @@ func reportExcerptMatchesSourceIdentity(excerpt []byte, item query.Evidence) boo
 		return false
 	}
 	digest, err := claim.ExcerptSHA256(excerpt)
-	return err == nil && digest == item.SourceExcerptSHA256()
+	return err == nil && digest == item.CurrentExcerptSHA256()
 }
 
 func writeHeading(output *strings.Builder, title string) {

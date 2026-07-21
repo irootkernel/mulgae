@@ -16,6 +16,7 @@ All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 
 | `kar-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` | KAR cleanup planner | Clean apply and explain |
 | `kar-command-result.v1` | `../examples/command-result.v1.valid.json` | KAR command envelope | CLI, CI, and automation |
 | `kar-doctor-result.v1` | `../examples/doctor-result.v1.valid.json` | KAR doctor | CLI, CI, and readiness gates |
+| `kar-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` | Project-local KAR doctor | CLI, CI, and readiness gates |
 | `kar-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` | KAR exporter | Export verifier and consumer |
 | `kar-g0-file-catalog.v1` | `../examples/g0-file-catalog.v1.valid.json` | G0 catalog generator | Integrity and promotion validation |
 | `kar-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` | Platform probe | Doctor and G0 readiness validation |
@@ -25,12 +26,13 @@ All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 
 | `kar-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` | Provider probe | G0 readiness ingress authority |
 | `kar-provider-followup-output.v2` | `../examples/provider-followup-output.v2.valid.json` | KAR-normalized followup provider result | KAR validation pipeline |
 | `kar-provider-review-output.v2` | `../examples/provider-review-output.v2.valid.json` | KAR-normalized review/delta/rerun provider result | KAR validation pipeline |
+| `kar-provider-review-wire.v2` | `../examples/provider-review-wire.v2.valid.json` | Provider root-review wire | KAR normalization and validation |
 | `kar-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` | KAR publisher | CLI, CI, reporting, and external consumers |
 | `kar-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` | KAR artifact store | CLI, recovery, integrity, and publication validation |
 | `kar-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` | KAR validator | G0 receipts, diagnostics, and tests |
 | `kar-validation-result.v2` | `../examples/validation-result.v2.valid.json` | KAR validator | Artifacts, diagnostics, and tests |
 
-The sixteen G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain immutable; `kar-platform-contract-evidence.v1` and `kar-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `kar-platform-contract-evidence.v2` and `kar-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
+The eighteen G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain frozen and immutable; `kar-platform-contract-evidence.v1` and `kar-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `kar-platform-contract-evidence.v2` and `kar-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
 
 The initial v2 examples are schema-valid UNVERIFIED fixtures, not PASS evidence: the required `darwin-arm64` platform row is all `NOT_RUN`, and the examples themselves grant no support, readiness, or implementation authority. G001 completion is established by executed receipts and the authority chain, never by these example bytes.
 
@@ -46,7 +48,7 @@ The semantic validator runs after schema validation and must reject, at minimum:
 - cross-document identity, parent/child, role, attempt, provider, target, finding, and manifest-reference mismatches;
 - inconsistent coverage, content, CI, failure, repair, fallback, resolution, summary, and limitation projections;
 - role assignments that violate the logic/security required floor, distinct-lane constraints, intended-provider readiness, or invocation, output, lane-deadline, and run-deadline caps;
-- project configuration proposals that weaken the trusted base: required roles, request-changes threshold, degraded or incomplete enforcement, workspace boundary, shell policy, provider command policy, or resource caps;
+- project-local configuration documents that violate code-fixed required-role, provider-family, workspace, execution, or resource bounds;
 - provider/platform probe evidence that is incomplete, stale, unverified, secret-bearing, or inconsistent with the configured profile;
 - publication without one matching immutable manifest, lineage edge, and composite epoch record, or any staged/final/hash/path multiplicity or mismatch;
 - cleanup plans whose store epoch, protected closure, ordered actions, byte accounting, or apply-plan hash no longer match; and

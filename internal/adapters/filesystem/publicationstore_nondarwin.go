@@ -12,6 +12,7 @@ import (
 var errPublicationStoreUnsupportedPlatform = errors.New("publication store requires darwin/arm64 secure filesystem primitives")
 
 var _ ports.PublicationStore = (*PublicationStore)(nil)
+var _ ports.PublicationEpochCommitStore = (*PublicationStore)(nil)
 
 func (store *PublicationStore) IssueReviewID(context.Context, ports.IssueReviewIDRequest) (ports.IssuedReviewID, error) {
 	return ports.IssuedReviewID{}, errPublicationStoreUnsupportedPlatform
@@ -67,4 +68,7 @@ func (store *PublicationStore) ReadCommittedSnapshot(context.Context, ports.Read
 
 func (store *PublicationStore) WriteCorruptionDiagnostic(context.Context, ports.CorruptionDiagnosticRequest) (ports.CorruptionDiagnosticResult, error) {
 	return ports.CorruptionDiagnosticResult{}, errPublicationStoreUnsupportedPlatform
+}
+func (store *PublicationStore) WithNextPublicationEpoch(context.Context, ports.AnchoredRoot, func(context.Context, uint64) error) error {
+	return errPublicationStoreUnsupportedPlatform
 }

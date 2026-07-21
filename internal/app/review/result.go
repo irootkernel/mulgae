@@ -2,10 +2,15 @@
 package review
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -120,6 +125,7 @@ type TemplateSet struct {
 	common     promptLayer
 	reviewRun  promptLayer
 	jsonOutput promptLayer
+	repair     promptLayer
 	roleLayers map[domain.Role]promptLayer
 }
 
@@ -132,8 +138,8 @@ type promptLayer struct {
 }
 
 // NewTemplateSet validates and defensively copies the common, review-run,
-// JSON-output, and role-specific trusted layers.
-func NewTemplateSet(common, reviewRun, jsonOutput prompt.TrustedLayer, roleSpecific map[domain.Role]prompt.TrustedLayer) (TemplateSet, error) {
+// JSON-output, repair, and role-specific trusted layers.
+func NewTemplateSet(common, reviewRun, jsonOutput, repair prompt.TrustedLayer, roleSpecific map[domain.Role]prompt.TrustedLayer) (TemplateSet, error) {
 	copiedCommon, err := copyPromptLayer(common)
 	if err != nil {
 		return TemplateSet{}, err
@@ -143,6 +149,10 @@ func NewTemplateSet(common, reviewRun, jsonOutput prompt.TrustedLayer, roleSpeci
 		return TemplateSet{}, err
 	}
 	copiedJSONOutput, err := copyPromptLayer(jsonOutput)
+	if err != nil {
+		return TemplateSet{}, err
+	}
+	copiedRepair, err := copyPromptLayer(repair)
 	if err != nil {
 		return TemplateSet{}, err
 	}
@@ -164,6 +174,7 @@ func NewTemplateSet(common, reviewRun, jsonOutput prompt.TrustedLayer, roleSpeci
 		common:     copiedCommon,
 		reviewRun:  copiedReviewRun,
 		jsonOutput: copiedJSONOutput,
+		repair:     copiedRepair,
 		roleLayers: roleLayers,
 	}, nil
 }
@@ -179,6 +190,103 @@ func (templates TemplateSet) ReviewRun() prompt.TrustedLayer {
 // JSONOutput returns a caller-owned copy of the JSON-output trusted layer.
 func (templates TemplateSet) JSONOutput() prompt.TrustedLayer {
 	return templates.jsonOutput.trustedLayer()
+}
+
+// Repair returns a caller-owned copy of the repair trusted layer.
+func (templates TemplateSet) Repair() prompt.TrustedLayer { return templates.repair.trustedLayer() }
+
+// ComposeRootReview composes the fixed-order trusted template for role.
+func (templates TemplateSet) ComposeRootReview(role domain.Role, objective *prompt.Objective) (prompt.TrustedTemplate, error) {
+	roleLayer, ok := templates.RoleTemplate(role)
+	if !ok {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: missing role %q", role)
+	}
+	layers := []prompt.TrustedLayer{templates.Common(), templates.ReviewRun(), roleLayer}
+	if objective != nil {
+		if err := objective.Lint().Err(); err != nil {
+			return prompt.TrustedTemplate{}, fmt.Errorf("review templates: objective: %w", err)
+		}
+		layer, err := prompt.NewTrustedLayer("review:objective", "1", objective.Bytes())
+		if err != nil {
+			return prompt.TrustedTemplate{}, fmt.Errorf("review templates: objective: %w", err)
+		}
+		layers = append(layers, layer)
+	}
+	layers = append(layers, templates.JSONOutput())
+	return prompt.ComposeTrustedTemplate("builtin:template/root-review/"+string(role), "2", layers...)
+}
+
+// ComposeRootReviewRepair appends the frozen repair contract and canonical plan
+// to the original trusted template without promoting prior provider output.
+func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemplate, plan validation.RepairPlan) (prompt.TrustedTemplate, error) {
+	baseLayers, err := trustedLayersForRepair(original)
+	if err != nil {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: repair base: %w", err)
+	}
+	paths := plan.AllowedPaths()
+	sort.Strings(paths)
+	lines := []string{
+		"KAR ROOT REVIEW REPAIR PLAN/2",
+		"original_output_sha256:" + plan.OriginalSHA256(),
+		"mode:" + string(plan.Mode()),
+		"allowed_paths_count:" + strconv.Itoa(len(paths)),
+	}
+	for _, path := range paths {
+		lines = append(lines, "allowed_path:"+path)
+	}
+	planLayer, err := prompt.NewTrustedLayer("review:repair-plan", "2", []byte(strings.Join(lines, "\n")))
+	if err != nil {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: repair plan: %w", err)
+	}
+	role := strings.TrimPrefix(original.ID(), "builtin:template/root-review/")
+	if role == original.ID() || !domain.Role(role).Valid() {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: invalid root-review template %q", original.ID())
+	}
+	layers := append(baseLayers, templates.Repair(), planLayer)
+	return prompt.ComposeTrustedTemplate(
+		"builtin:template/root-review/"+role+"/repair",
+		"2",
+		layers...,
+	)
+}
+
+func trustedLayersForRepair(original prompt.TrustedTemplate) ([]prompt.TrustedLayer, error) {
+	manifest := original.TrustedLayerManifest()
+	if len(manifest) == 0 {
+		layer, err := prompt.NewTrustedLayer("review:original-template", "2", original.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		return []prompt.TrustedLayer{layer}, nil
+	}
+	content := original.Bytes()
+	layers := make([]prompt.TrustedLayer, 0, len(manifest))
+	offset := 0
+	for index, provenance := range manifest {
+		end := offset + provenance.ByteLength()
+		if end > len(content) {
+			return nil, fmt.Errorf("trusted layer %d extends beyond template bytes", provenance.Ordinal())
+		}
+		layer, err := prompt.NewTrustedLayer(provenance.ID(), provenance.Version(), content[offset:end])
+		if err != nil {
+			return nil, err
+		}
+		if layer.SHA256() != provenance.SHA256() {
+			return nil, fmt.Errorf("trusted layer %d SHA-256 does not match template bytes", provenance.Ordinal())
+		}
+		layers = append(layers, layer)
+		offset = end
+		if index < len(manifest)-1 {
+			if offset+2 > len(content) || !bytes.Equal(content[offset:offset+2], []byte("\n\n")) {
+				return nil, fmt.Errorf("trusted layer %d separator does not match composed template", provenance.Ordinal())
+			}
+			offset += 2
+		}
+	}
+	if offset != len(content) {
+		return nil, fmt.Errorf("trusted layer manifest does not cover template bytes")
+	}
+	return layers, nil
 }
 
 // RoleTemplate returns a caller-owned copy of a role-specific trusted layer.

@@ -58,6 +58,66 @@ func TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON(t *testing
 		}
 	}
 }
+func TestPublicationStoreWithNextPublicationEpochReusesTransactionLock(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	root := fixture.run.Root()
+	var first uint64
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), root, func(ctx context.Context, epoch uint64) error {
+		first = epoch
+		path := mustRelativePath(t, fmt.Sprintf("store/epochs/epoch_%020d.json", epoch))
+		writePrivatePublicationTestFile(t, fixture.writer, root, path, []byte(`{"epoch":1}`))
+		return fixture.store.withLock(ctx, root, func() error { return nil })
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if first != 1 {
+		t.Fatalf("first epoch = %d, want 1", first)
+	}
+
+	var second uint64
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), root, func(ctx context.Context, epoch uint64) error {
+		second = epoch
+		return errors.New("callback failure")
+	}); err == nil {
+		t.Fatal("callback failure was accepted")
+	}
+	if second != 2 {
+		t.Fatalf("epoch after callback failure = %d, want 2", second)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root, fmt.Sprintf("store/epochs/epoch_%020d.json", second))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed callback created epoch member: %v", err)
+	}
+}
+
+func TestPublicationStoreWithNextPublicationEpochAcceptsAnchoredProjectRoot(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	if err := os.Chmod(fixture.root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("ordinary anchored project root rejected: %v", err)
+	}
+	assertPrivateDirectory(t, filepath.Join(fixture.root, publicationLockDirectory))
+}
+
+func TestParsePublicationEpochFilenameRejectsMalformedMembers(t *testing.T) {
+	for _, name := range []string{
+		"epoch_00000000000000000000.json",
+		"epoch_00000000000000000001.tmp",
+		"epoch_0000000000000000000a.json",
+		"epoch_000000000000000000001.json",
+		"other_00000000000000000001.json",
+	} {
+		if _, err := parsePublicationEpochFilename(name); err == nil {
+			t.Fatalf("malformed epoch name accepted: %q", name)
+		}
+	}
+	if epoch, err := parsePublicationEpochFilename("epoch_00000000000000000001.json"); err != nil || epoch != 1 {
+		t.Fatalf("canonical epoch parse = (%d, %v)", epoch, err)
+	}
+}
 func TestPublicationStorePersistsCandidateAndAuxiliaryArtifacts(t *testing.T) {
 	fixture := newPublicationStoreFixture(t)
 	ctx := context.Background()

@@ -7,7 +7,9 @@
       "media_type": "text/plain",
       "schema_id": null,
       "pair": null,
-      "consumers": ["integrity-validator"],
+      "consumers": [
+        "integrity-validator"
+      ],
       "checksum_inclusion": false,
       "exclusion_reason": "self_excluded_checksum"
     },
@@ -17,7 +19,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["implementation-planning"],
+      "consumers": [
+        "implementation-planning"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -27,7 +31,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["sot-reader"],
+      "consumers": [
+        "sot-reader"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -37,7 +43,9 @@
       "media_type": "text/plain",
       "schema_id": null,
       "pair": null,
-      "consumers": ["release-metadata"],
+      "consumers": [
+        "release-metadata"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -47,7 +55,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["validation-reporting"],
+      "consumers": [
+        "validation-reporting"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -57,7 +67,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["product-contract"],
+      "consumers": [
+        "product-contract"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -67,7 +79,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["domain-model"],
+      "consumers": [
+        "domain-model"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -77,7 +91,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["cli-workflows"],
+      "consumers": [
+        "cli-workflows"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -87,7 +103,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["configuration"],
+      "consumers": [
+        "configuration"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -97,7 +115,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["provider-runtime"],
+      "consumers": [
+        "provider-runtime"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -107,7 +127,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["prompt-contract"],
+      "consumers": [
+        "prompt-contract"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -117,7 +139,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["output-validation"],
+      "consumers": [
+        "output-validation"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -127,7 +151,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["artifact-storage"],
+      "consumers": [
+        "artifact-storage"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -137,7 +163,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["security-and-trust"],
+      "consumers": [
+        "security-and-trust"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -147,7 +175,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["reporting-and-ci"],
+      "consumers": [
+        "reporting-and-ci"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -157,7 +187,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["go-architecture"],
+      "consumers": [
+        "go-architecture"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -167,7 +199,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["testing-strategy"],
+      "consumers": [
+        "testing-strategy"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -177,7 +211,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["delivery-roadmap"],
+      "consumers": [
+        "delivery-roadmap"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -187,7 +223,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["decision-log"],
+      "consumers": [
+        "decision-log"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -197,7 +235,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["glossary"],
+      "consumers": [
+        "glossary"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -207,7 +247,21 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["field-ownership"],
+      "consumers": [
+        "field-ownership"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/docs/17-superseded-authority-ledger.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "authority-audit"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -217,7 +271,9 @@
       "media_type": "text/plain",
       "schema_id": null,
       "pair": null,
-      "consumers": ["artifact-layout-reference"],
+      "consumers": [
+        "artifact-layout-reference"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -227,7 +283,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-clean-plan.v1.schema.json",
       "pair": "sot/schemas/kar-clean-plan.v1.schema.json",
-      "consumers": ["clean-plan-validator"],
+      "consumers": [
+        "clean-plan-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -237,7 +295,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
       "pair": "sot/schemas/kar-command-result.v1.schema.json",
-      "consumers": ["command-result-validator"],
+      "consumers": [
+        "command-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -247,7 +307,21 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-doctor-result.v1.schema.json",
       "pair": "sot/schemas/kar-doctor-result.v1.schema.json",
-      "consumers": ["doctor-result-validator"],
+      "consumers": [
+        "doctor-result-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/doctor-result.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-doctor-result.v2.schema.json",
+      "pair": "sot/schemas/kar-doctor-result.v2.schema.json",
+      "consumers": [
+        "doctor-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -257,7 +331,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-export-manifest.v1.schema.json",
       "pair": "sot/schemas/kar-export-manifest.v1.schema.json",
-      "consumers": ["export-manifest-validator"],
+      "consumers": [
+        "export-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -267,17 +343,23 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json",
       "pair": "sot/schemas/kar-g0-file-catalog.v1.schema.json",
-      "consumers": ["checksum-generator", "integrity-validator", "trace-validator"],
+      "consumers": [
+        "checksum-generator",
+        "integrity-validator",
+        "trace-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
     {
-      "path": "sot/examples/global-config.yaml",
-      "disposition": "CHANGED",
+      "path": "sot/examples/local-config.yaml",
+      "disposition": "ADDED",
       "media_type": "application/yaml",
       "schema_id": null,
       "pair": null,
-      "consumers": ["global-configuration"],
+      "consumers": [
+        "project-local-configuration"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -287,7 +369,10 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json",
       "pair": "sot/schemas/kar-platform-contract-evidence.v1.schema.json",
-      "consumers": ["platform-evidence-validator", "doctor"],
+      "consumers": [
+        "platform-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -297,17 +382,10 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json",
       "pair": "sot/schemas/kar-platform-contract-evidence.v2.schema.json",
-      "consumers": ["platform-evidence-validator", "doctor"],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/examples/project-config.yaml",
-      "disposition": "CHANGED",
-      "media_type": "application/yaml",
-      "schema_id": null,
-      "pair": null,
-      "consumers": ["project-configuration"],
+      "consumers": [
+        "platform-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -317,7 +395,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
       "pair": "sot/schemas/kar-prompt-manifest.v1.schema.json",
-      "consumers": ["prompt-manifest-validator"],
+      "consumers": [
+        "prompt-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -327,7 +407,10 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json",
       "pair": "sot/schemas/kar-provider-contract-evidence.v1.schema.json",
-      "consumers": ["provider-evidence-validator", "doctor"],
+      "consumers": [
+        "provider-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -337,7 +420,10 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json",
       "pair": "sot/schemas/kar-provider-contract-evidence.v2.schema.json",
-      "consumers": ["provider-evidence-validator", "doctor"],
+      "consumers": [
+        "provider-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -347,7 +433,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json",
       "pair": "sot/schemas/kar-provider-followup-output.v2.schema.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -357,7 +445,9 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:provider-followup-output:v1",
       "pair": "sot/schemas/kar-provider-followup-output.v1.schema.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -367,7 +457,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-provider-review-output.v2.schema.json",
       "pair": "sot/schemas/kar-provider-review-output.v2.schema.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -377,7 +469,21 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:provider-review-output:v1",
       "pair": "sot/schemas/kar-provider-review-output.v1.schema.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-review-wire.v2.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json",
+      "pair": "sot/schemas/kar-provider-review-wire.v2.schema.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -387,7 +493,9 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:repair-patch:v1",
       "pair": "sot/schemas/kar-repair-patch.v1.schema.json",
-      "consumers": ["repair-validator"],
+      "consumers": [
+        "repair-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -397,7 +505,9 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:repair-request:v1",
       "pair": "sot/schemas/kar-repair-request.v1.schema.json",
-      "consumers": ["repair-validator"],
+      "consumers": [
+        "repair-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -407,7 +517,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
       "pair": "sot/schemas/kar-review-artifact.v2.schema.json",
-      "consumers": ["review-artifact-validator"],
+      "consumers": [
+        "review-artifact-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -417,7 +529,9 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:review-artifact:v1",
       "pair": "sot/schemas/kar-review-artifact.v1.schema.json",
-      "consumers": ["review-artifact-validator"],
+      "consumers": [
+        "review-artifact-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -427,7 +541,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-run-manifest.v2.schema.json",
       "pair": "sot/schemas/kar-run-manifest.v2.schema.json",
-      "consumers": ["run-manifest-validator"],
+      "consumers": [
+        "run-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -437,7 +553,9 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:run-manifest:v1",
       "pair": "sot/schemas/kar-run-manifest.v1.schema.json",
-      "consumers": ["run-manifest-validator"],
+      "consumers": [
+        "run-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -447,7 +565,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-validation-receipt.v1.schema.json",
       "pair": "sot/schemas/kar-validation-receipt.v1.schema.json",
-      "consumers": ["validation-receipt-validator"],
+      "consumers": [
+        "validation-receipt-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -457,7 +577,9 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-validation-result.v2.schema.json",
       "pair": "sot/schemas/kar-validation-result.v2.schema.json",
-      "consumers": ["validation-result-validator"],
+      "consumers": [
+        "validation-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -467,7 +589,129 @@
       "media_type": "application/json",
       "schema_id": "urn:kar:schema:validation-result:v1",
       "pair": "sot/schemas/kar-validation-result.v1.schema.json",
-      "consumers": ["validation-result-validator"],
+      "consumers": [
+        "validation-result-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/common.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/output-provider-review-wire.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/repair-provider-review.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/documentation.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/logic.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/maintainability.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/product.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/security.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/roles/testing.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/prompts/root-review/run-review.v2.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -477,7 +721,9 @@
       "media_type": "text/markdown",
       "schema_id": null,
       "pair": null,
-      "consumers": ["schema-reader"],
+      "consumers": [
+        "schema-reader"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -487,7 +733,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-clean-plan.v1.schema.json",
       "pair": "sot/examples/clean-plan.v1.valid.json",
-      "consumers": ["clean-plan-validator"],
+      "consumers": [
+        "clean-plan-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -497,7 +745,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
       "pair": "sot/examples/command-result.v1.valid.json",
-      "consumers": ["command-result-validator"],
+      "consumers": [
+        "command-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -507,7 +757,21 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-doctor-result.v1.schema.json",
       "pair": "sot/examples/doctor-result.v1.valid.json",
-      "consumers": ["doctor-result-validator"],
+      "consumers": [
+        "doctor-result-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-doctor-result.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-doctor-result.v2.schema.json",
+      "pair": "sot/examples/doctor-result.v2.valid.json",
+      "consumers": [
+        "doctor-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -517,7 +781,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-export-manifest.v1.schema.json",
       "pair": "sot/examples/export-manifest.v1.valid.json",
-      "consumers": ["export-manifest-validator"],
+      "consumers": [
+        "export-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -527,7 +793,11 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json",
       "pair": "sot/examples/g0-file-catalog.v1.valid.json",
-      "consumers": ["checksum-generator", "integrity-validator", "trace-validator"],
+      "consumers": [
+        "checksum-generator",
+        "integrity-validator",
+        "trace-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -537,7 +807,10 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json",
       "pair": "sot/examples/platform-contract-evidence.v1.valid.json",
-      "consumers": ["platform-evidence-validator", "doctor"],
+      "consumers": [
+        "platform-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -547,7 +820,10 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json",
       "pair": "sot/examples/platform-contract-evidence.v2.valid.json",
-      "consumers": ["platform-evidence-validator", "doctor"],
+      "consumers": [
+        "platform-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -557,7 +833,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
       "pair": "sot/examples/prompt-manifest.v1.valid.json",
-      "consumers": ["prompt-manifest-validator"],
+      "consumers": [
+        "prompt-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -567,7 +845,10 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json",
       "pair": "sot/examples/provider-contract-evidence.v1.valid.json",
-      "consumers": ["provider-evidence-validator", "doctor"],
+      "consumers": [
+        "provider-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -577,7 +858,10 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json",
       "pair": "sot/examples/provider-contract-evidence.v2.valid.json",
-      "consumers": ["provider-evidence-validator", "doctor"],
+      "consumers": [
+        "provider-evidence-validator",
+        "doctor"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -587,7 +871,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:provider-followup-output:v1",
       "pair": "sot/examples/provider-followup-output.valid.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -597,7 +883,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json",
       "pair": "sot/examples/provider-followup-output.v2.valid.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -607,7 +895,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:provider-review-output:v1",
       "pair": "sot/examples/provider-review-output.valid.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -617,7 +907,21 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-provider-review-output.v2.schema.json",
       "pair": "sot/examples/provider-review-output.v2.valid.json",
-      "consumers": ["provider-output-validator"],
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-review-wire.v2.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json",
+      "pair": "sot/examples/provider-review-wire.v2.valid.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -627,7 +931,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:repair-patch:v1",
       "pair": "sot/examples/repair-patch.json",
-      "consumers": ["repair-validator"],
+      "consumers": [
+        "repair-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -637,7 +943,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:repair-request:v1",
       "pair": "sot/examples/repair-request.json",
-      "consumers": ["repair-validator"],
+      "consumers": [
+        "repair-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -647,7 +955,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:review-artifact:v1",
       "pair": "sot/examples/review-artifact.valid.json",
-      "consumers": ["review-artifact-validator"],
+      "consumers": [
+        "review-artifact-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -657,7 +967,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
       "pair": "sot/examples/review-artifact.v2.valid.json",
-      "consumers": ["review-artifact-validator"],
+      "consumers": [
+        "review-artifact-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -667,7 +979,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:run-manifest:v1",
       "pair": "sot/examples/run-manifest.valid.json",
-      "consumers": ["run-manifest-validator"],
+      "consumers": [
+        "run-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -677,7 +991,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-run-manifest.v2.schema.json",
       "pair": "sot/examples/run-manifest.v2.valid.json",
-      "consumers": ["run-manifest-validator"],
+      "consumers": [
+        "run-manifest-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -687,7 +1003,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-validation-receipt.v1.schema.json",
       "pair": "sot/examples/validation-receipt.v1.valid.json",
-      "consumers": ["validation-receipt-validator"],
+      "consumers": [
+        "validation-receipt-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -697,7 +1015,9 @@
       "media_type": "application/schema+json",
       "schema_id": "urn:kar:schema:validation-result:v1",
       "pair": "sot/examples/validation-result.valid.json",
-      "consumers": ["validation-result-validator"],
+      "consumers": [
+        "validation-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
@@ -707,7 +1027,9 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-validation-result.v2.schema.json",
       "pair": "sot/examples/validation-result.v2.valid.json",
-      "consumers": ["validation-result-validator"],
+      "consumers": [
+        "validation-result-validator"
+      ],
       "checksum_inclusion": true,
       "exclusion_reason": null
     }

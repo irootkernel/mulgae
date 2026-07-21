@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
@@ -185,8 +187,8 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 		return RuntimeTarget{}, err
 	}
 	if strings.TrimPrefix(manifest.Target.SHA256, "sha256:") != strings.TrimPrefix(final.Target.ContentSHA256, "sha256:") ||
-		sameOptionalTargetOID(manifest.BaseObjectID, final.Target.BaseOID) == false ||
-		sameOptionalTargetOID(manifest.HeadObjectID, final.Target.HeadOID) == false {
+		!sameOptionalTargetOID(manifest.BaseObjectID, final.Target.BaseOID) ||
+		!sameOptionalTargetOID(manifest.HeadObjectID, final.Target.HeadOID) {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity does not match committed final", nil)
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
@@ -627,17 +629,28 @@ func (service *Service) readCommittedFindingExcerpt(
 	if err != nil {
 		return nil, err
 	}
-	return service.verifyPersistedExcerpt(ctx, claim, current.SourceExcerptSHA256(), path, artifact)
+	return service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), path, artifact)
 }
 
-// RenderExcerpt returns a committed evidence excerpt only after its durable P2
-// excerpt artifact independently reproduces the committed source-excerpt
-// identity.
+// RenderExcerpt returns the first canonical committed evidence excerpt. Callers
+// rendering multiple items must use RenderExcerptAt with its one-based index.
 func (service *Service) RenderExcerpt(
 	ctx context.Context,
 	run ports.PublicationRun,
 	findingID string,
 	targetSHA256 string,
+) ([]byte, error) {
+	return service.RenderExcerptAt(ctx, run, findingID, targetSHA256, 1)
+}
+
+// RenderExcerptAt returns one canonical committed evidence excerpt by its
+// one-based canonical index.
+func (service *Service) RenderExcerptAt(
+	ctx context.Context,
+	run ports.PublicationRun,
+	findingID string,
+	targetSHA256 string,
+	evidenceIndex int,
 ) ([]byte, error) {
 	if err := service.preflight(ctx, renderExcerptStage); err != nil {
 		return nil, err
@@ -647,6 +660,14 @@ func (service *Service) RenderExcerpt(
 			renderExcerptStage,
 			domain.FailureConfiguration,
 			"finding ID is invalid",
+			nil,
+		)
+	}
+	if evidenceIndex < 1 || evidenceIndex > 20 {
+		return nil, typedFailure(
+			renderExcerptStage,
+			domain.FailureConfiguration,
+			"evidence index is invalid",
 			nil,
 		)
 	}
@@ -689,15 +710,15 @@ func (service *Service) RenderExcerpt(
 		)
 	}
 	claims := finding.Evidence()
-	if len(claims) == 0 {
+	if evidenceIndex > len(claims) {
 		return nil, typedFailure(
 			renderExcerptStage,
-			domain.FailureArtifact,
-			"finding has no committed current evidence",
+			domain.FailureConfiguration,
+			"evidence index is not bound to the committed finding",
 			nil,
 		)
 	}
-	current := claims[0]
+	current := claims[evidenceIndex-1]
 	if current.TargetSHA256() != canonicalTarget || current.Verification() != evidence.ReceiptVerified {
 		return nil, typedFailure(
 			renderExcerptStage,
@@ -725,7 +746,7 @@ func (service *Service) RenderExcerpt(
 	if err := contextFailure(ctx, renderExcerptStage); err != nil {
 		return nil, err
 	}
-	artifactPath, err := excerptArtifactPath(run, findingID, 1)
+	artifactPath, err := excerptArtifactPath(run, findingID, evidenceIndex)
 	if err != nil {
 		return nil, typedFailure(
 			renderExcerptStage,
@@ -753,13 +774,13 @@ func (service *Service) RenderExcerpt(
 			err,
 		)
 	}
-	return service.verifyPersistedExcerpt(ctx, claim, current.SourceExcerptSHA256(), artifactPath, artifact)
+	return service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), artifactPath, artifact)
 }
 
 func (service *Service) verifyPersistedExcerpt(
 	ctx context.Context,
 	claim evidence.CurrentClaim,
-	sourceExcerptSHA256 string,
+	currentExcerptSHA256 string,
 	expectedPath ports.SafeRelativePath,
 	artifact ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
@@ -830,11 +851,11 @@ func (service *Service) verifyPersistedExcerpt(
 			nil,
 		)
 	}
-	if receipt.ExcerptSHA256() != sourceExcerptSHA256 {
+	if receipt.ExcerptSHA256() != currentExcerptSHA256 {
 		return nil, typedFailure(
 			renderExcerptStage,
 			domain.FailureArtifact,
-			"committed excerpt artifact does not match the source excerpt identity",
+			"committed excerpt artifact does not match the current excerpt identity",
 			nil,
 		)
 	}
@@ -1094,6 +1115,9 @@ func buildCommittedReview(
 	if !domain.RunType(final.RunType).Valid() || final.RunType != manifest.RunType {
 		return CommittedReview{}, fmt.Errorf("run type binding is invalid")
 	}
+	if err := validateProductionProvenance(final); err != nil {
+		return CommittedReview{}, err
+	}
 	if final.Validation.Status != "valid" && final.Validation.Status != "repaired_valid" ||
 		final.Validation.SchemaValidation != "passed" ||
 		final.Validation.SemanticValidation != "passed" ||
@@ -1181,6 +1205,8 @@ func buildCommittedReview(
 		runID,
 		reviewID,
 		final.Target.ContentSHA256,
+		domain.RunType(final.RunType),
+		final.ImmutableLineage,
 		expectedRoleFindingIDs,
 		roles,
 	)
@@ -1206,6 +1232,10 @@ func buildCommittedReview(
 	if err := validateOutcomeProjection(final, manifest, roles, findings, content, coverage, ci, decision); err != nil {
 		return CommittedReview{}, err
 	}
+	lineage, err := buildCommittedLineage(domain.RunType(final.RunType), runID, final.ImmutableLineage)
+	if err != nil {
+		return CommittedReview{}, err
+	}
 	return CommittedReview{
 		sessionID: sessionID, runID: runID, reviewID: reviewID, runState: domain.RunState(manifest.State),
 		finalPath: finalIdentity.Path(), finalSHA256: finalIdentity.SHA256(),
@@ -1214,11 +1244,165 @@ func buildCommittedReview(
 		epoch: epoch.Value(), epochPath: epoch.Record().Path(), targetSHA256: final.Target.ContentSHA256,
 		content: content, coverage: coverage, publication: publication, ci: ci,
 		followupOutcome: followupOutcome,
+		lineage:         lineage,
 		roles:           cloneRoles(roles), findings: cloneFindings(findings),
 		finalBytes: finalArtifact.Bytes(), manifestBytes: manifestArtifact.Bytes(),
 	}, nil
 }
 
+func validateProductionProvenance(final finalDTO) error {
+	production := final.Provenance.Production
+	if production == nil {
+		return nil
+	}
+	if final.RunType != string(domain.RunTypeReview) ||
+		final.Target.ContentSHA256 == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		return fmt.Errorf("production provenance is only valid for changed root reviews")
+	}
+	if production.BuildProduct != "kar" || !validBoundedText(production.BuildVersion, 128) ||
+		!validBoundedText(production.BuildCommit, 128) || production.BuildVersion != final.KAR.Version ||
+		final.KAR.Commit == nil || production.BuildCommit != *final.KAR.Commit {
+		return fmt.Errorf("production provenance build metadata does not match final KAR metadata")
+	}
+	if (production.ObjectivePresent && (production.ObjectiveSHA256 == nil || !validSHA256(*production.ObjectiveSHA256))) ||
+		(!production.ObjectivePresent && production.ObjectiveSHA256 != nil) ||
+		!validSHA256(production.SnapshotManifestSHA256) ||
+		!validReceiptID(production.WorkspaceTerminalReceipt) || len(production.Providers) == 0 {
+		return fmt.Errorf("production provenance root identity is invalid")
+	}
+	for index, provider := range production.Providers {
+		if !validProductionProvider(provider) {
+			return fmt.Errorf("production provider %d is invalid", index)
+		}
+		key := provider.Family + "\x00" + provider.Instance
+		if index > 0 && key <= production.Providers[index-1].Family+"\x00"+production.Providers[index-1].Instance {
+			return fmt.Errorf("production providers are not in canonical order")
+		}
+	}
+	return nil
+}
+
+func validProductionProvider(provider productionProviderDTO) bool {
+	if !validBoundedText(provider.Family, 64) || !validProviderInstance(provider.Instance) ||
+		!validBoundedText(provider.Version, 128) || !validBoundedText(provider.Executable, 1024) ||
+		!validSHA256(provider.ExecutableSHA256) || !validBoundedText(provider.ProfileGeneration, 256) ||
+		!validBoundedText(provider.AdapterProfile, 256) || !validReceiptID(provider.NamespaceTerminalReceipt) ||
+		!validOrderedReceiptIDs(provider.QualificationReceiptIDs) ||
+		!validOrderedReceiptIDs(provider.PacketTransportReceiptIDs) {
+		return false
+	}
+	return (provider.Launcher == "" && provider.LauncherSHA256 == "") ||
+		(validBoundedText(provider.Launcher, 1024) && validSHA256(provider.LauncherSHA256))
+}
+
+func validBoundedText(value string, maximum int) bool {
+	return value != "" && len(value) <= maximum && strings.TrimSpace(value) != ""
+}
+
+func validProviderInstance(value string) bool {
+	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if !(character >= 'a' && character <= 'z' || character >= '0' && character <= '9' ||
+			character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func validOrderedReceiptIDs(receipts []string) bool {
+	if len(receipts) == 0 {
+		return false
+	}
+	for index, receipt := range receipts {
+		if !validReceiptID(receipt) || index > 0 && receipts[index-1] >= receipt {
+			return false
+		}
+	}
+	return true
+}
+
+func validReceiptID(value string) bool {
+	if len(value) <= 65 {
+		return false
+	}
+	prefix, digest := value[:len(value)-64], value[len(value)-64:]
+	for _, character := range prefix {
+		if !(character >= 'a' && character <= 'z' || character >= '0' && character <= '9' ||
+			character == ':' || character == '-') {
+			return false
+		}
+	}
+	if !strings.HasSuffix(prefix, ":") {
+		return false
+	}
+	for _, character := range digest {
+		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lineageDTO) (CommittedLineage, error) {
+	if runType == domain.RunTypeReview {
+		if value.ParentRunID != nil || value.SourceRunID != nil || value.SourceReviewID != nil ||
+			value.SourceFindingRef != nil || value.ReplayMode != nil {
+			return CommittedLineage{}, fmt.Errorf("root review lineage is not empty")
+		}
+		return CommittedLineage{}, nil
+	}
+	if value.ParentRunID == nil || value.SourceRunID == nil || value.SourceReviewID == nil {
+		return CommittedLineage{}, fmt.Errorf("%s lineage is missing required source identities", runType)
+	}
+	parentRunID, err := domain.ParseRunID(*value.ParentRunID)
+	if err != nil || parentRunID == runID {
+		return CommittedLineage{}, fmt.Errorf("parent run lineage identity is invalid")
+	}
+	sourceRunID, err := domain.ParseRunID(*value.SourceRunID)
+	if err != nil || sourceRunID == runID {
+		return CommittedLineage{}, fmt.Errorf("source run lineage identity is invalid")
+	}
+	sourceReviewID, err := domain.ParseReviewID(*value.SourceReviewID)
+	if err != nil {
+		return CommittedLineage{}, fmt.Errorf("source review lineage identity is invalid")
+	}
+	result := CommittedLineage{
+		parentRunID: &parentRunID, sourceRunID: &sourceRunID, sourceReviewID: &sourceReviewID,
+	}
+	if value.SourceFindingRef != nil {
+		if !validFindingID(*value.SourceFindingRef) {
+			return CommittedLineage{}, fmt.Errorf("source finding lineage reference is invalid")
+		}
+		sourceFindingRef := *value.SourceFindingRef
+		result.sourceFindingRef = &sourceFindingRef
+	}
+	if value.ReplayMode != nil {
+		replayMode := ReplayMode(*value.ReplayMode)
+		if replayMode != ReplayModeExact && replayMode != ReplayModeRecompose {
+			return CommittedLineage{}, fmt.Errorf("replay mode lineage value is invalid")
+		}
+		result.replayMode = &replayMode
+	}
+	switch runType {
+	case domain.RunTypeFollowup:
+		if result.sourceFindingRef == nil || result.replayMode != nil {
+			return CommittedLineage{}, fmt.Errorf("followup lineage optional fields are invalid")
+		}
+	case domain.RunTypeDelta:
+		if result.sourceFindingRef != nil || result.replayMode != nil {
+			return CommittedLineage{}, fmt.Errorf("delta lineage optional fields are invalid")
+		}
+	case domain.RunTypeRerun:
+		if result.sourceFindingRef != nil || result.replayMode == nil {
+			return CommittedLineage{}, fmt.Errorf("rerun lineage optional fields are invalid")
+		}
+	default:
+		return CommittedLineage{}, fmt.Errorf("lineage run type is invalid")
+	}
+	return result, nil
+}
 func validateFollowupOutcome(final finalDTO, manifest manifestDTO) error {
 	if final.RunType != string(domain.RunTypeFollowup) {
 		if final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
@@ -1243,6 +1427,7 @@ func validateFollowupOutcome(final finalDTO, manifest manifestDTO) error {
 		if item.Source.SessionID != final.SessionID || item.Source.RunID != *lineage.SourceRunID ||
 			item.Source.ReviewID != *lineage.SourceReviewID || item.Source.FindingID != *lineage.SourceFindingRef ||
 			!validSHA256(item.Source.SourceTargetSHA256) || !validSHA256(item.Source.SourceExcerptSHA256) ||
+			!validSHA256(item.Current.CurrentExcerptSHA256) ||
 			item.Current.TargetSHA256 != final.Target.ContentSHA256 || item.Current.Verification != "verified" ||
 			item.Current.LineStart < 1 || item.Current.LineEnd < item.Current.LineStart ||
 			strings.TrimSpace(item.Current.Path) == "" || strings.TrimSpace(item.Current.Quote) == "" {
@@ -1289,12 +1474,16 @@ func buildFollowupOutcome(value *followupOutcomeDTO, sessionID domain.SessionID)
 		if err != nil {
 			return nil, fmt.Errorf("followup outcome evidence %d current claim is invalid", index)
 		}
+		currentExcerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+		if err != nil || currentExcerptSHA256 != item.Current.CurrentExcerptSHA256 {
+			return nil, fmt.Errorf("followup outcome evidence %d current excerpt identity is invalid", index)
+		}
 		evidenceViews[index] = FollowupEvidence{
 			sourceSessionID: sourceSessionID, sourceRunID: sourceRunID, sourceReviewID: sourceReviewID,
 			sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256,
-			sourceExcerptSHA256: item.Source.SourceExcerptSHA256, targetSHA256: claim.TargetSHA256(),
-			side: claim.Side(), path: path, lineStart: claim.LineStart(), lineEnd: claim.LineEnd(),
-			quote: claim.Quote(), verification: evidence.ReceiptVerified,
+			sourceExcerptSHA256: item.Source.SourceExcerptSHA256, currentExcerptSHA256: item.Current.CurrentExcerptSHA256,
+			targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: path, lineStart: claim.LineStart(),
+			lineEnd: claim.LineEnd(), quote: claim.Quote(), verification: evidence.ReceiptVerified,
 		}
 	}
 	return &FollowupOutcome{
@@ -1593,6 +1782,8 @@ func buildFindings(
 	runID domain.RunID,
 	reviewID domain.ReviewID,
 	targetSHA256 string,
+	runType domain.RunType,
+	lineage lineageDTO,
 	expectedRoleFindingIDs map[domain.Role][]string,
 	roles []Role,
 ) ([]Finding, error) {
@@ -1633,24 +1824,40 @@ func buildFindings(
 		}
 		if !role.Valid() || !severity.Valid() || !confidence.Valid() || !lifecycle.Valid() ||
 			!validSHA256(value.Fingerprint) || value.ProviderInstance == "" || value.Title == "" ||
-			value.Description == "" || value.Recommendation == "" || len(value.Evidence) != 1 {
-			return nil, fmt.Errorf("final finding fields or evidence identity are invalid")
+			value.Description == "" || value.Recommendation == "" {
+			return nil, fmt.Errorf("final finding fields are invalid")
 		}
 		evidenceViews := make([]Evidence, len(value.Evidence))
 		for evidenceIndex, item := range value.Evidence {
 			sourceSessionID, err := domain.ParseSessionID(item.Source.SessionID)
+			expectedSourceRunID, expectedSourceReviewID, expectedSourceFindingID := runID, reviewID, value.ID
+			if runType == domain.RunTypeFollowup {
+				if lineage.SourceRunID == nil || lineage.SourceReviewID == nil || lineage.SourceFindingRef == nil {
+					return nil, fmt.Errorf("followup source lineage is absent")
+				}
+				expectedSourceRunID, err = domain.ParseRunID(*lineage.SourceRunID)
+				if err != nil {
+					return nil, fmt.Errorf("followup source run lineage is invalid")
+				}
+				expectedSourceReviewID, err = domain.ParseReviewID(*lineage.SourceReviewID)
+				if err != nil {
+					return nil, fmt.Errorf("followup source review lineage is invalid")
+				}
+				expectedSourceFindingID = *lineage.SourceFindingRef
+			}
 			if err != nil || sourceSessionID != sessionID {
 				return nil, fmt.Errorf("source evidence session binding is invalid")
 			}
 			sourceRunID, err := domain.ParseRunID(item.Source.RunID)
-			if err != nil || sourceRunID != runID {
+			if err != nil || sourceRunID != expectedSourceRunID {
 				return nil, fmt.Errorf("source evidence run binding is invalid")
 			}
 			sourceReviewID, err := domain.ParseReviewID(item.Source.ReviewID)
-			if err != nil || sourceReviewID != reviewID || item.Source.FindingID != value.ID ||
+			if err != nil || sourceReviewID != expectedSourceReviewID || item.Source.FindingID != expectedSourceFindingID ||
 				!validSHA256(item.Source.SourceTargetSHA256) ||
 				!validSHA256(item.Source.SourceExcerptSHA256) ||
-				item.Source.SourceTargetSHA256 != targetSHA256 {
+				!validSHA256(item.Current.CurrentExcerptSHA256) ||
+				(runType != domain.RunTypeFollowup && item.Source.SourceTargetSHA256 != targetSHA256) {
 				return nil, fmt.Errorf("source evidence finding binding is invalid")
 			}
 			if item.Current.Verification != string(evidence.ReceiptVerified) || item.Current.TargetSHA256 != targetSHA256 {
@@ -1667,24 +1874,28 @@ func buildFindings(
 			if err != nil {
 				return nil, fmt.Errorf("current evidence claim is invalid")
 			}
-			excerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
-			if err != nil || excerptSHA256 != item.Source.SourceExcerptSHA256 {
+			currentExcerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+			if err != nil || currentExcerptSHA256 != item.Current.CurrentExcerptSHA256 {
 				return nil, fmt.Errorf("current evidence excerpt identity is invalid")
 			}
 			evidenceViews[evidenceIndex] = Evidence{
 				sourceSessionID: sourceSessionID, sourceRunID: sourceRunID, sourceReviewID: sourceReviewID,
 				sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256,
-				sourceExcerptSHA256: item.Source.SourceExcerptSHA256, targetSHA256: claim.TargetSHA256(),
-				side: claim.Side(), path: claim.Path(), lineStart: claim.LineStart(), lineEnd: claim.LineEnd(),
-				quote: claim.Quote(), verification: evidence.ReceiptVerified,
+				sourceExcerptSHA256: item.Source.SourceExcerptSHA256, currentExcerptSHA256: item.Current.CurrentExcerptSHA256,
+				targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path(), lineStart: claim.LineStart(),
+				lineEnd: claim.LineEnd(), quote: claim.Quote(), verification: evidence.ReceiptVerified,
 			}
+		}
+		orderedEvidence, err := canonicalEvidenceItems(evidenceViews)
+		if err != nil {
+			return nil, fmt.Errorf("final finding evidence identity is invalid: %w", err)
 		}
 		actualRoleFindingIDs[role] = append(actualRoleFindingIDs[role], value.ID)
 		findings[index] = Finding{
 			id: value.ID, fingerprint: value.Fingerprint, role: role, providerInstance: value.ProviderInstance,
 			severity: severity, title: value.Title, description: value.Description,
 			recommendation: value.Recommendation, confidence: confidence, lifecycle: lifecycle,
-			evidence: evidenceViews,
+			evidence: orderedEvidence,
 		}
 	}
 	for role, expected := range expectedRoleFindingIDs {
@@ -1700,6 +1911,52 @@ func buildFindings(
 	}
 	return findings, nil
 }
+func canonicalEvidenceItems(items []Evidence) ([]Evidence, error) {
+	if len(items) == 0 || len(items) > 20 {
+		return nil, fmt.Errorf("evidence count must be between 1 and 20")
+	}
+	ordered := append([]Evidence(nil), items...)
+	sort.Slice(ordered, func(left, right int) bool {
+		return canonicalEvidenceKey(ordered[left]) < canonicalEvidenceKey(ordered[right])
+	})
+	for index := range items {
+		if canonicalEvidenceKey(items[index]) != canonicalEvidenceKey(ordered[index]) {
+			return nil, fmt.Errorf("evidence order is not canonical")
+		}
+	}
+	for index := 1; index < len(ordered); index++ {
+		if canonicalEvidenceKey(ordered[index-1]) == canonicalEvidenceKey(ordered[index]) {
+			return nil, fmt.Errorf("evidence tuple is duplicated")
+		}
+	}
+	return ordered, nil
+}
+
+func canonicalEvidenceKey(item Evidence) string {
+	fields := []string{
+		item.SourceSessionID().String(),
+		item.SourceRunID().String(),
+		item.SourceReviewID().String(),
+		item.SourceFindingID(),
+		item.SourceTargetSHA256(),
+		item.SourceExcerptSHA256(),
+		item.CurrentExcerptSHA256(),
+		item.TargetSHA256(),
+		string(item.Side()),
+		item.Path().String(),
+		strconv.Itoa(item.LineStart()),
+		strconv.Itoa(item.LineEnd()),
+		string(item.Verification()),
+	}
+	var key strings.Builder
+	for _, field := range fields {
+		key.WriteString(strconv.Itoa(len(field)))
+		key.WriteByte(':')
+		key.WriteString(field)
+		key.WriteByte('|')
+	}
+	return key.String()
+}
 
 func validateOutcomeProjection(
 	final finalDTO,
@@ -1712,8 +1969,7 @@ func validateOutcomeProjection(
 	decision domain.PublicationDecision,
 ) error {
 	threshold := domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove)
-	if !threshold.Valid() || (final.SeverityThreshold.PolicySource != "trusted_base" &&
-		final.SeverityThreshold.PolicySource != "trusted_project_strengthening") {
+	if !threshold.Valid() || final.SeverityThreshold.PolicySource != "project_local" {
 		return fmt.Errorf("severity threshold is invalid")
 	}
 	expectedContent := domain.ContentNoFindings
@@ -1978,9 +2234,9 @@ func queryFailurePrecedence(class domain.FailureClass) int {
 	switch class {
 	case domain.FailureInternal:
 		return 7
-	case domain.FailureArtifact:
-		return 6
 	case domain.FailureSecurityPolicy:
+		return 6
+	case domain.FailureArtifact:
 		return 5
 	case domain.FailureCancelled:
 		return 4
@@ -2069,17 +2325,18 @@ func requiredSchemaAsset(value string) ports.AssetID {
 }
 
 func validFindingID(value string) bool {
-	if len(value) < 4 || value[0] != 'F' {
+	if len(value) < 1 || len(value) > 64 || value[0] < 'A' || value[0] > 'Z' {
 		return false
 	}
-	nonzero := false
 	for _, character := range value[1:] {
-		if character < '0' || character > '9' {
+		if (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') &&
+			character != '_' &&
+			character != '-' {
 			return false
 		}
-		nonzero = nonzero || character != '0'
 	}
-	return nonzero
+	return true
 }
 
 func validSHA256(value string) bool {

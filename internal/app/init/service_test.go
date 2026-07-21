@@ -1,336 +1,912 @@
 package init
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
-	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestInitializeProjectWritesStrictConfigurationAndExactUnverifiedProviderSet(t *testing.T) {
-	root := testRoot(t)
-	contextPath := testRelativePath(t, ".kar/context.md")
-	wantYAML := "version: 1\ntrusted_base: true\nproject:\n  name: \"project-alpha\"\n  root: \".\"\n  context: \".kar/context.md\"\n"
-	writer := &fakeSecureWriter{receipt: receiptFor(t, projectConfigPath, []byte(wantYAML))}
-	clockTime := time.Date(2026, time.July, 14, 12, 30, 45, 0, time.FixedZone("test", 9*60*60))
-	service := mustNewService(t, writer, fixedClock{now: clockTime})
+type testClock struct{}
 
-	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot:         root,
-		ProjectName:         "project-alpha",
-		ContextPath:         &contextPath,
-		IntendedProviderIDs: []string{"kimi", "zcode", "agy"},
-	})
-	if err != nil {
-		t.Fatalf("InitializeProject() error = %v", err)
-	}
+func (testClock) Now() time.Time { return time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC) }
 
-	if got, want := writer.calls, []string{"ensure:.kar", "write:.kar.yaml"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("writer calls = %#v, want %#v", got, want)
+type testResultPrevalidator struct{ err error }
+
+func (validator testResultPrevalidator) PrevalidateInitOutcome(_ context.Context, outcome PrevalidatedOutcome) error {
+	if validator.err != nil {
+		return validator.err
 	}
-	if got := string(writer.source); got != wantYAML {
-		t.Fatalf("written YAML = %q, want %q", got, wantYAML)
-	}
-	if writer.sourceErr != nil {
-		t.Fatalf("read write source: %v", writer.sourceErr)
-	}
-	if got, want := writer.writeRequest.Channel(), projectConfigChannel; got != want {
-		t.Fatalf("write channel = %q, want %q", got, want)
-	}
-	if got, want := writer.writeRequest.MaxBytes(), int64(len(wantYAML)); got != want {
-		t.Fatalf("write max bytes = %d, want %d", got, want)
-	}
-	if got, want := writer.writeRequest.SourceIDs(), []string{projectConfigSourceID}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("write source IDs = %#v, want %#v", got, want)
-	}
-	if writer.writeRequest.Abort() == nil {
-		t.Fatal("write abort callback is nil")
-	}
-	if got, want := result.ConfigReceipt.Destination().String(), projectConfigPath; got != want {
-		t.Fatalf("receipt destination = %q, want %q", got, want)
-	}
-	if got, want := result.ConfigReceipt.ByteLength(), int64(len(wantYAML)); got != want {
-		t.Fatalf("receipt byte length = %d, want %d", got, want)
-	}
-	if got, want := result.ConfigReceipt.SHA256(), sha256ID([]byte(wantYAML)); got != want {
-		t.Fatalf("receipt SHA256 = %q, want %q", got, want)
-	}
-	if got, want := result.ProviderStatuses, []ProviderStatus{
-		{ID: "kimi", Status: "unverified"},
-		{ID: "zcode", Status: "unverified"},
-		{ID: "agy", Status: "unverified"},
-	}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("provider statuses = %#v, want %#v", got, want)
-	}
-	if got, want := result.GitignoreSuggestions, []string{".kar/s_*/", ".kar/cache/"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("gitignore suggestions = %#v, want %#v", got, want)
-	}
-	if !result.InitializedAt.Equal(clockTime) {
-		t.Fatalf("initialized at = %s, want %s", result.InitializedAt, clockTime)
-	}
+	return outcome.Result.Validate()
 }
 
-func TestInitializeProjectRejectsDuplicateAndUnsupportedIntendedProvidersBeforeWriting(t *testing.T) {
-	root := testRoot(t)
-	tests := []struct {
-		name    string
-		request InitializeProjectRequest
-	}{
-		{
-			name: "duplicate intended",
-			request: InitializeProjectRequest{
-				ProjectRoot:         root,
-				ProjectName:         "project",
-				IntendedProviderIDs: []string{"kimi", "kimi"},
-			},
-		},
-		{
-			name: "unknown intended",
-			request: InitializeProjectRequest{
-				ProjectRoot:         root,
-				ProjectName:         "project",
-				IntendedProviderIDs: []string{"unknown"},
-			},
-		},
-		{
-			name: "codex intended",
-			request: InitializeProjectRequest{
-				ProjectRoot:         root,
-				ProjectName:         "project",
-				IntendedProviderIDs: []string{"codex"},
-			},
-		},
-		{
-			name: "claude intended",
-			request: InitializeProjectRequest{
-				ProjectRoot:         root,
-				ProjectName:         "project",
-				IntendedProviderIDs: []string{"claude"},
-			},
-		},
-	}
+type testInspector struct{ absent bool }
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			writer := &fakeSecureWriter{}
-			service := mustNewService(t, writer, fixedClock{})
-			result, err := service.InitializeProject(context.Background(), test.request)
-			if err == nil {
-				t.Fatal("InitializeProject() succeeded")
-			}
-			if !isZeroInitializeProjectResult(result) {
-				t.Fatalf("result = %#v, want zero result", result)
-			}
-			if len(writer.calls) != 0 {
-				t.Fatalf("writer calls = %#v, want none", writer.calls)
-			}
-		})
-	}
+type kimiHomeInspector struct {
+	testInspector
+	home string
 }
 
-func TestInitializeProjectDoesNotReturnPartialSuccessOnWriterFailure(t *testing.T) {
-	root := testRoot(t)
-	wantYAML := []byte("version: 1\ntrusted_base: true\nproject:\n  name: \"project\"\n  root: \".\"\n")
-	existing := errors.New("destination already exists")
-	drop, err := ports.NewDropMetadata(projectConfigChannel, "credential_assignment", 1, []string{projectConfigSourceID})
+func (inspector kimiHomeInspector) KimiCodeHome() (string, error) { return inspector.home, nil }
+
+func (testInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
+	return ports.NewPlatformObservation("darwin", "arm64")
+}
+func (inspector testInspector) ObserveExecutable(_ context.Context, name string) (ports.ExecutableObservation, error) {
+	if inspector.absent || name == "kimi" || name == "node" || name == "agy" || !filepath.IsAbs(name) {
+		return ports.NewExecutableObservation(name, false, "", "", "")
+	}
+	return ports.NewExecutableObservation(name, true, name, "", "")
+}
+func (inspector testInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
+	return inspector.ObserveExecutable(ctx, name)
+}
+func (inspector testInspector) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
+	if inspector.absent || !filepath.IsAbs(name) {
+		return ports.NewFileIdentityObservation(name, false, "", "")
+	}
+	return ports.NewFileIdentityObservation(name, true, name, "")
+}
+
+func (testInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
+	return ports.NativeHomeLaunchAuthority{}, nil
+}
+func (testInspector) ObservePermission(context.Context, ports.AnchoredRoot, ports.SafeRelativePath) (ports.PermissionObservation, error) {
+	return ports.PermissionObservation{}, errors.New("unused")
+}
+
+type scopedDiscoveryInspector struct {
+	calls            []string
+	readableCalls    []string
+	legacyCalls      []string
+	observations     map[string]ports.ExecutableObservation
+	fileObservations map[string]ports.FileIdentityObservation
+	errors           map[string]error
+	kimiHomeErr      error
+}
+
+func (inspector *scopedDiscoveryInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
+	return ports.NewPlatformObservation("darwin", "arm64")
+}
+func (inspector *scopedDiscoveryInspector) ObserveExecutable(_ context.Context, name string) (ports.ExecutableObservation, error) {
+	inspector.legacyCalls = append(inspector.legacyCalls, name)
+	return ports.ExecutableObservation{}, errors.New("legacy executable observation must not run")
+}
+func (inspector *scopedDiscoveryInspector) ObserveExecutableIdentity(_ context.Context, name string) (ports.ExecutableObservation, error) {
+	inspector.calls = append(inspector.calls, name)
+	if err := inspector.errors[name]; err != nil {
+		return ports.ExecutableObservation{}, err
+	}
+	if observation, ok := inspector.observations[name]; ok {
+		return observation, nil
+	}
+	return ports.NewExecutableObservation(name, false, "", "", "")
+}
+func (inspector *scopedDiscoveryInspector) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
+	inspector.readableCalls = append(inspector.readableCalls, name)
+	if err := inspector.errors[name]; err != nil {
+		return ports.FileIdentityObservation{}, err
+	}
+	if observation, ok := inspector.fileObservations[name]; ok {
+		return observation, nil
+	}
+	return ports.NewFileIdentityObservation(name, false, "", "")
+}
+
+func (*scopedDiscoveryInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
+	return ports.NativeHomeLaunchAuthority{}, nil
+}
+func (inspector *scopedDiscoveryInspector) KimiCodeHome() (string, error) {
+	return "", inspector.kimiHomeErr
+}
+func (*scopedDiscoveryInspector) ObservePermission(context.Context, ports.AnchoredRoot, ports.SafeRelativePath) (ports.PermissionObservation, error) {
+	return ports.PermissionObservation{}, errors.New("unused")
+}
+
+func availableDiscoveryObservation(t *testing.T, name, resolved string) ports.ExecutableObservation {
+	t.Helper()
+	observation, err := ports.NewExecutableObservation(name, true, resolved, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tests := []struct {
-		name             string
-		writer           *fakeSecureWriter
-		wantCalls        []string
-		wantAbortInvoked bool
-		wantError        error
+	return observation
+}
+
+func availableFileObservation(t *testing.T, name, resolved string) ports.FileIdentityObservation {
+	t.Helper()
+	observation, err := ports.NewFileIdentityObservation(name, true, resolved, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+type testAttestor struct{}
+
+func (testAttestor) Attest(_ context.Context, request ports.ConfigLocalityRequest) (ports.ConfigLocalityContext, error) {
+	device, inode, uid, mode := request.Config().RootIdentity()
+	return ports.NewConfigLocalityContext("repo", device, inode, uid, mode, "head", "tree", "sha256:index", 0, false, []string{"head"}, request.Config(), ports.ParsedTargetProof{SHA256: "sha256:target", PrivatePathFree: true})
+}
+
+type scriptedAttestor struct {
+	attestCalls      int
+	revalidateCalls  int
+	failAttestAt     int
+	failRevalidateAt int
+}
+
+type finalConfigMutatingAttestor struct {
+	path    string
+	mutated bool
+}
+
+func (attestor *finalConfigMutatingAttestor) Attest(ctx context.Context, request ports.ConfigLocalityRequest) (ports.ConfigLocalityContext, error) {
+	return (testAttestor{}).Attest(ctx, request)
+}
+func (attestor *finalConfigMutatingAttestor) Revalidate(ctx context.Context, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+	if err := (testAttestor{}).Revalidate(ctx, request, expected); err != nil {
+		return err
+	}
+	if request.Config().Present() && !attestor.mutated {
+		attestor.mutated = true
+		return os.WriteFile(attestor.path, []byte("version: 2\n"), 0o600)
+	}
+	return nil
+}
+
+func (attestor *scriptedAttestor) Attest(ctx context.Context, request ports.ConfigLocalityRequest) (ports.ConfigLocalityContext, error) {
+	attestor.attestCalls++
+	if attestor.attestCalls == attestor.failAttestAt {
+		return ports.ConfigLocalityContext{}, errors.New("injected attest failure")
+	}
+	return (testAttestor{}).Attest(ctx, request)
+}
+func (attestor *scriptedAttestor) Revalidate(ctx context.Context, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+	attestor.revalidateCalls++
+	if attestor.revalidateCalls == attestor.failRevalidateAt {
+		return errors.New("injected revalidation failure")
+	}
+	return (testAttestor{}).Revalidate(ctx, request, expected)
+}
+func (attestor testAttestor) Revalidate(ctx context.Context, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+	actual, err := attestor.Attest(ctx, request)
+	if err != nil {
+		return err
+	}
+	if !actual.Equal(expected) {
+		return errors.New("drift")
+	}
+	return nil
+}
+
+type testInstaller struct {
+	rootError    bool
+	existing     bool
+	installError error
+	prepareCalls int
+	installCalls int
+}
+
+type afterInstallTestInstaller struct {
+	delegate *testInstaller
+	after    func(ports.AnchoredRoot, []byte) error
+}
+
+type afterPrepareTestInstaller struct {
+	delegate *testInstaller
+	after    func(ports.AnchoredRoot) error
+}
+
+func (installer *afterPrepareTestInstaller) PrepareConfigDirectory(ctx context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
+	receipt, err := installer.delegate.PrepareConfigDirectory(ctx, root)
+	if err == nil && installer.after != nil {
+		err = installer.after(root)
+	}
+	return receipt, err
+}
+func (installer *afterPrepareTestInstaller) InstallConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return installer.delegate.InstallConfig(ctx, root, prepared, data)
+}
+
+func (installer *afterInstallTestInstaller) PrepareConfigDirectory(ctx context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
+	return installer.delegate.PrepareConfigDirectory(ctx, root)
+}
+func (installer *afterInstallTestInstaller) InstallConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	receipt, err := installer.delegate.InstallConfig(ctx, root, prepared, data)
+	if err == nil && installer.after != nil {
+		err = installer.after(root, data)
+	}
+	return receipt, err
+}
+
+func (installer *testInstaller) PrepareConfigDirectory(_ context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
+	installer.prepareCalls++
+	created := !installer.existing
+	if created {
+		if err := os.Mkdir(filepath.Join(root.String(), ".kar"), 0o700); err != nil {
+			return ports.ConfigDirectoryReceipt{}, err
+		}
+	}
+	source, err := adapterconfig.NewLocalConfigSource(root, true)
+	if err != nil {
+		return ports.ConfigDirectoryReceipt{}, err
+	}
+	identity, err := source.Observation().DirectoryIdentity()
+	if err != nil {
+		return ports.ConfigDirectoryReceipt{}, err
+	}
+	receipt, err := ports.NewVerifiedConfigDirectoryReceipt(created, identity)
+	if err != nil {
+		return ports.ConfigDirectoryReceipt{}, err
+	}
+	if installer.rootError {
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootSync, ports.ConfigDestinationAbsent, errors.New("sync"))
+	}
+	return receipt, nil
+}
+func (installer *testInstaller) InstallConfig(_ context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	installer.installCalls++
+	expected, ok := prepared.Identity()
+	if !ok {
+		return ports.ConfigInstallReceipt{}, errors.New("missing prepared identity")
+	}
+	source, err := adapterconfig.NewLocalConfigSource(root, true)
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	actual, err := source.Observation().DirectoryIdentity()
+	if err != nil || !actual.Equal(expected) {
+		return ports.ConfigInstallReceipt{}, errors.New("prepared identity changed")
+	}
+	if installer.installError != nil {
+		return ports.ConfigInstallReceipt{}, installer.installError
+	}
+	path := filepath.Join(root.String(), ".kar", "config.yaml")
+	if _, err := os.Lstat(path); err == nil {
+		return ports.ConfigInstallReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStageCollision, ports.ConfigDestinationPresent, os.ErrExist)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	installed, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	configIdentity, err := installed.Observation().InstalledConfigIdentity()
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	return ports.NewVerifiedConfigInstallReceipt(expected, configIdentity)
+}
+
+func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing.T) {
+	rootPath := t.TempDir()
+	if err := os.Chmod(rootPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := &testInstaller{}
+	service, err := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{err: errors.New("schema rejected result")}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, initErr := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root,
+		ProjectName: "project",
+		NativeHome:  "/Users/test",
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
+		Overrides:   Overrides{AGYExecutable: "/bin/agy"},
+	})
+	if initErr == nil {
+		t.Fatal("prevalidation failure was accepted")
+	}
+	var failure *Failure
+	if !errors.As(initErr, &failure) || failure.Code() != "init_result_prevalidation_failed" {
+		t.Fatalf("error = %v", initErr)
+	}
+	if result.WriteState != "not_attempted" || result.DestinationState != ports.ConfigDestinationNotObserved {
+		t.Fatalf("result = %#v", result)
+	}
+	if installer.prepareCalls != 0 || installer.installCalls != 0 {
+		t.Fatalf("installer calls = prepare %d install %d", installer.prepareCalls, installer.installCalls)
+	}
+	if _, err := os.Lstat(filepath.Join(rootPath, ".kar")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prevalidation mutated .kar: %v", err)
+	}
+}
+
+func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
+	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(launcherRoot, "zcode.cjs")
+	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for mask := 1; mask < 8; mask++ {
+		rootPath := t.TempDir()
+		_ = os.Chmod(rootPath, 0o700)
+		root, _ := ports.NewAnchoredRoot(rootPath)
+		ids := []string{}
+		overrides := Overrides{}
+		if mask&1 != 0 {
+			ids = append(ids, "kimi")
+			overrides.KimiExecutable = "/bin/kimi"
+		}
+		if mask&2 != 0 {
+			ids = append(ids, "zcode")
+			overrides.ZCodeNodeExecutable = "/bin/node"
+			overrides.ZCodeLauncher = launcher
+		}
+		if mask&4 != 0 {
+			ids = append(ids, "agy")
+			overrides.AGYExecutable = "/bin/agy"
+		}
+		service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: ids}, Overrides: overrides})
+		if err != nil {
+			t.Fatalf("mask %d: %v", mask, err)
+		}
+		if !result.Committed || result.WriteState != "committed" || !reflect.DeepEqual(result.ConfiguredProviderIDs, ids) {
+			t.Fatalf("mask %d result=%#v", mask, result)
+		}
+	}
+}
+
+func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	inspector := &scopedDiscoveryInspector{
+		observations: map[string]ports.ExecutableObservation{
+			"/bin/agy": availableDiscoveryObservation(t, "/bin/agy", "/bin/agy"),
+		},
+		errors: map[string]error{"kimi": errors.New("poisoned unselected Kimi"), "node": errors.New("poisoned unselected ZCode")},
+	}
+	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
+		Overrides: Overrides{AGYExecutable: "/bin/agy"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inspector.calls, []string{"/bin/agy"}) || len(inspector.legacyCalls) != 0 {
+		t.Fatalf("observations=%v legacy=%v", inspector.calls, inspector.legacyCalls)
+	}
+	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" {
+		t.Fatalf("discovery=%#v", result.Discovery)
+	}
+}
+
+func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *testing.T) {
+	const nodeOverride = "/opt/custom/node"
+	const launcherOverride = "/opt/custom/zcode.cjs"
+	for _, test := range []struct {
+		name               string
+		overrides          Overrides
+		observations       map[string]ports.ExecutableObservation
+		fileObservations   map[string]ports.FileIdentityObservation
+		errors             map[string]error
+		wantExecutableCall string
+		wantReadableCall   string
+		wantNodeSource     string
+		wantLauncherSource string
 	}{
 		{
-			name:      "private directory failure",
-			writer:    &fakeSecureWriter{ensureErr: errors.New("unsafe directory")},
-			wantCalls: []string{"ensure:.kar"},
-		},
-		{
-			name:      "existing destination collision",
-			writer:    &fakeSecureWriter{receipt: receiptFor(t, projectConfigPath, wantYAML), writeErr: existing},
-			wantCalls: []string{"ensure:.kar", "write:.kar.yaml"},
-			wantError: existing,
-		},
-		{
-			name: "security drop",
-			writer: &fakeSecureWriter{
-				receipt:     receiptFor(t, projectConfigPath, wantYAML),
-				writeDrop:   &drop,
-				writeErr:    errors.New("secure writer dropped configuration"),
-				invokeAbort: true,
+			name:      "node override and bundled launcher",
+			overrides: Overrides{ZCodeNodeExecutable: nodeOverride},
+			observations: map[string]ports.ExecutableObservation{
+				nodeOverride: availableDiscoveryObservation(t, nodeOverride, nodeOverride),
 			},
-			wantCalls:        []string{"ensure:.kar", "write:.kar.yaml"},
-			wantAbortInvoked: true,
+			fileObservations: map[string]ports.FileIdentityObservation{
+				reviewrun.ZCodeLauncher: availableFileObservation(t, reviewrun.ZCodeLauncher, reviewrun.ZCodeLauncher),
+			},
+			errors:             map[string]error{"node": errors.New("unused PATH node observed")},
+			wantExecutableCall: nodeOverride, wantReadableCall: reviewrun.ZCodeLauncher,
+			wantNodeSource: "override", wantLauncherSource: "bundled",
 		},
-	}
-
-	for _, test := range tests {
+		{
+			name:      "PATH node and launcher override",
+			overrides: Overrides{ZCodeLauncher: launcherOverride},
+			observations: map[string]ports.ExecutableObservation{
+				"node": availableDiscoveryObservation(t, "node", "/opt/path/node"),
+			},
+			fileObservations: map[string]ports.FileIdentityObservation{
+				launcherOverride: availableFileObservation(t, launcherOverride, launcherOverride),
+			},
+			errors:             map[string]error{reviewrun.ZCodeLauncher: errors.New("unused bundled launcher observed")},
+			wantExecutableCall: "node", wantReadableCall: launcherOverride,
+			wantNodeSource: "startup_path", wantLauncherSource: "override",
+		},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			service := mustNewService(t, test.writer, fixedClock{})
+			rootPath := t.TempDir()
+			_ = os.Chmod(rootPath, 0o700)
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			inspector := &scopedDiscoveryInspector{observations: test.observations, fileObservations: test.fileObservations, errors: test.errors}
+			service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			if err != nil {
+				t.Fatal(err)
+			}
 			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-				ProjectRoot: root,
-				ProjectName: "project",
+				ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+				Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode"}}, Overrides: test.overrides,
 			})
-			if err == nil {
-				t.Fatal("InitializeProject() succeeded")
+			if err != nil {
+				t.Fatal(err)
 			}
-			if test.wantError != nil && !errors.Is(err, test.wantError) {
-				t.Fatalf("InitializeProject() error = %v, want wrapped %v", err, test.wantError)
-			}
-			if !isZeroInitializeProjectResult(result) {
-				t.Fatalf("result = %#v, want zero result", result)
-			}
-			if got := test.writer.calls; !reflect.DeepEqual(got, test.wantCalls) {
-				t.Fatalf("writer calls = %#v, want %#v", got, test.wantCalls)
-			}
-			if got := test.writer.abortCalls != 0; got != test.wantAbortInvoked {
-				t.Fatalf("abort invoked = %t, want %t", got, test.wantAbortInvoked)
+			row := result.Discovery[1]
+			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{test.wantExecutableCall}) || !reflect.DeepEqual(inspector.readableCalls, []string{test.wantReadableCall}) || row.NodeExecutableSource != test.wantNodeSource || row.LauncherSource != test.wantLauncherSource {
+				t.Fatalf("result=%#v calls=%v readable=%v", result, inspector.calls, inspector.readableCalls)
 			}
 		})
 	}
 }
 
-func TestNewServiceRejectsNilWriter(t *testing.T) {
-	if service, err := NewService(nil, fixedClock{}); err == nil || service != nil {
-		t.Fatalf("NewService(nil, clock) = (%#v, %v), want nil service and error", service, err)
-	}
-}
-
-func TestInitializeProjectRejectsMismatchedWriterReceipt(t *testing.T) {
-	root := testRoot(t)
-	wrongReceipt := receiptFor(t, ".kar/other.yaml", []byte("other"))
-	writer := &fakeSecureWriter{receipt: wrongReceipt}
-	service := mustNewService(t, writer, fixedClock{})
-
+func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	inspector := &scopedDiscoveryInspector{errors: map[string]error{"agy": errors.New("injected AGY discovery failure")}}
+	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot: root,
-		ProjectName: "project",
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
 	})
 	if err == nil {
-		t.Fatal("InitializeProject() succeeded")
+		t.Fatal("selected provider discovery failure accepted")
 	}
-	if !isZeroInitializeProjectResult(result) {
-		t.Fatalf("result = %#v, want zero result", result)
-	}
-	if got, want := writer.calls, []string{"ensure:.kar", "write:.kar.yaml"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("writer calls = %#v, want %#v", got, want)
+	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" {
+		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
 
-func TestInitializeProjectOnlyReturnsGitignoreSuggestions(t *testing.T) {
-	root := testRoot(t)
-	wantYAML := []byte("version: 1\ntrusted_base: true\nproject:\n  name: \"project\"\n  root: \".\"\n")
-	writer := &fakeSecureWriter{receipt: receiptFor(t, projectConfigPath, wantYAML)}
-	service := mustNewService(t, writer, fixedClock{})
-
+func TestInitializeProjectAutoRetainsAvailableFamilyWhenAnotherDiscoveryFails(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	inspector := &scopedDiscoveryInspector{
+		observations: map[string]ports.ExecutableObservation{
+			"kimi":      availableDiscoveryObservation(t, "kimi", "/bin/kimi"),
+			"/bin/kimi": availableDiscoveryObservation(t, "/bin/kimi", "/bin/kimi"),
+		},
+		errors: map[string]error{"node": errors.New("injected ZCode discovery failure")},
+	}
+	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot: root,
-		ProjectName: "project",
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto},
 	})
 	if err != nil {
-		t.Fatalf("InitializeProject() error = %v", err)
+		t.Fatal(err)
 	}
-	if got, want := writer.calls, []string{"ensure:.kar", "write:.kar.yaml"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("writer calls = %#v, want %#v", got, want)
+	if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"kimi"}) || len(result.Discovery) != 3 || result.Discovery[0].Status != "candidate" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "unavailable" {
+		t.Fatalf("result=%#v", result)
 	}
-	if got, want := result.GitignoreSuggestions, []string{".kar/s_*/", ".kar/cache/"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("gitignore suggestions = %#v, want %#v", got, want)
+	if len(inspector.legacyCalls) != 0 {
+		t.Fatalf("provider executable was launched during discovery: %v", inspector.legacyCalls)
 	}
 }
 
-type fixedClock struct {
-	now time.Time
-}
-
-func (clock fixedClock) Now() time.Time {
-	return clock.now
-}
-
-type fakeSecureWriter struct {
-	calls        []string
-	ensureErr    error
-	writeErr     error
-	writeDrop    *ports.DropMetadata
-	receipt      ports.SecureWriteReceipt
-	writeRequest ports.SecureWriteRequest
-	source       []byte
-	sourceErr    error
-	invokeAbort  bool
-	abortCalls   int
-}
-
-func (writer *fakeSecureWriter) EnsurePrivateDir(_ ports.AnchoredRoot, directory ports.SafeRelativePath) error {
-	writer.calls = append(writer.calls, "ensure:"+directory.String())
-	return writer.ensureErr
-}
-
-func (writer *fakeSecureWriter) Write(_ context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
-	writer.calls = append(writer.calls, "write:"+request.Destination().String())
-	writer.writeRequest = request
-	writer.source, writer.sourceErr = io.ReadAll(request.Source())
-	if writer.invokeAbort {
-		writer.abortCalls++
-		request.Abort()(writer.writeErr)
+func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsThreeRows(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	inspector := &scopedDiscoveryInspector{
+		observations: map[string]ports.ExecutableObservation{
+			"/bin/kimi": availableDiscoveryObservation(t, "/bin/kimi", "/bin/kimi"),
+		},
+		kimiHomeErr: errors.New("invalid startup KIMI_CODE_HOME"),
 	}
-	return writer.receipt, writer.writeDrop, writer.writeErr
+	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi"}},
+		Overrides: Overrides{KimiExecutable: "/bin/kimi"},
+	})
+	if err == nil {
+		t.Fatal("unsafe startup KIMI_CODE_HOME accepted")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
+		t.Fatalf("failure=%T %v", err, err)
+	}
+	if len(result.Discovery) != 3 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" {
+		t.Fatalf("discovery=%#v", result.Discovery)
+	}
 }
 
-func mustNewService(t *testing.T, writer ports.SecureFileWriter, clock ports.Clock) *Service {
-	t.Helper()
-	service, err := NewService(writer, clock)
+func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
+	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return service
-}
-
-func testRoot(t *testing.T) ports.AnchoredRoot {
-	t.Helper()
-	root, err := ports.NewAnchoredRoot("/private/project")
+	launcher := filepath.Join(launcherRoot, "zcode.cjs")
+	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	inspector := kimiHomeInspector{testInspector: testInspector{}, home: "/Users/test/custom-kimi"}
+	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return root
-}
-
-func testRelativePath(t *testing.T, value string) ports.SafeRelativePath {
-	t.Helper()
-	path, err := ports.NewSafeRelativePath(value)
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", NativeHomeAsserted: true,
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi", "zcode", "agy"}},
+		Overrides: Overrides{
+			KimiExecutable: "/bin/kimi", ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher,
+			AGYExecutable: "/bin/agy", AGYPermissionMode: "dangerously-skip-permissions",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	want := []DiscoveryRow{
+		{Family: "kimi", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "default_k3", DataHomeSource: "startup_environment"},
+		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", NodeExecutableSource: "override", LauncherSource: "override"},
+		{Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", NativeHomeSource: "verified_equal_input", PermissionModeSource: "explicit"},
+	}
+	if !reflect.DeepEqual(result.Discovery, want) {
+		t.Fatalf("discovery=%#v, want %#v", result.Discovery, want)
+	}
 }
 
-func receiptFor(t *testing.T, destination string, data []byte) ports.SecureWriteReceipt {
-	t.Helper()
-	path := testRelativePath(t, destination)
-	receipt, err := ports.NewSecureWriteReceipt(testRoot(t), path, sha256ID(data), int64(len(data)), projectConfigChannel, []string{projectConfigSourceID})
+func TestInitializeProjectReportsCreatedAndExistingRootBarrierTruthfully(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		existing bool
+		want     string
+	}{{"created", false, "private_dir_created_unconfirmed"}, {"existing", true, "private_dir_existing_unconfirmed"}} {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			_ = os.Chmod(rootPath, 0o700)
+			if test.existing {
+				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+			}
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			installer := &testInstaller{rootError: true, existing: test.existing}
+			service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}})
+			if err == nil || result.WriteState != test.want || result.Committed {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestPrepareFailureWithReplacementConfigPreservesRootBarrierState(t *testing.T) {
+	receipt := ports.ConfigDirectoryReceipt{}
+	state, destination, code := prepareFailure(receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootReattestation, ports.ConfigDestinationPresent, errors.New("identity drift")))
+	if state != "private_dir_existing_unconfirmed" || destination != ports.ConfigDestinationPresent || code != "config_locality_drifted" {
+		t.Fatalf("prepare failure = %s/%s/%s", state, destination, code)
+	}
+}
+
+func TestPrepareRootSyncWithConcurrentDestinationUsesPrevalidatedArtifactOutcome(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		created    bool
+	}{
+		{name: "created", code: "init_private_dir_commit_unconfirmed", created: true},
+		{name: "existing", code: "init_existing_private_dir_commit_unconfirmed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			identity, err := ports.NewConfigDirectoryIdentity(1, 2, 501, 0o700, 1, 3, 501, 0o700)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := ports.NewVerifiedConfigDirectoryReceipt(test.created, identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, destination, code := prepareFailure(receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootSync, ports.ConfigDestinationPresent, errors.New("sync")))
+			wantState := "private_dir_existing_unconfirmed"
+			if test.created {
+				wantState = "private_dir_created_unconfirmed"
+			}
+			if state != wantState || destination != ports.ConfigDestinationPresent || code != test.code {
+				t.Fatalf("prepare failure = %s/%s/%s", state, destination, code)
+			}
+			base := InitializeProjectResult{WriteState: "not_attempted", DestinationState: ports.ConfigDestinationAbsent}
+			_, failureErr := mutationFailure(base, state, destination, code, errors.New("sync"))
+			var failure *Failure
+			if !errors.As(failureErr, &failure) || failure.Class() != "artifact_failure" || !failure.Retryable() {
+				t.Fatalf("failure = %#v, %v", failure, failureErr)
+			}
+		})
+	}
+}
+
+func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+	_ = os.WriteFile(filepath.Join(rootPath, ".kar", "config.yaml"), []byte("x"), 0o600)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	service, _ := NewService(&testInstaller{existing: true}, testInspector{absent: true}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}})
+	if err == nil || result.WriteState != "existing_untouched" || result.DestinationState != ports.ConfigDestinationPresent || len(result.Discovery) != 0 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestInitializeProjectReportsPostBarrierLocalityFailureByDirectoryOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name, want string
+		existing   bool
+	}{{name: "created", want: "private_dir_created_unconfirmed"}, {name: "existing", want: "private_dir_existing_unconfirmed", existing: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			_ = os.Chmod(rootPath, 0o700)
+			if test.existing {
+				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+			}
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			attestor := &scriptedAttestor{failAttestAt: 2}
+			service, _ := NewService(&testInstaller{existing: test.existing}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+			if err == nil || result.WriteState != test.want || result.DestinationState != ports.ConfigDestinationAbsent || result.Committed {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInitializeProjectReportsPreparedIdentityDriftByDirectoryOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name, want  string
+		existing    bool
+		destination ports.ConfigDestinationState
+	}{{name: "created", want: "private_dir_created_unconfirmed", destination: ports.ConfigDestinationAbsent}, {name: "existing", want: "private_dir_existing_unconfirmed", existing: true, destination: ports.ConfigDestinationAbsent}, {name: "replacement config present", want: "existing_untouched", destination: ports.ConfigDestinationPresent}} {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			_ = os.Chmod(rootPath, 0o700)
+			if test.existing {
+				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+			}
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			installError := ports.NewConfigInstallError(ports.ConfigInstallStagePreparedIdentity, test.destination, errors.New("injected identity drift"))
+			service, _ := NewService(&testInstaller{existing: test.existing, installError: installError}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Class() != "security_policy_violation" || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
+				result.WriteState != test.want || result.DestinationState != test.destination || result.Committed {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInitializeProjectClassifiesReplacementConfigAsLocalityDrift(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	installer := &afterPrepareTestInstaller{delegate: &testInstaller{}, after: func(root ports.AnchoredRoot) error {
+		original := filepath.Join(root.String(), ".kar")
+		if err := os.Rename(original, original+"-original"); err != nil {
+			return err
+		}
+		if err := os.Mkdir(original, 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(original, "config.yaml"), []byte("replacement\n"), 0o600)
+	}}
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
+		result.WriteState != "existing_untouched" || result.DestinationState != ports.ConfigDestinationPresent || installer.delegate.installCalls != 0 {
+		t.Fatalf("result=%#v err=%v install_calls=%d", result, err, installer.delegate.installCalls)
+	}
+}
+
+func TestInitializeProjectRejectsSameByteConfigIdentitySubstitution(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	installer := &afterInstallTestInstaller{delegate: &testInstaller{}, after: func(root ports.AnchoredRoot, data []byte) error {
+		path := filepath.Join(root.String(), ".kar", "config.yaml")
+		if err := os.Rename(path, path+".original"); err != nil {
+			return err
+		}
+		return os.WriteFile(path, data, 0o600)
+	}}
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	var failure *Failure
+	if err == nil || !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Class() != "security_policy_violation" || failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestInitializeProjectNormalizesInstalledGenericErrorToCommitUnconfirmed(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	installer := &afterInstallTestInstaller{delegate: &testInstaller{}, after: func(ports.AnchoredRoot, []byte) error {
+		return errors.New("injected post-install confirmation failure")
+	}}
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	var failure *Failure
+	if err == nil || !errors.As(err, &failure) || failure.Code() != "init_commit_unconfirmed" || failure.Class() != "artifact_failure" || !failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationNotObserved || result.Committed {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestInitializeProjectRequiresTerminalLocalityRevalidation(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	attestor := &scriptedAttestor{failRevalidateAt: 4}
+	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	_, statErr := os.Lstat(filepath.Join(rootPath, ".kar", "config.yaml"))
+	if err == nil || result.WriteState != "installed_unconfirmed" || statErr != nil || result.Committed {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	attestor := &finalConfigMutatingAttestor{path: filepath.Join(rootPath, ".kar", "config.yaml")}
+	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	if err == nil || !attestor.mutated || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
+		t.Fatalf("result=%#v mutated=%t err=%v", result, attestor.mutated, err)
+	}
+	contents, readErr := os.ReadFile(attestor.path)
+	if readErr != nil || string(contents) != "version: 2\n" {
+		t.Fatalf("mutated destination=%q err=%v", contents, readErr)
+	}
+}
+
+func TestInitializeProjectNormalizesUninstalledPresentFailureToCollision(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	installer := &testInstaller{installError: ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationPresent, context.Canceled)}
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	var failure *Failure
+	if err == nil || !errors.As(err, &failure) || failure.Class() != "configuration_violation" || failure.Code() != "init_destination_exists" || failure.Retryable() {
+		t.Fatalf("failure=%#v err=%v", failure, err)
+	}
+	if result.WriteState != "existing_untouched" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+type recordingPrevalidator struct{ outcomes []PrevalidatedOutcome }
+
+func (validator *recordingPrevalidator) PrevalidateInitOutcome(_ context.Context, outcome PrevalidatedOutcome) error {
+	validator.outcomes = append(validator.outcomes, outcome)
+	return outcome.Result.Validate()
+}
+
+func admittedAGYDiscoveryRows() []DiscoveryRow {
+	agy := DiscoveryRow{
+		Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate",
+		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "safe_default",
+	}
+	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy}
+}
+
+func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
+	validator := &recordingPrevalidator{}
+	service := &Service{prevalidator: validator}
+	base := InitializeProjectResult{
+		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
+		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
+		WriteState: "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
+		Discovery: admittedAGYDiscoveryRows(),
+	}
+	if err := service.prevalidateMutationResults(context.Background(), base); err != nil {
+		t.Fatal(err)
+	}
+	if len(validator.outcomes) != len(MutationOutcomeSpecs()) {
+		t.Fatalf("prevalidated outcomes = %d, want %d", len(validator.outcomes), len(MutationOutcomeSpecs()))
+	}
+	seen := map[string]bool{}
+	for _, outcome := range validator.outcomes {
+		key := outcome.Result.WriteState + "/" + string(outcome.Result.DestinationState)
+		if outcome.Failure != nil {
+			key += "/" + outcome.Failure.Code() + "/" + string(outcome.Failure.Class())
+		} else if !outcome.Result.Committed {
+			t.Fatalf("noncommitted outcome has no failure: %#v", outcome)
+		}
+		if seen[key] {
+			t.Fatalf("duplicate prevalidated outcome %q", key)
+		}
+		seen[key] = true
+	}
+	for _, code := range []string{"init_destination_exists", "init_write_failed", "init_private_dir_raced", "init_private_dir_commit_unconfirmed", "init_existing_private_dir_commit_unconfirmed", "init_commit_unconfirmed", "config_locality_drifted", "target_private_config_forbidden", "target_private_namespace_forbidden", "init_result_delivery_failed"} {
+		found := false
+		for key := range seen {
+			if strings.Contains(key, "/"+code+"/") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("prevalidation omitted %q", code)
+		}
+	}
+}
+
+func TestPrevalidatedOutcomeRejectsContradictoryFailureTuple(t *testing.T) {
+	result := InitializeProjectResult{
+		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
+		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
+		WriteState: "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,
+		Discovery: admittedAGYDiscoveryRows(),
+	}
+	contradictory := PrevalidatedOutcome{
+		Result:  result,
+		Failure: &Failure{class: domain.FailureConfiguration, code: "init_destination_exists", message: initFailureMessage("init_destination_exists")},
+	}
+	if err := contradictory.Validate(); err == nil {
+		t.Fatal("contradictory post-mutation failure tuple was accepted")
+	}
+}
+
+func TestMutationOutcomeSpecsIncludeExactDeliveryFailure(t *testing.T) {
+	matches := 0
+	for _, spec := range MutationOutcomeSpecs() {
+		if spec.Code != "init_result_delivery_failed" {
+			continue
+		}
+		matches++
+		if spec.Kind != "initialized" || spec.WriteState != "committed" || !spec.Committed || spec.Destination != ports.ConfigDestinationPresent || spec.Class != domain.FailureArtifact || spec.Message != "The init result could not be delivered after commit." || !spec.Retryable || !spec.DeliveryOnly {
+			t.Fatalf("delivery outcome = %#v", spec)
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("delivery outcomes = %d, want 1", matches)
+	}
+}
+
+func TestMutationOutcomeGoldenMatchesContractTable(t *testing.T) {
+	want, err := os.ReadFile(filepath.Join("testdata", "mutation-outcomes.v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return receipt
+	got, err := json.MarshalIndent(MutationOutcomeSpecs(), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	if !bytes.Equal(got, want) {
+		t.Fatal("generated mutation outcome golden is stale")
+	}
 }
 
-func sha256ID(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func isZeroInitializeProjectResult(result InitializeProjectResult) bool {
-	return result.ConfigReceipt.Destination().String() == "" &&
-		result.ConfigReceipt.SHA256() == "" &&
-		result.ConfigReceipt.ByteLength() == 0 &&
-		result.ProviderStatuses == nil &&
-		result.GitignoreSuggestions == nil &&
-		result.InitializedAt.IsZero()
+func agyInitRequest(root ports.AnchoredRoot) InitializeProjectRequest {
+	return InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
 }

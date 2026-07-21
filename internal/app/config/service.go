@@ -1,212 +1,108 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
 
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-const defaultProjectConfigPath = ".kar.yaml"
-
-// ResolveRequest contains caller-provided global trusted configuration bytes and
-// an optional trusted-base project proposal request.
 type ResolveRequest struct {
-	GlobalYAML []byte
-	Project    *ProjectConfigRequest
+	Source ports.ConfigSource
 }
 
-// ProjectConfigRequest selects an optional project proposal. Path is optional;
-// a nil Path selects .kar.yaml. ExpectedCommit is the required immutable
-// trusted base captured before this request. Reference is resolved exactly once
-// only to confirm that it still identifies ExpectedCommit before the project
-// file is read.
-type ProjectConfigRequest struct {
-	Root           ports.AnchoredRoot
-	ExpectedCommit ports.GitObjectID
-	Reference      string
-	Path           *ports.SafeRelativePath
+type ProvenanceRow struct {
+	Field       string `json:"field"`
+	Source      string `json:"source"`
+	Disposition string `json:"disposition"`
+	ValueClass  string `json:"value_class"`
 }
 
-// ProjectProvenance identifies the immutable Git source of an accepted project
-// proposal. Its fields are deliberately private so a Resolution cannot expose
-// mutable source state.
-type ProjectProvenance struct {
-	root   ports.AnchoredRoot
-	commit ports.GitObjectID
-	path   ports.SafeRelativePath
-}
-
-// Root returns the anchored repository root used for the immutable read.
-func (provenance ProjectProvenance) Root() ports.AnchoredRoot { return provenance.root }
-
-// Commit returns the resolved immutable project-config commit.
-func (provenance ProjectProvenance) Commit() ports.GitObjectID { return provenance.commit }
-
-// Path returns the trusted project-config path within Root.
-func (provenance ProjectProvenance) Path() ports.SafeRelativePath { return provenance.path }
-
-// Resolution is a complete, immutable effective policy result. It is returned
-// only after every requested configuration layer has been accepted.
 type Resolution struct {
-	config       ResolvedConfig
-	project      *ProjectProvenance
-	redactedJSON []byte
+	config     ResolvedConfig
+	sha256     string
+	canonical  []byte
+	provenance []ProvenanceRow
+	source     ports.ConfigSource
 }
 
-// Config returns the immutable effective policy.
 func (resolution Resolution) Config() ResolvedConfig { return resolution.config }
-
-// Project returns the immutable Git provenance of the accepted project proposal.
-func (resolution Resolution) Project() (ProjectProvenance, bool) {
-	if resolution.project == nil {
-		return ProjectProvenance{}, false
-	}
-	return *resolution.project, true
+func (resolution Resolution) SHA256() string         { return resolution.sha256 }
+func (resolution Resolution) URI() string            { return ConfigRelativePath }
+func (resolution Resolution) CanonicalYAML() []byte {
+	return append([]byte(nil), resolution.canonical...)
 }
-
-// RedactedJSON returns a caller-owned deterministic JSON representation of the
-// redacted effective policy.
+func (resolution Resolution) Provenance() []ProvenanceRow {
+	return append([]ProvenanceRow(nil), resolution.provenance...)
+}
+func (resolution Resolution) Revalidate() error {
+	if resolution.source == nil {
+		return fmt.Errorf("configuration resolution has no source")
+	}
+	return resolution.source.Revalidate()
+}
 func (resolution Resolution) RedactedJSON() []byte {
-	return append([]byte(nil), resolution.redactedJSON...)
+	data, _ := json.Marshal(Redact(resolution.config))
+	return data
 }
 
-// Service resolves global configuration and optional project proposals through
-// the immutable trusted-project reader boundary.
-type Service struct {
-	projectReader ports.TrustedProjectReader
-}
+type Service struct{ codec Codec }
 
-// NewService constructs a configuration resolution service.
-func NewService(projectReader ports.TrustedProjectReader) (*Service, error) {
-	if nilInterface(projectReader) {
-		return nil, fmt.Errorf("resolve configuration: nil trusted project reader")
-	}
-	return &Service{projectReader: projectReader}, nil
-}
+func NewService(codec Codec) *Service { return &Service{codec: codec} }
 
-// Resolve atomically decodes and reduces trusted configuration. A project
-// proposal is read only after its resolved reference equals the caller's
-// expected immutable commit; no working-tree read or fallback source exists.
 func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Resolution, error) {
-	var zero Resolution
-	if ctx == nil {
-		return zero, fmt.Errorf("resolve configuration: nil context")
-	}
-	if service == nil || nilInterface(service.projectReader) {
-		return zero, fmt.Errorf("resolve configuration: invalid service dependencies")
+	if ctx == nil || service == nil || service.codec == nil || request.Source == nil {
+		return Resolution{}, fmt.Errorf("resolve configuration: invalid request")
 	}
 	if err := ctx.Err(); err != nil {
-		return zero, fmt.Errorf("resolve configuration: context: %w", err)
+		return Resolution{}, err
 	}
-
-	projectPath, err := validateResolveRequest(request)
+	source := request.Source
+	data, observation, err := source.Read()
 	if err != nil {
-		return zero, err
+		return Resolution{}, fmt.Errorf("resolve configuration: read: %w", err)
 	}
-	global, err := adapterconfig.DecodeGlobal("global configuration", request.GlobalYAML)
+	decoded, err := service.codec.Decode(data)
 	if err != nil {
-		return zero, fmt.Errorf("resolve configuration: global configuration rejected: %w", err)
+		return Resolution{}, err
 	}
-
-	var project *adapterconfig.ProjectConfig
-	var provenance *ProjectProvenance
-	if request.Project != nil {
-		commit, err := service.projectReader.ResolveCommit(ctx, request.Project.Root, request.Project.Reference)
-		if err != nil {
-			return zero, fmt.Errorf("resolve configuration: resolve trusted project commit: %w", err)
-		}
-		if !commit.Valid() {
-			return zero, fmt.Errorf("resolve configuration: trusted project reader returned an invalid commit")
-		}
-		if commit != request.Project.ExpectedCommit {
-			return zero, fmt.Errorf("resolve configuration: resolved project reference does not match the expected commit")
-		}
-
-		contents, err := service.projectReader.ReadFileAtCommit(ctx, request.Project.Root, request.Project.ExpectedCommit, projectPath)
-		if err != nil {
-			return zero, fmt.Errorf("resolve configuration: read trusted project configuration: %w", err)
-		}
-		decodedProject, err := adapterconfig.DecodeProject(projectConfigSource(request.Project.ExpectedCommit, projectPath), contents)
-		if err != nil {
-			return zero, fmt.Errorf("resolve configuration: project configuration rejected: %w", err)
-		}
-		project = &decodedProject
-		provenance = &ProjectProvenance{
-			root:   request.Project.Root,
-			commit: request.Project.ExpectedCommit,
-			path:   projectPath,
-		}
+	canonical, err := service.codec.EncodeCanonical(decoded)
+	if err != nil || !bytes.Equal(data, canonical) {
+		return Resolution{}, fmt.Errorf("resolve configuration: non-canonical local configuration")
 	}
-
-	resolved, err := ResolveConfiguration(global, project)
+	resolved, err := ResolveConfiguration(decoded)
 	if err != nil {
-		return zero, fmt.Errorf("resolve configuration: policy rejected: %w", err)
+		return Resolution{}, err
 	}
-	redactedJSON, err := json.Marshal(Redact(resolved))
-	if err != nil {
-		return zero, fmt.Errorf("resolve configuration: redact policy: %w", err)
-	}
-	return Resolution{
-		config:       resolved,
-		project:      provenance,
-		redactedJSON: append([]byte(nil), redactedJSON...),
-	}, nil
+	return Resolution{config: resolved, sha256: observation.SHA256(), canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
 }
 
-func validateResolveRequest(request ResolveRequest) (ports.SafeRelativePath, error) {
-	if request.Project == nil {
-		return ports.SafeRelativePath{}, nil
+func provenanceRows(config Config) []ProvenanceRow {
+	fields := []string{
+		"version", "project.name", "project.root", "project.context", "native_user.home",
+		"providers.kimi.configured", "providers.kimi.executable", "providers.kimi.model", "providers.kimi.data_home",
+		"providers.zcode.configured", "providers.zcode.node_executable", "providers.zcode.launcher",
+		"providers.agy.configured", "providers.agy.executable", "providers.agy.permission_mode",
+		"execution.workspace_access", "roles.logic.enabled", "roles.security.enabled", "roles.maintainability.enabled", "roles.product.enabled", "roles.documentation.enabled", "roles.testing.enabled",
+		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
+		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.fallback_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "resources.run_total_output_cap", "ci.fail_on_severity", "ci.degraded_review_fails",
+		"execution.strategy", "execution.cross_process_lane_lock", "runtime.path_policy", "runtime.environment_policy", "provider.timeout_sec", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
 	}
-	if !request.Project.Root.Valid() {
-		return ports.SafeRelativePath{}, fmt.Errorf("resolve configuration: invalid project root")
-	}
-	if !request.Project.ExpectedCommit.Valid() {
-		return ports.SafeRelativePath{}, fmt.Errorf("resolve configuration: invalid expected project commit")
-	}
-	if err := validateReference(request.Project.Reference); err != nil {
-		return ports.SafeRelativePath{}, fmt.Errorf("resolve configuration: project reference: %w", err)
-	}
-	if request.Project.Path != nil {
-		if !request.Project.Path.Valid() {
-			return ports.SafeRelativePath{}, fmt.Errorf("resolve configuration: invalid project configuration path")
+	rows := make([]ProvenanceRow, 0, len(fields))
+	for _, field := range fields {
+		source, disposition, class := "local", "configured", "policy"
+		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
+			source, disposition, class = "code", "fixed", "invariant"
 		}
-		return *request.Project.Path, nil
+		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil {
+			disposition = "absent"
+		}
+		if field == "providers.kimi.model" && config.Providers.Kimi != nil && config.Providers.Kimi.Model == DefaultKimiModel || field == "providers.kimi.data_home" && config.Providers.Kimi != nil && config.Providers.Kimi.DataHome == DefaultKimiDataHome(config.NativeUser.Home) || field == "providers.agy.permission_mode" && config.Providers.AGY != nil && config.Providers.AGY.PermissionMode == DefaultAGYPermissionMode {
+			source, disposition = "default", "defaulted"
+		}
+		rows = append(rows, ProvenanceRow{Field: field, Source: source, Disposition: disposition, ValueClass: class})
 	}
-	path, err := ports.NewSafeRelativePath(defaultProjectConfigPath)
-	if err != nil {
-		return ports.SafeRelativePath{}, fmt.Errorf("resolve configuration: default project configuration path: %w", err)
-	}
-	return path, nil
-}
-
-func validateReference(reference string) error {
-	if reference == "" || len(reference) > 4096 {
-		return fmt.Errorf("must be non-empty and at most 4096 bytes")
-	}
-	if strings.TrimSpace(reference) != reference || strings.Contains(reference, "\\") || strings.ContainsAny(reference, "\x00\r\n") {
-		return fmt.Errorf("must be canonical and safe")
-	}
-	return nil
-}
-
-func projectConfigSource(commit ports.GitObjectID, path ports.SafeRelativePath) string {
-	return "trusted project configuration at " + commit.String() + ":" + path.String()
-}
-
-func nilInterface(value any) bool {
-	if value == nil {
-		return true
-	}
-	reflectValue := reflect.ValueOf(value)
-	switch reflectValue.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
-		return reflectValue.IsNil()
-	default:
-		return false
-	}
+	return rows
 }

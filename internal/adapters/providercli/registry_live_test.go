@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,46 +20,30 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestLiveKimiExactTuple(t *testing.T) {
+func TestLiveKimiCapabilityProfile(t *testing.T) {
 	binaryPath := os.Getenv("KAR_LIVE_KIMI_BIN")
+	if binaryPath == "" {
+		t.Skip("KAR_LIVE_KIMI_BIN is not configured")
+	}
+	if !filepath.IsAbs(binaryPath) || filepath.Clean(binaryPath) != binaryPath {
+		t.Fatal("live Kimi executable must be a canonical absolute path")
+	}
 	version := os.Getenv("KAR_LIVE_KIMI_VERSION")
-	expectedSHA256 := os.Getenv("KAR_LIVE_KIMI_SHA256")
-	if binaryPath == "" || version == "" || expectedSHA256 == "" {
-		t.Skip("live Kimi tuple is not configured")
-	}
-
-	resolvedBinary, err := filepath.EvalSymlinks(binaryPath)
-	if err != nil {
-		t.Fatalf("resolve live Kimi executable: %v", err)
-	}
-	if !filepath.IsAbs(resolvedBinary) || filepath.Clean(resolvedBinary) != resolvedBinary {
-		t.Fatal("live Kimi executable did not resolve to a canonical absolute path")
-	}
-	binaryBytes, err := os.ReadFile(resolvedBinary)
-	if err != nil {
-		t.Fatalf("read live Kimi executable: %v", err)
-	}
-	sum := sha256.Sum256(binaryBytes)
-	actualSHA256 := hex.EncodeToString(sum[:])
-	if actualSHA256 != expectedSHA256 {
-		t.Fatal("live Kimi executable digest does not match KAR_LIVE_KIMI_SHA256")
-	}
 
 	key, err := ports.ParseConcurrencyKey("kimi-default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseArgv := []string{resolvedBinary}
 	environment := liveKimiEnvironment(t)
-	candidate, err := NewRuntimeDefinitionCandidate(
+	profile, err := NewRuntimeDefinition(
 		FamilyKimi,
 		"local-default",
 		version,
-		resolvedBinary,
-		actualSHA256,
+		binaryPath,
+		"",
 		key,
 		"kimi-default",
-		baseArgv,
+		[]string{binaryPath},
 		environment,
 		t.TempDir(),
 		30*time.Second,
@@ -76,12 +59,12 @@ func TestLiveKimiExactTuple(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := NewAuthorizedRegistry(ctx, runner, liveKimiAuthorizer{expectedSHA256: expectedSHA256}, candidate)
+	registry, err := NewRegistry(runner, profile)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	const marker = "kar-live-kimi-exact-tuple-v1"
+	const marker = "kar-live-kimi-capability-v1"
 	prompt := []byte(`Return exactly this JSON object and no markdown or explanation: {"marker":"` + marker + `"}`)
 	invocation := liveKimiInvocation(t, prompt)
 	observation, err := registry.Observe(ctx, invocation)
@@ -109,30 +92,19 @@ func TestLiveKimiExactTuple(t *testing.T) {
 	if document.Marker != marker {
 		t.Fatal("live Kimi result marker did not match")
 	}
-}
-
-type liveKimiAuthorizer struct {
-	expectedSHA256 string
-}
-
-func (a liveKimiAuthorizer) Authorize(_ context.Context, candidate RuntimeDefinitionCandidate) error {
-	resolvedExecutable, err := filepath.EvalSymlinks(candidate.Executable())
-	if err != nil {
-		return fmt.Errorf("resolve candidate executable: %w", err)
+	receipt := observation.StdinWriteReceipt()
+	if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 || !receipt.Complete() ||
+		receipt.SHA256() != liveKimiDigest(nil) {
+		t.Fatalf("live Kimi stdin receipt is not a complete zero-byte fact: %#v", receipt)
 	}
-	if resolvedExecutable != candidate.Executable() {
-		return fmt.Errorf("candidate executable is not independently resolved")
+	transport, ok := observation.ProcessObservation().ProviderPacketTransportReceipt()
+	if !ok || transport.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+		transport.PacketIdentity() != invocation.InputIdentity() {
+		t.Fatalf("live Kimi transport receipt = %#v, present=%t", transport, ok)
 	}
-	executableBytes, err := os.ReadFile(resolvedExecutable)
-	if err != nil {
-		return fmt.Errorf("read candidate executable: %w", err)
+	if result.InputIdentity() != invocation.InputIdentity() {
+		t.Fatal("live Kimi result input identity did not match invocation")
 	}
-	sum := sha256.Sum256(executableBytes)
-	actualSHA256 := hex.EncodeToString(sum[:])
-	if actualSHA256 != a.expectedSHA256 || actualSHA256 != candidate.ExecutableSHA256() {
-		return fmt.Errorf("candidate executable digest is not authorized")
-	}
-	return nil
 }
 
 func liveKimiEnvironment(t *testing.T) []ports.EnvironmentVariable {
@@ -158,10 +130,7 @@ func liveKimiInvocation(t *testing.T, prompt []byte) ports.ProviderInvocation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.New()
-	_, _ = digest.Write([]byte("KAR-PROVIDER-STDIN/1"))
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write(prompt)
+	digest := liveKimiDigest(prompt)
 	invocation, err := ports.NewProviderInvocation(
 		domain.RoleSecurity,
 		"local-default",
@@ -170,10 +139,17 @@ func liveKimiInvocation(t *testing.T, prompt []byte) ports.ProviderInvocation {
 		prompt,
 		"i_019f596a-cf80-7c67-b265-f37053d51ccd",
 		"019f596a-cf80-7c67-b265-f37053d51cce",
-		hex.EncodeToString(digest.Sum(nil)),
+		digest,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return invocation
+}
+func liveKimiDigest(value []byte) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = digest.Write([]byte{0})
+	_, _ = digest.Write(value)
+	return hex.EncodeToString(digest.Sum(nil))
 }

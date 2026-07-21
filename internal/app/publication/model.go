@@ -47,21 +47,24 @@ type SchemaValidator interface {
 // It deliberately has no ReviewID. A ReviewID is supplied only after this
 // pre-publication validation has completed.
 type PreparedCandidate struct {
-	sessionID domain.SessionID
-	runID     domain.RunID
-	runState  domain.RunState
-	target    preparedTarget
-	threshold domain.Severity
-	kar       preparedKAR
-	axes      preparedAxes
-	roles     []preparedRole
-	findings  []preparedFinding
-	failures  []preparedFailure
-	limits    []string
-	reasons   []string
-	exitCode  int
-	lineage   preparedLineage
-	followup  *preparedFollowupOutcome
+	sessionID          domain.SessionID
+	runID              domain.RunID
+	runState           domain.RunState
+	target             preparedTarget
+	threshold          domain.Severity
+	kar                preparedKAR
+	production         *ProductionReviewProvenance
+	axes               preparedAxes
+	roles              []preparedRole
+	findings           []preparedFinding
+	failures           []preparedFailure
+	limits             []string
+	reasons            []string
+	exitCode           int
+	lineage            preparedLineage
+	followup           *preparedFollowupOutcome
+	noChange           bool
+	noChangeProvenance *NoChangeProvenance
 }
 type preparedLineage struct {
 	runType          domain.RunType
@@ -83,7 +86,58 @@ const (
 // RunPublicationContext binds a candidate to its immutable run lineage.
 // The zero value is the byte-compatible root review context.
 type RunPublicationContext struct {
-	lineage preparedLineage
+	lineage    preparedLineage
+	production *ProductionReviewProvenance
+}
+
+// ProductionReviewProvenance is the immutable closure authority for a changed
+// root review. It retains canonical receipt IDs rather than credentials,
+// settings, or mutable workspace paths.
+type ProductionReviewProvenance struct {
+	BuildProduct             string
+	BuildVersion             string
+	BuildCommit              string
+	ObjectiveSHA256          string
+	HasObjective             bool
+	SnapshotManifestSHA256   string
+	Providers                []ProductionProviderProvenance
+	WorkspaceTerminalReceipt string
+}
+
+type NoChangeProvenance struct {
+	BuildProduct             string
+	BuildVersion             string
+	BuildCommit              string
+	ObjectiveSHA256          string
+	HasObjective             bool
+	SnapshotManifestSHA256   string
+	WorkspaceTerminalReceipt string
+}
+
+type ProductionProviderProvenance struct {
+	Family                    string
+	Instance                  string
+	Version                   string
+	Executable                string
+	ExecutableSHA256          string
+	Launcher                  string
+	LauncherSHA256            string
+	ProfileGeneration         string
+	AdapterProfile            string
+	QualificationReceiptIDs   []string
+	PacketTransportReceiptIDs []string
+	NamespaceTerminalReceipt  string // Canonical receipt ID.
+}
+
+// NewProductionPublicationContext creates the root-only context for a normal
+// production review and defensively owns every caller-provided slice.
+func NewProductionPublicationContext(provenance ProductionReviewProvenance) (RunPublicationContext, error) {
+	copied := cloneProductionReviewProvenance(provenance)
+	context := RunPublicationContext{lineage: preparedLineage{runType: domain.RunTypeReview}, production: &copied}
+	if err := context.validate(); err != nil {
+		return RunPublicationContext{}, fmt.Errorf("production publication context: %w", err)
+	}
+	return context, nil
 }
 
 // NewChildPublicationContext validates the complete immutable lineage for a
@@ -137,7 +191,15 @@ func (context RunPublicationContext) validate() error {
 			lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("review lineage must be root")
 		}
+		if context.production != nil {
+			if err := validateProductionReviewProvenance(*context.production); err != nil {
+				return fmt.Errorf("production provenance: %w", err)
+			}
+		}
 		return nil
+	}
+	if context.production != nil {
+		return fmt.Errorf("child publication context cannot contain production provenance")
 	}
 	if lineage.parentRunID == nil || lineage.sourceRunID == nil || lineage.sourceReviewID == nil {
 		return fmt.Errorf("%s lineage requires parent run, source run, and source review", lineage.runType)
@@ -205,6 +267,70 @@ func (candidate PreparedCandidate) publicationLineage() preparedLineage {
 		return rootPublicationContext().lineage
 	}
 	return RunPublicationContext{lineage: candidate.lineage}.immutableLineage()
+}
+
+func (context RunPublicationContext) immutableProductionProvenance() *ProductionReviewProvenance {
+	if context.production == nil {
+		return nil
+	}
+	provenance := cloneProductionReviewProvenance(*context.production)
+	return &provenance
+}
+
+func cloneProductionReviewProvenance(value ProductionReviewProvenance) ProductionReviewProvenance {
+	result := value
+	result.Providers = make([]ProductionProviderProvenance, len(value.Providers))
+	for index, provider := range value.Providers {
+		result.Providers[index] = provider
+		result.Providers[index].QualificationReceiptIDs = append([]string(nil), provider.QualificationReceiptIDs...)
+		result.Providers[index].PacketTransportReceiptIDs = append([]string(nil), provider.PacketTransportReceiptIDs...)
+	}
+	return result
+}
+
+func validateProductionReviewProvenance(value ProductionReviewProvenance) error {
+	if !safeText(value.BuildProduct, 128, true) || !safeText(value.BuildVersion, 128, true) ||
+		!safeText(value.BuildCommit, 128, true) || !validSHA256(value.SnapshotManifestSHA256) ||
+		!validReceiptID(value.WorkspaceTerminalReceipt) || len(value.Providers) == 0 {
+		return fmt.Errorf("build, snapshot, workspace, or providers are incomplete")
+	}
+	if value.HasObjective {
+		if !validSHA256(value.ObjectiveSHA256) {
+			return fmt.Errorf("objective identity is invalid")
+		}
+	} else if value.ObjectiveSHA256 != "" {
+		return fmt.Errorf("absent objective cannot have an identity")
+	}
+	seen := make(map[string]struct{}, len(value.Providers))
+	for index, provider := range value.Providers {
+		if !safeText(provider.Family, 64, true) || !validProviderInstance(provider.Instance) ||
+			!safeText(provider.Version, 128, true) || !safeText(provider.Executable, 1024, true) ||
+			!validSHA256(provider.ExecutableSHA256) || !safeText(provider.ProfileGeneration, 256, true) ||
+			!safeText(provider.AdapterProfile, 256, true) || !validReceiptID(provider.NamespaceTerminalReceipt) ||
+			len(provider.QualificationReceiptIDs) == 0 || len(provider.PacketTransportReceiptIDs) == 0 {
+			return fmt.Errorf("provider %d is incomplete", index)
+		}
+		if (provider.Launcher == "") != (provider.LauncherSHA256 == "") ||
+			provider.Launcher != "" && (!safeText(provider.Launcher, 1024, true) || !validSHA256(provider.LauncherSHA256)) {
+			return fmt.Errorf("provider %d launcher identity is invalid", index)
+		}
+		key := provider.Family + "\x00" + provider.Instance
+		if _, duplicate := seen[key]; duplicate || index > 0 && key <= value.Providers[index-1].Family+"\x00"+value.Providers[index-1].Instance {
+			return fmt.Errorf("providers are duplicated or unordered")
+		}
+		seen[key] = struct{}{}
+		for _, receipts := range [][]string{provider.QualificationReceiptIDs, provider.PacketTransportReceiptIDs} {
+			for receiptIndex, receipt := range receipts {
+				if !validReceiptID(receipt) {
+					return fmt.Errorf("provider receipt identity is invalid")
+				}
+				if receiptIndex > 0 && receipts[receiptIndex-1] >= receipt {
+					return fmt.Errorf("provider receipt identities are not ordered")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type preparedTarget struct {
@@ -388,20 +514,20 @@ type preparedFinding struct {
 }
 
 type preparedEvidence struct {
-	targetSHA256        string
-	side                evidence.Side
-	path                string
-	lineStart           int
-	lineEnd             int
-	quote               string
-	excerptSHA256       string
-	excerpt             []byte
-	sourceSessionID     string
-	sourceRunID         string
-	sourceReviewID      string
-	sourceFindingID     string
-	sourceTargetSHA256  string
-	sourceExcerptSHA256 string
+	targetSHA256         string
+	side                 evidence.Side
+	path                 string
+	lineStart            int
+	lineEnd              int
+	quote                string
+	currentExcerptSHA256 string
+	excerpt              []byte
+	sourceSessionID      string
+	sourceRunID          string
+	sourceReviewID       string
+	sourceFindingID      string
+	sourceTargetSHA256   string
+	sourceExcerptSHA256  string
 }
 type preparedFollowupOutcome struct {
 	resolution domain.FollowupResolution
@@ -573,6 +699,59 @@ func PrepareCandidate(
 	)
 }
 
+// PrepareNoChangeCandidate constructs the provider-free P2 candidate for an
+// empty Git capture. Patch and stdin targets are deliberately ineligible.
+func PrepareNoChangeCandidate(
+	sessionID domain.SessionID,
+	runID domain.RunID,
+	target domain.TargetIdentity,
+	selectedRoles []domain.Role,
+	severityThreshold domain.Severity,
+	provenance NoChangeProvenance,
+) (PreparedCandidate, error) {
+	if err := validateIdentity(sessionID, runID); err != nil {
+		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: identity: %w", err)
+	}
+	if err := validateNoChangeProvenance(provenance); err != nil {
+		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: provenance: %w", err)
+	}
+	if err := validateTarget(target); err != nil || target.Kind() != domain.TargetGit ||
+		target.SHA256() != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: target is not an empty Git capture")
+	}
+	if severityThreshold == "" {
+		severityThreshold = domain.SeverityHigh
+	}
+	if !severityThreshold.Valid() || len(selectedRoles) == 0 {
+		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: invalid metadata or selected roles")
+	}
+	roles := make([]preparedRole, len(selectedRoles))
+	for index, role := range selectedRoles {
+		if !role.Valid() || index > 0 && roleOrdinal(selectedRoles[index-1]) >= roleOrdinal(role) {
+			return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: selected roles are invalid")
+		}
+		roles[index] = preparedRole{
+			role: role, required: role == domain.RoleLogic || role == domain.RoleSecurity,
+			state: domain.RoleTaskSucceeded, valid: true, outcome: "not_applicable",
+			limitations: []string{"No Git changes were captured."},
+		}
+	}
+	copied := provenance
+	candidate := PreparedCandidate{
+		sessionID: sessionID, runID: runID, runState: domain.RunCompleted,
+		target:    preparedTarget{sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID()},
+		threshold: severityThreshold, kar: preparedKAR{version: provenance.BuildVersion, commit: provenance.BuildCommit},
+		axes:  preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
+		roles: roles, findings: []preparedFinding{}, failures: []preparedFailure{}, limits: []string{},
+		reasons: []string{"policy_evaluated"}, exitCode: int(domain.ExitCommittedPass),
+		lineage: rootPublicationContext().lineage, noChange: true, noChangeProvenance: &copied,
+	}
+	if err := candidate.validate(); err != nil {
+		return PreparedCandidate{}, err
+	}
+	return candidate, nil
+}
+
 // PrepareCandidateWithContext validates a root or child publication candidate.
 func PrepareCandidateWithContext(
 	result review.CoordinatorResult,
@@ -638,14 +817,15 @@ func PrepareCandidateWithContext(
 			version: karVersion,
 			commit:  karCommit,
 		},
-		axes:     axes,
-		roles:    clonePreparedRoles(roles),
-		findings: clonePreparedFindings(findings),
-		failures: clonePreparedFailures(failures),
-		limits:   append([]string(nil), limits...),
-		reasons:  append([]string(nil), reasons...),
-		exitCode: exitCode,
-		lineage:  context.immutableLineage(),
+		axes:       axes,
+		roles:      clonePreparedRoles(roles),
+		findings:   clonePreparedFindings(findings),
+		failures:   clonePreparedFailures(failures),
+		limits:     append([]string(nil), limits...),
+		reasons:    append([]string(nil), reasons...),
+		exitCode:   exitCode,
+		lineage:    context.immutableLineage(),
+		production: context.immutableProductionProvenance(),
 	}
 	if err := candidate.validate(); err != nil {
 		return PreparedCandidate{}, err
@@ -868,7 +1048,7 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 			write(fmt.Sprintf("%d", item.lineStart))
 			write(fmt.Sprintf("%d", item.lineEnd))
 			write(item.quote)
-			write(item.excerptSHA256)
+			write(item.currentExcerptSHA256)
 			write(string(item.excerpt))
 			write(item.sourceSessionID)
 			write(item.sourceRunID)
@@ -884,6 +1064,53 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 	write(string(candidate.threshold))
 	write(candidate.kar.version)
 	write(candidate.kar.commit)
+	if candidate.production == nil {
+		write("production:absent")
+	} else {
+		production := candidate.production
+		write("production:present")
+		write(production.BuildProduct)
+		write(production.BuildVersion)
+		write(production.BuildCommit)
+		write(production.ObjectiveSHA256)
+		write(fmt.Sprintf("%t", production.HasObjective))
+		write(production.SnapshotManifestSHA256)
+		write(production.WorkspaceTerminalReceipt)
+		write(fmt.Sprintf("%d", len(production.Providers)))
+		for _, provider := range production.Providers {
+			write(provider.Family)
+			write(provider.Instance)
+			write(provider.Version)
+			write(provider.Executable)
+			write(provider.ExecutableSHA256)
+			write(provider.Launcher)
+			write(provider.LauncherSHA256)
+			write(provider.ProfileGeneration)
+			write(provider.AdapterProfile)
+			write(fmt.Sprintf("%d", len(provider.QualificationReceiptIDs)))
+			for _, receipt := range provider.QualificationReceiptIDs {
+				write(receipt)
+			}
+			write(fmt.Sprintf("%d", len(provider.PacketTransportReceiptIDs)))
+			for _, receipt := range provider.PacketTransportReceiptIDs {
+				write(receipt)
+			}
+			write(provider.NamespaceTerminalReceipt)
+		}
+	}
+	if candidate.noChangeProvenance == nil {
+		write("no-change-provenance:absent")
+	} else {
+		provenance := candidate.noChangeProvenance
+		write("no-change-provenance:present")
+		write(provenance.BuildProduct)
+		write(provenance.BuildVersion)
+		write(provenance.BuildCommit)
+		write(provenance.ObjectiveSHA256)
+		write(fmt.Sprintf("%t", provenance.HasObjective))
+		write(provenance.SnapshotManifestSHA256)
+		write(provenance.WorkspaceTerminalReceipt)
+	}
 	write(string(candidate.axes.content))
 	write(string(candidate.axes.coverage))
 	write(string(candidate.axes.ci))
@@ -971,7 +1198,7 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 			write(fmt.Sprintf("%d", item.lineStart))
 			write(fmt.Sprintf("%d", item.lineEnd))
 			write(item.quote)
-			write(item.excerptSHA256)
+			write(item.currentExcerptSHA256)
 			write(string(item.excerpt))
 			write(item.sourceSessionID)
 			write(item.sourceRunID)
@@ -1039,6 +1266,20 @@ func (candidate PreparedCandidate) validate() error {
 		}
 	} else if candidate.followup != nil {
 		return fmt.Errorf("non-followup candidate has followup outcome")
+	}
+	if candidate.production != nil {
+		if candidate.publicationLineage().runType != domain.RunTypeReview || candidate.noChange {
+			return fmt.Errorf("production provenance is only valid for changed root candidates")
+		}
+		if candidate.kar.version != candidate.production.BuildVersion || candidate.kar.commit != candidate.production.BuildCommit {
+			return fmt.Errorf("production provenance build metadata does not match candidate")
+		}
+		if err := validateProductionReviewProvenance(*candidate.production); err != nil {
+			return fmt.Errorf("normal production provenance: %w", err)
+		}
+	}
+	if candidate.noChange {
+		return candidate.validateNoChange()
 	}
 	if len(candidate.roles) == 0 || len(candidate.reasons) == 0 || !validNormalExit(candidate.exitCode) {
 		return fmt.Errorf("candidate has incomplete role, reason, or exit data")
@@ -1199,7 +1440,7 @@ func prepareFindings(
 	for _, role := range roles {
 		byRole[role.role] = role
 	}
-	prepared := make([]preparedFinding, len(findings))
+	prepared := make([]preparedFinding, 0, len(findings))
 	for index, finding := range findings {
 		expectedID := fmt.Sprintf("F%03d", index+1)
 		if finding.ID() != expectedID || finding.Validate() != nil || groups[index].FindingID() != expectedID {
@@ -1216,36 +1457,131 @@ func prepareFindings(
 		if len(receipts) == 0 {
 			return nil, fmt.Errorf("publication candidate: finding %q has no current evidence receipts", expectedID)
 		}
-		preparedReceipts := make([]preparedEvidence, len(receipts))
-		for receiptIndex, receipt := range receipts {
-			if receipt.Status() != evidence.ReceiptVerified || receipt.ReasonCode() != evidence.ReasonVerified {
-				return nil, fmt.Errorf("publication candidate: finding %q receipt %d is not verified", expectedID, receiptIndex)
-			}
-			claim := receipt.Claim()
-			if claim.TargetSHA256() != "sha256:"+target.SHA256() || !claim.Side().Valid() || !claim.Path().Valid() ||
-				claim.LineStart() < 1 || claim.LineEnd() < claim.LineStart() || !safeText(claim.Quote(), 8000, false) {
-				return nil, fmt.Errorf("publication candidate: finding %q receipt %d has invalid current claim", expectedID, receiptIndex)
-			}
-			excerpt := receipt.Excerpt()
-			if len(excerpt) == 0 || !utf8.Valid(excerpt) || !bytes.Equal(claim.QuoteBytes(), excerpt) {
-				return nil, fmt.Errorf("publication candidate: finding %q receipt %d has inconsistent verified excerpt", expectedID, receiptIndex)
-			}
-			excerptSHA256, err := claim.ExcerptSHA256(excerpt)
-			if err != nil || receipt.ExcerptSHA256() != excerptSHA256 {
-				return nil, fmt.Errorf("publication candidate: finding %q receipt %d has inconsistent excerpt identity", expectedID, receiptIndex)
-			}
-			preparedReceipts[receiptIndex] = preparedEvidence{
-				targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(),
-				lineEnd: claim.LineEnd(), quote: claim.Quote(), excerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(excerpt),
-			}
+		preparedReceipts, authoritative, err := reducePublicationEvidence(receipts, finding, target, expectedID)
+		if err != nil {
+			return nil, err
 		}
-		prepared[index] = preparedFinding{
+		if !authoritative {
+			continue
+		}
+		prepared = append(prepared, preparedFinding{
 			id: expectedID, fingerprint: "sha256:" + finding.Fingerprint(), role: finding.Role(), provider: finding.ProviderInstance(),
 			severity: finding.Severity(), title: finding.Title(), description: finding.Description(), recommendation: finding.Recommendation(),
 			confidence: finding.Confidence(), lifecycle: finding.Lifecycle(), evidence: preparedReceipts,
-		}
+		})
+	}
+	for index := range prepared {
+		prepared[index].id = fmt.Sprintf("F%03d", index+1)
 	}
 	return prepared, nil
+}
+func reducePublicationEvidence(
+	receipts []evidence.CurrentReceipt,
+	finding domain.Finding,
+	target domain.TargetIdentity,
+	findingID string,
+) ([]preparedEvidence, bool, error) {
+	if len(receipts) == 0 || len(receipts) > 20 {
+		return nil, false, fmt.Errorf("publication candidate: finding %q evidence count must be between 1 and 20", findingID)
+	}
+
+	verified := 0
+	allowedException := 0
+	rejected := 0
+	for _, receipt := range receipts {
+		switch {
+		case receipt.Status() == evidence.ReceiptVerified && receipt.ReasonCode() == evidence.ReasonVerified:
+			verified++
+		case receipt.Status() == evidence.ReceiptUnverifiable &&
+			receipt.ReasonCode() == evidence.ReasonTargetUnavailable &&
+			finding.Severity() == domain.SeverityLow &&
+			(target.Kind() == domain.TargetPatch || target.Kind() == domain.TargetStdin):
+			allowedException++
+		default:
+			rejected++
+		}
+	}
+	if verified+allowedException+rejected != len(receipts) {
+		return nil, false, fmt.Errorf("publication candidate: finding %q evidence counts do not partition receipts", findingID)
+	}
+	if rejected != 0 {
+		return nil, false, fmt.Errorf("publication candidate: finding %q has non-authoritative evidence", findingID)
+	}
+	if verified != 0 && allowedException != 0 {
+		return nil, false, fmt.Errorf("publication candidate: finding %q has mixed evidence authority", findingID)
+	}
+	if allowedException == len(receipts) {
+		return nil, false, nil
+	}
+	if verified != len(receipts) {
+		return nil, false, fmt.Errorf("publication candidate: finding %q evidence reduction is incomplete", findingID)
+	}
+
+	prepared := make([]preparedEvidence, len(receipts))
+	for receiptIndex, receipt := range receipts {
+		claim := receipt.Claim()
+		if claim.TargetSHA256() != "sha256:"+target.SHA256() || !claim.Side().Valid() || !claim.Path().Valid() ||
+			claim.LineStart() < 1 || claim.LineEnd() < claim.LineStart() || !safeText(claim.Quote(), 8000, false) {
+			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has invalid current claim", findingID, receiptIndex)
+		}
+		excerpt := receipt.Excerpt()
+		if len(excerpt) == 0 || !utf8.Valid(excerpt) || !bytes.Equal(claim.QuoteBytes(), excerpt) {
+			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has inconsistent verified excerpt", findingID, receiptIndex)
+		}
+		excerptSHA256, err := claim.ExcerptSHA256(excerpt)
+		if err != nil || receipt.ExcerptSHA256() != excerptSHA256 {
+			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has inconsistent excerpt identity", findingID, receiptIndex)
+		}
+		prepared[receiptIndex] = preparedEvidence{
+			targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(),
+			lineEnd: claim.LineEnd(), quote: claim.Quote(), currentExcerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(excerpt),
+		}
+	}
+	if err := canonicalizePreparedEvidence(prepared); err != nil {
+		return nil, false, fmt.Errorf("publication candidate: finding %q evidence ordering: %w", findingID, err)
+	}
+	return prepared, true, nil
+}
+
+func canonicalizePreparedEvidence(items []preparedEvidence) error {
+	if len(items) == 0 || len(items) > 20 {
+		return fmt.Errorf("evidence count must be between 1 and 20")
+	}
+	sort.Slice(items, func(left, right int) bool {
+		return canonicalPreparedEvidenceKey(items[left]) < canonicalPreparedEvidenceKey(items[right])
+	})
+	for index := 1; index < len(items); index++ {
+		if canonicalPreparedEvidenceKey(items[index-1]) == canonicalPreparedEvidenceKey(items[index]) {
+			return fmt.Errorf("evidence tuple is duplicated")
+		}
+	}
+	return nil
+}
+
+func canonicalPreparedEvidenceKey(item preparedEvidence) string {
+	fields := []string{
+		item.sourceSessionID,
+		item.sourceRunID,
+		item.sourceReviewID,
+		item.sourceFindingID,
+		item.sourceTargetSHA256,
+		item.sourceExcerptSHA256,
+		item.currentExcerptSHA256,
+		item.targetSHA256,
+		string(item.side),
+		item.path,
+		strconv.Itoa(item.lineStart),
+		strconv.Itoa(item.lineEnd),
+		"verified",
+	}
+	var key strings.Builder
+	for _, field := range fields {
+		key.WriteString(strconv.Itoa(len(field)))
+		key.WriteByte(':')
+		key.WriteString(field)
+		key.WriteByte('|')
+	}
+	return key.String()
 }
 
 func bindFindingIDs(roles []preparedRole, findings []preparedFinding) {
@@ -1384,6 +1720,52 @@ func validateTerminalRun(state domain.RunState, roles []preparedRole, coverage d
 	return nil
 }
 
+func validateNoChangeProvenance(value NoChangeProvenance) error {
+	if validateBuildMetadata(value.BuildVersion, value.BuildCommit) != nil ||
+		!safeText(value.BuildProduct, 128, true) ||
+		!validSHA256(value.SnapshotManifestSHA256) ||
+		!validReceiptID(value.WorkspaceTerminalReceipt) ||
+		value.HasObjective != (value.ObjectiveSHA256 != "") ||
+		value.HasObjective && !validSHA256(value.ObjectiveSHA256) {
+		return fmt.Errorf("no-change provenance is incomplete")
+	}
+	return nil
+}
+func (candidate PreparedCandidate) validateNoChange() error {
+	if candidate.production != nil || candidate.noChangeProvenance == nil ||
+		validateNoChangeProvenance(*candidate.noChangeProvenance) != nil ||
+		candidate.kar.version != candidate.noChangeProvenance.BuildVersion ||
+		candidate.kar.commit != candidate.noChangeProvenance.BuildCommit ||
+		candidate.lineage.runType != domain.RunTypeReview || candidate.runState != domain.RunCompleted ||
+		candidate.target.sha256 != "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ||
+		candidate.axes != (preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass}) ||
+		len(candidate.findings) != 0 || len(candidate.failures) != 0 || len(candidate.limits) != 0 ||
+		!reflect.DeepEqual(candidate.reasons, []string{"policy_evaluated"}) || candidate.exitCode != int(domain.ExitCommittedPass) {
+		return fmt.Errorf("no-change values are inconsistent")
+	}
+	if len(candidate.roles) == 0 {
+		return fmt.Errorf("no-change candidate has no selected roles")
+	}
+	seenRoles := make(map[domain.Role]struct{}, len(candidate.roles))
+	for index, role := range candidate.roles {
+		if !role.role.Valid() || role.required != (role.role == domain.RoleLogic || role.role == domain.RoleSecurity) ||
+			role.state != domain.RoleTaskSucceeded || !role.valid || role.degraded || role.repaired ||
+			role.failureClass != "" || role.failureReason != "" || role.outcome != "not_applicable" ||
+			len(role.attempts) != 0 || len(role.validFindingIDs) != 0 ||
+			!reflect.DeepEqual(role.limitations, []string{"No Git changes were captured."}) {
+			return fmt.Errorf("no-change role values are inconsistent")
+		}
+		if _, exists := seenRoles[role.role]; exists {
+			return fmt.Errorf("no-change roles are duplicated")
+		}
+		seenRoles[role.role] = struct{}{}
+		if index > 0 && roleOrdinal(candidate.roles[index-1].role) >= roleOrdinal(role.role) {
+			return fmt.Errorf("no-change roles are not ordered")
+		}
+	}
+	return nil
+}
+
 func validatePreparedRole(role preparedRole) error {
 	if !role.role.Valid() || !terminalRoleState(role.state) || len(role.attempts) == 0 {
 		return fmt.Errorf("identity, state, or attempts are invalid")
@@ -1431,6 +1813,14 @@ func validatePreparedRole(role preparedRole) error {
 				seenArtifacts[artifact.kind] = struct{}{}
 			}
 		}
+	}
+	if role.outcome == "not_applicable" {
+		if len(role.attempts) != 0 || role.state != domain.RoleTaskSucceeded || !role.valid || role.degraded ||
+			role.repaired || role.failureClass != "" || role.failureReason != "" ||
+			!reflect.DeepEqual(role.limitations, []string{"No Git changes were captured."}) {
+			return fmt.Errorf("not-applicable role values are inconsistent")
+		}
+		return nil
 	}
 	finalAttempt := role.attempts[len(role.attempts)-1]
 	switch role.outcome {
@@ -1488,7 +1878,7 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 			hasSource := item.sourceSessionID != "" || item.sourceRunID != "" || item.sourceReviewID != "" || item.sourceFindingID != "" ||
 				item.sourceTargetSHA256 != "" || item.sourceExcerptSHA256 != ""
 			if item.targetSHA256 != targetSHA256 || !item.side.Valid() || !safePath(item.path) || item.lineStart < 1 ||
-				item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.excerptSHA256) ||
+				item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.currentExcerptSHA256) ||
 				len(item.excerpt) == 0 || !utf8.Valid(item.excerpt) ||
 				(hasSource && (item.sourceSessionID == "" || item.sourceRunID == "" || item.sourceReviewID == "" || item.sourceFindingID == "" ||
 					!validSHA256(item.sourceTargetSHA256) || !validSHA256(item.sourceExcerptSHA256))) {
@@ -1505,9 +1895,9 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 			if err != nil || !bytes.Equal(claim.QuoteBytes(), item.excerpt) {
 				return fmt.Errorf("finding %q evidence %d does not match its verified excerpt", finding.id, evidenceIndex)
 			}
-			excerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
-			if err != nil || excerptSHA256 != item.excerptSHA256 {
-				return fmt.Errorf("finding %q evidence %d excerpt identity is invalid", finding.id, evidenceIndex)
+			currentExcerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
+			if err != nil || currentExcerptSHA256 != item.currentExcerptSHA256 {
+				return fmt.Errorf("finding %q evidence %d current excerpt identity is invalid", finding.id, evidenceIndex)
 			}
 		}
 		expectedFindingIDs[finding.role] = append(expectedFindingIDs[finding.role], finding.id)
@@ -1529,7 +1919,7 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 func validatePreparedEvidence(items []preparedEvidence, targetSHA256 string) error {
 	for index, item := range items {
 		if item.targetSHA256 != targetSHA256 || !item.side.Valid() || !safePath(item.path) || item.lineStart < 1 ||
-			item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.excerptSHA256) ||
+			item.lineEnd < item.lineStart || !safeText(item.quote, 8000, false) || !validSHA256(item.currentExcerptSHA256) ||
 			len(item.excerpt) == 0 || !utf8.Valid(item.excerpt) || item.sourceSessionID == "" || item.sourceRunID == "" ||
 			item.sourceReviewID == "" || item.sourceFindingID == "" || !validSHA256(item.sourceTargetSHA256) ||
 			!validSHA256(item.sourceExcerptSHA256) {
@@ -1542,9 +1932,9 @@ func validatePreparedEvidence(items []preparedEvidence, targetSHA256 string) err
 		if err != nil || !bytes.Equal(claim.QuoteBytes(), item.excerpt) {
 			return fmt.Errorf("evidence %d does not match its verified excerpt", index)
 		}
-		excerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
-		if err != nil || excerptSHA256 != item.excerptSHA256 {
-			return fmt.Errorf("evidence %d excerpt identity is invalid", index)
+		currentExcerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
+		if err != nil || currentExcerptSHA256 != item.currentExcerptSHA256 {
+			return fmt.Errorf("evidence %d current excerpt identity is invalid", index)
 		}
 	}
 	return nil
@@ -1665,6 +2055,25 @@ func validSHA256(value string) bool {
 		return false
 	}
 	for _, character := range value[len("sha256:"):] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validReceiptID(value string) bool {
+	separator := strings.LastIndexByte(value, ':')
+	if separator <= 0 || len(value) != separator+1+64 {
+		return false
+	}
+	for _, character := range value[:separator] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') &&
+			character != ':' && character != '-' {
+			return false
+		}
+	}
+	for _, character := range value[separator+1:] {
 		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return false
 		}
@@ -1919,6 +2328,56 @@ func validateCommittedSnapshotSemantics(
 	)
 }
 
+func validateFinalProductionProvenance(final finalReviewWire) error {
+	production := final.Provenance.Production
+	runType := domain.RunType(final.RunType)
+	if runType != domain.RunTypeReview {
+		if production != nil {
+			return fmt.Errorf("child final review cannot contain production provenance")
+		}
+		return nil
+	}
+	if production == nil {
+		return nil
+	}
+	if final.Target.ContentSHA256 == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		return fmt.Errorf("no-change final review cannot contain production provenance")
+	}
+	if production.ObjectivePresent != (production.ObjectiveSHA256 != nil) {
+		return fmt.Errorf("production objective presence does not match identity")
+	}
+	value := ProductionReviewProvenance{
+		BuildProduct: production.BuildProduct, BuildVersion: production.BuildVersion, BuildCommit: production.BuildCommit,
+		HasObjective: production.ObjectivePresent, SnapshotManifestSHA256: production.SnapshotManifestSHA256,
+		WorkspaceTerminalReceipt: production.WorkspaceTerminalReceipt,
+		Providers:                make([]ProductionProviderProvenance, len(production.Providers)),
+	}
+	if production.ObjectiveSHA256 != nil {
+		value.ObjectiveSHA256 = *production.ObjectiveSHA256
+	}
+	for index, provider := range production.Providers {
+		value.Providers[index] = ProductionProviderProvenance{
+			Family: provider.Family, Instance: provider.Instance, Version: provider.Version,
+			Executable: provider.Executable, ExecutableSHA256: provider.ExecutableSHA256,
+			Launcher: provider.Launcher, LauncherSHA256: provider.LauncherSHA256,
+			ProfileGeneration: provider.ProfileGeneration, AdapterProfile: provider.AdapterProfile,
+			QualificationReceiptIDs:   append([]string(nil), provider.QualificationReceiptIDs...),
+			PacketTransportReceiptIDs: append([]string(nil), provider.PacketTransportReceiptIDs...),
+			NamespaceTerminalReceipt:  provider.NamespaceTerminalReceipt,
+		}
+	}
+	if err := validateProductionReviewProvenance(value); err != nil {
+		return fmt.Errorf("final review production provenance: %w", err)
+	}
+	commit := ""
+	if final.KAR.Commit != nil {
+		commit = *final.KAR.Commit
+	}
+	if final.KAR.Version != value.BuildVersion || commit != value.BuildCommit {
+		return fmt.Errorf("final review production build metadata does not match KAR")
+	}
+	return nil
+}
 func validatePublicationCompositeSemantics(
 	final ports.FinalReviewArtifact,
 	manifestArtifact ports.ImmutablePublicationArtifact,
@@ -2008,6 +2467,9 @@ func validatePublicationCompositeSemantics(
 		domain.RunType(finalWire.RunType), finalWire.ImmutableLineage, lineage, lineageArtifact, sessionID, runID, reviewID,
 	); err != nil {
 		return 0, fmt.Errorf("final review lineage: %w", err)
+	}
+	if err := validateFinalProductionProvenance(finalWire); err != nil {
+		return 0, err
 	}
 	content, coverage, ci, err := validateFinalOutcomeSemantics(domain.RunType(finalWire.RunType), finalWire.ImmutableLineage.ReplayMode, finalWire)
 	if err != nil {
@@ -2157,7 +2619,7 @@ func validatePublicationLineage(
 
 func validateFinalOutcomeSemantics(runType domain.RunType, replayMode *string, final finalReviewWire) (domain.ContentVerdict, domain.CoverageStatus, domain.CIDecision, error) {
 	threshold := domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove)
-	if !threshold.Valid() || final.SeverityThreshold.PolicySource != "trusted_base" {
+	if !threshold.Valid() || final.SeverityThreshold.PolicySource != "project_local" {
 		return "", "", "", fmt.Errorf("final review severity threshold is invalid")
 	}
 	roles := make([]domain.RoleResultSummary, len(final.RoleOutcomes))
@@ -2177,13 +2639,13 @@ func validateFinalOutcomeSemantics(runType domain.RunType, replayMode *string, f
 			validateStringSlice(role.Limitations, 20, 2000, true) != nil {
 			return "", "", "", fmt.Errorf("final review role outcome %q is malformed", role.Role)
 		}
-		if role.Outcome == "skipped" {
+		if role.Outcome == "skipped" || role.Outcome == "not_applicable" {
 			if role.AttemptID != nil || role.ProviderInstance != nil || role.SelectedVia != nil ||
-				len(role.ValidFindingIDs) != 0 {
-				return "", "", "", fmt.Errorf("skipped role outcome %q has attempt-owned content", role.Role)
+				len(role.ValidFindingIDs) != 0 || role.FailureReason != nil {
+				return "", "", "", fmt.Errorf("non-attempt role outcome %q has attempt-owned content", role.Role)
 			}
 			roles[index] = domain.RoleResultSummary{
-				Role: parsedRole, Selected: true, Required: role.Required, Valid: false,
+				Role: parsedRole, Selected: true, Required: role.Required, Valid: role.Outcome == "not_applicable",
 			}
 			continue
 		}
@@ -2211,7 +2673,7 @@ func validateFinalOutcomeSemantics(runType domain.RunType, replayMode *string, f
 			Degraded: role.Outcome == "degraded",
 		}
 	}
-	coverage := domain.CoverageComplete
+	var coverage domain.CoverageStatus
 	if runType == domain.RunTypeFollowup ||
 		(runType == domain.RunTypeRerun && replayMode != nil && *replayMode == string(ReplayModeRecompose)) {
 		coverage = coverageForSelectedFinalRoles(roles)
@@ -2326,6 +2788,8 @@ func roleLimitationsForOutcome(outcome string) ([]string, error) {
 		return []string{"Role coverage is degraded."}, nil
 	case "failed":
 		return []string{"Role coverage is incomplete due to a terminal provider failure."}, nil
+	case "not_applicable":
+		return []string{"No Git changes were captured."}, nil
 	default:
 		return nil, fmt.Errorf("unknown role outcome %q", outcome)
 	}
@@ -2381,6 +2845,7 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 				item.Current.LineStart < 1 ||
 				item.Current.LineEnd < item.Current.LineStart ||
 				!safeText(item.Current.Quote, 8000, false) ||
+				!validSHA256(item.Current.CurrentExcerptSHA256) ||
 				item.Current.Verification != "verified" {
 				return fmt.Errorf("final finding %q evidence %d is invalid", finding.ID, evidenceIndex)
 			}
@@ -2395,9 +2860,9 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 			if err != nil {
 				return fmt.Errorf("final finding %q evidence %d claim: %w", finding.ID, evidenceIndex, err)
 			}
-			excerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
-			if err != nil || (!followupSource && excerptSHA256 != item.Source.SourceExcerptSHA256) {
-				return fmt.Errorf("final finding %q evidence %d excerpt identity is invalid", finding.ID, evidenceIndex)
+			currentExcerptSHA256, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+			if err != nil || currentExcerptSHA256 != item.Current.CurrentExcerptSHA256 {
+				return fmt.Errorf("final finding %q evidence %d current excerpt identity is invalid", finding.ID, evidenceIndex)
 			}
 		}
 		expectedFindingIDs[finding.Role] = append(expectedFindingIDs[finding.Role], finding.ID)
@@ -2497,6 +2962,13 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 		}
 		if outcome.Required {
 			required = append(required, outcome.Role)
+		}
+		if outcome.Outcome == "not_applicable" {
+			if outcome.AttemptID != nil || outcome.ProviderInstance != nil || outcome.SelectedVia != nil ||
+				outcome.FailureReason != nil || attemptCountByRole[outcome.Role] != 0 {
+				return false, fmt.Errorf("not-applicable role outcome %q has attempt-owned content", outcome.Role)
+			}
+			continue
 		}
 		attempt, ok := lastAttemptByRole[outcome.Role]
 		if !ok || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil ||

@@ -23,6 +23,7 @@ kar help
 ```
 
 ## 2. Run-Creation Semantics
+This section specifies the intended command contract. Production root `kar review` is currently reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; composition is present, but production verification and closure are not. Full current authority gates and three family-distinct normal P2 receipts remain pending. The rows, examples, and semantics below do not assert a current production review result.
 
 | Command | Main question | Prior run required | Target basis | Creates a new run |
 |---|---|---:|---|---:|
@@ -32,13 +33,13 @@ kar help
 | `rerun` | Can an attempt be repeated after instability or invalid output? | Yes | Exact or recomposed source scope | Yes |
 ## 2.1 Complete 17-command contract
 
-The command-result envelope is `https://kar.local/schemas/kar-command-result.v1.schema.json`. Every request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. Every command returns the command-result envelope in addition to the explicitly listed output contracts. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
+The command-result envelope is `https://kar.local/schemas/kar-command-result.v1.schema.json`. Every machine-output request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. The frozen v1 schema has no truthful request variant for `schema list`, so `kar schema list --output json` fails closed as usage rather than fabricating an inspection envelope. Human `kar schema list` remains available; JSON `schema show` and `schema export` return the command-result envelope. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
 G008 implements the frozen request contract and its two-phase boundary: CLI-only selectors are resolved and valueless stdin is captured before the schema-valid request is frozen. The frozen request contains canonical IDs and canonical target values only; it never contains `latest`, a role/provider rerun selector, or uncaptured stdin.
 
 | Command | Owner / service | Required reads → writes | Primary output contracts | Typed exits |
 |---|---|---|---|---|
-| `init` | `internal/app/init` / `InitializeProject` | embedded defaults and intended provider list → project YAML | command result | 2, 7 |
-| `doctor` | `internal/app/doctor` / `DiagnoseEnvironment` | config, binaries, provider/platform evidence → redacted diagnostic | doctor result, command result | 2, 4, 7, 8 |
+| `init` | `internal/app/init` / `InitializeProject` | installed-user identity and provider discovery → sole project-local `.kar/config.yaml` | command result | 2, 4, 7, 8, 9, 10 |
+| `doctor` | `internal/app/doctor` / `DiagnoseEnvironment` | config, binaries, provider/platform evidence → redacted diagnostic | doctor result, command result | 2, 4, 7, 8, 9 |
 | `review` | `internal/app/review` / `StartReviewRun` | target, resolved policy → run, prompts, attempts, final, epoch | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `followup` | `internal/app/followup` / `StartFollowupRun` | source run/review/finding and target → child run and final | provider followup output v2, run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `delta` | `internal/app/delta` / `StartDeltaRun` | source and current targets/runs → child artifacts | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
@@ -48,25 +49,49 @@ G008 implements the frozen request contract and its two-phase boundary: CLI-only
 | `findings` | `internal/app/query` / `ListFindings` | review → none | review artifact v2 | 2, 7, 8, 9, 10 |
 | `excerpt` | `internal/app/query` / `RenderExcerpt` | target, review, evidence → none | command result | 2, 4, 7, 8, 9, 10 |
 | `providers` | `internal/app/providers` / `ListProviderProfiles` | config and provider evidence → none | provider-contract evidence v1 | 2, 4, 7, 8 |
-| `config` | `internal/app/config` / `ResolveConfiguration` | built-in, global, trusted-base project, CLI → resolved policy | run manifest v2 | 2, 8 |
+| `config` | `internal/app/config` / `ResolveConfiguration` | attested project-local `.kar/config.yaml` → resolved policy | command result | 2, 4, 7, 8, 9, 10 |
 | `prompt` | `internal/app/prompt` / `InspectPrompt` | template and untrusted references → guarded stdin metadata | prompt manifest v1 | 2, 7, 8, 10 |
 | `schema` | `internal/app/schema` / `InspectSchema` | embedded schemas → optional export | command result | 2, 7 |
 | `clean` | `internal/app/clean` / `PlanAndApplyRetention` | manifests, edges, epoch → plan, tombstone, deletion receipt | clean plan v1 | 2, 7, 8 |
 | `export` | `internal/app/export` / `ExportRedactedRun` | immutable run and review → secure bundle and manifest | export manifest v1 | 2, 7, 8 |
 | `help` | `internal/app/help` / `RenderHelp` | embedded docs → none | command result | 2 |
 
-The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v1.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v2.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-prompt-manifest.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+Init captures PATH and optional `KIMI_CODE_HOME` once at process startup. It
+observes only explicitly selected families; an unselected family performs zero
+executable, launcher, or environment reads. Completed discovery always emits
+the fixed Kimi, ZCode, and AGY rows. In auto mode, an ordinarily unavailable
+family does not suppress another valid candidate, while any security failure
+retains security precedence after the three rows are assembled.
+
+The exact init selection grammar is
+`--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`.
+It accepts each of the seven nonempty family subsets and canonicalizes request,
+result, and configuration order to Kimi, ZCode, AGY. Empty tokens, whitespace,
+unknown or duplicate families, and mixing `auto` with a family are usage
+errors. When an invalid init argv still unambiguously requests `--output json`,
+KAR emits the rejected request
+`{request_id,command:"init",request_state:"invalid",output_format:"json"}`
+with `init_selection_invalid` at exit `2`; it does not fabricate accepted
+selection or path fields.
+
+The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v2.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-prompt-manifest.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+`help` is intentionally repository-independent. It renders only embedded documentation, reads no project configuration, and remains available in non-Git and unborn directories without locality attestation.
 For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.kar`, `.git`, `.gjc`, and KAR-owned root configuration names before any publication lookup.
 
 ## 2.2 Gate and readiness semantics
 
 `init` records all configured intended provider IDs with `status=unverified` when evidence is unavailable. It must neither silently disable nor substitute them; `doctor` is required before review readiness can be claimed. `doctor`, `providers`, and `status` expose `PASS`, `FAIL`, or `INCONCLUSIVE` evidence without promoting it. `INCONCLUSIVE` is not PASS.
+`doctor` emits `kar-doctor-result.v2` inline and never persists diagnostics. It reports the fixed Kimi/ZCode/AGY inventory, project-local config admission, assignment resilience, and readiness. Singleton eligibility is `degraded` at exit `0`; missing or unavailable primaries are `unverified` at exit `4`; locality or identity violations are `unsafe` at exit `8`. Human and JSON output are ANSI-free.
+A pure native-home observation cancellation aborts `init`, `config`, or `doctor`
+at exit `9` with `request_cancelled`. Init does not mutate, config exposes no
+accepted digest, and doctor emits no partial doctor artifact. A separately
+observed security or artifact failure retains its higher precedence.
 
 No command, including `init`, `doctor`, or `schema`, authorizes product implementation, authority-ref mutation, or `g0_complete`. Those actions require the separate session-bound G0 approval DAG.
 
 ## 3. `kar review`
 
-Starts an independent review.
+Specifies the composed independent review operation. Production verification and closure remain pending under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` until all current authority gates and three family-distinct normal P2 receipts succeed.
 
 ```bash
 kar review --diff origin/main...HEAD \
@@ -91,6 +116,7 @@ Semantics:
 - creates a new session unless `--session` is explicitly provided for an imported workflow;
 - does not inherit findings from another run;
 - publishes at most one final review artifact.
+- preserves immutable captured target bytes; native `@file` transport, when selected, refers only to that captured material and never weakens the no-live-root or no-`HOME` boundary.
 
 ## 4. `kar followup`
 
@@ -271,7 +297,7 @@ Help must explain:
 - the difference among four run types;
 - why a valid negative review does not trigger fallback;
 - where final and intermediate artifacts are stored;
-- that provider commands and versions require readiness checks;
+- that provider commands require readiness checks and doctor version guidance is not an executable version or SHA authorization gate;
 - that targets may be transmitted to remote provider services;
 - that project configuration cannot define executable commands by default.
 

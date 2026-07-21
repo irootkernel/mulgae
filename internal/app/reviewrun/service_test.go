@@ -1,0 +1,746 @@
+package reviewrun
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
+	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+)
+
+func TestWorkspaceAbortReasonPreservesStageAndOverridesSecurityAndCancellation(t *testing.T) {
+	security, err := domain.NewFailure("review.provider", domain.FailureSecurityPolicy, "packet rejected", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := workspaceAbortReason(security, ports.WorkspaceAbortExecutionFailure); got != ports.WorkspaceAbortSecurityViolation {
+		t.Fatalf("security abort reason = %q", got)
+	}
+	if got := workspaceAbortReason(context.Canceled, ports.WorkspaceAbortPlanningFailure); got != ports.WorkspaceAbortCancellation {
+		t.Fatalf("cancellation abort reason = %q", got)
+	}
+	if got := workspaceAbortReason(errors.New("publication failed"), ports.WorkspaceAbortPublicationFailure); got != ports.WorkspaceAbortPublicationFailure {
+		t.Fatalf("stage abort reason = %q", got)
+	}
+}
+
+func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
+	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleDocumentation, domain.RoleTesting} {
+		layer, ok := templates.RoleTemplate(role)
+		if !ok || layer.ID() != "builtin:roles/"+string(role) || layer.Version() != "2" {
+			t.Fatalf("template for %s = %#v, present=%t", role, layer, ok)
+		}
+	}
+	if templates.Common().Version() != "2" || templates.ReviewRun().Version() != "2" || templates.JSONOutput().Version() != "2" || templates.Repair().Version() != "2" {
+		t.Fatal("default template versions are not explicit")
+	}
+}
+func TestRootReviewLayerProvenanceOrderAndRepair(t *testing.T) {
+	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	objective := prompt.NewObjective([]byte("@roadmap.md"))
+	base, err := templates.ComposeRootReview(domain.RoleLogic, &objective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBase := []string{
+		"builtin:review/common",
+		"builtin:run/review",
+		"builtin:roles/logic",
+		"review:objective",
+		"builtin:output/provider-review-wire",
+	}
+	assertLayerIDs(t, base, wantBase)
+	repaired, err := templates.ComposeRootReviewRepair(base, validation.RepairPlan{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLayerIDs(t, repaired, append(wantBase, "builtin:repair/provider-review", "review:repair-plan"))
+}
+
+func assertLayerIDs(t *testing.T, template prompt.TrustedTemplate, want []string) {
+	t.Helper()
+	got := template.TrustedLayerManifest()
+	if len(got) != len(want) {
+		t.Fatalf("layer count = %d, want %d", len(got), len(want))
+	}
+	for index, id := range want {
+		if got[index].Ordinal() != index+1 || got[index].ID() != id {
+			t.Fatalf("layer %d = ordinal=%d id=%q, want ordinal=%d id=%q",
+				index, got[index].Ordinal(), got[index].ID(), index+1, id)
+		}
+	}
+}
+
+func TestImmutableReviewInputCopiesPayloads(t *testing.T) {
+	objective := []byte("@roadmap.md")
+	context := []byte("project")
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := NewImmutableReviewInput(target, objective, true, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objective[0], context[0] = 'x', 'x'
+	if string(input.Objective()) != "@roadmap.md" || string(input.ProjectContext()) != "project" {
+		t.Fatal("immutable input retained caller storage")
+	}
+}
+
+type packetDetectorFake struct {
+	detection   ports.ReviewInputDetection
+	packet      []byte
+	detectorErr error
+}
+
+func (fake *packetDetectorFake) DetectReviewInput(_ context.Context, channel ports.ReviewInputChannel, _ string, bytes []byte) (ports.ReviewInputDetection, error) {
+	if channel != ports.ReviewInputPacket {
+		return ports.ReviewInputDetection{}, errors.New("unexpected detector channel")
+	}
+	fake.packet = append([]byte(nil), bytes...)
+	return fake.detection, fake.detectorErr
+}
+
+type observedProviderFake struct{ calls int }
+
+func (fake *observedProviderFake) Observe(context.Context, ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	fake.calls++
+	return ports.ProviderExecutionObservation{}, nil
+}
+
+func TestPacketScreeningProviderScreensInitialAndRepair(t *testing.T) {
+	clean, err := ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detector := &packetDetectorFake{detection: clean}
+	provider := &observedProviderFake{}
+	screened := &packetScreeningProvider{provider: provider, detector: detector}
+	for _, purpose := range []ports.ProviderInvocationPurpose{ports.ProviderInvocationInitial, ports.ProviderInvocationRepair} {
+		if _, err := screened.Observe(context.Background(), screeningInvocation(t, purpose)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if provider.calls != 2 || string(detector.packet) != "complete provider packet" || screened.Blocked() {
+		t.Fatal("clean provider packets were not screened and exposed exactly once")
+	}
+}
+
+func TestPacketScreeningProviderBlocksBeforeProviderExposure(t *testing.T) {
+	blocked, err := ports.NewReviewInputDetection(ports.ReviewInputBlocked, "credential", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &observedProviderFake{}
+	screened := &packetScreeningProvider{provider: provider, detector: &packetDetectorFake{detection: blocked}}
+	if _, err := screened.Observe(context.Background(), screeningInvocation(t, ports.ProviderInvocationInitial)); err == nil || provider.calls != 0 || !screened.Blocked() {
+		t.Fatal("blocked provider packet reached provider")
+	}
+}
+func TestPacketScreeningProviderReportsDetectorFailureDistinctly(t *testing.T) {
+	detectorErr := errors.New("detector unavailable")
+	provider := &observedProviderFake{}
+	screened := &packetScreeningProvider{
+		provider: provider,
+		detector: &packetDetectorFake{detectorErr: detectorErr},
+	}
+	_, err := screened.Observe(context.Background(), screeningInvocation(t, ports.ProviderInvocationInitial))
+	if !errors.Is(err, detectorErr) || screened.Blocked() || !errors.Is(screened.DetectorError(), detectorErr) || provider.calls != 0 {
+		t.Fatal("detector failure was treated as packet rejection or exposed the packet")
+	}
+}
+
+func screeningInvocation(t *testing.T, purpose ports.ProviderInvocationPurpose) ports.ProviderInvocation {
+	t.Helper()
+	attempt, err := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes := []byte("complete provider packet")
+	packet, err := ports.NewProviderPacket(packetBytes, prompt.CompleteStdinSHA256(packetBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := ports.NewProviderInvocationWithPacket(domain.RoleLogic, "fake.logic", attempt, purpose, packet, "i_019f5a09-5eec-7001-8001-000000000002", "019f5a09-5eec-7001-8001-000000000003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return invocation
+}
+func TestServiceExecuteWorkspaceLeaseBeforeBuildConstructionFailureAbortsLease(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls})
+	service.dependencies.Build = BuildIdentity{}
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded with an invalid build identity")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "abort"})
+	if !lease.aborted || !lease.abort.TerminalReceipt().NoNamespaces() {
+		t.Fatal("build construction failure did not abort the captured workspace with empty provider terminal evidence")
+	}
+}
+
+func TestServiceExecuteMalformedAuthorityDrainsProviderAndWorkspace(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	providerFailure := errors.New("provider terminal cleanup failed")
+	workspaceFailure := errors.New("workspace abort failed")
+	lease.abortErr = workspaceFailure
+	authority := &serviceAuthority{
+		calls:                &calls,
+		terminal:             serviceQualifiedTerminal(t),
+		drainErrors:          []error{providerFailure, providerFailure},
+		drainTerminalOnError: true,
+		invalidProvider:      true,
+	}
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{
+		calls:     &calls,
+		authority: authority,
+	})
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if !errors.Is(err, providerFailure) || !errors.Is(err, workspaceFailure) {
+		t.Fatalf("Execute() error = %v, want joined provider and workspace cleanup failures", err)
+	}
+	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain", "abort"})
+	state, ok := CleanupStateFromError(err)
+	if !ok || state.ProviderOwner() != authority || state.WorkspaceLease() != lease || state.ProviderDrained() || state.WorkspaceDrained() {
+		t.Fatal("malformed authority cleanup did not retain both retry authorities")
+	}
+}
+func TestServiceExecuteConstructionFailureRetainsOwnerForCleanupRetry(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	constructionFailure := errors.New("authority construction failed")
+	firstDrainFailure := errors.New("first terminal drain failed")
+	authority := &serviceAuthority{
+		calls:       &calls,
+		terminal:    serviceQualifiedTerminal(t),
+		drainErrors: []error{firstDrainFailure, firstDrainFailure, nil},
+	}
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{
+		calls:     &calls,
+		authority: authority,
+		err: &terminalDrainCleanupError{
+			cause: constructionFailure,
+			owner: authority,
+		},
+	})
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if !errors.Is(err, constructionFailure) || !errors.Is(err, firstDrainFailure) {
+		t.Fatalf("Execute() error = %v, want construction and first drain failures", err)
+	}
+	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain"})
+	state, ok := CleanupStateFromError(err)
+	if !ok || state.ProviderOwner() != authority || state.WorkspaceLease() != lease || state.ProviderDrained() || state.WorkspaceDrained() {
+		t.Fatal("construction failure did not retain the exact cleanup authorities")
+	}
+
+	if err := state.DrainAndAbort(context.Background(), ports.WorkspaceAbortPlanningFailure); err != nil {
+		t.Fatalf("cleanup retry = %v", err)
+	}
+	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain", "drain", "abort"})
+	if !state.ProviderDrained() || !state.WorkspaceDrained() || lease.abort.WorkspaceSnapshotIdentity() != lease.identity {
+		t.Fatal("cleanup retry did not drain the retained provider then abort the captured workspace identity")
+	}
+}
+
+func TestServiceExecuteRetriesTerminalDrainBeforeAbort(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	terminal := serviceQualifiedTerminal(t)
+	parent, cancel := context.WithCancel(context.WithValue(context.Background(), serviceContextKey{}, "preserved"))
+	defer cancel()
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	authority := &serviceAuthority{
+		calls:       &calls,
+		terminal:    terminal,
+		drainErrors: []error{errors.New("first drain failed"), nil},
+		cancelPlan:  cancel,
+		drainCheck: func(ctx context.Context) {
+			if _, bounded := ctx.Deadline(); !bounded {
+				t.Error("terminal drain context is unbounded")
+			}
+			if ctx.Err() != nil {
+				t.Errorf("terminal drain inherited cancellation: %v", ctx.Err())
+			}
+			if value := ctx.Value(serviceContextKey{}); value != "preserved" {
+				t.Errorf("terminal drain lost parent value: %v", value)
+			}
+		},
+	}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{
+		calls:     &calls,
+		authority: authority,
+	})
+	_, err := service.Execute(parent, serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded after planning failure")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "authority", "plan", "drain", "drain", "abort"})
+	if !providerTerminalMatches(lease.abort.TerminalReceipt(), terminal.ProviderRunTerminalReceipt()) {
+		t.Fatal("abort did not retain the retried terminal aggregate")
+	}
+}
+
+func TestServiceExecuteRetainsCleanupOwnerWhenTerminalDrainPersists(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	authority := &serviceAuthority{calls: &calls, drainErrors: []error{errors.New("first"), errors.New("second")}}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{
+		calls:     &calls,
+		authority: authority,
+	})
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded with persistent terminal drain failure")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "authority", "plan", "drain", "drain"})
+	if lease.aborted {
+		t.Fatal("persistent drain failure aborted workspace without terminal proof")
+	}
+	owner, ok := CleanupOwnerFromError(err)
+	if !ok || owner != authority {
+		t.Fatalf("cleanup owner = %#v, %t, want retained authority", owner, ok)
+	}
+	partial, ok := PartialProviderRunTerminalReceiptFromError(err)
+	if !ok || partial.Valid() || partial.NoNamespaces() {
+		t.Fatalf("partial terminal = %#v, %t, want incomplete non-empty-proof evidence", partial, ok)
+	}
+}
+func TestReviewRunCleanupTracksMixedOutcomesAndPreservesRetryAuthority(t *testing.T) {
+	terminal := serviceQualifiedTerminal(t)
+	providerFailure := errors.New("provider cleanup failed")
+	workspaceFailure := errors.New("workspace cleanup failed")
+
+	t.Run("provider clean workspace failed", func(t *testing.T) {
+		calls := []string{}
+		lease := newServiceLease(t, &calls)
+		lease.abortErr = workspaceFailure
+		cleanup := newReviewRunCleanup(lease)
+		cleanup.setProviderOwner(&serviceAuthority{calls: &calls, terminal: terminal})
+		err := cleanup.DrainAndAbort(context.Background(), ports.WorkspaceAbortExecutionFailure)
+		if !errors.Is(err, workspaceFailure) || !cleanup.ProviderDrained() || cleanup.WorkspaceDrained() {
+			t.Fatal("cleanup did not retain workspace-only failure")
+		}
+		state, ok := CleanupStateFromError(err)
+		if !ok || state != cleanup || state.ProviderOwner() == nil || state.WorkspaceLease() != lease {
+			t.Fatal("cleanup did not retain exact retry authorities")
+		}
+	})
+
+	t.Run("workspace clean provider failed", func(t *testing.T) {
+		calls := []string{}
+		lease := newServiceLease(t, &calls)
+		cleanup := &ReviewRunCleanup{
+			provider:         &serviceAuthority{calls: &calls, drainErrors: []error{providerFailure, providerFailure}},
+			workspace:        lease,
+			terminal:         terminal.ProviderRunTerminalReceipt(),
+			workspaceDrained: true,
+		}
+		err := cleanup.DrainAndAbort(context.Background(), ports.WorkspaceAbortExecutionFailure)
+		if !errors.Is(err, providerFailure) || cleanup.ProviderDrained() || !cleanup.WorkspaceDrained() {
+			t.Fatal("cleanup did not retain provider-only failure")
+		}
+	})
+
+	t.Run("both failed", func(t *testing.T) {
+		calls := []string{}
+		lease := newServiceLease(t, &calls)
+		lease.abortErr = workspaceFailure
+		cleanup := &ReviewRunCleanup{
+			provider:  &serviceAuthority{calls: &calls, terminal: terminal, drainErrors: []error{providerFailure, providerFailure}, drainTerminalOnError: true},
+			workspace: lease,
+			terminal:  terminal.ProviderRunTerminalReceipt(),
+		}
+		err := cleanup.DrainAndAbort(context.Background(), ports.WorkspaceAbortExecutionFailure)
+		if !errors.Is(err, providerFailure) || !errors.Is(err, workspaceFailure) || cleanup.ProviderDrained() || cleanup.WorkspaceDrained() {
+			t.Fatal("cleanup did not join unresolved provider and workspace failures")
+		}
+	})
+
+	t.Run("retry and both clean", func(t *testing.T) {
+		calls := []string{}
+		lease := newServiceLease(t, &calls)
+		lease.abortErr = workspaceFailure
+		cleanup := newReviewRunCleanup(lease)
+		cleanup.setProviderOwner(&serviceAuthority{calls: &calls, terminal: terminal})
+		if err := cleanup.DrainAndAbort(context.Background(), ports.WorkspaceAbortExecutionFailure); !errors.Is(err, workspaceFailure) {
+			t.Fatal("initial cleanup did not report workspace failure")
+		}
+		lease.abortErr = nil
+		if err := cleanup.DrainAndAbort(context.Background(), ports.WorkspaceAbortExecutionFailure); err != nil || !cleanup.ProviderDrained() || !cleanup.WorkspaceDrained() {
+			t.Fatalf("retry cleanup = %v, provider=%t workspace=%t", err, cleanup.ProviderDrained(), cleanup.WorkspaceDrained())
+		}
+	})
+}
+
+func TestServiceExecuteNoChangePreReleaseFailureAbortsWithEmptyTerminal(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	ids := &serviceIDs{calls: &calls, runErr: errors.New("run ID unavailable")}
+	capture := &serviceCapture{captured: serviceCapturedNoChange(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls})
+	service.dependencies.IDs = ids
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded with no-change pre-release failure")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "abort"})
+	if !lease.abort.TerminalReceipt().NoNamespaces() {
+		t.Fatal("no-change abort did not use the exact empty provider terminal aggregate")
+	}
+}
+
+func TestServiceExecuteRejectsNoChangeReleaseReceiptMismatch(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	lease.mismatchRelease = true
+	capture := &serviceCapture{captured: serviceCapturedNoChange(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls})
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() accepted mismatched no-change release receipt")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "release"})
+	if lease.aborted {
+		t.Fatal("release mismatch issued a second abort after terminal release")
+	}
+}
+func TestServiceExecuteNoChangePublicationFailureDoesNotAbortAfterRelease(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedNoChange(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls})
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded when publication failed")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "release", "publish"})
+	if lease.aborted {
+		t.Fatal("publication failure issued a second abort after terminal release")
+	}
+}
+
+func TestNoChangeObjectiveDigestDistinguishesAbsentAndPresentEmpty(t *testing.T) {
+	target := serviceNoChangeTarget(t)
+	absent, err := NewImmutableReviewInput(target, nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := NewImmutableReviewInput(target, []byte{}, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noChangeObjectiveDigest(absent) != "" || noChangeObjectiveDigest(empty) == "" {
+		t.Fatal("objective provenance did not distinguish absence from present empty input")
+	}
+}
+
+type serviceContextKey struct{}
+type serviceCapture struct{ captured CapturedRunInput }
+
+func (capture *serviceCapture) Capture(context.Context, Request) (CapturedRunInput, error) {
+	serviceCalls(capture.captured.WorkspaceLease(), "capture")
+	return capture.captured, nil
+}
+
+type serviceClock struct{}
+
+func (serviceClock) Now() time.Time { return time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC) }
+
+type serviceIDs struct {
+	calls  *[]string
+	runErr error
+}
+
+func (ids *serviceIDs) NewSessionID(time.Time) (domain.SessionID, error) {
+	if ids.calls != nil {
+		*ids.calls = append(*ids.calls, "session")
+	}
+	id, _ := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000001")
+	return id, nil
+}
+func (ids *serviceIDs) NewRunID(time.Time) (domain.RunID, error) {
+	if ids.calls != nil {
+		*ids.calls = append(*ids.calls, "run")
+	}
+	if ids.runErr != nil {
+		return domain.RunID{}, ids.runErr
+	}
+	id, _ := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000002")
+	return id, nil
+}
+func (*serviceIDs) NewAttemptID(time.Time) (domain.AttemptID, error) {
+	return domain.AttemptID{}, errors.New("unexpected attempt")
+}
+func (*serviceIDs) NewRoleTaskID(time.Time) (string, error) {
+	return "", errors.New("unexpected role task")
+}
+func (*serviceIDs) NewSourceInvocationID(time.Time) (string, error) {
+	return "", errors.New("unexpected source invocation")
+}
+func (*serviceIDs) NewExecutionInvocationID(time.Time) (string, error) {
+	return "", errors.New("unexpected execution invocation")
+}
+
+type serviceAuthorityFactory struct {
+	calls     *[]string
+	authority RunAuthority
+	err       error
+}
+
+func (factory *serviceAuthorityFactory) NewQualifiedRun(context.Context, CapturedRunInput, RunSelection) (RunAuthority, error) {
+	*factory.calls = append(*factory.calls, "authority")
+	return factory.authority, factory.err
+}
+
+type serviceAuthority struct {
+	calls                *[]string
+	terminal             QualifiedRunTerminalReceipt
+	drainErrors          []error
+	drains               int
+	cancelPlan           func()
+	drainCheck           func(context.Context)
+	drainTerminalOnError bool
+	invalidProvider      bool
+}
+
+func (authority *serviceAuthority) Provider() ports.ObservedReviewProvider {
+	if authority.invalidProvider {
+		return nil
+	}
+	return &observedProviderFake{}
+}
+func (authority *serviceAuthority) Planner() ExecutionPlanner {
+	return servicePlanner{calls: authority.calls, cancel: authority.cancelPlan}
+}
+func (authority *serviceAuthority) BuildIdentity() BuildIdentity {
+	return BuildIdentity{Product: "kar", Version: "1.0.0", Commit: "abc123"}
+}
+func (authority *serviceAuthority) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {
+	*authority.calls = append(*authority.calls, "drain")
+	if authority.drainCheck != nil {
+		authority.drainCheck(ctx)
+	}
+	index := authority.drains
+	authority.drains++
+	if index < len(authority.drainErrors) && authority.drainErrors[index] != nil {
+		if authority.drainTerminalOnError {
+			return authority.terminal, authority.drainErrors[index]
+		}
+		return QualifiedRunTerminalReceipt{}, authority.drainErrors[index]
+	}
+	return authority.terminal, nil
+}
+
+type servicePlanner struct {
+	calls  *[]string
+	cancel func()
+}
+
+func (planner servicePlanner) Plan(context.Context, PlanningRequest) (ExecutionPlan, error) {
+	*planner.calls = append(*planner.calls, "plan")
+	if planner.cancel != nil {
+		planner.cancel()
+	}
+	return ExecutionPlan{}, errors.New("planning failed")
+}
+
+type serviceLease struct {
+	identity        ports.WorkspaceSnapshotIdentity
+	receipt         ports.WorkspaceSnapshotReceipt
+	release         ports.WorkspaceTerminalRelease
+	calls           *[]string
+	abort           ports.WorkspaceAbortEvidence
+	aborted         bool
+	abortErr        error
+	mismatchRelease bool
+}
+
+func serviceCalls(lease ports.WorkspaceSnapshotLease, call string) {
+	if fake, ok := lease.(*serviceLease); ok {
+		*fake.calls = append(*fake.calls, call)
+	}
+}
+func (lease *serviceLease) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
+	return lease.identity
+}
+func (*serviceLease) RevalidateForExecution() (ports.WorkspaceExecutionGuard, error) {
+	return nil, errors.New("unexpected workspace revalidation")
+}
+func (lease *serviceLease) Receipt() ports.WorkspaceSnapshotReceipt { return lease.receipt }
+func (lease *serviceLease) Release(evidence ports.WorkspaceCompletionEvidence) (ports.WorkspaceTerminalReceipt, error) {
+	if lease.mismatchRelease {
+		*lease.calls = append(*lease.calls, "release")
+		return ports.WorkspaceTerminalReceipt{}, nil
+	}
+	return lease.release(evidence)
+}
+func (lease *serviceLease) Abort(evidence ports.WorkspaceAbortEvidence) error {
+	*lease.calls = append(*lease.calls, "abort")
+	lease.abort, lease.aborted = evidence, true
+	return lease.abortErr
+}
+
+type serviceReader struct{}
+
+func (serviceReader) ReadImmutableTarget(context.Context, string, evidence.Side, ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
+	return evidence.ImmutableTargetUnavailable, nil, errors.New("unexpected target read")
+}
+
+func serviceForLifecycle(t *testing.T, calls *[]string, capture ImmutableInputSource, factory RunAuthorityFactory) *Service {
+	t.Helper()
+	service, err := NewService(Dependencies{
+		Clock: serviceClock{}, IDs: &serviceIDs{calls: calls}, Build: BuildIdentity{Product: "kar", Version: "1.0.0", Commit: "abc123"},
+		RunAuthorityFactory: factory, Validator: &validation.ReviewValidator{}, Publication: servicePublisher{calls: calls}, Templates: mustServiceTemplates(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func mustServiceTemplates(t *testing.T) review.TemplateSet {
+	t.Helper()
+	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return templates
+}
+
+type servicePublisher struct{ calls *[]string }
+
+func (publisher servicePublisher) PublishNext(context.Context, ports.AnchoredRoot, publication.PreparedCandidate) (publication.PublicationResult, error) {
+	*publisher.calls = append(*publisher.calls, "publish")
+	return publication.PublicationResult{}, errors.New("publication failed")
+}
+
+func serviceRequest(t *testing.T, inputSource ImmutableInputSource) Request {
+	t.Helper()
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Request{InputSource: inputSource, ProjectRoot: root, ArtifactRoot: root, Selection: selection}
+}
+
+func serviceCapturedChanged(t *testing.T, lease ports.WorkspaceSnapshotLease) CapturedRunInput {
+	t.Helper()
+	input, err := NewImmutableReviewInput(reviewRunPatchTarget(t), nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := NewCapturedRunInput(input, lease, serviceReader{}, &packetDetectorFake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return captured
+}
+
+func serviceCapturedNoChange(t *testing.T, lease ports.WorkspaceSnapshotLease) CapturedRunInput {
+	t.Helper()
+	input, err := NewImmutableReviewInput(serviceNoChangeTarget(t), nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := NewCapturedRunInput(input, lease, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return captured
+}
+
+func serviceNoChangeTarget(t *testing.T) ports.CapturedReviewTarget {
+	t.Helper()
+	target, err := ports.NewCapturedReviewGitTarget("repository:test", reviewRunObjectID(t, "1"), reviewRunObjectID(t, "2"), reviewRunObjectID(t, "3"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return target
+}
+
+func newServiceLease(t *testing.T, calls *[]string) *serviceLease {
+	t.Helper()
+	const manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	identity, err := ports.NewWorkspaceSnapshotIdentity("/private/snapshot", "snapshot-0123456789abcdef0123456789abcdef", manifest, "policy", 1, 2, 3, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := ports.NewWorkspaceSnapshotReceipt("/private/snapshot", "snapshot-0123456789abcdef0123456789abcdef", manifest, "policy", 1, 2, 3, 4, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := &serviceLease{identity: identity, receipt: receipt, calls: calls}
+	acquired, err := ports.AcquireWorkspaceSnapshotLease(context.Background(), func(_ context.Context, binding ports.WorkspaceTerminalBinding) (ports.WorkspaceSnapshotLease, error) {
+		release, err := binding.Bind(identity, func(ports.WorkspaceCompletionEvidence) error {
+			*lease.calls = append(*lease.calls, "release")
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		lease.release = release
+		return lease, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return acquired.(*serviceLease)
+}
+
+func serviceQualifiedTerminal(t *testing.T) QualifiedRunTerminalReceipt {
+	t.Helper()
+	namespace := acquiredProviderNamespaceTerminalReceipt(t, "provider", "generation")
+	aggregate := mustProviderRunTerminalReceipt(t, namespace)
+	terminal, err := newQualifiedRunTerminalReceipt([]qualifiedProviderEvidence{{identity: Identity{
+		Family: FamilyKimi, Instance: "provider", ProfileGeneration: "profile", AdapterProfile: "adapter", Version: "1.0.0",
+		Executable: "/private/bin/provider", ExecutableSHA256: "sha256", Launcher: "/private/bin/provider", LauncherSHA256: "sha256",
+		SnapshotManifest: "manifest", NamespaceLease: "lease", NamespaceGeneration: "generation",
+	}, qualificationReceiptIDs: []string{"qualification"}, packetTransportReceiptIDs: []string{"transport"}}}, aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return terminal
+}
+
+func assertServiceCalls(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("call count = %v, want %v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("call order = %v, want %v", got, want)
+		}
+	}
+}

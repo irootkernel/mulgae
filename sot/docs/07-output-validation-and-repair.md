@@ -171,14 +171,18 @@ source_target_sha256
 source_excerpt_sha256
 ```
 
-KAR verifies those fields only against the immutable source captured target and source artifact. A current reference requires all of:
+KAR verifies those fields only against the immutable source captured target and source artifact. `source.source_excerpt_sha256` identifies only the original source excerpt. It cannot satisfy, replace, or be copied as a fallback for a current excerpt digest.
+
+A persisted current reference requires all of:
 
 ```text
 target_sha256
+current_excerpt_sha256
 side
 path
 line_start
 line_end
+quote
 verification
 ```
 
@@ -194,7 +198,7 @@ excerpt_sha256 =
           0x00 || excerpt_bytes)
 ```
 
-A claimed current reference becomes `verified` only on an exact target, range, quote, and hash match. It becomes `stale` when the source reference is valid but the current target differs or no longer matches; `invalid` for malformed paths, ranges, or a false hash; and `unverifiable` when immutable bytes are unavailable. Source/current spoofing, traversal, inverted or out-of-bounds ranges, stale targets, excerpt mismatches, and missing source bytes are negative cases.
+A claimed current reference becomes `verified` only on an exact target, range, quote, and `current_excerpt_sha256` match. `current_excerpt_sha256` identifies the newly verified current excerpt and controls indexed excerpt verification and order; it is never derived from or substituted by `source.source_excerpt_sha256`. It becomes `stale` when the source reference is valid but the current target differs or no longer matches; `invalid` for malformed paths, ranges, or a false hash; and `unverifiable` when immutable bytes are unavailable. Source/current spoofing, traversal, inverted or out-of-bounds ranges, stale targets, excerpt mismatches, and missing source bytes are negative cases.
 
 An `invalid` or `unverifiable` provider claim is an evidence-validation failure: it may use one bounded AI-owned repair and then an eligible fallback. A stored artifact or query hash mismatch is an artifact failure (exit `7`), not a repairable provider claim. Human-readable excerpts are created by KAR only after this reducer succeeds and are persisted through the secure writer.
 

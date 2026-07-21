@@ -324,7 +324,7 @@ The total fixture map includes these exact cases; a classifier result other than
 | `pub-cross-p0-none-impossible-high-hint` | `manifest_committed` or `completed` / P0 none | `corrupt`; immutable diagnostic only; `7` |
 ### 6.4 Required roles and deterministic assignment
 
-The role order is fixed: `logic`, `security`, `maintainability`, `product`, `documentation`, `testing`. `logic` and `security` are the required floor. Additional required roles are the global required set union valid project additions; project configuration cannot remove the floor.
+The role order is fixed: `logic`, `security`, `maintainability`, `product`, `documentation`, `testing`. `logic` and `security` are the code-fixed required floor. The sole project-local configuration may add enabled roles to `review.required_roles`; it cannot remove the floor.
 
 Provider tuples use NFC fields and the normalized ASCII `concurrency_key`. A tuple key is the UTF-8 byte lexical tuple `(family, instance_id, version, binary_sha256, normalized_concurrency_key)`. Enumerate all six-role assignments, discard candidates that lack one base-plus-role-fit PASS primary per role, or lack different-key eligible fallbacks for `logic` and `security`. When any complete feasible candidate gives logic and security different primary instances, candidates that share one are discarded. Optional-role fallback is the lexical-first eligible different-key tuple or `null`. Select the lexicographically smallest canonical JSON vector `[role,primary_tuple_key,fallback_tuple_key_or_null]` in fixed role order. There is no score, latency, or heuristic tie-breaker; zero candidates block readiness and exactly six rows are required.
 

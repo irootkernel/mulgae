@@ -24,7 +24,7 @@ import (
 const (
 	catalogManifestName   = "manifest.json"
 	catalogZipPrefix      = "files/"
-	embeddedArchiveSHA256 = "abaf60674d7c3489aa50fe6f2e249db13833fd32fbfa2a23e0b912d0f1a553ed"
+	embeddedArchiveSHA256 = "7bec0bb06047137440d6f439401afc867c6b4747c8142f92038379bda38fb568"
 )
 
 // embeddedArchive is generated from the authoritative repository SOT by
@@ -473,10 +473,9 @@ func isLowerSHA256(value string) bool {
 	return true
 }
 
-var catalogDefaultAliases = map[string]string{
-	"defaults:global-config":  "examples/global-config.yaml",
-	"defaults:project-config": "examples/project-config.yaml",
-}
+// Configuration examples are documentation assets only. No catalog alias may
+// turn embedded bytes into a runtime configuration authority.
+var catalogDefaultAliases = map[string]string{}
 
 var catalogHelpAliases = map[string]string{
 	"help:quickstart": "README.md",

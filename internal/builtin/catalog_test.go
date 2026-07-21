@@ -54,7 +54,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
-	id := mustAssetID(t, "defaults:global-config")
+	id := mustAssetID(t, "https://kar.local/schemas/kar-command-result.v1.schema.json")
 	metadata, first, err := catalog.Read(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Read(%q): %v", id.String(), err)
@@ -62,10 +62,10 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	if metadata.ID() != id {
 		t.Fatalf("Read(%q) metadata ID = %q", id.String(), metadata.ID().String())
 	}
-	if metadata.Kind() != ports.AssetKindDefaults {
-		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindDefaults)
+	if metadata.Kind() != ports.AssetKindSchema {
+		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindSchema)
 	}
-	want, err := os.ReadFile(filepath.Join(testSOTRoot, "examples", "global-config.yaml"))
+	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "kar-command-result.v1.schema.json"))
 	if err != nil {
 		t.Fatalf("read authoritative global default: %v", err)
 	}
@@ -115,8 +115,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 85 {
-		t.Fatalf("manifest asset count = %d, want 85", len(manifest.Assets))
+	if len(manifest.Assets) != 97 {
+		t.Fatalf("manifest asset count = %d, want 97", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -184,8 +184,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 71 {
-		t.Fatalf("authoritative SOT source count = %d, want 71", len(authoritativeSources))
+	if len(authoritativeSources) != 85 {
+		t.Fatalf("authoritative SOT source count = %d, want 85", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -313,26 +313,48 @@ func TestCatalogHelpAliasesAreExact(t *testing.T) {
 	}
 }
 
-func TestCatalogDefaultAliasesCoverBothConfigSources(t *testing.T) {
+func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	t.Parallel()
 
-	expected := map[string]string{
-		"defaults:global-config":  "examples/global-config.yaml",
-		"defaults:project-config": "examples/project-config.yaml",
+	catalog := NewCatalog()
+	var help strings.Builder
+	for _, topic := range []string{"quickstart", "config", "providers", "workflows", "exit-codes", "security"} {
+		_, data, err := catalog.Read(context.Background(), mustAssetID(t, "help:"+topic))
+		if err != nil {
+			t.Fatalf("read help %q: %v", topic, err)
+		}
+		help.Write(data)
+		help.WriteByte('\n')
 	}
-	manifest := testManifest(t)
-	actual := make(map[string]string)
-	for _, asset := range manifest.Assets {
-		if asset.Kind == string(ports.AssetKindDefaults) {
-			actual[asset.ID] = asset.Source
+	content := help.String()
+	for _, required := range []string{
+		"one configuration authority: `<canonical-project-root>/.kar/config.yaml`",
+		"`--providers auto|FAMILY[,FAMILY...]`",
+		"`FAMILY := kimi | zcode | agy`",
+		"Workspace access is `none` by default",
+		"an explicit\n`safe` or `dangerously-skip-permissions` mode",
+		"unconditional project-root durability barrier",
+		"output delivery failure never rolls back a\ncommitted config",
+		"There is no migration or compatibility path",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("embedded help is missing %q", required)
 		}
 	}
-	if len(actual) != len(expected) {
-		t.Fatalf("default alias count = %d, want %d", len(actual), len(expected))
+	for _, forbidden := range []string{"~/.config/kar", "$XDG_CONFIG_HOME/kar"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("embedded help retains legacy authority %q", forbidden)
+		}
 	}
-	for id, source := range expected {
-		if actual[id] != source {
-			t.Errorf("default alias %q source = %q, want %q", id, actual[id], source)
+}
+
+func TestCatalogHasNoRuntimeConfigurationDefaults(t *testing.T) {
+	t.Parallel()
+
+	manifest := testManifest(t)
+	for _, asset := range manifest.Assets {
+		if asset.Kind == string(ports.AssetKindDefaults) {
+			t.Fatalf("runtime configuration default remains in catalog: %#v", asset)
 		}
 	}
 }
@@ -350,6 +372,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://kar.local/schemas/kar-clean-plan.v1.schema.json", "schemas/kar-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
 		{"https://kar.local/schemas/kar-command-result.v1.schema.json", "schemas/kar-command-result.v1.schema.json", "examples/command-result.v1.valid.json"},
 		{"https://kar.local/schemas/kar-doctor-result.v1.schema.json", "schemas/kar-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
+		{"https://kar.local/schemas/kar-doctor-result.v2.schema.json", "schemas/kar-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
 		{"https://kar.local/schemas/kar-export-manifest.v1.schema.json", "schemas/kar-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
 		{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "schemas/kar-g0-file-catalog.v1.schema.json", "examples/g0-file-catalog.v1.valid.json"},
 		{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "schemas/kar-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
@@ -361,6 +384,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "schemas/kar-provider-followup-output.v2.schema.json", "examples/provider-followup-output.v2.valid.json"},
 		{"urn:kar:schema:provider-review-output:v1", "schemas/kar-provider-review-output.v1.schema.json", "examples/provider-review-output.valid.json"},
 		{"https://kar.local/schemas/kar-provider-review-output.v2.schema.json", "schemas/kar-provider-review-output.v2.schema.json", "examples/provider-review-output.v2.valid.json"},
+		{"https://kar.local/schemas/kar-provider-review-wire.v2.schema.json", "schemas/kar-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v2.valid.json"},
 		{"urn:kar:schema:repair-patch:v1", "schemas/kar-repair-patch.v1.schema.json", "examples/repair-patch.json"},
 		{"urn:kar:schema:repair-request:v1", "schemas/kar-repair-request.v1.schema.json", "examples/repair-request.json"},
 		{"urn:kar:schema:review-artifact:v1", "schemas/kar-review-artifact.v1.schema.json", "examples/review-artifact.valid.json"},
@@ -371,8 +395,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"urn:kar:schema:validation-result:v1", "schemas/kar-validation-result.v1.schema.json", "examples/validation-result.valid.json"},
 		{"https://kar.local/schemas/kar-validation-result.v2.schema.json", "schemas/kar-validation-result.v2.schema.json", "examples/validation-result.v2.valid.json"},
 	}
-	if len(expected) != 23 {
-		t.Fatalf("test pair inventory contains %d pairs, want 23", len(expected))
+	if len(expected) != 25 {
+		t.Fatalf("test pair inventory contains %d pairs, want 25", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {
@@ -510,7 +534,7 @@ func authoritativeSchemaExamplePairs(t *testing.T) []schemaExamplePair {
 		t.Fatalf("decode authoritative G0 file catalog: %v", err)
 	}
 
-	pairs := make([]schemaExamplePair, 0, 23)
+	pairs := make([]schemaExamplePair, 0, 24)
 	for _, file := range fileCatalog.Files {
 		if !strings.HasPrefix(file.Path, "sot/schemas/") || file.SchemaID == nil || file.Pair == nil {
 			continue

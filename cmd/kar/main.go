@@ -5,24 +5,44 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"syscall"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
+	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
 	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/entrypoint/kar"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
+var (
+	buildProduct string
+	buildVersion string
+	buildCommit  string
+)
+
 func main() {
+	handled, err := processadapter.ExecInheritedDirectory(os.Args)
+	if handled {
+		fmt.Fprint(os.Stderr, "kar: descriptor-bound provider launch failed\n")
+		if err != nil {
+			os.Exit(10)
+		}
+		return
+	}
+	signal.Ignore(syscall.SIGPIPE)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	root, err := currentRoot()
@@ -84,6 +104,15 @@ func main() {
 		fmt.Fprint(os.Stderr, "kar: G008 offline services are unavailable\n")
 		os.Exit(10)
 	}
+	build, buildErr := executableBuildIdentity()
+	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
+	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), startupKimiCodeHome, root)
+	reviewRuns := newDeferredReviewRunService(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (kar.ReviewRunService, error) {
+		if buildErr != nil {
+			return nil, unavailableBuildMetadata(buildErr)
+		}
+		return composeReviewRuns(reviewContext, build, reviewRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
+	})
 	application, err := kar.NewApplication(kar.Dependencies{
 		Clock:                clock,
 		RequestIDGenerator:   ids,
@@ -92,10 +121,11 @@ func main() {
 		JSONSchemaValidator:  validator,
 		SecureWriter:         writer,
 		TrustedProjectReader: gitAdapter,
-		EnvironmentInspector: environment.NewInspector(),
+		EnvironmentInspector: startupInspector,
 		// SOT defines no canonical non-hidden production evidence source, so standalone
 		// KAR remains fail-closed until one is standardized.
 		EvidenceReader:     nil,
+		ReviewRuns:         reviewRuns,
 		PublicationQueries: kar.NewPublicationQueryService(queryService),
 		PublicationReports: kar.NewPublicationReportService(reportService),
 		Retention:          g008Dependencies.Retention,
@@ -107,14 +137,26 @@ func main() {
 	}
 
 	result := application.Run(ctx, os.Args[1:], root.String())
-	if _, err := os.Stdout.Write(result.Stdout()); err != nil {
-		fmt.Fprint(os.Stderr, "kar: standard output write failed\n")
-		os.Exit(10)
+	os.Exit(deliverResult(os.Stdout, os.Stderr, result, os.Args[1:]))
+}
+
+func deliverResult(stdout, stderr io.Writer, result kar.Result, argv []string) int {
+	return deliverOutput(stdout, stderr, result.Stdout(), result.Stderr(), int(result.ExitCode()), argv)
+}
+
+func deliverOutput(stdout, stderr io.Writer, output, diagnostic []byte, exitCode int, argv []string) int {
+	if written, err := stdout.Write(output); err != nil || written != len(output) {
+		if len(argv) > 0 && argv[0] == "init" && exitCode == 0 {
+			_, _ = io.WriteString(stderr, "kar: init committed .kar/config.yaml; result delivery failed\n")
+			return 7
+		}
+		_, _ = io.WriteString(stderr, "kar: standard output write failed\n")
+		return 10
 	}
-	if _, err := os.Stderr.Write(result.Stderr()); err != nil {
-		os.Exit(10)
+	if _, err := stderr.Write(diagnostic); err != nil {
+		return 10
 	}
-	os.Exit(int(result.ExitCode()))
+	return exitCode
 }
 
 func currentRoot() (ports.AnchoredRoot, error) {
@@ -131,4 +173,47 @@ func currentRoot() (ports.AnchoredRoot, error) {
 		return ports.AnchoredRoot{}, err
 	}
 	return ports.NewAnchoredRoot(filepath.Clean(absolute))
+}
+
+func executableBuildIdentity() (reviewrun.BuildIdentity, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
+		return reviewrun.BuildIdentity{}, fmt.Errorf("build information is unavailable")
+	}
+	return buildIdentityFrom(info, buildProduct, buildVersion, buildCommit)
+}
+
+func buildIdentityFrom(info *debug.BuildInfo, product, version, commit string) (reviewrun.BuildIdentity, error) {
+	if info == nil || strings.TrimSpace(product) != product || product == "" {
+		return reviewrun.BuildIdentity{}, fmt.Errorf("product metadata is unavailable")
+	}
+	if version == "" {
+		version = info.Main.Version
+	}
+	if version == "" || version == "(devel)" || strings.TrimSpace(version) != version {
+		return reviewrun.BuildIdentity{}, fmt.Errorf("release version metadata is unavailable")
+	}
+	if commit == "" {
+		commit = buildSetting(info, "vcs.revision")
+		if commit == "" || buildSetting(info, "vcs.modified") != "false" {
+			return reviewrun.BuildIdentity{}, fmt.Errorf("clean VCS revision metadata is unavailable")
+		}
+	}
+	if strings.TrimSpace(commit) != commit || commit == "" {
+		return reviewrun.BuildIdentity{}, fmt.Errorf("commit metadata is unavailable")
+	}
+	identity := reviewrun.BuildIdentity{Product: product, Version: version, Commit: commit}
+	if !identity.Valid() {
+		return reviewrun.BuildIdentity{}, fmt.Errorf("build metadata is invalid")
+	}
+	return identity, nil
+}
+
+func buildSetting(info *debug.BuildInfo, key string) string {
+	for _, setting := range info.Settings {
+		if setting.Key == key {
+			return setting.Value
+		}
+	}
+	return ""
 }

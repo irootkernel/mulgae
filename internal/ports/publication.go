@@ -2966,6 +2966,15 @@ func (result CorruptionDiagnosticResult) validate() error {
 	return nil
 }
 
+// PublicationEpochCommitStore holds one root-scoped durable publication
+// transaction from epoch selection through the callback. It must select an epoch
+// greater than every epoch previously committed beneath root and must not release
+// its cross-process authority until callback returns. The callback may use the
+// same store's PublicationStore methods to complete the publication.
+type PublicationEpochCommitStore interface {
+	WithNextPublicationEpoch(context.Context, AnchoredRoot, func(context.Context, uint64) error) error
+}
+
 // PublicationStore is a persistence-only publication boundary. Its adapter
 // validates physical safety and exact durable facts, but does not classify,
 // choose a recovery action, synthesize a final, or project an exit. Callers

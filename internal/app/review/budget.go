@@ -207,7 +207,6 @@ const (
 	BudgetReasonInvalidRole           BudgetReasonCode = "invalid_role"
 	BudgetReasonDuplicateRole         BudgetReasonCode = "duplicate_role"
 	BudgetReasonMissingRequiredRole   BudgetReasonCode = "missing_required_role"
-	BudgetReasonMissingRole           BudgetReasonCode = "missing_role"
 	BudgetReasonInvalidPrimaryRoute   BudgetReasonCode = "invalid_primary_route"
 	BudgetReasonInvalidFallbackRoute  BudgetReasonCode = "invalid_fallback_route"
 	BudgetReasonDuplicateRoleRoute    BudgetReasonCode = "duplicate_role_route"
@@ -227,7 +226,6 @@ func (code BudgetReasonCode) Valid() bool {
 		BudgetReasonInvalidRole,
 		BudgetReasonDuplicateRole,
 		BudgetReasonMissingRequiredRole,
-		BudgetReasonMissingRole,
 		BudgetReasonInvalidPrimaryRoute,
 		BudgetReasonInvalidFallbackRoute,
 		BudgetReasonDuplicateRoleRoute,
@@ -529,11 +527,6 @@ func validateRoleSelection(roles []RoleBudget) BudgetReasonCode {
 	for _, role := range domain.FixedRoleOrder() {
 		if role.RequiredFloor() && counts[role] == 0 {
 			return BudgetReasonMissingRequiredRole
-		}
-	}
-	for _, role := range domain.FixedRoleOrder() {
-		if counts[role] == 0 {
-			return BudgetReasonMissingRole
 		}
 	}
 	for _, budget := range roles {

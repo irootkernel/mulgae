@@ -40,7 +40,7 @@
   ],
   "severity_threshold": {
     "request_changes_at_or_above": "high",
-    "policy_source": "trusted_base"
+    "policy_source": "project_local"
   },
   "role_outcomes": [
     {
@@ -91,6 +91,7 @@
           },
           "current": {
             "target_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "current_excerpt_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "side": "head",
             "path": "internal/app/coordinator.go",
             "line_start": 120,
@@ -111,6 +112,35 @@
   "provenance": {
     "aggregation_path": "aggregation.json",
     "final_validation_path": "validation/final-validation.json",
-    "manifest_path": "manifest.json"
+    "manifest_path": "manifest.json",
+    "production": {
+      "build_product": "kar",
+      "build_version": "1.9.0",
+      "build_commit": "0123456789abcdef",
+      "objective_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "objective_present": true,
+      "snapshot_manifest_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "workspace_terminal_receipt": "workspace-terminal:v1:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "providers": [
+        {
+          "family": "agy",
+          "instance": "agy-security",
+          "version": "1.1.4",
+          "executable": "/usr/local/bin/agy",
+          "executable_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "launcher": "/usr/local/bin/agy",
+          "launcher_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "profile_generation": "generation-1",
+          "adapter_profile": "agy-default",
+          "qualification_receipt_ids": [
+            "qualification:v1:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "packet_transport_receipt_ids": [
+            "transport:v1:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ],
+          "namespace_terminal_receipt": "provider-namespace-terminal:v1:sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    }
   }
 }

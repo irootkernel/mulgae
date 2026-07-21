@@ -2,7 +2,7 @@
 
 This document is the implementation checklist for mandatory values, field ownership, repair eligibility, and validation responsibility. JSON Schema files remain the machine-readable source for structural requirements.
 
-The v1 tables below remain frozen compatibility contracts. SOT 1.3.0 preserves the v2 and G0 ownership rules in Sections 2 through 4; those rules do not permit a provider to create system-owned fields.
+The v1 tables below remain frozen compatibility contracts. Since SOT 1.3.0, the v2 and G0 ownership rules in Sections 2 through 4 have remained authoritative; those rules do not permit a provider to create system-owned fields.
 
 
 ## 1. Ownership Rules
@@ -38,9 +38,9 @@ The normalized v2 review artifact separates immutable source identity from indep
 
 | Field group | Required fields | Owner | Validation and repair |
 |---|---|---|---|
-| Source identity | `session_id`, `run_id`, `review_id`, `finding_id`, `source_target_sha256`, `source_excerpt_sha256` | KAR source artifact and evidence reducer | Verified only against the immutable source target and source artifact; provider repair is prohibited |
-| Current evidence | `target_sha256`, `path`, `line_start`, `line_end`, `side`, `quote`, `verification` | KAR injects target identity; provider claims path/range/quote; KAR evidence reducer owns acceptance and final serialization | `side` is `base`, `head`, or `worktree`; provider output is `claimed`, while final state is `verified`, `stale`, `invalid`, or `unverifiable` |
-| Current verified projection | All current-evidence fields plus `verification=verified` | KAR evidence reducer | Requires exact current target, range, and excerpt match; source identity alone can never satisfy it |
+| Source identity | `session_id`, `run_id`, `review_id`, `finding_id`, `source_target_sha256`, `source_excerpt_sha256` | KAR source artifact and evidence reducer | `source_excerpt_sha256` identifies only the immutable original source excerpt; provider repair is prohibited and it cannot substitute for current evidence |
+| Current evidence | `target_sha256`, `current_excerpt_sha256`, `path`, `line_start`, `line_end`, `side`, `quote`, `verification` | KAR injects target identity; provider claims path/range/quote; KAR evidence reducer computes and owns `current_excerpt_sha256`, acceptance, and final serialization | `current_excerpt_sha256` identifies the newly verified current excerpt and controls indexed excerpt verification and order; it must not be conflated with or fall back to `source.source_excerpt_sha256`. `side` is `base`, `head`, or `worktree`; provider output is `claimed`, while final state is `verified`, `stale`, `invalid`, or `unverifiable` |
+| Current verified projection | All current-evidence fields plus `verification=verified` | KAR evidence reducer | Requires exact current target, range, quote, `current_excerpt_sha256`, and indexed excerpt order match; source identity alone can never satisfy it |
 
 The v2 provider schemas serialize a KAR-normalized result envelope. KAR injects the current target digest for every review and injects immutable source identity only for source-bearing followup, delta, rerun, or equivalent modes; root review omits `source`. The provider owns finding text and the current path/range/quote claim only; its wire value is always `verification=claimed`. The evidence reducer owns every transition to `verified`, `stale`, `invalid`, or `unverifiable` and serializes that state only in validation/final artifacts.
 
@@ -50,8 +50,8 @@ The v2 provider schemas serialize a KAR-normalized result envelope. KAR injects 
 |---|---|---|---|
 | `/assignments/<role>/primary` | Coordinator | Canonical six-role reducer selects one probe-eligible provider instance per role | None |
 | `/assignments/<role>/fallback` | Coordinator | Eligible different-lane fallback or `null`, selected by the same deterministic reducer | None |
-| `/required_floor` | Global policy | Fixed to `logic` and `security` | None |
-| `/effective_required` | Trust reducer | `required_floor` plus global additions and an all-or-nothing trusted project strengthening proposal | None |
+| `/required_floor` | Code-fixed safety floor | Fixed to `logic` and `security` | None |
+| `/effective_required` | Project-local policy reducer | `required_floor` plus enabled additions from the admitted `.kar/config.yaml` | None |
 | Provider and platform contract evidence | Probe validator | Required tuple and native-cell probe assertions, secure-writer receipt, and evidence index | Provider may supply untrusted probe output only |
 
 The role order is `logic`, `security`, `maintainability`, `product`, `documentation`, `testing`. A provider does not assign a role, select a fallback, choose a concurrency lane, or weaken required coverage. CLI selection is run-local and cannot weaken policy.

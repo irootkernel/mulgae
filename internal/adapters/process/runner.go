@@ -62,6 +62,19 @@ func (runner *Runner) observation(
 	stdinWriteReceipt ports.StdinWriteReceipt,
 	startedAt time.Time,
 ) (ports.ProcessObservation, error) {
+	return runner.observationWithTransport(
+		stdout, stderr, exitCode, termination, stdinWriteReceipt, nil, startedAt,
+	)
+}
+
+func (runner *Runner) observationWithTransport(
+	stdout, stderr []byte,
+	exitCode *int,
+	termination ports.ProcessTermination,
+	stdinWriteReceipt ports.StdinWriteReceipt,
+	transportReceipt *ports.ProviderPacketTransportReceipt,
+	startedAt time.Time,
+) (ports.ProcessObservation, error) {
 	endedAt, err := runner.timestamp()
 	if err != nil {
 		return ports.ProcessObservation{}, err
@@ -73,17 +86,54 @@ func (runner *Runner) observation(
 		}
 	}
 
-	observation, err := ports.NewProcessObservation(
-		stdout,
-		stderr,
-		exitCode,
-		termination,
-		stdinWriteReceipt,
-		startedAt,
-		endedAt,
-	)
+	var observation ports.ProcessObservation
+	if transportReceipt != nil {
+		observation, err = ports.NewProviderProcessObservation(
+			stdout,
+			stderr,
+			exitCode,
+			termination,
+			stdinWriteReceipt,
+			*transportReceipt,
+			startedAt,
+			endedAt,
+		)
+	} else {
+		observation, err = ports.NewProcessObservation(
+			stdout,
+			stderr,
+			exitCode,
+			termination,
+			stdinWriteReceipt,
+			startedAt,
+			endedAt,
+		)
+	}
 	if err != nil {
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct observation: %w", err)
+	}
+	return observation, nil
+}
+func (runner *Runner) observationWithLifecycleTransport(
+	stdout, stderr []byte,
+	termination ports.ProcessTermination,
+	stdinWriteReceipt ports.StdinWriteReceipt,
+	transportReceipt ports.ProviderPacketTransportReceipt,
+	lifecycle ports.ProcessLifecycleReceipt,
+	startedAt time.Time,
+) (ports.ProcessObservation, error) {
+	endedAt, err := runner.timestamp()
+	if err != nil {
+		return ports.ProcessObservation{}, err
+	}
+	if endedAt.Before(startedAt) {
+		return ports.ProcessObservation{}, &ClockRegressionError{StartedAt: startedAt, EndedAt: endedAt}
+	}
+	observation, err := ports.NewStartedProviderProcessObservation(
+		stdout, stderr, termination, stdinWriteReceipt, transportReceipt, lifecycle, startedAt, endedAt,
+	)
+	if err != nil {
+		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct lifecycle observation: %w", err)
 	}
 	return observation, nil
 }

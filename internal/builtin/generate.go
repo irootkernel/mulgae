@@ -1,11 +1,10 @@
 //go:build ignore
 
-//go:generate go run generate.go
-
 package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -62,6 +61,9 @@ func generate() error {
 		return err
 	}
 	sotRoot := filepath.Join(repositoryRoot, "sot")
+	if err := generateChecksums(sotRoot); err != nil {
+		return err
+	}
 	files, err := readSOT(sotRoot)
 	if err != nil {
 		return err
@@ -95,6 +97,81 @@ func generate() error {
 	}
 	if err := os.Rename(temporaryName, output); err != nil {
 		return fmt.Errorf("install archive: %w", err)
+	}
+	archive, err := os.ReadFile(output)
+	if err != nil {
+		return fmt.Errorf("read generated archive: %w", err)
+	}
+	digest := sha256.Sum256(archive)
+	return updateEmbeddedArchiveDigest(filepath.Join(filepath.Dir(generatorPath()), "catalog.go"), hex.EncodeToString(digest[:]))
+}
+
+func generateChecksums(sotRoot string) error {
+	files, err := readSOT(sotRoot)
+	if err != nil {
+		return err
+	}
+	lines := make([]string, 0, len(files)-1)
+	for _, file := range files {
+		if file.source == "CHECKSUMS.sha256" {
+			continue
+		}
+		sum := sha256.Sum256(file.bytes)
+		lines = append(lines, hex.EncodeToString(sum[:])+"  "+file.source+"\n")
+	}
+	if len(lines) != 84 {
+		return fmt.Errorf("generate checksums: payload count = %d, want 84", len(lines))
+	}
+	return writeFileAtomically(filepath.Join(sotRoot, "CHECKSUMS.sha256"), []byte(strings.Join(lines, "")), 0o644)
+}
+
+func updateEmbeddedArchiveDigest(filename, digest string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("read catalog source: %w", err)
+	}
+	prefix := []byte(`embeddedArchiveSHA256 = "`)
+	start := bytes.Index(data, prefix)
+	if start < 0 || bytes.Index(data[start+len(prefix):], prefix) >= 0 {
+		return fmt.Errorf("catalog digest declaration is missing or ambiguous")
+	}
+	valueStart := start + len(prefix)
+	valueEnd := bytes.IndexByte(data[valueStart:], '"')
+	if valueEnd < 0 {
+		return fmt.Errorf("catalog digest declaration is unterminated")
+	}
+	valueEnd += valueStart
+	updated := make([]byte, 0, len(data)-valueEnd+valueStart+len(digest))
+	updated = append(updated, data[:valueStart]...)
+	updated = append(updated, digest...)
+	updated = append(updated, data[valueEnd:]...)
+	return writeFileAtomically(filename, updated, 0o644)
+}
+
+func writeFileAtomically(filename string, data []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(filename), ".generate-*")
+	if err != nil {
+		return fmt.Errorf("create temporary generated file: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(mode); err != nil {
+		temporary.Close()
+		return fmt.Errorf("chmod temporary generated file: %w", err)
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return fmt.Errorf("write temporary generated file: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return fmt.Errorf("sync temporary generated file: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary generated file: %w", err)
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return fmt.Errorf("install generated file: %w", err)
 	}
 	return nil
 }
@@ -330,10 +407,7 @@ func validateSourcePath(value string) (string, error) {
 	return value, nil
 }
 
-var defaultAliases = map[string]string{
-	"defaults:global-config":  "examples/global-config.yaml",
-	"defaults:project-config": "examples/project-config.yaml",
-}
+var defaultAliases = map[string]string{}
 
 var helpAliases = map[string]string{
 	"help:quickstart": "README.md",

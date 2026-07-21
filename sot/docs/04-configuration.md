@@ -1,191 +1,81 @@
-# Configuration
+# Project-local configuration
 
-## 1. Configuration Layers
+KAR has one configuration authority: `<canonical-project-root>/.kar/config.yaml`.
+It does not search a home directory, XDG directory, repository proposal, embedded
+default, environment variable, or compatibility filename. The file is local
+operator state and must never be tracked by Git.
+There is no migration or compatibility path from `.kar.yaml`, `.kar.yml`, a
+home-directory configuration, or an XDG configuration.
 
-KAR resolves configuration through a fail-closed trust reducer:
+## Admission
 
-```text
-B (built-in trusted baseline) → G (global user configuration) → P (trusted-base project proposal) → CLI
-```
+The project root is a no-symlink, effective-user-owned directory with mode
+`0700`, `0750`, or `0755`. `.kar` is mode `0700`; `config.yaml` is a single-link
+regular file at mode `0600`. Descriptor traversal is no-follow and the accepted
+file is bounded to 1 MiB.
 
-`P` is read from the configured trusted base snapshot, never the unreviewed target head. The whole project proposal is validated before any of its fields merge; a mixed strengthen-and-weaken proposal is rejected atomically with exit `2`. CLI is run-local and cannot change persisted policy.
+`help` is outside this admission path because it renders only embedded documentation and reads no project configuration. Init, config, doctor, qualification, and provider execution retain their required locality barriers.
 
-Default files:
+Admission also binds an immutable locality context containing the repository and
+root identity, checkout HEAD and tree, every index stage, applicable target
+commits, the config descriptor and digest, and the parsed target decision. A
+tracked or committed `.kar/` path, an unmerged index, or a complete unified diff
+that changes `.kar/` rejects admission. The proof is revalidated before decode,
+provider qualification, and provider execution.
 
-```text
-Global:  $XDG_CONFIG_HOME/kar/config.yaml
-Fallback: ~/.config/kar/config.yaml
-Project: .kar.yaml
-```
+An exact `.kar/config.yaml` target reports `target_private_config_forbidden`; `.kar` itself and every other descendant report `target_private_namespace_forbidden`. Both are reason-only security failures at exit `8`. Prose and malformed patch-like input do not trigger either reason.
 
-The resolved, redacted configuration is stored in every run.
+## Canonical YAML v1
 
-## 2. Ownership by Layer
+The document has `version: 1` and the sections `project`, `native_user`,
+`providers`, `execution`, `roles`, `review`, `validation`, `resources`, and
+`ci`. `providers` contains any nonempty subset of `kimi`, `zcode`, and `agy`.
+Provider commands are family-specific fields; generic argv, environment, shell,
+and credential fields do not exist. Workspace access is `none` by default and
+may only be `none` or `readonly_snapshot`.
 
-| Concern | Built-in trusted baseline | Global user config | Trusted-base project proposal | CLI |
-|---|---:|---:|---:|---:|
-| Domain schemas and six role definitions | Yes | No | No | No |
-| Provider executable, argv, account/profile | Adapter defaults | Yes | No | Dangerous explicit provider command only |
-| Provider credentials | No | No secrets stored | No | Environment or provider CLI |
-| Project context path | No | No | Declarative in-project selection only | One-run selection |
-| CI policy | Safe default | Strengthen only | Strengthen only | Dangerous weakening only |
-| Provider instance declarations | Optional | Yes | Reference only | Temporary explicit instance only |
-| Required-role floor | `logic`, `security` | Add only | Add only | Never weaken |
-| Role assignment inputs | Built-in hard constraints | Eligible provider tuples only | Add required roles only | Run-local selection only |
-| Request-change threshold | `high` | Strengthen only | Strengthen only | Dangerous weakening only |
-| Output/time/concurrency limits | Trusted ceilings | Reduce only | Reduce only | Dangerous increase only |
-| Workspace access | `none` | Trusted explicit expansion | Intersect/reduce only | Dangerous explicit expansion only |
-| Shell execution | Disabled | Explicit opt-in only | Never | Dangerous one-run opt-in only |
+Parsing is strict: one UTF-8 YAML document, exact keys, no aliases, tags, merges,
+duplicates, nulls, placeholders, controls, or unknown fields. Canonical output
+uses LF, two-space indentation, quoted strings, and fixed family, role, and
+severity order. Persisted paths are canonical absolute no-symlink paths.
 
-## 3. Provider Instance and Role Inputs
+Admission runs bounded structural parsing, then the deterministic credential
+scan, then exact-key/known-field and typed semantic validation. The scanner
+ASCII-lowercases keys and folds runs of `-`, `_`, `.`, and ASCII space to `_`,
+so a secret-like noncanonical key is rejected with the credential reason before
+ordinary unknown-key rejection. Explicit empty strings, Unicode control
+characters, and nonempty `${...}` placeholders are invalid; omitted optional
+fields continue to receive their code-fixed defaults.
 
-A provider instance declares a local executable, account/profile, approved limits, and a concurrency key. For G0 contract evidence, the only provider families are `kimi`, `zcode`, and `agy`. `codex` and `claude` are absent from the G0 provider inventory, assignment fixtures, and defaults.
+Credential-like keys and deterministic credential value forms are rejected
+before an accepted digest or provenance is produced. Diagnostics expose only
+the reason code, never the key, value, path, digest, or source bytes.
+PEM detection covers PKCS#8, encrypted, RSA, DSA, EC, OpenSSH, and other
+canonical `BEGIN ... PRIVATE KEY` headers rather than a fixed algorithm list.
 
-```yaml
-providers:
-  kimi-work:
-    driver: kimi
-    bin: kimi
-    concurrency_key: kimi-work
+`kar config` also admits the configured native account before returning an
+effective or provenance digest. An unavailable account or a configured home
+that does not match the effective installed account is readiness exit `4`.
+An unsafe native-home descriptor or identity drift is security exit `8`.
+A pure native-home observation cancellation is exit `9`; it exposes no
+accepted digest and does not weaken an independently observed security failure.
 
-  zcode-work:
-    driver: zcode
-    bin: zcode
-    concurrency_key: zcode-work
-```
+## Init and runtime
 
-`kar init` preserves each configured intended provider ID with `status: unverified` when no supporting probe evidence exists. It must not silently remove, disable, or replace it; `kar doctor` determines readiness.
+`kar init` discovers or accepts an explicit provider subset, renders and
+round-trips canonical bytes, then creates `.kar/config.yaml` exactly once. It
+uses an unconditional project-root durability barrier, a same-directory 0600
+temporary file, no-replace installation, a `.kar` durability barrier, and final
+identity, byte, and locality re-attestation. Installed-but-unconfirmed bytes are
+retained and reported truthfully; output delivery failure never rolls back a
+committed config.
 
-The lane serialization key is `concurrency_key`, not the driver name. Input is Unicode NFC, then ASCII-lowercased; non-ASCII is rejected and the normalized result must match `[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?`. Equal normalized keys share exactly one lane.
-
-Roles are fixed as `logic`, `security`, `maintainability`, `product`, `documentation`, and `testing`. `logic` and `security` are the non-removable required floor. The effective required set is:
-
-```text
-required_floor = {logic, security}
-effective_required = required_floor ∪ global_required ∪ valid_project_additions
-```
-
-Only provider tuples with complete base and role-fit PASS evidence enter the deterministic assignment reducer. Configuration does not authorize an ad hoc mapping or substitute an unverified provider; the built-in exhaustive lexical reducer freezes exactly six rows after evidence.
-
-## 4. Project Configuration Trust
-
-Project configuration is repository-controlled and must be treated as limited-trust input.
-
-Default restrictions:
-
-- project configuration cannot define `bin`, `args`, `command`, `shell`, arbitrary environment variables, or provider-family substitutions;
-- it cannot disable logic, security, output-schema validation, evidence verification, CI enforcement, or the required floor;
-- it cannot move `request_changes_on` right toward a weaker threshold, relax incomplete/degraded enforcement, increase a limit, or expand workspace access;
-- it may add required roles, lower the request-changes threshold, union failure restrictions, OR enforcement booleans, reduce limits, and intersect workspace access;
-- it cannot load prompt files through symlinks that escape the trusted root or add absolute paths outside the project root;
-- unknown keys and duplicate YAML keys are rejected.
-
-Project prompt overrides are disabled by default. When globally enabled, every asset is read from the trusted base snapshot. A proposal that contains both an allowed strengthening and any prohibited weakening is rejected as a whole; no per-field partial merge is allowed.
-
-Recommended policy:
-
-```yaml
-trust:
-  project_config: declarative_only
-  project_prompt_overrides: false
-  project_prompt_source: target_base
-  allow_project_provider_commands: false
-  allow_project_shell: false
-```
-
-## 5. Merge and trust rules
-
-Maps merge by key, scalars replace only when the replacement passes the trust reducer, and lists replace unless a field explicitly declares set-union behavior. Unsafe conflicts fail closed.
-
-The project layer is strengthening-only. Its allowed operations are exactly: union required roles and failure restrictions; OR enforcement booleans; choose a severity threshold no weaker than the global effective threshold; choose numeric limits no greater than the global effective limits; and intersect workspace access. No project setting may alter provider command execution, shell policy, trusted templates, or the floor.
-
-Dangerous CLI flags never weaken the trusted policy. They create a tainted, non-proof execution selection only:
-
-| Flag family | Required record |
-|---|---|
-| `--dangerously-skip-required-role=<role>` | selected role omitted; `coverage_status=incomplete`, `tainted=true`, `ci_proof_eligible=false` |
-| `--dangerously-raise-request-changes-threshold=<critical\|blocker>` | requested/effective threshold, source, acceptance, taint, and non-proof reason |
-| `--dangerously-allow-degraded`, `--dangerously-allow-incomplete` | requested/effective policy, taint, and non-proof reason |
-| `--dangerously-increase-limit=<field>:<value>` | requested/effective limits, source, acceptance, taint, and non-proof reason |
-| `--dangerously-expand-workspace=<mode>`, `--dangerously-use-provider=<id>`, `--dangerously-provider-command=<JSON-array>`, `--dangerously-enable-shell` | requested/effective value, source, acceptance, taint, and non-proof reason |
-
-CI rejects every weakening flag before the run with exit `2`. Global configuration can reduce its own policy only through the explicitly configured trusted posture; it cannot circumvent the built-in required floor.
-
-## 6. Strict Parsing
-
-Configuration loaders must:
-
-1. reject duplicate mapping keys;
-2. reject unknown fields by default;
-3. validate enums and numeric ranges;
-4. normalize and validate paths;
-5. reject path traversal and symlink escape;
-6. reject embedded secrets in known sensitive fields;
-7. emit source location and layer in diagnostics;
-8. write only redacted resolved configuration to artifacts.
-
-## 7. Environment Resolution
-
-Resolution order for provider binaries:
-
-1. one-run CLI override;
-2. global provider instance `bin`;
-3. adapter default command name;
-4. `exec.LookPath` using the resolved PATH.
-
-Runtime values:
-
-```text
-HOME = CLI override -> global runtime.home -> os.UserHomeDir()
-PATH = global inherit/prepend/append policy
-PWD  = isolated attempt workspace by default
-```
-
-The real project root is not the default child process working directory.
-
-Only allowlisted environment keys are passed. Secret values are never written to `command.json` or `env.json`.
-
-## 8. Shell Policy
-
-Direct argv is mandatory by default.
-
-```yaml
-providers:
-  kimi-safe:
-    driver: kimi
-    bin: /usr/local/bin/kimi
-    args: ["--print-json"]
-```
-
-Shell execution requires a global or explicit one-run opt-in and must produce a high-visibility warning. Project config can never enable it.
-
-```yaml
-providers:
-  agy-shell:
-    driver: agy
-    shell:
-      enabled: true
-      command: "source ~/.company/env && agy --json"
-```
-
-Shell mode is excluded from the default supported posture because quoting, startup files, environment expansion, and command injection reduce reproducibility and safety.
-
-## 9. Recommended Configuration
-
-See:
-
-- [Global configuration example](../examples/global-config.yaml)
-- [Project configuration example](../examples/project-config.yaml)
-
-The examples use only declarative project settings and keep executable provider details in the global file.
-
-## 10. Configuration Artifact
-
-Every run stores:
-
-```text
-resolved-config.yaml
-config-sources.json
-```
-
-`config-sources.json` records each effective value's source layer without exposing secret values. This makes a review reproducible and explains why a provider, role, timeout, or policy was selected.
+Kimi defaults to `kimi-code/k3` and projects only its two allowed native files.
+ZCode binds the configured Node executable identity and the bundled readable
+CJS launcher identity; the launcher is descriptor-hashed but does not require
+execute permission. ZCode projects only its native CLI config. AGY uses the effective OS account home and an explicit
+`safe` or `dangerously-skip-permissions` mode; omission is `safe`. KAR never
+persists credentials or copies provider state back. Runtime review uses only
+the absolute executable, launcher, and Kimi data-home paths admitted from this
+file; ambient PATH, `XDG_CONFIG_HOME`, and `KIMI_CODE_HOME` cannot override or
+invalidate an admitted runtime configuration.

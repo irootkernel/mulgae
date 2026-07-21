@@ -2,7 +2,7 @@
 
 ## 0. G0 Contract Boundary
 
-This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G007 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and authority-gated provider-adapter boundaries. G008 completes the lineage, retention, and export application boundary. G009 remains separately gated and pending.
+This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G007 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and authority-gated provider-adapter boundaries. G008 completes the lineage, retention, and export application boundary using fake/composed offline verification. G009 composition is present but `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`: it is not production-verified or closed, full current authority gates and three family-distinct normal P2 receipts remain pending, and its prior evidence is classified `HISTORICAL_GATE_PASS_NON_PRODUCTION`.
 
 No coordinator, publisher, provider adapter, lineage service, product tool, actual product/release CI job, or release asset may be implemented before both the authoritative SOT post-verification records `g0_complete` and a separate session-bound implementation approval is granted. Gate A, candidate review, promotion authorization, and the authority-ref compare-and-swap are distinct prerequisites; cached approval data is not authority.
 
@@ -17,11 +17,11 @@ The product boundary uses four independently serialized outcome axes:
 
 A high finding and required-role exhaustion therefore preserve `request_changes` and `incomplete` independently. Publication and CI are not inferred from either value.
 
-The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and `darwin-arm64`, but only `darwin-arm64` is G0 `required`/blocking and requires native local-POSIX probe evidence. The other three cells are `intended_future`, non-blocking, unsupported, and release-ineligible; Windows and network filesystems are outside this contract. The exact authority-gated `kimi`, `zcode`, and `agy` adapter tuples are complete through G007; standalone absence of evidence remains `UNVERIFIED` and does not imply support. Provider/platform evidence v1 is compatibility-only; only v2 evidence may enter readiness. `codex` and `claude` are optional post-G0 configuration only and are not assignment defaults or automatic fallbacks.
+The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and `darwin-arm64`, but only `darwin-arm64` is G0 `required`/blocking and requires native local-POSIX probe evidence. The other three cells are `intended_future`, non-blocking, unsupported, and release-ineligible; Windows and network filesystems are outside this contract. G007 supports the allowlisted `kimi`, `zcode`, and `agy` families through trusted runtime capability profiles. Version, executable path, SHA-256, and adapter profile are diagnostic provenance rather than authorization gates; unknown or new versions are not rejected solely for identity. `codex` and `claude` configuration is strictly rejected until a separately approved SOT extension authorizes each family; neither is an assignment default or automatic fallback.
 
 ## 0.1 Post-G0 architectural milestones
 
-G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds opt-in live provider adapters only after tuple evidence. G008 completes followup, delta, rerun, cleanup, and export; its fake verification surface exercises all four workflows, including review. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
+G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds opt-in live provider adapters for the allowlisted families using runtime capability contracts while retaining identity only as diagnostic provenance. G008 completes followup, delta, rerun, cleanup, and export; its fake/composed offline verification surface exercises all four workflows. Production composition is present, but full current authority gates and three family-distinct normal P2 receipts remain pending before production verification and closure; no release assets or actions are authorized. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
 
 ## 0.2 Authority and persistence boundaries
 
@@ -99,8 +99,6 @@ internal/adapters/providers/
   zcode/
   kimi/
   agy/
-  codex/
-  claude/
 internal/adapters/gittarget/
 internal/adapters/filesystem/
 internal/adapters/jsonschema/
@@ -171,7 +169,7 @@ type ArtifactStore interface {
 }
 ```
 
-`PublishReview` owns temporary file creation, final schema validation, atomic rename, SHA-256 calculation, and manifest-safe return values.
+`PublishReview` owns temporary file creation, final schema validation, atomic rename, SHA-256 calculation, and manifest-safe return values. Historical G009 evidence classified `HISTORICAL_GATE_PASS_NON_PRODUCTION` includes a direct crash-before-rename proof: a crashing child leaves only the temporary file and no visible final file. It is diagnostic evidence only and does not production-verify or close composed `kar review`.
 
 ### Validator
 
@@ -298,7 +296,7 @@ The CLI layer handles:
 - rendering concise progress and final status;
 - mapping application results to exit codes.
 
-It must not implement scheduling, fallback, validation, target capture, publication, lineage transitions, retention planning, or export/redaction logic. The G008 CLI boundary dispatches `followup`, `delta`, `rerun`, `clean`, and `export` to their application services alongside the established `review` command; it only constructs requests, renders envelopes, and maps typed results to exits.
+It must not implement scheduling, fallback, validation, target capture, publication, lineage transitions, retention planning, or export/redaction logic. The G008 CLI boundary dispatches `followup`, `delta`, `rerun`, `clean`, and `export` to their application services; its fake/composed offline verification does not production-verify or close the composed `review` command. It only constructs requests, renders envelopes, and maps typed results to exits.
 
 ## 12. Schema Evolution
 

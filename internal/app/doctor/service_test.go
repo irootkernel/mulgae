@@ -496,6 +496,16 @@ func (inspector *fakeInspector) ObserveExecutable(_ context.Context, name string
 	}
 	return mustExecutable(nil, name, false, "", "", ""), nil
 }
+func (inspector *fakeInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
+	return inspector.ObserveExecutable(ctx, name)
+}
+func (*fakeInspector) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
+	return ports.NewFileIdentityObservation(name, false, "", "")
+}
+
+func (*fakeInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
+	return ports.NativeHomeLaunchAuthority{}, nil
+}
 
 func (inspector *fakeInspector) ObservePermission(context.Context, ports.AnchoredRoot, ports.SafeRelativePath) (ports.PermissionObservation, error) {
 	return inspector.permission, inspector.permitErr

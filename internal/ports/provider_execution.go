@@ -3,9 +3,8 @@ package ports
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -81,6 +80,43 @@ func (status ProviderExecutionStatus) FailureClass() domain.FailureClass {
 	}
 }
 
+// NativeHomeLaunchAuthority is the immutable installed-user HOME identity
+// required by a descriptor-bound provider launch. It is intentionally absent
+// from process observations and receipts.
+type NativeHomeLaunchAuthority struct {
+	path         string
+	device       uint64
+	inode        uint64
+	effectiveUID uint32
+}
+
+// NewNativeHomeLaunchAuthority constructs an exact, canonical native-home
+// identity captured by the composition root.
+func NewNativeHomeLaunchAuthority(path string, device, inode uint64, effectiveUID uint32) (NativeHomeLaunchAuthority, error) {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || device == 0 || inode == 0 {
+		return NativeHomeLaunchAuthority{}, fmt.Errorf("native home launch authority: invalid identity")
+	}
+	return NativeHomeLaunchAuthority{path: path, device: device, inode: inode, effectiveUID: effectiveUID}, nil
+}
+
+// Valid reports whether authority has a complete canonical identity.
+func (authority NativeHomeLaunchAuthority) Valid() bool {
+	_, err := NewNativeHomeLaunchAuthority(authority.path, authority.device, authority.inode, authority.effectiveUID)
+	return err == nil
+}
+
+// Path returns the canonical native-home path for the protected launch only.
+func (authority NativeHomeLaunchAuthority) Path() string { return authority.path }
+
+// Device returns the captured filesystem device.
+func (authority NativeHomeLaunchAuthority) Device() uint64 { return authority.device }
+
+// Inode returns the captured filesystem inode.
+func (authority NativeHomeLaunchAuthority) Inode() uint64 { return authority.inode }
+
+// EffectiveUID returns the captured installed-user effective UID.
+func (authority NativeHomeLaunchAuthority) EffectiveUID() uint32 { return authority.effectiveUID }
+
 // ProviderExecutionObservation is immutable provider-neutral execution
 // evidence. It binds a validated invocation identity to exactly one validated
 // process observation and either a successful provider result or a classified
@@ -106,6 +142,32 @@ func NewSuccessfulProviderExecutionObservation(
 	processObservation ProcessObservation,
 	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
+	return newSuccessfulProviderExecutionObservation(
+		invocation, result, processObservation, stdoutLimit, stderrLimit, false,
+	)
+}
+
+// NewIsolatedSuccessfulProviderExecutionObservation records a successful
+// provider result deliberately derived from a structured process stdout stream.
+// The raw stdout remains available through ProcessObservation and Stdout.
+func NewIsolatedSuccessfulProviderExecutionObservation(
+	invocation ProviderInvocation,
+	result ProviderResult,
+	processObservation ProcessObservation,
+	stdoutLimit, stderrLimit int64,
+) (ProviderExecutionObservation, error) {
+	return newSuccessfulProviderExecutionObservation(
+		invocation, result, processObservation, stdoutLimit, stderrLimit, true,
+	)
+}
+
+func newSuccessfulProviderExecutionObservation(
+	invocation ProviderInvocation,
+	result ProviderResult,
+	processObservation ProcessObservation,
+	stdoutLimit, stderrLimit int64,
+	resultIsolated bool,
+) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
 	if err != nil {
 		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", err)
@@ -125,54 +187,12 @@ func NewSuccessfulProviderExecutionObservation(
 		processObservation: canonicalProcess,
 		result:             canonicalResult,
 		hasResult:          true,
+		resultIsolated:     resultIsolated,
 		stdoutLimit:        stdoutLimit,
 		stderrLimit:        stderrLimit,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
-	}
-	return observation, nil
-}
-
-// NewIsolatedSuccessfulProviderExecutionObservation records a successful
-// provider result deliberately derived from a structured process stdout stream.
-// The raw stdout remains available through ProcessObservation and Stdout.
-func NewIsolatedSuccessfulProviderExecutionObservation(
-	invocation ProviderInvocation,
-	result ProviderResult,
-	processObservation ProcessObservation,
-	stdoutLimit, stderrLimit int64,
-) (ProviderExecutionObservation, error) {
-	observation, err := NewSuccessfulProviderExecutionObservation(
-		invocation, result, processObservation, stdoutLimit, stderrLimit,
-	)
-	if err == nil {
-		return observation, nil
-	}
-	canonicalInvocation, invocationErr := canonicalProviderInvocation(invocation)
-	if invocationErr != nil {
-		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", invocationErr)
-	}
-	canonicalResult, resultErr := canonicalProviderResult(result)
-	if resultErr != nil {
-		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid result: %w", resultErr)
-	}
-	canonicalProcess, processErr := canonicalProcessObservation(processObservation)
-	if processErr != nil {
-		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid process observation: %w", processErr)
-	}
-	observation = ProviderExecutionObservation{
-		status:             ProviderExecutionStatusSucceeded,
-		invocation:         canonicalInvocation,
-		processObservation: canonicalProcess,
-		result:             canonicalResult,
-		hasResult:          true,
-		resultIsolated:     true,
-		stdoutLimit:        stdoutLimit,
-		stderrLimit:        stderrLimit,
-	}
-	if validationErr := observation.Validate(); validationErr != nil {
-		return ProviderExecutionObservation{}, validationErr
 	}
 	return observation, nil
 }
@@ -223,16 +243,8 @@ func (observation ProviderExecutionObservation) Succeeded() bool {
 // Invocation returns a defensive copy of the invocation bound to this
 // execution observation.
 func (observation ProviderExecutionObservation) Invocation() ProviderInvocation {
-	return ProviderInvocation{
-		role:                  observation.invocation.role,
-		providerInstance:      observation.invocation.providerInstance,
-		attemptID:             observation.invocation.attemptID,
-		purpose:               observation.invocation.purpose,
-		stdin:                 cloneBytes(observation.invocation.stdin),
-		sourceInvocationID:    observation.invocation.sourceInvocationID,
-		executionInvocationID: observation.invocation.executionInvocationID,
-		completeStdinSHA256:   observation.invocation.completeStdinSHA256,
-	}
+	invocation, _ := canonicalProviderInvocation(observation.invocation)
+	return invocation
 }
 
 // ProcessObservation returns a validated defensive copy of the exact neutral
@@ -244,6 +256,22 @@ func (observation ProviderExecutionObservation) ProcessObservation() ProcessObse
 // Termination returns the exact neutral process termination fact.
 func (observation ProviderExecutionObservation) Termination() ProcessTermination {
 	return observation.processObservation.Termination()
+}
+func (observation ProviderExecutionObservation) FinalTermination() (ProcessFinalTermination, bool) {
+	return observation.processObservation.FinalTermination()
+}
+func (observation ProviderExecutionObservation) SignalRequests() []ProcessGroupSignalRequestReceipt {
+	return observation.processObservation.SignalRequests()
+}
+func (observation ProviderExecutionObservation) OutputFrameReceipt() (ProcessOutputFrameReceipt, bool) {
+	receipt, ok := observation.processObservation.LifecycleReceipt()
+	if !ok {
+		return ProcessOutputFrameReceipt{}, false
+	}
+	return receipt.OutputFrame()
+}
+func (observation ProviderExecutionObservation) ProcessGroupAbsent() bool {
+	return observation.processObservation.ProcessGroupAbsent()
 }
 
 // ExitCode returns the exact process exit code when the process exited.
@@ -284,11 +312,8 @@ func (observation ProviderExecutionObservation) Result() (ProviderResult, bool) 
 	if !observation.hasResult {
 		return ProviderResult{}, false
 	}
-	return ProviderResult{
-		stdout:              cloneBytes(observation.result.stdout),
-		stdinByteLength:     observation.result.stdinByteLength,
-		completeStdinSHA256: observation.result.completeStdinSHA256,
-	}, true
+	result, err := canonicalProviderResult(observation.result)
+	return result, err == nil
 }
 
 // Stdout returns a caller-owned copy of the stdout captured by the bound
@@ -368,9 +393,15 @@ func (observation ProviderExecutionObservation) Validate() error {
 		if err != nil {
 			return fmt.Errorf("provider execution observation: invalid result: %w", err)
 		}
-		if int64(result.stdinByteLength) != canonicalProcess.StdinWriteReceipt().IntendedByteLength() ||
-			result.completeStdinSHA256 != canonicalProcess.StdinWriteReceipt().SHA256() {
-			return fmt.Errorf("provider execution observation: result stdin identity does not match process observation")
+		if result.InputIdentity() != canonicalInvocation.InputIdentity() {
+			return fmt.Errorf("provider execution observation: result input identity does not match invocation")
+		}
+		if transport, ok := canonicalProcess.ProviderPacketTransportReceipt(); ok {
+			if transport.Channel() == ProviderPacketChannelStdin && !canonicalProcess.StdinWriteReceipt().Complete() {
+				return fmt.Errorf("provider execution observation: successful status requires complete packet transport")
+			}
+		} else if !canonicalProcess.StdinWriteReceipt().Complete() {
+			return fmt.Errorf("provider execution observation: successful legacy stdin transport must be complete")
 		}
 		if !observation.resultIsolated && !bytes.Equal(result.stdout, canonicalProcess.stdout) {
 			return fmt.Errorf("provider execution observation: result stdout does not match process stdout")
@@ -408,22 +439,41 @@ type ObservedReviewProvider interface {
 }
 
 func canonicalProviderInvocation(invocation ProviderInvocation) (ProviderInvocation, error) {
-	return NewProviderInvocation(
-		invocation.Role(),
-		invocation.ProviderInstance(),
-		invocation.AttemptID(),
-		invocation.Purpose(),
-		invocation.Stdin(),
-		invocation.SourceInvocationID(),
+	if workspace, ok := invocation.ExecutionWorkspace(); ok {
+		storedIdentity, hasStoredIdentity := invocation.WorkspaceSnapshotIdentity()
+		if !hasStoredIdentity || workspace.WorkspaceSnapshotIdentity() != storedIdentity {
+			return ProviderInvocation{}, fmt.Errorf("provider invocation workspace identity changed")
+		}
+		return NewProviderInvocationWithPacketInWorkspace(
+			invocation.Role(), invocation.ProviderInstance(), invocation.AttemptID(),
+			invocation.Purpose(), invocation.Packet(), invocation.SourceInvocationID(),
+			invocation.ExecutionInvocationID(), workspace,
+		)
+	}
+	return NewProviderInvocationWithPacket(
+		invocation.Role(), invocation.ProviderInstance(), invocation.AttemptID(),
+		invocation.Purpose(), invocation.Packet(), invocation.SourceInvocationID(),
 		invocation.ExecutionInvocationID(),
-		invocation.CompleteStdinSHA256(),
 	)
 }
 
 func canonicalProviderResult(result ProviderResult) (ProviderResult, error) {
-	return NewProviderResult(result.Stdout(), result.StdinByteLength(), result.CompleteStdinSHA256())
+	return NewProviderResultForInput(result.Stdout(), result.InputIdentity())
 }
 func canonicalProcessObservation(observation ProcessObservation) (ProcessObservation, error) {
+	if lifecycle, ok := observation.LifecycleReceipt(); ok {
+		if receipt, hasTransport := observation.ProviderPacketTransportReceipt(); hasTransport {
+			return NewStartedProviderProcessObservation(
+				observation.Stdout(), observation.Stderr(), observation.Termination(),
+				observation.StdinWriteReceipt(), receipt, lifecycle,
+				observation.StartedAt(), observation.EndedAt(),
+			)
+		}
+		return NewStartedProcessObservation(
+			observation.Stdout(), observation.Stderr(), observation.Termination(),
+			observation.StdinWriteReceipt(), lifecycle, observation.StartedAt(), observation.EndedAt(),
+		)
+	}
 	var exitCode *int
 	if value, ok := observation.ExitCode(); ok {
 		exitCode = &value
@@ -436,15 +486,15 @@ func canonicalProcessObservation(observation ProcessObservation) (ProcessObserva
 		}
 		signals = []ProcessSignal{signal}
 	}
+	if receipt, ok := observation.ProviderPacketTransportReceipt(); ok {
+		return NewProviderProcessObservation(
+			observation.Stdout(), observation.Stderr(), exitCode, observation.Termination(),
+			observation.StdinWriteReceipt(), receipt, observation.StartedAt(), observation.EndedAt(), signals...,
+		)
+	}
 	return NewProcessObservation(
-		observation.Stdout(),
-		observation.Stderr(),
-		exitCode,
-		observation.Termination(),
-		observation.StdinWriteReceipt(),
-		observation.StartedAt(),
-		observation.EndedAt(),
-		signals...,
+		observation.Stdout(), observation.Stderr(), exitCode, observation.Termination(),
+		observation.StdinWriteReceipt(), observation.StartedAt(), observation.EndedAt(), signals...,
 	)
 }
 
@@ -456,43 +506,56 @@ func cloneProcessObservation(observation ProcessObservation) ProcessObservation 
 	return clone
 }
 
-func validateProviderExecutionStdinReceipt(
-	invocation ProviderInvocation,
-	processObservation ProcessObservation,
-) error {
+func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, processObservation ProcessObservation) error {
 	receipt := processObservation.StdinWriteReceipt()
-	if receipt.IntendedByteLength() != int64(len(invocation.stdin)) {
-		return fmt.Errorf("stdin receipt intended length does not match invocation")
-	}
-	writtenByteCount := receipt.WrittenByteCount()
-	if receipt.SHA256() != providerExecutionStdinDigest(invocation.stdin[:int(writtenByteCount)]) {
-		return fmt.Errorf("stdin receipt digest does not match written invocation prefix")
-	}
-	switch processObservation.Termination() {
-	case ProcessTerminationStartFailed,
-		ProcessTerminationStartUnavailable,
-		ProcessTerminationStartConfiguration,
-		ProcessTerminationStartSecurity,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity:
-		if writtenByteCount != 0 {
-			return fmt.Errorf("start or lock failure must report zero written stdin bytes")
+	transport, hasTransport := processObservation.ProviderPacketTransportReceipt()
+	if !hasTransport {
+		switch processObservation.Termination() {
+		case ProcessTerminationStartFailed, ProcessTerminationStartUnavailable, ProcessTerminationStartConfiguration,
+			ProcessTerminationStartSecurity, ProcessTerminationLockFailed, ProcessTerminationLockUnavailable,
+			ProcessTerminationLockConfiguration, ProcessTerminationLockSecurity:
+			if receipt.WrittenByteCount() != 0 {
+				return fmt.Errorf("legacy stdin receipt claims delivery before process start")
+			}
+			if receipt.IntendedByteLength() == 0 && receipt.Complete() &&
+				receipt.SHA256() == providerPacketDigest(nil) {
+				return nil
+			}
+			if receipt.Complete() {
+				return fmt.Errorf("legacy stdin receipt claims complete non-empty delivery before process start")
+			}
 		}
-		if len(invocation.stdin) != 0 && receipt.Complete() {
-			return fmt.Errorf("start or lock failure must report incomplete stdin for non-empty invocation")
+		if receipt.IntendedByteLength() != int64(invocation.InputIdentity().ByteLength()) {
+			return fmt.Errorf("legacy stdin receipt intended length does not match packet")
+		}
+		writtenByteCount := receipt.WrittenByteCount()
+		packet := invocation.PacketBytes()
+		if writtenByteCount < 0 || writtenByteCount > int64(len(packet)) ||
+			receipt.SHA256() != providerPacketDigest(packet[:int(writtenByteCount)]) {
+			return fmt.Errorf("legacy stdin receipt digest does not match written packet prefix")
+		}
+		return nil
+	}
+	if transport.PacketIdentity() != invocation.InputIdentity() {
+		return fmt.Errorf("transport packet identity does not match invocation")
+	}
+	switch transport.Channel() {
+	case ProviderPacketChannelStdin:
+		if receipt.IntendedByteLength() != int64(invocation.InputIdentity().ByteLength()) {
+			return fmt.Errorf("stdin receipt intended length does not match packet")
+		}
+		writtenByteCount := receipt.WrittenByteCount()
+		packet := invocation.PacketBytes()
+		if receipt.SHA256() != providerPacketDigest(packet[:int(writtenByteCount)]) {
+			return fmt.Errorf("stdin receipt digest does not match written packet prefix")
+		}
+	default:
+		if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 ||
+			!receipt.Complete() || receipt.SHA256() != providerPacketDigest(nil) {
+			return fmt.Errorf("non-stdin packet transport must have a complete empty stdin receipt")
 		}
 	}
 	return nil
-}
-
-func providerExecutionStdinDigest(stdin []byte) string {
-	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
-	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write(stdin)
-	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func providerExecutionStatusMatchesProcessObservation(
@@ -571,7 +634,7 @@ func validateProviderExecutionLimits(stdoutLimit, stderrLimit int64) error {
 }
 
 func providerResultIsZero(result ProviderResult) bool {
-	return result.stdout == nil && result.stdinByteLength == 0 && result.completeStdinSHA256 == ""
+	return result.stdout == nil && !result.inputIdentity.Valid()
 }
 
 func validProviderExecutionDiagnosticCode(value string) bool {

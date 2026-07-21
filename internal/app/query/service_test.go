@@ -62,6 +62,185 @@ func TestNewServiceAllowsAbsentImmutableTargetReader(t *testing.T) {
 		})
 	}
 }
+func TestValidateProductionProvenanceRejectsMutations(t *testing.T) {
+	t.Parallel()
+	valid := queryProductionFinalDTO()
+	if err := validateProductionProvenance(valid); err != nil {
+		t.Fatalf("valid production provenance rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*finalDTO){
+		"build product":    func(final *finalDTO) { final.Provenance.Production.BuildProduct = "other" },
+		"build version":    func(final *finalDTO) { final.Provenance.Production.BuildVersion = "0.2.0" },
+		"build commit":     func(final *finalDTO) { final.Provenance.Production.BuildCommit = "other" },
+		"objective pair":   func(final *finalDTO) { final.Provenance.Production.ObjectivePresent = false },
+		"objective digest": func(final *finalDTO) { value := "sha256:invalid"; final.Provenance.Production.ObjectiveSHA256 = &value },
+		"snapshot digest":  func(final *finalDTO) { final.Provenance.Production.SnapshotManifestSHA256 = "sha256:invalid" },
+		"workspace receipt grammar": func(final *finalDTO) {
+			final.Provenance.Production.WorkspaceTerminalReceipt = "Workspace:" + strings.Repeat("a", 64)
+		},
+		"provider family":     func(final *finalDTO) { final.Provenance.Production.Providers[0].Family = "" },
+		"provider instance":   func(final *finalDTO) { final.Provenance.Production.Providers[0].Instance = "1invalid" },
+		"provider version":    func(final *finalDTO) { final.Provenance.Production.Providers[0].Version = "" },
+		"executable":          func(final *finalDTO) { final.Provenance.Production.Providers[0].Executable = "" },
+		"executable digest":   func(final *finalDTO) { final.Provenance.Production.Providers[0].ExecutableSHA256 = "sha256:invalid" },
+		"launcher pair":       func(final *finalDTO) { final.Provenance.Production.Providers[0].LauncherSHA256 = "" },
+		"profile generation":  func(final *finalDTO) { final.Provenance.Production.Providers[0].ProfileGeneration = "" },
+		"adapter profile":     func(final *finalDTO) { final.Provenance.Production.Providers[0].AdapterProfile = "" },
+		"qualification empty": func(final *finalDTO) { final.Provenance.Production.Providers[0].QualificationReceiptIDs = nil },
+		"qualification order": func(final *finalDTO) {
+			receipts := final.Provenance.Production.Providers[0].QualificationReceiptIDs
+			receipts[0], receipts[1] = receipts[1], receipts[0]
+		},
+		"qualification receipt grammar": func(final *finalDTO) {
+			final.Provenance.Production.Providers[0].QualificationReceiptIDs[0] = "bad:" + strings.Repeat("A", 64)
+		},
+		"transport empty": func(final *finalDTO) { final.Provenance.Production.Providers[0].PacketTransportReceiptIDs = nil },
+		"transport order": func(final *finalDTO) {
+			receipts := final.Provenance.Production.Providers[0].PacketTransportReceiptIDs
+			receipts[0], receipts[1] = receipts[1], receipts[0]
+		},
+		"transport receipt grammar": func(final *finalDTO) {
+			final.Provenance.Production.Providers[0].PacketTransportReceiptIDs[0] = "bad:" + strings.Repeat("A", 64)
+		},
+		"namespace receipt grammar": func(final *finalDTO) {
+			final.Provenance.Production.Providers[0].NamespaceTerminalReceipt = "bad:" + strings.Repeat("A", 64)
+		},
+		"provider order": func(final *finalDTO) {
+			providers := final.Provenance.Production.Providers
+			providers[0], providers[1] = providers[1], providers[0]
+		},
+		"child": func(final *finalDTO) { final.RunType = string(domain.RunTypeDelta) },
+		"no change": func(final *finalDTO) {
+			final.Target.ContentSHA256 = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			final := queryProductionFinalDTO()
+			mutate(&final)
+			if err := validateProductionProvenance(final); err == nil {
+				t.Fatal("mutated production provenance was accepted")
+			}
+		})
+	}
+}
+func TestValidateProductionProvenanceAllowsOptionalPairs(t *testing.T) {
+	t.Parallel()
+	final := queryProductionFinalDTO()
+	final.Provenance.Production.ObjectivePresent = false
+	final.Provenance.Production.ObjectiveSHA256 = nil
+	final.Provenance.Production.Providers[0].Launcher = ""
+	final.Provenance.Production.Providers[0].LauncherSHA256 = ""
+	if err := validateProductionProvenance(final); err != nil {
+		t.Fatalf("valid optional production provenance pairs rejected: %v", err)
+	}
+}
+func TestReadCommittedAllowsValidProductionProvenance(t *testing.T) {
+	t.Parallel()
+	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	final, err := decodeFinalDTO(snapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	productionFinal := queryProductionFinalDTO()
+	final.KAR = productionFinal.KAR
+	final.Provenance.Production = productionFinal.Provenance.Production
+	finalBytes, err := json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(snapshot.Final().Identity().ReviewID(), snapshot.Final().Identity().Path(), querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalArtifact, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifestDTO(snapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifest.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestArtifact := mustQueryArtifact(t, snapshot.Manifest().Path(), manifestBytes)
+	productionSnapshot, err := ports.NewCommittedPublicationSnapshot(finalArtifact, manifestArtifact, snapshot.LineageEdge(), snapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := queryP2Observation(t, run, productionSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+	service := mustQueryService(t, &queryStore{observation: observation, snapshot: productionSnapshot}, &queryValidator{}, nil)
+	if _, err := service.ReadCommitted(context.Background(), run); err != nil {
+		t.Fatalf("valid production review was unreadable: %v", err)
+	}
+}
+
+func TestValidateProductionProvenanceAllowsLegacyNonproductionRoot(t *testing.T) {
+	t.Parallel()
+	final := queryProductionFinalDTO()
+	final.Provenance.Production = nil
+	if err := validateProductionProvenance(final); err != nil {
+		t.Fatalf("legacy nonproduction root rejected: %v", err)
+	}
+}
+
+func queryProductionFinalDTO() finalDTO {
+	receipt := func(kind, suffix string) string { return kind + ":" + strings.Repeat(suffix, 64) }
+	commit := "0123456789abcdef"
+	objective := "sha256:" + strings.Repeat("a", 64)
+	provider := func(family, instance string) productionProviderDTO {
+		return productionProviderDTO{
+			Family: family, Instance: instance, Version: "1.0.0", Executable: "/private/bin/" + instance,
+			ExecutableSHA256: "sha256:" + strings.Repeat("b", 64), Launcher: "/private/bin/launcher",
+			LauncherSHA256: "sha256:" + strings.Repeat("c", 64), ProfileGeneration: "generation",
+			AdapterProfile: "default", QualificationReceiptIDs: []string{receipt("qualification-a", "1"), receipt("qualification-b", "2")},
+			PacketTransportReceiptIDs: []string{receipt("transport-a", "3"), receipt("transport-b", "4")},
+			NamespaceTerminalReceipt:  receipt("namespace", "5"),
+		}
+	}
+	return finalDTO{
+		RunType: string(domain.RunTypeReview), KAR: finalKARDTO{Version: "0.1.0", Commit: &commit},
+		Target: finalTargetDTO{ContentSHA256: "sha256:" + strings.Repeat("d", 64)},
+		Provenance: provenanceDTO{Production: &productionProvenanceDTO{
+			BuildProduct: "kar", BuildVersion: "0.1.0", BuildCommit: commit, ObjectiveSHA256: &objective, ObjectivePresent: true,
+			SnapshotManifestSHA256: "sha256:" + strings.Repeat("e", 64), WorkspaceTerminalReceipt: receipt("workspace", "6"),
+			Providers: []productionProviderDTO{provider("alpha", "alpha-main"), provider("beta", "beta-main")},
+		}},
+	}
+}
+func TestCanonicalEvidenceItemsSupportsBoundedDeterministicEvidence(t *testing.T) {
+	makeEvidence := func(index int) Evidence {
+		return Evidence{
+			sourceExcerptSHA256: fmt.Sprintf("sha256:%064x", index+1),
+			targetSHA256:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			lineStart:           index + 1,
+			lineEnd:             index + 1,
+			verification:        evidence.ReceiptVerified,
+		}
+	}
+	for _, count := range []int{1, 2, 20} {
+		items := make([]Evidence, count)
+		for index := range items {
+			items[index] = makeEvidence(index + 1)
+		}
+		ordered, err := canonicalEvidenceItems(items)
+		if err != nil || len(ordered) != count {
+			t.Fatalf("canonicalEvidenceItems(%d) = %d items, %v", count, len(ordered), err)
+		}
+		for index := 1; index < len(ordered); index++ {
+			if canonicalEvidenceKey(ordered[index-1]) >= canonicalEvidenceKey(ordered[index]) {
+				t.Fatalf("canonical evidence order is not strict at %d", index)
+			}
+		}
+	}
+	collision := makeEvidence(1)
+	if _, err := canonicalEvidenceItems([]Evidence{collision, collision}); err == nil {
+		t.Fatal("canonicalEvidenceItems accepted a full-tuple collision")
+	}
+}
 func TestResolveRunUsesPublicationStoreBoundary(t *testing.T) {
 	t.Parallel()
 	run, _, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
@@ -99,6 +278,10 @@ func TestReadCommittedListFindingsAndRenderExcerpt(t *testing.T) {
 	if got := len(review.Findings()); got != 1 {
 		t.Fatalf("finding count = %d, want 1", got)
 	}
+	evidenceItems := review.Findings()[0].Evidence()
+	if evidenceItems[0].SourceExcerptSHA256() == evidenceItems[0].CurrentExcerptSHA256() {
+		t.Fatal("fixture did not preserve distinct historical and current excerpt digests")
+	}
 	final := review.FinalBytes()
 	final[0] = '!'
 	if review.FinalBytes()[0] == '!' {
@@ -118,8 +301,15 @@ func TestReadCommittedListFindingsAndRenderExcerpt(t *testing.T) {
 	if err != nil || string(excerpt) != "line one\nline two" {
 		t.Fatalf("RenderExcerpt() = %q, %v", excerpt, err)
 	}
-	if store.auxiliaryReads != 1 {
-		t.Fatalf("RenderExcerpt auxiliary reads = %d, want 1", store.auxiliaryReads)
+	indexed, err := service.RenderExcerptAt(context.Background(), run, "F001", review.TargetSHA256(), 1)
+	if err != nil || string(indexed) != "line one\nline two" {
+		t.Fatalf("RenderExcerptAt(1) = %q, %v", indexed, err)
+	}
+	if _, err := service.RenderExcerptAt(context.Background(), run, "F001", review.TargetSHA256(), 2); err == nil {
+		t.Fatal("RenderExcerptAt accepted an unbound evidence index")
+	}
+	if store.auxiliaryReads != 2 {
+		t.Fatalf("RenderExcerpt auxiliary reads = %d, want 2", store.auxiliaryReads)
 	}
 }
 func TestReadCommittedPreservesFollowupOutcome(t *testing.T) {
@@ -133,6 +323,156 @@ func TestReadCommittedPreservesFollowupOutcome(t *testing.T) {
 	outcome, present := review.FollowupOutcome()
 	if !present || outcome.Resolution() != domain.FollowupResolved || outcome.Rationale() != "verified resolution" || len(outcome.Evidence()) != 1 {
 		t.Fatalf("FollowupOutcome() = %#v, present = %t", outcome, present)
+	}
+	followupEvidence := outcome.Evidence()[0]
+	if followupEvidence.SourceRunID().String() != "r_019f596a-cfe4-7c9c-b82e-7149158243bc" ||
+		followupEvidence.SourceExcerptSHA256() == followupEvidence.CurrentExcerptSHA256() {
+		t.Fatalf("followup evidence did not preserve original source lineage: %#v", followupEvidence)
+	}
+}
+func TestCommittedReviewLineageProjection(t *testing.T) {
+	t.Parallel()
+	pointer := func(value string) *string { return &value }
+	parent := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+	source := "r_019f596a-cfe4-7c9c-b82e-7149158243bc"
+	sourceReview := "019f596a-d174-7321-b920-c2d312c82cc3"
+	current, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		runType domain.RunType
+		value   lineageDTO
+		finding string
+		replay  ReplayMode
+	}{
+		{name: "root", runType: domain.RunTypeReview},
+		{name: "followup", runType: domain.RunTypeFollowup, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+			SourceFindingRef: pointer("F001"),
+		}, finding: "F001"},
+		{name: "delta", runType: domain.RunTypeDelta, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+		}},
+		{name: "rerun", runType: domain.RunTypeRerun, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+			ReplayMode: pointer(string(ReplayModeExact)),
+		}, replay: ReplayModeExact},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lineage, err := buildCommittedLineage(test.runType, current, test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			view := (CommittedReview{lineage: lineage}).Lineage()
+			parentRunID, hasParent := view.ParentRunID()
+			sourceRunID, hasSource := view.SourceRunID()
+			sourceReviewID, hasReview := view.SourceReviewID()
+			if test.runType == domain.RunTypeReview {
+				if hasParent || hasSource || hasReview {
+					t.Fatalf("root lineage exposes source identities: %#v", view)
+				}
+			} else if !hasParent || !hasSource || !hasReview ||
+				parentRunID.String() != parent || sourceRunID.String() != source || sourceReviewID.String() != sourceReview {
+				t.Fatalf("child lineage source identities = %#v", view)
+			}
+			finding, hasFinding := view.SourceFindingRef()
+			if hasFinding != (test.finding != "") || finding != test.finding {
+				t.Fatalf("source finding = (%q, %t), want (%q, %t)", finding, hasFinding, test.finding, test.finding != "")
+			}
+			replay, hasReplay := view.ReplayMode()
+			if hasReplay != (test.replay != "") || replay != test.replay {
+				t.Fatalf("replay mode = (%q, %t), want (%q, %t)", replay, hasReplay, test.replay, test.replay != "")
+			}
+		})
+	}
+}
+
+func TestCommittedLineageRejectsMalformedAndContradictoryOptionalFields(t *testing.T) {
+	t.Parallel()
+	pointer := func(value string) *string { return &value }
+	parent := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+	source := "r_019f596a-cfe4-7c9c-b82e-7149158243bc"
+	sourceReview := "019f596a-d174-7321-b920-c2d312c82cc3"
+	current, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		runType domain.RunType
+		value   lineageDTO
+	}{
+		{name: "root child field", runType: domain.RunTypeReview, value: lineageDTO{ParentRunID: pointer(parent)}},
+		{name: "child malformed parent", runType: domain.RunTypeDelta, value: lineageDTO{
+			ParentRunID: pointer("not-a-run"), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+		}},
+		{name: "followup missing finding", runType: domain.RunTypeFollowup, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+		}},
+		{name: "delta replay contradiction", runType: domain.RunTypeDelta, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+			ReplayMode: pointer(string(ReplayModeExact)),
+		}},
+		{name: "rerun finding contradiction", runType: domain.RunTypeRerun, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+			SourceFindingRef: pointer("F001"), ReplayMode: pointer(string(ReplayModeExact)),
+		}},
+		{name: "rerun replay invalid", runType: domain.RunTypeRerun, value: lineageDTO{
+			ParentRunID: pointer(parent), SourceRunID: pointer(source), SourceReviewID: pointer(sourceReview),
+			ReplayMode: pointer("later"),
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := buildCommittedLineage(test.runType, current, test.value); err == nil {
+				t.Fatal("malformed lineage was accepted")
+			}
+		})
+	}
+}
+func TestReadCommittedRejectsMalformedOrContradictoryLineageArtifacts(t *testing.T) {
+	t.Parallel()
+	const rootLineage = `"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`
+	const childLineage = `"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":null,"replay_mode":null`
+	for _, test := range []struct {
+		name           string
+		mutateManifest bool
+	}{
+		{name: "root child lineage", mutateManifest: true},
+		{name: "final manifest lineage disagreement"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+			finalBytes := strings.Replace(string(snapshot.Final().Bytes()), rootLineage, childLineage, 1)
+			finalIdentity, err := ports.NewFinalReviewIdentity(
+				snapshot.Final().Identity().ReviewID(),
+				snapshot.Final().Identity().Path(),
+				querySHA([]byte(finalBytes)),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			final, err := ports.NewFinalReviewArtifact(finalIdentity, []byte(finalBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestBytes := string(snapshot.Manifest().Bytes())
+			if test.mutateManifest {
+				manifestBytes = strings.Replace(manifestBytes, rootLineage, childLineage, 1)
+			}
+			manifestBytes = strings.ReplaceAll(manifestBytes, snapshot.Final().Identity().SHA256(), finalIdentity.SHA256())
+			manifest := mustQueryArtifact(t, snapshot.Manifest().Path(), []byte(manifestBytes))
+			mutatedSnapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, snapshot.LineageEdge(), snapshot.Epoch())
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation := queryP2Observation(t, run, mutatedSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+			service := mustQueryService(t, &queryStore{observation: observation, snapshot: mutatedSnapshot}, &queryValidator{}, nil)
+			if _, err := service.ReadCommitted(context.Background(), run); err == nil {
+				t.Fatal("malformed or contradictory lineage artifact was accepted")
+			}
+		})
 	}
 }
 
@@ -204,7 +544,7 @@ func TestRenderExcerptFailsClosedWhenPersistedArtifactIsMissing(t *testing.T) {
 
 func TestRenderExcerptRejectsPersistedArtifactCorruption(t *testing.T) {
 	t.Parallel()
-	expectedDigest := querySourceExcerptSHA256(t)
+	expectedDigest := queryCurrentExcerptSHA256(t)
 	cases := []struct {
 		name         string
 		sourceDigest string
@@ -223,12 +563,6 @@ func TestRenderExcerptRejectsPersistedArtifactCorruption(t *testing.T) {
 			sourceDigest: expectedDigest,
 			pathSuffix:   "F001_1.md",
 			bytes:        []byte("line one\nline two\ntrailing"),
-		},
-		{
-			name:         "source digest mismatch",
-			sourceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-			pathSuffix:   "F001_1.md",
-			bytes:        []byte("line one\nline two"),
 		},
 		{
 			name:         "unexpected canonical path",
@@ -582,7 +916,7 @@ func TestBuildFindingsRejectsOrphanRolesAndProviderMismatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := buildFindings(final.Findings, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, expected, roles); err != nil {
+	if _, err := buildFindings(final.Findings, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, domain.RunTypeReview, final.ImmutableLineage, expected, roles); err != nil {
 		t.Fatalf("buildFindings() rejected valid fixture: %v", err)
 	}
 	for _, test := range []struct {
@@ -605,7 +939,7 @@ func TestBuildFindingsRejectsOrphanRolesAndProviderMismatches(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			values := append([]finalFindingDTO(nil), final.Findings...)
 			test.mutate(&values[0])
-			if _, err := buildFindings(values, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, expected, roles); err == nil {
+			if _, err := buildFindings(values, run.SessionID(), run.RunID(), reviewID, final.Target.ContentSHA256, domain.RunTypeReview, final.ImmutableLineage, expected, roles); err == nil {
 				t.Fatal("buildFindings() accepted invalid finding ownership")
 			}
 		})
@@ -725,7 +1059,7 @@ func TestValidateOutcomeProjectionCoversPassFailAndIncomplete(t *testing.T) {
 			final := finalDTO{
 				SeverityThreshold: severityThresholdDTO{
 					RequestChangesAtOrAbove: "high",
-					PolicySource:            "trusted_base",
+					PolicySource:            "project_local",
 				},
 				CIReasonCodes: append([]string(nil), test.reasons...),
 			}
@@ -872,13 +1206,19 @@ func TestBuildCommittedReviewRejectsMandatoryRoleAndAttemptProvenanceGaps(t *tes
 			},
 		},
 		{
-			name: "source evidence identity mutation",
+			name: "current evidence digest missing",
 			mutate: func(final *finalDTO, _ *manifestDTO) {
-				final.Findings[0].Evidence[0].Source.SourceExcerptSHA256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+				final.Findings[0].Evidence[0].Current.CurrentExcerptSHA256 = ""
 			},
 		},
 		{
-			name: "current evidence quote mutation",
+			name: "current evidence digest malformed",
+			mutate: func(final *finalDTO, _ *manifestDTO) {
+				final.Findings[0].Evidence[0].Current.CurrentExcerptSHA256 = "sha256:invalid"
+			},
+		},
+		{
+			name: "current evidence digest does not match quote",
 			mutate: func(final *finalDTO, _ *manifestDTO) {
 				final.Findings[0].Evidence[0].Current.Quote = "different quote"
 			},
@@ -1543,9 +1883,9 @@ func TestQueryDependencyCancellationNeverReturnsNilOrHidesHigherPrecedence(t *te
 			want: domain.FailureInternal,
 		},
 		{
-			name: "artifact over security cancellation",
+			name: "security over artifact cancellation",
 			err:  errors.Join(context.Canceled, security, artifact),
-			want: domain.FailureArtifact,
+			want: domain.FailureSecurityPolicy,
 		},
 		{
 			name: "security over cancellation",
@@ -1850,7 +2190,7 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 			if claimErr != nil {
 				t.Fatal(claimErr)
 			}
-			item.Source.SourceExcerptSHA256, claimErr = claim.ExcerptSHA256([]byte(item.Current.Quote))
+			item.Current.CurrentExcerptSHA256, claimErr = claim.ExcerptSHA256([]byte(item.Current.Quote))
 			if claimErr != nil {
 				t.Fatal(claimErr)
 			}
@@ -2092,14 +2432,14 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},
 		"validation":{"status":"valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed"},
 		"content_verdict":"request_changes","coverage_status":"complete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],
-		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"trusted_base"},
+		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"project_local"},
 		"role_outcomes":[
 			{"role":"logic","required":true,"outcome":"completed","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","provider_instance":"logic-provider","selected_via":"primary","valid_finding_ids":["F001"],"failure_reason":null,"limitations":[]},
 			{"role":"security","required":true,"outcome":"completed","attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","provider_instance":"security-provider","selected_via":"primary","valid_finding_ids":[],"failure_reason":null,"limitations":[]}
 		],
-		"findings":[{"id":"F001","fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","role":"logic","provider_instance":"logic-provider","severity":"high","title":"title","description":"description","evidence":[{"source":{"session_id":%q,"run_id":%q,"review_id":%q,"finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","verification":"verified"}}],"recommendation":"recommendation","confidence":"high","lifecycle":"open"}],
+		"findings":[{"id":"F001","fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","role":"logic","provider_instance":"logic-provider","severity":"high","title":"title","description":"description","evidence":[{"source":{"session_id":%q,"run_id":%q,"review_id":%q,"finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":%q},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","current_excerpt_sha256":%q,"verification":"verified"}}],"recommendation":"recommendation","confidence":"high","lifecycle":"open"}],
 		"limitations":[],"provenance":{"aggregation_path":"aggregation.json","final_validation_path":"validation/final.json","manifest_path":"manifest.json"}
-	}`, sessionID.String(), runID.String(), reviewID.String(), edgePath.String(), edge.SHA256(), sessionID.String(), runID.String(), reviewID.String(), sourceExcerptSHA256))
+	}`, sessionID.String(), runID.String(), reviewID.String(), edgePath.String(), edge.SHA256(), sessionID.String(), runID.String(), reviewID.String(), sourceExcerptSHA256, queryCurrentExcerptSHA256(t)))
 	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, querySHA(finalBytes))
 	if err != nil {
 		t.Fatal(err)
@@ -2132,9 +2472,10 @@ func queryFollowupCommittedFixture(t *testing.T, resolution domain.FollowupResol
 	t.Helper()
 	run, snapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
 	lineage := `"parent_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bb","source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","source_review_id":"019f596a-d174-7321-b920-c2d312c82cc3","source_finding_ref":"F001","replay_mode":null`
-	outcome := `"followup_outcome":{"resolution":"` + string(resolution) + `","rationale":"verified resolution","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":"` + querySourceExcerptSHA256(t) + `"},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","verification":"verified"}}]},`
+	outcome := `"followup_outcome":{"resolution":"` + string(resolution) + `","rationale":"verified resolution","evidence":[{"source":{"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001","source_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_excerpt_sha256":"` + querySourceExcerptSHA256(t) + `"},"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","side":"worktree","path":"internal/example.go","line_start":1,"line_end":2,"quote":"line one\nline two","current_excerpt_sha256":"` + queryCurrentExcerptSHA256(t) + `","verification":"verified"}}]},`
 	finalBytes := strings.ReplaceAll(string(snapshot.Final().Bytes()), `"run_type":"review"`, `"run_type":"followup"`)
 	finalBytes = strings.Replace(finalBytes, `"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`, lineage, 1)
+	finalBytes = strings.Replace(finalBytes, `"run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","review_id":"019f596a-d174-7321-b920-c2d312c82cc2","finding_id":"F001"`, `"run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243bc","review_id":"019f596a-d174-7321-b920-c2d312c82cc3","finding_id":"F001"`, 1)
 	finalBytes = strings.Replace(finalBytes, `"target":{"content_sha256"`, outcome+`"target":{"content_sha256"`, 1)
 	finalIdentity, err := ports.NewFinalReviewIdentity(snapshot.Final().Identity().ReviewID(), snapshot.Final().Identity().Path(), querySHA([]byte(finalBytes)))
 	if err != nil {
@@ -2276,6 +2617,11 @@ func querySnapshotWithManifestPath(
 
 func querySourceExcerptSHA256(t *testing.T) string {
 	t.Helper()
+	return querySHA([]byte("historical source excerpt"))
+}
+
+func queryCurrentExcerptSHA256(t *testing.T) string {
+	t.Helper()
 	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
 		TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Side:         evidence.SideWorktree,
@@ -2287,21 +2633,11 @@ func querySourceExcerptSHA256(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := evidence.NewVerifier(&queryTargetReader{
-		availability: evidence.ImmutableTargetAvailable,
-		bytes:        []byte("line one\nline two"),
-	})
+	digest, err := claim.ExcerptSHA256([]byte("line one\nline two"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := verifier.VerifyCurrent(context.Background(), claim)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt.Status() != evidence.ReceiptVerified {
-		t.Fatalf("source receipt status = %q", receipt.Status())
-	}
-	return receipt.ExcerptSHA256()
+	return digest
 }
 
 func mustQueryPath(t *testing.T, value string) ports.SafeRelativePath {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
@@ -15,9 +16,11 @@ import (
 	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
 	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
+	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
 	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -235,6 +238,279 @@ type RerunService interface {
 	StartRerun(context.Context, appreplay.Request) (StartedRun, error)
 }
 
+// ReviewRunService is the command-facing independent review workflow boundary.
+// It receives the parsed immutable request and an already anchored project root;
+// it owns all provider execution and P2 publication authority.
+type ReviewRunService interface {
+	StartReviewRun(context.Context, ReviewRequest, ports.AnchoredRoot) (ReviewRunResult, error)
+}
+
+// ReviewRunServicePreparer is the optional lazy-composition boundary used by
+// the standalone binary. Preparation happens only for review, but before the
+// handler creates the private publication directory.
+type ReviewRunServicePreparer interface {
+	PrepareReviewRun(context.Context, ports.AnchoredRoot) (ReviewRunService, error)
+}
+
+// ReviewRunResult is the immutable terminal P2 projection returned by ReviewRunService.
+type ReviewRunResult struct {
+	sessionID         string
+	runID             string
+	runManifestURI    string
+	reviewArtifactURI string
+	terminalExit      domain.OperationalExitDecision
+}
+
+// NewReviewRunResult creates an immutable terminal review projection.
+func NewReviewRunResult(
+	sessionID string,
+	runID string,
+	runManifestURI string,
+	reviewArtifactURI string,
+	terminalExit domain.OperationalExitDecision,
+) ReviewRunResult {
+	return ReviewRunResult{
+		sessionID:         sessionID,
+		runID:             runID,
+		runManifestURI:    runManifestURI,
+		reviewArtifactURI: reviewArtifactURI,
+		terminalExit:      terminalExit,
+	}
+}
+
+// SessionID returns the terminal review session ID.
+func (result ReviewRunResult) SessionID() string { return result.sessionID }
+
+// RunID returns the terminal review run ID.
+func (result ReviewRunResult) RunID() string { return result.runID }
+
+// RunManifestURI returns the persisted run manifest URI.
+func (result ReviewRunResult) RunManifestURI() string { return result.runManifestURI }
+
+// ReviewArtifactURI returns the persisted final review artifact URI.
+func (result ReviewRunResult) ReviewArtifactURI() string { return result.reviewArtifactURI }
+
+// TerminalExit returns the reduced committed P2 exit authority.
+func (result ReviewRunResult) TerminalExit() domain.OperationalExitDecision {
+	return result.terminalExit
+}
+
+// Validate verifies that the result can safely be represented in the review command envelope.
+func (result ReviewRunResult) Validate() error {
+	if _, err := domain.ParseSessionID(result.sessionID); err != nil ||
+		!validCommandRunID(result.runID) ||
+		!validCommandURI(result.runManifestURI) ||
+		!validCommandURI(result.reviewArtifactURI) {
+		return errors.New("invalid review result")
+	}
+	if _, _, err := committedTerminalOutcome(result.terminalExit); err != nil {
+		return fmt.Errorf("invalid review terminal exit: %w", err)
+	}
+	return nil
+}
+
+// ReviewRunInputSourceFactory is the application-owned immutable capture
+// factory. The entrypoint maps command values into its typed request only.
+type ReviewRunInputSourceFactory = reviewrun.ImmutableInputSourceFactory
+
+// NewReviewRunService adapts the provider-neutral review-run service to the
+// command boundary. Nil and typed-nil dependencies preserve the optional review
+// provider-unavailable path.
+func NewReviewRunService(service *reviewrun.Service, factory ReviewRunInputSourceFactory) ReviewRunService {
+	if service == nil || nilApplicationDependency(factory) {
+		return nil
+	}
+	return reviewRunAdapter{service: service, factory: factory}
+}
+
+// NewUnavailableReviewRunService retains a safe, typed composition diagnostic
+// when production review authority could not be composed. It is deliberately a
+// service rather than a nil dependency so review failures remain actionable.
+func NewUnavailableReviewRunService(cause error) ReviewRunService {
+	failure, err := domain.NewFailure(
+		"review.composition",
+		reducedFailureClass(cause, domain.FailureConfiguration),
+		"production review authority is unavailable",
+		cause,
+	)
+	if err != nil {
+		return nil
+	}
+	return unavailableReviewRunService{failure: failure}
+}
+
+type unavailableReviewRunService struct{ failure *domain.Failure }
+
+func (service unavailableReviewRunService) StartReviewRun(
+	context.Context,
+	ReviewRequest,
+	ports.AnchoredRoot,
+) (ReviewRunResult, error) {
+	return ReviewRunResult{}, service.failure
+}
+
+// NewPolicyReviewRunService binds the resolved production role policy at the
+// command boundary. Requested roles may add enabled roles, but cannot omit a
+// required role or select a disabled role.
+func NewPolicyReviewRunService(service ReviewRunService, required []domain.Role, enabled map[domain.Role]bool) ReviewRunService {
+	if nilApplicationDependency(service) {
+		return nil
+	}
+	requiredCopy := append([]domain.Role(nil), required...)
+	enabledCopy := make(map[domain.Role]bool, len(enabled))
+	for role, allowed := range enabled {
+		enabledCopy[role] = allowed
+	}
+	return policyReviewRunService{service: service, required: requiredCopy, enabled: enabledCopy}
+}
+
+type policyReviewRunService struct {
+	service  ReviewRunService
+	required []domain.Role
+	enabled  map[domain.Role]bool
+}
+
+func (service policyReviewRunService) StartReviewRun(
+	ctx context.Context,
+	request ReviewRequest,
+	root ports.AnchoredRoot,
+) (ReviewRunResult, error) {
+	selected := make(map[domain.Role]bool, len(request.roles)+len(service.required))
+	for _, raw := range request.roles {
+		role := domain.Role(raw)
+		if !role.Valid() || !service.enabled[role] {
+			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "requested role is not enabled by production policy", nil)
+			return ReviewRunResult{}, failure
+		}
+		selected[role] = true
+	}
+	for _, role := range service.required {
+		if !service.enabled[role] {
+			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "required role is not enabled by production policy", nil)
+			return ReviewRunResult{}, failure
+		}
+		selected[role] = true
+	}
+	request.roles = request.roles[:0]
+	for _, role := range domain.FixedRoleOrder() {
+		if selected[role] {
+			request.roles = append(request.roles, string(role))
+		}
+	}
+	return service.service.StartReviewRun(ctx, request, root)
+}
+
+type reviewRunAdapter struct {
+	service *reviewrun.Service
+	factory ReviewRunInputSourceFactory
+}
+
+func (adapter reviewRunAdapter) StartReviewRun(
+	ctx context.Context,
+	request ReviewRequest,
+	root ports.AnchoredRoot,
+) (ReviewRunResult, error) {
+	if ctx == nil {
+		return ReviewRunResult{}, errors.New("review run: context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return ReviewRunResult{}, err
+	}
+	if !validReviewRunRequest(request) || !root.Valid() {
+		return ReviewRunResult{}, errors.New("review run: malformed request")
+	}
+
+	targetSelector, err := ports.NewReviewTargetSelector(ports.ReviewTargetSelectorKind(request.Target().Kind()), request.Target().Value())
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	objective, hasObjective := request.Objective()
+	captureRequest, err := reviewrun.NewInputCaptureRequest(root, targetSelector, []byte(objective), hasObjective)
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	source, err := adapter.factory.NewImmutableInputSource(ctx, captureRequest)
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	if nilApplicationDependency(source) {
+		return ReviewRunResult{}, errors.New("review run: immutable input source is required")
+	}
+	roles := request.Roles()
+	selected := make([]domain.Role, len(roles))
+	for index, role := range roles {
+		selected[index] = domain.Role(role)
+	}
+	var session *domain.SessionID
+	if value, present := request.SessionID(); present {
+		parsed, parseErr := domain.ParseSessionID(value)
+		if parseErr != nil {
+			return ReviewRunResult{}, fmt.Errorf("review run: invalid session ID: %w", parseErr)
+		}
+		session = &parsed
+	}
+	selection, err := reviewrun.NewRunSelection(selected, session)
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	_, artifactRoot, err := publicationRoots(root.String())
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	result, err := adapter.service.Execute(ctx, reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: artifactRoot, Selection: selection})
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	return projectReviewRunResult(result)
+}
+
+func validReviewRunRequest(request ReviewRequest) bool {
+	switch request.target.kind {
+	case "diff", "patch", "stdin":
+	default:
+		return false
+	}
+	if !validTargetValue(request.target.value) || request.hasObjective && !validObjective(request.objective) || len(request.roles) == 0 {
+		return false
+	}
+	for _, role := range request.roles {
+		if !validRole(role) {
+			return false
+		}
+	}
+	if request.hasSessionID {
+		if _, err := domain.ParseSessionID(request.sessionID); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
+	sessionID, runID := result.SessionID().String(), result.RunID().String()
+	final, snapshot := result.Final(), result.Snapshot()
+	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !final.Valid() || !snapshot.Valid() ||
+		snapshot.Final().Identity() != final {
+		return ReviewRunResult{}, errors.New("review run: incomplete P2 result")
+	}
+	prefix := sessionID + "/" + runID + "/"
+	manifestPath, reviewPath := snapshot.Manifest().Path().String(), final.Path().String()
+	if !strings.HasPrefix(manifestPath, prefix) || !strings.HasPrefix(reviewPath, prefix) {
+		return ReviewRunResult{}, errors.New("review run: incoherent P2 result")
+	}
+	terminalExit := result.TerminalExit()
+	if _, _, err := committedTerminalOutcome(terminalExit); err != nil {
+		return ReviewRunResult{}, fmt.Errorf("review run: terminal exit: %w", err)
+	}
+	return NewReviewRunResult(
+		sessionID,
+		runID,
+		".kar/"+manifestPath,
+		".kar/"+reviewPath,
+		terminalExit,
+	), nil
+}
+
 // RetentionRequest is the complete schema-backed clean command selection.
 type RetentionRequest struct {
 	Mode               CleanMode
@@ -391,6 +667,7 @@ type Dependencies struct {
 	PublicationQueries   PublicationQueryService
 	PublicationReports   PublicationReportService
 	FollowupRuns         FollowupRunService
+	ReviewRuns           ReviewRunService
 	DeltaRuns            DeltaRunService
 	Reruns               RerunService
 	Retention            RetentionService
@@ -413,12 +690,14 @@ type Application struct {
 	publicationQueries PublicationQueryService
 	publicationReports PublicationReportService
 	followupRuns       FollowupRunService
+	reviewRuns         ReviewRunService
 	deltaRuns          DeltaRunService
 	reruns             RerunService
 	retention          RetentionService
 	exports            RedactedExportService
 	evidenceReader     doctor.EvidenceReader
 	renderer           *cli.EnvelopeRenderer
+	handlers           map[app.CommandName]applicationCommandHandler
 }
 
 // Result is the complete process projection of one invocation. Stdout and
@@ -441,9 +720,20 @@ func (result Result) ExitCode() app.ExitCode { return result.exit }
 
 // NewApplication constructs the foundation CLI application. Required dependencies
 // are rejected before any command can execute. The online workflow trio is one
-// authority capability; resolver, retention, and export capabilities are
-// independently optional. An optional typed-nil EvidenceReader is normalized.
+// authority capability; resolver, review, retention, and export capabilities are
+// independently optional. Optional typed-nil dependencies are normalized.
 func NewApplication(dependencies Dependencies) (*Application, error) {
+	return newApplication(dependencies, cli.CommandSpecs(), applicationCommandHandlers())
+}
+
+func newApplication(
+	dependencies Dependencies,
+	specs []cli.CommandSpec,
+	handlers map[app.CommandName]applicationCommandHandler,
+) (*Application, error) {
+	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
+		return nil, fmt.Errorf("kar application: command handlers: %w", err)
+	}
 	if nilApplicationDependency(dependencies.Clock) {
 		return nil, fmt.Errorf("kar application: nil clock")
 	}
@@ -485,6 +775,9 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	if nilApplicationDependency(dependencies.RequestResolver) {
 		dependencies.RequestResolver = nil
 	}
+	if nilApplicationDependency(dependencies.ReviewRuns) {
+		dependencies.ReviewRuns = nil
+	}
 	if nilApplicationDependency(dependencies.FollowupRuns) {
 		dependencies.FollowupRuns = nil
 	}
@@ -509,7 +802,7 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kar application: command envelope renderer: %w", err)
 	}
-	return &Application{
+	application := &Application{
 		clock:              dependencies.Clock,
 		requestIDs:         dependencies.RequestIDGenerator,
 		requestResolver:    dependencies.RequestResolver,
@@ -521,13 +814,16 @@ func NewApplication(dependencies Dependencies) (*Application, error) {
 		publicationQueries: dependencies.PublicationQueries,
 		publicationReports: dependencies.PublicationReports,
 		followupRuns:       dependencies.FollowupRuns,
+		reviewRuns:         dependencies.ReviewRuns,
 		deltaRuns:          dependencies.DeltaRuns,
 		reruns:             dependencies.Reruns,
 		retention:          dependencies.Retention,
 		exports:            dependencies.Exports,
 		evidenceReader:     evidenceReader,
 		renderer:           renderer,
-	}, nil
+		handlers:           cloneApplicationHandlers(handlers),
+	}
+	return application, nil
 }
 
 // Run parses and executes argv against canonicalDefaultRoot. It never returns
@@ -543,20 +839,29 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 	if err != nil {
 		return errorResult(app.ExitCodeInternal, "kar: invocation could not be created")
 	}
-	invocation, err := Parse(cloneApplicationStrings(argv), canonicalDefaultRoot, requestID)
+	var invocation Invocation
 	if application.requestResolver != nil {
 		invocation, err = ParseResolved(ctx, cloneApplicationStrings(argv), canonicalDefaultRoot, requestID, application.requestResolver)
+	} else {
+		invocation, err = Parse(cloneApplicationStrings(argv), canonicalDefaultRoot, requestID)
 	}
 	if err != nil {
-		return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
+		if errors.Is(err, ErrUsage) {
+			if rejectedInitJSONIntent(argv) {
+				return application.renderRejectedInit(ctx, requestID)
+			}
+			return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
+		}
+		class := reducedFailureClass(err, domain.FailureInternal)
+		return errorResult(requestedExit(class), humanFailureMessage(class))
 	}
 	if invocation.FutureMilestone() {
 		return errorResult(app.ExitCodeUsage, "kar: command is unavailable in this foundation milestone")
 	}
 	if invocation.OutputFormat() == OutputFormatJSON {
-		if _, available := invocation.RequestJSON(); !available {
-			// schema list deliberately has no schema_id request variant in the
-			// frozen common envelope, so it cannot truthfully emit JSON.
+		if _, available, err := envelopeRequestJSON(invocation); err != nil {
+			return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+		} else if !available {
 			return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
 		}
 	}
@@ -572,10 +877,56 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 	}
 
 	execution := application.execute(ctx, invocation, canonicalDefaultRoot)
+	if execution.direct != nil {
+		return newResult(execution.direct.Stdout(), execution.direct.Stderr(), execution.direct.ExitCode())
+	}
 	if execution.failure != nil {
 		return application.renderFailure(ctx, invocation, execution)
 	}
 	return application.renderSuccess(ctx, invocation, execution)
+}
+
+func (application *Application) renderRejectedInit(ctx context.Context, requestID string) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	requestJSON, err := json.Marshal(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		RequestState string       `json:"request_state"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{
+		RequestID:    requestID,
+		Command:      string(app.CommandInit),
+		RequestState: "invalid",
+		OutputFormat: OutputFormatJSON,
+	})
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
+	resultJSON, err := json.Marshal(appinit.NewRejectedRequestResult())
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
+	diagnostic, err := app.NewDiagnosticWithRetryable(
+		"cli.init",
+		domain.FailureConfiguration,
+		"init_selection_invalid",
+		"The init selection is invalid.",
+		false,
+	)
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
+	commandResult, err := app.NewCommandFailure(app.CommandInit, app.ExitCodeUsage, diagnostic)
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
+	output, err := application.renderer.Render(envelopeContext(ctx), commandResult, requestJSON, resultJSON)
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
+	return newResult(output, nil, app.ExitCodeUsage)
 }
 
 func (application *Application) newRequestID() (requestID string, err error) {
@@ -607,13 +958,17 @@ type execution struct {
 	exit             app.ExitCode
 	committedReasons []string
 	verbatim         bool
+	direct           *Result
 }
 
 type executionFailure struct {
-	class domain.FailureClass
-	code  string
-	stage string
-	exit  app.ExitCode
+	class        domain.FailureClass
+	code         string
+	message      string
+	retryable    bool
+	hasRetryable bool
+	stage        string
+	exit         app.ExitCode
 }
 
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
@@ -624,7 +979,10 @@ func (application *Application) renderSuccess(ctx context.Context, invocation In
 		return newResult(terminalOutput(run.human), nil, run.exit)
 	}
 
-	request, available := invocation.RequestJSON()
+	request, available, requestErr := envelopeRequestJSON(invocation)
+	if requestErr != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
 	if !available {
 		return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
 	}
@@ -658,7 +1016,10 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 		}
 		return errorResult(exit, humanFailureMessage(failure.class))
 	}
-	request, available := invocation.RequestJSON()
+	request, available, requestErr := envelopeRequestJSON(invocation)
+	if requestErr != nil {
+		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
+	}
 	if !available {
 		return errorResult(app.ExitCodeUsage, "kar: invalid command usage")
 	}
@@ -670,13 +1031,22 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 			return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
 		}
 	}
-	diagnostic, err := app.NewDiagnostic(
-		failure.stage,
-		failure.class,
-		failure.code,
-		stableFailureMessage(failure.class),
-		"", "", domain.AttemptID{}, false, false, "", "",
-	)
+	message := failure.message
+	if message == "" {
+		message = stableFailureMessage(failure.class)
+	}
+	var diagnostic app.Diagnostic
+	if failure.hasRetryable {
+		diagnostic, err = app.NewDiagnosticWithRetryable(failure.stage, failure.class, failure.code, message, failure.retryable)
+	} else {
+		diagnostic, err = app.NewDiagnostic(
+			failure.stage,
+			failure.class,
+			failure.code,
+			message,
+			"", "", domain.AttemptID{}, false, false, "", "",
+		)
+	}
 	if err != nil {
 		return errorResult(app.ExitCodeInternal, "kar: command result could not be rendered")
 	}
@@ -708,23 +1078,55 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 		if !available {
 			return nil, errors.New("missing init request")
 		}
+		mode, ids := request.Selection()
+		if mode == "auto" {
+			ids = []string{}
+		}
 		return json.Marshal(struct {
-			Kind                string   `json:"kind"`
-			ProjectConfigURI    *string  `json:"project_config_uri"`
-			IntendedProviderIDs []string `json:"intended_provider_ids"`
-		}{"initialized", nil, request.IntendedProviderIDs()})
+			Kind                  string   `json:"kind"`
+			ConfigURI             string   `json:"config_uri"`
+			ConfigSHA256          string   `json:"config_sha256"`
+			SelectedProviderIDs   []string `json:"selected_provider_ids"`
+			CandidateProviderIDs  []string `json:"candidate_provider_ids"`
+			ConfiguredProviderIDs []string `json:"configured_provider_ids"`
+			WriteState            string   `json:"write_state"`
+			Committed             bool     `json:"committed"`
+			DestinationState      string   `json:"destination_state"`
+			Discovery             []any    `json:"discovery"`
+		}{"initialization_failed", ".kar/config.yaml", "", ids, []string{}, []string{}, "not_attempted", false, "not_observed", []any{}})
+	case app.CommandReview:
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			RunManifestURI    *string `json:"run_manifest_uri"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		}{"review_started", nil, nil, nil, nil})
 	case app.CommandDoctor:
 		return json.Marshal(struct {
 			Kind            string  `json:"kind"`
 			DoctorResultURI *string `json:"doctor_result_uri"`
 			Readiness       string  `json:"readiness"`
-		}{"diagnosed", nil, "unverified"})
+			Doctor          any     `json:"doctor"`
+		}{"diagnosed", nil, "unverified", nil})
 	case app.CommandConfig:
+		request, available := invocation.Config()
+		if !available {
+			return nil, errors.New("missing config request")
+		}
 		return json.Marshal(struct {
-			Kind              string  `json:"kind"`
-			ResolvedPolicyURI *string `json:"resolved_policy_uri"`
-			PolicySHA256      *string `json:"policy_sha256"`
-		}{"configuration_resolved", nil, nil})
+			Kind         string     `json:"kind"`
+			Mode         ConfigMode `json:"mode"`
+			ConfigURI    string     `json:"config_uri"`
+			ConfigSHA256 string     `json:"config_sha256"`
+		}{"configuration_failed", request.Mode(), ".kar/config.yaml", ""})
+	case app.CommandPrompt:
+		return json.Marshal(struct {
+			Kind                 string  `json:"kind"`
+			PromptManifestURI    *string `json:"prompt_manifest_uri"`
+			CompleteStdinSHA256  *string `json:"complete_stdin_sha256"`
+			GuardedBytesIncluded bool    `json:"guarded_bytes_included"`
+		}{"prompt_inspected", nil, nil, false})
 	case app.CommandSchema:
 		request, available := invocation.Schema()
 		if !available {
@@ -830,7 +1232,11 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	case domain.FailureArtifact:
 		failure.code = "artifact_unavailable"
 	case domain.FailureSecurityPolicy:
-		failure.code = "security_rejected"
+		if reason, ok := ports.ConfigLocalityReasonFromError(err); ok {
+			failure.code = string(reason)
+		} else {
+			failure.code = "security_rejected"
+		}
 	case domain.FailureCancelled:
 		failure.code = "request_cancelled"
 	case domain.FailureProviderUnavailable, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
@@ -907,9 +1313,9 @@ func failurePrecedence(class domain.FailureClass) int {
 	switch class {
 	case domain.FailureInternal:
 		return 7
-	case domain.FailureArtifact:
-		return 6
 	case domain.FailureSecurityPolicy:
+		return 6
+	case domain.FailureArtifact:
 		return 5
 	case domain.FailureCancelled:
 		return 4
@@ -941,19 +1347,21 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 
 func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool {
 	allowed := map[app.CommandName]map[app.ExitCode]bool{
-		app.CommandInit:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true},
-		app.CommandDoctor:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandInit:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandDoctor:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true},
 		app.CommandStatus:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandReport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandReview:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandDelta:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandRerun:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandClean:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandExport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeSecurity: true},
+		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandPrompt:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeInternal: true},
 	}
 	return allowed[command][requested]
 }
@@ -1044,6 +1452,12 @@ func cloneApplicationBytes(value []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), value...)
+}
+func envelopeRequestJSON(invocation Invocation) ([]byte, bool, error) {
+	if request, available := invocation.RequestJSON(); available {
+		return request, true, nil
+	}
+	return nil, false, nil
 }
 
 func cloneApplicationStrings(value []string) []string {

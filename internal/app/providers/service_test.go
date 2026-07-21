@@ -274,7 +274,12 @@ func diagnosis(rows ...doctor.ProviderEvidence) doctor.DoctorResult {
 func evidence(id string, state doctor.EvidenceState, assignment doctor.AssignmentState) doctor.ProviderEvidence {
 	uri := "https://evidence.example/providers/" + id
 	sha256 := "sha256:" + strings.Repeat("a", 64)
-	row := doctor.ProviderEvidence{ProviderID: id, Intended: true, EvidenceState: state, AssignmentState: assignment}
+	row := doctor.ProviderEvidence{
+		ProviderID:      id,
+		Intended:        true,
+		EvidenceState:   state,
+		AssignmentState: assignment,
+	}
 	switch assignment {
 	case doctor.AssignmentEligible:
 		row.EvidenceURI = &uri

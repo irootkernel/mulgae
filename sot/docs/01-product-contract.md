@@ -6,13 +6,13 @@ KAR makes evidence-backed AI review portable across repositories and organizatio
 
 The product is designed for local development, CI, pre-merge checks, remediation verification, and review provenance. It is not a substitute for code ownership, legal approval, security authorization, or release governance.
 
-## 1.1 SOT 1.5.0 Contract and Implementation Status
+## 1.1 SOT 1.9.0 Contract and Implementation Status
 
-This document preserves the G0 contract and records `decision_readiness=READY` and the verified G001–G008 implementation boundary; G009 remains pending and unauthorized. G001 completed Gate A, authority promotion, post-verification `g0_complete`, support derivation, and the separate implementation approval prerequisite. G007 adds authority-gated adapters only for exact `kimi`, `zcode`, and `agy` tuples; production standalone operation without canonical recorded provider/evidence authority fails closed with schema-valid typed failures and grants no support.
+This document preserves the G0 contract and records `decision_readiness=READY` and the verified G001–G008 implementation boundary. Production root `kar review` composition is wired, but it remains reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. The documented review contract is normative behavior; current production composition does not establish closure. G007's intended ordinary support is limited to the allowlisted `kimi`, `zcode`, and `agy` families and requires the applicable minimum version plus current runtime capability and security admission. AGY's minimum version is 1.1.4. Executable path, SHA-256, and adapter profile are diagnostic provenance only; they do not pin authorization to one historical executable.
 
-Decisions D-030 through D-038 remain normative: four native platform cells are evidence-only, only `kimi`, `zcode`, and `agy` are G0 provider-probe families, the six roles are fixed, severity direction is strict, outcomes are independent, retention is deterministic, trust and assignment are fail-closed, and prompt/evidence provenance is byte- and identity-bound.
+Decisions D-030 through D-040 remain normative: four native platform cells are evidence-only, only `kimi`, `zcode`, and `agy` are G0 provider-probe families, ordinary provider support is family-and-capability based, the six roles are fixed, severity direction is strict, outcomes are independent, retention is deterministic, trust and assignment are fail-closed, and prompt/evidence provenance is byte- and identity-bound.
 
-The G0 approval contract remains a one-way, session-bound sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. G001 completed that sequence before G002 product code. G008 executable behavior is proven through a real composed P2 end-to-end test across root review, followup, delta, and exact rerun, plus cleanup, export, repository, race, QA, and architecture-review evidence. The completed G008 boundary authorizes no unsupported tuple, G009 work, release CI, or release asset.
+The G0 approval contract remains a one-way, session-bound sequence: plan review → Gate A → candidate catalog/checksum/integrity → candidate review → promotion authorization → authority-ref CAS → post-verification `g0_complete` → independent implementation approval. G001 completed that sequence before G002 product code. G008's composed P2 end-to-end, cleanup, export, repository, race, QA, and architecture-review receipts are historical evidence, not proof of current production closure. Prior G009 integrated receipts are `HISTORICAL_GATE_PASS_NON_PRODUCTION`, including the historical controlled Kimi qualification evidence for `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, truthful schema-list v1 `schema list --output json` machine-mode rejection, direct crash-before-rename evidence, and canonical-lineage end-to-end evidence. Two later opt-in retries on 2026-07-18 timed out externally after approximately 30.15 seconds with `process_timeout`; the append-only G009 ledger retains both outcomes without replacing the earlier PASS. Historical qualification evidence does not constrain ordinary family support to that version or SHA-256, broaden support beyond the allowlisted families, make a future platform release-eligible, or promote a provider family beyond its current successful capability and security admission. Current closure requires full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts. No release asset was authorized or created.
 ## 2. Primary User Outcomes
 
 A successful KAR run gives the user:
@@ -130,6 +130,10 @@ Every completed run is immutable. Followup, delta, and rerun create new runs.
 ```text
 Provider output is an untrusted claim until KAR validates structure and evidence.
 ```
+
+```text
+Ordinary provider support is limited to the allowlisted `kimi`, `zcode`, and `agy` families and requires the applicable minimum version plus current successful runtime capability and security admission. A newer version is allowed after that PASS. Executable path, SHA-256, and adapter profile are diagnostic provenance, not support authorization; KAR does not substitute provider families automatically.
+```
 A review result serializes four independent axes. A high finding alongside a failed required role, for example, remains `content_verdict=request_changes` and `coverage_status=incomplete`; neither axis overwrites the other.
 
 | Axis | Values | Meaning |
@@ -148,7 +152,7 @@ A valid `request_changes` result is not a provider failure. Valid content is ret
 | Auditability | Every attempt, prompt layer, output, repair, and validation decision is retained |
 | Determinism | Given the same captured inputs, normalization and policy evaluation are deterministic |
 | Safety | Executable configuration is restricted and workspace access is minimized |
-| Portability | Project configuration does not require machine-specific provider paths |
+| Portability | The configuration contract is portable, while each machine's operator-local file records its admitted absolute provider paths and native home identity |
 | Diagnosability | Failures identify stage, provider, role, attempt, and recovery path |
 | Extensibility | Drivers, roles, schemas, and report formats are adapters around a stable domain model |
 | CI suitability | Machine-readable results and exit behavior are explicit and versioned |

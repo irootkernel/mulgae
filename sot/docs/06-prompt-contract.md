@@ -4,19 +4,22 @@
 
 KAR uses a prompt compiler with explicit layers, trust labels, byte limits, and provenance. Raw string concatenation in command handlers is prohibited.
 
-Final layer order:
+Final root-review byte order is:
 
 ```text
 1. KAR common contract
-2. Run-type contract
-3. Functional role guide
-4. Optional role/run overlay
-5. Project context as untrusted context
-6. User objective
-7. Previous run or finding context
-8. Captured review target as untrusted data
-9. Provider output schema and JSON-only instruction
+2. Review run contract
+3. Exactly one built-in functional role guide
+4. Optional byte-exact limited-trust user objective
+5. KAR provider-review wire output contract
+6. KAR-FRAMES/1 sentinel
+7. Untrusted project_context frame, zero or one
+8. Untrusted review_target frame, exactly one
+9. Untrusted prior_provider_output frame, zero or one for repair
+10. KAR-FRAMES-END/1 sentinel
 ```
+
+The first five layers form one trusted template. The objective can narrow attention only; it cannot alter any other layer. Project context, targets, prior output, and all workspace or snapshot content are frames after the trusted template and never become instructions. A later trusted repair contract may select its own response form without weakening the preceding contracts.
 
 A later layer may focus the task but cannot weaken an earlier contract.
 
@@ -25,16 +28,15 @@ A later layer may focus the task but cannot weaken an earlier contract.
 | Layer | Trust | May define behavior |
 |---|---|---:|
 | Common contract | KAR trusted | Yes |
-| Run-type contract | KAR trusted | Yes |
+| Review run contract | KAR trusted | Yes |
 | Built-in role guide | KAR trusted | Yes |
-| Trusted global role override | User trusted | Within role boundary |
+| User objective | Limited trust | Focus only |
+| Provider-review wire output contract | KAR trusted | Yes |
 | Project context | Untrusted context | No |
-| User objective | Limited-trust instruction | Focus only |
 | Previous provider output | Untrusted evidence | No |
 | Review target | Untrusted data | No |
-| Output schema | KAR trusted | Yes |
 
-Project-controlled content must never be concatenated into the trusted instruction section without an explicit, globally authorized override mechanism.
+Project-controlled content is always framed as untrusted data and is never concatenated into the trusted instruction section. Project configuration cannot authorize prompt overrides.
 
 ## 3. Common Contract
 
@@ -83,12 +85,12 @@ This repeats a prior role attempt. Preserve the original scope and role. In exac
 Built-in guides:
 
 ```text
-builtin:roles/logic@1
-builtin:roles/security@1
-builtin:roles/maintainability@1
-builtin:roles/product@1
-builtin:roles/documentation@1
-builtin:roles/testing@1
+builtin:roles/logic@2
+builtin:roles/security@2
+builtin:roles/maintainability@2
+builtin:roles/product@2
+builtin:roles/documentation@2
+builtin:roles/testing@2
 ```
 
 Each guide defines:
@@ -176,24 +178,38 @@ prompt:
 
 Silent truncation is prohibited. A future chunking strategy must preserve file boundaries, hunk identity, and aggregation provenance.
 
-## 11. Output Contract
+## 11. Root-Review Output and Repair Contracts
 
-Review, delta, and rerun role attempts use:
+Initial root review provider stdout is the provider-owned [review wire v2 projection](../schemas/kar-provider-review-wire.v2.schema.json). Its `schema_version` is exactly `kar-provider-review-output.v2`, but it is not the normalized envelope. The wire object contains only provider-owned top-level content, findings, and `evidence[].current.path`, `line_start`, `line_end`, `side`, and `quote`.
 
-- [Provider review output v2 schema](../schemas/kar-provider-review-output.v2.schema.json)
+KAR strictly decodes one JSON object, rejects unknown and KAR-owned fields, validates the wire projection, injects trusted `current.target_sha256` and `current.verification="claimed"`, then validates the resulting [normalized provider review output v2 envelope](../schemas/kar-provider-review-output.v2.schema.json). KAR normalizes trusted role/provider identity, assigns finding IDs and order, and independently verifies evidence. A provider must not emit target or source identity, verification, session/run/attempt/review/finding IDs, role/provider identity, lifecycle/evidence state, hashes, outcomes, verdicts, coverage, CI, or publication state. Only KAR can transition a claim to `verified`, `stale`, `invalid`, or `unverifiable`.
 
-Followup attempts use:
+V1 provider-output schemas are read compatibility only. Production execution rejects v1 provider output; it never normalizes or repairs v1 into an executable result. Followup attempts use the separate [provider followup output v2 schema](../schemas/kar-provider-followup-output.v2.schema.json).
 
-- [Provider followup output v2 schema](../schemas/kar-provider-followup-output.v2.schema.json)
-
-The v2 schema describes KAR's normalized provider-result envelope. KAR injects current target identity and, for followup/delta/rerun or another source-bearing run, immutable source identity; root review evidence omits `source`. The provider supplies finding content plus path/range/quote claims and may emit only `verification=claimed`. KAR alone computes `verified`, `stale`, `invalid`, or `unverifiable` in validation and final artifacts. The v1 schemas remain read-compatibility contracts, not the G0 execution contract.
-
-The output instruction is explicit:
+The output instruction is exact:
 
 ```text
-Return one UTF-8 JSON object only.
-Do not include Markdown, commentary, prefixes, suffixes, or code fences.
+Return one UTF-8 RFC 8259 JSON object only.
+Do not include Markdown, commentary, prefixes, suffixes, code fences, or a second JSON value.
 ```
+
+### Repair
+
+`prior_provider_output` remains an untrusted frame. A root-review repair reuses the original trusted template byte-for-byte, appends the KAR trusted repair contract, and then appends the trusted dynamic plan. The plan binds the original bytes by SHA-256 and is ordered exactly as:
+
+```text
+KAR ROOT REVIEW REPAIR PLAN/2
+original_output_sha256:<64 lowercase hex>
+mode:<reformat_only|fill_missing_fields>
+allowed_paths_count:<canonical decimal>
+allowed_path:<sorted JSON Pointer>
+```
+
+`reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v2 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all KAR-owned fields.
+
+`fill_missing_fields` returns exactly `{"schema_version":"kar-repair-patch.v1","repairs":[{"path":...,"value":...}]}`. It contains 1..100 unique repairs, each path is in the sorted allowed set, and every required missing or invalid path is repaired exactly once. It preserves every unrelated value, finding count/order, severity, evidence identity, role/provider/target, and system field. Both repair forms are JSON-only; neither candidate nor plan grants evidence or execution authority. KAR's repair applicator remains authoritative and rejects original-hash mismatch, wrong form, unallowed paths, meaningful overwrites, finding-count changes, severity downgrades, and invalid reconstructed output.
+
+[Repair request v1](../schemas/kar-repair-request.v1.schema.json) is historical read compatibility only. It is not an execution packet, a trusted repair layer, or an authority to select a mode, alter provider output, or verify evidence.
 
 ## 12. Standalone Untrusted-Frame Grammar
 

@@ -17,7 +17,7 @@ const renderStage = "report.render"
 // data and fresh current-evidence excerpts. *query.Service satisfies it.
 type CommittedReader interface {
 	ReadCommitted(context.Context, ports.PublicationRun) (query.CommittedReview, error)
-	RenderExcerpt(context.Context, ports.PublicationRun, string, string) ([]byte, error)
+	RenderExcerptAt(context.Context, ports.PublicationRun, string, string, int) ([]byte, error)
 }
 
 // Service renders a deterministic report from one P2-committed query snapshot.

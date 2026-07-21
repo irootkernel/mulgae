@@ -146,6 +146,95 @@ func TestIsolatedSuccessfulProviderExecutionObservationPreservesRawStdout(t *tes
 	}
 }
 
+func TestIsolatedSuccessfulProviderExecutionObservationRejectsPrimaryValidationFailures(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	stdout := []byte(`{"findings":[]}`)
+	result := newProviderExecutionTestResult(t, invocation, stdout)
+	process := newProviderExecutionTestProcess(
+		t,
+		stdout,
+		nil,
+		providerExecutionTestExitCode(0),
+		ProcessTerminationExited,
+		completeProviderExecutionReceipt(t, invocation),
+		providerExecutionTestStartedAt,
+		providerExecutionTestEndedAt,
+	)
+	constructors := []struct {
+		name string
+		new  func(ProviderInvocation, ProviderResult, ProcessObservation, int64, int64) (ProviderExecutionObservation, error)
+	}{
+		{name: "non-isolated", new: NewSuccessfulProviderExecutionObservation},
+		{name: "isolated", new: NewIsolatedSuccessfulProviderExecutionObservation},
+	}
+	tests := []struct {
+		name        string
+		invocation  ProviderInvocation
+		result      ProviderResult
+		process     ProcessObservation
+		stdoutLimit int64
+		stderrLimit int64
+	}{
+		{
+			name:        "invalid invocation",
+			invocation:  ProviderInvocation{},
+			result:      result,
+			process:     process,
+			stdoutLimit: 1024,
+			stderrLimit: 1024,
+		},
+		{
+			name:        "invalid result",
+			invocation:  invocation,
+			result:      ProviderResult{},
+			process:     process,
+			stdoutLimit: 1024,
+			stderrLimit: 1024,
+		},
+		{
+			name:        "invalid process",
+			invocation:  invocation,
+			result:      result,
+			process:     ProcessObservation{},
+			stdoutLimit: 1024,
+			stderrLimit: 1024,
+		},
+		{
+			name:        "invalid limit",
+			invocation:  invocation,
+			result:      result,
+			process:     process,
+			stdoutLimit: 0,
+			stderrLimit: 1024,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var primaryErr error
+			for _, constructor := range constructors {
+				t.Run(constructor.name, func(t *testing.T) {
+					_, err := constructor.new(
+						test.invocation,
+						test.result,
+						test.process,
+						test.stdoutLimit,
+						test.stderrLimit,
+					)
+					if err == nil {
+						t.Fatal("successful observation accepted an invalid primary input")
+					}
+					if primaryErr == nil {
+						primaryErr = err
+					} else if err.Error() != primaryErr.Error() {
+						t.Fatalf("error = %q, want primary error %q", err, primaryErr)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)
 	stdout := []byte(`{"findings":[]}`)
@@ -870,7 +959,7 @@ func TestProviderExecutionObservationDefensiveCopies(t *testing.T) {
 	}
 
 	returnedInvocation := observation.Invocation()
-	returnedInvocation.stdin[0] = 'x'
+	returnedInvocation.packet.bytes[0] = 'x'
 	if got := observation.Invocation().Stdin(); !bytes.Equal(got, stdin) {
 		t.Fatalf("Invocation() after return mutation = %q", got)
 	}
@@ -1150,5 +1239,147 @@ func processTerminationPrecedesStdin(termination ProcessTermination) bool {
 		return true
 	default:
 		return false
+	}
+}
+func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T) {
+	invocation := newProviderExecutionTestInvocationWithStdin(t, []byte("packet"))
+	identity := invocation.InputIdentity()
+	argvTransport, err := NewProviderPacketTransportReceipt(ProviderPacketChannelArgvLiteral, identity, "", "", ProviderPacketIdentity{}, ProviderPacketIdentity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinTransport, err := NewProviderPacketTransportReceipt(ProviderPacketChannelStdin, identity, "", "", ProviderPacketIdentity{}, ProviderPacketIdentity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptTransport, err := NewProviderPacketTransportReceipt(ProviderPacketChannelPromptFile, identity, "@prompt/request.json", "/work", identity, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyReceipt := func(t *testing.T) StdinWriteReceipt {
+		t.Helper()
+		receipt, err := NewStdinWriteReceipt(0, 0, providerTestDigest(nil), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return receipt
+	}
+	process := func(t *testing.T, termination ProcessTermination, receipt StdinWriteReceipt, transport ProviderPacketTransportReceipt) (ProcessObservation, error) {
+		t.Helper()
+		return NewProviderProcessObservation(
+			[]byte("result"), nil, providerExecutionTestExitCode(0), termination, receipt, transport,
+			providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+		)
+	}
+
+	for _, test := range []struct {
+		name        string
+		transport   ProviderPacketTransportReceipt
+		receipt     StdinWriteReceipt
+		termination ProcessTermination
+		wantError   bool
+	}{
+		{name: "argv has complete zero byte stdin", transport: argvTransport, receipt: emptyReceipt(t), termination: ProcessTerminationExited},
+		{name: "stdin has complete packet receipt", transport: stdinTransport, receipt: completeProviderExecutionReceipt(t, invocation), termination: ProcessTerminationExited},
+		{name: "prompt file has complete zero byte stdin", transport: promptTransport, receipt: emptyReceipt(t), termination: ProcessTerminationExited},
+		{name: "argv rejects nonempty stdin", transport: argvTransport, receipt: completeProviderExecutionReceipt(t, invocation), termination: ProcessTerminationExited, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation, err := process(t, test.termination, test.receipt, test.transport)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("NewProviderProcessObservation() succeeded")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := newProviderExecutionTestResult(t, invocation, []byte("result"))
+			if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, observation, 1024, 1024); err != nil {
+				t.Fatalf("NewSuccessfulProviderExecutionObservation() = %v", err)
+			}
+		})
+	}
+	for _, termination := range []ProcessTermination{ProcessTerminationStartFailed, ProcessTerminationLockFailed} {
+		if _, err := NewProviderProcessObservation(
+			nil, nil, nil, termination, emptyReceipt(t), argvTransport,
+			providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+		); err == nil {
+			t.Fatalf("%q transport receipt claimed delivery before process execution", termination)
+		}
+	}
+	for _, identities := range [][2]ProviderPacketIdentity{
+		{newProviderExecutionTestInvocationWithStdin(t, []byte("other")).InputIdentity(), identity},
+		{identity, newProviderExecutionTestInvocationWithStdin(t, []byte("other")).InputIdentity()},
+	} {
+		if _, err := NewProviderPacketTransportReceipt(
+			ProviderPacketChannelPromptFile, identity, "@prompt/request.json", "/work",
+			identities[0], identities[1],
+		); err == nil {
+			t.Fatal("prompt-file transport receipt accepted a changed packet identity")
+		}
+	}
+
+	partial := invocation.PacketBytes()[:len(invocation.PacketBytes())-1]
+	partialReceipt, err := NewStdinWriteReceipt(int64(identity.ByteLength()), int64(len(partial)), providerTestDigest(partial), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partialObservation, err := NewProviderProcessObservation(
+		nil, nil, nil, ProcessTerminationStdinIncomplete, partialReceipt, stdinTransport,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, partialObservation, "stdin_incomplete", 1024, 1024); err != nil {
+		t.Fatalf("partial stdin prefix rejected: %v", err)
+	}
+	badPartial, err := NewStdinWriteReceipt(int64(identity.ByteLength()), int64(len(partial)), providerTestDigest([]byte("wrong")), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badObservation, err := NewProviderProcessObservation(
+		nil, nil, nil, ProcessTerminationStdinIncomplete, badPartial, stdinTransport,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, badObservation, "stdin_incomplete", 1024, 1024); err == nil {
+		t.Fatal("failed execution accepted a non-prefix stdin digest")
+	}
+
+	other := newProviderExecutionTestInvocationWithStdin(t, []byte("other")).InputIdentity()
+	mismatchedTransport, err := NewProviderPacketTransportReceipt(ProviderPacketChannelArgvLiteral, other, "", "", ProviderPacketIdentity{}, ProviderPacketIdentity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchedObservation, err := process(t, ProcessTerminationExited, emptyReceipt(t), mismatchedTransport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, newProviderExecutionTestResult(t, invocation, []byte("result")), mismatchedObservation, 1024, 1024); err == nil {
+		t.Fatal("successful execution accepted a transport packet identity mismatch")
+	}
+
+	legacyStartReceipt, err := NewStdinWriteReceipt(int64(identity.ByteLength()), 0, providerTestDigest(nil), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyStart, err := NewProcessObservation(nil, nil, nil, ProcessTerminationStartFailed, legacyStartReceipt, providerExecutionTestStartedAt, providerExecutionTestEndedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyStart, "start_failed", 1024, 1024); err != nil {
+		t.Fatalf("legacy pre-start no-delivery receipt rejected: %v", err)
+	}
+	legacyClaim, err := NewProcessObservation(nil, nil, nil, ProcessTerminationStartFailed, completeProviderExecutionReceipt(t, invocation), providerExecutionTestStartedAt, providerExecutionTestEndedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyClaim, "start_failed", 1024, 1024); err == nil {
+		t.Fatal("legacy pre-start receipt claimed packet delivery")
 	}
 }

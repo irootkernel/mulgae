@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "api-package-test-report",
+  "goalId": "G005",
+  "status": "passed",
+  "liveProvidersInvoked": false,
+  "evidenceRef": "agent://296-G005FinalExecutorQAClean",
+  "commands": [
+    "KAR_LIVE_AGY=0 go test ./cmd/kar -run '^TestKARBinaryBoundary$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./cmd/kar -run '^TestKARProductionReviewSubprocessAGYE2E$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./internal/app/reviewrun -run '^(TestAdapterIssuedAuthorityBaselinesRejectBindingMutations|TestValidateQualificationRejectsCallerManufacturedAuthorities|TestQualifiedPlannerGoldenProviderSubsetsAndPermutations|TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority)$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./internal/app/reviewrun -run '^(TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority|TestProviderCLICurrentQualifierUsesRequestRolesWithoutAuthorityBleed|TestProviderCLICurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirectEvidence|TestValidateQualificationRequiresScopedAuthorities|TestQualificationReceiptIDIncludesAuthorityScope|TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure|TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner)$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./internal/adapters/providercli -run '^(TestAgyLifecycleOfflineRealProcess|TestAGYUsesInstalledHomeWithoutCredentialProjection|TestNamespaceDrainRefreshesParentAfterChildDetach|TestNamespaceChildUnlinkRetryRelocatesRetainedIdentity)$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./internal/adapters/workspace -run '^(TestMaterializeLeaseRejectsSnapshotAndRootReplacement|TestCleanupTreeReenumeratesInParentChildReplacementToTerminal|TestCleanupOwnerRetriesPreUnlinkSnapshotReplacement|TestCleanupTreeRetriesAfterSiblingPrefixAndChildCloseFailure|TestCleanupOwnerRetainsDescriptorAcrossPostUnlinkFailures)$' -count=1",
+    "KAR_LIVE_AGY=0 go test ./internal/app/reviewrun -run '^(TestQualifiedRunFactoryConstructionCleanupRetriesAndRetainsOwner|TestServiceExecuteMalformedAuthorityDrainsProviderAndWorkspace)$' -count=1",
+    "KAR_LIVE_AGY=0 go test -tags liveprovider ./internal/adapters/providercli -run '^$' -count=1"
+  ],
+  "coveredBehaviors": [
+    "compiled CLI boundary and production fake-AGY review",
+    "opaque typed authority admission for Kimi, ZCode, and AGY",
+    "raw authority forgery and family/scope/namespace/expiry drift rejection",
+    "provider and workspace terminal cleanup ownership",
+    "AGY native HOME non-mutation with disposable namespace state",
+    "live-provider source compile-only without execution"
+  ]
+}

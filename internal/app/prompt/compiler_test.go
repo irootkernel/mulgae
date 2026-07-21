@@ -68,6 +68,79 @@ func TestComposeTrustedTemplateOwnsTrustedLayerJoining(t *testing.T) {
 		t.Fatal("ComposeTrustedTemplate() accepted no layers")
 	}
 }
+func TestComposeTrustedTemplatePreservesOrderedLayerProvenance(t *testing.T) {
+	commonBytes := []byte("common")
+	roleBytes := []byte("role")
+	common, err := NewTrustedLayer("builtin:common", "2", commonBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, err := NewTrustedLayer("builtin:role/logic", "2", roleBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := ComposeTrustedTemplate("builtin:review", "2", common, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := template.TrustedLayerManifest()
+	if len(manifest) != 2 {
+		t.Fatalf("manifest length = %d, want 2", len(manifest))
+	}
+	for index, want := range []struct {
+		id, version string
+		bytes       []byte
+	}{
+		{id: "builtin:common", version: "2", bytes: commonBytes},
+		{id: "builtin:role/logic", version: "2", bytes: roleBytes},
+	} {
+		sum := sha256.Sum256(want.bytes)
+		got := manifest[index]
+		if got.Ordinal() != index+1 || got.ID() != want.id || got.Version() != want.version ||
+			got.SHA256() != hex.EncodeToString(sum[:]) || got.ByteLength() != len(want.bytes) {
+			t.Fatalf("manifest[%d] = ordinal=%d id=%q version=%q sha256=%q byte_length=%d",
+				index, got.Ordinal(), got.ID(), got.Version(), got.SHA256(), got.ByteLength())
+		}
+	}
+	manifest[0] = TrustedLayerProvenance{}
+	if template.TrustedLayerManifest()[0].ID() != "builtin:common" {
+		t.Fatal("TrustedLayerManifest() exposed compiler-owned provenance")
+	}
+	first, err := template.TrustedLayerManifestJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := template.TrustedLayerManifestJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJSON := `{"schema_version":"kar-trusted-layer-manifest.v1","layers":[{"ordinal":1,"id":"builtin:common","version":"2","sha256":"` +
+		manifestSHA256(commonBytes) + `","byte_length":6},{"ordinal":2,"id":"builtin:role/logic","version":"2","sha256":"` +
+		manifestSHA256(roleBytes) + `","byte_length":4}]}`
+	if first != wantJSON || second != wantJSON {
+		t.Fatalf("manifest JSON = %q and %q, want %q", first, second, wantJSON)
+	}
+	direct, err := NewTrustedTemplate("builtin:direct", "1", []byte("opaque"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct.TrustedLayerManifest()) != 0 {
+		t.Fatal("NewTrustedTemplate() unexpectedly gained provenance")
+	}
+	opaque, err := NewTrustedTemplateWithOpaqueLayer("builtin:direct", "1", []byte("opaque"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := opaque.TrustedLayerManifest(); len(got) != 1 || got[0].ID() != "builtin:direct" ||
+		got[0].SHA256() != manifestSHA256([]byte("opaque")) || got[0].ByteLength() != len("opaque") {
+		t.Fatalf("opaque manifest = %#v", got)
+	}
+}
+
+func manifestSHA256(bytes []byte) string {
+	sum := sha256.Sum256(bytes)
+	return hex.EncodeToString(sum[:])
+}
 func TestCompileEmitsCanonicalSOTPacket(t *testing.T) {
 	compiler := newTestCompiler(t, []int{5}, []int{6})
 	input := testCompileInput(t)

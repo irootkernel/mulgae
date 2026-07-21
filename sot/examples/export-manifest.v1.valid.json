@@ -29,6 +29,7 @@
     "side": "worktree",
     "line_start": 120,
     "line_end": 128,
+    "current_excerpt_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
     "verification": "verified"
   },
   "secure_writer": {

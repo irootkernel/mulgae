@@ -36,7 +36,7 @@ func (s g008PromptSource) Prompt(_ context.Context, job review.InvocationJob, re
 	return packet, nil
 }
 
-func TestG008ProviderRuntimeCapturesRepairArtifactsDeterministically(t *testing.T) {
+func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(t *testing.T) {
 	ctx := context.Background()
 	target := e2eTarget(t)
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetGit, SHA256: strings.TrimPrefix(target.SHA256(), "sha256:"), RepositoryID: target.RepositoryID(), BaseObjectID: target.BaseObjectID().String(), HeadObjectID: target.HeadObjectID().String(), HeadTreeObjectID: target.HeadTreeID().String()})

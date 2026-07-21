@@ -243,7 +243,7 @@ func (candidate PreparedCandidate) buildExcerpts(paths publicationPathsSet, revi
 			if err != nil {
 				return nil, fmt.Errorf("publication build: excerpt path: %w", err)
 			}
-			if !validSHA256(item.excerptSHA256) || len(item.excerpt) == 0 {
+			if !validSHA256(item.currentExcerptSHA256) || len(item.excerpt) == 0 {
 				return nil, fmt.Errorf("publication build: excerpt %s/%d is invalid", finding.id, index+1)
 			}
 			artifact, err := immutableArtifact(path, item.excerpt)
@@ -588,13 +588,14 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		CIDecision:        string(candidate.axes.ci),
 		CIReasonCodes:     append([]string{}, candidate.reasons...),
 		SeverityThreshold: severityThresholdWire{
-			RequestChangesAtOrAbove: string(candidate.threshold), PolicySource: "trusted_base",
+			RequestChangesAtOrAbove: string(candidate.threshold), PolicySource: "project_local",
 		},
 		RoleOutcomes: candidate.finalRoleOutcomes(),
 		Findings:     candidate.finalFindings(reviewID),
 		Limitations:  append([]string{}, candidate.limits...),
 		Provenance: provenanceWire{
 			AggregationPath: aggregationPath, FinalValidationPath: finalValidationPath, ManifestPath: "manifest.json",
+			Production: candidate.productionProvenanceWire(),
 		},
 	})
 }
@@ -655,17 +656,51 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	})
 }
 
+func (candidate PreparedCandidate) productionProvenanceWire() *productionProvenanceWire {
+	if candidate.production == nil {
+		return nil
+	}
+	value := candidate.production
+	providers := make([]productionProviderWire, len(value.Providers))
+	for index, provider := range value.Providers {
+		providers[index] = productionProviderWire{
+			Family: provider.Family, Instance: provider.Instance, Version: provider.Version,
+			Executable: provider.Executable, ExecutableSHA256: provider.ExecutableSHA256,
+			Launcher: provider.Launcher, LauncherSHA256: provider.LauncherSHA256,
+			ProfileGeneration: provider.ProfileGeneration, AdapterProfile: provider.AdapterProfile,
+			QualificationReceiptIDs:   append([]string(nil), provider.QualificationReceiptIDs...),
+			PacketTransportReceiptIDs: append([]string(nil), provider.PacketTransportReceiptIDs...),
+			NamespaceTerminalReceipt:  provider.NamespaceTerminalReceipt,
+		}
+	}
+	var objective *string
+	if value.HasObjective {
+		objectiveValue := value.ObjectiveSHA256
+		objective = &objectiveValue
+	}
+	return &productionProvenanceWire{
+		BuildProduct: value.BuildProduct, BuildVersion: value.BuildVersion, BuildCommit: value.BuildCommit,
+		ObjectiveSHA256: objective, ObjectivePresent: value.HasObjective,
+		SnapshotManifestSHA256:   value.SnapshotManifestSHA256,
+		WorkspaceTerminalReceipt: value.WorkspaceTerminalReceipt, Providers: providers,
+	}
+}
 func (candidate PreparedCandidate) finalRoleOutcomes() []roleOutcomeWire {
 	outcomes := make([]roleOutcomeWire, len(candidate.roles))
 	for index, role := range candidate.roles {
-		finalAttempt := role.attempts[len(role.attempts)-1]
 		failureReason := optionalString(role.failureReason)
-		outcomes[index] = roleOutcomeWire{
-			Role: string(role.role), Required: role.required, Outcome: role.outcome, AttemptID: optionalString(finalAttempt.id.String()),
-			ProviderInstance: optionalString(finalAttempt.provider), SelectedVia: optionalString(string(finalAttempt.kind)),
+		outcome := roleOutcomeWire{
+			Role: string(role.role), Required: role.required, Outcome: role.outcome,
 			ValidFindingIDs: append([]string{}, role.validFindingIDs...), FailureReason: failureReason,
 			Limitations: append([]string{}, role.limitations...),
 		}
+		if len(role.attempts) != 0 {
+			finalAttempt := role.attempts[len(role.attempts)-1]
+			outcome.AttemptID = optionalString(finalAttempt.id.String())
+			outcome.ProviderInstance = optionalString(finalAttempt.provider)
+			outcome.SelectedVia = optionalString(string(finalAttempt.kind))
+		}
+		outcomes[index] = outcome
 	}
 	return outcomes
 }
@@ -676,7 +711,7 @@ func (candidate PreparedCandidate) finalFindings(reviewID domain.ReviewID) []fin
 		evidenceItems := make([]findingEvidenceWire, len(finding.evidence))
 		for evidenceIndex, item := range finding.evidence {
 			sourceSessionID, sourceRunID, sourceReviewID, sourceFindingID := candidate.sessionID.String(), candidate.runID.String(), reviewID.String(), finding.id
-			sourceTargetSHA256, sourceExcerptSHA256 := candidate.target.sha256, item.excerptSHA256
+			sourceTargetSHA256, sourceExcerptSHA256 := candidate.target.sha256, item.currentExcerptSHA256
 			if item.sourceSessionID != "" {
 				sourceSessionID, sourceRunID, sourceReviewID, sourceFindingID = item.sourceSessionID, item.sourceRunID, item.sourceReviewID, item.sourceFindingID
 				sourceTargetSHA256, sourceExcerptSHA256 = item.sourceTargetSHA256, item.sourceExcerptSHA256
@@ -688,7 +723,7 @@ func (candidate PreparedCandidate) finalFindings(reviewID domain.ReviewID) []fin
 				},
 				Current: currentEvidenceWire{
 					TargetSHA256: item.targetSHA256, Side: string(item.side), Path: item.path, LineStart: item.lineStart, LineEnd: item.lineEnd,
-					Quote: item.quote, Verification: "verified",
+					Quote: item.quote, CurrentExcerptSHA256: item.currentExcerptSHA256, Verification: "verified",
 				},
 			}
 		}
@@ -831,7 +866,7 @@ func (candidate PreparedCandidate) followupOutcomeWire() *followupOutcomeWire {
 			},
 			Current: currentEvidenceWire{
 				TargetSHA256: item.targetSHA256, Side: string(item.side), Path: item.path,
-				LineStart: item.lineStart, LineEnd: item.lineEnd, Quote: item.quote, Verification: "verified",
+				LineStart: item.lineStart, LineEnd: item.lineEnd, Quote: item.quote, CurrentExcerptSHA256: item.currentExcerptSHA256, Verification: "verified",
 			},
 		}
 	}
@@ -930,19 +965,47 @@ type sourceEvidenceWire struct {
 }
 
 type currentEvidenceWire struct {
-	TargetSHA256 string `json:"target_sha256"`
-	Side         string `json:"side"`
-	Path         string `json:"path"`
-	LineStart    int    `json:"line_start"`
-	LineEnd      int    `json:"line_end"`
-	Quote        string `json:"quote"`
-	Verification string `json:"verification"`
+	TargetSHA256         string `json:"target_sha256"`
+	Side                 string `json:"side"`
+	Path                 string `json:"path"`
+	LineStart            int    `json:"line_start"`
+	LineEnd              int    `json:"line_end"`
+	Quote                string `json:"quote"`
+	CurrentExcerptSHA256 string `json:"current_excerpt_sha256"`
+	Verification         string `json:"verification"`
 }
 
 type provenanceWire struct {
-	AggregationPath     string `json:"aggregation_path"`
-	FinalValidationPath string `json:"final_validation_path"`
-	ManifestPath        string `json:"manifest_path"`
+	AggregationPath     string                    `json:"aggregation_path"`
+	FinalValidationPath string                    `json:"final_validation_path"`
+	ManifestPath        string                    `json:"manifest_path"`
+	Production          *productionProvenanceWire `json:"production,omitempty"`
+}
+
+type productionProvenanceWire struct {
+	BuildProduct             string                   `json:"build_product"`
+	BuildVersion             string                   `json:"build_version"`
+	BuildCommit              string                   `json:"build_commit"`
+	ObjectiveSHA256          *string                  `json:"objective_sha256"`
+	ObjectivePresent         bool                     `json:"objective_present"`
+	SnapshotManifestSHA256   string                   `json:"snapshot_manifest_sha256"`
+	WorkspaceTerminalReceipt string                   `json:"workspace_terminal_receipt"`
+	Providers                []productionProviderWire `json:"providers"`
+}
+
+type productionProviderWire struct {
+	Family                    string   `json:"family"`
+	Instance                  string   `json:"instance"`
+	Version                   string   `json:"version"`
+	Executable                string   `json:"executable"`
+	ExecutableSHA256          string   `json:"executable_sha256"`
+	Launcher                  string   `json:"launcher"`
+	LauncherSHA256            string   `json:"launcher_sha256"`
+	ProfileGeneration         string   `json:"profile_generation"`
+	AdapterProfile            string   `json:"adapter_profile"`
+	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
+	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
+	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
 }
 
 type followupOutcomeWire struct {

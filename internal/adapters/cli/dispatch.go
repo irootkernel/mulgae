@@ -8,21 +8,20 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
 
-// Handler executes one foundation command.
+// Handler executes one command.
 type Handler interface {
 	Execute(context.Context, []string) (app.CommandResult, error)
 }
 
-// Dispatcher routes only executable foundation commands from a validated registry.
+// Dispatcher routes commands from a validated registry.
 type Dispatcher struct {
 	specs    map[app.CommandName]CommandSpec
 	handlers map[app.CommandName]Handler
 }
 
-// Dispatch executes a foundation command. Callers must parse raw command tokens
-// with app.ParseCommandName before dispatching them. Registry and handler
-// invariants are returned as Go errors; a recognized future command returns its
-// typed unavailable result.
+// Dispatch executes a command. Callers must parse raw command tokens with
+// app.ParseCommandName before dispatching them. Registry and handler invariants
+// are returned as Go errors.
 func (dispatcher *Dispatcher) Dispatch(ctx context.Context, command app.CommandName, args []string) (app.CommandResult, error) {
 	if dispatcher == nil {
 		return app.CommandResult{}, dispatchInvariantError("nil dispatcher")
@@ -39,13 +38,10 @@ func (dispatcher *Dispatcher) Dispatch(ctx context.Context, command app.CommandN
 	if !present {
 		return app.CommandResult{}, dispatchInvariantError("canonical command spec missing for %q", command)
 	}
-	if spec.availability == AvailabilityFutureMilestone {
-		return unavailableCommandResult(command)
-	}
 
 	handler, present := dispatcher.handlers[command]
 	if !present || handlerIsNil(handler) {
-		return app.CommandResult{}, dispatchInvariantError("foundation command %q has no handler", command)
+		return app.CommandResult{}, dispatchInvariantError("command %q has no handler", command)
 	}
 	result, err := handler.Execute(ctx, cloneStrings(args))
 	if err != nil {
@@ -80,24 +76,4 @@ func (spec CommandSpec) hasTypedExit(exit app.ExitCode) bool {
 		}
 	}
 	return false
-}
-
-func unavailableCommandResult(command app.CommandName) (app.CommandResult, error) {
-	diagnostic, err := app.NewDiagnostic(
-		"cli.dispatch",
-		domain.FailureConfiguration,
-		"command_unavailable_in_g003",
-		"Command is unavailable in G003.",
-		"",
-		"",
-		domain.AttemptID{},
-		false,
-		false,
-		"",
-		"kar help",
-	)
-	if err != nil {
-		return app.CommandResult{}, err
-	}
-	return app.NewCommandFailure(command, app.ExitCodeUsage, diagnostic)
 }

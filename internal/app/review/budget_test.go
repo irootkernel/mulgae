@@ -188,25 +188,47 @@ func TestPreflightRunBudgetCanonicalizesShuffledInputs(t *testing.T) {
 	}
 }
 
-func TestPreflightRunBudgetFailsClosedForRoleAndRouteSelection(t *testing.T) {
+func TestPreflightRunBudgetAcceptsRoleSubsetsAndRejectsInvalidSelection(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 1, 1)
 	roles := budgetTestCompleteRoles(t, limits, limits, func(int) string { return "shared" }, func(int) string { return "shared" })
 	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 48, time.Minute, 2*time.Minute, 4, 24)
 
+	for _, selected := range [][]RoleBudget{
+		roles[:2],
+		roles[:3],
+	} {
+		receipt, err := PreflightRunBudget(selected, ceilings)
+		if err != nil {
+			t.Fatalf("PreflightRunBudget(%d roles) error = %v", len(selected), err)
+		}
+		if !receipt.Eligible() || receipt.ReasonCode() != BudgetReasonEligible {
+			t.Fatalf("PreflightRunBudget(%d roles) = eligible=%t reason=%q, want true/%q",
+				len(selected), receipt.Eligible(), receipt.ReasonCode(), BudgetReasonEligible)
+		}
+	}
+
 	duplicate := append(append([]RoleBudget(nil), roles...), roles[0])
 	assertBudgetRejection(t, duplicate, ceilings, BudgetReasonDuplicateRole)
 
-	missingRequired := append([]RoleBudget(nil), roles[1:]...)
-	assertBudgetRejection(t, missingRequired, ceilings, BudgetReasonMissingRequiredRole)
+	missingLogic := append([]RoleBudget(nil), roles[1:]...)
+	assertBudgetRejection(t, missingLogic, ceilings, BudgetReasonMissingRequiredRole)
 
-	missingOptional := append([]RoleBudget(nil), roles[:len(roles)-1]...)
-	assertBudgetRejection(t, missingOptional, ceilings, BudgetReasonMissingRole)
+	missingSecurity := append([]RoleBudget{roles[0]}, roles[2:]...)
+	assertBudgetRejection(t, missingSecurity, ceilings, BudgetReasonMissingRequiredRole)
 
-	missingRoute := append([]RoleBudget(nil), roles...)
-	missingRoute[0].primary = RouteBudget{}
-	assertBudgetRejection(t, missingRoute, ceilings, BudgetReasonInvalidPrimaryRoute)
+	invalidRole := append([]RoleBudget(nil), roles...)
+	invalidRole[0].role = domain.Role("invalid")
+	assertBudgetRejection(t, invalidRole, ceilings, BudgetReasonInvalidRole)
+
+	invalidPrimary := append([]RoleBudget(nil), roles...)
+	invalidPrimary[0].primary = RouteBudget{}
+	assertBudgetRejection(t, invalidPrimary, ceilings, BudgetReasonInvalidPrimaryRoute)
+
+	invalidFallback := append([]RoleBudget(nil), roles...)
+	invalidFallback[0].fallback = RouteBudget{}
+	assertBudgetRejection(t, invalidFallback, ceilings, BudgetReasonInvalidFallbackRoute)
 }
 
 func TestPreflightRunBudgetRejectsRouteCapOverflow(t *testing.T) {

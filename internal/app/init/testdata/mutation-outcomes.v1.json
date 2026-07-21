@@ -1,0 +1,410 @@
+[
+  {
+    "kind": "initialized",
+    "write_state": "committed",
+    "committed": true,
+    "destination_state": "present",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "existing_untouched",
+    "code": "init_destination_exists",
+    "committed": false,
+    "destination_state": "present",
+    "class": "configuration_violation",
+    "message": "The project-local KAR configuration already exists.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "existing_untouched",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "existing_untouched",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "existing_untouched",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "not_committed",
+    "code": "init_write_failed",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "artifact_failure",
+    "message": "The project-local KAR configuration could not be written.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "not_committed",
+    "code": "init_write_failed",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "artifact_failure",
+    "message": "The project-local KAR configuration could not be written.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "not_committed",
+    "code": "init_private_dir_raced",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "artifact_failure",
+    "message": "The private KAR directory changed during initialization.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "init_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "artifact_failure",
+    "message": "The private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "init_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "present",
+    "class": "artifact_failure",
+    "message": "The private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "init_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "artifact_failure",
+    "message": "The private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_created_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "init_existing_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "artifact_failure",
+    "message": "The existing private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "init_existing_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "present",
+    "class": "artifact_failure",
+    "message": "The existing private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "init_existing_private_dir_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "artifact_failure",
+    "message": "The existing private KAR directory could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "absent",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "private_dir_existing_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "init_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "present",
+    "class": "artifact_failure",
+    "message": "The installed KAR configuration could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "init_commit_unconfirmed",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "artifact_failure",
+    "message": "The installed KAR configuration could not be durably confirmed.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "config_locality_drifted",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "target_private_config_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "present",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialization_failed",
+    "write_state": "installed_unconfirmed",
+    "code": "target_private_namespace_forbidden",
+    "committed": false,
+    "destination_state": "not_observed",
+    "class": "security_policy_violation",
+    "message": "The project-local KAR configuration failed locality admission.",
+    "retryable": false
+  },
+  {
+    "kind": "initialized",
+    "write_state": "committed",
+    "code": "init_result_delivery_failed",
+    "committed": true,
+    "destination_state": "present",
+    "class": "artifact_failure",
+    "message": "The init result could not be delivered after commit.",
+    "retryable": true,
+    "delivery_only": true
+  }
+]

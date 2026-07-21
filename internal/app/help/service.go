@@ -89,8 +89,8 @@ func (service *Service) Topics(ctx context.Context) ([]ports.AssetMetadata, erro
 		return nil, err
 	}
 
-	helpAssets := make([]ports.AssetMetadata, 0, len(requiredHelpTopics()))
-	seen := make(map[string]struct{}, len(requiredHelpTopics()))
+	helpAssets := make([]ports.AssetMetadata, 0, 12)
+	seen := make(map[string]struct{}, 12)
 	previousID := ""
 	for _, asset := range assets {
 		id := asset.ID().String()

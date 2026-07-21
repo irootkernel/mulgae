@@ -17,30 +17,26 @@ Primary threats:
 - concurrent provider state corruption;
 - artifact tampering;
 - CI using an incomplete review as if it were complete.
+Production root `kar review` is currently reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; composition is present, but this normative security policy does not claim production verification or closure. Full current authority gates and three family-distinct normal P2 receipts remain pending.
 
 ## 2. Trust Hierarchy
 
 | Source | Trust level | Allowed authority |
 |---|---|---|
 | Built-in domain rules and schemas | Highest | Define invariants and validation |
-| Global user configuration | Trusted local policy | Define provider executables and bounded overrides |
+| `.kar/config.yaml` | Sole operator-local configuration authority after locality admission | Define the configured provider subset and bounded policy |
 | CLI flags | Trusted one-run policy | Select and narrow behavior, explicit dangerous opt-ins |
 | Project configuration | Limited trust | Declarative project and assignment settings only |
-| Project context and prompt assets | Untrusted by default | Context only unless globally authorized |
+| Project context and prompt assets | Untrusted by default | Context only; local config cannot grant prompt authority |
 | Review target | Untrusted | Data only |
 | Prior provider output | Untrusted | Claims and context only |
 | Current provider output | Untrusted | Claims pending validation |
 
 A lower-trust source cannot weaken a higher-trust restriction.
-### Deterministic Trust Reducer
 
-`required_floor={logic,security}`. `additional_required` is `global_required ∪ valid_project_additions`, and `effective_required=required_floor ∪ additional_required`. `execution_selection` is run-local and cannot redefine policy. Merge is exactly built-in policy (B) → global user policy (G) → project proposal (P, checked against the trusted base as one atomic proposal) → CLI.
+### Deterministic Authority Admission
 
-A project may only strengthen: move the request-changes threshold left in `low < medium < high < critical < blocker`, union required roles and failure sets, OR enforcement flags, lower limits, and intersect workspace access. It cannot disable logic or security, relax degraded/incomplete enforcement, raise the threshold, expand workspace, enable shell, or define provider commands. A mixed strengthening/weakening proposal is rejected as a whole with exit `2`; no subset is applied.
-
-Interactive dangerous flags record requested value, effective value, source, acceptance, `tainted=true`, `ci_proof_eligible=false`, and a reason. `--dangerously-skip-required-role=<role>` preserves the policy requirement but omits execution selection, yielding `coverage_status=incomplete`. `--dangerously-raise-request-changes-threshold=<critical|blocker>` records the request but leaves the trusted effective CI threshold unchanged. The same recording applies to `--dangerously-allow-degraded`, `--dangerously-allow-incomplete`, `--dangerously-increase-limit=<field>:<value>`, `--dangerously-expand-workspace=<mode>`, `--dangerously-use-provider=<id>`, `--dangerously-provider-command=<JSON-array>`, and `--dangerously-enable-shell`.
-
-CI rejects every weakening flag before execution with exit `2`. In CI, `effective_required` must be a subset of `execution_selection`; a valid finding rejected by trusted policy is exit `1`, not a configuration error.
+`required_floor={logic,security}` remains code-fixed. `.kar/config.yaml` is admitted as one complete, project-local operator document; there is no global/project reducer, repository-owned proposal, or partial merge. Semantic validation rejects any document that violates code-fixed role, workspace, provider-family, execution, or resource bounds. Run-local CLI selection may narrow an operation but cannot redefine those invariants. A valid finding rejected by the admitted CI policy is exit `1`, not a configuration error.
 
 ## 3. Provider Execution Boundary
 
@@ -51,11 +47,12 @@ workspace_access = none
 cwd = isolated attempt workspace
 ```
 
-The provider receives captured target bytes, not the live project directory. This limits accidental mutation and broad local file discovery, but it does not make an arbitrary executable safe.
+The provider receives captured target bytes, not the live project directory. Kimi and ZCode receive isolated `HOME` directories with credential projection. On macOS, AGY alone receives an explicitly captured installed-user native `HOME`, inode-revalidated immediately before spawn, because its authentication is bound to that Keychain context. This authentication context is not workspace access: AGY's descriptor-bound CWD remains the immutable review snapshot, while KAR owns its XDG, cache, temporary, and scratch namespaces. KAR must not use a synthetic AGY `HOME` or copy OAuth or installation files into one. KAR's own setup, policy, and cleanup paths never write, overwrite, zero, or unlink the user's AGY authentication or settings files; normal provider-owned Keychain/profile refresh during AGY execution is not claimed as KAR-owned state. Native `@file` transport refers only to immutable captured material.
 
 Optional `readonly_snapshot` should use OS-supported read-only mounts, permissions, or sandbox primitives where available. A copied directory with writable permissions is not read-only isolation.
 
-`project` access is a dangerous opt-in and must be visible in command output and artifacts.
+`project` access is a dangerous opt-in and must be visible in command output and artifacts. It never implicitly authorizes live-root or `HOME` access outside that explicit scope.
+AGY policy is not installed through a user `settings.json`. The enforceable macOS AGY controls are `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. These controls do not make the native authentication context a sandbox, authorize user-home mutation, or establish production verification or closure.
 
 ## 4. Mutation Detection
 
@@ -75,14 +72,14 @@ Security documentation and help must not describe mutation detection as a sandbo
 
 Default rules:
 
-- provider binary and arguments exist only in global config, built-in adapter profiles, or explicit CLI overrides;
-- project config cannot define a command or shell;
+- provider executables exist only in the admitted local family-specific configuration;
+- local config cannot define generic arguments, environment, a command, or a shell;
 - shell mode is disabled;
 - provider binary paths are resolved without project-controlled PATH entries by default;
 - adapter version compatibility is checked before execution;
 - resolved executable path and optional file hash are recorded.
 
-A file hash is provenance, not a trust guarantee. Package signing or OS trust policy may be added separately.
+A file hash, executable path, and adapter profile are diagnostic provenance, not a trust guarantee or a pin to a historical executable. Provider admission still requires an allowlisted family, the applicable minimum version, and current capability and security PASS; a newer version is allowed after that PASS. Package signing or OS trust policy may be added separately.
 
 ## 6. Prompt Injection Boundary
 
@@ -100,7 +97,7 @@ Defense in depth includes:
 
 ## 7. Secrets and Environment
 
-KAR must not store API keys in project or global YAML examples. Provider CLIs own authentication.
+KAR must not store API keys in local YAML or examples. Provider CLIs own authentication.
 
 Environment rules:
 
@@ -174,27 +171,11 @@ Protection mechanisms:
 
 KAR must report a hash mismatch as artifact corruption. It must not silently regenerate a missing or altered final review from normalized summaries.
 
-## 12. CI Trusted-Base Posture
+## 12. CI Project-Local Authority Posture
 
-Recommended CI defaults are:
+CI checks out the target first, then provisions `.kar/config.yaml` as private untracked operator state through `kar init` or an equivalent secure installation step. The file records absolute provider identities for that CI machine, uses `workspace_access: none` by default, and remains outside repository control. KAR re-attests the root, `.kar`, configuration, checkout, index, and applicable commits across admission and execution boundaries. Repository content cannot supply a fallback configuration, select a provider command, disable the required role floor, or expand workspace access. KAR and provider adapter versions remain pinned by the CI environment.
 
-```yaml
-execution:
-  workspace_access: none
-  shell: false
-
-trust:
-  project_config: declarative_only
-  project_prompt_overrides: false
-
-ci:
-  degraded_review_fails: true
-  incomplete_review_fails: true
-```
-
-CI resolves the trusted base before project configuration and applies the deterministic reducer above. A repository pull request cannot change the provider command used to review itself, disable the required floor, loosen severity or coverage enforcement, expand workspace, enable shell, or accept a weakening CLI flag. KAR and provider adapter versions are pinned. A project may add requirements or otherwise strengthen policy, but cannot turn an untrusted proposal into a CI proof.
-
-The resulting `ci_decision` is exactly `pass` or `fail` with trusted-policy reason codes. It is a projection of validated content and coverage, not a mutation of `content_verdict`, `coverage_status`, or `publication_status`.
+The resulting `ci_decision` is exactly `pass` or `fail` with admitted-policy reason codes. It is a projection of validated content and coverage, not a mutation of `content_verdict`, `coverage_status`, or `publication_status`.
 
 ## 13. Security Limitations
 

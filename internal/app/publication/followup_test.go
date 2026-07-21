@@ -2,6 +2,9 @@ package publication
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -75,6 +78,75 @@ func TestPrepareFollowupFindingsPreservesEveryResolution(t *testing.T) {
 		})
 	}
 }
+func TestPrepareFollowupFindingsCanonicalizesEvidenceBeforeFingerprinting(t *testing.T) {
+	input := followupProjectionInput(t, "line one\\n")
+	reverse := []followupEvidenceInput{
+		{path: "src/z.go", lineStart: 1, lineEnd: 1, side: "head", quote: "line one\n"},
+		{path: "src/a.go", lineStart: 1, lineEnd: 1, side: "head", quote: "line one\n"},
+	}
+	input.Output = followupProjectionOutputWithEvidence(t, domain.FollowupStillOpen, reverse, [][]followupEvidenceInput{reverse})
+	findings, outcome, err := prepareFollowupFindings(input, "sha256:"+strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcome.evidence) != 2 || outcome.evidence[0].path != "src/a.go" || outcome.evidence[1].path != "src/z.go" {
+		t.Fatalf("outcome evidence is not canonical: %#v", outcome.evidence)
+	}
+	if len(findings) != 1 || len(findings[0].evidence) != 2 ||
+		findings[0].evidence[0].path != "src/a.go" || findings[0].evidence[1].path != "src/z.go" {
+		t.Fatalf("finding evidence is not canonical before fingerprinting: %#v", findings)
+	}
+	for _, item := range append(outcome.evidence, findings[0].evidence...) {
+		if item.sourceSessionID != input.SourceSessionID.String() || item.sourceRunID != input.SourceRunID.String() ||
+			item.sourceReviewID != input.SourceReviewID.String() || item.sourceFindingID != input.SourceFindingID ||
+			item.sourceTargetSHA256 != input.SourceTargetSHA256 || item.sourceExcerptSHA256 != input.SourceExcerptSHA256 ||
+			item.targetSHA256 != "sha256:"+strings.Repeat("b", 64) {
+			t.Fatalf("canonicalization changed source/current tuple authority: %#v", item)
+		}
+	}
+}
+
+func TestPrepareFollowupFindingsEnforcesEvidenceCountBounds(t *testing.T) {
+	for _, count := range []int{1, 2, 20} {
+		t.Run("count_"+strconv.Itoa(count), func(t *testing.T) {
+			input := followupProjectionInput(t, "line one\\n")
+			items := make([]followupEvidenceInput, count)
+			for index := range items {
+				items[index] = followupEvidenceInput{path: fmt.Sprintf("src/%02d.go", index), lineStart: 1, lineEnd: 1, side: "head", quote: "line one\n"}
+			}
+			input.Output = followupProjectionOutputWithEvidence(t, domain.FollowupStillOpen, items, [][]followupEvidenceInput{items})
+			findings, outcome, err := prepareFollowupFindings(input, "sha256:"+strings.Repeat("b", 64))
+			if err != nil || len(outcome.evidence) != count || len(findings) != 1 || len(findings[0].evidence) != count {
+				t.Fatalf("count %d = findings %#v, outcome %#v, %v", count, findings, outcome, err)
+			}
+		})
+	}
+}
+
+func TestPrepareFollowupFindingsRejectsDuplicateTupleBeforeCandidate(t *testing.T) {
+	input := followupProjectionInput(t, "line one\\n")
+	duplicate := []followupEvidenceInput{
+		{path: "src/a.go", lineStart: 1, lineEnd: 1, side: "head", quote: "line one\n"},
+		{path: "src/a.go", lineStart: 1, lineEnd: 1, side: "head", quote: "line one\n"},
+	}
+	input.Output = followupProjectionOutputWithEvidence(t, domain.FollowupStillOpen, duplicate, [][]followupEvidenceInput{{duplicate[0]}})
+	if _, _, err := prepareFollowupFindings(input, "sha256:"+strings.Repeat("b", 64)); err == nil || !strings.Contains(err.Error(), "evidence tuple is duplicated") {
+		t.Fatalf("duplicate outcome tuple reached prepared candidate: %v", err)
+	}
+
+	input.Output = followupProjectionOutputWithEvidence(t, domain.FollowupStillOpen, []followupEvidenceInput{duplicate[0]}, [][]followupEvidenceInput{duplicate})
+	if _, _, err := prepareFollowupFindings(input, "sha256:"+strings.Repeat("b", 64)); err == nil || !strings.Contains(err.Error(), "evidence tuple is duplicated") {
+		t.Fatalf("duplicate finding tuple reached prepared candidate: %v", err)
+	}
+}
+
+type followupEvidenceInput struct {
+	path      string
+	lineStart int
+	lineEnd   int
+	side      string
+	quote     string
+}
 
 func followupProjectionInput(t *testing.T, quote string) FollowupCandidateInput {
 	t.Helper()
@@ -109,6 +181,49 @@ func followupProjectionOutput(t *testing.T, resolution domain.FollowupResolution
 	}
 	raw := []byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"followup","resolution":"` + string(resolution) + `","rationale":"verified finding","evidence":[{"current":{"path":"src/a.go","line_start":1,"line_end":1,"side":"head","quote":"` + quote + `"}}],"new_findings":` + findings + `,"limitations":[]}`)
 	output, err := validator.Validate(context.Background(), raw, validation.FollowupValidationScope{SessionID: sessionID, SourceRunID: runID, ReviewID: reviewID, FindingID: "F001", SourceTargetSHA256: "sha256:" + strings.Repeat("a", 64), SourceExcerptSHA256: sha256Identifier([]byte("source excerpt")), CurrentTargetSHA256: "sha256:" + strings.Repeat("b", 64), Role: domain.RoleLogic, ProviderInstance: "provider"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return output
+}
+func followupProjectionOutputWithEvidence(t *testing.T, resolution domain.FollowupResolution, outcome []followupEvidenceInput, findingsEvidence [][]followupEvidenceInput) validation.ValidatedFollowup {
+	t.Helper()
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	reviewID, _ := domain.ParseReviewID("019f596a-cf82-7c67-b265-f37053d51ccf")
+	schemaID, _ := ports.ParseAssetID(validation.ProviderFollowupSchemaID)
+	validator, err := validation.NewFollowupValidator(followupProjectionSchemaValidator{}, schemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toWire := func(items []followupEvidenceInput) []map[string]any {
+		result := make([]map[string]any, len(items))
+		for index, item := range items {
+			result[index] = map[string]any{"current": map[string]any{
+				"path": item.path, "line_start": item.lineStart, "line_end": item.lineEnd, "side": item.side, "quote": item.quote,
+			}}
+		}
+		return result
+	}
+	newFindings := make([]map[string]any, len(findingsEvidence))
+	for index, items := range findingsEvidence {
+		newFindings[index] = map[string]any{
+			"severity": "high", "title": "Retained finding", "description": "The issue remains.",
+			"evidence": toWire(items), "recommendation": "Fix it.", "confidence": "high",
+		}
+	}
+	raw, err := json.Marshal(map[string]any{
+		"schema_version": "kar-provider-followup-output.v2", "summary": "followup", "resolution": resolution,
+		"rationale": "verified finding", "evidence": toWire(outcome), "new_findings": newFindings, "limitations": []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := validator.Validate(context.Background(), raw, validation.FollowupValidationScope{
+		SessionID: sessionID, SourceRunID: runID, ReviewID: reviewID, FindingID: "F001",
+		SourceTargetSHA256: "sha256:" + strings.Repeat("a", 64), SourceExcerptSHA256: sha256Identifier([]byte("source excerpt")),
+		CurrentTargetSHA256: "sha256:" + strings.Repeat("b", 64), Role: domain.RoleLogic, ProviderInstance: "provider",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

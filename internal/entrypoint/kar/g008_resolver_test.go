@@ -3,7 +3,9 @@ package kar
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,46 +16,84 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestG008RequestResolverCaptureTargetFreezesOneBoundedRead(t *testing.T) {
-	reader := &countingReader{Reader: bytes.NewBufferString("captured target")}
-	resolver := &G008RequestResolver{reader: reader, stdinLimit: 64}
-	first, err := resolver.CaptureTarget(context.Background())
+func TestG008RequestResolverCapturedStdinTransfersOnceAndZerosOwnedBytes(t *testing.T) {
+	input := []byte("first line\nsecond line\n")
+	reader := &countingReader{Reader: bytes.NewReader(input)}
+	resolver := &G008RequestResolver{reader: reader, stdinLimit: ports.ReviewTargetMaxBytes}
+
+	token, err := resolver.CaptureTarget(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	readsAfterFirst := reader.reads
-	second, err := resolver.CaptureTarget(context.Background())
+	if !validCapturedStdinToken(token) || strings.Contains(token, string(input)) || strings.Contains(token, fmtHex(input)) {
+		t.Fatalf("token is not opaque: %q", token)
+	}
+	readsAfterCapture := reader.reads
+	if repeated, err := resolver.CaptureTarget(context.Background()); err != nil || repeated != token || reader.reads != readsAfterCapture {
+		t.Fatalf("repeated capture = %q, %v; reads = %d, want %q and %d", repeated, err, reader.reads, token, readsAfterCapture)
+	}
+
+	owned := resolver.captured
+	transferred, err := resolver.TakeCapturedStdin(context.Background(), token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first != "captured target" || second != first || readsAfterFirst == 0 || reader.reads != readsAfterFirst {
-		t.Fatalf("captures = %q, %q; reads = %d", first, second, reader.reads)
+	if string(transferred) != string(input) {
+		t.Fatalf("transferred stdin = %q, want %q", transferred, input)
 	}
-	frozen, ok := resolver.CapturedStdin()
-	if !ok || string(frozen) != first {
-		t.Fatalf("frozen stdin = %q, present = %v", frozen, ok)
+	transferred[0] = 'X'
+	if string(input) != "first line\nsecond line\n" {
+		t.Fatalf("transfer mutated input: %q", input)
 	}
-	frozen[0] = 'X'
-	again, ok := resolver.CapturedStdin()
-	if !ok || string(again) != first {
-		t.Fatalf("captured stdin was mutable: %q", again)
+	if resolver.captured != nil || resolver.captureToken != "" {
+		t.Fatal("resolver retained captured stdin after transfer")
+	}
+	for _, byte := range owned {
+		if byte != 0 {
+			t.Fatal("resolver-owned stdin was not zeroed")
+		}
+	}
+	if _, err := resolver.TakeCapturedStdin(context.Background(), token); err == nil {
+		t.Fatal("reused token succeeded")
+	}
+	if _, err := resolver.TakeCapturedStdin(context.Background(), "stdin-capture-v1-"+strings.Repeat("0", 64)); err == nil {
+		t.Fatal("unknown token succeeded")
+	}
+}
+
+func TestG008RequestResolverCaptureTargetAcceptsReviewTargetMaximum(t *testing.T) {
+	for name, size := range map[string]int{
+		"maximum":  ports.ReviewTargetMaxBytes,
+		"oversize": ports.ReviewTargetMaxBytes + 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			resolver := &G008RequestResolver{reader: bytes.NewReader(bytes.Repeat([]byte("x"), size)), stdinLimit: ports.ReviewTargetMaxBytes}
+			token, err := resolver.CaptureTarget(context.Background())
+			if size == ports.ReviewTargetMaxBytes {
+				if err != nil || !validCapturedStdinToken(token) {
+					t.Fatalf("CaptureTarget = %q, %v", token, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("oversize CaptureTarget succeeded")
+			}
+		})
 	}
 }
 
 func TestG008RequestResolverCaptureTargetRejectsInvalidInput(t *testing.T) {
 	for name, reader := range map[string]io.Reader{
-		"empty":      bytes.NewReader(nil),
-		"oversize":   bytes.NewBufferString("12345"),
-		"read error": errorReader{},
+		"empty":         bytes.NewReader(nil),
+		"NUL":           bytes.NewBufferString("one\x00two"),
+		"invalid UTF-8": bytes.NewReader([]byte{0xff}),
+		"read error":    errorReader{},
 	} {
 		t.Run(name, func(t *testing.T) {
-			maximum := int64(4)
-			if name == "empty" || name == "read error" {
-				maximum = 64
-			}
-			resolver := &G008RequestResolver{reader: reader, stdinLimit: maximum}
+			resolver := &G008RequestResolver{reader: reader, stdinLimit: ports.ReviewTargetMaxBytes}
 			if _, err := resolver.CaptureTarget(context.Background()); err == nil {
 				t.Fatal("CaptureTarget succeeded")
 			}
@@ -65,6 +105,27 @@ func TestG008RequestResolverCaptureTargetRejectsInvalidInput(t *testing.T) {
 	if _, err := resolver.CaptureTarget(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("CaptureTarget error = %v, want cancellation", err)
 	}
+}
+
+func TestG008RequestResolverCapturedStdinTokensAreFreshPerResolver(t *testing.T) {
+	first := &G008RequestResolver{reader: strings.NewReader("same input"), stdinLimit: 64}
+	second := &G008RequestResolver{reader: strings.NewReader("same input"), stdinLimit: 64}
+	firstToken, err := first.CaptureTarget(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondToken, err := second.CaptureTarget(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstToken == secondToken {
+		t.Fatal("separate resolver instances reused a token")
+	}
+}
+
+func fmtHex(bytes []byte) string {
+	sum := sha256.Sum256(bytes)
+	return fmt.Sprintf("%x", sum)
 }
 func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)

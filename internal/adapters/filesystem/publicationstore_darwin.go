@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ var (
 )
 
 var _ ports.PublicationStore = (*PublicationStore)(nil)
+var _ ports.PublicationEpochCommitStore = (*PublicationStore)(nil)
 
 type publicationFileIdentity struct {
 	device uint64
@@ -67,6 +69,14 @@ type publicationStoreLock struct {
 	file         int
 	identity     privateDirectoryIdentity
 	fileID       publicationFileIdentity
+}
+
+type publicationTransactionContextKey struct{}
+
+type publicationTransaction struct {
+	store *PublicationStore
+	root  ports.AnchoredRoot
+	lock  *publicationStoreLock
 }
 
 type publicationStoreClassifiedError struct {
@@ -1537,7 +1547,6 @@ func (store *PublicationStore) movePreparedComposite(
 			return manifestResult, fmt.Errorf("move prepared composite: lineage receipt: %w", err)
 		}
 		receipts = append(receipts, receipt)
-		installed = 2
 	}
 	membersResult, err := ports.NewCompositeCommitResult(ports.CompositeMembersInstalled, receipts[:2])
 	if err != nil {
@@ -1881,7 +1890,53 @@ func publicationPostEffectUncertain(err error) bool {
 	return errors.As(err, &postEffect)
 }
 
+// WithNextPublicationEpoch serializes epoch selection and publication for one
+// root. Store operations called by publish reuse this transaction's lock.
+func (store *PublicationStore) WithNextPublicationEpoch(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	publish func(context.Context, uint64) error,
+) error {
+	if ctx == nil {
+		return errors.New("next publication epoch: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := store.valid(); err != nil {
+		return err
+	}
+	if publish == nil {
+		return errors.New("next publication epoch: nil callback")
+	}
+	return store.withLockContext(ctx, root, func(commitCtx context.Context) error {
+		epoch, err := nextPublicationEpoch(root)
+		if err != nil {
+			return fmt.Errorf("next publication epoch: scan: %w", err)
+		}
+		return publish(commitCtx, epoch)
+	})
+}
+
 func (store *PublicationStore) withLock(ctx context.Context, root ports.AnchoredRoot, callback func() error) error {
+	return store.withLockContext(ctx, root, func(context.Context) error {
+		return callback()
+	})
+}
+
+func (store *PublicationStore) withLockContext(ctx context.Context, root ports.AnchoredRoot, callback func(context.Context) error) error {
+	if ctx == nil {
+		return errors.New("publication store: nil context")
+	}
+	if transaction, ok := ctx.Value(publicationTransactionContextKey{}).(*publicationTransaction); ok {
+		if transaction == nil || transaction.store != store || transaction.root != root {
+			return errors.New("publication store: transaction lock store or root mismatch")
+		}
+		if err := transaction.lock.validate(); err != nil {
+			return fmt.Errorf("publication store: transaction lock namespace changed: %w", err)
+		}
+		return callback(ctx)
+	}
 	if !root.Valid() {
 		return errors.New("publication store: invalid root")
 	}
@@ -1891,7 +1946,12 @@ func (store *PublicationStore) withLock(ctx context.Context, root ports.Anchored
 	if err != nil {
 		return err
 	}
-	callbackErr := callback()
+	transactionCtx := context.WithValue(ctx, publicationTransactionContextKey{}, &publicationTransaction{
+		store: store,
+		root:  root,
+		lock:  lock,
+	})
+	callbackErr := callback(transactionCtx)
 	teardownErr := errors.Join(lock.validate(), lock.Release())
 	if callbackErr != nil {
 		return errors.Join(callbackErr, teardownErr)
@@ -1900,6 +1960,102 @@ func (store *PublicationStore) withLock(ctx context.Context, root ports.Anchored
 		return &publicationPostEffectError{cause: teardownErr}
 	}
 	return nil
+}
+
+func nextPublicationEpoch(root ports.AnchoredRoot) (uint64, error) {
+	epochsPath, err := ports.NewSafeRelativePath("store/epochs")
+	if err != nil {
+		return 0, fmt.Errorf("epoch directory path: %w", err)
+	}
+	directory, err := walkPrivateDirectory(root, strings.Split(epochsPath.String(), "/"), false)
+	if errors.Is(err, unix.ENOENT) {
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("open epoch directory: %w", err)
+	}
+	defer closeFD(directory)
+
+	identity, err := privateDirectoryIdentityForFD(directory)
+	if err != nil {
+		return 0, fmt.Errorf("epoch directory identity: %w", err)
+	}
+	scanFD, err := unix.Dup(directory)
+	if err != nil {
+		return 0, fmt.Errorf("duplicate epoch directory: %w", err)
+	}
+	file := os.NewFile(uintptr(scanFD), epochsPath.String())
+	entries, readErr := readPublicationDirectoryEntries(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return 0, fmt.Errorf("read epoch directory: %w", readErr)
+	}
+	if closeErr != nil {
+		return 0, fmt.Errorf("close epoch directory: %w", closeErr)
+	}
+
+	var highest uint64
+	for _, entry := range entries {
+		name := entry.Name()
+		epoch, err := parsePublicationEpochFilename(name)
+		if err != nil {
+			return 0, err
+		}
+		fd, err := unix.Openat(directory, name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return 0, fmt.Errorf("open epoch member %q: %w", name, err)
+		}
+		_, validationErr := publicationFileIdentityForFD(fd)
+		closeErr := unix.Close(fd)
+		if validationErr != nil {
+			return 0, fmt.Errorf("validate epoch member %q: %w", name, validationErr)
+		}
+		if closeErr != nil {
+			return 0, fmt.Errorf("close epoch member %q: %w", name, closeErr)
+		}
+		if epoch == 0 {
+			return 0, fmt.Errorf("malformed epoch member %q", name)
+		}
+		if epoch > highest {
+			highest = epoch
+		}
+	}
+	if highest == ^uint64(0) {
+		return 0, errors.New("epoch overflow")
+	}
+	next := highest + 1
+	candidate := fmt.Sprintf("epoch_%020d.json", next)
+	var stat unix.Stat_t
+	if err := unix.Fstatat(directory, candidate, &stat, unix.AT_SYMLINK_NOFOLLOW); err == nil {
+		return 0, fmt.Errorf("epoch collision at %q", candidate)
+	} else if !errors.Is(err, unix.ENOENT) {
+		return 0, fmt.Errorf("stat next epoch %q: %w", candidate, err)
+	}
+	if err := revalidatePrivateDirectory(root, strings.Split(epochsPath.String(), "/"), identity, defaultSecureWriterOperations()); err != nil {
+		return 0, fmt.Errorf("epoch directory namespace changed: %w", err)
+	}
+	return next, nil
+}
+
+func parsePublicationEpochFilename(name string) (uint64, error) {
+	const prefix = "epoch_"
+	const suffix = ".json"
+	if len(name) != len(prefix)+20+len(suffix) ||
+		!strings.HasPrefix(name, prefix) ||
+		!strings.HasSuffix(name, suffix) {
+		return 0, fmt.Errorf("malformed epoch member %q", name)
+	}
+	digits := name[len(prefix) : len(name)-len(suffix)]
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("malformed epoch member %q", name)
+		}
+	}
+	epoch, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil || epoch == 0 {
+		return 0, fmt.Errorf("malformed epoch member %q", name)
+	}
+	return epoch, nil
 }
 
 func (store *PublicationStore) acquireLock(ctx context.Context, root ports.AnchoredRoot) (*publicationStoreLock, error) {
@@ -1913,9 +2069,6 @@ func (store *PublicationStore) acquireLock(ctx context.Context, root ports.Ancho
 			closeFD(rootFD)
 		}
 	}()
-	if err := verifyPrivateDirectory(rootFD); err != nil {
-		return nil, fmt.Errorf("acquire publication lock: root is not private: %w", err)
-	}
 	rootIdentity, err := privateDirectoryIdentityForFD(rootFD)
 	if err != nil {
 		return nil, fmt.Errorf("acquire publication lock: root identity: %w", err)

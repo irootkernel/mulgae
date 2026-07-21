@@ -87,7 +87,71 @@
           "request": { "$ref": "#/$defs/requests/init" },
           "result": { "$ref": "#/$defs/results/init" },
           "exit": { "$ref": "#/$defs/exits/init" }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "request": {
+                  "properties": { "request_state": { "const": "invalid" } },
+                  "required": ["request_state"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "exit": {
+                  "properties": {
+                    "code": { "const": 2 },
+                    "kind": { "const": "usage" }
+                  }
+                },
+                "reasons": {
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [
+                    {
+                      "properties": {
+                        "artifact_uri": { "const": null },
+                        "category": { "const": "usage" },
+                        "code": { "const": "init_selection_invalid" },
+                        "message": { "const": "The init selection is invalid." },
+                        "retryable": { "const": false }
+                      }
+                    }
+                  ]
+                },
+                "result": {
+                  "properties": {
+                    "kind": { "const": "initialization_failed" },
+                    "config_sha256": { "const": "" },
+                    "selected_provider_ids": { "maxItems": 0 },
+                    "candidate_provider_ids": { "maxItems": 0 },
+                    "configured_provider_ids": { "maxItems": 0 },
+                    "write_state": { "const": "not_attempted" },
+                    "committed": { "const": false },
+                    "destination_state": { "const": "not_observed" },
+                    "discovery": { "maxItems": 0 }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "result": {
+                  "properties": {
+                    "config_sha256": { "$ref": "#/$defs/sha256" },
+                    "configured_provider_ids": { "minItems": 1 },
+                    "write_state": { "enum": ["existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] }
+                  }
+                }
+              }
+            },
+            "then": { "$ref": "#/$defs/init_mutation_outcome" }
+          }
+        ]
       }
     },
     {
@@ -465,6 +529,66 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "canonical_provider_ids": {
+      "type": "array",
+      "oneOf": [
+        { "maxItems": 0 },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "kimi" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "zcode" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }], "items": false },
+        { "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }], "items": false }
+      ]
+    },
+    "init_discovery_kimi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","executable_source","model_source","data_home_source"],
+      "properties": {
+        "family": { "const": "kimi" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "model_source": { "enum": ["override","default_k3","not_selected"] },
+        "data_home_source": { "enum": ["override","startup_environment","native_home_default","not_selected"] }
+      }
+    },
+    "init_discovery_zcode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","node_executable_source","launcher_source"],
+      "properties": {
+        "family": { "const": "zcode" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "node_executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "launcher_source": { "enum": ["override","bundled","not_discovered","not_selected"] }
+      }
+    },
+    "init_discovery_agy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","executable_source","native_home_source","permission_mode_source"],
+      "properties": {
+        "family": { "const": "agy" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "native_home_source": { "enum": ["os_account","verified_equal_input","not_selected"] },
+        "permission_mode_source": { "enum": ["explicit","safe_default","not_selected"] }
+      }
+    },
     "path": {
       "type": "string",
       "minLength": 1,
@@ -582,35 +706,2298 @@
       ]
     },
     "exits": {
-      "init": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7] } } }] },
-      "doctor": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
+      "init": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
+      "doctor": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9] } } }] },
       "run": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 1, 2, 4, 7, 8, 9, 10] } } }] },
       "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 9, 10] } } }] },
       "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
-      "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 8] } } }] },
+      "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "prompt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 10] } } }] },
       "maintenance": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8] } } }] },
       "help": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2] } } }] }
     },
+    "init_mutation_outcome": {
+      "oneOf": [
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 0
+                },
+                "kind": {
+                  "const": "success"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 0
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": true
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialized"
+                },
+                "write_state": {
+                  "const": "committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 2
+                },
+                "kind": {
+                  "const": "usage"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "configuration"
+                    },
+                    "code": {
+                      "const": "init_destination_exists"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration already exists."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_write_failed"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration could not be written."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_write_failed"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration could not be written."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_raced"
+                    },
+                    "message": {
+                      "const": "The private KAR directory changed during initialization."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private KAR directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The installed KAR configuration could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The installed KAR configuration could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local KAR configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_result_delivery_failed"
+                    },
+                    "message": {
+                      "const": "The init result could not be delivered after commit."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": true
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialized"
+                },
+                "write_state": {
+                  "const": "committed"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "requests": {
       "init": {
+        "oneOf": [
+          { "$ref": "#/$defs/requests/init_accepted" },
+          { "$ref": "#/$defs/requests/init_rejected" }
+        ]
+      },
+      "init_accepted": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["request_id", "command", "project_root", "intended_provider_ids", "overwrite", "output_format"],
+        "required": ["request_id", "command", "project_root", "project_name", "context", "selection", "overrides", "overwrite", "output_format"],
         "properties": {
           "request_id": { "$ref": "#/$defs/request_id" },
           "command": { "const": "init" },
           "project_root": { "$ref": "#/$defs/path" },
-          "intended_provider_ids": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "uniqueItems": true,
-            "items": { "$ref": "#/$defs/provider_id" }
+          "project_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "context": { "type": ["string", "null"] },
+          "selection": {
+            "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "const": "auto" } } },
+              { "type": "object", "additionalProperties": false, "required": ["mode", "provider_ids"], "properties": { "mode": { "const": "selected" }, "provider_ids": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "enum": ["kimi", "zcode", "agy"] } } } }
+            ]
+          },
+          "overrides": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "kimi_executable": { "$ref": "#/$defs/path" }, "kimi_model": { "type": "string", "minLength": 1, "maxLength": 128 }, "kimi_data_home": { "$ref": "#/$defs/path" },
+              "zcode_node_executable": { "$ref": "#/$defs/path" }, "zcode_launcher": { "$ref": "#/$defs/path" },
+              "agy_executable": { "$ref": "#/$defs/path" }, "agy_permission_mode": { "enum": ["safe", "dangerously-skip-permissions"] }
+            }
           },
           "overwrite": { "type": "boolean" },
           "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "init_rejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "request_state", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "init" },
+          "request_state": { "const": "invalid" },
+          "output_format": { "const": "json" }
         }
       },
       "doctor": {
@@ -819,21 +3206,63 @@
       "init": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "project_config_uri", "intended_provider_ids"],
+        "required": ["kind", "config_uri", "config_sha256", "selected_provider_ids", "candidate_provider_ids", "configured_provider_ids", "write_state", "committed", "destination_state", "discovery"],
+        "oneOf": [
+          { "properties": { "kind": { "const": "initialized" }, "write_state": { "const": "committed" }, "committed": { "const": true }, "destination_state": { "const": "present" }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "not_attempted" }, "committed": { "const": false }, "destination_state": { "enum": ["absent", "not_observed"] } }, "oneOf": [
+            { "properties": { "config_sha256": { "const": "" }, "configured_provider_ids": { "maxItems": 0 } } },
+            { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+          ] },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "existing_untouched" }, "committed": { "const": false }, "destination_state": { "const": "present" } }, "oneOf": [
+            { "properties": { "config_sha256": { "const": "" }, "candidate_provider_ids": { "maxItems": 0 }, "configured_provider_ids": { "maxItems": 0 }, "discovery": { "maxItems": 0 } } },
+            { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+          ] },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "not_committed" }, "committed": { "const": false }, "destination_state": { "enum": ["absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_created_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_existing_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "installed_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+        ],
         "properties": {
-          "kind": { "const": "initialized" },
-          "project_config_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "intended_provider_ids": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/provider_id" } }
+          "kind": { "enum": ["initialized", "initialization_failed"] },
+          "config_uri": { "const": ".kar/config.yaml" },
+          "config_sha256": { "oneOf": [{ "const": "" }, { "$ref": "#/$defs/sha256" }] },
+          "selected_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "candidate_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "write_state": { "enum": ["not_attempted", "existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] },
+          "committed": { "type": "boolean" },
+          "destination_state": { "enum": ["present", "absent", "not_observed"] },
+          "discovery": {
+            "type": "array",
+            "oneOf": [
+              { "maxItems": 0 },
+              { "minItems": 3, "maxItems": 3, "prefixItems": [
+                { "$ref": "#/$defs/init_discovery_kimi" },
+                { "$ref": "#/$defs/init_discovery_zcode" },
+                { "$ref": "#/$defs/init_discovery_agy" }
+              ], "items": false }
+            ]
+          }
         }
       },
       "doctor": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "doctor_result_uri", "readiness"],
+        "required": ["kind", "doctor_result_uri", "readiness", "doctor"],
         "properties": {
           "kind": { "const": "diagnosed" },
           "doctor_result_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "readiness": { "type": "string", "enum": ["ready", "unverified"] }
+          "readiness": { "type": "string", "enum": ["ready", "degraded", "unverified", "unsafe"] },
+          "doctor": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["schema_version"],
+                "properties": { "schema_version": { "const": "kar-doctor-result.v2" } }
+              }
+            ]
+          }
         }
       },
       "review": {
@@ -1051,11 +3480,14 @@
       "config": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "resolved_policy_uri", "policy_sha256"],
+        "required": ["kind", "mode", "config_uri", "config_sha256"],
         "properties": {
-          "kind": { "const": "configuration_resolved" },
-          "resolved_policy_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "policy_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+          "kind": { "enum": ["configuration_resolved", "configuration_failed"] },
+          "mode": { "enum": ["effective", "provenance"] },
+          "config_uri": { "const": ".kar/config.yaml" },
+          "config_sha256": { "oneOf": [{ "const": "" }, { "$ref": "#/$defs/sha256" }] },
+          "policy": { "type": "object" },
+          "provenance": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["field", "source", "disposition", "value_class"], "properties": { "field": { "type": "string" }, "source": { "type": "string" }, "disposition": { "type": "string" }, "value_class": { "type": "string" } } } }
         }
       },
       "prompt": {

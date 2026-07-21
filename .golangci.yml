@@ -1,0 +1,27 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: false
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*os.File).Close
+        - golang.org/x/sys/unix.Close
+    staticcheck:
+      checks:
+        - all
+        - -QF*
+        - -ST*
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

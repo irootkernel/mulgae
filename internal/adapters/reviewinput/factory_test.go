@@ -1,0 +1,269 @@
+package reviewinput
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+)
+
+type captureFake struct {
+	material ports.CapturedReviewMaterial
+	err      error
+	calls    *[]string
+}
+
+func (fake captureFake) CaptureReviewTarget(_ context.Context, _ ports.AnchoredRoot, _ ports.ReviewTargetSelector) (ports.CapturedReviewMaterial, error) {
+	*fake.calls = append(*fake.calls, "capture")
+	return fake.material, fake.err
+}
+
+type detectorFake struct {
+	detection ports.ReviewInputDetection
+	err       error
+	calls     *[]string
+	objective []byte
+}
+
+func (fake *detectorFake) DetectReviewInput(_ context.Context, channel ports.ReviewInputChannel, label string, value []byte) (ports.ReviewInputDetection, error) {
+	*fake.calls = append(*fake.calls, "screen")
+	if channel != ports.ReviewInputObjective || label != objectiveDetectorLabel {
+		return ports.ReviewInputDetection{}, errors.New("unexpected detector input")
+	}
+	fake.objective = append([]byte(nil), value...)
+	return fake.detection, fake.err
+}
+
+type leaseFactoryFake struct {
+	lease   ports.WorkspaceSnapshotLease
+	err     error
+	calls   *[]string
+	request ports.WorkspaceSnapshotRequest
+}
+
+func (fake *leaseFactoryFake) MaterializeLease(_ context.Context, request ports.WorkspaceSnapshotRequest) (ports.WorkspaceSnapshotLease, error) {
+	*fake.calls = append(*fake.calls, "materialize")
+	fake.request = request
+	return fake.lease, fake.err
+}
+
+type leaseFake struct {
+	identity ports.WorkspaceSnapshotIdentity
+}
+
+func (fake leaseFake) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
+	return fake.identity
+}
+func (leaseFake) RevalidateForExecution() (ports.WorkspaceExecutionGuard, error) {
+	return nil, errors.New("not used")
+}
+func (leaseFake) Receipt() ports.WorkspaceSnapshotReceipt { return ports.WorkspaceSnapshotReceipt{} }
+func (leaseFake) Release(ports.WorkspaceCompletionEvidence) (ports.WorkspaceTerminalReceipt, error) {
+	return ports.WorkspaceTerminalReceipt{}, nil
+}
+func (leaseFake) Abort(ports.WorkspaceAbortEvidence) error { return nil }
+
+func TestImmutableInputSourceCaptureOrdersAndPreservesObjective(t *testing.T) {
+	calls := []string{}
+	material := testMaterial(t)
+	clean, err := ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detector := &detectorFake{detection: clean, calls: &calls}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	source, root := testSource(t, captureFake{material: material, calls: &calls}, detector, materializer, []byte("@roadmap.md"), true)
+
+	captured, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls = append(calls, "transfer")
+	if got, want := strings.Join(calls, ","), "capture,screen,materialize,transfer"; got != want {
+		t.Fatalf("call order = %q, want %q", got, want)
+	}
+	if got := string(detector.objective); got != "@roadmap.md" {
+		t.Fatalf("screened objective = %q", got)
+	}
+	if got := string(captured.Input().Objective()); got != "@roadmap.md" {
+		t.Fatalf("captured objective = %q", got)
+	}
+	if !materializer.request.Valid() || materializer.request.PolicyIdentity() != material.Snapshot().PolicyIdentity() {
+		t.Fatal("materializer did not receive only the captured snapshot request")
+	}
+	if captured.PacketDetector() != detector {
+		t.Fatal("captured input lost packet detector authority")
+	}
+}
+func TestImmutableInputSourceCapturePreservesProjectContextPresence(t *testing.T) {
+	cases := []struct {
+		name       string
+		context    []byte
+		hasContext bool
+	}{
+		{name: "absent", context: nil, hasContext: false},
+		{name: "present empty", context: []byte{}, hasContext: true},
+		{name: "present nonempty", context: []byte("project context"), hasContext: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			calls := []string{}
+			clean, err := ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			detector := &detectorFake{detection: clean, calls: &calls}
+			materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+			material := testMaterialWithProjectContext(t, test.context, test.hasContext)
+			source, root := testSource(t, captureFake{material: material, calls: &calls}, detector, materializer, nil, false)
+
+			captured, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := captured.Input()
+			if input.HasProjectContext() != test.hasContext {
+				t.Fatalf("HasProjectContext() = %t, want %t", input.HasProjectContext(), test.hasContext)
+			}
+			context := input.ProjectContext()
+			if string(context) != string(test.context) {
+				t.Fatalf("ProjectContext() = %q, want %q", context, test.context)
+			}
+			if test.hasContext && context == nil {
+				t.Fatal("present project context became absent")
+			}
+			if !test.hasContext && context != nil {
+				t.Fatal("absent project context acquired bytes")
+			}
+		})
+	}
+}
+
+func TestImmutableInputSourceCaptureWithoutObjectiveSkipsDetector(t *testing.T) {
+	calls := []string{}
+	clean, _ := ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+	detector := &detectorFake{detection: clean, calls: &calls}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	source, root := testSource(t, captureFake{material: testMaterial(t), calls: &calls}, detector, materializer, nil, false)
+
+	captured, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detector.objective) != 0 || strings.Join(calls, ",") != "capture,materialize" || len(captured.Input().Objective()) != 0 {
+		t.Fatal("objective-free capture exposed or materialized an objective")
+	}
+}
+
+func TestImmutableInputSourceRejectsSecondCapture(t *testing.T) {
+	calls := []string{}
+	clean, _ := ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+	detector := &detectorFake{detection: clean, calls: &calls}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	source, root := testSource(t, captureFake{material: testMaterial(t), calls: &calls}, detector, materializer, nil, false)
+	request := reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}
+	if _, err := source.Capture(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Capture(context.Background(), request); err == nil {
+		t.Fatal("second capture succeeded")
+	}
+	if got := strings.Join(calls, ","); got != "capture,materialize" {
+		t.Fatalf("second capture invoked dependencies: %q", got)
+	}
+}
+
+func TestImmutableInputSourceBlocksBeforeMaterialize(t *testing.T) {
+	calls := []string{}
+	blocked, _ := ports.NewReviewInputDetection(ports.ReviewInputBlocked, "secret", 1)
+	detector := &detectorFake{detection: blocked, calls: &calls}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	source, root := testSource(t, captureFake{material: testMaterial(t), calls: &calls}, detector, materializer, []byte("blocked"), true)
+
+	if _, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}); err == nil {
+		t.Fatal("blocked objective was accepted")
+	}
+	if got := strings.Join(calls, ","); got != "capture,screen" {
+		t.Fatalf("blocked objective materialized: %q", got)
+	}
+}
+
+func TestImmutableInputSourceRedactsMaterializerFailure(t *testing.T) {
+	calls := []string{}
+	materializer := &leaseFactoryFake{err: errors.New("/private/project/secret"), calls: &calls}
+	source, root := testSource(t, captureFake{material: testMaterial(t), calls: &calls}, &detectorFake{calls: &calls}, materializer, nil, false)
+
+	_, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	if err == nil || strings.Contains(err.Error(), "secret") || strings.Join(calls, ",") != "capture,materialize" {
+		t.Fatalf("materializer failure was not redacted and ordered: %v (%q)", err, strings.Join(calls, ","))
+	}
+}
+
+func testSource(t *testing.T, capturer ports.ReviewTargetCapturer, detector ports.ReviewInputContentDetector, leases ports.WorkspaceSnapshotLeaseFactory, objective []byte, hasObjective bool) (reviewrun.ImmutableInputSource, ports.AnchoredRoot) {
+	t.Helper()
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ports.NewReviewTargetSelector(ports.ReviewTargetPatch, "patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := reviewrun.NewInputCaptureRequest(root, target, objective, hasObjective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewImmutableInputSourceFactory(capturer, detector, leases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := factory.NewImmutableInputSource(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source, root
+}
+
+func testMaterial(t *testing.T) ports.CapturedReviewMaterial {
+	t.Helper()
+	return testMaterialWithProjectContext(t, []byte("project context"), true)
+}
+
+func testMaterialWithProjectContext(t *testing.T, projectContext []byte, hasProjectContext bool) ports.CapturedReviewMaterial {
+	t.Helper()
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(nil, "captured-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
+		ports.CapturedEvidenceHead: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, projectContext, hasProjectContext, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return material
+}
+
+func testIdentity(t *testing.T) ports.WorkspaceSnapshotIdentity {
+	t.Helper()
+	identity, err := ports.NewWorkspaceSnapshotIdentity(
+		"/snapshot", "snapshot-0123456789abcdef0123456789abcdef",
+		"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"captured-policy", 1, 2, 3, 4,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}

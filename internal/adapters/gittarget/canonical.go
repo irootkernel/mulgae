@@ -777,6 +777,9 @@ func snapshotCanonicalGitMetadata(directories canonicalGitDirectorySet, referenc
 	if _, err := snapshot.captureFile(directories.worktree, "HEAD", "HEAD", canonicalObjectIDFileReference, true); err != nil {
 		return fail(fmt.Errorf("Git canonical metadata %q: %w", filepath.Join(directories.worktree.path, "HEAD"), err))
 	}
+	if _, err := snapshot.captureFile(directories.worktree, "index", "index", canonicalObjectIDFileNone, false); err != nil {
+		return fail(fmt.Errorf("Git canonical metadata %q: %w", filepath.Join(directories.worktree.path, "index"), err))
+	}
 	config, err := snapshot.captureFile(directories.common, "config", "", canonicalObjectIDFileNone, false)
 	if err != nil {
 		return fail(fmt.Errorf("Git canonical metadata %q: %w", filepath.Join(directories.common.path, "config"), err))

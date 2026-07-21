@@ -3,11 +3,71 @@ package jsonschema
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
+	validator := newBuiltinValidator(t)
+	schemaID := mustAssetID(t, "https://kar.local/schemas/kar-command-result.v1.schema.json")
+	envelope := map[string]any{
+		"schema_version": "kar-command-result.v1",
+		"command":        "init",
+		"request": map[string]any{
+			"request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf", "command": "init", "project_root": ".", "project_name": "project", "context": nil,
+			"selection": map[string]any{"mode": "selected", "provider_ids": []string{"agy"}}, "overrides": map[string]any{}, "overwrite": false, "output_format": "json",
+		},
+		"completed_at": "2026-07-21T00:00:00.000Z",
+		"exit":         map[string]any{"code": 8, "kind": "security"},
+		"reasons": []any{map[string]any{
+			"category": "security", "code": "config_locality_drifted", "message": "The project-local KAR configuration failed locality admission.", "retryable": false, "artifact_uri": nil,
+		}},
+		"result": map[string]any{
+			"kind": "initialization_failed", "config_uri": ".kar/config.yaml", "config_sha256": "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
+			"selected_provider_ids": []string{"agy"}, "candidate_provider_ids": []string{"agy"}, "configured_provider_ids": []string{"agy"},
+			"write_state": "installed_unconfirmed", "committed": false, "destination_state": "present",
+			"discovery": []any{
+				map[string]any{"family": "kimi", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "executable_source": "not_selected", "model_source": "not_selected", "data_home_source": "not_selected"},
+				map[string]any{"family": "zcode", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "node_executable_source": "not_selected", "launcher_source": "not_selected"},
+				map[string]any{"family": "agy", "selected": true, "candidate": true, "configured": true, "status": "candidate", "executable_source": "override", "native_home_source": "os_account", "permission_mode_source": "safe_default"},
+			},
+		},
+	}
+	validate := func(value map[string]any) error {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return validator.Validate(context.Background(), schemaID, raw)
+	}
+	if err := validate(envelope); err != nil {
+		t.Fatalf("valid init mutation envelope rejected: %v", err)
+	}
+	envelope["exit"] = map[string]any{"code": 2, "kind": "usage"}
+	envelope["reasons"] = []any{map[string]any{
+		"category": "configuration", "code": "init_destination_exists", "message": "The project-local KAR configuration already exists.", "retryable": false, "artifact_uri": nil,
+	}}
+	if err := validate(envelope); err == nil {
+		t.Fatal("contradictory init mutation envelope was accepted")
+	}
+	result := envelope["result"].(map[string]any)
+	result["kind"], result["write_state"], result["committed"] = "initialized", "committed", true
+	envelope["exit"] = map[string]any{"code": 7, "kind": "artifact"}
+	envelope["reasons"] = []any{map[string]any{
+		"category": "artifact", "code": "init_result_delivery_failed", "message": "The init result could not be delivered after commit.", "retryable": true, "artifact_uri": nil,
+	}}
+	if err := validate(envelope); err != nil {
+		t.Fatalf("valid init delivery-failure envelope rejected: %v", err)
+	}
+	envelope["exit"] = map[string]any{"code": 0, "kind": "success"}
+	envelope["reasons"] = []any{}
+	if err := validate(envelope); err != nil {
+		t.Fatalf("valid committed init success envelope rejected: %v", err)
+	}
+}
 
 type schemaExamplePair struct {
 	schemaID  string
@@ -18,6 +78,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://kar.local/schemas/kar-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
 	{"https://kar.local/schemas/kar-command-result.v1.schema.json", "example:command-result.v1.valid.json"},
 	{"https://kar.local/schemas/kar-doctor-result.v1.schema.json", "example:doctor-result.v1.valid.json"},
+	{"https://kar.local/schemas/kar-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://kar.local/schemas/kar-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
 	{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "example:g0-file-catalog.v1.valid.json"},
 	{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
@@ -29,6 +90,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "example:provider-followup-output.v2.valid.json"},
 	{"urn:kar:schema:provider-review-output:v1", "example:provider-review-output.valid.json"},
 	{"https://kar.local/schemas/kar-provider-review-output.v2.schema.json", "example:provider-review-output.v2.valid.json"},
+	{"https://kar.local/schemas/kar-provider-review-wire.v2.schema.json", "example:provider-review-wire.v2.valid.json"},
 	{"urn:kar:schema:repair-patch:v1", "example:repair-patch.json"},
 	{"urn:kar:schema:repair-request:v1", "example:repair-request.json"},
 	{"urn:kar:schema:review-artifact:v1", "example:review-artifact.valid.json"},
