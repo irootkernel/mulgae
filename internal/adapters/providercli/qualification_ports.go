@@ -91,9 +91,9 @@ func NewQualificationProbeAdapter(probe *CurrentProbe, invocation SafeProbeInvoc
 
 func (adapter *QualificationProbeAdapter) QualifyProviderCurrent(ctx context.Context, request ports.ProviderCurrentProbeRequest) (ports.ProviderCurrentProbeResult, error) {
 	definition, definitionOK := request.Definition.(RuntimeDefinition)
-	namespace, namespaceOK := request.Namespace.(QualificationNamespace)
+	namespace := request.Namespace
 	fixture, fixtureOK := request.Fixture.(ProbeFixtureLease)
-	if adapter == nil || adapter.probe == nil || adapter.invocation == nil || !definitionOK || !namespaceOK || !fixtureOK {
+	if adapter == nil || adapter.probe == nil || adapter.invocation == nil || !definitionOK || namespace == nil || !fixtureOK {
 		return ports.ProviderCurrentProbeResult{}, fmt.Errorf("provider qualification probe adapter: invalid request boundary")
 	}
 	roleFixtures := make([]ProbeFixtureLease, len(request.RoleFixtures))
