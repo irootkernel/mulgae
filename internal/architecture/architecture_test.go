@@ -22,11 +22,18 @@ func TestProductionDependencyDirection(t *testing.T) {
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if hasBuildIgnoreConstraint(source) {
+			return nil
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
 		if err != nil {
 			return err
 		}
@@ -44,7 +51,7 @@ func TestProductionDependencyDirection(t *testing.T) {
 			if strings.HasPrefix(rel, "internal/app/") && (strings.Contains(importPath, "/internal/adapters/") || strings.Contains(importPath, "/internal/builtin")) {
 				t.Errorf("%s imports outward dependency %q", rel, importPath)
 			}
-			if strings.HasPrefix(rel, "internal/app/") && (importPath == "os/exec" || strings.Contains(importPath, "yaml") || strings.Contains(importPath, "jsonschema")) {
+			if (strings.HasPrefix(rel, "internal/domain/") || strings.HasPrefix(rel, "internal/app/")) && isAdapterCapabilityImport(importPath) {
 				t.Errorf("%s imports adapter capability %q", rel, importPath)
 			}
 			if strings.HasPrefix(rel, "internal/adapters/") && strings.Contains(importPath, "/internal/entrypoint/") {
@@ -55,6 +62,61 @@ func TestProductionDependencyDirection(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func hasBuildIgnoreConstraint(source []byte) bool {
+	for _, line := range strings.Split(string(source), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "package ") {
+			return false
+		}
+		if trimmed == "//go:build ignore" {
+			return true
+		}
+	}
+	return false
+}
+
+func isAdapterCapabilityImport(importPath string) bool {
+	lower := strings.ToLower(importPath)
+	return importPath == "os" || importPath == "os/exec" ||
+		importPath == "github.com/spf13/cobra" || strings.HasSuffix(lower, "/cobra") ||
+		strings.Contains(lower, "yaml") || strings.Contains(lower, "jsonschema")
+}
+
+func TestBuildIgnoreConstraintDetection(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{name: "build ignore", source: "//go:build ignore\n\npackage generate\n", want: true},
+		{name: "ordinary build tag", source: "//go:build darwin\n\npackage platform\n", want: false},
+		{name: "late text", source: "package example\n\n//go:build ignore\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasBuildIgnoreConstraint([]byte(test.source)); got != test.want {
+				t.Fatalf("hasBuildIgnoreConstraint() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAdapterCapabilityImportClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, importPath := range []string{"os", "os/exec", "github.com/spf13/cobra", "gopkg.in/yaml.v3", "github.com/santhosh-tekuri/jsonschema/v5"} {
+		if !isAdapterCapabilityImport(importPath) {
+			t.Errorf("adapter capability import %q was not rejected", importPath)
+		}
+	}
+	for _, importPath := range []string{"context", "encoding/json", modulePath + "internal/domain"} {
+		if isAdapterCapabilityImport(importPath) {
+			t.Errorf("core-safe import %q was rejected", importPath)
+		}
 	}
 }
 
