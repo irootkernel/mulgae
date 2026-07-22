@@ -27,28 +27,22 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 			fallback: make([]bool, len(roles)),
 		},
 		{
-			name: "all admitting providers deterministic instance lane vector",
+			name: "all configured providers follow role matrix",
 			routes: []QualifiedRoute{
 				plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
 				plannerTestRoute(t, FamilyZCode, "zcode.one", "lane-zcode", roles),
-				plannerTestRoute(t, FamilyKimi, "kimi.two", "lane-kimi-two", roles),
 				plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi-one", roles),
 			},
-			want:     []string{"kimi.one", "kimi.two", "kimi.one", "kimi.one", "kimi.one", "kimi.one"},
-			fallback: repeatPlannerTestBool(true, len(roles)),
-		},
-		{
-			name: "logic security use distinct primaries when feasible",
-			routes: []QualifiedRoute{
-				plannerTestRoute(t, FamilyKimi, "kimi.logic", "lane-logic", roles),
-				plannerTestRoute(t, FamilyZCode, "zcode.security", "lane-security", roles),
-			},
-			want:     []string{"kimi.logic", "zcode.security", "kimi.logic", "kimi.logic", "kimi.logic", "kimi.logic"},
+			want:     []string{"kimi.one", "zcode.one", "zcode.one", "zcode.one", "agy.one", "zcode.one"},
 			fallback: repeatPlannerTestBool(true, len(roles)),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			planner, err := NewQualifiedPlanner(test.routes, PlannerPolicy{})
+			families := make([]Family, 0, len(test.routes))
+			for _, route := range test.routes {
+				families = append(families, route.Qualification().Identity().Family)
+			}
+			planner, err := NewQualifiedPlanner(test.routes, plannerTestCanonicalPolicy(t, families))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -62,15 +56,17 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 }
 func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
 	roles := domain.FixedRoleOrder()
-	instances := []string{"agy.one", "agy.two", "agy.three"}
-	for mask := 1; mask < 1<<len(instances); mask++ {
-		routes := make([]QualifiedRoute, 0, len(instances))
-		for index, instance := range instances {
+	families := []Family{FamilyKimi, FamilyZCode, FamilyAGY}
+	for mask := 1; mask < 1<<len(families); mask++ {
+		routes := make([]QualifiedRoute, 0, len(families))
+		selected := make([]Family, 0, len(families))
+		for index, family := range families {
 			if mask&(1<<index) != 0 {
-				routes = append(routes, plannerTestRoute(t, FamilyAGY, instance, "lane-"+instance, roles))
+				selected = append(selected, family)
+				routes = append(routes, plannerTestRoute(t, family, string(family)+".one", "lane-"+string(family), roles))
 			}
 		}
-		planner, err := NewQualifiedPlanner(routes, PlannerPolicy{})
+		planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, selected))
 		if err != nil {
 			t.Fatalf("subset %03b: %v", mask, err)
 		}
@@ -88,9 +84,10 @@ func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
 		plannerTestRoute(t, FamilyZCode, "zcode.one", "lane-zcode", roles),
 	}
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY})
 	var golden []string
 	for _, permutation := range [][]QualifiedRoute{routes, {routes[2], routes[0], routes[1]}, {routes[1], routes[2], routes[0]}} {
-		planner, err := NewQualifiedPlanner(permutation, PlannerPolicy{})
+		planner, err := NewQualifiedPlanner(permutation, policy)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,10 +99,47 @@ func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 		}
 	}
 }
+
+func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.T) {
+	roles := domain.FixedRoleOrder()
+	routes := []QualifiedRoute{
+		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
+		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
+		plannerTestRoute(t, FamilyZCode, "zcode.one", "lane-zcode", roles),
+	}
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := plannerTestPlan(t, planner, roles)
+	primary, fallback := plannerTestRouteInstances(plan)
+	if want := []string{"kimi.one", "zcode.one", "zcode.one", "zcode.one", "agy.one", "zcode.one"}; !reflect.DeepEqual(primary, want) {
+		t.Fatalf("primary matrix = %v, want %v", primary, want)
+	}
+	if want := []string{"zcode.one", "agy.one", "agy.one", "agy.one", "zcode.one", "agy.one"}; !reflect.DeepEqual(fallback, want) {
+		t.Fatalf("fallback matrix = %v, want %v", fallback, want)
+	}
+}
+
+func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testing.T) {
+	roles := domain.FixedRoleOrder()
+	routes := []QualifiedRoute{
+		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
+		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
+	}
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := planner.Plan(context.Background(), plannerTestRequest(t, roles)); err == nil {
+		t.Fatal("Plan() substituted an available family for the missing configured provider")
+	}
+}
+
 func TestQualifiedPlannerPreservesRequestedRoleOrder(t *testing.T) {
 	roles := []domain.Role{domain.RoleTesting, domain.RoleSecurity, domain.RoleLogic, domain.RoleProduct, domain.RoleDocumentation, domain.RoleMaintainability}
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", domain.FixedRoleOrder())
-	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, PlannerPolicy{})
+	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, plannerTestCanonicalPolicy(t, []Family{FamilyKimi}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +172,7 @@ func TestQualifiedRouteRejectsInvalidOrMismatchedQualification(t *testing.T) {
 func TestQualifiedPlannerRejectsMissingRequiredRole(t *testing.T) {
 	roles := domain.FixedRoleOrder()
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles)
-	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, PlannerPolicy{})
+	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, plannerTestCanonicalPolicy(t, []Family{FamilyKimi}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +214,7 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 	if err != nil {
 		t.Fatal(err)
 	}
-	planner, err := NewQualifiedPlanner([]QualifiedRoute{qualified}, DefaultPlannerPolicy())
+	planner, err := NewQualifiedPlanner([]QualifiedRoute{qualified}, plannerTestCanonicalPolicy(t, []Family{FamilyAGY}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +279,16 @@ func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 
 func plannerTestPlan(t *testing.T, planner ExecutionPlanner, roles []domain.Role) ExecutionPlan {
 	t.Helper()
+	request := plannerTestRequest(t, roles)
+	plan, err := planner.Plan(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func plannerTestRequest(t *testing.T, roles []domain.Role) PlanningRequest {
+	t.Helper()
 	target, err := ports.NewCapturedReviewPatchTarget([]byte("diff --git a/a b/a\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -257,11 +301,7 @@ func plannerTestPlan(t *testing.T, planner ExecutionPlanner, roles []domain.Role
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := planner.Plan(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return plan
+	return request
 }
 
 func plannerTestAssignments(plan ExecutionPlan) ([]string, []bool) {
@@ -272,6 +312,57 @@ func plannerTestAssignments(plan ExecutionPlan) ([]string, []bool) {
 		fallbacks[index] = assignment.HasFallback()
 	}
 	return instances, fallbacks
+}
+
+func plannerTestRouteInstances(plan ExecutionPlan) ([]string, []string) {
+	primary := make([]string, len(plan.Assignments))
+	fallback := make([]string, len(plan.Assignments))
+	for index, assignment := range plan.Assignments {
+		primary[index] = assignment.PrimaryRoute().ProviderInstance()
+		if route, ok := assignment.FallbackRoute(); ok {
+			fallback[index] = route.ProviderInstance()
+		}
+	}
+	return primary, fallback
+}
+
+func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
+	t.Helper()
+	configured := make(map[Family]struct{}, len(families))
+	for _, family := range families {
+		configured[family] = struct{}{}
+	}
+	pick := func(preferences []Family) (Family, Family) {
+		selected := make([]Family, 0, 2)
+		for _, family := range preferences {
+			if _, ok := configured[family]; ok {
+				selected = append(selected, family)
+				if len(selected) == 2 {
+					break
+				}
+			}
+		}
+		if len(selected) == 1 {
+			return selected[0], ""
+		}
+		return selected[0], selected[1]
+	}
+	policy := DefaultPlannerPolicy()
+	for _, role := range domain.FixedRoleOrder() {
+		preferences := []Family{FamilyZCode, FamilyAGY, FamilyKimi}
+		if role == domain.RoleLogic {
+			preferences = []Family{FamilyKimi, FamilyZCode, FamilyAGY}
+		} else if role == domain.RoleDocumentation {
+			preferences = []Family{FamilyAGY, FamilyZCode, FamilyKimi}
+		}
+		primary, fallback := pick(preferences)
+		assignment, err := NewRoleProviderAssignment(role, primary, fallback)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy.Assignments = append(policy.Assignments, assignment)
+	}
+	return policy
 }
 
 func plannerTestRoute(t *testing.T, family Family, instance, lane string, roles []domain.Role) QualifiedRoute {

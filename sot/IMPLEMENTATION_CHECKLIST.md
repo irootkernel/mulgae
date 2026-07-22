@@ -138,11 +138,11 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 
 ### Planning, fallback, and reporting
 
-- [ ] Resolve configured family assignments to current qualified provider routes exactly; reject an absent or unqualified configured primary/fallback instead of silently substituting another family.
-- [ ] Preserve the primary result without invoking fallback when primary execution produces valid output, including a valid finding.
-- [ ] Schedule configured fallback only for `unavailable`, `timeout`, `authentication`, `quota`, `rate_limit`, or invalid output after its single constrained repair is exhausted.
-- [ ] Forbid fallback for security-policy, configuration, artifact, cancellation, internal, mutation, and valid-finding outcomes.
-- [ ] Preserve primary failure attempts and fallback attempts, and report the successful fallback role as `selected_via=fallback` with matching P2 lineage and exit projection.
+- [x] Resolve configured family assignments to current qualified provider routes exactly; reject an absent or unqualified configured primary/fallback instead of silently substituting another family. Evidence: `TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix` and `TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified`.
+- [x] Preserve the primary result without invoking fallback when primary execution produces valid output, including a valid finding. Evidence: `TestCoordinatorDeterministicBoundedConcurrentExecution/valid-request-changes-no-fallback`.
+- [x] Schedule configured fallback only for `unavailable`, `timeout`, `authentication`, `quota`, `rate_limit`, or invalid output after its single constrained repair is exhausted. Evidence: `TestDecideTransitionExhaustiveMatrix` and coordinator repair/fallback order tests.
+- [x] Forbid fallback for security-policy, configuration, artifact, cancellation, internal, mutation, and valid-finding outcomes. Evidence: the exhaustive transition matrix and coordinator terminal-path tests.
+- [x] Preserve primary failure attempts and fallback attempts, and report the successful fallback role as `selected_via=fallback` with matching P2 lineage and exit projection. Evidence: `TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy`, publication candidate invariants, and report manifest reconciliation tests.
 
 ### Production workflows
 

@@ -51,7 +51,7 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 	adapter, err := NewRunAuthorityAdapter(
 		qualified,
 		authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}},
-		PlannerPolicy{},
+		plannerTestCanonicalPolicy(t, []Family{FamilyAGY}),
 		BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"},
 	)
 	if err != nil {
@@ -89,7 +89,9 @@ func TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, PlannerPolicy{MaxLanes: -1}, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
+	policy.MaxLanes = -1
+	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,9 @@ func TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, PlannerPolicy{MaxLanes: -1}, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
+	policy.MaxLanes = -1
+	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
 	if err != nil {
 		t.Fatal(err)
 	}

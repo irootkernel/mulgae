@@ -98,13 +98,37 @@ func (route QualifiedRoute) Valid() bool {
 	return err == nil
 }
 
-// PlannerPolicy supplies trusted execution limits and outcome policy. Zero
-// threshold, ceilings, and lane count select the closed defaults.
+// RoleProviderAssignment is the configured provider-family route for one role.
+// An empty fallback family means that the configured provider set is a singleton.
+type RoleProviderAssignment struct {
+	role     domain.Role
+	primary  Family
+	fallback Family
+}
+
+// NewRoleProviderAssignment validates one explicit Config v2 assignment.
+func NewRoleProviderAssignment(role domain.Role, primary, fallback Family) (RoleProviderAssignment, error) {
+	if !role.Valid() || !primary.Valid() || (fallback != "" && (!fallback.Valid() || fallback == primary)) {
+		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
+	}
+	return RoleProviderAssignment{role: role, primary: primary, fallback: fallback}, nil
+}
+
+func (assignment RoleProviderAssignment) Role() domain.Role { return assignment.role }
+func (assignment RoleProviderAssignment) Primary() Family   { return assignment.primary }
+func (assignment RoleProviderAssignment) Fallback() (Family, bool) {
+	return assignment.fallback, assignment.fallback != ""
+}
+
+// PlannerPolicy supplies trusted execution limits, explicit Config v2
+// provider assignments, and outcome policy. Zero threshold, ceilings, and lane
+// count select the closed defaults; assignments never default.
 type PlannerPolicy struct {
-	Ceilings  review.HarnessCeilings
-	Threshold domain.Severity
-	Policy    *domain.CIPolicy
-	MaxLanes  int
+	Ceilings    review.HarnessCeilings
+	Threshold   domain.Severity
+	Policy      *domain.CIPolicy
+	MaxLanes    int
+	Assignments []RoleProviderAssignment
 }
 
 // DefaultPlannerPolicy returns the closed planner policy used when no narrower
@@ -161,84 +185,63 @@ func (planner *qualifiedPlanner) Plan(ctx context.Context, request PlanningReque
 	if _, err := NewRunSelection(roles, nil); err != nil {
 		return ExecutionPlan{}, fmt.Errorf("review run: invalid planning request: %w", err)
 	}
-	candidates := make([][]QualifiedRoute, len(roles))
-	for index, role := range roles {
-		for _, route := range planner.routes {
-			if route.Supports(role) {
-				candidates[index] = append(candidates[index], route)
-			}
-		}
-		if len(candidates[index]) == 0 {
-			return ExecutionPlan{}, fmt.Errorf("review run: no qualified route for role %q", role)
-		}
-	}
-
-	var best *plannedCandidate
 	primaries := make([]QualifiedRoute, len(roles))
-	var choosePrimaries func(int) error
-	choosePrimaries = func(index int) error {
-		if err := ctx.Err(); err != nil {
-			return err
+	fallbacks := make([]*QualifiedRoute, len(roles))
+	for index, role := range roles {
+		configured, ok := planner.configuredAssignment(role)
+		if !ok {
+			return ExecutionPlan{}, fmt.Errorf("review run: no configured provider assignment for role %q", role)
 		}
-		if index == len(roles) {
-			return planner.chooseFallbacks(roles, primaries, &best, ctx)
+		primary, err := planner.configuredRoute(role, configured.primary)
+		if err != nil {
+			return ExecutionPlan{}, err
 		}
-		for _, route := range candidates[index] {
-			primaries[index] = route
-			if err := choosePrimaries(index + 1); err != nil {
-				return err
+		primaries[index] = primary
+		if configured.fallback != "" {
+			fallback, err := planner.configuredRoute(role, configured.fallback)
+			if err != nil {
+				return ExecutionPlan{}, err
 			}
+			fallbacks[index] = &fallback
 		}
-		return nil
 	}
-	if err := choosePrimaries(0); err != nil {
+	plan, err := planner.makeConfiguredPlan(roles, primaries, fallbacks)
+	if err != nil {
 		return ExecutionPlan{}, err
 	}
-	if best == nil {
-		return ExecutionPlan{}, fmt.Errorf("review run: no feasible qualified execution plan")
-	}
-	return best.plan.clone(), nil
+	return plan.clone(), nil
 }
 
-func (planner *qualifiedPlanner) chooseFallbacks(roles []domain.Role, primaries []QualifiedRoute, best **plannedCandidate, ctx context.Context) error {
-	fallbacks := make([]*QualifiedRoute, len(roles))
-	var choose func(int) error
-	choose = func(index int) error {
-		if err := ctx.Err(); err != nil {
-			return err
+func (planner *qualifiedPlanner) configuredAssignment(role domain.Role) (RoleProviderAssignment, bool) {
+	for _, assignment := range planner.policy.Assignments {
+		if assignment.role == role {
+			return assignment, true
 		}
-		if index == len(roles) {
-			candidate, ok := planner.makeCandidate(roles, primaries, fallbacks)
-			if ok && (*best == nil || candidate.betterThan(**best, roles)) {
-				*best = &candidate
-			}
-			return nil
-		}
-		// A singleton has no safe fallback. When distinct routes exist, enumerate
-		// both the resilient and null shapes; preflight selects the feasible one.
-		if err := choose(index + 1); err != nil {
-			return err
-		}
-		for _, route := range planner.routes {
-			if !route.Supports(roles[index]) || !distinctRoutes(primaries[index], route) {
-				continue
-			}
-			fallback := route
-			fallbacks[index] = &fallback
-			if err := choose(index + 1); err != nil {
-				return err
-			}
-		}
-		fallbacks[index] = nil
-		return nil
 	}
-	return choose(0)
+	return RoleProviderAssignment{}, false
 }
 
-func (planner *qualifiedPlanner) makeCandidate(roles []domain.Role, primaries []QualifiedRoute, fallbacks []*QualifiedRoute) (plannedCandidate, bool) {
+func (planner *qualifiedPlanner) configuredRoute(role domain.Role, family Family) (QualifiedRoute, error) {
+	var matched *QualifiedRoute
+	for _, route := range planner.routes {
+		if route.Qualification().Identity().Family != family || !route.Supports(role) {
+			continue
+		}
+		if matched != nil {
+			return QualifiedRoute{}, fmt.Errorf("review run: multiple qualified %s routes for role %q", family, role)
+		}
+		copy := route
+		matched = &copy
+	}
+	if matched == nil {
+		return QualifiedRoute{}, fmt.Errorf("review run: configured %s route is not qualified for role %q", family, role)
+	}
+	return *matched, nil
+}
+
+func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primaries []QualifiedRoute, fallbacks []*QualifiedRoute) (ExecutionPlan, error) {
 	assignments := make([]review.Assignment, 0, len(roles))
 	budgets := make([]review.RoleBudget, 0, len(roles))
-	fallbackCount := 0
 	for index, role := range roles {
 		var fallbackRoute *ports.ProviderRoute
 		var fallbackBudget *review.RouteBudget
@@ -246,68 +249,29 @@ func (planner *qualifiedPlanner) makeCandidate(roles []domain.Role, primaries []
 			route := fallback.Route()
 			budget, err := review.NewRouteBudget(route, fallback.Limits())
 			if err != nil {
-				return plannedCandidate{}, false
+				return ExecutionPlan{}, err
 			}
 			fallbackRoute, fallbackBudget = &route, &budget
-			fallbackCount++
 		}
 		assignment, err := review.NewScheduledAssignment(role, role.RequiredFloor(), primaries[index].Route(), fallbackRoute)
 		if err != nil {
-			return plannedCandidate{}, false
+			return ExecutionPlan{}, err
 		}
 		primaryBudget, err := review.NewRouteBudget(primaries[index].Route(), primaries[index].Limits())
 		if err != nil {
-			return plannedCandidate{}, false
+			return ExecutionPlan{}, err
 		}
 		budget, err := review.NewRoleBudget(role, primaryBudget, fallbackBudget)
 		if err != nil {
-			return plannedCandidate{}, false
+			return ExecutionPlan{}, err
 		}
 		assignments, budgets = append(assignments, assignment), append(budgets, budget)
 	}
 	plan := ExecutionPlan{Assignments: assignments, Budgets: budgets, Ceilings: planner.policy.Ceilings, Threshold: planner.policy.Threshold, Policy: planner.policy.Policy, MaxLanes: planner.policy.MaxLanes}
 	if _, err := validatePlan(plan, roles); err != nil {
-		return plannedCandidate{}, false
+		return ExecutionPlan{}, err
 	}
-	return plannedCandidate{plan: plan, primaries: append([]QualifiedRoute(nil), primaries...), fallbacks: append([]*QualifiedRoute(nil), fallbacks...), fallbackCount: fallbackCount}, true
-}
-
-type plannedCandidate struct {
-	plan          ExecutionPlan
-	primaries     []QualifiedRoute
-	fallbacks     []*QualifiedRoute
-	fallbackCount int
-}
-
-func (candidate plannedCandidate) betterThan(other plannedCandidate, roles []domain.Role) bool {
-	candidateDistinct := logicSecurityDistinct(candidate.primaries, roles)
-	otherDistinct := logicSecurityDistinct(other.primaries, roles)
-	if candidateDistinct != otherDistinct {
-		return candidateDistinct
-	}
-	if candidate.fallbackCount != other.fallbackCount {
-		return candidate.fallbackCount > other.fallbackCount
-	}
-	for index := range candidate.primaries {
-		if compared := compareQualifiedRoutes(candidate.primaries[index], other.primaries[index]); compared != 0 {
-			return compared < 0
-		}
-	}
-	for index := range candidate.fallbacks {
-		if candidate.fallbacks[index] == nil || other.fallbacks[index] == nil {
-			if candidate.fallbacks[index] != nil {
-				return true
-			}
-			if other.fallbacks[index] != nil {
-				return false
-			}
-			continue
-		}
-		if compared := compareQualifiedRoutes(*candidate.fallbacks[index], *other.fallbacks[index]); compared != 0 {
-			return compared < 0
-		}
-	}
-	return false
+	return plan, nil
 }
 
 func normalizePlannerPolicy(policy PlannerPolicy) (PlannerPolicy, error) {
@@ -324,11 +288,21 @@ func normalizePlannerPolicy(policy PlannerPolicy) (PlannerPolicy, error) {
 	if !policy.Ceilings.Valid() || !policy.Threshold.Valid() || policy.MaxLanes < 1 {
 		return PlannerPolicy{}, fmt.Errorf("review run: invalid planner policy")
 	}
+	if len(policy.Assignments) != len(domain.FixedRoleOrder()) {
+		return PlannerPolicy{}, fmt.Errorf("review run: planner policy requires six configured assignments")
+	}
+	for index, role := range domain.FixedRoleOrder() {
+		assignment := policy.Assignments[index]
+		if assignment.role != role || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
+			return PlannerPolicy{}, fmt.Errorf("review run: invalid configured assignment for role %q", role)
+		}
+	}
 	return policy, nil
 }
 
 func clonePlannerPolicy(policy PlannerPolicy) PlannerPolicy {
 	result := policy
+	result.Assignments = append([]RoleProviderAssignment(nil), policy.Assignments...)
 	if policy.Policy != nil {
 		copy := *policy.Policy
 		result.Policy = &copy
@@ -394,21 +368,4 @@ func compareQualifiedRoutes(left, right QualifiedRoute) int {
 		return 1
 	}
 	return 0
-}
-
-func distinctRoutes(left, right QualifiedRoute) bool {
-	return left.route.ProviderInstance() != right.route.ProviderInstance() && left.route.ConcurrencyKey().String() != right.route.ConcurrencyKey().String()
-}
-
-func logicSecurityDistinct(routes []QualifiedRoute, roles []domain.Role) bool {
-	logic, security := -1, -1
-	for index, role := range roles {
-		switch role {
-		case domain.RoleLogic:
-			logic = index
-		case domain.RoleSecurity:
-			security = index
-		}
-	}
-	return logic >= 0 && security >= 0 && distinctRoutes(routes[logic], routes[security])
 }

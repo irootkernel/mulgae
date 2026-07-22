@@ -515,12 +515,19 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production limits are invalid", err)
 	}
 	enabled := make(map[domain.Role]bool, len(domain.FixedRoleOrder()))
+	assignments := make([]reviewrun.RoleProviderAssignment, 0, len(domain.FixedRoleOrder()))
 	for _, role := range domain.FixedRoleOrder() {
 		definition, present := resolved.Role(role)
 		if !present {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role policy is incomplete", nil)
 		}
 		enabled[role] = definition.Enabled()
+		fallback, _ := definition.FallbackProvider()
+		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()), reviewrun.Family(fallback))
+		if err != nil {
+			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role provider assignment is invalid", err)
+		}
+		assignments = append(assignments, assignment)
 	}
 	ci := domain.CIPolicy{
 		RequestChangesFails:   true,
@@ -533,7 +540,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 	}
 	return productionRunPolicy{
 		planner: reviewrun.PlannerPolicy{
-			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes,
+			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes, Assignments: assignments,
 		},
 		requiredRoles:     resolved.RequiredRoles(),
 		enabledRoles:      enabled,
