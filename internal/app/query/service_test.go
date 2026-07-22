@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -1914,6 +1915,51 @@ func TestQueryDependencyCancellationNeverReturnsNilOrHidesHigherPrecedence(t *te
 				t.Fatalf("class = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestQueryFailureReductionUsesOperationalPrecedenceInBothJoinOrders(t *testing.T) {
+	classes := []domain.FailureClass{
+		domain.FailureInternal,
+		domain.FailureSecurityPolicy,
+		domain.FailureArtifact,
+		domain.FailureCancelled,
+		domain.FailureConfiguration,
+		domain.FailureProviderUnavailable,
+		domain.FailureTimeout,
+		domain.FailureAuthentication,
+		domain.FailureQuota,
+		domain.FailureRateLimit,
+		domain.FailureInvalidOutput,
+	}
+	newFailure := func(class domain.FailureClass) error {
+		failure, err := domain.NewFailure("query.test", class, "dependency failure", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	for firstIndex, first := range classes {
+		for _, second := range classes[firstIndex+1:] {
+			firstRank := coreapp.FailurePrecedence(first)
+			secondRank := coreapp.FailurePrecedence(second)
+			if firstRank == secondRank {
+				continue
+			}
+			want := first
+			if secondRank > firstRank {
+				want = second
+			}
+			for _, failures := range [][]error{
+				{newFailure(first), newFailure(second)},
+				{newFailure(second), newFailure(first)},
+			} {
+				got := reduceDependencyFailureClass(context.Background(), errors.Join(failures...), domain.FailureArtifact)
+				if got != want {
+					t.Errorf("reduced class for %q/%q = %q, want %q", first, second, got, want)
+				}
+			}
+		}
 	}
 }
 

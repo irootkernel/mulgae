@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
 	appevidence "github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -965,12 +966,12 @@ func reduceReportFailure(err error) reportFailureSelection {
 
 	selection := reportFailureSelection{rank: -1}
 	for _, candidate := range candidates {
-		if rank := reportFailurePrecedence(candidate.class); rank > selection.rank {
+		if rank := coreapp.FailurePrecedence(candidate.class); rank > selection.rank {
 			selection.rank = rank
 		}
 	}
 	for _, candidate := range candidates {
-		if reportFailurePrecedence(candidate.class) != selection.rank {
+		if coreapp.FailurePrecedence(candidate.class) != selection.rank {
 			continue
 		}
 		if candidate.class != domain.FailureProviderUnavailable || !candidate.readiness {
@@ -1006,30 +1007,6 @@ func reportReadinessState(failure *domain.Failure) (string, bool) {
 	}
 }
 
-func reportFailurePrecedence(class domain.FailureClass) int {
-	switch class {
-	case domain.FailureInternal:
-		return 7
-	case domain.FailureSecurityPolicy:
-		return 6
-	case domain.FailureArtifact:
-		return 5
-	case domain.FailureCancelled:
-		return 4
-	case domain.FailureConfiguration:
-		return 3
-	case domain.FailureProviderUnavailable,
-		domain.FailureTimeout,
-		domain.FailureAuthentication,
-		domain.FailureQuota,
-		domain.FailureRateLimit:
-		return 2
-	case domain.FailureInvalidOutput:
-		return 1
-	default:
-		return 0
-	}
-}
 func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bool {
 	claim, err := appevidence.NewCurrentClaim(appevidence.CurrentClaimInput{
 		TargetSHA256: item.TargetSHA256(),

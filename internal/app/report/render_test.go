@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -324,30 +325,35 @@ func TestRenderPreservesExcerptFailureOverConcurrentCancellation(t *testing.T) {
 }
 
 func TestReportFailureReductionUsesOperationalPrecedenceInBothJoinOrders(t *testing.T) {
-	ordered := []struct {
-		class domain.FailureClass
-		rank  int
-	}{
-		{domain.FailureInternal, 7},
-		{domain.FailureSecurityPolicy, 6},
-		{domain.FailureArtifact, 5},
-		{domain.FailureCancelled, 4},
-		{domain.FailureConfiguration, 3},
-		{domain.FailureProviderUnavailable, 2},
+	classes := []domain.FailureClass{
+		domain.FailureInternal,
+		domain.FailureSecurityPolicy,
+		domain.FailureArtifact,
+		domain.FailureCancelled,
+		domain.FailureConfiguration,
+		domain.FailureProviderUnavailable,
+		domain.FailureTimeout,
+		domain.FailureAuthentication,
+		domain.FailureQuota,
+		domain.FailureRateLimit,
+		domain.FailureInvalidOutput,
 	}
-	for higherIndex, higher := range ordered {
-		for _, lower := range ordered[higherIndex+1:] {
-			name := string(higher.class) + "_over_" + string(lower.class)
+	for firstIndex, first := range classes {
+		for _, second := range classes[firstIndex+1:] {
+			firstRank := coreapp.FailurePrecedence(first)
+			secondRank := coreapp.FailurePrecedence(second)
+			if firstRank == secondRank {
+				continue
+			}
+			wantRank := max(firstRank, secondRank)
 			for _, failures := range [][]error{
-				{mustReportFailure(t, higher.class, "higher precedence"), mustReportFailure(t, lower.class, "lower precedence")},
-				{mustReportFailure(t, lower.class, "lower precedence"), mustReportFailure(t, higher.class, "higher precedence")},
+				{mustReportFailure(t, first, "first failure"), mustReportFailure(t, second, "second failure")},
+				{mustReportFailure(t, second, "second failure"), mustReportFailure(t, first, "first failure")},
 			} {
-				t.Run(name, func(t *testing.T) {
-					selection := reduceReportFailure(errors.Join(failures...))
-					if selection.rank != higher.rank {
-						t.Fatalf("reduced rank = %d, want %d", selection.rank, higher.rank)
-					}
-				})
+				selection := reduceReportFailure(errors.Join(failures...))
+				if selection.rank != wantRank {
+					t.Errorf("reduced rank for %q/%q = %d, want %d", first, second, selection.rank, wantRank)
+				}
 			}
 		}
 	}

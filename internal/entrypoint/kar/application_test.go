@@ -2465,6 +2465,44 @@ func TestExecutionFailurePreservesClosedLocalityReason(t *testing.T) {
 	}
 }
 
+func TestLiveFailureReductionUsesOperationalPrecedenceInBothJoinOrders(t *testing.T) {
+	classes := []domain.FailureClass{
+		domain.FailureInternal,
+		domain.FailureSecurityPolicy,
+		domain.FailureArtifact,
+		domain.FailureCancelled,
+		domain.FailureConfiguration,
+		domain.FailureProviderUnavailable,
+		domain.FailureTimeout,
+		domain.FailureAuthentication,
+		domain.FailureQuota,
+		domain.FailureRateLimit,
+		domain.FailureInvalidOutput,
+	}
+	for firstIndex, first := range classes {
+		for _, second := range classes[firstIndex+1:] {
+			firstRank := app.FailurePrecedence(first)
+			secondRank := app.FailurePrecedence(second)
+			if firstRank == secondRank {
+				continue
+			}
+			want := first
+			if secondRank > firstRank {
+				want = second
+			}
+			for _, failures := range [][]error{
+				{mustG006Failure(t, first), mustG006Failure(t, second)},
+				{mustG006Failure(t, second), mustG006Failure(t, first)},
+			} {
+				got := reducedFailureClass(errors.Join(failures...), domain.FailureArtifact)
+				if got != want {
+					t.Errorf("reduced class for %q/%q = %q, want %q", first, second, got, want)
+				}
+			}
+		}
+	}
+}
+
 func TestG006OperationalFailureExitPrecedence(t *testing.T) {
 	internal := mustG006Failure(t, domain.FailureInternal)
 	artifact := mustG006Failure(t, domain.FailureArtifact)

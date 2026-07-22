@@ -1301,31 +1301,12 @@ func reducedFailureClass(err error, fallback domain.FailureClass) domain.Failure
 	selected := domain.FailureInternal
 	selectedRank := -1
 	for _, class := range classes {
-		if rank := failurePrecedence(class); rank > selectedRank {
+		if rank := app.FailurePrecedence(class); rank > selectedRank {
 			selected = class
 			selectedRank = rank
 		}
 	}
 	return selected
-}
-
-func failurePrecedence(class domain.FailureClass) int {
-	switch class {
-	case domain.FailureInternal:
-		return 7
-	case domain.FailureSecurityPolicy:
-		return 6
-	case domain.FailureArtifact:
-		return 5
-	case domain.FailureCancelled:
-		return 4
-	case domain.FailureConfiguration:
-		return 3
-	case domain.FailureProviderUnavailable, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
-		return 2
-	default:
-		return 7
-	}
 }
 
 func requestedExit(class domain.FailureClass) app.ExitCode {

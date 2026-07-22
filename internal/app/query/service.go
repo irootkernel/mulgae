@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -2222,7 +2223,7 @@ func reduceDependencyFailureClass(
 	selected := fallback
 	selectedRank := -1
 	for _, class := range classes {
-		if rank := queryFailurePrecedence(class); rank > selectedRank {
+		if rank := coreapp.FailurePrecedence(class); rank > selectedRank {
 			selected = class
 			selectedRank = rank
 		}
@@ -2230,30 +2231,6 @@ func reduceDependencyFailureClass(
 	return selected
 }
 
-func queryFailurePrecedence(class domain.FailureClass) int {
-	switch class {
-	case domain.FailureInternal:
-		return 7
-	case domain.FailureSecurityPolicy:
-		return 6
-	case domain.FailureArtifact:
-		return 5
-	case domain.FailureCancelled:
-		return 4
-	case domain.FailureConfiguration:
-		return 3
-	case domain.FailureProviderUnavailable,
-		domain.FailureTimeout,
-		domain.FailureAuthentication,
-		domain.FailureQuota,
-		domain.FailureRateLimit:
-		return 2
-	case domain.FailureInvalidOutput:
-		return 1
-	default:
-		return 0
-	}
-}
 func samePublicationDecision(first, second domain.PublicationDecision) bool {
 	if first.Status() != second.Status() ||
 		first.Authority() != second.Authority() ||
