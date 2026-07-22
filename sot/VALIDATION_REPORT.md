@@ -1,6 +1,6 @@
 # Package Validation Report
 
-**Specification version:** 1.9.1
+**Specification version:** 1.10.0
 **Status date:** 2026-07-22
 
 ## G0 Contract and Implementation Baseline
@@ -13,11 +13,11 @@
 | Checksummed payloads | 84; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 25 |
 | Decision Readiness | **READY** |
-| Implementation Status | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** |
+| Implementation Status | **IMPLEMENTATION_IN_PROGRESS** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
 
-This SOT 1.9.1 report records the preserved Revision 14 contract, the project-local init/config contract, the historical integrated-gate classification **HISTORICAL_GATE_PASS_NON_PRODUCTION**, the family-and-capability provider policy, and provider version guidance in `doctor`. Offline verification covers the generated init outcome matrix and exact private-target reasons; it does not close production review. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.
+This SOT 1.10.0 report freezes G010 before implementation. It requires Config v2 role-owned primary/fallback family assignments, production composition for all four workflows, race unit/integration gates, and a non-skipping real Kimi/ZCode/AGY E2E gate. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and does not complete G010. Current implementation status is **IMPLEMENTATION_IN_PROGRESS**.
 
 ## G0 Evidence Status
 
@@ -54,6 +54,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **IMPLEMENTATION_IN_PROGRESS** | `g010` |
 
 ## Current Project-local Contract Coverage
 
@@ -71,7 +72,7 @@ three providers and new/existing root-barrier failure plus retry projections.
 
 ## Historical G009 Integrated v0.1 Gate Evidence
 
-Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence from the four-workflow end-to-end execution rather than current production closure proof, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. Historical full `go test`, `go vet`, and race verification passed with zero recorded P0 blockers. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified.
+Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. It remains historical and does not satisfy any unchecked G010 item.
 
 The retained controlled Kimi receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`. Its append-only ledger receipt remains untouched, and byte-identical repository copies are indexed by `artifacts/historical/g009/manifest.json`: receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. It is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
 
@@ -79,8 +80,8 @@ The controlled provider attempt history also records two later opt-in retries on
 
 ## Readiness and Publication Boundary
 
-The G001 authority and implementation prerequisites were completed before G002 product code. The recorded G001–G009 evidence is historical; the historical integrated-gate classification is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but current completion remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release asset or release publication is authorized by this report: no release assets were created, and publication requires separate approval. Future platforms remain unsupported and release-ineligible.
+The recorded G001–G009 evidence is historical. G010 is **IMPLEMENTATION_IN_PROGRESS** and this report does not claim release readiness. Future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.9.0 reports remain historical baselines. SOT 1.9.1 carries forward their contract assertions, preserves family-and-capability provider support, and records the reopened production-review status; current checksums and repository tests are authoritative for this revision.
+The 1.0.0 through 1.9.1 reports remain historical baselines. SOT 1.10.0 freezes the G010 contract before implementation; current checksums and the G010 checklist are authoritative for this revision.

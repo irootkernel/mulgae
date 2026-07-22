@@ -25,15 +25,28 @@ provider qualification, and provider execution.
 
 An exact `.kar/config.yaml` target reports `target_private_config_forbidden`; `.kar` itself and every other descendant report `target_private_namespace_forbidden`. Both are reason-only security failures at exit `8`. Prose and malformed patch-like input do not trigger either reason.
 
-## Canonical YAML v1
+## Canonical YAML v2
 
-The document has `version: 1` and the sections `project`, `native_user`,
+The document has `version: 2` and the sections `project`, `native_user`,
 `providers`, `execution`, `roles`, `review`, `validation`, `resources`, and
 `ci`. `providers` contains any nonempty subset of `kimi`, `zcode`, and `agy`.
 Provider commands are family-specific fields; generic argv, environment, shell,
 and credential fields do not exist. `execution.workspace_access` is required and
 may only be `none` or `readonly_snapshot`; omission is rejected. `kar init`
 explicitly writes `none` into every newly created configuration.
+
+Each fixed role contains `enabled`, `primary_provider`, and, except for a
+singleton provider configuration, `fallback_provider`. Both provider values are
+family IDs from the configured nonempty subset. They must differ. Version 1 is
+rejected without migration or compatibility fallback.
+
+With all three families, init writes `logic=kimi/zcode`,
+`documentation=agy/zcode`, and
+`security|maintainability|product|testing=zcode/agy`, where each pair is
+`primary/fallback`. For subsets it selects the first two configured families
+from `kimi,zcode,agy` for logic, `agy,zcode,kimi` for documentation, and
+`zcode,agy,kimi` for the other roles. A singleton uses the sole family as
+primary and has no fallback.
 
 Parsing is strict: one UTF-8 YAML document, exact keys, no aliases, tags, merges,
 duplicates, nulls, placeholders, controls, or unknown fields. Canonical output

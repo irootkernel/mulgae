@@ -50,10 +50,14 @@
 | D-044 | Any nonempty subset of `kimi,zcode,agy` is operational | Accepted | Singleton assignment uses null fallbacks and reports degraded resilience at exit `0`; missing primaries remain unavailable |
 | D-045 | Provider-native state is projected from configured roots and AGY privilege is explicit | Accepted | Kimi and ZCode use configured descriptor-bound sources. AGY uses the installed-user home and explicit permission mode with no probing or automatic escalation |
 | D-046 | Init and review locality are immutable barriers | Accepted | Init crosses durability barriers before commit. Review binds checkout/index, applicable commits, target bytes, config identity, qualification, and every spawn; drift fails closed. Pure native-home observation cancellation aborts init/config/doctor at exit 9 without admitting identity or emitting partial authority. Help is repository-independent because it renders only embedded documentation and reads no configuration. |
+| D-047 | Config v2 explicitly owns each role's primary and fallback family | Accepted | Removes ambiguous planner-selected family preference while retaining qualification and lane authority in KAR |
+| D-048 | Configured fallback is failure-only, not comparison or consensus | Accepted | Valid primary output, including findings, terminates the role without result shopping |
+| D-049 | Followup and exact rerun remain source-provider bound | Accepted | Source finding and exact replay identity take precedence over current configured fallback; review, delta, and recomposed rerun use current assignments |
+| D-050 | `make test` is the sole technical release-ready gate | Accepted | Race unit/integration plus non-skipping real-provider E2E replace separate offline, race, release, or retained-receipt gates |
 
 ## 1.1 Current Decision and Implementation Status
 
-D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-046 define the current project-local authority, provider-subset, provider-state, and locality contracts. Production closure remains separately gated by current offline, authority, and family-distinct P2 evidence. The earlier G001 authority record remains historical evidence, not a production `kar review` closure.
+D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. G010 remains `IMPLEMENTATION_IN_PROGRESS` until its final-tree `make test` passes.
 
 The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Historical evidence remains qualification provenance, not current closure. The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs. Production closure remains incomplete pending separately required current evidence. Only `darwin-arm64` is supported; future platforms remain unsupported and release-ineligible.
 

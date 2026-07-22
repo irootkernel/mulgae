@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records Revision 14 under SOT 1.9.1. Decision Readiness remains **READY**; G001–G008 retain historical completion evidence, while G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. Prior G009 evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
+This roadmap records SOT 1.10.0. Decision Readiness remains **READY**; G001–G009 retain historical evidence and G010 is `IMPLEMENTATION_IN_PROGRESS`.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -15,10 +15,13 @@ This roadmap records Revision 14 under SOT 1.9.1. Decision Readiness remains **R
 | G007 | G4 opt-in provider adapters | **COMPLETE** |
 | G008 | G5 lineage, cleanup, export | **COMPLETE** |
 | G009 | Production review verification | `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` |
+| G010 | Config-driven multi-provider production release gate | `IMPLEMENTATION_IN_PROGRESS` |
+
+G010 executes sequentially: SOT freeze; Config v2; configured planning and fallback; production child-workflow composition; real-provider E2E and Makefile gate; final-tree closeout.
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, 25 schema/example pairs, 18 additive G0-required pairs, and 7 frozen-v1 pairs. The separately accepted G002–G008 stories are complete. Prior G009 repository test, `go vet`, race, cleaner, executor-QA, architect-review, and integrated-gate evidence categories are retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; they do not establish current production verification. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, 25 schema/example pairs, 18 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009 evidence remains `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G010 completion depends only on its explicit checklist and final `make test`.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -107,7 +110,7 @@ G008 acceptance:
 - dry-run/apply uses fixed epoch and exact plan hash; stale plans fail rather than recompute;
 - export and cleanup use secure paths, reject symlink escape, and keep redaction/export ownership in their application and adapter boundaries.
 
-G008 completion is not the integrated production-review verification gate. Its final Go, `go vet`, race, cleaner, executor QA, and architect-review receipts are retained with the durable G008 checkpoint. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior integrated-gate evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION` and does not establish current production verification. Production `kar review` is composed and wired, but remains incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`. No release assets or actions are authorized.
+G008 completion is not the G010 production gate. Its evidence remains historical; G010 uses configured assignments, production child workflows, and real-provider E2E.
 
 ## 8. G6: Future Platform Support Hardening
 
@@ -135,4 +138,4 @@ The following block release or promotion:
 - mutable completed artifacts, non-atomic final writes, stale cleanup application, or CAS retry with altered expected state;
 - absent source/current evidence identity, unversioned machine output, or secret persistence.
 - failure of `G0_EXTERNAL_JOIN_ORACLE`; intended-future cells do not block G0 and remain release-ineligible.
-- release CI, asset creation, or publication without separate approval; no release asset or action is authorized. G009 is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; its prior evidence is `HISTORICAL_GATE_PASS_NON_PRODUCTION`, and production `kar review` is composed and wired but incomplete and unverified pending all required offline and authority gates plus three family-distinct normal P2 receipts for `kimi`, `zcode`, and `agy`.
+- failure of the exact final-tree G010 `make test`; tagging or publishing remains an explicit operator action after technical release readiness.

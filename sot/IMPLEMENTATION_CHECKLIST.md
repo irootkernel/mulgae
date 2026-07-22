@@ -2,7 +2,7 @@
 
 **Status date:** 2026-07-22
 
-SOT 1.9.1 records historical implementation evidence after `g0_complete`; it does not claim current production completion. Production `kar review` composition is wired, but the current production-review status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. Historical integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and append-only. The current provider policy remains unchanged: `kimi`, `zcode`, and `agy` are supported by family and runtime capability contract, while version/path/SHA/profile are diagnostic provenance rather than authorization gates. On macOS, AGY native authentication remains an incomplete production-review requirement: it uses the installed user's captured and inode-revalidated `HOME`/Keychain context without synthetic-home credential projection or user-home mutation; AGY's minimum version is 1.1.4, and this boundary does not establish live P2 success. `doctor` reports installed versions against the initial minimum/verified-latest baselines with red, green, and yellow guidance without denying newer identities. No release assets were authorized or created, and release publication remains subject to separate approval.
+SOT 1.10.0 preserves historical G001–G009 evidence and opens G010 as the current implementation ledger. G010 is **IMPLEMENTATION_IN_PROGRESS**: no unchecked item below may be treated as delivered, and `RELEASE_READY` may be recorded only after the exact final-tree `make test` succeeds. Historical evidence and `.gjc/` remain append-only.
 
 ## Goal Completion Snapshot
 
@@ -17,8 +17,9 @@ SOT 1.9.1 records historical implementation evidence after `g0_complete`; it doe
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **IMPLEMENTATION_IN_PROGRESS** | `g010` |
 
-The checked items below preserve historical G001–G009 evidence. They do not establish current production completion: production `kar review` composition is wired, but **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** remains until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains a separate approval.
+The checked historical items below preserve G001–G009 evidence and do not establish G010 completion. Only the dedicated G010 section describes current work, and its unchecked items keep the implementation in progress.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -86,7 +87,7 @@ The checked items below preserve historical G001–G009 evidence. They do not es
 - [x] Serialize attempts by concurrency key.
 - [x] Add cross-process lane locking where supported.
 - [x] Implement fake providers before live adapters.
-- [ ] Production-reopened macOS AGY native-auth boundary: use only the captured and inode-revalidated installed-user `HOME`/Keychain context for AGY authentication; do not create a synthetic AGY `HOME`, project credentials, or copy OAuth or installation files. KAR's namespace setup, policy, and cleanup paths must not write, overwrite, zero, or unlink user AGY authentication/settings files; normal provider-owned Keychain/profile refresh may still occur during AGY execution. Preserve the descriptor-bound immutable review CWD and KAR-owned XDG/cache/temp/scratch namespaces; enforce `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. AGY's minimum version is 1.1.4. This remains incomplete pending full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts.
+- [ ] G010 macOS AGY native-auth boundary: use only the captured and inode-revalidated installed-user `HOME`/Keychain context for AGY authentication; do not create a synthetic AGY `HOME`, project credentials, or copy OAuth or installation files. KAR's namespace setup, policy, and cleanup paths must not write, overwrite, zero, or unlink user AGY authentication/settings files; normal provider-owned Keychain/profile refresh may still occur during AGY execution. Preserve the descriptor-bound immutable review CWD and KAR-owned XDG/cache/temp/scratch namespaces; enforce `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. AGY's minimum version is 1.1.4. Check this only after the non-skipping G010 AGY E2E passes.
 
 ## Artifacts
 
@@ -124,3 +125,39 @@ The checked items below preserve historical G001–G009 evidence. They do not es
 - [x] Preserve the append-only provider attempt history: two later 2026-07-18 retries each ended after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; retain those ledger events without replacing the earlier PASS.
 - [x] Keep G0 provider-family evidence for `kimi`, `zcode`, and `agy` separate from current support. Support those families by runtime capability contract without version, executable path, SHA, or profile allowlisting; retain those fields as diagnostic provenance, produce actionable typed capability diagnostics, explicitly block known incompatibilities only, reject unlisted families, and do not automatically substitute providers. Keep `darwin-arm64` as the sole supported platform.
 - [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but the current status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.
+
+## G010 Config-driven Multi-provider Production Gate
+
+### Contract and configuration
+
+- [x] Freeze SOT 1.10.0 with G010 status `IMPLEMENTATION_IN_PROGRESS`, the six-role primary/fallback matrix, workflow-specific fallback scope, and the exact `make test` release gate.
+- [ ] Implement canonical Config v2 and reject Config v1 without migration or compatibility fallback.
+- [ ] Require every role primary to reference a configured `kimi`, `zcode`, or `agy` family; require a distinct configured fallback whenever two or more families are configured; permit fallback omission only for a singleton.
+- [ ] Generate the canonical all-family matrix: `logic=kimi/zcode`, `documentation=agy/zcode`, and `security|maintainability|product|testing=zcode/agy`; deterministically reduce the same role preference order for provider subsets.
+- [ ] Expose only redacted role-family assignments through `kar config` and retain strict credential rejection.
+
+### Planning, fallback, and reporting
+
+- [ ] Resolve configured family assignments to current qualified provider routes exactly; reject an absent or unqualified configured primary/fallback instead of silently substituting another family.
+- [ ] Preserve the primary result without invoking fallback when primary execution produces valid output, including a valid finding.
+- [ ] Schedule configured fallback only for `unavailable`, `timeout`, `authentication`, `quota`, `rate_limit`, or invalid output after its single constrained repair is exhausted.
+- [ ] Forbid fallback for security-policy, configuration, artifact, cancellation, internal, mutation, and valid-finding outcomes.
+- [ ] Preserve primary failure attempts and fallback attempts, and report the successful fallback role as `selected_via=fallback` with matching P2 lineage and exit projection.
+
+### Production workflows
+
+- [ ] Run production `review`, `delta`, and recomposed `rerun` through current Config v2 primary/fallback assignments.
+- [ ] Run `followup` exactly once with the source finding provider; do not apply configured fallback to this source-bound workflow.
+- [ ] Run exact `rerun` exactly once with the source attempt provider; do not apply configured fallback to exact replay.
+- [ ] Revalidate configuration, provider authority, immutable target, prompt, and credential namespace per CLI process and clean KAR-owned temporary state on every terminal path.
+
+### Test and release gate
+
+- [ ] Classify fake-provider workflow tests as integration tests, never E2E tests.
+- [ ] Run `test-unit` and `test-int` independently with `-race -count=1`.
+- [ ] Build one current KAR candidate and run non-skipping E2E against the actual Kimi, ZCode, and AGY binaries and native authentication.
+- [ ] Exercise Config v2 init/config/doctor, six-role review, followup, three-family delta, exact rerun, and recomposed rerun with schema-valid P2, lineage, assignment, and exit/artifact consistency assertions.
+- [ ] Fail E2E when any required binary, launcher, native authentication, qualification, invocation, or publication step is unavailable; do not convert absence to skip.
+- [ ] Make `make test` execute exactly `test-prepare`, `test-unit`, `test-int`, and `test-e2e` in order; define no separate offline, race, release, or retained-receipt gate.
+- [ ] Preserve the 85-path/84-payload catalog, 25 schema/example pairs, checksum grammar, and generated embedded catalog after every SOT update.
+- [ ] Run `make test` on the exact final SOT tree and record `RELEASE_READY` only after it succeeds.

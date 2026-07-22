@@ -16,7 +16,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
 It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator.
-Production root `kar review` is currently reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; this composed runtime contract is present but is not production-verified or closed. Full current authority gates and three family-distinct normal P2 receipts remain pending.
+G010 is `IMPLEMENTATION_IN_PROGRESS`. Production closure requires the exact Config v2 assignment and real-provider gate defined by SOT 1.10.0.
 
 ## 2. Driver, Instance, and Lane
 
@@ -47,6 +47,11 @@ Coordinator responsibilities:
 - propagate cancellation;
 - determine terminal run state;
 - produce deterministic ordering independent of completion timing.
+
+The coordinator does not invent family preferences. Config v2 owns each
+role's primary and optional fallback family; planning resolves those exact
+families to current qualified routes. A missing or unqualified configured route
+fails planning instead of authorizing substitution.
 
 Lane worker responsibilities:
 
@@ -178,7 +183,7 @@ On macOS, AGY authentication is bound to the installed user's native `HOME` and 
 
 The authentication `HOME` is distinct from the descriptor-bound immutable review CWD, which remains the captured snapshot. KAR owns AGY's XDG, cache, temporary, and scratch namespaces; they do not relocate or authorize mutation of the installed user's AGY state. Kimi and ZCode retain isolated `HOME` directories plus credential projection.
 
-KAR does not install an AGY `settings.json` policy. Its enforceable AGY controls are direct argv with `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. This composed runtime behavior is not production-verified or closed: `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` remains until all current authority gates and three family-distinct normal P2 receipts succeed; no live AGY P2 success is claimed.
+KAR does not install an AGY `settings.json` policy. Its enforceable AGY controls are direct argv with `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. G010 does not claim this boundary complete until the non-skipping actual-AGY E2E and final `make test` succeed.
 
 If a provider prints non-result logs to stdout, its adapter must deterministically isolate the result. Generic heuristic extraction is not a default supported contract.
 
