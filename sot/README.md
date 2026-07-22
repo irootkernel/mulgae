@@ -204,7 +204,7 @@ The repository records the following historical implementation evidence. These c
 | G002 | Domain and ports foundation | **HISTORICAL — COMPLETE** | `64ac360` |
 | G003 | Trusted adapters, embedded contracts, foundation CLI | **HISTORICAL — COMPLETE** | `905030c` |
 | G004 | Prompt validation, bounded repair, fake review slice | **HISTORICAL — COMPLETE** | `f8eaa89` |
-| G005 | Coordinator lanes, process runtime, evidence, independent outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
+| G005 | Coordinator lanes, direct process runtime, evidence, independent outcome axes | **HISTORICAL — COMPLETE** | `da1939f` |
 | G006 | Publication recovery, reporting, query commands | **HISTORICAL — COMPLETE** | `feat(g006)` |
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, runtime-capability diagnostics, provenance capture, unlisted-family rejection, and provider CLI reporting | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
