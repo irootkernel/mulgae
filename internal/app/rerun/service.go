@@ -253,7 +253,8 @@ func childReplay(source SourceAttempt, mode ReplayMode) ChildReplay {
 		child.Exact = &ExactInput{
 			ComposedStdin: append([]byte(nil), source.Prompt.ComposedStdin...), ComposedStdinSHA256: source.Prompt.ComposedStdinSHA256,
 			CompleteStdinSHA256: source.Prompt.CompleteStdinSHA256,
-			SourceInvocationID:  source.Prompt.SourceInvocationID, AdapterProfile: source.Prompt.AdapterProfile, SourceProviderInstance: source.ProviderInstance,
+			SourceInvocationID:  source.Prompt.SourceInvocationID, SourceExecutionInvocationID: source.Prompt.ExecutionInvocationID, AdapterProfile: source.Prompt.AdapterProfile, SourceProviderInstance: source.ProviderInstance,
+			TemplateID: source.Prompt.TemplateID, TemplateVersion: source.Prompt.TemplateVersion, TemplateSHA256: source.Prompt.TemplateSHA256,
 			Parameters: append([]Parameter(nil), source.Prompt.Parameters...), SourceManifestURI: source.Prompt.URI, SourceManifestSHA256: source.Prompt.SHA256,
 		}
 	}
@@ -290,7 +291,7 @@ func validPrompt(prompt PromptManifest) bool {
 	if prompt.URI == "" || !validSHA256(prompt.SHA256) ||
 		!validSHA256(prompt.ComposedStdinSHA256) || prompt.ComposedStdinSHA256 != digest(prompt.ComposedStdin) ||
 		prompt.CompleteStdinSHA256 == "" || prompt.CompleteStdinSHA256 != appprompt.CompleteStdinSHA256(prompt.ComposedStdin) ||
-		prompt.SourceInvocationID == "" || prompt.ExecutionInvocationID == "" ||
+		prompt.SourceInvocationID == "" || prompt.ExecutionInvocationID == "" || prompt.TemplateID == "" || prompt.TemplateVersion == "" || !validSHA256(prompt.TemplateSHA256) ||
 		prompt.AdapterProfile == "" || prompt.Scope == "" || prompt.Role == "" {
 		return false
 	}
@@ -332,6 +333,9 @@ func sourceAttemptDigest(source SourceAttempt) string {
 	writeReplayDigestField(hasher, "complete_stdin_sha256", []byte(source.Prompt.CompleteStdinSHA256))
 	writeReplayDigestField(hasher, "source_invocation_id", []byte(source.Prompt.SourceInvocationID))
 	writeReplayDigestField(hasher, "execution_invocation_id", []byte(source.Prompt.ExecutionInvocationID))
+	writeReplayDigestField(hasher, "template_id", []byte(source.Prompt.TemplateID))
+	writeReplayDigestField(hasher, "template_version", []byte(source.Prompt.TemplateVersion))
+	writeReplayDigestField(hasher, "template_sha256", []byte(source.Prompt.TemplateSHA256))
 	writeReplayDigestField(hasher, "adapter_profile", []byte(source.Prompt.AdapterProfile))
 	for index, parameter := range source.Prompt.Parameters {
 		writeReplayDigestField(hasher, fmt.Sprintf("parameter.%d.name", index), []byte(parameter.Name))

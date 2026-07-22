@@ -63,15 +63,16 @@ type SourceFinding struct {
 // VerifiedSource is a P2-authoritative source view. SourceReader must expose
 // only verified data; Service verifies its identity and byte receipts again.
 type VerifiedSource struct {
-	P2Verified bool
-	SessionID  domain.SessionID
-	RunID      domain.RunID
-	ReviewID   domain.ReviewID
-	Target     domain.TargetIdentity
-	Finding    SourceFinding
-	Final      []byte
-	Manifest   []byte
-	Receipt    SourceReceipt
+	P2Verified       bool
+	ProviderInstance string
+	SessionID        domain.SessionID
+	RunID            domain.RunID
+	ReviewID         domain.ReviewID
+	Target           domain.TargetIdentity
+	Finding          SourceFinding
+	Final            []byte
+	Manifest         []byte
+	Receipt          SourceReceipt
 }
 
 // CurrentTarget is the freshly captured immutable target and its exact bytes.

@@ -598,6 +598,40 @@ func (compiler *Compiler) Replay(source CompiledPrompt) (CompiledPrompt, error) 
 	return replay, nil
 }
 
+// ReplayStored reconstructs an exact replay from persisted stdin and the
+// source process identity. It validates the complete frame grammar against the
+// supplied trusted template, preserves the source scope and wire bytes, and
+// mints only a fresh execution identity.
+func (compiler *Compiler) ReplayStored(stdin []byte, priorExecutionID ExecutionInvocationID) (CompiledPrompt, error) {
+	if compiler == nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt compiler: nil receiver")
+	}
+	if _, err := ParseExecutionInvocationID(priorExecutionID.String()); err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: invalid prior execution identity: %w", err)
+	}
+	parsed, err := ParseStdin(compiler.template, stdin)
+	if err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: invalid stored packet: %w", err)
+	}
+	executionID, err := compiler.issueReplayExecutionID(parsed.scope.SourceInvocationID(), priorExecutionID, parsed.digest)
+	if err != nil {
+		return CompiledPrompt{}, err
+	}
+	scope, err := NewScope(parsed.scope.Coordinates(), parsed.scope.SourceInvocationID(), executionID)
+	if err != nil {
+		return CompiledPrompt{}, newIdentityError("stored replay scope construction", err)
+	}
+	replay := CompiledPrompt{
+		template: cloneTrustedTemplate(compiler.template), scope: scope,
+		stdin: cloneBytes(parsed.stdin), sections: cloneSections(parsed.sections), digest: parsed.digest,
+		replayedSourceInvoked: parsed.scope.SourceInvocationID(), exactReplay: true,
+	}
+	if err := replay.Validate(); err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: reconstructed packet is invalid: %w", err)
+	}
+	return replay, nil
+}
+
 func (compiler *Compiler) issueScope(coordinates ScopeCoordinates) (Scope, error) {
 	compiler.mu.Lock()
 	defer compiler.mu.Unlock()

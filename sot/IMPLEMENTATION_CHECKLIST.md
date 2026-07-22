@@ -146,10 +146,10 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 
 ### Production workflows
 
-- [ ] Run production `review`, `delta`, and recomposed `rerun` through current Config v2 primary/fallback assignments.
-- [ ] Run `followup` exactly once with the source finding provider; do not apply configured fallback to this source-bound workflow.
-- [ ] Run exact `rerun` exactly once with the source attempt provider; do not apply configured fallback to exact replay.
-- [ ] Revalidate configuration, provider authority, immutable target, prompt, and credential namespace per CLI process and clean KAR-owned temporary state on every terminal path.
+- [x] Run production `review`, `delta`, and recomposed `rerun` through current Config v2 primary/fallback assignments. Evidence: shared `productionRuntimeGraph`, deferred child services, and configured planner tests.
+- [x] Run `followup` exactly once with the source finding provider; do not apply configured fallback to this source-bound workflow. Evidence: P2 `ProviderInstance` binding, `sourceBoundAuthority`, and `FollowupExecutor` single-observation contract.
+- [x] Run exact `rerun` exactly once with the source attempt provider; do not apply configured fallback to exact replay. Evidence: source-bound authority, `ReplayStored`, and exact replay assignment tests.
+- [x] Revalidate configuration, provider authority, immutable target, prompt, and credential namespace per CLI process and clean KAR-owned temporary state on every terminal path. Evidence: per-command deferred graph composition, packet screening, workspace completion/abort, namespace drain, and private-root cleanup.
 
 ### Test and release gate
 

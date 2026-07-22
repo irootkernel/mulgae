@@ -169,6 +169,47 @@ func NewCapturedReviewStdinTarget(bytes []byte) (CapturedReviewTarget, error) {
 	return newCapturedReviewTarget(domain.TargetStdin, bytes)
 }
 
+// NewCapturedReviewTargetFromIdentity reconstructs a trusted immutable target
+// from P2-bound bytes and their complete persisted identity.
+func NewCapturedReviewTargetFromIdentity(identity domain.TargetIdentity, bytes []byte) (CapturedReviewTarget, error) {
+	if identity.Kind() == "" {
+		return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted identity is required")
+	}
+	var target CapturedReviewTarget
+	var err error
+	switch identity.Kind() {
+	case domain.TargetPatch:
+		target, err = NewCapturedReviewPatchTarget(bytes)
+	case domain.TargetStdin:
+		target, err = NewCapturedReviewStdinTarget(bytes)
+	case domain.TargetGit:
+		base, baseErr := ParseGitObjectID(identity.BaseObjectID())
+		head, headErr := ParseGitObjectID(identity.HeadObjectID())
+		tree, treeErr := ParseGitObjectID(identity.HeadTreeObjectID())
+		if baseErr != nil || headErr != nil || treeErr != nil {
+			return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted Git identity is invalid")
+		}
+		var index *GitObjectID
+		if value := identity.IndexTreeObjectID(); value != "" {
+			parsed, parseErr := ParseGitObjectID(value)
+			if parseErr != nil {
+				return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted index identity is invalid")
+			}
+			index = &parsed
+		}
+		target, err = NewCapturedReviewGitTarget(identity.RepositoryID(), base, head, tree, index, bytes)
+	default:
+		return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted kind is invalid")
+	}
+	if err != nil {
+		return CapturedReviewTarget{}, err
+	}
+	if target.Identity() != identity {
+		return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted identity does not match bytes")
+	}
+	return target, nil
+}
+
 func newCapturedReviewTarget(kind domain.TargetKind, bytes []byte) (CapturedReviewTarget, error) {
 	if err := validateCapturedReviewBytes(bytes, false); err != nil {
 		return CapturedReviewTarget{}, fmt.Errorf("captured review target: %w", err)

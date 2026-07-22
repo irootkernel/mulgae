@@ -105,6 +105,15 @@ func main() {
 		os.Exit(10)
 	}
 	build, buildErr := executableBuildIdentity()
+	childSources, err := kar.NewG008Sources(root, requestResolver, queryService)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: child workflow sources are unavailable\n")
+		os.Exit(10)
+	}
+	childComposer := productionChildComposer{
+		build: build, root: root, catalog: catalog, validator: validator, projectReader: gitAdapter,
+		clock: clock, ids: ids, writer: writer, publicationStore: publicationStore, stdin: requestResolver, sources: childSources,
+	}
 	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
 	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), startupKimiCodeHome, root)
 	reviewRuns := newDeferredReviewRunService(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (kar.ReviewRunService, error) {
@@ -126,6 +135,9 @@ func main() {
 		// KAR remains fail-closed until one is standardized.
 		EvidenceReader:     nil,
 		ReviewRuns:         reviewRuns,
+		FollowupRuns:       deferredFollowupRunService{composer: childComposer},
+		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
+		Reruns:             deferredRerunService{composer: childComposer},
 		PublicationQueries: kar.NewPublicationQueryService(queryService),
 		PublicationReports: kar.NewPublicationReportService(reportService),
 		Retention:          g008Dependencies.Retention,

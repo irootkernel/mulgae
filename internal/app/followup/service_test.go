@@ -324,11 +324,11 @@ func testVerifiedSource(t *testing.T) VerifiedSource {
 	excerpt := []byte("source excerpt")
 	targetBytes := []byte("source target")
 	return VerifiedSource{
-		P2Verified: true,
-		SessionID:  testSessionID(t),
-		RunID:      testRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba"),
-		ReviewID:   testReviewID(t),
-		Target:     testPatchIdentity(t, targetBytes),
+		P2Verified: true, ProviderInstance: "fake.logic",
+		SessionID: testSessionID(t),
+		RunID:     testRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba"),
+		ReviewID:  testReviewID(t),
+		Target:    testPatchIdentity(t, targetBytes),
 		Finding: SourceFinding{
 			ID: "F003", Role: domain.RoleLogic, Normalized: finding, Excerpt: excerpt,
 		},

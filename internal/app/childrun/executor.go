@@ -173,7 +173,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 		child.Exact.SourceManifestURI != child.Publication.SourceManifestURI ||
 		child.Exact.SourceManifestSHA256 != child.Publication.SourceManifestSHA256 ||
 		child.Exact.ComposedStdinSHA256 == "" || child.Exact.CompleteStdinSHA256 == "" ||
-		child.Exact.SourceInvocationID == "" || child.Exact.SourceProviderInstance == "" ||
+		child.Exact.SourceInvocationID == "" || child.Exact.SourceExecutionInvocationID == "" || child.Exact.SourceProviderInstance == "" || child.Exact.TemplateID == "" || child.Exact.TemplateVersion == "" || child.Exact.TemplateSHA256 == "" ||
 		child.Exact.AdapterProfile == "") {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: exact replay authority is incomplete")
 	}
@@ -274,6 +274,8 @@ func (executor *Executor) executeReplay(ctx context.Context, run *domain.Run, ch
 		SourceProviderInstance: child.Exact.SourceProviderInstance,
 		Stdin:                  append([]byte(nil), child.Exact.ComposedStdin...), CompleteStdinSHA256: child.Exact.CompleteStdinSHA256,
 		SourceInvocationID: child.Exact.SourceInvocationID, Role: domain.Role(child.Role),
+		SourceExecutionInvocationID: child.Exact.SourceExecutionInvocationID,
+		TemplateID:                  child.Exact.TemplateID, TemplateVersion: child.Exact.TemplateVersion, TemplateSHA256: child.Exact.TemplateSHA256,
 		AdapterProfile: child.Exact.AdapterProfile, AdapterParameters: parameters,
 	})
 }

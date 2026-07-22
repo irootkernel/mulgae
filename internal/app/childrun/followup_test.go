@@ -24,10 +24,11 @@ func TestExecuteFollowupRejectsSessionMismatchBeforeExecution(t *testing.T) {
 	execution := appfollowup.Execution{
 		SessionID: executionSessionID,
 		Source: appfollowup.VerifiedSource{
-			SessionID: sourceSessionID,
-			RunID:     childrunRunID(t, "r_019f596a-cfb2-7c67-b265-f37053d51ccf"),
-			ReviewID:  childrunReviewID(t, "019f596a-cfb3-7c67-b265-f37053d51ccf"),
-			Finding:   appfollowup.SourceFinding{ID: "F001", Role: domain.RoleLogic},
+			ProviderInstance: "fake.logic",
+			SessionID:        sourceSessionID,
+			RunID:            childrunRunID(t, "r_019f596a-cfb2-7c67-b265-f37053d51ccf"),
+			ReviewID:         childrunReviewID(t, "019f596a-cfb3-7c67-b265-f37053d51ccf"),
+			Finding:          appfollowup.SourceFinding{ID: "F001", Role: domain.RoleLogic},
 		},
 		Current: appfollowup.CurrentTarget{Identity: childrunTarget(t)},
 	}

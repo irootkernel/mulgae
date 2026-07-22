@@ -152,6 +152,9 @@ func validateSource(source VerifiedSource, request Request) error {
 	if err := validateTargetIdentity(source.Target); err != nil {
 		return fmt.Errorf("invalid source target: %w", err)
 	}
+	if strings.TrimSpace(source.ProviderInstance) == "" || strings.ContainsAny(source.ProviderInstance, "\x00\r\n") {
+		return fmt.Errorf("invalid source provider instance")
+	}
 	if source.Finding.ID != request.FindingID || !validFindingID(source.Finding.ID) || !source.Finding.Role.Valid() || len(source.Finding.Normalized) == 0 || len(source.Finding.Excerpt) == 0 {
 		return fmt.Errorf("invalid source finding")
 	}
@@ -230,6 +233,7 @@ func validFindingID(value string) bool {
 }
 func sameSource(left, right VerifiedSource) bool {
 	return left.P2Verified == right.P2Verified &&
+		left.ProviderInstance == right.ProviderInstance &&
 		left.SessionID == right.SessionID &&
 		left.RunID == right.RunID &&
 		left.ReviewID == right.ReviewID &&

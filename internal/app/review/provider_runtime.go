@@ -131,15 +131,19 @@ type DeltaInvocationPromptSource interface {
 // ExactReplayInput is the stored provider-wire authority for one selected
 // attempt. Only ExecutionInvocationID is minted afresh by the prompt source.
 type ExactReplayInput struct {
-	SourceRunID            domain.RunID
-	SourceAttemptID        domain.AttemptID
-	SourceProviderInstance string
-	Stdin                  []byte
-	CompleteStdinSHA256    string
-	SourceInvocationID     string
-	Role                   domain.Role
-	AdapterProfile         string
-	AdapterParameters      map[string]string
+	SourceRunID                 domain.RunID
+	SourceAttemptID             domain.AttemptID
+	SourceProviderInstance      string
+	Stdin                       []byte
+	CompleteStdinSHA256         string
+	SourceInvocationID          string
+	SourceExecutionInvocationID string
+	TemplateID                  string
+	TemplateVersion             string
+	TemplateSHA256              string
+	Role                        domain.Role
+	AdapterProfile              string
+	AdapterParameters           map[string]string
 }
 
 // ExactReplayPromptSource replays stored wire authority into a fresh execution
@@ -559,7 +563,7 @@ func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context,
 		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
 		input.SourceProviderInstance != job.Route().ProviderInstance() ||
 		input.CompleteStdinSHA256 == "" || prompt.CompleteStdinSHA256(input.Stdin) != input.CompleteStdinSHA256 ||
-		input.SourceInvocationID == "" {
+		input.SourceInvocationID == "" || input.SourceExecutionInvocationID == "" || input.TemplateID == "" || input.TemplateVersion == "" || input.TemplateSHA256 == "" {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
 	source, ok := runtime.source.(ExactReplayPromptSource)
@@ -841,7 +845,7 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	if ctx != nil && ctx.Err() != nil {
 		return runtimeContextCondition(ctx.Err())
 	}
-	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
+	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) || errors.Is(err, ports.ErrProviderPacketSecurity) {
 		return AttemptConditionSecurityViolation
 	}
 	message := err.Error()

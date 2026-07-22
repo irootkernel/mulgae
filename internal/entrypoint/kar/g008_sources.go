@@ -98,6 +98,8 @@ func (source *G008RuntimePromptSource) ExactReplayPrompt(ctx context.Context, jo
 		stored.Prompt.CompleteStdinSHA256 != input.CompleteStdinSHA256 ||
 		string(stored.Prompt.ComposedStdin) != string(input.Stdin) ||
 		stored.Prompt.SourceInvocationID != input.SourceInvocationID ||
+		stored.Prompt.ExecutionInvocationID != input.SourceExecutionInvocationID ||
+		stored.Prompt.TemplateID != input.TemplateID || stored.Prompt.TemplateVersion != input.TemplateVersion || stored.Prompt.TemplateSHA256 != input.TemplateSHA256 ||
 		stored.Prompt.AdapterProfile != input.AdapterProfile ||
 		!g008ParametersMatch(stored.Prompt.Parameters, input.AdapterParameters) {
 		return review.RuntimePrompt{}, fmt.Errorf("g008 runtime prompt source: exact replay authority mismatch")
@@ -153,6 +155,7 @@ func (sources *G008Sources) ReadRerunSource(ctx context.Context, runID domain.Ru
 			ComposedStdin: prompt.Stdin(), ComposedStdinSHA256: strings.TrimPrefix(prompt.StdinSHA256(), "sha256:"),
 			CompleteStdinSHA256: prompt.CompleteStdinSHA256(),
 			SourceInvocationID:  prompt.SourceInvocationID(), ExecutionInvocationID: prompt.ExecutionInvocationID(),
+			TemplateID: prompt.TemplateID(), TemplateVersion: prompt.TemplateVersion(), TemplateSHA256: strings.TrimPrefix(prompt.TemplateSHA256(), "sha256:"),
 			AdapterProfile: prompt.AdapterProfile(), Scope: prompt.Scope(), Role: string(prompt.Role())},
 	}
 	for name, value := range prompt.AdapterParameters() {
@@ -193,7 +196,7 @@ func (sources *G008Sources) ReadFollowupSource(ctx context.Context, runID domain
 		return appfollowup.VerifiedSource{}, fmt.Errorf("g008 followup source: committed P2 identity changed during read")
 	}
 	return appfollowup.VerifiedSource{
-		P2Verified: true, SessionID: review.SessionID(), RunID: review.RunID(), ReviewID: review.ReviewID(),
+		P2Verified: true, ProviderInstance: finding.ProviderInstance(), SessionID: review.SessionID(), RunID: review.RunID(), ReviewID: review.ReviewID(),
 		Target: target.Identity(), Finding: appfollowup.SourceFinding{ID: finding.ID(), Role: finding.Role(), Normalized: committed.Normalized(), Excerpt: committed.Excerpt()},
 		Final: review.FinalBytes(), Manifest: review.ManifestBytes(),
 		Receipt: appfollowup.SourceReceipt{

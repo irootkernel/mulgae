@@ -128,6 +128,9 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	if got := runtimeProviderErrorCondition(context.Background(), errors.Join(ports.ErrWorkspaceSnapshotDrift, errors.New("provider unavailable"))); got != AttemptConditionSecurityViolation {
 		t.Fatalf("workspace drift condition = %q, want security violation", got)
 	}
+	if got := runtimeProviderErrorCondition(context.Background(), ports.ErrProviderPacketSecurity); got != AttemptConditionSecurityViolation {
+		t.Fatalf("packet screening condition = %q, want security violation", got)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got := runtimeProviderErrorCondition(ctx, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {

@@ -7,22 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"reflect"
-	"strconv"
 
 	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/lanelock"
-	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/reviewinput"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
 	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
@@ -102,188 +92,32 @@ func composeReviewRuns(
 		return nil, fmt.Errorf("review composition: invalid dependencies")
 	}
 
-	installedUser, err := user.Current()
-	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
-		return nil, fmt.Errorf("review composition: installed user home")
-	}
-	installedUID, err := strconv.ParseUint(installedUser.Uid, 10, 32)
-	if err != nil || int(installedUID) != os.Geteuid() {
-		return nil, fmt.Errorf("review composition: installed user identity")
-	}
-	home := installedUser.HomeDir
-	tempRoot, err := startupTempRoot()
-	if err != nil {
-		return nil, fmt.Errorf("review composition: startup temp root: %w", err)
-	}
-	productionPolicy, err := resolveProductionRunPolicy(ctx, root, projectReader)
+	graph, err := composeProductionRuntimeGraph(ctx, build, root, catalog, validator, projectReader, clock, ids, writer, publicationStore, stdin)
 	if err != nil {
 		return nil, err
-	}
-	if productionPolicy.config.NativeUser.Home != installedUser.HomeDir {
-		return nil, reviewCompositionFailure(domain.FailureSecurityPolicy, "configured native home does not match installed user", nil)
-	}
-	nativeHomes := make(map[string]string)
-	inspector := environment.NewInspector()
-	workspaceRoot, err := privateReviewRoot(tempRoot, reviewWorkspacePrefix)
-	if err != nil {
-		return nil, err
-	}
-	policies := map[reviewrun.Family]providercli.RuntimeSafetyPolicy{}
-	for _, family := range []struct {
-		reviewFamily     reviewrun.Family
-		credentialFamily providercli.CredentialSourceFamily
-	}{
-		{reviewrun.FamilyKimi, providercli.CredentialSourceKimi},
-		{reviewrun.FamilyZCode, providercli.CredentialSourceZCode},
-	} {
-		policy, err := providercli.RuntimeSafetyPolicyForFamily(family.credentialFamily)
-		if err != nil {
-			_ = os.RemoveAll(workspaceRoot.String())
-			return nil, fmt.Errorf("review composition: %s runtime safety policy: %w", family.reviewFamily, err)
-		}
-		policies[family.reviewFamily] = policy
-	}
-	agyPolicy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceAGY)
-	if err != nil {
-		_ = os.RemoveAll(workspaceRoot.String())
-		return nil, fmt.Errorf("review composition: AGY runtime safety policy: %w", err)
-	}
-	policies[reviewrun.FamilyAGY] = agyPolicy
-	policyIdentities := make(map[reviewrun.Family]string, len(policies))
-	for family, policy := range policies {
-		policyIdentities[family] = policy.Identity()
-	}
-	candidates := &configuredProductionCandidateSource{
-		inspector: inspector, config: productionPolicy.config,
-		policyIdentities: policyIdentities, agyPermissionMode: productionPolicy.agyPermissionMode,
-		source: productionPolicy.source, attestor: productionPolicy.attestor,
-		staticRequest: productionPolicy.localityRequest, staticContext: productionPolicy.locality,
-	}
-
-	namespaceRoot, err := privateReviewRoot(tempRoot, reviewNamespacePrefix)
-	if err != nil {
-		_ = os.RemoveAll(workspaceRoot.String())
-		return nil, err
-	}
-	cleanupRoots := true
-	defer func() {
-		cleanupReviewCompositionRoots(cleanupRoots, namespaceRoot, workspaceRoot)
-	}()
-
-	detector := filesystem.NewContentDetector()
-	materializer, err := workspace.NewMaterializer(workspaceRoot, detector)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: workspace materializer: %w", err)
-	}
-	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), stdin, detector)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: review target capturer: %w", err)
-	}
-	inputs, err := reviewinput.NewImmutableInputSourceFactory(capturer, detector, materializer)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: immutable input source factory: %w", err)
-	}
-	runner, err := processadapter.NewRunner(clock)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: process runner: %w", err)
-	}
-	namespaces, err := providercli.NewNamespaceFactory(namespaceRoot.String())
-	if err != nil {
-		return nil, fmt.Errorf("review composition: provider namespaces: %w", err)
-	}
-	instanceFamilies := make(map[string]providercli.CredentialSourceFamily)
-	instancePolicies := make(map[string]providercli.RuntimeSafetyPolicy)
-	sourceRoots := make(map[string]string)
-	if provider := productionPolicy.config.Providers.Kimi; provider != nil {
-		instanceFamilies["kimi-default"] = providercli.CredentialSourceKimi
-		instancePolicies["kimi-default"] = policies[reviewrun.FamilyKimi]
-		sourceRoots["kimi-default"] = provider.DataHome
-	}
-	if productionPolicy.config.Providers.ZCode != nil {
-		instanceFamilies["zcode-default"] = providercli.CredentialSourceZCode
-		instancePolicies["zcode-default"] = policies[reviewrun.FamilyZCode]
-	}
-	if productionPolicy.config.Providers.AGY != nil {
-		instanceFamilies["agy-default"] = providercli.CredentialSourceAGY
-		instancePolicies["agy-default"] = policies[reviewrun.FamilyAGY]
-		nativeHomes["agy-default"] = installedUser.HomeDir
-	}
-	projectedNamespaces, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(namespaces, home, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: credential namespaces: %w", err)
-	}
-	fixtures, err := providercli.NewProbeFixtureLeaseFactory(materializer, providercli.SecureProbeNonceGenerator{})
-	if err != nil {
-		return nil, fmt.Errorf("review composition: probe fixtures: %w", err)
-	}
-	baseSpawnVerifier := environment.NewSpawnVerifier()
-	probeVerifier := contextLocalitySpawnVerifier{inner: baseSpawnVerifier}
-	probe, err := providercli.NewCurrentProbe(runner, probeVerifier)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: current probe: %w", err)
-	}
-	probePort, err := providercli.NewQualificationProbeAdapter(probe, providercli.NativeProbeInvocation{})
-	if err != nil {
-		return nil, fmt.Errorf("review composition: current probe adapter: %w", err)
-	}
-	fixturePort, err := providercli.NewQualificationFixtureFactoryAdapter(fixtures)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: qualification fixture adapter: %w", err)
-	}
-	current, err := reviewrun.NewProviderCurrentQualifier(probePort, fixturePort)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: current qualifier: %w", err)
-	}
-	registries, err := providercli.NewQualificationRegistryFactory(
-		runner, projectedNamespaces, nil,
-		func(ctx context.Context) (providercli.SpawnVerifier, error) {
-			return boundLocalitySpawnVerifier(ctx, baseSpawnVerifier)
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: qualification registry factory: %w", err)
-	}
-	qualified, err := reviewrun.NewQualifiedRunFactory(current, registries, clock)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: qualified run factory: %w", err)
-	}
-	authority, err := reviewrun.NewRunAuthorityAdapter(
-		// The planner receives the one immutable B→G→P reduction rather than
-		// independently selected defaults.
-		qualified, candidates, productionPolicy.planner, build,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: run authority: %w", err)
-	}
-	reviewSchema, err := ports.ParseAssetID(validation.ProviderReviewSchemaID)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: review schema ID: %w", err)
-	}
-	reviewValidator, err := validation.NewReviewValidator(validator, reviewSchema)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: review validator: %w", err)
-	}
-	publisher, err := publication.NewService(publicationStore, validator, clock, 8<<20)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: publication service: %w", err)
-	}
-	locker, err := lanelock.New(root, writer)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: lane locker: %w", err)
-	}
-	templates, err := reviewrun.LoadDefaultTemplateSet(ctx, catalog)
-	if err != nil {
-		return nil, fmt.Errorf("review composition: templates: %w", err)
 	}
 	service, err := reviewrun.NewService(reviewrun.Dependencies{
-		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: authority, Validator: reviewValidator, Locker: locker, Publication: publisher, Templates: templates,
+		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Locker: graph.locker, Publication: graph.publisher, Templates: graph.templates,
 	})
 	if err != nil {
+		graph.cleanupRoots()
 		return nil, fmt.Errorf("review composition: service: %w", err)
 	}
-	reviewService := kar.NewPolicyReviewRunService(kar.NewReviewRunService(service, inputs), productionPolicy.requiredRoles, productionPolicy.enabledRoles)
-	cleanupRoots = false
-	return reviewService, nil
+	reviewService := kar.NewPolicyReviewRunService(kar.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles)
+	return &rootCleaningReviewRunService{inner: reviewService, graph: graph}, nil
+}
+
+type rootCleaningReviewRunService struct {
+	inner kar.ReviewRunService
+	graph *productionRuntimeGraph
+}
+
+func (service *rootCleaningReviewRunService) StartReviewRun(ctx context.Context, request kar.ReviewRequest, root ports.AnchoredRoot) (kar.ReviewRunResult, error) {
+	if service == nil || service.inner == nil || service.graph == nil {
+		return kar.ReviewRunResult{}, fmt.Errorf("review composition: unavailable composed service")
+	}
+	defer service.graph.cleanupRoots()
+	return service.inner.StartReviewRun(ctx, request, root)
 }
 func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot ports.AnchoredRoot) {
 	if !cleanup {

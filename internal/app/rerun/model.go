@@ -65,6 +65,9 @@ type PromptManifest struct {
 	CompleteStdinSHA256   string
 	SourceInvocationID    string
 	ExecutionInvocationID string
+	TemplateID            string
+	TemplateVersion       string
+	TemplateSHA256        string
 	AdapterProfile        string
 	Parameters            []Parameter
 	Scope                 string
@@ -126,15 +129,19 @@ type ChildPublicationContext struct {
 
 // ExactInput is the exact replay-only provider wire contract.
 type ExactInput struct {
-	ComposedStdin          []byte
-	ComposedStdinSHA256    string
-	CompleteStdinSHA256    string
-	SourceInvocationID     string
-	AdapterProfile         string
-	SourceProviderInstance string
-	Parameters             []Parameter
-	SourceManifestURI      string
-	SourceManifestSHA256   string
+	ComposedStdin               []byte
+	ComposedStdinSHA256         string
+	CompleteStdinSHA256         string
+	SourceInvocationID          string
+	SourceExecutionInvocationID string
+	TemplateID                  string
+	TemplateVersion             string
+	TemplateSHA256              string
+	AdapterProfile              string
+	SourceProviderInstance      string
+	Parameters                  []Parameter
+	SourceManifestURI           string
+	SourceManifestSHA256        string
 }
 
 // ChildReplayExecutor creates and executes a child replay. A successful result

@@ -185,6 +185,10 @@ func SortWorkspaceSnapshotFiles(files []WorkspaceSnapshotFile) {
 // matches the immutable snapshot that was authorized.
 var ErrWorkspaceSnapshotDrift = errors.New("workspace snapshot drift")
 
+// ErrProviderPacketSecurity indicates that system-owned packet screening
+// rejected a provider invocation before process execution.
+var ErrProviderPacketSecurity = errors.New("provider packet security rejection")
+
 // WorkspaceSnapshotIdentity is the immutable filesystem and manifest identity
 // of one v2 workspace snapshot.
 type WorkspaceSnapshotIdentity struct {

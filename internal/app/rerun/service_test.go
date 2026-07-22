@@ -389,7 +389,7 @@ func validRerunSource() SourceAttempt {
 	if err != nil {
 		panic(err)
 	}
-	source := SourceAttempt{SessionID: mustRerunSession(), RunID: mustRerunRun(rerunSourceRun), ReviewID: mustRerunReview(), AttemptID: mustRerunAttempt(), ProviderInstance: "kimi-main", Target: Target{Identity: identity, Bytes: target, SHA256: rerunDigest(target)}, Prompt: PromptManifest{URI: "kar://prompt/source", SHA256: rerunDigest([]byte("manifest")), ComposedStdin: stdin, ComposedStdinSHA256: rerunDigest(stdin), CompleteStdinSHA256: appprompt.CompleteStdinSHA256(stdin), SourceInvocationID: "source-invocation", ExecutionInvocationID: "source-execution", AdapterProfile: "kimi-main", Parameters: []Parameter{{Name: "temperature", Value: "0"}}, Scope: "repository", Role: "security"}}
+	source := SourceAttempt{SessionID: mustRerunSession(), RunID: mustRerunRun(rerunSourceRun), ReviewID: mustRerunReview(), AttemptID: mustRerunAttempt(), ProviderInstance: "kimi-main", Target: Target{Identity: identity, Bytes: target, SHA256: rerunDigest(target)}, Prompt: PromptManifest{URI: "kar://prompt/source", SHA256: rerunDigest([]byte("manifest")), ComposedStdin: stdin, ComposedStdinSHA256: rerunDigest(stdin), CompleteStdinSHA256: appprompt.CompleteStdinSHA256(stdin), SourceInvocationID: "source-invocation", ExecutionInvocationID: "source-execution", TemplateID: "root-review", TemplateVersion: "v1", TemplateSHA256: rerunDigest([]byte("template")), AdapterProfile: "kimi-main", Parameters: []Parameter{{Name: "temperature", Value: "0"}}, Scope: "repository", Role: "security"}}
 	source.ImmutableSHA256 = sourceAttemptDigest(source)
 	return source
 }

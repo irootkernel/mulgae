@@ -171,6 +171,6 @@
 - [x] G010-T01: SOT 1.10.0 계약, 역할별 primary/fallback matrix, workflow 범위, `make test` gate를 구현 전에 동결한다.
 - [x] G010-T02: Config v2와 canonical init/config 출력을 구현한다.
 - [x] G010-T03: configured planner/fallback과 reporting을 구현한다.
-- [ ] G010-T04: 실제 followup/delta/rerun production composition을 구현한다.
+- [x] G010-T04: 실제 followup/delta/rerun production composition을 구현한다.
 - [ ] G010-T05: 실제 Kimi/ZCode/AGY E2E와 Makefile gate를 구현한다.
 - [ ] G010-T06: 최종 tree에서 `make test`를 통과시키고 SOT를 `RELEASE_READY`로 closeout한다.

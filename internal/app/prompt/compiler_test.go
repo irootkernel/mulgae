@@ -514,6 +514,23 @@ func TestExactReplayAndRecompositionHaveDistinctIdentities(t *testing.T) {
 		t.Fatal("recomposition reused section identity")
 	}
 }
+
+func TestReplayStoredReconstructsPersistedPacketWithFreshExecutionIdentity(t *testing.T) {
+	initial, err := newTestCompiler(t, []int{41}, []int{42}).Compile(testCompileInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := newTestCompiler(t, nil, []int{43}).ReplayStored(initial.Stdin(), initial.Scope().ExecutionInvocationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.ExactReplay() || replayed.Scope().SourceInvocationID() != initial.Scope().SourceInvocationID() || replayed.Scope().ExecutionInvocationID() == initial.Scope().ExecutionInvocationID() {
+		t.Fatalf("stored replay identity = source:%s execution:%s exact:%t", replayed.Scope().SourceInvocationID(), replayed.Scope().ExecutionInvocationID(), replayed.ExactReplay())
+	}
+	if !bytes.Equal(replayed.Stdin(), initial.Stdin()) || replayed.CompleteStdinSHA256() != initial.CompleteStdinSHA256() {
+		t.Fatal("stored replay changed provider wire bytes")
+	}
+}
 func TestReplayBindsExternalSourceToWireIdentity(t *testing.T) {
 	input := testCompileInput(t)
 	initial, err := newTestCompiler(t, []int{5}, []int{6}).Compile(input)
