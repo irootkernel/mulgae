@@ -443,7 +443,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			if err := runtime.capture(job, nil, rawStdout, stderr, false); err != nil {
 				return runtimeCondition(job, AttemptConditionArtifactFailure)
 			}
-			return runtimeCondition(job, observedStatusCondition(observation.Status()))
+			return runtimeCondition(job, observedStatusCondition(observation.Status(), observation.DiagnosticCode()))
 		}
 		result, ok := observation.Result()
 		if !ok || result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
@@ -490,7 +490,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 				runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: append([]byte(nil), stdout...), plan: *plan}
 				runtime.mu.Unlock()
 			}
-			return runtimeCondition(job, AttemptConditionInvalidProviderOutput)
+			return runtimeCondition(job, initialValidationFailureCondition(plan))
 		}
 		if plan != nil {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
@@ -690,7 +690,19 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
 	if _, err = ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy); err != nil {
-		return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
+		if job.Purpose() == domain.InvocationInitial {
+			if paths, ok := exactEvidenceRepairPaths(verified); ok {
+				plan, planErr := validation.NewExactEvidenceRepairPlan(validated.OriginalRaw(), paths)
+				if planErr != nil {
+					return runtimeCondition(job, AttemptConditionInternalInvariant)
+				}
+				runtime.mu.Lock()
+				runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: validated.OriginalRaw(), plan: *plan}
+				runtime.mu.Unlock()
+				return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
+			}
+		}
+		return runtimeCondition(job, AttemptConditionUnrepairableEvidence)
 	}
 	output, err := NewEvidenceValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), validated.Findings(), validated.Completeness(), validated.Limitations(), verified)
 	if err != nil {
@@ -701,6 +713,22 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
 	}
 	return outcome
+}
+
+func exactEvidenceRepairPaths(groups []VerifiedFindingEvidence) ([]string, bool) {
+	paths := make([]string, 0)
+	for findingIndex, group := range groups {
+		for evidenceIndex, receipt := range group.Receipts() {
+			if receipt.Status() == evidence.ReceiptVerified {
+				continue
+			}
+			if receipt.Status() != evidence.ReceiptInvalid || receipt.ReasonCode() != evidence.ReasonQuoteMismatch || receipt.ExcerptSHA256() == "" {
+				return nil, false
+			}
+			paths = append(paths, fmt.Sprintf("/findings/%d/evidence/%d/current/quote", findingIndex, evidenceIndex))
+		}
+	}
+	return paths, len(paths) > 0
 }
 
 func (runtime *ProviderInvocationRuntime) capture(job InvocationJob, candidate, stdout, stderr []byte, reject bool) error {
@@ -850,6 +878,8 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	}
 	message := err.Error()
 	switch {
+	case strings.Contains(message, "login_required"):
+		return AttemptConditionLoginRequired
 	case strings.Contains(message, "unavailable"):
 		return AttemptConditionProviderUnavailable
 	case strings.Contains(message, "auth"):
@@ -893,13 +923,19 @@ func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) 
 		leftSnapshotInode == rightSnapshotInode
 }
 
-func observedStatusCondition(status ports.ProviderExecutionStatus) AttemptCondition {
+func observedStatusCondition(status ports.ProviderExecutionStatus, diagnostic string) AttemptCondition {
+	if status == ports.ProviderExecutionStatusArtifactFailure && diagnostic == "invalid_provider_output" {
+		return AttemptConditionUnrepairableProviderOutput
+	}
 	switch status {
 	case ports.ProviderExecutionStatusUnavailable:
 		return AttemptConditionProviderUnavailable
 	case ports.ProviderExecutionStatusTimedOut:
 		return AttemptConditionTimeout
 	case ports.ProviderExecutionStatusAuthentication:
+		if diagnostic == "login_required" {
+			return AttemptConditionLoginRequired
+		}
 		return AttemptConditionAuthentication
 	case ports.ProviderExecutionStatusQuota:
 		return AttemptConditionQuota
@@ -918,4 +954,11 @@ func observedStatusCondition(status ports.ProviderExecutionStatus) AttemptCondit
 	default:
 		return AttemptConditionInternalInvariant
 	}
+}
+
+func initialValidationFailureCondition(plan *validation.RepairPlan) AttemptCondition {
+	if plan == nil {
+		return AttemptConditionUnrepairableProviderOutput
+	}
+	return AttemptConditionInvalidProviderOutput
 }

@@ -136,6 +136,36 @@ func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testin
 	}
 }
 
+func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
+	roles := domain.FixedRoleOrder()
+	routes := []QualifiedRoute{
+		plannerTestRoute(t, FamilyZCode, "zcode.one", "lane-zcode", roles),
+		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
+	}
+	cause, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid capability output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejection, err := NewProviderQualificationFailure("kimi.one", FamilyKimi, string(domain.FailureInvalidOutput), cause)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner, err := newQualifiedPlanner(
+		routes,
+		plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}),
+		[]ProviderQualificationFailure{rejection},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = planner.Plan(context.Background(), plannerTestRequest(t, []domain.Role{domain.RoleLogic}))
+	failures, ok := ProviderQualificationFailuresFromError(err)
+	if !ok || len(failures) != 1 || failures[0].ProviderInstance() != "kimi.one" ||
+		failures[0].ReasonCode() != string(domain.FailureInvalidOutput) {
+		t.Fatalf("attributed planner failure = %#v present=%t error=%v", failures, ok, err)
+	}
+}
+
 func TestQualifiedPlannerPreservesRequestedRoleOrder(t *testing.T) {
 	roles := []domain.Role{domain.RoleTesting, domain.RoleSecurity, domain.RoleLogic, domain.RoleProduct, domain.RoleDocumentation, domain.RoleMaintainability}
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", domain.FixedRoleOrder())

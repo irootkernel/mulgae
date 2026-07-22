@@ -17,7 +17,8 @@ current has exactly path, line_start, line_end, side, quote.
 path: UTF-8 NFC canonical slash-relative target path, at most 4096 scalar values; no absolute path, backslash, empty/dot/dotdot segment, NUL, CR, LF, doubled slash, or trailing slash.
 line_start and line_end: positive one-based inclusive integers with line_end >= line_start.
 side: exactly base, head, or worktree.
-quote: meaningful exact target text for that inclusive range.
+quote: meaningful exact target bytes for that inclusive range, represented as a JSON string; include every selected line's terminating LF as \n when the target line has one, including the final selected line.
 Do not emit target_sha256, verification, source, any session/run/attempt/review/finding ID, role/provider identity, lifecycle/evidence state, verdict/coverage/CI/publication state, hashes, or any other field. KAR injects target_sha256 and verification="claimed", then independently verifies the claim. A provider can never emit verified, stale, invalid, or unverifiable authority.
 The free-text placeholders N/A, TBD, TODO, unknown, none, and - are invalid when used as the entire value.
 If there are no supported findings, return findings:[] with a truthful summary; do not invent evidence. Use limitations only for actual review constraints.
+Before returning, silently perform this final output check: the response is one JSON object only; the top-level keys are exactly schema_version, summary, completeness, limitations, findings; completeness is exactly complete or incomplete; every evidence side is exactly base, head, or worktree in lowercase; every evidence quote exactly matches the selected target lines and includes each terminating LF as \n. Correct any violation before returning.

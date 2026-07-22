@@ -14,7 +14,7 @@ import (
 const (
 	productionProfileGeneration       = "reviewrun-production-candidates-v1"
 	productionWorkingDirectory        = "/private/var/empty"
-	productionTimeout                 = 2 * time.Minute
+	productionTimeout                 = 4 * time.Minute
 	productionOutputCap         int64 = 256 << 10
 )
 
@@ -241,11 +241,11 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	if err != nil {
 		return nil, err
 	}
-	agyArgvIndex := 10
+	agyArgvIndex := 12
 	if agyPermissionMode == "dangerously-skip-permissions" {
-		agyArgvIndex = 11
+		agyArgvIndex = 13
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		return nil, err
 	}

@@ -1191,7 +1191,7 @@ func providerExecutionTestExitCode(value int) *int {
 func providerExecutionTestStatusMatchesTermination(status ProviderExecutionStatus, termination ProcessTermination) bool {
 	switch status {
 	case ProviderExecutionStatusTimedOut:
-		return termination == ProcessTerminationTimedOut
+		return termination == ProcessTerminationTimedOut || termination == ProcessTerminationExited
 	case ProviderExecutionStatusCancelled:
 		return termination == ProcessTerminationCancelled
 	case ProviderExecutionStatusArtifactFailure:

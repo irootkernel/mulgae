@@ -1360,6 +1360,24 @@ func TestTerminationSignalsUseLinearizedPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestContextDeadlineIsTimeoutAndExplicitCancellationRemainsCancellation(t *testing.T) {
+	deadlineCtx, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	deadlineSignals := terminationSignals{}
+	deadlineSignals.recordContext(deadlineCtx)
+	if deadlineSignals.termination() != ports.ProcessTerminationTimedOut || contextProcessTermination(deadlineCtx) != ports.ProcessTerminationTimedOut {
+		t.Fatalf("deadline context = signals %#v termination %q", deadlineSignals, contextProcessTermination(deadlineCtx))
+	}
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelSignals := terminationSignals{}
+	cancelSignals.recordContext(cancelCtx)
+	if cancelSignals.termination() != ports.ProcessTerminationCancelled || contextProcessTermination(cancelCtx) != ports.ProcessTerminationCancelled {
+		t.Fatalf("cancel context = signals %#v termination %q", cancelSignals, contextProcessTermination(cancelCtx))
+	}
+}
 func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 	for _, test := range []struct {
 		name        string

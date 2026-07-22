@@ -386,6 +386,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 
 func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 	for _, condition := range []AttemptCondition{
+		AttemptConditionLoginRequired,
 		AttemptConditionSecurityViolation,
 		AttemptConditionMutationViolation,
 		AttemptConditionConfigurationViolation,
@@ -412,7 +413,8 @@ func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 				}
 			}
 			wantState := domain.RunFailed
-			if condition == AttemptConditionSecurityViolation ||
+			if condition == AttemptConditionLoginRequired ||
+				condition == AttemptConditionSecurityViolation ||
 				condition == AttemptConditionMutationViolation ||
 				condition == AttemptConditionCancelled {
 				wantState = domain.RunCancelled

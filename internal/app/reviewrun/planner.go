@@ -142,13 +142,18 @@ func DefaultPlannerPolicy() PlannerPolicy {
 }
 
 type qualifiedPlanner struct {
-	routes []QualifiedRoute
-	policy PlannerPolicy
+	routes                []QualifiedRoute
+	policy                PlannerPolicy
+	qualificationFailures []ProviderQualificationFailure
 }
 
 // NewQualifiedPlanner freezes current qualified routes for pure deterministic
 // assignment planning. Discovery availability alone is never accepted.
 func NewQualifiedPlanner(routes []QualifiedRoute, policy PlannerPolicy) (ExecutionPlanner, error) {
+	return newQualifiedPlanner(routes, policy, nil)
+}
+
+func newQualifiedPlanner(routes []QualifiedRoute, policy PlannerPolicy, qualificationFailures []ProviderQualificationFailure) (ExecutionPlanner, error) {
 	if len(routes) == 0 {
 		return nil, fmt.Errorf("review run: no qualified routes")
 	}
@@ -168,7 +173,10 @@ func NewQualifiedPlanner(routes []QualifiedRoute, policy PlannerPolicy) (Executi
 		}
 	}
 	sort.Slice(frozen, func(left, right int) bool { return compareQualifiedRoutes(frozen[left], frozen[right]) < 0 })
-	return &qualifiedPlanner{routes: frozen, policy: clonePlannerPolicy(policy)}, nil
+	return &qualifiedPlanner{
+		routes: frozen, policy: clonePlannerPolicy(policy),
+		qualificationFailures: append([]ProviderQualificationFailure(nil), qualificationFailures...),
+	}, nil
 }
 
 func (planner *qualifiedPlanner) Plan(ctx context.Context, request PlanningRequest) (ExecutionPlan, error) {
@@ -234,6 +242,15 @@ func (planner *qualifiedPlanner) configuredRoute(role domain.Role, family Family
 		matched = &copy
 	}
 	if matched == nil {
+		failures := make([]ProviderQualificationFailure, 0, 1)
+		for _, failure := range planner.qualificationFailures {
+			if failure.Family() == family {
+				failures = append(failures, failure)
+			}
+		}
+		if len(failures) != 0 {
+			return QualifiedRoute{}, providerQualificationReadinessError(failures)
+		}
 		return QualifiedRoute{}, fmt.Errorf("review run: configured %s route is not qualified for role %q", family, role)
 	}
 	return *matched, nil
@@ -288,16 +305,23 @@ func normalizePlannerPolicy(policy PlannerPolicy) (PlannerPolicy, error) {
 	if !policy.Ceilings.Valid() || !policy.Threshold.Valid() || policy.MaxLanes < 1 {
 		return PlannerPolicy{}, fmt.Errorf("review run: invalid planner policy")
 	}
-	if len(policy.Assignments) != len(domain.FixedRoleOrder()) {
-		return PlannerPolicy{}, fmt.Errorf("review run: planner policy requires six configured assignments")
-	}
-	for index, role := range domain.FixedRoleOrder() {
-		assignment := policy.Assignments[index]
-		if assignment.role != role || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
-			return PlannerPolicy{}, fmt.Errorf("review run: invalid configured assignment for role %q", role)
-		}
+	if err := validatePlannerAssignments(policy.Assignments); err != nil {
+		return PlannerPolicy{}, err
 	}
 	return policy, nil
+}
+
+func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
+	if len(assignments) != len(domain.FixedRoleOrder()) {
+		return fmt.Errorf("review run: planner policy requires six configured assignments")
+	}
+	for index, role := range domain.FixedRoleOrder() {
+		assignment := assignments[index]
+		if assignment.role != role || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
+			return fmt.Errorf("review run: invalid configured assignment for role %q", role)
+		}
+	}
+	return nil
 }
 
 func clonePlannerPolicy(policy PlannerPolicy) PlannerPolicy {

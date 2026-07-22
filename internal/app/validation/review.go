@@ -70,6 +70,7 @@ type RepairMode string
 const (
 	RepairModeReformatOnly      RepairMode = "reformat_only"
 	RepairModeFillMissingFields RepairMode = "fill_missing_fields"
+	RepairModeExactEvidence     RepairMode = "exact_evidence"
 )
 
 // RepairPlan binds an eligible repair to the exact original bytes. Its getters
@@ -94,16 +95,26 @@ func (plan RepairPlan) OriginalSHA256() string {
 }
 
 func (plan RepairPlan) valid() bool {
-	if plan.mode != RepairModeReformatOnly && plan.mode != RepairModeFillMissingFields {
+	if plan.mode != RepairModeReformatOnly && plan.mode != RepairModeFillMissingFields && plan.mode != RepairModeExactEvidence {
 		return false
 	}
 	if plan.mode == RepairModeReformatOnly {
 		return len(plan.allowedPaths) == 0
 	}
-	return len(plan.allowedPaths) > 0 &&
-		len(plan.allowedPaths) <= maxRepairOperations &&
-		sort.StringsAreSorted(plan.allowedPaths) &&
-		uniqueStrings(plan.allowedPaths)
+	if len(plan.allowedPaths) == 0 ||
+		len(plan.allowedPaths) > maxRepairOperations ||
+		!sort.StringsAreSorted(plan.allowedPaths) ||
+		!uniqueStrings(plan.allowedPaths) {
+		return false
+	}
+	if plan.mode == RepairModeExactEvidence {
+		for _, path := range plan.allowedPaths {
+			if !exactEvidenceRepairPath(path) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ValidatedReview is the immutable normalized result of one provider review.
@@ -1285,7 +1296,7 @@ func normalizeContent(value string) string {
 
 func newRepairPlan(mode RepairMode, raw []byte, allowedPaths []string) *RepairPlan {
 	plan := &RepairPlan{mode: mode, originalSHA256: sha256.Sum256(raw)}
-	if mode == RepairModeFillMissingFields {
+	if mode == RepairModeFillMissingFields || mode == RepairModeExactEvidence {
 		plan.allowedPaths = sortedUnique(allowedPaths)
 	}
 	return plan
@@ -1301,6 +1312,41 @@ func newFillRepairPlan(raw []byte, allowedPaths []string) (*RepairPlan, error) {
 		)
 	}
 	return newRepairPlan(RepairModeFillMissingFields, raw, paths), nil
+}
+
+// NewExactEvidenceRepairPlan binds one repair to quote fields whose immutable
+// target range was selected successfully but whose provider quote did not
+// match the exact target bytes. No path, side, range, finding, or severity may
+// be changed by this mode.
+func NewExactEvidenceRepairPlan(raw []byte, allowedPaths []string) (*RepairPlan, error) {
+	paths := append([]string(nil), allowedPaths...)
+	sort.Strings(paths)
+	if len(raw) == 0 || len(paths) == 0 || len(paths) > maxRepairOperations || !uniqueStrings(paths) {
+		return nil, fmt.Errorf("review validation: invalid exact evidence repair plan")
+	}
+	for _, path := range paths {
+		if !exactEvidenceRepairPath(path) {
+			return nil, fmt.Errorf("review validation: invalid exact evidence repair path")
+		}
+	}
+	return newRepairPlan(RepairModeExactEvidence, raw, paths), nil
+}
+
+func exactEvidenceRepairPath(path string) bool {
+	parts := strings.Split(path, "/")
+	if len(parts) != 7 || parts[0] != "" || parts[1] != "findings" || parts[3] != "evidence" ||
+		parts[5] != "current" || parts[6] != "quote" {
+		return false
+	}
+	for _, value := range []string{parts[2], parts[4]} {
+		if value == "" || (len(value) > 1 && value[0] == '0') {
+			return false
+		}
+		if _, err := strconv.ParseUint(value, 10, 31); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func sortedUnique(values []string) []string {

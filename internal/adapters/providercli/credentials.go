@@ -21,6 +21,7 @@ type credentialSeed struct {
 	sourceInfo      os.FileInfo
 	destination     string
 	destinationInfo os.FileInfo
+	destinationFile *os.File
 	sha256          string
 	size            int64
 	mode            os.FileMode
@@ -98,18 +99,18 @@ func (lease *namespaceLease) ProjectCredential(ctx context.Context, request port
 		_ = os.Remove(path)
 		return ports.CredentialProjectionReceipt{}, fmt.Errorf("credential projection: destination drift")
 	}
-	destinationFile, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	destinationFile, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		_ = os.Remove(path)
 		return ports.CredentialProjectionReceipt{}, fmt.Errorf("credential projection: destination drift")
 	}
 	openedInfo, openErr := destinationFile.Stat()
-	_ = destinationFile.Close()
 	if openErr != nil || !os.SameFile(destinationInfo, openedInfo) {
+		_ = destinationFile.Close()
 		_ = os.Remove(path)
 		return ports.CredentialProjectionReceipt{}, fmt.Errorf("credential projection: destination drift")
 	}
-	lease.seeds[request.Destination()] = credentialSeed{sourcePath: request.SourcePath(), sourceInfo: sourceInfo, destination: destination, destinationInfo: destinationInfo, sha256: request.SHA256(), size: request.Size(), mode: request.Mode(), authority: request.SourceAuthority()}
+	lease.seeds[request.Destination()] = credentialSeed{sourcePath: request.SourcePath(), sourceInfo: sourceInfo, destination: destination, destinationInfo: destinationInfo, destinationFile: destinationFile, sha256: request.SHA256(), size: request.Size(), mode: request.Mode(), authority: request.SourceAuthority()}
 	return ports.NewCredentialProjectionReceipt(request.Destination())
 }
 
@@ -218,7 +219,16 @@ func (lease *namespaceLease) validateSeeds() error {
 		}
 		path := filepath.Join(parent, filepath.Base(seed.destination))
 		destinationInfo, err := os.Lstat(path)
-		if err != nil || !destinationInfo.Mode().IsRegular() || destinationInfo.Mode().Perm() != 0600 || !os.SameFile(seed.destinationInfo, destinationInfo) || destinationInfo.Size() != seed.size {
+		if err != nil || !destinationInfo.Mode().IsRegular() || destinationInfo.Mode().Perm() != 0600 || destinationInfo.Size() > maxProjectedCredentialBytes {
+			return fmt.Errorf("credential seed drift")
+		}
+		destinationFile, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return fmt.Errorf("credential seed drift")
+		}
+		openedInfo, openErr := destinationFile.Stat()
+		closeErr := destinationFile.Close()
+		if openErr != nil || closeErr != nil || !os.SameFile(destinationInfo, openedInfo) {
 			return fmt.Errorf("credential seed drift")
 		}
 	}
@@ -235,42 +245,53 @@ func (lease *namespaceLease) zeroAndUnlinkSeeds() error {
 	sort.Slice(destinations, func(left, right int) bool { return destinations[left] < destinations[right] })
 	for _, destination := range destinations {
 		seed := lease.seeds[destination]
+		if seed.destinationFile != nil {
+			info, err := seed.destinationFile.Stat()
+			if err != nil || !os.SameFile(seed.destinationInfo, info) {
+				return fmt.Errorf("credential cleanup failed")
+			}
+			wipeSize := seed.size
+			if info.Size() > wipeSize {
+				wipeSize = info.Size()
+			}
+			if wipeSize > maxProjectedCredentialBytes {
+				return fmt.Errorf("credential cleanup failed")
+			}
+			if _, err := seed.destinationFile.Seek(0, io.SeekStart); err != nil {
+				return fmt.Errorf("credential cleanup failed")
+			}
+			zeros := make([]byte, 32*1024)
+			for remaining := wipeSize; remaining > 0; {
+				count := int64(len(zeros))
+				if remaining < count {
+					count = remaining
+				}
+				if _, err := seed.destinationFile.Write(zeros[:count]); err != nil {
+					zeroBytes(zeros)
+					return fmt.Errorf("credential cleanup failed")
+				}
+				remaining -= count
+			}
+			zeroBytes(zeros)
+			syncErr := seed.destinationFile.Sync()
+			closeErr := seed.destinationFile.Close()
+			seed.destinationFile = nil
+			lease.seeds[destination] = seed
+			if syncErr != nil || closeErr != nil {
+				return fmt.Errorf("credential cleanup failed")
+			}
+		}
 		parent, parentErr := lease.validateCredentialDirectory(seed.destination)
 		if parentErr != nil {
 			return fmt.Errorf("credential cleanup failed")
 		}
 		path := filepath.Join(parent, filepath.Base(seed.destination))
 		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || !os.SameFile(seed.destinationInfo, info) {
-			return fmt.Errorf("credential cleanup failed")
-		}
-		file, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
-		if err != nil {
-			return fmt.Errorf("credential cleanup failed")
-		}
-		openedInfo, err := file.Stat()
-		if err != nil || !os.SameFile(info, openedInfo) {
-			_ = file.Close()
-			return fmt.Errorf("credential cleanup failed")
-		}
-		zeros := make([]byte, 32*1024)
-		for remaining := seed.size; remaining > 0; {
-			count := int64(len(zeros))
-			if remaining < count {
-				count = remaining
-			}
-			if _, err := file.Write(zeros[:count]); err != nil {
-				_ = file.Close()
+		if err == nil && info.Mode().IsRegular() && os.SameFile(seed.destinationInfo, info) {
+			if err := os.Remove(path); err != nil {
 				return fmt.Errorf("credential cleanup failed")
 			}
-			remaining -= count
-		}
-		zeroBytes(zeros)
-		if err := file.Sync(); err != nil {
-			_ = file.Close()
-			return fmt.Errorf("credential cleanup failed")
-		}
-		if err := file.Close(); err != nil || os.Remove(path) != nil {
+		} else if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("credential cleanup failed")
 		}
 		delete(lease.seeds, destination)

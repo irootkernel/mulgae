@@ -88,11 +88,15 @@ func (adapter *RunAuthorityAdapter) NewQualifiedRun(ctx context.Context, capture
 	if err := validateAuthorityCandidates(candidates); err != nil {
 		return nil, newQualifiedRunConstructionError(err, ports.NewEmptyProviderRunTerminalReceipt())
 	}
+	candidates, err = restrictCandidatesToSelectedAssignments(candidates, selection, adapter.policy)
+	if err != nil {
+		return nil, newQualifiedRunConstructionError(err, ports.NewEmptyProviderRunTerminalReceipt())
+	}
 	run, err := adapter.qualifiedRuns.NewQualifiedRun(ctx, candidates)
 	if err != nil {
 		return nil, err
 	}
-	planner, err := NewQualifiedPlanner(run.Routes(), adapter.policy)
+	planner, err := newQualifiedPlanner(run.Routes(), adapter.policy, run.QualificationFailures())
 	if err != nil {
 		cause := fmt.Errorf("review run: construct planner: %w", err)
 		var lastErr error
@@ -120,6 +124,68 @@ func (adapter *RunAuthorityAdapter) NewQualifiedRun(ctx context.Context, capture
 		planner: planner,
 		build:   adapter.build,
 	}, nil
+}
+
+func restrictCandidatesToSelectedAssignments(candidates []QualifiedRunCandidate, selection RunSelection, policy PlannerPolicy) ([]QualifiedRunCandidate, error) {
+	if err := validatePlannerAssignments(policy.Assignments); err != nil {
+		return nil, fmt.Errorf("review run: invalid assignment-scoped qualification policy: %w", err)
+	}
+	selected := canonicalSelectedRoles(selection.Roles())
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("review run: assignment-scoped qualification has no selected roles")
+	}
+	rolesByFamily := make(map[Family][]domain.Role, len(candidates))
+	for _, role := range selected {
+		var assignment *RoleProviderAssignment
+		for index := range policy.Assignments {
+			if policy.Assignments[index].Role() == role {
+				assignment = &policy.Assignments[index]
+				break
+			}
+		}
+		if assignment == nil {
+			return nil, fmt.Errorf("review run: selected role %q has no configured assignment", role)
+		}
+		rolesByFamily[assignment.Primary()] = append(rolesByFamily[assignment.Primary()], role)
+		if fallback, ok := assignment.Fallback(); ok {
+			rolesByFamily[fallback] = append(rolesByFamily[fallback], role)
+		}
+	}
+
+	restricted := make([]QualifiedRunCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		family := Family(candidate.Definition.Family())
+		assigned := rolesByFamily[family]
+		if len(assigned) == 0 {
+			continue
+		}
+		supported := make(map[domain.Role]struct{}, len(candidate.SupportedRoles))
+		for _, role := range candidate.SupportedRoles {
+			supported[role] = struct{}{}
+		}
+		roles := make([]domain.Role, 0, len(assigned))
+		for _, role := range assigned {
+			if _, ok := supported[role]; !ok {
+				return nil, fmt.Errorf("review run: configured %s candidate does not declare selected role %q", family, role)
+			}
+			roles = append(roles, role)
+		}
+		roles = canonicalSelectedRoles(roles)
+		base := roles[0]
+		for _, role := range roles {
+			if role == domain.RoleLogic {
+				base = role
+				break
+			}
+		}
+		candidate.SupportedRoles = roles
+		candidate.BaseRole = base
+		restricted = append(restricted, candidate)
+	}
+	if len(restricted) == 0 {
+		return nil, fmt.Errorf("review run: no candidate is assigned to a selected role")
+	}
+	return restricted, nil
 }
 
 func cloneQualifiedRunCandidates(candidates []QualifiedRunCandidate) []QualifiedRunCandidate {

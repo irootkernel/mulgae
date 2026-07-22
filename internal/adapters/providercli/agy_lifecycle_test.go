@@ -196,7 +196,7 @@ if [ "$1" = "--version" ]; then printf '1.1.2\n'; exit 0; fi
 [ "$HOME" = "$KAR_AGY_EXPECTED_HOME" ] || exit 91
 [ ! -e "$HOME/.kar-credential-copy" ] || exit 92
 [ "$PWD" = "$KAR_AGY_EXPECTED_CWD" ] || exit 93
-[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$KAR_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--print-timeout" ] && [ "$9" = "2m" ] && [ "${10}" = "--print" ] || exit 94
+[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$KAR_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "3m55s" ] && [ "${12}" = "--print" ] || exit 94
 case "$KAR_AGY_TEST_MODE" in
 post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$KAR_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
@@ -229,11 +229,11 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 11, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, 20*time.Millisecond, 100*time.Millisecond)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, 20*time.Millisecond, 100*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}

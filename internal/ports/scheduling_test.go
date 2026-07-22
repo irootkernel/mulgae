@@ -14,6 +14,42 @@ import (
 	"time"
 )
 
+func TestValidateProcessOutputFrameAllowsOnlyOneTerminalLF(t *testing.T) {
+	for _, valid := range [][]byte{[]byte(`{"status":"ok"}`), []byte("{\"status\":\"ok\"}\n")} {
+		if err := ValidateProcessOutputFrame(ProcessOutputFramingStrictJSON, valid); err != nil {
+			t.Fatalf("valid provider JSON frame rejected: %q: %v", valid, err)
+		}
+	}
+	for _, invalid := range [][]byte{[]byte(" {\"status\":\"ok\"}"), []byte("{\"status\":\"ok\"} "), []byte("{\"status\":\"ok\"}\n\n"), []byte("{\"status\":\"ok\"}\r\n")} {
+		if err := ValidateProcessOutputFrame(ProcessOutputFramingStrictJSON, invalid); err == nil {
+			t.Fatalf("noncanonical provider JSON frame accepted: %q", invalid)
+		}
+	}
+}
+
+func TestExtractProcessOutputJSONFrameSelectsTerminalObject(t *testing.T) {
+	want := "{\n  \"root\": \"nonce\",\n  \"role\": \"logic\"\n}"
+	for _, stdout := range [][]byte{
+		[]byte("I inspected the immutable file.\n" + want + "\n"),
+		[]byte("I inspected the immutable file.\n```json\n" + want + "\n```\n"),
+	} {
+		frame, err := ExtractProcessOutputJSONFrame(ProcessOutputFramingTerminalJSONObject, stdout)
+		if err != nil || string(frame) != want {
+			t.Fatalf("terminal JSON frame = %q, %v", frame, err)
+		}
+	}
+	for _, invalid := range [][]byte{
+		[]byte("narration without JSON\n"),
+		[]byte("same-line {\"status\":\"ok\"}\n"),
+		[]byte("{\"status\":\"ok\"}\ntrailing text\n"),
+		[]byte("narration\n[1,2,3]\n"),
+	} {
+		if _, err := ExtractProcessOutputJSONFrame(ProcessOutputFramingTerminalJSONObject, invalid); err == nil {
+			t.Fatalf("invalid terminal JSON frame accepted: %q", invalid)
+		}
+	}
+}
+
 func TestParseConcurrencyKeyNormalizesNFCAndASCIIcase(t *testing.T) {
 	upper, err := ParseConcurrencyKey("KIMI-MAIN")
 	if err != nil {

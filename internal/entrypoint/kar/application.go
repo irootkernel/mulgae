@@ -965,6 +965,7 @@ type executionFailure struct {
 	class        domain.FailureClass
 	code         string
 	message      string
+	humanMessage string
 	retryable    bool
 	hasRetryable bool
 	stage        string
@@ -1013,6 +1014,9 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 	if invocation.OutputFormat() == OutputFormatHuman {
 		if len(run.human) != 0 {
 			return newResult(terminalOutput(run.human), nil, exit)
+		}
+		if failure.humanMessage != "" {
+			return errorResult(exit, failure.humanMessage)
 		}
 		return errorResult(exit, humanFailureMessage(failure.class))
 	}
@@ -1220,6 +1224,60 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 }
 
 func executionFailureFor(command app.CommandName, err error, fallback domain.FailureClass) *executionFailure {
+	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired {
+		providerList := strings.Join(providers, ", ")
+		return &executionFailure{
+			class:        domain.FailureAuthentication,
+			code:         "provider_login_required",
+			message:      "Login is required for provider " + providerList + ". Authenticate outside KAR, then rerun the command.",
+			humanMessage: "kar: login required for provider " + providerList + "; authenticate outside KAR, then rerun the command",
+			retryable:    false,
+			hasRetryable: true,
+			stage:        "cli." + string(command),
+			exit:         app.ExitCodeReadiness,
+		}
+	}
+	if failures, qualificationFailed := reviewrun.ProviderQualificationFailuresFromError(err); qualificationFailed {
+		facts := make([]string, 0, len(failures))
+		for _, failure := range failures {
+			facts = append(facts, failure.ProviderInstance()+"="+failure.ReasonCode())
+		}
+		failureList := strings.Join(facts, ", ")
+		class := reducedFailureClass(err, fallback)
+		retryable := qualificationFailureRetryable(class)
+		message := "Provider qualification failed: " + failureList + ". Resolve provider qualification, then rerun the command."
+		if retryable {
+			message = "Provider qualification failed: " + failureList + ". Retry the command after resolving provider readiness."
+		}
+		return &executionFailure{
+			class:        class,
+			code:         "provider_qualification_failed",
+			message:      message,
+			humanMessage: "kar: provider qualification failed: " + failureList,
+			retryable:    retryable,
+			hasRetryable: true,
+			stage:        "cli." + string(command),
+			exit:         requestedExit(class),
+		}
+	}
+	if failures, executionFailed := reviewrun.ProviderExecutionFailuresFromError(err); executionFailed {
+		facts := make([]string, 0, len(failures))
+		for _, failure := range failures {
+			facts = append(facts, failure.ProviderInstance()+"="+failure.ReasonCode())
+		}
+		failureList := strings.Join(facts, ", ")
+		class := reducedFailureClass(err, fallback)
+		return &executionFailure{
+			class:        class,
+			code:         "provider_execution_failed",
+			message:      "Provider execution failed: " + failureList + ".",
+			humanMessage: "kar: provider execution failed: " + failureList,
+			retryable:    false,
+			hasRetryable: true,
+			stage:        "cli." + string(command),
+			exit:         requestedExit(class),
+		}
+	}
 	class := reducedFailureClass(err, fallback)
 	failure := &executionFailure{
 		class: class,
@@ -1247,6 +1305,19 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		failure.exit = app.ExitCodeInternal
 	}
 	return failure
+}
+
+func qualificationFailureRetryable(class domain.FailureClass) bool {
+	switch class {
+	case domain.FailureProviderUnavailable,
+		domain.FailureTimeout,
+		domain.FailureAuthentication,
+		domain.FailureQuota,
+		domain.FailureRateLimit:
+		return true
+	default:
+		return false
+	}
 }
 
 func reducedFailureClass(err error, fallback domain.FailureClass) domain.FailureClass {

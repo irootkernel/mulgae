@@ -387,6 +387,66 @@ func TestQualifiedRunFactoryConstructionCleanupRetriesAndRetainsOwner(t *testing
 		t.Fatalf("retained cleanup retry = %#v, %v; closes=%d", terminal, err, registry.closed)
 	}
 }
+
+func TestQualifiedRunFactoryDoesNotSkipLoginRequiredCandidate(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	registry := newAuthorityRegistry(t)
+	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		cause, err := domain.NewFailure(
+			"capability",
+			domain.FailureAuthentication,
+			"provider login required",
+			ports.ErrProviderLoginRequired,
+		)
+		if err != nil {
+			return CurrentQualificationResult{}, err
+		}
+		return CurrentQualificationResult{}, NewProviderLoginRequiredError([]string{request.Definition.Instance()}, cause)
+	})
+	factory, err := NewQualifiedRunFactory(qualifier, qualifierRegistryFactory{registry: registry}, qualifierClock{now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := authorityCandidate(t)
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{candidate})
+	providers, ok := ProviderLoginRequiredProvidersFromError(err)
+	if !ok || !errors.Is(err, ports.ErrProviderLoginRequired) ||
+		len(providers) != 1 || providers[0] != candidate.Definition.Instance() {
+		t.Fatalf("login-required construction = providers %#v error %v", providers, err)
+	}
+	if registry.closed != 1 {
+		t.Fatalf("registry closes = %d, want 1", registry.closed)
+	}
+	if terminal, ok := ProviderRunTerminalReceiptFromError(err); !ok || !terminal.Valid() {
+		t.Fatalf("login-required terminal cleanup = %#v present=%t", terminal, ok)
+	}
+}
+
+func TestQualifiedRunFactoryReportsOperationalQualificationFailure(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	registry := newAuthorityRegistry(t)
+	auth, err := domain.NewFailure("capability", domain.FailureAuthentication, "authentication unavailable", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualifier := CurrentQualifierFunc(func(context.Context, CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		return CurrentQualificationResult{}, auth
+	})
+	factory, err := NewQualifiedRunFactory(qualifier, qualifierRegistryFactory{registry: registry}, qualifierClock{now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := authorityCandidate(t)
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{candidate})
+	failures, ok := ProviderQualificationFailuresFromError(err)
+	if !ok || len(failures) != 1 || failures[0].ProviderInstance() != candidate.Definition.Instance() ||
+		failures[0].Family() != Family(candidate.Definition.Family()) || failures[0].ReasonCode() != string(domain.FailureAuthentication) {
+		t.Fatalf("qualification failures = %#v present=%t error=%v", failures, ok, err)
+	}
+	if registry.closed != 1 {
+		t.Fatalf("registry closes = %d, want 1", registry.closed)
+	}
+}
 func TestQualifiedRunConstructionErrorRetainsPartialTerminalEvidence(t *testing.T) {
 	alpha := acquiredProviderNamespaceTerminalReceipt(t, "alpha-main", "generation-1")
 	beta := acquiredProviderNamespaceTerminalReceipt(t, "beta-main", "generation-1")

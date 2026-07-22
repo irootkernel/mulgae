@@ -330,7 +330,51 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if err != nil {
 		return nil, err
 	}
-	return production.NewQualifiedRunCandidates(ctx, captured, selection)
+	candidates, err := production.NewQualifiedRunCandidates(ctx, captured, selection)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]reviewrun.QualifiedRunCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		roles, base := configuredQualificationRoles(source.config.Roles, selection.Roles(), reviewrun.Family(candidate.Definition.Family()))
+		if len(roles) == 0 {
+			continue
+		}
+		candidate.SupportedRoles = roles
+		candidate.BaseRole = base
+		filtered = append(filtered, candidate)
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("configured provider discovery produced no assigned candidate")
+	}
+	return filtered, nil
+}
+
+func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []domain.Role, family reviewrun.Family) ([]domain.Role, domain.Role) {
+	selectedSet := make(map[domain.Role]struct{}, len(selected))
+	for _, role := range selected {
+		selectedSet[role] = struct{}{}
+	}
+	configured := config.Ordered()
+	roles := make([]domain.Role, 0, len(selected))
+	var primaryBase domain.Role
+	for index, role := range domain.FixedRoleOrder() {
+		if _, ok := selectedSet[role]; !ok || index >= len(configured) {
+			continue
+		}
+		assignment := configured[index]
+		if reviewrun.Family(assignment.PrimaryProvider) != family && reviewrun.Family(assignment.FallbackProvider) != family {
+			continue
+		}
+		roles = append(roles, role)
+		if primaryBase == "" && reviewrun.Family(assignment.PrimaryProvider) == family {
+			primaryBase = role
+		}
+	}
+	if primaryBase == "" && len(roles) > 0 {
+		primaryBase = roles[0]
+	}
+	return roles, primaryBase
 }
 
 func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRunPolicy, error) {

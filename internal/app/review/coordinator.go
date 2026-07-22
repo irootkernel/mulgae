@@ -1146,7 +1146,8 @@ func coordinatorOutcomeCondition(outcome AttemptOutcome) AttemptCondition {
 }
 
 func conditionCancelsCoordinatorRun(condition AttemptCondition) bool {
-	return condition == AttemptConditionSecurityViolation ||
+	return condition == AttemptConditionLoginRequired ||
+		condition == AttemptConditionSecurityViolation ||
 		condition == AttemptConditionMutationViolation ||
 		condition == AttemptConditionCancelled
 }
@@ -1154,6 +1155,7 @@ func conditionCancelsCoordinatorRun(condition AttemptCondition) bool {
 func conditionStopsCoordinatorRun(condition AttemptCondition) bool {
 	return condition == AttemptConditionInternalInvariant ||
 		condition == AttemptConditionArtifactFailure ||
+		condition == AttemptConditionLoginRequired ||
 		condition == AttemptConditionSecurityViolation ||
 		condition == AttemptConditionMutationViolation ||
 		condition == AttemptConditionCancelled
@@ -1167,11 +1169,13 @@ func conditionRetainsAuthorityAfterContext(
 	case AttemptConditionCancelled:
 		return condition == AttemptConditionInternalInvariant ||
 			condition == AttemptConditionArtifactFailure ||
+			condition == AttemptConditionLoginRequired ||
 			condition == AttemptConditionSecurityViolation ||
 			condition == AttemptConditionMutationViolation
 	case AttemptConditionTimeout:
 		return condition == AttemptConditionInternalInvariant ||
 			condition == AttemptConditionArtifactFailure ||
+			condition == AttemptConditionLoginRequired ||
 			condition == AttemptConditionSecurityViolation ||
 			condition == AttemptConditionMutationViolation ||
 			condition == AttemptConditionConfigurationViolation

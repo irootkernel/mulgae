@@ -111,7 +111,7 @@ func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.Workspac
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid authority")
 	}
 	lifecycle, ok := definition.PostOutputLifecycle()
-	if !ok || !lifecycle.Valid() || lifecycle.Framing() != ports.ProcessOutputFramingStrictJSON {
+	if !ok || !lifecycle.Valid() || lifecycle.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid lifecycle")
 	}
 	want, err := canonicalAGYExecutionArgv(definition, snapshot, nativeReference)
@@ -287,9 +287,6 @@ func validatedDisposableNamespaceEnvironment(environment []ports.EnvironmentVari
 }
 
 func validateDirectExecutionEnvironmentAuthority(family string, namespace QualificationNamespace, namespaceEnvironment, environment []ports.EnvironmentVariable) error {
-	if namespace.ValidateForSpawn() != nil {
-		return fmt.Errorf("namespace validation failed")
-	}
 	if _, err := disposableNamespaceEnvironmentID(namespaceEnvironment); err != nil || !containsNamespaceEnvironment(namespace.Environment(), namespaceEnvironment) ||
 		!containsNamespaceEnvironment(namespaceEnvironment, namespace.Environment()) || !containsNamespaceEnvironment(environment, namespaceEnvironment) {
 		return fmt.Errorf("namespace environment")
@@ -492,7 +489,7 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			proof.TransportPreStartLength <= 0 || proof.TransportPostEndSHA256 == "" || proof.TransportPostEndLength <= 0 ||
 			proof.TransportReference != proof.NativeReference ||
 			proof.TransportSnapshotCWD != proof.SnapshotPath || proof.LifecycleFrameSHA256 == "" || proof.LifecycleFrameLength <= 0 ||
-			proof.LifecycleFraming != string(ports.ProcessOutputFramingStrictJSON) || !proof.LifecycleProcessGroupAbsent) {
+			proof.LifecycleFraming != string(ports.ProcessOutputFramingTerminalJSONObject) || !proof.LifecycleProcessGroupAbsent) {
 			return "", fmt.Errorf("current probe direct-execution authority: incomplete AGY proof")
 		}
 		if proof.Family != FamilyAgy && proof.AGYExecutionPolicy != "" {

@@ -58,13 +58,15 @@ func (validator *ReviewValidator) ApplyRepairCandidate(ctx context.Context, orig
 		}
 		return review, append([]byte(nil), repairRaw...), nil
 	case RepairModeFillMissingFields:
-		return validator.applyPatchRepairCandidate(ctx, originalRaw, repairRaw, scope, plan)
+		return validator.applyPatchRepairCandidate(ctx, originalRaw, repairRaw, scope, plan, false)
+	case RepairModeExactEvidence:
+		return validator.applyPatchRepairCandidate(ctx, originalRaw, repairRaw, scope, plan, true)
 	default:
 		return ValidatedReview{}, nil, fmt.Errorf("review repair: unsupported mode %q", plan.mode)
 	}
 }
 
-func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, []byte, error) {
+func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan, allowMeaningfulEvidenceQuote bool) (ValidatedReview, []byte, error) {
 	original, err := decodeJSONObject(originalRaw, "original provider output")
 	if err != nil {
 		return ValidatedReview{}, nil, err
@@ -93,9 +95,13 @@ func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context,
 		if _, ok := allowed[operation.path]; !ok {
 			return ValidatedReview{}, nil, fmt.Errorf("review repair: path %q is not allowed", operation.path)
 		}
-		if err := setRepairValue(original, operation.path, operation.value); err != nil {
+		if err := setRepairValue(original, operation.path, operation.value, allowMeaningfulEvidenceQuote); err != nil {
 			return ValidatedReview{}, nil, fmt.Errorf("review repair: path %q: %w", operation.path, err)
 		}
+		delete(allowed, operation.path)
+	}
+	if len(allowed) != 0 {
+		return ValidatedReview{}, nil, fmt.Errorf("review repair: required paths were not repaired")
 	}
 	if err := guardProviderReview(original); err != nil {
 		return ValidatedReview{}, nil, err
@@ -185,7 +191,7 @@ func (validator *ReviewValidator) decodeRepairPatch(ctx context.Context, raw []b
 	return result, nil
 }
 
-func setRepairValue(document map[string]any, pointer string, replacement any) error {
+func setRepairValue(document map[string]any, pointer string, replacement any, allowMeaningfulEvidenceQuote bool) error {
 	parts, err := parseJSONPointer(pointer)
 	if err != nil {
 		return err
@@ -219,7 +225,7 @@ func setRepairValue(document map[string]any, pointer string, replacement any) er
 	}
 	switch container := current.(type) {
 	case map[string]any:
-		if currentValue, exists := container[last]; exists && meaningfulRepairTarget(pointer, currentValue) {
+		if currentValue, exists := container[last]; exists && meaningfulRepairTarget(pointer, currentValue) && !allowMeaningfulEvidenceQuote {
 			return fmt.Errorf("would overwrite a meaningful value")
 		}
 		container[last] = cloned

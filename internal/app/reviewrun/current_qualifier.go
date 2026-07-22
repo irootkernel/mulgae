@@ -83,7 +83,21 @@ func (qualifier *ProviderCurrentQualifier) QualifyCurrent(ctx context.Context, r
 		Definition: request.Definition, Namespace: request.Namespace, Fixture: base, RoleFixtures: roleFixtures,
 		Now: request.Now, TTL: currentQualificationTTL,
 	})
+	if retryableCapabilityOutputFailure(probeErr) && ctx.Err() == nil {
+		retryResult, retryErr := qualifier.probe.QualifyProviderCurrent(ctx, ports.ProviderCurrentProbeRequest{
+			Definition: request.Definition, Namespace: request.Namespace, Fixture: base, RoleFixtures: roleFixtures,
+			Now: request.Now, TTL: currentQualificationTTL,
+		})
+		if retryErr == nil {
+			probeResult, probeErr = retryResult, nil
+		} else {
+			probeErr = errors.Join(probeErr, retryErr)
+		}
+	}
 	if probeErr != nil {
+		if errors.Is(probeErr, ports.ErrProviderLoginRequired) {
+			return CurrentQualificationResult{}, newProviderLoginRequiredError([]string{request.Definition.Instance()}, probeErr)
+		}
 		return CurrentQualificationResult{}, admissionProbeError(probeErr)
 	}
 	observed := request.Identity
@@ -107,6 +121,41 @@ func (qualifier *ProviderCurrentQualifier) QualifyCurrent(ctx context.Context, r
 		Receipts: receipts, SupportedRoles: append([]domain.Role(nil), roles...),
 		RoleReceipts: roleReceipts, BaseRole: request.BaseRole,
 	}, nil
+}
+
+func retryableCapabilityOutputFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var failures []*domain.Failure
+	collectDomainFailures(err, &failures)
+	if len(failures) == 0 {
+		return false
+	}
+	for _, failure := range failures {
+		if failure == nil || failure.Class() != domain.FailureInvalidOutput {
+			return false
+		}
+	}
+	return true
+}
+
+func collectDomainFailures(err error, failures *[]*domain.Failure) {
+	if err == nil {
+		return
+	}
+	if failure, ok := err.(*domain.Failure); ok {
+		*failures = append(*failures, failure)
+		return
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		collectDomainFailures(wrapped.Unwrap(), failures)
+	case interface{ Unwrap() []error }:
+		for _, child := range wrapped.Unwrap() {
+			collectDomainFailures(child, failures)
+		}
+	}
 }
 
 func (qualifier *ProviderCurrentQualifier) rolesFor(request CurrentQualificationRequest) ([]domain.Role, error) {

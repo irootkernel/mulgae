@@ -1,9 +1,11 @@
 package providercli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +17,19 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+func TestClassifyProbeFailurePreservesExplicitLoginRequired(t *testing.T) {
+	err := classifyProbeFailure(
+		context.Background(),
+		errors.New("provider exited"),
+		[]byte(`{"code":"auth.login_required","message":"login first"}`),
+	)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureAuthentication ||
+		!errors.Is(err, ports.ErrProviderLoginRequired) {
+		t.Fatalf("login-required probe failure = %v", err)
+	}
+}
 
 type currentProbeNamespace struct {
 	environment []ports.EnvironmentVariable
@@ -127,8 +142,8 @@ func currentProbeCapabilityObservation(t *testing.T, fixture *currentProbeFixtur
 		t.Fatal(err)
 	}
 	transport, err := ports.NewProviderPacketTransportReceipt(
-		ports.ProviderPacketChannelPromptFile, packet.Identity(), "@"+fixture.Reference(),
-		fixture.WorkspaceSnapshotIdentity().SnapshotPath(), packet.Identity(), packet.Identity(),
+		ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -293,11 +308,11 @@ func TestCurrentProbeAgyBindsProviderPacketAndRequiresLifecycleEvidence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 11, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,11 +365,11 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 11, "@fixture.md")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecyclePolicy, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecyclePolicy, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,12 +419,14 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 	cases := []struct {
 		name                  string
 		signals               []signalSpec
+		exitCode              int
 		wantLifecycleFailure  bool
 		wantValidationFailure bool
 	}{
+		{name: "natural exit"},
 		{name: "term", signals: []signalSpec{term}},
 		{name: "term then kill", signals: []signalSpec{term, kill}},
-		{name: "zero", wantValidationFailure: true},
+		{name: "failed natural exit", exitCode: 1, wantValidationFailure: true},
 		{name: "lone kill", signals: []signalSpec{kill}, wantLifecycleFailure: true},
 		{name: "reverse", signals: []signalSpec{kill, term}, wantLifecycleFailure: true},
 		{name: "duplicate term", signals: []signalSpec{term, term}, wantLifecycleFailure: true},
@@ -434,7 +451,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 				}
 				requests = append(requests, receipt)
 			}
-			final, finalErr := ports.NewExitedProcessFinalTermination(0)
+			final, finalErr := ports.NewExitedProcessFinalTermination(test.exitCode)
 			if finalErr != nil {
 				t.Fatal(finalErr)
 			}
@@ -506,7 +523,7 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := ports.NewProviderPacketTransportReceipt(ports.ProviderPacketChannelPromptFile, packet.Identity(), "@roadmap.md", "/private/work", packet.Identity(), packet.Identity())
+	transport, err := ports.NewProviderPacketTransportReceipt(ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,6 +540,21 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 	}
 	if err := validateProbeTransportAndLifecycle(definition, packet, testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0)); err == nil {
 		t.Fatal("missing matching transport without lifecycle was accepted")
+	}
+}
+
+func TestControlledProbeJSONAcceptsExactOrSingleJSONFence(t *testing.T) {
+	want := []byte(`{"root":"nonce","link":"linked","role":"logic"}`)
+	for _, input := range [][]byte{want, []byte("```json\n" + string(want) + "\n```\n")} {
+		got, err := controlledProbeJSON(input)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("controlledProbeJSON(%q) = %q, %v", input, got, err)
+		}
+	}
+	for _, invalid := range [][]byte{[]byte("before\n" + string(want)), []byte("```\n" + string(want) + "\n```"), []byte("```json\n" + string(want) + "\n```\nafter")} {
+		if _, err := controlledProbeJSON(invalid); err == nil {
+			t.Fatalf("controlledProbeJSON accepted %q", invalid)
+		}
 	}
 }
 
@@ -590,7 +622,7 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 	if !receipt.Matches(definition, "1.2.3", "generation", []domain.Role{domain.RoleLogic}) {
 		t.Fatal("authority did not match its qualified definition")
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -705,7 +737,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	}
 	if binding.Channel() != ports.ProviderPacketChannelPromptFile ||
 		binding.PromptFileReference() != nativeReference ||
-		binding.ArgvIndex() != 11 ||
+		binding.ArgvIndex() != 13 ||
 		binding.SnapshotCWD() != r.fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
 		r.t.Fatal("capability request omitted the native prompt-file binding")
 	}
@@ -785,9 +817,9 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	}
 	fixture := &currentProbeFixture{identity: identity}
 	for family, want := range map[string][]string{
-		FamilyKimi:  {"--model", "kimi-code/k3", "--prompt", "@roadmap.md", "--output-format", "stream-json"},
-		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "@roadmap.md"},
-		FamilyAgy:   {"--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", directory, "--mode", "plan", "--print-timeout", "2m", "--print", "@roadmap.md"},
+		FamilyKimi:  {"--model", "kimi-code/k3", "--prompt", "fixture", "--output-format", "stream-json"},
+		FamilyZcode: {"--mode", "build", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", "*"},
+		FamilyAgy:   {"--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@roadmap.md"},
 	} {
 		definition := testProfile(t, family, "kimi_current", "lane", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)

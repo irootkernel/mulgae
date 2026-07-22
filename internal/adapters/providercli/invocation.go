@@ -54,17 +54,25 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	nativeReference := "@" + fixture.Reference()
+	packet := fixture.Packet()
+	if len(packet) == 0 {
+		return nil, fmt.Errorf("native probe invocation: invalid fixture packet")
+	}
 	switch definition.Family() {
 	case FamilyKimi:
-		return appendKimiInvocation(baseArgv, definition.KimiModel(), nativeReference), nil
+		return appendKimiInvocation(baseArgv, definition.KimiModel(), string(packet)), nil
 	case FamilyZcode:
-		return append(baseArgv, "--mode", "plan", "--no-color", "--prompt", nativeReference), nil
+		return appendZcodeInvocation(baseArgv, string(packet)), nil
 	case FamilyAgy:
 		return canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), fixture.Reference())
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
+}
+
+func appendZcodeInvocation(argv []string, prompt string) []string {
+	result := append([]string(nil), argv...)
+	return append(result, "--mode", "build", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", "*")
 }
 
 func appendKimiInvocation(argv []string, model, prompt string) []string {
@@ -108,10 +116,10 @@ func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.Work
 		return nil, err
 	}
 	controls := []string{"--new-project", "--sandbox"}
-	if definition.Transport().ArgvIndex() == 11 {
+	if definition.Transport().ArgvIndex() == 13 {
 		controls = append(controls, "--dangerously-skip-permissions")
 	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--print-timeout", "2m", "--print", "@"+nativeReference)
+	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@"+nativeReference)
 	return append(baseArgv, controls...), nil
 }
 func immutableSnapshotPath(identity ports.WorkspaceSnapshotIdentity) (string, error) {

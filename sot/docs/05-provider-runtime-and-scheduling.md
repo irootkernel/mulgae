@@ -158,6 +158,10 @@ is a lease-local destination.
 ZCode's configured Node path is an executable identity. Its CJS launcher is a
 separate readable regular-file identity: KAR descriptor-opens, hashes, and
 revalidates it without requiring the execute bit before Node consumes it.
+Both qualification and production review invoke ZCode headlessly with the
+closed `--disallowed-tools *` control. The immutable provider packet already
+contains the captured target, so ZCode receives no tool-turn authority and must
+return its terminal response directly.
 
 ## 8. Direct Process Contract
 
@@ -196,6 +200,7 @@ If a provider prints non-result logs to stdout, its adapter must deterministical
 | `G0-FAIL-01` | invalid JSON or missing AI-owned mandatory value | exactly 1 | allowed after repair | constrained repair request and validation receipt | required incomplete exit `4`; optional degraded policy |
 | `G0-FAIL-02` | `timeout` | none | allowed | bounded stderr/process diagnostic | same |
 | `G0-FAIL-03` | `auth` | none | allowed | redacted typed auth diagnostic; no credential bytes or hashes | same |
+| — | `login_required` (provider explicitly requires interactive user login) | none | forbidden | provider-attributed redacted diagnostic; no credential bytes or hashes | fail closed before P2, readiness exit `4`, `retryable=false` |
 | `G0-FAIL-04` | `quota` | none | allowed | typed quota diagnostic | same |
 | `G0-FAIL-05` | `rate_limit` | none | allowed | typed rate-limit diagnostic | same |
 | — | valid finding, including high/blocker | none | forbidden | validated result | content remains valid; CI may exit `1` |
@@ -204,6 +209,10 @@ If a provider prints non-result logs to stdout, its adapter must deterministical
 | — | secret, mutation, configuration, artifact, cancellation, or internal invariant | none | forbidden | typed safe diagnostic only | security `8`, configuration `2`, artifact `7`, cancellation `9`, or internal `10` |
 
 If no configured eligible fallback exists, `fallback_scheduled=false` and the role is immediately exhausted despite `fallback=allowed`. An exhausted required role gives `coverage_status=incomplete`, preserves valid content from all roles, and exits `4`. An exhausted optional role gives `coverage_status=degraded`; valid content may commit, and CI uses `degraded_review_fails=true` by default.
+
+`login_required` is the explicit user-action exception to the generic `auth` row. When qualification or execution for Kimi, ZCode, or AGY reports that condition, KAR must stop the run fail-closed, schedule neither repair nor fallback, publish no P2 result, and report every affected provider instance using the stable reason code `provider_login_required`. The reason is not automatically retryable: the user authenticates the reported provider outside KAR and reruns the same command, which performs current qualification again from the beginning. KAR must not attempt interactive login, credential mutation, or automatic substitution for this condition.
+
+Current qualification probes only the requested roles for which a configured provider family is the selected primary or fallback; it must not probe that provider for unrelated requested roles. The admitted route carries exactly that assignment-scoped role authority. When current qualification rejects one or more configured candidates for an operationally retryable reason, KAR must retain the configured provider instance and one closed safe reason code per rejected candidate. If a selected role requires a rejected candidate, planning fails before provider execution and P2 publication with `provider_qualification_failed`; the diagnostic lists the affected instances in canonical family order and never includes native stdout, stderr, paths, credential material, or free-form provider text. Partial qualification must not collapse a missing configured route into an unattributed `readiness_unverified` result.
 
 ## 10. Bounded repair, resource budgets, and deadlines
 
@@ -223,11 +232,15 @@ run_total_output_cap =
     (stdout_cap + stderr_cap)
 ```
 
-An assignment is ineligible when this value exceeds 64 MiB. For each normalized lane, its deadline is the sum of all possible assigned invocation timeouts plus two seconds per possible repair or fallback transition. The run deadline is `max(lane_deadlines) + 5s`; it must be at most 30 minutes. The assignment receipt records all operands, caps, formulas, rejections, and default sources.
+An assignment is ineligible when this value exceeds 64 MiB. For each normalized lane, its deadline is the sum of all possible assigned invocation timeouts plus two seconds per possible repair or fallback transition. The run deadline is `max(lane_deadlines) + 5s`; it must be at most 50 minutes, and the trusted lane ceiling is 49 minutes. The assignment receipt records all operands, caps, formulas, rejections, and default sources.
 
 ## 11. Provider and platform contract evidence
 
 Provider and platform evidence v1 is byte-identical compatibility-only input and cannot enter readiness. Only `kar-provider-contract-evidence.v2` and `kar-platform-contract-evidence.v2` are readiness authority for the historical G0 qualification record; G001 satisfied the complete v2 G0 evidence conjunction and authority chain. G007's intended support is exactly `kimi`, `zcode`, and `agy`: admission requires an allowlisted family, the applicable minimum version, and current runtime capability and security PASS. A newer version is allowed after that PASS; authorization is not pinned to an exact version, executable path, SHA allowlist, profile, or historical evidence tuple, which remain diagnostic provenance for issue reports and reproducibility. A missing required capability or security admission produces an actionable typed diagnostic, and a documented known incompatibility may be explicitly blocked. Unlisted families remain rejected, and failure never authorizes automatic provider substitution. Prior G009 integrated receipts are `HISTORICAL_GATE_PASS_NON_PRODUCTION`; the historical controlled exact-Kimi no-SKIP tuple is `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`. It neither substitutes for nor alters current family, minimum-version, capability, and security admission, and it is diagnostic evidence only, not an admission pin. The append-only G009 ledger also records two later 2026-07-18 opt-in retries that each ended after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; those later liveness failures do not replace the earlier PASS.
+
+Current production review invocations are bounded at 4 minutes, with a trusted normalized-lane ceiling of 49 minutes and run ceiling of 50 minutes. This admits the closed worst-case six-role shared-provider lane while remaining bounded; concurrent current Kimi and ZCode invocations demonstrated that the former 2-minute-20-second bound was insufficient. AGY runs with `--effort low` and receives native `--print-timeout 3m55s`, leaving 5 seconds for the native timeout result and process cleanup before the outer bound. The exact AGY native error `timeout waiting for response` is classified as provider timeout even though AGY exits nonzero; it must not become an internal invariant.
+
+ZCode headless invocation uses `--mode build`, `--json` after the bound prompt, and `--disallowed-tools '*'`. Denying every tool preserves a zero-execution review boundary while `build` avoids the plan-approval response state that can omit the requested terminal artifact. The prompt remains at its existing packet-binding argv index. KAR requires the official headless envelope's top-level `response` to be a non-empty string and isolates its terminal JSON object before provider-review validation, while retaining bare terminal-JSON compatibility. The installed 0.15.2 launcher's `--force-mcs` is not admitted because its GLM-5.2 path exceeds the supported cache-control breakpoint count on the production prompt, and its advertised `--max-turns` option is not admitted because the installed launcher rejects that option at runtime.
 `doctor` reports a fixed three-family inventory and the admission result for each configured family. It does not rediscover provider paths or models from ambient state, and both human and machine output are ANSI-free.
 
 G0 provider readiness is evidence, not an assertion from configuration. Runtime and canonical label order is exactly `kimi`, `zcode`, `agy`; lexical sorting is forbidden. Each family has the same exact 16 probes:

@@ -152,6 +152,14 @@ Private target admission uses the exact exit-8 reason `target_private_config_for
 
 Exit `3` is not a typed G0 outcome and is reserved. The manifest records every observed failure and reason code even when one exit is selected.
 
+An explicit provider `login_required` is a pre-publication readiness failure at exit `4`, not an ordinary committed incomplete review. Machine output uses reason code `provider_login_required`, sets `retryable=false`, and names every affected configured provider instance in the safe message. Human output names the same providers. No P2 URI is returned. KAR never performs login or fallback for this condition; after authenticating the named provider, the user reruns the same command and KAR repeats current qualification.
+
+Other operational current-qualification rejection uses exit `4` and reason code `provider_qualification_failed`. Human and machine messages list each affected configured provider instance with only its closed safe reason code, set `retryable=true`, expose no P2 URI, and contain no raw provider output. A qualified candidate that is not required by any selected primary or fallback assignment does not fail the run merely because another configured candidate was rejected; exact selected assignments remain the authority.
+
+A coordinator security-policy, configuration, artifact, internal, or cancellation stop is non-publishable. KAR projects its typed failure before P2 preparation, drains provider and workspace authority, and returns no P2 URI. It must not pass cancelled or blocked peer roles to publication and then collapse the resulting invariant error into generic readiness.
+
+For a non-publishable provider execution stop, machine output uses reason code `provider_execution_failed`, preserves the highest-precedence typed exit, sets `retryable=false`, and names every unsuccessful lane's affected provider instance with only its closed attempt-condition code. Operational predecessor, lower-precedence, and peer-cancellation facts remain visible so fallback exhaustion or process termination cannot hide the initiating stop. Human output names the same provider facts. Raw provider output, paths, credentials, and free-form diagnostics are never projected.
+
 Final exit precedence is:
 
 ```text

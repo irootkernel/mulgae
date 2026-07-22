@@ -206,7 +206,7 @@ Do not include Markdown, commentary, prefixes, suffixes, code fences, or a secon
 ```text
 KAR ROOT REVIEW REPAIR PLAN/2
 original_output_sha256:<64 lowercase hex>
-mode:<reformat_only|fill_missing_fields>
+mode:<reformat_only|fill_missing_fields|exact_evidence>
 allowed_paths_count:<canonical decimal>
 allowed_path:<sorted JSON Pointer>
 ```
@@ -214,6 +214,8 @@ allowed_path:<sorted JSON Pointer>
 `reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v2 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all KAR-owned fields.
 
 `fill_missing_fields` returns exactly `{"schema_version":"kar-repair-patch.v1","repairs":[{"path":...,"value":...}]}`. It contains 1..100 unique repairs, each path is in the sorted allowed set, and every required missing or invalid path is repaired exactly once. It preserves every unrelated value, finding count/order, severity, evidence identity, role/provider/target, and system field. Both repair forms are JSON-only; neither candidate nor plan grants evidence or execution authority. KAR's repair applicator remains authoritative and rejects original-hash mismatch, wrong form, unallowed paths, meaningful overwrites, finding-count changes, severity downgrades, and invalid reconstructed output.
+
+`exact_evidence` uses the same patch envelope only after immutable lookup selected the provider's exact path, side, and inclusive line range and classified the quote as mismatched. Its allowed paths are only the corresponding existing `/findings/{i}/evidence/{j}/current/quote` values. It may overwrite those meaningful quote strings with the exact selected target bytes, including terminating LF bytes represented as `\n`; every other evidence field and provider-owned value remains immutable. A stale target, invalid path or range, unavailable target, or reader failure receives no repair authority and proceeds directly to eligible fallback or exhaustion.
 
 [Repair request v1](../schemas/kar-repair-request.v1.schema.json) is historical read compatibility only. It is not an execution packet, a trusted repair layer, or an authority to select a mode, alter provider output, or verify evidence.
 

@@ -14,7 +14,7 @@ const (
 	maxBudgetInvocationsPerRole = 4
 	maxBudgetInvocationsPerRun  = 24
 	maxBudgetTotalOutputBytes   = int64(64 << 20)
-	maxBudgetRunDeadline        = 30 * time.Minute
+	maxBudgetRunDeadline        = 50 * time.Minute
 
 	budgetTransitionGrace = 2 * time.Second
 	budgetRunGrace        = 5 * time.Second
@@ -129,7 +129,7 @@ type HarnessCeilings struct {
 
 // NewHarnessCeilings validates trusted execution ceilings. The fixed SOT
 // maxima are closed: four invocations per role, 24 per run, 64 MiB output,
-// and a 30 minute run deadline.
+// and a 50 minute run deadline.
 func NewHarnessCeilings(
 	maxTimeout time.Duration,
 	maxStdout, maxStderr, maxTotalOutput int64,
@@ -156,11 +156,11 @@ func NewHarnessCeilings(
 // must pass it explicitly to PreflightRunBudget when these defaults are wanted.
 func DefaultHarnessCeilings() HarnessCeilings {
 	return HarnessCeilings{
-		maxTimeout:            180 * time.Second,
+		maxTimeout:            4 * time.Minute,
 		maxStdoutBytes:        256 << 10,
 		maxStderrBytes:        256 << 10,
 		maxTotalOutput:        maxBudgetTotalOutputBytes,
-		maxLaneDeadline:       25 * time.Minute,
+		maxLaneDeadline:       49 * time.Minute,
 		maxRunDeadline:        maxBudgetRunDeadline,
 		maxInvocationsPerRole: maxBudgetInvocationsPerRole,
 		maxInvocationsPerRun:  maxBudgetInvocationsPerRun,

@@ -27,8 +27,8 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 	if templates[1].transportArgvIndex != 6 {
 		t.Fatalf("ZCode transport argv index = %d, want 6", templates[1].transportArgvIndex)
 	}
-	if templates[2].transportArgvIndex != 10 {
-		t.Fatalf("default AGY transport argv index = %d, want safe-mode index 10", templates[2].transportArgvIndex)
+	if templates[2].transportArgvIndex != 12 {
+		t.Fatalf("default AGY transport argv index = %d, want safe-mode index 12", templates[2].transportArgvIndex)
 	}
 }
 
@@ -40,7 +40,7 @@ func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
 	for _, test := range []struct {
 		mode string
 		want int
-	}{{"safe", 10}, {"dangerously-skip-permissions", 11}} {
+	}{{"safe", 12}, {"dangerously-skip-permissions", 13}} {
 		templates, err := productionCandidateTemplatesWithAGYPermissionMode(identities, test.mode)
 		if err != nil {
 			t.Fatal(err)

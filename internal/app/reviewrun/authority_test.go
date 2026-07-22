@@ -2,6 +2,7 @@ package reviewrun
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -149,6 +150,48 @@ func TestNewRunAuthorityAdapterRejectsInvalidBuildIdentity(t *testing.T) {
 	}
 }
 
+func TestQualificationCandidatesAreRestrictedToSelectedPrimaryAndFallbackAssignments(t *testing.T) {
+	selected := []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleDocumentation}
+	selection, err := NewRunSelection(selected, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []QualifiedRunCandidate{
+		authorityCandidateForRoles(t, FamilyKimi, "kimi-main", selected),
+		authorityCandidateForRoles(t, FamilyZCode, "zcode-main", selected),
+		authorityCandidateForRoles(t, FamilyAGY, "agy-main", selected),
+	}
+	restricted, err := restrictCandidatesToSelectedAssignments(
+		candidates,
+		selection,
+		plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[Family][]domain.Role{
+		FamilyKimi:  {domain.RoleLogic},
+		FamilyZCode: {domain.RoleLogic, domain.RoleSecurity, domain.RoleDocumentation},
+		FamilyAGY:   {domain.RoleSecurity, domain.RoleDocumentation},
+	}
+	if len(restricted) != len(want) {
+		t.Fatalf("restricted candidate count = %d, want %d", len(restricted), len(want))
+	}
+	for _, candidate := range restricted {
+		family := Family(candidate.Definition.Family())
+		if !reflect.DeepEqual(candidate.SupportedRoles, want[family]) {
+			t.Fatalf("%s qualification roles = %v, want %v", family, candidate.SupportedRoles, want[family])
+		}
+		wantBase := candidate.SupportedRoles[0]
+		if family == FamilyKimi || family == FamilyZCode {
+			wantBase = domain.RoleLogic
+		}
+		if candidate.BaseRole != wantBase {
+			t.Fatalf("%s qualification base role = %q, want %q", family, candidate.BaseRole, wantBase)
+		}
+	}
+}
+
 func TestImmutableReviewInputRetainsObjectivePresence(t *testing.T) {
 	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
 	if err != nil {
@@ -189,6 +232,27 @@ func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 		SnapshotManifest: "manifest-1",
 		SupportedRoles:   []domain.Role{domain.RoleLogic},
 		BaseRole:         domain.RoleLogic,
+		Limits:           limits,
+	}
+}
+
+func authorityCandidateForRoles(t *testing.T, family Family, instance string, roles []domain.Role) QualifiedRunCandidate {
+	t.Helper()
+	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.4", t.TempDir())
+	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return QualifiedRunCandidate{
+		Profile: DiscoveredProviderProfile{
+			family: family, executable: definition.Executable(), launcher: definition.Launcher(),
+			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
+			reason: "unqualified_discovery",
+		},
+		Definition:       definition,
+		SnapshotManifest: "manifest-1",
+		SupportedRoles:   append([]domain.Role(nil), roles...),
+		BaseRole:         roles[0],
 		Limits:           limits,
 	}
 }

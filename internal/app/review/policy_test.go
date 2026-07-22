@@ -246,11 +246,14 @@ func TestAttemptConditionsAreExactAndExhaustivelyValidated(t *testing.T) {
 	expected := []AttemptCondition{
 		AttemptConditionValidReview,
 		AttemptConditionInvalidProviderOutput,
+		AttemptConditionUnrepairableProviderOutput,
 		AttemptConditionInvalidEvidenceClaim,
+		AttemptConditionUnrepairableEvidence,
 		AttemptConditionSemanticContradiction,
 		AttemptConditionProviderUnavailable,
 		AttemptConditionTimeout,
 		AttemptConditionAuthentication,
+		AttemptConditionLoginRequired,
 		AttemptConditionQuota,
 		AttemptConditionRateLimit,
 		AttemptConditionSecurityViolation,
@@ -313,11 +316,14 @@ func policyExpectations() []policyExpectation {
 	return []policyExpectation{
 		{condition: AttemptConditionValidReview, projection: TerminalProjectionSucceeded},
 		{condition: AttemptConditionInvalidProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
+		{condition: AttemptConditionUnrepairableProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionInvalidEvidenceClaim, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
+		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionAuthentication, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed, fallbackOnly: true},
+		{condition: AttemptConditionLoginRequired, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionQuota, terminalClass: domain.FailureQuota, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionRateLimit, terminalClass: domain.FailureRateLimit, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionSecurityViolation, terminalClass: domain.FailureSecurityPolicy, projection: TerminalProjectionCancelled, cancelsRun: true},
@@ -389,18 +395,22 @@ func expectedConditionPrecedence(condition AttemptCondition) int {
 		return 3
 	case AttemptConditionConfigurationViolation:
 		return 4
+	case AttemptConditionLoginRequired:
+		return 5
 	case AttemptConditionSemanticContradiction,
+		AttemptConditionUnrepairableProviderOutput,
+		AttemptConditionUnrepairableEvidence,
 		AttemptConditionInvalidEvidenceClaim,
 		AttemptConditionInvalidProviderOutput:
-		return 5
+		return 6
 	case AttemptConditionAuthentication,
 		AttemptConditionQuota,
 		AttemptConditionRateLimit,
 		AttemptConditionTimeout,
 		AttemptConditionProviderUnavailable:
-		return 6
-	case AttemptConditionValidReview:
 		return 7
+	case AttemptConditionValidReview:
+		return 8
 	default:
 		panic("unknown attempt condition")
 	}

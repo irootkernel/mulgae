@@ -51,6 +51,7 @@ type ProbeFixture interface {
 	Reference() string
 	Nonce() string
 	Link() string
+	Packet() []byte
 	WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity
 	Validate() error
 }
@@ -146,9 +147,9 @@ type probeFixtureLease struct {
 }
 
 func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, ports.WorkspaceSnapshotRequest, error) {
-	roadmap := []byte("Read docs/linked.md and return only one strict JSON object.\n" +
+	roadmap := []byte("Return only one strict JSON object and no other text.\n" +
 		"The object must contain exactly root, link, and role string fields.\n" +
-		"root must be " + nonce + "; link must be the exact linked file content; role must be " + string(role) + ".\n")
+		"root must be " + nonce + "; link must be " + link + "; role must be " + string(role) + ".\n")
 	linked := []byte(link)
 	files, err := probeFixtureFiles(roadmap, linked)
 	if err != nil {

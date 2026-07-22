@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
@@ -165,6 +166,21 @@ func (service *Service) Execute(ctx context.Context, request Request) (_ Result,
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: execute: %w", err)
 	}
+	if providers := coordinatorLoginRequiredProviders(coordinatorResult); len(providers) != 0 {
+		failure, failureErr := domain.NewFailure(
+			"reviewrun.execute",
+			domain.FailureAuthentication,
+			"provider login required",
+			ports.ErrProviderLoginRequired,
+		)
+		if failureErr != nil {
+			return Result{}, failureErr
+		}
+		return Result{}, newProviderLoginRequiredError(providers, failure)
+	}
+	if failure := coordinatorNonPublishableFailure(coordinatorResult); failure != nil {
+		return Result{}, failure
+	}
 	inventory := runtime.DrainRuntimeArtifactsForRun(coordinatorResult.RunID())
 	typedTerminal, drainErr := drainQualifiedTerminal(ctx, qualified)
 	if drainErr != nil {
@@ -214,6 +230,112 @@ func (service *Service) Execute(ctx context.Context, request Request) (_ Result,
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
 	return newResult(coordinatorResult.SessionID(), coordinatorResult.RunID(), coordinatorResult, final, snapshot, exit)
+}
+
+func coordinatorNonPublishableFailure(result review.CoordinatorResult) error {
+	summaries := result.RoleSummaries()
+	classes := make([]domain.FailureClass, 0, len(summaries))
+	for _, summary := range summaries {
+		classes = append(classes, summary.FailureClass())
+	}
+	selected := reduceNonPublishableCoordinatorFailures(classes...)
+	if selected == "" {
+		return nil
+	}
+	providerFailures := make([]ProviderExecutionFailure, 0, len(summaries))
+	for _, summary := range summaries {
+		if !summary.FailureClass().Valid() {
+			continue
+		}
+		attempts := summary.Attempts()
+		if len(attempts) == 0 {
+			continue
+		}
+		providerFailure, err := NewProviderExecutionFailure(
+			attempts[len(attempts)-1].Route().ProviderInstance(),
+			summary.Role(),
+			summary.ReasonCode(),
+			summary.FailureClass(),
+		)
+		if err != nil {
+			return err
+		}
+		providerFailures = append(providerFailures, providerFailure)
+	}
+	cause := newProviderExecutionFailuresError(providerFailures)
+	failure, err := domain.NewFailure(
+		"reviewrun.execute",
+		selected,
+		"coordinator terminated with a non-publishable provider outcome",
+		cause,
+	)
+	if err != nil {
+		return fmt.Errorf("review run: invalid non-publishable coordinator failure")
+	}
+	return failure
+}
+
+func reduceNonPublishableCoordinatorFailures(classes ...domain.FailureClass) domain.FailureClass {
+	selected := domain.FailureClass("")
+	selectedRank := -1
+	for _, class := range classes {
+		if !nonPublishableCoordinatorFailure(class) {
+			continue
+		}
+		if rank := coreapp.FailurePrecedence(class); rank > selectedRank {
+			selected = class
+			selectedRank = rank
+		}
+	}
+	return selected
+}
+
+func nonPublishableCoordinatorFailure(class domain.FailureClass) bool {
+	switch class {
+	case domain.FailureSecurityPolicy,
+		domain.FailureConfiguration,
+		domain.FailureArtifact,
+		domain.FailureInternal,
+		domain.FailureCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func coordinatorLoginRequiredProviders(result review.CoordinatorResult) []string {
+	roles := result.RoleSummaries()
+	for _, role := range roles {
+		switch role.FailureClass() {
+		case domain.FailureInternal,
+			domain.FailureSecurityPolicy,
+			domain.FailureArtifact,
+			domain.FailureCancelled,
+			domain.FailureConfiguration:
+			return nil
+		}
+	}
+	providers := make([]string, 0, len(roles))
+	for _, role := range roles {
+		if role.ReasonCode() != string(review.AttemptConditionLoginRequired) {
+			continue
+		}
+		attempts := role.Attempts()
+		if len(attempts) == 0 {
+			continue
+		}
+		providers = append(providers, attempts[len(attempts)-1].Route().ProviderInstance())
+	}
+	sort.Strings(providers)
+	write := 0
+	for _, provider := range providers {
+		if provider == "" || (write > 0 && providers[write-1] == provider) {
+			continue
+		}
+		providers[write] = provider
+		write++
+	}
+	return providers[:write]
 }
 func productionPublicationContext(
 	build BuildIdentity,
@@ -580,6 +702,9 @@ func (provider *packetScreeningProvider) Observe(ctx context.Context, invocation
 	defer clear(packet)
 	detection, err := provider.detector.DetectReviewInput(ctx, ports.ReviewInputPacket, invocation.SourceInvocationID(), packet)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: detect provider packet: %w", err)
+		}
 		provider.mu.Lock()
 		provider.detectorErr = err
 		provider.mu.Unlock()

@@ -208,7 +208,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	timer := time.NewTimer(request.Timeout())
 	defer timer.Stop()
 	if ctx.Err() != nil {
-		return runner.observation(nil, nil, nil, ports.ProcessTerminationCancelled, initialReceipt, startedAt)
+		return runner.observation(nil, nil, nil, contextProcessTermination(ctx), initialReceipt, startedAt)
 	}
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
@@ -303,7 +303,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		}
 		_ = stdoutWriter.Close()
 		_ = stderrWriter.Close()
-		return runner.observation(nil, nil, nil, ports.ProcessTerminationCancelled, initialReceipt, startedAt)
+		return runner.observation(nil, nil, nil, contextProcessTermination(ctx), initialReceipt, startedAt)
 	}
 	if err := child.Start(); err != nil {
 		_ = closeStdin(stdinWriter)
@@ -479,7 +479,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			stdinReceipt = result.receipt
 			signals.recordStdin(result)
 		case <-ctx.Done():
-			signals.cancelled = true
+			signals.recordContext(ctx)
 		case <-timer.C:
 			signals.timedOut = true
 		case <-processGroupTicker.C:
@@ -736,7 +736,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	}
 	for !(outDone && errDone && stdinDone && waited && producersJoined == 2) {
 		if ctx.Err() != nil {
-			signals.cancelled = true
+			signals.recordContext(ctx)
 		}
 		select {
 		case <-outer.C:
@@ -876,7 +876,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 			}
 			outDone, errDone = true, true
 		case <-ctx.Done():
-			signals.cancelled = true
+			signals.recordContext(ctx)
 		case <-outer.C:
 			signals.timedOut = true
 		}
@@ -1202,13 +1202,30 @@ func consumeRunnerCompletion(
 
 func snapshotTerminalFacts(ctx context.Context, timer *time.Timer, signals *terminationSignals) {
 	if ctx.Err() != nil {
-		signals.cancelled = true
+		signals.recordContext(ctx)
 	}
 	select {
 	case <-timer.C:
 		signals.timedOut = true
 	default:
 	}
+}
+
+func (signals *terminationSignals) recordContext(ctx context.Context) {
+	if ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		signals.timedOut = true
+		return
+	}
+	if ctx != nil && ctx.Err() != nil {
+		signals.cancelled = true
+	}
+}
+
+func contextProcessTermination(ctx context.Context) ports.ProcessTermination {
+	if ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return ports.ProcessTerminationTimedOut
+	}
+	return ports.ProcessTerminationCancelled
 }
 
 func captureProcessGroup(pid int) (int, error) {

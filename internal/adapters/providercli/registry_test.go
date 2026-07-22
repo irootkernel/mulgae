@@ -21,8 +21,8 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 		want   []string
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"}},
-		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes"}},
-		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--print-timeout", "2m", "--print", "review bytes"}},
+		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"}},
+		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -56,7 +56,6 @@ func TestProviderResultStrictness(t *testing.T) {
 		t.Fatalf("Kimi result = %q, isolated=%t, err=%v", content, isolated, err)
 	}
 	invalidKimi := [][]byte{
-		[]byte("{\"role\":\"assistant\",\"content\":\"one\"}\n{\"role\":\"assistant\",\"content\":\"two\"}"),
 		[]byte("{\"role\":\"assistant\",\"content\":[]}"),
 		[]byte("{\"role\":\"assistant\"}"),
 		[]byte("{bad}"),
@@ -68,14 +67,57 @@ func TestProviderResultStrictness(t *testing.T) {
 			t.Fatalf("Kimi accepted malformed output %q", stdout)
 		}
 	}
-	for _, family := range []string{FamilyZcode, FamilyAgy} {
-		if _, _, err := providerResult(family, []byte("{\"findings\":[]} trailing")); err == nil {
-			t.Fatalf("%s accepted trailing bytes", family)
-		}
-		want := []byte("{\"findings\":[]}")
-		got, isolated, err := providerResult(family, want)
-		if err != nil || isolated || !bytes.Equal(got, want) {
-			t.Fatalf("%s result = %q, isolated=%t, err=%v", family, got, isolated, err)
+	content, isolated, err = providerResult(FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":\"draft\"}\n{\"role\":\"assistant\",\"content\":\"final answer\"}"))
+	if err != nil || !isolated || !bytes.Equal(content, []byte("final answer")) {
+		t.Fatalf("Kimi terminal assistant result = %q, isolated=%t, err=%v", content, isolated, err)
+	}
+	kimiToolStream := []byte("{\"role\":\"assistant\",\"tool_calls\":[{\"type\":\"function\"}]}\n" +
+		"{\"role\":\"tool\",\"content\":\"tool output\"}\n" +
+		"{\"role\":\"assistant\",\"content\":\"final answer\"}\n" +
+		"{\"role\":\"meta\",\"content\":\"resume hint\"}\n")
+	content, isolated, err = providerResult(FamilyKimi, kimiToolStream)
+	if err != nil || !isolated || !bytes.Equal(content, []byte("final answer")) {
+		t.Fatalf("Kimi tool stream result = %q, isolated=%t, err=%v", content, isolated, err)
+	}
+	want := []byte("{\"findings\":[]}")
+	zcodeRaw := []byte("```json\n{\"findings\":[]}\n```")
+	got, isolated, err := providerResult(FamilyZcode, zcodeRaw)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	got, isolated, err = providerResult(FamilyZcode, want)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	zcodeEnvelope := []byte(`{"sessionId":"session","response":"{\"findings\":[]}","usage":{"inputTokens":1}}`)
+	got, isolated, err = providerResult(FamilyZcode, zcodeEnvelope)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode envelope result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	zcodeNarratedEnvelope := []byte(`{"sessionId":"session","response":"The review is complete.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```" + `","usage":{"inputTokens":1}}`)
+	got, isolated, err = providerResult(FamilyZcode, zcodeNarratedEnvelope)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode narrated envelope result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":""}`)); err == nil {
+		t.Fatal("ZCode accepted an empty headless response")
+	}
+	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":"narration without terminal JSON"}`)); err == nil {
+		t.Fatal("ZCode accepted a headless response without terminal JSON")
+	}
+	zcodeNarrated := []byte("I inspected the snapshot.\n{\"findings\":[]}\n")
+	got, isolated, err = providerResult(FamilyZcode, zcodeNarrated)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode narrated result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	agyStdout := []byte("I inspected the immutable snapshot.\n{\"findings\":[]}\n")
+	got, isolated, err = providerResult(FamilyAgy, agyStdout)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("AGY result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	for _, invalid := range [][]byte{[]byte("same-line {\"findings\":[]}"), []byte("{\"findings\":[]}\ntrailing")} {
+		if _, _, err := providerResult(FamilyAgy, invalid); err == nil {
+			t.Fatalf("AGY accepted nonterminal output %q", invalid)
 		}
 	}
 }
@@ -379,16 +421,17 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"},
 		},
 		{
-			family:     FamilyZcode,
-			stdout:     []byte("{\"findings\":[]}"),
-			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes"},
+			family:       FamilyZcode,
+			stdout:       []byte("I inspected the snapshot.\n{\"findings\":[]}\n"),
+			wantResult:   []byte("{\"findings\":[]}"),
+			wantIsolated: true,
+			wantArgv:     []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"},
 		},
 		{
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--print-timeout", "2m", "--print", "review bytes"},
+			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "review bytes"},
 		},
 	}
 	for _, test := range tests {
@@ -452,8 +495,7 @@ func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T)
 		family string
 		stdout []byte
 	}{
-		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":\"one\"}\n{\"role\":\"assistant\",\"content\":\"two\"}")},
-		{FamilyZcode, []byte("{\"findings\":[]} trailing")},
+		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}")},
 		{FamilyAgy, []byte("{\"findings\":[]} trailing")},
 	}
 	for _, test := range tests {
@@ -528,6 +570,56 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 					observed.Status(), observed.DiagnosticCode(), test.wantStatus, test.wantCode)
 			}
 		})
+	}
+}
+
+func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
+	invocation := testInvocation(t, "kimi_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			nil,
+			[]byte(`{"code":"auth.login_required","message":"login first"}`),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusAuthentication || observed.DiagnosticCode() != "login_required" {
+		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
+	}
+}
+
+func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
+	invocation := testInvocation(t, "agy_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			nil,
+			[]byte("Error: timeout waiting for response\n"),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyAgy, "agy_default", "agy_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusTimedOut || observed.DiagnosticCode() != "provider_timeout" {
+		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
 	}
 }
 
@@ -668,13 +760,13 @@ func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *tes
 		t.Fatal(err)
 	}
 
-	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--print-timeout", "2m", "--print", string(invocation.PacketBytes())}
+	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", string(invocation.PacketBytes())}
 	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
 		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
 	}
 	binding, ok := runner.request.ProviderPacketBinding()
 	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-		binding.ArgvIndex() != len(profile.baseArgv)+10 ||
+		binding.ArgvIndex() != len(profile.baseArgv)+12 ||
 		runner.request.Argv()[binding.ArgvIndex()] != string(invocation.PacketBytes()) {
 		t.Fatalf("packet binding = %#v, argv=%q", binding, runner.request.Argv())
 	}
@@ -1246,7 +1338,7 @@ func TestNewProductionRuntimeDefinitionWithSafetyPolicyAndPostOutputLifecycle(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

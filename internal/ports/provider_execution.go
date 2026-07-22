@@ -3,12 +3,17 @@ package ports
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
+
+// ErrProviderLoginRequired marks an explicit native provider response that
+// requires the installed user to authenticate outside KAR before retrying.
+var ErrProviderLoginRequired = errors.New("provider login required")
 
 // ProviderExecutionStatus is the closed, provider-neutral execution outcome.
 // It records execution facts only; it does not authorize repair, fallback,
@@ -564,7 +569,9 @@ func providerExecutionStatusMatchesProcessObservation(
 ) bool {
 	switch status {
 	case ProviderExecutionStatusTimedOut:
-		return processObservation.Termination() == ProcessTerminationTimedOut
+		return processObservation.Termination() == ProcessTerminationTimedOut ||
+			(processObservation.Termination() == ProcessTerminationExited &&
+				processObservation.StdinWriteReceipt().Complete())
 	case ProviderExecutionStatusCancelled:
 		return processObservation.Termination() == ProcessTerminationCancelled
 	case ProviderExecutionStatusArtifactFailure:

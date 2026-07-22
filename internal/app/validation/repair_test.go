@@ -69,6 +69,36 @@ func TestApplyRepairReformatRevalidatesReplacementWithoutPatch(t *testing.T) {
 	}
 }
 
+func TestApplyExactEvidenceRepairMayReplaceOnlySelectedQuote(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	original := validProviderReview()
+	path := "/findings/0/evidence/0/current/quote"
+	plan, err := NewExactEvidenceRepairPlan(original, []string{path})
+	if err != nil || plan.Mode() != RepairModeExactEvidence || len(plan.AllowedPaths()) != 1 || plan.AllowedPaths()[0] != path {
+		t.Fatalf("exact evidence plan = %#v, err=%v", plan, err)
+	}
+	patch := marshalRepairPatch(t, []map[string]any{{"path": path, "value": "exact target line\n"}})
+	review, err := validator.ApplyRepair(context.Background(), original, patch, testScope(), *plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := review.EvidenceClaims()
+	if len(claims) != 1 || len(claims[0].Claims()) != 1 || string(claims[0].Claims()[0].QuoteBytes()) != "exact target line\n" {
+		t.Fatalf("repaired evidence claims = %#v", claims)
+	}
+	if _, err := NewExactEvidenceRepairPlan(original, []string{"/findings/0/title"}); err == nil {
+		t.Fatal("non-evidence path received exact evidence repair authority")
+	}
+	missing := marshalRepairPatch(t, []map[string]any{{"path": path, "value": "exact target line\n"}})
+	twoPaths, err := NewExactEvidenceRepairPlan(original, []string{path, "/findings/0/evidence/1/current/quote"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validator.ApplyRepair(context.Background(), original, missing, testScope(), *twoPaths); err == nil {
+		t.Fatal("partial exact evidence repair was accepted")
+	}
+}
+
 func TestApplyRepairRejectsOverwriteOrUnapprovedOrStructuralChanges(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	original := validProviderReview()
@@ -132,7 +162,7 @@ func TestRepairPlanAndPointerParserRejectAmbiguousInputs(t *testing.T) {
 
 	document := map[string]any{"limitations": []any{nil}}
 	for _, pointer := range []string{"/limitations/+0", "/limitations/-0", "/limitations/00", "/limitations/~30", "/limitations/0~1"} {
-		if err := setRepairValue(document, pointer, "replacement"); err == nil {
+		if err := setRepairValue(document, pointer, "replacement", false); err == nil {
 			t.Fatalf("array pointer %q accepted", pointer)
 		}
 	}

@@ -282,11 +282,13 @@ func TestDefaultHarnessCeilingsAreClosedAndValid(t *testing.T) {
 	}
 	if ceilings.MaxInvocationsPerRole() != 4 ||
 		ceilings.MaxInvocationsPerRun() != 24 ||
+		ceilings.MaxTimeout() != 4*time.Minute ||
 		ceilings.MaxTotalOutput() != 64<<20 ||
-		ceilings.MaxRunDeadline() != 30*time.Minute {
-		t.Fatalf("default ceilings = role=%d run=%d output=%d deadline=%s",
+		ceilings.MaxRunDeadline() != 50*time.Minute {
+		t.Fatalf("default ceilings = role=%d run=%d timeout=%s output=%d deadline=%s",
 			ceilings.MaxInvocationsPerRole(),
 			ceilings.MaxInvocationsPerRun(),
+			ceilings.MaxTimeout(),
 			ceilings.MaxTotalOutput(),
 			ceilings.MaxRunDeadline())
 	}

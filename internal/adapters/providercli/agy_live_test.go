@@ -124,11 +124,11 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 11, "")
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	if !bound || !binding.Valid() ||
 		binding.Channel() != ports.ProviderPacketChannelPromptFile ||
 		binding.PromptFileReference() != nativeReference ||
-		binding.ArgvIndex() != 9 ||
+		binding.ArgvIndex() != 11 ||
 		binding.SnapshotCWD() != workspaceIdentity.SnapshotPath() {
 		t.Fatal("FAIL: AGY capability launch omitted the native prompt-file packet binding")
 	}
@@ -536,7 +536,7 @@ func liveAgyRequirePostOutputLifecycle(t *testing.T, observation ports.ProcessOb
 		t.Fatal("FAIL: AGY capability launch omitted a terminal process-group lifecycle receipt")
 	}
 	frame, ok := receipt.OutputFrame()
-	if !ok || !frame.Valid() || frame.Framing() != ports.ProcessOutputFramingStrictJSON {
+	if !ok || !frame.Valid() || frame.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
 		t.Fatal("FAIL: AGY capability launch omitted a strict-JSON output-frame receipt")
 	}
 	requests := receipt.SignalRequests()

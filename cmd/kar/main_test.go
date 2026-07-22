@@ -24,11 +24,60 @@ import (
 	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	karentry "github.com/irootkernel/kkachi-agent-review/internal/entrypoint/kar"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T) {
+	config, err := adapterconfig.CanonicalRolesConfig([]string{"kimi", "zcode", "agy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		family reviewrun.Family
+		roles  []domain.Role
+		base   domain.Role
+	}{
+		{reviewrun.FamilyKimi, []domain.Role{domain.RoleLogic}, domain.RoleLogic},
+		{reviewrun.FamilyZCode, domain.FixedRoleOrder(), domain.RoleSecurity},
+		{reviewrun.FamilyAGY, []domain.Role{domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleDocumentation, domain.RoleTesting}, domain.RoleDocumentation},
+	}
+	for _, test := range tests {
+		roles, base := configuredQualificationRoles(config, domain.FixedRoleOrder(), test.family)
+		if !slices.Equal(roles, test.roles) || base != test.base {
+			t.Fatalf("%s qualification roles/base = %v/%s, want %v/%s", test.family, roles, base, test.roles, test.base)
+		}
+	}
+}
+
+type childContextDetector struct{ err error }
+
+func (detector childContextDetector) DetectReviewInput(context.Context, ports.ReviewInputChannel, string, []byte) (ports.ReviewInputDetection, error) {
+	return ports.ReviewInputDetection{}, detector.err
+}
+
+type childObservedProvider struct{ calls int }
+
+func (provider *childObservedProvider) Observe(context.Context, ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	provider.calls++
+	return ports.ProviderExecutionObservation{}, nil
+}
+
+func TestChildPacketScreeningProviderPreservesContextTermination(t *testing.T) {
+	for _, detectorErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(detectorErr.Error(), func(t *testing.T) {
+			provider := &childObservedProvider{}
+			screened := newChildPacketScreeningProvider(provider, childContextDetector{err: detectorErr})
+			_, err := screened.Observe(context.Background(), ports.ProviderInvocation{})
+			if !errors.Is(err, detectorErr) || screened.blocked || provider.calls != 0 {
+				t.Fatal("context termination was converted into a packet-security rejection")
+			}
+		})
+	}
+}
 
 type reviewConfigMutatingAttestor struct {
 	path    string
@@ -265,7 +314,7 @@ func TestDeliverOutputClassifiesInitCommitDeliveryFailure(t *testing.T) {
 	}
 }
 
-func TestE2EKARBinaryBoundary(t *testing.T) {
+func TestIntegrationKARBinaryBoundary(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildKARBinary(t, root)
 
@@ -585,9 +634,9 @@ func TestE2EKARBinaryBoundary(t *testing.T) {
 			{"init", []string{"init"}, 8},
 			{"doctor", []string{"doctor"}, 4},
 			{"review", []string{"review", "--diff", "git", "--output", "json"}, 2},
-			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--diff", "git"}, 4},
-			{"delta", []string{"delta", "--since-run", runID, "--diff", "git", "--roles", "logic"}, 4},
-			{"rerun", []string{"rerun", "--run", runID, "--attempt", attemptID}, 4},
+			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--diff", "git"}, 2},
+			{"delta", []string{"delta", "--since-run", runID, "--diff", "git", "--roles", "logic"}, 2},
+			{"rerun", []string{"rerun", "--run", runID, "--attempt", attemptID}, 2},
 			{"status", []string{"status", "--run", runID}, 7},
 			{"report", []string{"report", "--run", runID, "--output-path", "report.md"}, 7},
 			{"findings", []string{"findings", "--run", runID, "--severity", "low"}, 7},
@@ -711,7 +760,7 @@ func TestE2EKARBinaryBoundary(t *testing.T) {
 		}
 	})
 }
-func TestE2EKARProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) {
+func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildKARBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -742,7 +791,7 @@ func TestE2EKARProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) 
 		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil ||
 		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
 		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "security" ||
-		envelope.Reasons[0].Code != "security_rejected" || envelope.Reasons[0].Retryable {
+		envelope.Reasons[0].Code != "provider_qualification_failed" || envelope.Reasons[0].Retryable {
 		t.Fatalf("Kimi security envelope = %#v", envelope)
 	}
 	entries, err := os.ReadDir(filepath.Join(project, ".kar"))
@@ -753,12 +802,12 @@ func TestE2EKARProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) 
 		t.Fatalf("Kimi security rejection created P2 artifacts: %v", entries)
 	}
 	observations := readFakeKimiObservations(t, logPath)
-	if len(observations) != 1 || observations[0].Prompt != "@roadmap.md" {
-		t.Fatalf("Kimi executed beyond its positive qualification launch: %#v", observations)
+	if len(observations) != 1 || !strings.Contains(observations[0].Prompt, "The object must contain exactly root, link, and role string fields.") {
+		t.Fatalf("Kimi executed beyond its qualification launch: %#v", observations)
 	}
 }
 
-func TestE2EKARProductionReviewSubprocessAGY(t *testing.T) {
+func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildKARBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -1069,13 +1118,13 @@ func main() {
 		fmt.Println("1.1.4")
 		return
 	}
-	if len(argv) != 11 || argv[0] != "--new-project" || argv[1] != "--sandbox" ||
+	if len(argv) != 13 || argv[0] != "--new-project" || argv[1] != "--sandbox" ||
 		argv[2] != "--dangerously-skip-permissions" || argv[3] != "--add-dir" ||
-		argv[5] != "--mode" || argv[6] != "plan" || argv[7] != "--print-timeout" ||
-		argv[8] != "2m" || argv[9] != "--print" || argv[4] != cwd {
+		argv[5] != "--mode" || argv[6] != "plan" || argv[7] != "--effort" || argv[8] != "low" ||
+		argv[9] != "--print-timeout" || argv[10] != "3m55s" || argv[11] != "--print" || argv[4] != cwd {
 		panic("non-canonical AGY invocation")
 	}
-	observation.Snapshot, observation.Prompt = argv[4], argv[10]
+	observation.Snapshot, observation.Prompt = argv[4], argv[12]
 	write(observation)
 	if observation.Prompt == "@roadmap.md" {
 		roadmap, err := os.ReadFile("roadmap.md")

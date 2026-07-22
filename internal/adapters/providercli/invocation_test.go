@@ -18,8 +18,9 @@ func (fixture nativeInvocationFixture) Reference() string {
 	}
 	return fixture.reference
 }
-func (nativeInvocationFixture) Nonce() string { return "nonce" }
-func (nativeInvocationFixture) Link() string  { return "link" }
+func (nativeInvocationFixture) Nonce() string  { return "nonce" }
+func (nativeInvocationFixture) Link() string   { return "link" }
+func (nativeInvocationFixture) Packet() []byte { return []byte("fixture-packet") }
 func (fixture nativeInvocationFixture) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
 	return fixture.identity
 }
@@ -31,7 +32,7 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--print-timeout", "2m", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@roadmap.md")
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -63,8 +64,8 @@ func TestNativeProbeInvocationRejectsInvalidAgySnapshotIdentity(t *testing.T) {
 func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
 	for family, want := range map[string][]string{
-		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "@fixtures/probe.json", "--output-format", "stream-json"},
-		FamilyZcode: {"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "@fixtures/probe.json"},
+		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "fixture-packet", "--output-format", "stream-json"},
+		FamilyZcode: {"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", "*"},
 	} {
 		definition := testProfile(t, family, "provider_current", "provider-current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
@@ -100,7 +101,7 @@ func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
 	definition.baseArgv = []string{definition.executable, definition.launcher}
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{definition.executable, definition.launcher, "--mode", "plan", "--no-color", "--prompt", "@fixtures/probe.json"}
+	want := []string{definition.executable, definition.launcher, "--mode", "build", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", "*"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode launcher argv = %#v, err = %v, want %#v", argv, err, want)
 	}

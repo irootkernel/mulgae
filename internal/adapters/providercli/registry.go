@@ -22,6 +22,8 @@ const (
 	FamilyAgy   = "agy"
 )
 
+var errInvalidZcodeEnvelope = errors.New("invalid ZCode headless envelope")
+
 // RuntimeTransport is an immutable provider packet transport profile.
 type RuntimeTransport struct {
 	channel   ports.ProviderPacketChannel
@@ -1152,13 +1154,13 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 	case FamilyKimi:
 		return appendKimiInvocation(argv, definition.kimiModel, value), nil
 	case FamilyZcode:
-		return append(argv, "--mode", "plan", "--no-color", "--prompt", value), nil
+		return appendZcodeInvocation(argv, value), nil
 	case FamilyAgy:
 		controls := []string{"--new-project", "--sandbox"}
-		if definition.transport.ArgvIndex() == 11 {
+		if definition.transport.ArgvIndex() == 13 {
 			controls = append(controls, "--dangerously-skip-permissions")
 		}
-		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--print-timeout", "2m", "--print", value)
+		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", value)
 		return append(argv, controls...), nil
 	default:
 		return nil, fmt.Errorf("unknown provider family")
@@ -1170,23 +1172,53 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 	case FamilyKimi:
 		result, err := kimiContent(stdout)
 		return result, true, err
-	case FamilyZcode, FamilyAgy:
-		if err := strictJSON(stdout); err != nil {
-			return nil, false, err
+	case FamilyZcode:
+		result, err := zcodeContent(stdout)
+		if err != nil {
+			if errors.Is(err, errInvalidZcodeEnvelope) {
+				return nil, false, err
+			}
+			return append([]byte(nil), stdout...), false, nil
 		}
-		return append([]byte(nil), stdout...), false, nil
+		return result, true, nil
+	case FamilyAgy:
+		result, err := agyContent(stdout)
+		return result, true, err
 	default:
 		return nil, false, fmt.Errorf("unknown provider family")
 	}
 }
 
-func strictJSON(value []byte) error {
-	return ports.ValidateProcessOutputFrame(ports.ProcessOutputFramingStrictJSON, value)
+func agyContent(stdout []byte) ([]byte, error) {
+	return ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
+}
+
+func zcodeContent(stdout []byte) ([]byte, error) {
+	frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
+	if err != nil {
+		return nil, err
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(frame, &envelope); err != nil {
+		return nil, err
+	}
+	rawResponse, present := envelope["response"]
+	if !present {
+		return frame, nil
+	}
+	var response string
+	if err := json.Unmarshal(rawResponse, &response); err != nil || strings.TrimSpace(response) == "" {
+		return nil, errInvalidZcodeEnvelope
+	}
+	result, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, []byte(response))
+	if err != nil {
+		return nil, errInvalidZcodeEnvelope
+	}
+	return result, nil
 }
 
 func kimiContent(stdout []byte) ([]byte, error) {
 	var content []byte
-	found := false
 	for _, line := range bytes.Split(stdout, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
@@ -1208,18 +1240,17 @@ func kimiContent(stdout []byte) ([]byte, error) {
 			continue
 		}
 		rawContent, ok := event["content"]
-		if !ok || found {
-			return nil, fmt.Errorf("expected exactly one assistant content")
+		if !ok {
+			continue
 		}
 		var value string
 		if err := json.Unmarshal(rawContent, &value); err != nil {
 			return nil, err
 		}
 		content = []byte(value)
-		found = true
 	}
-	if !found {
-		return nil, fmt.Errorf("expected exactly one assistant content")
+	if content == nil {
+		return nil, fmt.Errorf("expected assistant content")
 	}
 	return content, nil
 }
@@ -1227,6 +1258,14 @@ func kimiContent(stdout []byte) ([]byte, error) {
 func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatus {
 	if hasPostOutputTrailingBytes(observation) {
 		return ports.ProviderExecutionStatusArtifactFailure
+	}
+	if observation.Termination() == ports.ProcessTerminationExited &&
+		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(observation.Stdout())) {
+		return ports.ProviderExecutionStatusAuthentication
+	}
+	if observation.Termination() == ports.ProcessTerminationExited &&
+		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(observation.Stdout())) {
+		return ports.ProviderExecutionStatusTimedOut
 	}
 	switch observation.Termination() {
 	case ports.ProcessTerminationTimedOut:
@@ -1259,6 +1298,14 @@ func diagnosticCode(observation ports.ProcessObservation) string {
 	if hasPostOutputTrailingBytes(observation) {
 		return "post_output_trailing_bytes"
 	}
+	if observation.Termination() == ports.ProcessTerminationExited &&
+		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(observation.Stdout())) {
+		return "login_required"
+	}
+	if observation.Termination() == ports.ProcessTerminationExited &&
+		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(observation.Stdout())) {
+		return "provider_timeout"
+	}
 	for _, request := range observation.SignalRequests() {
 		if request.Reason() == ports.ProcessGroupSignalRequestPostOutputEscalation {
 			return "post_output_termination_grace"
@@ -1286,6 +1333,14 @@ func diagnosticCode(observation ports.ProcessObservation) string {
 	}
 }
 
+func providerLoginRequired(stderr []byte) bool {
+	return bytes.Contains(bytes.ToLower(stderr), []byte("auth.login_required"))
+}
+
+func providerNativeTimeout(output []byte) bool {
+	return bytes.Contains(bytes.ToLower(output), []byte("timeout waiting for response"))
+}
+
 func cloneDefinition(definition definition) definition {
 	definition.baseArgv = append([]string(nil), definition.baseArgv...)
 	definition.environment = append([]ports.EnvironmentVariable(nil), definition.environment...)
@@ -1303,7 +1358,7 @@ func validateRuntimeTransportShape(family string, baseArgv []string, transport R
 	if transport.channel == ports.ProviderPacketChannelStdin {
 		return nil
 	}
-	if family == FamilyAgy && (transport.argvIndex == len(baseArgv)+9 || transport.argvIndex == len(baseArgv)+10) {
+	if family == FamilyAgy && (transport.argvIndex == len(baseArgv)+11 || transport.argvIndex == len(baseArgv)+12) {
 		return nil
 	}
 	index, err := runtimeTransportArgvIndex(family, len(baseArgv))
@@ -1323,7 +1378,7 @@ func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 	case FamilyZcode:
 		return baseArgvLength + 4, nil
 	case FamilyAgy:
-		return baseArgvLength + 10, nil
+		return baseArgvLength + 12, nil
 	default:
 		return 0, fmt.Errorf("unsupported family")
 	}

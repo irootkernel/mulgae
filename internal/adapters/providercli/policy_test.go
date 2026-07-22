@@ -278,7 +278,7 @@ func TestAGYControlAuthorityExcludesOutputAndRequiresAGYControls(t *testing.T) {
 	proof.TransportSnapshotCWD = proof.SnapshotPath
 	proof.LifecycleFrameSHA256 = "sha256:frame"
 	proof.LifecycleFrameLength = 1
-	proof.LifecycleFraming = string(ports.ProcessOutputFramingStrictJSON)
+	proof.LifecycleFraming = string(ports.ProcessOutputFramingTerminalJSONObject)
 	proof.LifecycleProcessGroupAbsent = true
 	proof.NamespaceEnvironmentSHA256 = "sha256:namespace-environment"
 	proof.NativeHomePath = "/private/home"

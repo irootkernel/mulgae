@@ -32,6 +32,58 @@ func TestWorkspaceAbortReasonPreservesStageAndOverridesSecurityAndCancellation(t
 	}
 }
 
+func TestCoordinatorNonPublishableFailurePrecedence(t *testing.T) {
+	got := reduceNonPublishableCoordinatorFailures(
+		domain.FailureCancelled,
+		domain.FailureProviderUnavailable,
+		domain.FailureArtifact,
+		domain.FailureSecurityPolicy,
+	)
+	if got != domain.FailureSecurityPolicy {
+		t.Fatalf("non-publishable failure = %q, want %q", got, domain.FailureSecurityPolicy)
+	}
+	if got := reduceNonPublishableCoordinatorFailures(domain.FailureTimeout, domain.FailureInvalidOutput); got != "" {
+		t.Fatalf("publishable operational failures reduced to %q", got)
+	}
+}
+
+func TestProviderExecutionFailuresAreSafeAndCanonical(t *testing.T) {
+	security, err := NewProviderExecutionFailure(
+		"zcode-default",
+		domain.RoleSecurity,
+		string(review.AttemptConditionUnrepairableProviderOutput),
+		domain.FailureInvalidOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logic, err := NewProviderExecutionFailure(
+		"kimi-default",
+		domain.RoleLogic,
+		string(review.AttemptConditionInternalInvariant),
+		domain.FailureInternal,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := NewProviderExecutionFailuresError([]ProviderExecutionFailure{security, logic})
+	failures, ok := ProviderExecutionFailuresFromError(aggregate)
+	if !ok || len(failures) != 2 || failures[0].ProviderInstance() != "kimi-default" ||
+		failures[0].Role() != domain.RoleLogic || failures[0].FailureClass() != domain.FailureInternal ||
+		failures[1].ProviderInstance() != "zcode-default" ||
+		failures[1].Role() != domain.RoleSecurity || failures[1].FailureClass() != domain.FailureInvalidOutput {
+		t.Fatalf("provider execution failures = %#v, present=%t", failures, ok)
+	}
+	if _, err := NewProviderExecutionFailure(
+		"kimi-default",
+		domain.RoleLogic,
+		"provider-supplied free form text",
+		domain.FailureSecurityPolicy,
+	); err == nil {
+		t.Fatal("free-form provider execution reason was accepted")
+	}
+}
+
 func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
 	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
 	if err != nil {
@@ -163,6 +215,22 @@ func TestPacketScreeningProviderReportsDetectorFailureDistinctly(t *testing.T) {
 	_, err := screened.Observe(context.Background(), screeningInvocation(t, ports.ProviderInvocationInitial))
 	if !errors.Is(err, detectorErr) || screened.Blocked() || !errors.Is(screened.DetectorError(), detectorErr) || provider.calls != 0 {
 		t.Fatal("detector failure was treated as packet rejection or exposed the packet")
+	}
+}
+
+func TestPacketScreeningProviderDoesNotRetainContextTerminationAsDetectorFailure(t *testing.T) {
+	for _, detectorErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(detectorErr.Error(), func(t *testing.T) {
+			provider := &observedProviderFake{}
+			screened := &packetScreeningProvider{
+				provider: provider,
+				detector: &packetDetectorFake{detectorErr: detectorErr},
+			}
+			_, err := screened.Observe(context.Background(), screeningInvocation(t, ports.ProviderInvocationInitial))
+			if !errors.Is(err, detectorErr) || screened.Blocked() || screened.DetectorError() != nil || provider.calls != 0 {
+				t.Fatal("context termination was retained as a detector infrastructure failure")
+			}
+		})
 	}
 }
 

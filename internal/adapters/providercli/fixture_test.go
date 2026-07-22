@@ -124,8 +124,8 @@ func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 		contents := string(file.Bytes())
 		switch file.Path().String() {
 		case "roadmap.md":
-			if !strings.Contains(contents, first.Nonce()) || strings.Contains(contents, first.Link()) {
-				t.Fatalf("roadmap nonce isolation failed: %q", contents)
+			if !strings.Contains(contents, first.Nonce()) || !strings.Contains(contents, first.Link()) {
+				t.Fatalf("roadmap challenge binding failed: %q", contents)
 			}
 			if strings.Contains(contents, "missing") || strings.Contains(contents, "denied") || strings.Contains(contents, "command") {
 				t.Fatalf("roadmap requested denial-shaped evidence: %q", contents)

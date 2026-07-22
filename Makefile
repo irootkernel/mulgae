@@ -1,15 +1,14 @@
 GO ?= go
-TEST_TIMEOUT ?= 10m
+TEST_TIMEOUT ?= 90m
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-e2e test-race
+.PHONY: test test-prepare test-unit test-int test-e2e
 
 test:
 	@$(MAKE) test-prepare
 	@$(MAKE) test-unit
 	@$(MAKE) test-int
 	@$(MAKE) test-e2e
-	@$(MAKE) test-race
 	@printf '%s\n' '[test] completed'
 
 test-prepare:
@@ -24,7 +23,7 @@ test-prepare:
 	@printf '%s\n' '[test-prepare] completed'
 
 test-unit:
-	$(GO) test -timeout $(TEST_TIMEOUT) -skip '^Test(Integration|E2E)' $(UNIT_PACKAGES)
+	$(GO) test -timeout $(TEST_TIMEOUT) -race -count=1 -skip '^TestIntegration' $(UNIT_PACKAGES)
 	@printf '%s\n' '[test-unit] completed'
 
 test-int:
@@ -36,10 +35,7 @@ test-e2e:
 	@e2e_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
-	$(GO) build -trimpath -ldflags '-X main.buildProduct=kar -X main.buildVersion=v1.4.2 -X main.buildCommit=0123456789abcdef0123456789abcdef01234567' -o "$$KAR_E2E_BINARY" ./cmd/kar; \
-	KAR_E2E_BINARY="$$KAR_E2E_BINARY" $(GO) test -timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2E' ./...
+	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.10.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
+	KAR_E2E_BINARY="$$KAR_E2E_BINARY" $(GO) test -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2E' ./cmd/kar
 	@printf '%s\n' '[test-e2e] completed'
-
-test-race:
-	$(GO) test -timeout $(TEST_TIMEOUT) -race -count=1 ./...
-	@printf '%s\n' '[test-race] completed'

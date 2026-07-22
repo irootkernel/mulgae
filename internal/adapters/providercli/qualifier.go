@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -198,7 +199,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	}
 	version, err := plainSemver(versionObservation)
 	if err != nil {
-		return CurrentProbeResult{}, classifyProbeFailure(ctx, err, versionObservation.Stderr())
+		return CurrentProbeResult{}, classifyProbeFailure(ctx, err, versionObservation.Stderr(), versionObservation.Stdout())
 	}
 	expires := request.Now.Add(request.TTL)
 	directExecutionProofs := make([]currentProbeDirectExecutionRoleProof, 0, len(fixtures))
@@ -228,16 +229,32 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 			return CurrentProbeResult{}, runErr
 		}
 		if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
+			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch: "+evidenceErr.Error(), evidenceErr)
 		}
 		if !capabilityObservation.Succeeded() {
-			return CurrentProbeResult{}, classifyProbeFailure(ctx, fmt.Errorf("capability probe failed"), capabilityObservation.Stderr())
+			return CurrentProbeResult{}, classifyProbeFailure(ctx, fmt.Errorf("capability probe failed"), capabilityObservation.Stderr(), capabilityObservation.Stdout())
 		}
 		output := capabilityObservation.Stdout()
 		if definition.Family() == FamilyKimi {
-			output, runErr = strictKimiProbeContent(output)
+			output, runErr = kimiContent(output)
 			if runErr != nil {
 				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid Kimi stream JSON", runErr)
+			}
+		} else if definition.Family() == FamilyAgy {
+			output, runErr = agyContent(output)
+			if runErr != nil {
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid AGY terminal JSON", runErr)
+			}
+		} else if definition.Family() == FamilyZcode {
+			output, runErr = zcodeContent(output)
+			if runErr != nil {
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid ZCode terminal JSON", runErr)
+			}
+		}
+		if definition.Family() != FamilyAgy {
+			output, runErr = controlledProbeJSON(output)
+			if runErr != nil {
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid controlled JSON envelope", runErr)
 			}
 		}
 		if runErr := validateProbeEvidence(output, roleFixture); runErr != nil {
@@ -496,7 +513,11 @@ func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string)
 
 func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet ports.ProviderPacket, observation ports.ProcessObservation) error {
 	transport, ok := observation.ProviderPacketTransportReceipt()
-	if !ok || !transport.Valid() || transport.Channel() != ports.ProviderPacketChannelPromptFile || transport.PacketIdentity() != packet.Identity() {
+	expectedChannel := ports.ProviderPacketChannelArgvLiteral
+	if definition.Family() == FamilyAgy {
+		expectedChannel = ports.ProviderPacketChannelPromptFile
+	}
+	if !ok || !transport.Valid() || transport.Channel() != expectedChannel || transport.PacketIdentity() != packet.Identity() {
 		return fmt.Errorf("missing or mismatched provider packet transport receipt")
 	}
 	lifecyclePolicy, requiresLifecycle := definition.PostOutputLifecycle()
@@ -514,12 +535,17 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		}
 		return nil
 	}
-	if !frameOK || !frame.Valid() || frame.Framing() != lifecyclePolicy.Framing() ||
-		lifecyclePolicy.Framing() != ports.ProcessOutputFramingStrictJSON ||
-		frame.StabilityGrace() != lifecyclePolicy.StabilityGrace() ||
-		lifecyclePolicy.TerminationGrace() <= 0 ||
-		frame.ByteLength() != int64(len(observation.Stdout())) {
-		return fmt.Errorf("mismatched post-output frame receipt")
+	if !frameOK || !frame.Valid() {
+		return fmt.Errorf("missing valid post-output frame receipt")
+	}
+	if frame.Framing() != lifecyclePolicy.Framing() || lifecyclePolicy.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
+		return fmt.Errorf("mismatched post-output frame policy")
+	}
+	if frame.StabilityGrace() != lifecyclePolicy.StabilityGrace() || lifecyclePolicy.TerminationGrace() <= 0 {
+		return fmt.Errorf("mismatched post-output lifecycle timing")
+	}
+	if frame.ByteLength() != int64(len(observation.Stdout())) {
+		return fmt.Errorf("post-output frame length %d does not match stdout length %d", frame.ByteLength(), len(observation.Stdout()))
 	}
 	sum := sha256.New()
 	_, _ = sum.Write([]byte("KAR-PROCESS-STDOUT-FRAME/1"))
@@ -529,7 +555,15 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		return fmt.Errorf("trailing or mismatched post-output stdout")
 	}
 	requests := lifecycle.SignalRequests()
-	if len(requests) < 1 || len(requests) > 2 {
+	if len(requests) == 0 {
+		final := lifecycle.FinalTermination()
+		exitCode, exited := final.ExitCode()
+		if final.Kind() != ports.ProcessFinalTerminationExited || !exited || exitCode != 0 {
+			return fmt.Errorf("invalid natural post-output termination receipt")
+		}
+		return nil
+	}
+	if len(requests) > 2 {
 		return fmt.Errorf("invalid post-output signal receipt count")
 	}
 	validateSignal := func(request ports.ProcessGroupSignalRequestReceipt, reason ports.ProcessGroupSignalRequestReason, number int, name string) error {
@@ -552,19 +586,31 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	return nil
 }
 func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacket, argv []string, reference string, environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration) (ports.ProcessRequest, error) {
+	channel := ports.ProviderPacketChannelArgvLiteral
+	needle := string(packet.Bytes())
+	if def.Family() == FamilyAgy {
+		channel = ports.ProviderPacketChannelPromptFile
+		needle = reference
+	}
 	index := -1
 	for candidate, argument := range argv {
-		if argument == reference {
+		if argument == needle {
 			if index >= 0 {
-				return ports.ProcessRequest{}, fmt.Errorf("duplicate native-reference argv")
+				return ports.ProcessRequest{}, fmt.Errorf("duplicate provider packet argv")
 			}
 			index = candidate
 		}
 	}
 	if index < 0 {
-		return ports.ProcessRequest{}, fmt.Errorf("missing native-reference argv")
+		return ports.ProcessRequest{}, fmt.Errorf("missing provider packet argv")
 	}
-	binding, err := ports.NewPromptFileProviderPacketBinding(packet, index, reference, workingDirectory)
+	var binding ports.ProviderPacketBinding
+	var err error
+	if channel == ports.ProviderPacketChannelPromptFile {
+		binding, err = ports.NewPromptFileProviderPacketBinding(packet, index, reference, workingDirectory)
+	} else {
+		binding, err = ports.NewArgvLiteralProviderPacketBinding(packet, index)
+	}
 	if err != nil {
 		return ports.ProcessRequest{}, err
 	}
@@ -728,12 +774,32 @@ func validateProbeEvidence(output []byte, fixture ProbeFixtureLease) error {
 	return nil
 }
 
-func classifyProbeFailure(ctx context.Context, err error, stderr []byte) error {
+func controlledProbeJSON(output []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(output)
+	const fenceStart = "```json\n"
+	const fenceEnd = "\n```"
+	if bytes.HasPrefix(trimmed, []byte(fenceStart)) && bytes.HasSuffix(trimmed, []byte(fenceEnd)) {
+		trimmed = trimmed[len(fenceStart) : len(trimmed)-len(fenceEnd)]
+	}
+	var object map[string]json.RawMessage
+	if len(trimmed) == 0 || json.Unmarshal(trimmed, &object) != nil || object == nil {
+		return nil, fmt.Errorf("controlled probe output is not one JSON object")
+	}
+	return append([]byte(nil), trimmed...), nil
+}
+
+func classifyProbeFailure(ctx context.Context, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	message := strings.ToLower(string(stderr))
+	loginRequired := providerLoginRequired(stderr)
+	for _, diagnostic := range additionalDiagnostics {
+		loginRequired = loginRequired || providerLoginRequired(diagnostic)
+	}
 	switch {
+	case loginRequired:
+		return probeFailure("capability", domain.FailureAuthentication, "provider login required", errors.Join(ports.ErrProviderLoginRequired, err))
 	case strings.Contains(message, "auth"), strings.Contains(message, "login"), strings.Contains(message, "sign in"):
 		return probeFailure("capability", domain.FailureAuthentication, "provider authentication unavailable", err)
 	case strings.Contains(message, "not found"), strings.Contains(message, "unavailable"):

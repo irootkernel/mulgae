@@ -119,6 +119,81 @@ func TestCredentialProjectionSafeAndTerminallyZeroesAndUnlinks(t *testing.T) {
 	}
 }
 
+func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "projected-secret"
+	_, request := declaredCredentialRequest(t, lease, secret, ports.CredentialProjectionKimiCredentials)
+	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	concrete := lease.(*namespaceLease)
+	destination := filepath.Join(concrete.root, "home", ".kimi-code", "credentials", "kimi-code.json")
+	retained := filepath.Join(t.TempDir(), "retained")
+	if err := os.Link(destination, retained); err != nil {
+		t.Fatal(err)
+	}
+	replacement := destination + ".refresh"
+	if err := os.WriteFile(replacement, []byte("provider-refreshed-state"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.ValidateForSpawn(); err != nil {
+		t.Fatalf("safe provider-owned refresh was rejected: %v", err)
+	}
+	if _, err := lease.DrainTerminal(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	zeroed, err := os.ReadFile(retained)
+	if err != nil || string(zeroed) != strings.Repeat("\x00", len(secret)) {
+		t.Fatalf("original projected credential was not zeroed: %v", err)
+	}
+	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
+		t.Fatalf("refreshed provider namespace remains after drain: %v", err)
+	}
+}
+
+func TestCredentialProjectionRejectsSymlinkRefreshAndStillDrains(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, request := declaredCredentialRequest(t, lease, "projected-secret", ports.CredentialProjectionKimiCredentials)
+	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	concrete := lease.(*namespaceLease)
+	destination := filepath.Join(concrete.root, "home", ".kimi-code", "credentials", "kimi-code.json")
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(request.SourcePath(), destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.ValidateForSpawn(); err == nil {
+		t.Fatal("symlink refresh reached spawn authority")
+	}
+	if _, err := lease.DrainTerminal(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(request.SourcePath())
+	if err != nil || string(contents) != "projected-secret" {
+		t.Fatalf("drain followed refreshed symlink: %q, %v", contents, err)
+	}
+}
+
 func TestCredentialProjectionRejectsUnsafeSourcesAndDestinationsWithoutSecrets(t *testing.T) {
 	secret := "never-print-this-secret"
 	tests := []struct {

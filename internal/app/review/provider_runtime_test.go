@@ -1,6 +1,7 @@
 package review
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -135,6 +138,67 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	cancel()
 	if got := runtimeProviderErrorCondition(ctx, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {
 		t.Fatalf("cancelled workspace drift condition = %q, want cancelled", got)
+	}
+}
+
+func TestObservedUnparseableProviderOutputIsFallbackOnly(t *testing.T) {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, "invalid_provider_output"); got != AttemptConditionUnrepairableProviderOutput {
+		t.Fatalf("invalid provider framing condition = %q", got)
+	}
+	for _, diagnostic := range []string{"stdout_limit", "stderr_limit", ""} {
+		if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, diagnostic); got != AttemptConditionArtifactFailure {
+			t.Fatalf("artifact diagnostic %q condition = %q", diagnostic, got)
+		}
+	}
+}
+
+func TestObservedLoginRequiredIsFailClosed(t *testing.T) {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, "login_required"); got != AttemptConditionLoginRequired {
+		t.Fatalf("login-required observation condition = %q", got)
+	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, "provider_auth"); got != AttemptConditionAuthentication {
+		t.Fatalf("generic authentication observation condition = %q", got)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), errors.New("provider login_required")); got != AttemptConditionLoginRequired {
+		t.Fatalf("login-required runtime error condition = %q", got)
+	}
+}
+
+func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
+	if got := initialValidationFailureCondition(nil); got != AttemptConditionUnrepairableProviderOutput {
+		t.Fatalf("planless validation failure condition = %q", got)
+	}
+	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"kar-provider-review-output.v2"}`), []string{"/findings/0/evidence/0/current/quote"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := initialValidationFailureCondition(plan); got != AttemptConditionInvalidProviderOutput {
+		t.Fatalf("planned validation failure condition = %q", got)
+	}
+}
+
+func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
+	job := coordinatorTypesJob(t, domain.RoleLogic, "fake.logic", 1)
+	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{bridgeFindingJSON("Quote mismatch", []bridgeClaimSpec{{
+		path: "src/file.go", side: evidence.SideHead, lineStart: 1, lineEnd: 1, quote: "line",
+	}})})
+	reader := &bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+		bridgeReaderKey(evidence.SideHead, "src/file.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("line\n")},
+	}}
+	verifier, err := evidence.NewVerifier(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+	outcome := runtime.accept(context.Background(), job, validated)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
+		t.Fatalf("quote mismatch outcome = %#v", outcome)
+	}
+	pending, ok := runtime.pending[job.AttemptID()]
+	wantPath := "/findings/0/evidence/0/current/quote"
+	if !ok || pending.Plan().Mode() != validation.RepairModeExactEvidence || !reflect.DeepEqual(pending.Plan().AllowedPaths(), []string{wantPath}) ||
+		!bytes.Equal(pending.InitialCandidate(), validated.OriginalRaw()) {
+		t.Fatalf("retained exact evidence repair = %#v, present=%t", pending, ok)
 	}
 }
 

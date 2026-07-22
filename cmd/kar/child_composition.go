@@ -425,6 +425,9 @@ func (provider *childPacketScreeningProvider) Observe(ctx context.Context, invoc
 	packet := invocation.PacketBytes()
 	detection, err := provider.detector.DetectReviewInput(ctx, ports.ReviewInputPacket, invocation.SourceInvocationID(), packet)
 	clear(packet)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return ports.ProviderExecutionObservation{}, fmt.Errorf("child composition: detect provider packet: %w", err)
+	}
 	if err != nil || !detection.Valid() || detection.Verdict() != ports.ReviewInputClean {
 		provider.mu.Lock()
 		provider.blocked = true

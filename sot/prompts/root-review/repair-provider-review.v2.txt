@@ -7,4 +7,7 @@ This mode requires allowed_paths_count:0. Return one complete provider-review wi
 fill_missing_fields
 Return exactly {"schema_version":"kar-repair-patch.v1","repairs":[{"path":...,"value":...}]}. repairs has 1..100 operations with unique paths. Each path must be in the sorted allowed_path set. Repair every required missing or invalid path exactly once. Preserve every unrelated value, finding count, finding order, severity, evidence identity, role, provider, target, and system field.
 
-Do not return the reformat_only form for fill_missing_fields or the fill_missing_fields form for reformat_only. Do not add fields or change content beyond the selected mode's permitted repairs.
+exact_evidence
+Return the same kar-repair-patch.v1 form. Every allowed path is an existing evidence current.quote whose path, side, and inclusive line range selected immutable target bytes but whose quote did not match those exact bytes. Re-read that exact target range and replace every allowed quote exactly once, including each selected line's terminating LF when present. Do not change path, side, line range, finding count or order, severity, or any other value.
+
+Return only the response form selected by mode. Do not add fields or change content beyond the selected mode's permitted repairs.

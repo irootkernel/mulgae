@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -893,9 +894,14 @@ func NewProcessSignal(number int, name string) (ProcessSignal, error) {
 // ProcessOutputFraming is the closed output framing policy.
 type ProcessOutputFraming string
 
-const ProcessOutputFramingStrictJSON ProcessOutputFraming = "strict_json"
+const (
+	ProcessOutputFramingStrictJSON         ProcessOutputFraming = "strict_json"
+	ProcessOutputFramingTerminalJSONObject ProcessOutputFraming = "terminal_json_object"
+)
 
-func (framing ProcessOutputFraming) Valid() bool { return framing == ProcessOutputFramingStrictJSON }
+func (framing ProcessOutputFraming) Valid() bool {
+	return framing == ProcessOutputFramingStrictJSON || framing == ProcessOutputFramingTerminalJSONObject
+}
 
 // BoundedPostOutputLifecycle configures opt-in graceful teardown after an exact frame.
 type BoundedPostOutputLifecycle struct {
@@ -918,20 +924,66 @@ func (l BoundedPostOutputLifecycle) Valid() bool {
 	return l.framing.Valid() && l.stabilityGrace > 0 && l.terminationGrace > 0
 }
 
-// ValidateProcessOutputFrame accepts exactly one unfenced JSON value and no
-// leading/trailing bytes, including JSON whitespace.
-func ValidateProcessOutputFrame(framing ProcessOutputFraming, stdout []byte) error {
+// ExtractProcessOutputJSONFrame returns the JSON value bound by framing.
+// Strict JSON permits only one conventional terminal LF. Terminal-object mode
+// additionally permits bounded provider narration on complete preceding lines
+// and selects exactly the final top-level JSON object.
+func ExtractProcessOutputJSONFrame(framing ProcessOutputFraming, stdout []byte) ([]byte, error) {
 	if !framing.Valid() || len(stdout) == 0 {
-		return fmt.Errorf("invalid framing or empty output")
+		return nil, fmt.Errorf("invalid framing or empty output")
+	}
+	jsonBytes := stdout
+	if stdout[len(stdout)-1] == '\n' {
+		jsonBytes = stdout[:len(stdout)-1]
+	}
+	if len(jsonBytes) == 0 || !utf8.Valid(stdout) {
+		return nil, fmt.Errorf("invalid JSON frame")
+	}
+	if framing == ProcessOutputFramingTerminalJSONObject {
+		for start := len(jsonBytes) - 1; start >= 0; start-- {
+			if jsonBytes[start] != '{' || start > 0 && jsonBytes[start-1] != '\n' {
+				continue
+			}
+			candidate := jsonBytes[start:]
+			var object map[string]json.RawMessage
+			if err := json.Unmarshal(candidate, &object); err == nil && object != nil {
+				return cloneBytes(candidate), nil
+			}
+		}
+		const fenceStart = "```json\n"
+		const fenceEnd = "\n```"
+		if bytes.HasSuffix(jsonBytes, []byte(fenceEnd)) {
+			contentEnd := len(jsonBytes) - len(fenceEnd)
+			start := bytes.LastIndex(jsonBytes[:contentEnd], []byte("\n"+fenceStart))
+			if start >= 0 {
+				start++
+			} else if bytes.HasPrefix(jsonBytes, []byte(fenceStart)) {
+				start = 0
+			}
+			if start >= 0 {
+				candidate := jsonBytes[start+len(fenceStart) : contentEnd]
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal(candidate, &object); err == nil && object != nil {
+					return cloneBytes(candidate), nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("missing terminal JSON object")
 	}
 	var value json.RawMessage
-	if err := json.Unmarshal(stdout, &value); err != nil {
-		return fmt.Errorf("invalid JSON frame: %w", err)
+	if err := json.Unmarshal(jsonBytes, &value); err != nil {
+		return nil, fmt.Errorf("invalid JSON frame: %w", err)
 	}
-	if !bytes.Equal(value, stdout) {
-		return fmt.Errorf("JSON frame must contain no leading or trailing bytes")
+	if !bytes.Equal(value, jsonBytes) {
+		return nil, fmt.Errorf("JSON frame must contain no leading or trailing bytes")
 	}
-	return nil
+	return cloneBytes(jsonBytes), nil
+}
+
+// ValidateProcessOutputFrame validates one complete stdout frame.
+func ValidateProcessOutputFrame(framing ProcessOutputFraming, stdout []byte) error {
+	_, err := ExtractProcessOutputJSONFrame(framing, stdout)
+	return err
 }
 
 type ProcessOutputFrameReceipt struct {

@@ -97,9 +97,10 @@ func NewQualifiedRunFactory(qualifier CurrentQualifier, registries QualifiedRunR
 
 // QualifiedRun owns immutable routes and an admitted-only composite registry.
 type QualifiedRun struct {
-	routes   []QualifiedRoute
-	registry QualifiedRunRegistry
-	admitted []qualifiedProviderEvidence
+	routes                []QualifiedRoute
+	registry              QualifiedRunRegistry
+	admitted              []qualifiedProviderEvidence
+	qualificationFailures []ProviderQualificationFailure
 
 	terminalMu sync.Mutex
 	receipt    QualifiedRunTerminalReceipt
@@ -172,6 +173,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 	admittedGenerations := make(map[string]string, len(candidates))
 	admittedInstances := make([]string, 0, len(candidates))
 	admittedEvidence := make([]qualifiedProviderEvidence, 0, len(candidates))
+	qualificationFailures := make([]ProviderQualificationFailure, 0, len(candidates))
 	closedReceipts := make(map[string]ports.ProviderRunTerminalReceipt, len(candidates))
 	cleanupFailures := 0
 	release := func(ctx context.Context, instance string) error {
@@ -241,6 +243,11 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 		registry, err := factory.registries.NewProviderQualificationRegistry(ctx, []ports.ProviderRuntimeDefinition{definition})
 		if err != nil {
 			if currentQualificationUnavailable(err) {
+				failure, failureErr := newOperationalQualificationFailure(definition, err)
+				if failureErr != nil {
+					return fail(failureErr)
+				}
+				qualificationFailures = append(qualificationFailures, failure)
 				continue
 			}
 			if retained, ok := factory.registries.RegistryFromConstructionError(err); ok {
@@ -250,7 +257,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 					admittedGenerations[definition.Instance()] = namespace.Generation()
 				}
 			}
-			return fail(fmt.Errorf("review run: create production registry for %q: %w", definition.Instance(), err))
+			return fail(providerQualificationBoundaryError(definition, err, qualificationReasonCode(err, "qualification_failed")))
 		}
 		admitted[definition.Instance()] = registry
 		admittedInstances = append(admittedInstances, definition.Instance())
@@ -272,10 +279,18 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
 				return fail(fmt.Errorf("review run: current qualification for %q: %w; terminal drain: %v", definition.Instance(), qualificationErr, closeErr))
 			}
+			if _, loginRequired := ProviderLoginRequiredProvidersFromError(qualificationErr); loginRequired {
+				return fail(fmt.Errorf("review run: current qualification for %q: %w", definition.Instance(), qualificationErr))
+			}
 			if currentQualificationUnavailable(qualificationErr) {
+				failure, failureErr := newOperationalQualificationFailure(definition, qualificationErr)
+				if failureErr != nil {
+					return fail(failureErr)
+				}
+				qualificationFailures = append(qualificationFailures, failure)
 				continue
 			}
-			return fail(fmt.Errorf("review run: current qualification for %q: %w", definition.Instance(), qualificationErr))
+			return fail(providerQualificationBoundaryError(definition, qualificationErr, qualificationReasonCode(qualificationErr, "qualification_failed")))
 		}
 		identity := requestIdentity
 		identity.Version = result.Version
@@ -286,13 +301,26 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
 				return fail(fmt.Errorf("review run: below-minimum provider %q: terminal drain: %w", definition.Instance(), closeErr))
 			}
+			cause, causeErr := domain.NewFailure("reviewrun.qualification", domain.FailureConfiguration, "provider version is incompatible", nil)
+			if causeErr != nil {
+				return fail(causeErr)
+			}
+			failure, failureErr := NewProviderQualificationFailure(definition.Instance(), Family(definition.Family()), "version_incompatible", cause)
+			if failureErr != nil {
+				return fail(failureErr)
+			}
+			qualificationFailures = append(qualificationFailures, failure)
 			continue
 		}
 		if !profile.Available() || (definition.Version() != "" && profile.Version() != definition.Version()) || !qualification.Available() || roleErr != nil {
 			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
 				return fail(fmt.Errorf("review run: invalid current qualification for %q: terminal drain: %w", definition.Instance(), closeErr))
 			}
-			return fail(fmt.Errorf("review run: invalid current qualification for %q", definition.Instance()))
+			cause, causeErr := domain.NewFailure("reviewrun.qualification", domain.FailureProviderUnavailable, "current qualification is invalid", nil)
+			if causeErr != nil {
+				return fail(causeErr)
+			}
+			return fail(providerQualificationBoundaryError(definition, cause, "qualification_invalid"))
 		}
 		route, err := ports.NewProviderRoute(definition.Instance(), definition.ConcurrencyKey())
 		if err != nil {
@@ -322,10 +350,10 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 	if len(routes) == 0 {
 		receipt, registry, err := closeAdmitted(ctx)
 		if err != nil {
-			failure, _ := domain.NewFailure("reviewrun.admission", domain.FailureProviderUnavailable, "no provider candidate qualified", nil)
+			failure := providerQualificationReadinessError(qualificationFailures)
 			return nil, newQualifiedRunConstructionError(failure, ports.ProviderRunTerminalReceipt{}, registry)
 		}
-		failure, _ := domain.NewFailure("reviewrun.admission", domain.FailureProviderUnavailable, "no provider candidate qualified", nil)
+		failure := providerQualificationReadinessError(qualificationFailures)
 		return nil, newQualifiedRunConstructionError(failure, receipt)
 	}
 	retainedInstances := make([]string, 0, len(routes))
@@ -338,7 +366,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 		routes: routes, registry: &qualifiedRunRegistryComposite{
 			registries: admitted, generations: admittedGenerations, instances: retainedInstances,
 		},
-		admitted: admittedEvidence,
+		admitted: admittedEvidence, qualificationFailures: append([]ProviderQualificationFailure(nil), qualificationFailures...),
 	}, nil
 }
 
@@ -572,6 +600,20 @@ func currentQualificationUnavailable(err error) bool {
 	}
 }
 
+func qualificationReasonCode(err error, fallback string) string {
+	var failure *domain.Failure
+	if errors.As(err, &failure) && failure != nil && failure.Class().Valid() {
+		return string(failure.Class())
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return string(domain.FailureTimeout)
+	}
+	if errors.Is(err, context.Canceled) {
+		return string(domain.FailureCancelled)
+	}
+	return fallback
+}
+
 func closeQualifiedRunRegistry(ctx context.Context, registry QualifiedRunRegistry, instance, generation string) (ports.ProviderRunTerminalReceipt, error) {
 	if ctx == nil {
 		return ports.ProviderRunTerminalReceipt{}, fmt.Errorf("review run: invalid terminal close context")
@@ -655,6 +697,14 @@ func (run *QualifiedRun) Routes() []QualifiedRoute {
 		return nil
 	}
 	return append([]QualifiedRoute(nil), run.routes...)
+}
+
+// QualificationFailures returns safe rejected configured-candidate facts.
+func (run *QualifiedRun) QualificationFailures() []ProviderQualificationFailure {
+	if run == nil {
+		return nil
+	}
+	return append([]ProviderQualificationFailure(nil), run.qualificationFailures...)
 }
 
 // Registry returns the run-owned production execution authority.

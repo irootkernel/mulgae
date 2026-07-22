@@ -570,7 +570,7 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	}
 }
 
-func TestE2EApplicationInitRootBarrierFailureRetryAndDirectorySync(t *testing.T) {
+func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		preexisting bool
@@ -1803,6 +1803,178 @@ func TestApplicationReviewRunServiceSeam(t *testing.T) {
 				return
 			}
 		})
+	}
+}
+
+func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
+	cause, err := domain.NewFailure(
+		"reviewrun.current.capability",
+		domain.FailureAuthentication,
+		"provider login required",
+		ports.ErrProviderLoginRequired,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"zcode-default", "kimi-default", "kimi-default"}, cause)
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--diff", "git", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	if len(machine.Stderr()) != 0 {
+		t.Fatalf("machine stderr = %q", machine.Stderr())
+	}
+	var envelope struct {
+		Exit struct {
+			Code int `json:"code"`
+		} `json:"exit"`
+		Reasons []struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+		Result struct {
+			Kind              string  `json:"kind"`
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			RunManifestURI    *string `json:"run_manifest_uri"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_login_required" ||
+		envelope.Reasons[0].Retryable ||
+		envelope.Reasons[0].Message != "Login is required for provider kimi-default, zcode-default. Authenticate outside KAR, then rerun the command." ||
+		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil || envelope.Result.RunID != nil ||
+		envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
+		t.Fatalf("login-required envelope = %#v", envelope)
+	}
+
+	humanFixture := newFoundationFixture(t)
+	humanFixture.application.reviewRuns = &reviewRunFake{err: loginErr}
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
+		string(human.Stderr()) != "kar: login required for provider kimi-default, zcode-default; authenticate outside KAR, then rerun the command\n" {
+		t.Fatalf("human login-required result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+}
+
+func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
+	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid capability output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timedOut, err := domain.NewFailure("capability", domain.FailureTimeout, "capability timed out", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zcode, err := reviewrun.NewProviderQualificationFailure("zcode-default", reviewrun.FamilyZCode, string(domain.FailureTimeout), timedOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kimi, err := reviewrun.NewProviderQualificationFailure("kimi-default", reviewrun.FamilyKimi, string(domain.FailureInvalidOutput), invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{zcode, kimi})
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--diff", "git", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+		Result struct {
+			RunID             *string `json:"run_id"`
+			RunManifestURI    *string `json:"run_manifest_uri"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	wantMessage := "Provider qualification failed: kimi-default=invalid_provider_output, zcode-default=timeout. Retry the command after resolving provider readiness."
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_qualification_failed" ||
+		!envelope.Reasons[0].Retryable || envelope.Reasons[0].Message != wantMessage ||
+		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
+		t.Fatalf("qualification failure envelope = %#v", envelope)
+	}
+
+	humanFixture := newFoundationFixture(t)
+	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
+		string(human.Stderr()) != "kar: provider qualification failed: kimi-default=invalid_provider_output, zcode-default=timeout\n" {
+		t.Fatalf("human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+}
+
+func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T) {
+	execution, err := reviewrun.NewProviderExecutionFailure(
+		"zcode-default",
+		domain.RoleSecurity,
+		"security_violation",
+		domain.FailureSecurityPolicy,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{execution})
+	executionErr, err := domain.NewFailure(
+		"reviewrun.execute",
+		domain.FailureSecurityPolicy,
+		"coordinator terminated with a non-publishable provider outcome",
+		aggregate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: executionErr}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--diff", "git", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSecurity)
+	var envelope struct {
+		Reasons []struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_execution_failed" ||
+		envelope.Reasons[0].Retryable ||
+		envelope.Reasons[0].Message != "Provider execution failed: zcode-default=security_violation." {
+		t.Fatalf("provider execution failure envelope = %#v", envelope)
+	}
+
+	humanFixture := newFoundationFixture(t)
+	humanFixture.application.reviewRuns = &reviewRunFake{err: executionErr}
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
+		string(human.Stderr()) != "kar: provider execution failed: zcode-default=security_violation\n" {
+		t.Fatalf("human provider execution failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
 
@@ -3287,7 +3459,7 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 	fixture.application = application
 	return fixture
 }
-func TestE2EProductionKARCompositionFailsClosedAtLiveBoundaries(t *testing.T) {
+func TestIntegrationProductionKARCompositionFailsClosedAtLiveBoundaries(t *testing.T) {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -3351,10 +3523,10 @@ func TestE2EProductionKARCompositionFailsClosedAtLiveBoundaries(t *testing.T) {
 		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"},
 	} {
 		stdout, stderr, exit := run(argv...)
-		if exit != app.ExitCodeReadiness || len(stderr) != 0 {
-			t.Fatalf("production authority-gated G008 command %v = exit %d stderr %q", argv, exit, stderr)
+		if exit != app.ExitCodeUsage || len(stderr) != 0 {
+			t.Fatalf("production config-gated G008 command %v = exit %d stderr %q", argv, exit, stderr)
 		}
-		assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeReadiness)
+		assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeUsage)
 	}
 	stdout, stderr, exit := run("export", "--run", testRunID, "--output-path", "exports/redacted.zip", "--output", "json")
 	if exit != app.ExitCodeArtifact || len(stderr) != 0 {

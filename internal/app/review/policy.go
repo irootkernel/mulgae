@@ -12,21 +12,24 @@ import (
 type AttemptCondition string
 
 const (
-	AttemptConditionValidReview            AttemptCondition = "valid_review"
-	AttemptConditionInvalidProviderOutput  AttemptCondition = "invalid_provider_output"
-	AttemptConditionInvalidEvidenceClaim   AttemptCondition = "invalid_evidence_claim"
-	AttemptConditionSemanticContradiction  AttemptCondition = "semantic_contradiction"
-	AttemptConditionProviderUnavailable    AttemptCondition = "provider_unavailable"
-	AttemptConditionTimeout                AttemptCondition = "timeout"
-	AttemptConditionAuthentication         AttemptCondition = "auth"
-	AttemptConditionQuota                  AttemptCondition = "quota"
-	AttemptConditionRateLimit              AttemptCondition = "rate_limit"
-	AttemptConditionSecurityViolation      AttemptCondition = "security_violation"
-	AttemptConditionMutationViolation      AttemptCondition = "mutation_violation"
-	AttemptConditionConfigurationViolation AttemptCondition = "configuration_violation"
-	AttemptConditionArtifactFailure        AttemptCondition = "artifact_failure"
-	AttemptConditionCancelled              AttemptCondition = "cancelled"
-	AttemptConditionInternalInvariant      AttemptCondition = "internal_invariant"
+	AttemptConditionValidReview                AttemptCondition = "valid_review"
+	AttemptConditionInvalidProviderOutput      AttemptCondition = "invalid_provider_output"
+	AttemptConditionUnrepairableProviderOutput AttemptCondition = "unrepairable_provider_output"
+	AttemptConditionInvalidEvidenceClaim       AttemptCondition = "invalid_evidence_claim"
+	AttemptConditionUnrepairableEvidence       AttemptCondition = "unrepairable_evidence_claim"
+	AttemptConditionSemanticContradiction      AttemptCondition = "semantic_contradiction"
+	AttemptConditionProviderUnavailable        AttemptCondition = "provider_unavailable"
+	AttemptConditionTimeout                    AttemptCondition = "timeout"
+	AttemptConditionAuthentication             AttemptCondition = "auth"
+	AttemptConditionLoginRequired              AttemptCondition = "login_required"
+	AttemptConditionQuota                      AttemptCondition = "quota"
+	AttemptConditionRateLimit                  AttemptCondition = "rate_limit"
+	AttemptConditionSecurityViolation          AttemptCondition = "security_violation"
+	AttemptConditionMutationViolation          AttemptCondition = "mutation_violation"
+	AttemptConditionConfigurationViolation     AttemptCondition = "configuration_violation"
+	AttemptConditionArtifactFailure            AttemptCondition = "artifact_failure"
+	AttemptConditionCancelled                  AttemptCondition = "cancelled"
+	AttemptConditionInternalInvariant          AttemptCondition = "internal_invariant"
 )
 
 // TerminalProjection is the terminal role projection selected when this
@@ -126,6 +129,7 @@ const (
 	conditionPrecedenceSecurity
 	conditionPrecedenceCancellation
 	conditionPrecedenceConfiguration
+	conditionPrecedenceLoginRequired
 	conditionPrecedenceInvalidOutput
 	conditionPrecedenceProviderFailure
 	conditionPrecedenceValid
@@ -157,12 +161,28 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		reasonCode:         string(AttemptConditionInvalidProviderOutput),
 	},
 	{
+		condition:          AttemptConditionUnrepairableProviderOutput,
+		precedence:         conditionPrecedenceInvalidOutput,
+		terminalClass:      domain.FailureInvalidOutput,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionUnrepairableProviderOutput),
+	},
+	{
 		condition:          AttemptConditionInvalidEvidenceClaim,
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionRepairBeforeFallback,
 		reasonCode:         string(AttemptConditionInvalidEvidenceClaim),
+	},
+	{
+		condition:          AttemptConditionUnrepairableEvidence,
+		precedence:         conditionPrecedenceInvalidOutput,
+		terminalClass:      domain.FailureInvalidOutput,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionUnrepairableEvidence),
 	},
 	{
 		condition:          AttemptConditionSemanticContradiction,
@@ -195,6 +215,14 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionFallbackOnly,
 		reasonCode:         string(AttemptConditionAuthentication),
+	},
+	{
+		condition:          AttemptConditionLoginRequired,
+		precedence:         conditionPrecedenceLoginRequired,
+		terminalClass:      domain.FailureAuthentication,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFailClosed,
+		reasonCode:         string(AttemptConditionLoginRequired),
 	},
 	{
 		condition:          AttemptConditionQuota,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -82,6 +83,24 @@ func TestAdmissionProbeErrorPreservesTypedFailures(t *testing.T) {
 	var got *domain.Failure
 	if !errors.As(admissionProbeError(invalid), &got) || got.Stage() != "reviewrun.current.capability" || got.Class() != domain.FailureInvalidOutput {
 		t.Fatalf("invalid output was not adapted for admission: %v", got)
+	}
+}
+
+func TestCapabilityOutputRetryClassificationIsClosed(t *testing.T) {
+	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := domain.NewFailure("capability", domain.FailureAuthentication, "authentication unavailable", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retryableCapabilityOutputFailure(invalid) || !retryableCapabilityOutputFailure(fmt.Errorf("wrapped: %w", invalid)) ||
+		!retryableCapabilityOutputFailure(errors.Join(invalid, invalid)) {
+		t.Fatal("typed invalid-output capability failure was not retryable")
+	}
+	if retryableCapabilityOutputFailure(nil) || retryableCapabilityOutputFailure(auth) || retryableCapabilityOutputFailure(errors.Join(invalid, auth)) {
+		t.Fatal("non-output capability failure became retryable")
 	}
 }
 
@@ -192,6 +211,7 @@ func testCurrentQualifierOtherWorkspaceIdentity() ports.WorkspaceSnapshotIdentit
 
 type currentQualifierProbe struct {
 	requests       []ports.ProviderCurrentProbeRequest
+	failures       []error
 	dropKind       string
 	duplicateKind  string
 	mismatchExpiry bool
@@ -199,6 +219,9 @@ type currentQualifierProbe struct {
 
 func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, request ports.ProviderCurrentProbeRequest) (ports.ProviderCurrentProbeResult, error) {
 	probe.requests = append(probe.requests, request)
+	if len(probe.failures) >= len(probe.requests) && probe.failures[len(probe.requests)-1] != nil {
+		return ports.ProviderCurrentProbeResult{}, probe.failures[len(probe.requests)-1]
+	}
 	receipts := make([]ports.ProviderCurrentProbeReceipt, 0, len(currentProbeReceiptKinds)+1)
 	for _, kind := range currentProbeReceiptKinds {
 		if kind != probe.dropKind {
@@ -212,6 +235,67 @@ func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, re
 		receipts[len(receipts)-1].ExpiresAt = request.Now.Add(2 * time.Minute)
 	}
 	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.23.6", Receipts: receipts}, nil
+}
+
+func TestProviderCurrentQualifierRetriesOnlyInvalidCapabilityOutputOnce(t *testing.T) {
+	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := domain.NewFailure("capability", domain.FailureAuthentication, "authentication unavailable", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		failures  []error
+		wantCalls int
+	}{
+		{name: "invalid output once", failures: []error{invalid, invalid}, wantCalls: 2},
+		{name: "authentication", failures: []error{auth}, wantCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probe := &currentQualifierProbe{failures: test.failures}
+			qualifier, err := NewProviderCurrentQualifier(probe, &currentQualifierFixtures{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic)
+			if _, err := qualifier.QualifyCurrent(context.Background(), request); err == nil {
+				t.Fatal("failing capability probe succeeded")
+			}
+			if len(probe.requests) != test.wantCalls {
+				t.Fatalf("probe calls = %d, want %d", len(probe.requests), test.wantCalls)
+			}
+		})
+	}
+}
+
+func TestProviderCurrentQualifierAttributesLoginRequiredWithoutRetry(t *testing.T) {
+	auth, err := domain.NewFailure(
+		"capability",
+		domain.FailureAuthentication,
+		"provider login required",
+		ports.ErrProviderLoginRequired,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &currentQualifierProbe{failures: []error{auth}}
+	qualifier, err := NewProviderCurrentQualifier(probe, &currentQualifierFixtures{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic)
+	_, err = qualifier.QualifyCurrent(context.Background(), request)
+	providers, ok := ProviderLoginRequiredProvidersFromError(err)
+	if !ok || !errors.Is(err, ports.ErrProviderLoginRequired) ||
+		!reflect.DeepEqual(providers, []string{request.Definition.Instance()}) {
+		t.Fatalf("login-required result = providers %#v error %v", providers, err)
+	}
+	if len(probe.requests) != 1 {
+		t.Fatalf("probe calls = %d, want 1", len(probe.requests))
+	}
 }
 
 type currentQualifierFixtures struct {
@@ -514,7 +598,11 @@ func authorityProbeObservation(t *testing.T, output []byte, channel ports.Provid
 		}
 		return observation
 	}
-	transport, err := ports.NewProviderPacketTransportReceipt(channel, packet, reference, cwd, packet, packet)
+	preStart, postEnd := ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{}
+	if channel == ports.ProviderPacketChannelPromptFile {
+		preStart, postEnd = packet, packet
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(channel, packet, reference, cwd, preStart, postEnd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +705,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	if family == FamilyZCode {
 		argvIndex = 6
 	} else if family == FamilyAGY {
-		argvIndex = 11
+		argvIndex = 13
 	}
 	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, argvIndex, "@roadmap.md")
 	if err != nil {
@@ -630,7 +718,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 		if err != nil {
 			t.Fatal(err)
 		}
-		lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingStrictJSON, time.Second, time.Second)
+		lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
