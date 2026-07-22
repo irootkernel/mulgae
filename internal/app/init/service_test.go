@@ -368,6 +368,18 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if !result.Committed || result.WriteState != "committed" || !reflect.DeepEqual(result.ConfiguredProviderIDs, ids) {
 			t.Fatalf("mask %d result=%#v", mask, result)
 		}
+		data, err := os.ReadFile(filepath.Join(rootPath, ".kar", "config.yaml"))
+		if err != nil {
+			t.Fatalf("mask %d read config: %v", mask, err)
+		}
+		decoded, err := adapterconfig.Decode(data)
+		if err != nil || decoded.Version != adapterconfig.ConfigVersion {
+			t.Fatalf("mask %d decode config: version=%d err=%v", mask, decoded.Version, err)
+		}
+		wantRoles, _ := adapterconfig.CanonicalRolesConfig(ids)
+		if !reflect.DeepEqual(decoded.Roles, wantRoles) {
+			t.Fatalf("mask %d roles=%#v, want %#v", mask, decoded.Roles, wantRoles)
+		}
 	}
 }
 

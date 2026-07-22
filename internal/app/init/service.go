@@ -553,7 +553,12 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 }
 
 func candidateConfig(request InitializeProjectRequest, value candidates) appconfig.Config {
-	return appconfig.Config{Version: 1, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy}, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: appconfig.RolesConfig{Logic: appconfig.RoleConfig{Enabled: true}, Security: appconfig.RoleConfig{Enabled: true}, Maintainability: appconfig.RoleConfig{Enabled: true}, Product: appconfig.RoleConfig{Enabled: true}, Documentation: appconfig.RoleConfig{Enabled: true}, Testing: appconfig.RoleConfig{Enabled: true}}, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy}
+	roles, err := appconfig.CanonicalRolesConfig(providers.Families())
+	if err != nil {
+		return appconfig.Config{}
+	}
+	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 }
 func resourceDefaults(value candidates) appconfig.ResourcesConfig {
 	count := len(candidateIDs(value))

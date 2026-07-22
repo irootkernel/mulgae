@@ -58,7 +58,9 @@ type RolesConfig struct {
 	Testing         RoleConfig `yaml:"testing" json:"testing"`
 }
 type RoleConfig struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	PrimaryProvider  string `yaml:"primary_provider" json:"primary_provider"`
+	FallbackProvider string `yaml:"fallback_provider,omitempty" json:"fallback_provider,omitempty"`
 }
 type ReviewConfig struct {
 	RequiredRoles    []string `yaml:"required_roles" json:"required_roles"`
@@ -90,11 +92,72 @@ type CIConfig struct {
 }
 
 const (
+	ConfigVersion            = 2
 	DefaultKimiModel         = "kimi-code/k3"
 	DefaultAGYPermissionMode = "safe"
 	ConfigRelativePath       = ".kar/config.yaml"
 	MaximumConfigBytes       = 1 << 20
 )
+
+// Ordered returns the six role configurations in canonical role order.
+func (roles RolesConfig) Ordered() []RoleConfig {
+	return []RoleConfig{roles.Logic, roles.Security, roles.Maintainability, roles.Product, roles.Documentation, roles.Testing}
+}
+
+// HasFamily reports whether a provider family is explicitly configured.
+func (providers ProvidersConfig) HasFamily(family string) bool {
+	for _, configured := range providers.Families() {
+		if configured == family {
+			return true
+		}
+	}
+	return false
+}
+
+// CanonicalRolesConfig derives init's deterministic role assignments from the
+// selected provider subset. Persisted configs remain explicit; runtime never
+// calls this function to invent an assignment.
+func CanonicalRolesConfig(families []string) (RolesConfig, error) {
+	configured := make(map[string]struct{}, len(families))
+	lastOrdinal := -1
+	for _, family := range families {
+		ordinal := -1
+		for index, candidate := range []string{"kimi", "zcode", "agy"} {
+			if family == candidate {
+				ordinal = index
+				break
+			}
+		}
+		if ordinal <= lastOrdinal {
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: provider families are invalid")
+		}
+		configured[family] = struct{}{}
+		lastOrdinal = ordinal
+	}
+	if len(configured) == 0 {
+		return RolesConfig{}, fmt.Errorf("canonical role assignments: provider families are required")
+	}
+	selectRole := func(preferences []string) RoleConfig {
+		selected := make([]string, 0, 2)
+		for _, family := range preferences {
+			if _, ok := configured[family]; ok {
+				selected = append(selected, family)
+				if len(selected) == 2 {
+					break
+				}
+			}
+		}
+		role := RoleConfig{Enabled: true, PrimaryProvider: selected[0]}
+		if len(selected) == 2 {
+			role.FallbackProvider = selected[1]
+		}
+		return role
+	}
+	logic := selectRole([]string{"kimi", "zcode", "agy"})
+	documentation := selectRole([]string{"agy", "zcode", "kimi"})
+	other := selectRole([]string{"zcode", "agy", "kimi"})
+	return RolesConfig{Logic: logic, Security: other, Maintainability: other, Product: other, Documentation: documentation, Testing: other}, nil
+}
 
 func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }
 func (providers ProvidersConfig) Families() []string {

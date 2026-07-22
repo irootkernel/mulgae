@@ -9,7 +9,8 @@ import (
 )
 
 func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
-	raw := adapterconfig.Config{Providers: adapterconfig.ProvidersConfig{Kimi: &adapterconfig.KimiProviderConfig{Executable: "/secret/bin", DataHome: "/secret/home"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}}
+	roles, _ := appconfig.CanonicalRolesConfig([]string{"kimi"})
+	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{Kimi: &adapterconfig.KimiProviderConfig{Executable: "/secret/bin", DataHome: "/secret/home"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -17,5 +18,8 @@ func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 	data, _ := json.Marshal(appconfig.Redact(resolved))
 	if strings.Contains(string(data), "/secret/") {
 		t.Fatalf("redaction leaked: %s", data)
+	}
+	if !strings.Contains(string(data), `"primary_provider":"kimi"`) || !strings.Contains(string(data), `"fallback_provider":null`) {
+		t.Fatalf("redaction omitted role assignments: %s", data)
 	}
 }

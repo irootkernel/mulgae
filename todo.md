@@ -169,7 +169,7 @@
 ## Epic G010 — Config-driven Multi-provider Production Release Gate
 
 - [x] G010-T01: SOT 1.10.0 계약, 역할별 primary/fallback matrix, workflow 범위, `make test` gate를 구현 전에 동결한다.
-- [ ] G010-T02: Config v2와 canonical init/config 출력을 구현한다.
+- [x] G010-T02: Config v2와 canonical init/config 출력을 구현한다.
 - [ ] G010-T03: configured planner/fallback과 reporting을 구현한다.
 - [ ] G010-T04: 실제 followup/delta/rerun production composition을 구현한다.
 - [ ] G010-T05: 실제 Kimi/ZCode/AGY E2E와 Makefile gate를 구현한다.

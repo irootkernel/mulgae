@@ -131,10 +131,10 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 ### Contract and configuration
 
 - [x] Freeze SOT 1.10.0 with G010 status `IMPLEMENTATION_IN_PROGRESS`, the six-role primary/fallback matrix, workflow-specific fallback scope, and the exact `make test` release gate.
-- [ ] Implement canonical Config v2 and reject Config v1 without migration or compatibility fallback.
-- [ ] Require every role primary to reference a configured `kimi`, `zcode`, or `agy` family; require a distinct configured fallback whenever two or more families are configured; permit fallback omission only for a singleton.
-- [ ] Generate the canonical all-family matrix: `logic=kimi/zcode`, `documentation=agy/zcode`, and `security|maintainability|product|testing=zcode/agy`; deterministically reduce the same role preference order for provider subsets.
-- [ ] Expose only redacted role-family assignments through `kar config` and retain strict credential rejection.
+- [x] Implement canonical Config v2 and reject Config v1 without migration or compatibility fallback. Evidence: `TestConfigV2RoleAssignmentsAndV1Rejection`.
+- [x] Require every role primary to reference a configured `kimi`, `zcode`, or `agy` family; require a distinct configured fallback whenever two or more families are configured; permit fallback omission only for a singleton. Evidence: config semantic validation and seven-subset round trips.
+- [x] Generate the canonical all-family matrix: `logic=kimi/zcode`, `documentation=agy/zcode`, and `security|maintainability|product|testing=zcode/agy`; deterministically reduce the same role preference order for provider subsets. Evidence: `TestInitializeProjectSupportsAllSevenSelectedSubsets`.
+- [x] Expose only redacted role-family assignments through `kar config` and retain strict credential rejection. Evidence: `TestRedactionOmitsExecutableAndNativePaths` and adapter credential tests.
 
 ### Planning, fallback, and reporting
 

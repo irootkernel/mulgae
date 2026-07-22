@@ -20,6 +20,7 @@ type ResourcesConfig = appconfig.ResourcesConfig
 type CIConfig = appconfig.CIConfig
 
 const (
+	ConfigVersion            = appconfig.ConfigVersion
 	DefaultKimiModel         = appconfig.DefaultKimiModel
 	DefaultAGYPermissionMode = appconfig.DefaultAGYPermissionMode
 	ConfigRelativePath       = appconfig.ConfigRelativePath
@@ -27,3 +28,6 @@ const (
 )
 
 func DefaultKimiDataHome(nativeHome string) string { return appconfig.DefaultKimiDataHome(nativeHome) }
+func CanonicalRolesConfig(families []string) (RolesConfig, error) {
+	return appconfig.CanonicalRolesConfig(families)
+}

@@ -322,7 +322,7 @@ func admittedGoogleToken(value string) bool {
 }
 
 func validate(config *Config) error {
-	if config.Version != 1 {
+	if config.Version != ConfigVersion {
 		return fmt.Errorf("version")
 	}
 	if !norm.NFC.IsNormalString(config.Project.Name) || visibleRunes(config.Project.Name) < 1 || visibleRunes(config.Project.Name) > 128 {
@@ -371,9 +371,16 @@ func validate(config *Config) error {
 	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
 		return fmt.Errorf("workspace")
 	}
-	for _, enabled := range []bool{config.Roles.Logic.Enabled, config.Roles.Security.Enabled, config.Roles.Maintainability.Enabled, config.Roles.Product.Enabled, config.Roles.Documentation.Enabled, config.Roles.Testing.Enabled} {
-		if !enabled {
+	for _, role := range config.Roles.Ordered() {
+		if !role.Enabled || !config.Providers.HasFamily(role.PrimaryProvider) {
 			return fmt.Errorf("role")
+		}
+		if config.Providers.Count() == 1 {
+			if role.FallbackProvider != "" {
+				return fmt.Errorf("role fallback")
+			}
+		} else if role.FallbackProvider == "" || role.FallbackProvider == role.PrimaryProvider || !config.Providers.HasFamily(role.FallbackProvider) {
+			return fmt.Errorf("role fallback")
 		}
 	}
 	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic", "security"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
@@ -487,7 +494,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	}
 	q := strconv.Quote
 	var out strings.Builder
-	out.WriteString("version: 1\nproject:\n  name: " + q(config.Project.Name) + "\n")
+	out.WriteString("version: " + strconv.Itoa(ConfigVersion) + "\nproject:\n  name: " + q(config.Project.Name) + "\n")
 	if config.Project.Context != "" {
 		out.WriteString("  context: " + q(config.Project.Context) + "\n")
 	}
@@ -511,8 +518,13 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		}
 	}
 	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
-	for _, role := range fixedRoles {
-		out.WriteString("  " + role + ": {enabled: true}\n")
+	for index, role := range fixedRoles {
+		configured := config.Roles.Ordered()[index]
+		out.WriteString("  " + role + ": {enabled: true, primary_provider: " + q(configured.PrimaryProvider))
+		if configured.FallbackProvider != "" {
+			out.WriteString(", fallback_provider: " + q(configured.FallbackProvider))
+		}
+		out.WriteString("}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
 	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")

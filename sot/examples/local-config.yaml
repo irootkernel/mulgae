@@ -1,4 +1,4 @@
-version: 1
+version: 2
 project:
   name: "my-project"
   context: ".kar-context.md"
@@ -15,12 +15,12 @@ providers:
 execution:
   workspace_access: "none"
 roles:
-  logic: {enabled: true}
-  security: {enabled: true}
-  maintainability: {enabled: true}
-  product: {enabled: true}
-  documentation: {enabled: true}
-  testing: {enabled: true}
+  logic: {enabled: true, primary_provider: "kimi", fallback_provider: "zcode"}
+  security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
+  maintainability: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
+  product: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
+  documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}
+  testing: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
 review:
   required_roles: ["logic", "security"]
   request_changes_on: ["high", "critical", "blocker"]

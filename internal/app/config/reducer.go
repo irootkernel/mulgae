@@ -18,9 +18,17 @@ func (access WorkspaceAccess) Valid() bool {
 	return access == WorkspaceNone || access == WorkspaceReadonlySnapshot
 }
 
-type ResolvedRole struct{ enabled bool }
+type ResolvedRole struct {
+	enabled          bool
+	primaryProvider  string
+	fallbackProvider string
+}
 
-func (role ResolvedRole) Enabled() bool { return role.enabled }
+func (role ResolvedRole) Enabled() bool           { return role.enabled }
+func (role ResolvedRole) PrimaryProvider() string { return role.primaryProvider }
+func (role ResolvedRole) FallbackProvider() (string, bool) {
+	return role.fallbackProvider, role.fallbackProvider != ""
+}
 
 type RuntimePolicy struct{ MaxActiveLanes int }
 
@@ -41,7 +49,8 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 	}
 	roles := make(map[domain.Role]ResolvedRole, len(domain.FixedRoleOrder()))
 	for _, role := range domain.FixedRoleOrder() {
-		roles[role] = ResolvedRole{enabled: true}
+		configured := configuredRole(raw.Roles, role)
+		roles[role] = ResolvedRole{enabled: configured.Enabled, primaryProvider: configured.PrimaryProvider, fallbackProvider: configured.FallbackProvider}
 	}
 	return ResolvedConfig{
 		raw: cloneConfig(raw), roles: roles,
@@ -51,6 +60,25 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 		ciFailOnSeverity:       parseSeverities(raw.CI.FailOnSeverity),
 		runTotalOutputCapBytes: capBytes,
 	}, nil
+}
+
+func configuredRole(roles RolesConfig, role domain.Role) RoleConfig {
+	switch role {
+	case domain.RoleLogic:
+		return roles.Logic
+	case domain.RoleSecurity:
+		return roles.Security
+	case domain.RoleMaintainability:
+		return roles.Maintainability
+	case domain.RoleProduct:
+		return roles.Product
+	case domain.RoleDocumentation:
+		return roles.Documentation
+	case domain.RoleTesting:
+		return roles.Testing
+	default:
+		return RoleConfig{}
+	}
 }
 
 func (resolved ResolvedConfig) Raw() Config { return cloneConfig(resolved.raw) }

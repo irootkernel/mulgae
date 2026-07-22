@@ -8,21 +8,17 @@ import (
 )
 
 func validConfig() Config {
-	enabled := RoleConfig{Enabled: true}
+	roles, err := CanonicalRolesConfig([]string{"kimi"})
+	if err != nil {
+		panic(err)
+	}
 	return Config{
-		Version:    1,
+		Version:    ConfigVersion,
 		Project:    ProjectConfig{Name: "project", Context: ".kar-context.md"},
 		NativeUser: NativeUserConfig{Home: "/Users/test"},
 		Providers:  ProvidersConfig{Kimi: &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: "/Users/test/.kimi-code"}},
 		Execution:  ExecutionConfig{WorkspaceAccess: "none"},
-		Roles: RolesConfig{
-			Logic:           enabled,
-			Security:        enabled,
-			Maintainability: enabled,
-			Product:         enabled,
-			Documentation:   enabled,
-			Testing:         enabled,
-		},
+		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
 		Validation: ValidationConfig{Evidence: EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
 		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"},
@@ -43,6 +39,7 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		if mask&4 != 0 {
 			config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
 		}
+		config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
 		if config.Providers.Count() >= 2 {
 			config.Resources.RoleMaxInvocations = 4
 			config.Resources.RunMaxInvocations = 24
@@ -58,6 +55,37 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		if got := strings.Join(decoded.Providers.Families(), ","); got != strings.Join(config.Providers.Families(), ",") {
 			t.Fatalf("mask %d families=%s", mask, got)
 		}
+	}
+}
+
+func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
+	config := validConfig()
+	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
+	config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
+	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+	config.Resources.RoleMaxInvocations = 4
+	config.Resources.RunMaxInvocations = 24
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`logic: {enabled: true, primary_provider: "kimi", fallback_provider: "zcode"}`,
+		`security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
+		`documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}`,
+	} {
+		if !strings.Contains(string(encoded), expected) {
+			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
+		}
+	}
+	v1 := strings.Replace(string(encoded), "version: 2", "version: 1", 1)
+	if _, err := Decode([]byte(v1)); err == nil {
+		t.Fatal("Config v1 was accepted")
+	}
+	invalid := config
+	invalid.Roles.Logic.FallbackProvider = "kimi"
+	if _, err := EncodeCanonical(invalid); err == nil {
+		t.Fatal("same-family fallback was accepted")
 	}
 }
 
