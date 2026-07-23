@@ -407,24 +407,97 @@ const (
 	DiagnosticPersistenceFinalize RuntimeDiagnosticPersistenceOperation = "finalize"
 )
 
+func (operation RuntimeDiagnosticPersistenceOperation) Valid() bool {
+	switch operation {
+	case DiagnosticPersistenceOpen, DiagnosticPersistenceEmit, DiagnosticPersistenceRaw, DiagnosticPersistenceStatus, DiagnosticPersistenceFinalize:
+		return true
+	default:
+		return false
+	}
+}
+
+type RuntimeDiagnosticPersistenceReason string
+
+const (
+	DiagnosticPersistenceInvalidInput       RuntimeDiagnosticPersistenceReason = "invalid_input"
+	DiagnosticPersistenceClosed             RuntimeDiagnosticPersistenceReason = "closed"
+	DiagnosticPersistenceIdentityMismatch   RuntimeDiagnosticPersistenceReason = "identity_mismatch"
+	DiagnosticPersistenceClockFailure       RuntimeDiagnosticPersistenceReason = "clock_failure"
+	DiagnosticPersistenceEncodingFailure    RuntimeDiagnosticPersistenceReason = "encoding_failure"
+	DiagnosticPersistenceCapacityExhausted  RuntimeDiagnosticPersistenceReason = "capacity_exhausted"
+	DiagnosticPersistenceNamespaceChanged   RuntimeDiagnosticPersistenceReason = "namespace_changed"
+	DiagnosticPersistenceWriteFailure       RuntimeDiagnosticPersistenceReason = "write_failure"
+	DiagnosticPersistenceSyncFailure        RuntimeDiagnosticPersistenceReason = "sync_failure"
+	DiagnosticPersistenceVerificationFailed RuntimeDiagnosticPersistenceReason = "verification_failed"
+	DiagnosticPersistenceRecoveryFailed     RuntimeDiagnosticPersistenceReason = "recovery_failed"
+	DiagnosticPersistenceResultInvalid      RuntimeDiagnosticPersistenceReason = "result_invalid"
+)
+
+func (reason RuntimeDiagnosticPersistenceReason) Valid() bool {
+	switch reason {
+	case DiagnosticPersistenceInvalidInput, DiagnosticPersistenceClosed, DiagnosticPersistenceIdentityMismatch,
+		DiagnosticPersistenceClockFailure, DiagnosticPersistenceEncodingFailure, DiagnosticPersistenceCapacityExhausted,
+		DiagnosticPersistenceNamespaceChanged, DiagnosticPersistenceWriteFailure, DiagnosticPersistenceSyncFailure,
+		DiagnosticPersistenceVerificationFailed, DiagnosticPersistenceRecoveryFailed, DiagnosticPersistenceResultInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 type RuntimeDiagnosticPersistenceError struct {
-	Operation RuntimeDiagnosticPersistenceOperation
-	Reason    string
-	Err       error
+	operation RuntimeDiagnosticPersistenceOperation
+	reason    RuntimeDiagnosticPersistenceReason
+	err       error
+}
+
+func NewRuntimeDiagnosticPersistenceError(operation RuntimeDiagnosticPersistenceOperation, reason RuntimeDiagnosticPersistenceReason, err error) error {
+	if !operation.Valid() || !reason.Valid() || err == nil {
+		return errors.New("runtime diagnostic persistence error: invalid classification")
+	}
+	return &RuntimeDiagnosticPersistenceError{operation: operation, reason: reason, err: err}
 }
 
 func (err *RuntimeDiagnosticPersistenceError) Error() string {
 	if err == nil {
 		return "runtime diagnostic persistence failure"
 	}
-	return fmt.Sprintf("runtime diagnostic persistence %s: %s", err.Operation, err.Reason)
+	return fmt.Sprintf("runtime diagnostic persistence %s: %s", err.operation, err.reason)
 }
 func (err *RuntimeDiagnosticPersistenceError) Unwrap() error {
 	if err == nil {
 		return nil
 	}
-	return err.Err
+	return err.err
 }
+func (err *RuntimeDiagnosticPersistenceError) Operation() RuntimeDiagnosticPersistenceOperation {
+	return err.operation
+}
+func (err *RuntimeDiagnosticPersistenceError) Reason() RuntimeDiagnosticPersistenceReason {
+	return err.reason
+}
+
+type RuntimeDiagnosticSecurityRejectionError struct {
+	drop DropMetadata
+	err  error
+}
+
+func NewRuntimeDiagnosticSecurityRejectionError(drop DropMetadata, err error) error {
+	if err == nil || drop.Channel() == "" || drop.Detector() == "" || drop.Count() <= 0 {
+		return errors.New("runtime diagnostic security rejection: invalid classification")
+	}
+	return &RuntimeDiagnosticSecurityRejectionError{drop: drop, err: err}
+}
+func (err *RuntimeDiagnosticSecurityRejectionError) Error() string {
+	return "runtime diagnostic raw stream rejected by security policy"
+}
+func (err *RuntimeDiagnosticSecurityRejectionError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.err
+}
+func (err *RuntimeDiagnosticSecurityRejectionError) Drop() DropMetadata { return err.drop }
 
 type RuntimeDiagnosticSink interface {
 	Emit(context.Context, domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error)
@@ -512,8 +585,12 @@ func (sink *inMemoryRuntimeDiagnosticSink) PersistRaw(ctx context.Context, reque
 	if int64(len(bytes)) > request.maxBytes {
 		err = errors.New("runtime diagnostic raw stream exceeds cap")
 		request.abort(err)
-		drop, _ := NewDropMetadata(string(request.stream), "size_cap", 1, request.sourceIDs)
-		return NewRuntimeDiagnosticRawResult(request.stream, SafeRelativePath{}, &drop, 0)
+		drop, _ := NewDropMetadata(string(request.stream), "maximum_bytes_exceeded", 1, request.sourceIDs)
+		result, resultErr := NewRuntimeDiagnosticRawResult(request.stream, SafeRelativePath{}, &drop, 0)
+		if resultErr != nil {
+			return RuntimeDiagnosticRawResult{}, NewRuntimeDiagnosticPersistenceError(DiagnosticPersistenceRaw, DiagnosticPersistenceResultInvalid, resultErr)
+		}
+		return result, NewRuntimeDiagnosticSecurityRejectionError(drop, err)
 	}
 	uri, _ := sink.diagnosticRawPath(request)
 	sink.mu.Lock()

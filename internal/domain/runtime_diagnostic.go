@@ -177,6 +177,7 @@ type RuntimeDiagnosticEventInput struct {
 	Role                        Role
 	Provider                    string
 	Cause                       RuntimeDiagnosticCause
+	Failure, Mitigation         string
 	State, Outcome, Termination string
 	Stream                      RuntimeDiagnosticStream
 	Offset, Length              int64
@@ -202,7 +203,13 @@ func NewRuntimeDiagnosticEventDraft(input RuntimeDiagnosticEventInput) (RuntimeD
 			return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid attempt ID")
 		}
 	}
-	for _, value := range []string{input.InvocationID, input.Provider, input.State, input.Outcome, input.Termination} {
+	if input.InvocationID != "" && !validDiagnosticInvocationID(input.InvocationID) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid invocation ID")
+	}
+	if input.Provider != "" && !validDiagnosticProvider(input.Provider) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid provider")
+	}
+	for _, value := range []string{input.Failure, input.Mitigation, input.State, input.Outcome, input.Termination} {
 		if value != "" && !validDiagnosticToken(value, 128) {
 			return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: unsafe optional token")
 		}
@@ -222,6 +229,9 @@ func NewRuntimeDiagnosticEventDraft(input RuntimeDiagnosticEventInput) (RuntimeD
 	}
 	if input.ArtifactRef != "" && !validDiagnosticPath(input.ArtifactRef) {
 		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid artifact reference")
+	}
+	if !validDiagnosticLevelForEvent(input.Level, input.Event) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: level is inconsistent with event")
 	}
 	return RuntimeDiagnosticEventDraft{input: input}, nil
 }
@@ -270,5 +280,40 @@ func validDiagnosticToken(value string, maximum int) bool {
 }
 
 func validDiagnosticPath(value string) bool {
-	return value != "" && len(value) <= 4096 && !strings.Contains(value, "\\") && !strings.HasPrefix(value, "/") && path.Clean(value) == value && value != "." && !strings.HasPrefix(value, "../")
+	return value != "" && len(value) <= 4096 && !strings.ContainsAny(value, "\\\x00\r\n") && !strings.HasPrefix(value, "/") && path.Clean(value) == value && value != "." && !strings.HasPrefix(value, "../")
+}
+
+func validDiagnosticInvocationID(value string) bool {
+	if !strings.HasPrefix(value, "i_") {
+		return false
+	}
+	_, err := ParseReviewID(strings.TrimPrefix(value, "i_"))
+	return err == nil
+}
+
+func validDiagnosticProvider(value string) bool {
+	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validDiagnosticLevelForEvent(level RuntimeDiagnosticLevel, event RuntimeDiagnosticEventCode) bool {
+	switch event {
+	case DiagnosticRunStopped, DiagnosticAttemptFailed, DiagnosticProcessTimedOut, DiagnosticProcessTerminated,
+		DiagnosticOutputParseFailed, DiagnosticValidationFailed, DiagnosticRepairExhausted,
+		DiagnosticFallbackProhibited, DiagnosticRoleExhausted, DiagnosticPublicationFailed:
+		return level == RuntimeDiagnosticError
+	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted,
+		DiagnosticFallbackEligible, DiagnosticFallbackScheduled, DiagnosticFallbackStarted, DiagnosticFallbackCompleted:
+		return level == RuntimeDiagnosticWarn
+	default:
+		return level == RuntimeDiagnosticInfo
+	}
 }

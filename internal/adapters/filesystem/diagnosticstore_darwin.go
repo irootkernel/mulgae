@@ -482,7 +482,7 @@ func (store *DiagnosticStore) PersistRaw(ctx context.Context, request ports.Runt
 		if resultErr != nil {
 			return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "drop_result", errors.Join(writeErr, resultErr))
 		}
-		return result, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "security_drop", writeErr)
+		return result, ports.NewRuntimeDiagnosticSecurityRejectionError(*drop, writeErr)
 	}
 	if receipt.Destination().Valid() {
 		result, resultErr := ports.NewRuntimeDiagnosticRawResult(request.Stream(), receipt.Destination(), nil, receipt.ByteLength())

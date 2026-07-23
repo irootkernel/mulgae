@@ -69,6 +69,8 @@ type runtimeDiagnosticEventWire struct {
 	Role          domain.Role                       `json:"role,omitempty"`
 	Provider      string                            `json:"provider,omitempty"`
 	Cause         domain.RuntimeDiagnosticCause     `json:"cause,omitempty"`
+	Failure       string                            `json:"failure,omitempty"`
+	Mitigation    string                            `json:"mitigation,omitempty"`
 	State         string                            `json:"state,omitempty"`
 	Outcome       string                            `json:"outcome,omitempty"`
 	Stream        domain.RuntimeDiagnosticStream    `json:"stream,omitempty"`
@@ -81,7 +83,7 @@ type runtimeDiagnosticEventWire struct {
 
 func encodeRuntimeDiagnosticEvent(event domain.RuntimeDiagnosticEvent) ([]byte, error) {
 	input := event.Input()
-	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ArtifactRef: input.ArtifactRef}
+	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, Failure: input.Failure, Mitigation: input.Mitigation, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ArtifactRef: input.ArtifactRef}
 	if input.Stream.Valid() {
 		offset, length := input.Offset, input.Length
 		wire.Offset, wire.Length = &offset, &length
@@ -238,8 +240,33 @@ func marshalDiagnosticStatus(value any) ([]byte, error) {
 	return append(encoded, '\n'), nil
 }
 
-func diagnosticPersistenceError(operation ports.RuntimeDiagnosticPersistenceOperation, reason string, err error) error {
-	return &ports.RuntimeDiagnosticPersistenceError{Operation: operation, Reason: reason, Err: err}
+func diagnosticPersistenceError(operation ports.RuntimeDiagnosticPersistenceOperation, detail string, err error) error {
+	reason := ports.DiagnosticPersistenceInvalidInput
+	switch detail {
+	case "closed", "already_finalized":
+		reason = ports.DiagnosticPersistenceClosed
+	case "identity_mismatch":
+		reason = ports.DiagnosticPersistenceIdentityMismatch
+	case "clock":
+		reason = ports.DiagnosticPersistenceClockFailure
+	case "encode", "encode_attempt", "encode_invocation":
+		reason = ports.DiagnosticPersistenceEncodingFailure
+	case "log_cap":
+		reason = ports.DiagnosticPersistenceCapacityExhausted
+	case "namespace_changed":
+		reason = ports.DiagnosticPersistenceNamespaceChanged
+	case "append", "write", "replace_attempt", "replace_invocation", "terminal_status", "initial_status":
+		reason = ports.DiagnosticPersistenceWriteFailure
+	case "sync", "installed_undurable", "close_log":
+		reason = ports.DiagnosticPersistenceSyncFailure
+	case "post_sync_verification":
+		reason = ports.DiagnosticPersistenceVerificationFailed
+	case "terminal_event":
+		reason = ports.DiagnosticPersistenceRecoveryFailed
+	case "drop_result", "installed_result", "result":
+		reason = ports.DiagnosticPersistenceResultInvalid
+	}
+	return ports.NewRuntimeDiagnosticPersistenceError(operation, reason, err)
 }
 
 func (store *DiagnosticStore) URI() (ports.SafeRelativePath, bool) {

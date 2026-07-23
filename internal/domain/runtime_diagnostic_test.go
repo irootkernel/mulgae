@@ -17,7 +17,7 @@ func TestRuntimeDiagnosticEventIsClosedSafeAndStamped(t *testing.T) {
 	t.Parallel()
 	session, run, attempt := diagnosticTestIDs(t)
 	draft, err := NewRuntimeDiagnosticEventDraft(RuntimeDiagnosticEventInput{
-		Level: RuntimeDiagnosticWarn, Component: "provider", Operation: "observe", Event: DiagnosticIOObserved,
+		Level: RuntimeDiagnosticInfo, Component: "provider", Operation: "observe", Event: DiagnosticIOObserved,
 		SessionID: session, RunID: run, AttemptID: attempt, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc",
 		Role: RoleSecurity, Provider: "zcode-main", Stream: DiagnosticStderr, Offset: 4, Length: 9,
 		ArtifactRef: "diagnostics/stream.raw",
@@ -48,8 +48,13 @@ func TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields(t *testing.T) {
 		{"path component", func(in *RuntimeDiagnosticEventInput) { in.Component = "internal/file" }},
 		{"unsafe provider", func(in *RuntimeDiagnosticEventInput) { in.Provider = "secret\nvalue" }},
 		{"unknown cause", func(in *RuntimeDiagnosticEventInput) { in.Cause = "free_form_error" }},
+		{"noncanonical invocation", func(in *RuntimeDiagnosticEventInput) { in.InvocationID = "i_not-a-uuid" }},
+		{"uppercase provider", func(in *RuntimeDiagnosticEventInput) { in.Provider = "ZCode" }},
+		{"terminal failure at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticRunStopped }},
+		{"mitigation at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticFallbackStarted }},
 		{"range without stream", func(in *RuntimeDiagnosticEventInput) { in.Length = 1 }},
 		{"escaped artifact", func(in *RuntimeDiagnosticEventInput) { in.ArtifactRef = "../escape" }},
+		{"nul artifact", func(in *RuntimeDiagnosticEventInput) { in.ArtifactRef = "diagnostics/raw\x00.txt" }},
 	}
 	for _, test := range tests {
 		test := test

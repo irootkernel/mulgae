@@ -3,6 +3,7 @@ package ports
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,11 +93,28 @@ func TestRuntimeDiagnosticRawRequestSeparatesStreamsAndCaps(t *testing.T) {
 	}
 	overflow, _ := NewRuntimeDiagnosticRawRequest(attempt, "i_019f596a-d04a-7a7a-8b3c-123456789abc", 1, ProviderInvocationInitial, domain.DiagnosticStderr, bytes.NewReader([]byte("too-long")), 2, []string{"provider:stderr"}, func(error) { aborted.Store(true) })
 	dropped, err := sink.PersistRaw(context.Background(), overflow)
-	if err != nil {
-		t.Fatal(err)
+	var rejection *RuntimeDiagnosticSecurityRejectionError
+	if !errors.As(err, &rejection) {
+		t.Fatalf("overflow error = %T, want security rejection", err)
 	}
-	if _, ok := dropped.Drop(); !ok || !aborted.Load() {
+	if drop, ok := dropped.Drop(); !ok || drop.Detector() != "maximum_bytes_exceeded" || rejection.Drop().Detector() != drop.Detector() || !aborted.Load() {
 		t.Fatal("overflow did not return safe drop metadata and abort producer")
+	}
+}
+
+func TestRuntimeDiagnosticPersistenceClassificationIsClosed(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("disk failure")
+	err := NewRuntimeDiagnosticPersistenceError(DiagnosticPersistenceEmit, DiagnosticPersistenceWriteFailure, cause)
+	var persistence *RuntimeDiagnosticPersistenceError
+	if !errors.As(err, &persistence) || persistence.Operation() != DiagnosticPersistenceEmit || persistence.Reason() != DiagnosticPersistenceWriteFailure || !errors.Is(err, cause) {
+		t.Fatalf("unexpected classification: %v", err)
+	}
+	if err := NewRuntimeDiagnosticPersistenceError("unknown", DiagnosticPersistenceWriteFailure, cause); err == nil {
+		t.Fatal("unknown persistence operation accepted")
+	}
+	if err := NewRuntimeDiagnosticPersistenceError(DiagnosticPersistenceEmit, "free_form", cause); err == nil {
+		t.Fatal("free-form persistence reason accepted")
 	}
 }
 

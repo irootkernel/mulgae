@@ -14,7 +14,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 
 | Epic | Deliverable | Depends on | Status |
 |---|---|---|---|
-| D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
+| D-E01 | Contract, model, secure storage | approved planning package | IN_PROGRESS |
 | D-E02 | Provider observation and typed causes | D-E01 | NOT_STARTED |
 | D-E03 | Run-wide lifecycle and terminal integration | D-E02 | NOT_STARTED |
 | D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
@@ -28,6 +28,12 @@ Fixed planning decisions:
 - [x] Current actual-provider E2E failure is excluded only from diagnostics completion gates.
 
 ## 2. D-E01 — Contract, Model, and Secure Storage
+
+The epic was reopened on 2026-07-23 after failure-injection review found that
+same-sink partial appends, finalize retries, and terminal-run reopen behavior
+were not covered by the original completion evidence. Checked requirements
+below describe the previously observed baseline; completion evidence must be
+re-observed after the corrective changes before the epic returns to COMPLETE.
 
 ### Goal command
 

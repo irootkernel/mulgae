@@ -441,7 +441,7 @@ func TestDiagnosticStoreClassifiesRawWriterFailure(t *testing.T) {
 	var aborted atomic.Bool
 	_, err = sink.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStdout, "safe", 8, &aborted))
 	var persistence *ports.RuntimeDiagnosticPersistenceError
-	if !errors.As(err, &persistence) || persistence.Operation != ports.DiagnosticPersistenceRaw || !errors.Is(err, injected) {
+	if !errors.As(err, &persistence) || persistence.Operation() != ports.DiagnosticPersistenceRaw || !errors.Is(err, injected) {
 		t.Fatalf("writer error classification = %T %v", err, err)
 	}
 }
