@@ -14,7 +14,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 
 | Epic | Deliverable | Depends on | Status |
 |---|---|---|---|
-| D-E01 | Contract, model, secure storage | approved planning package | NOT_STARTED |
+| D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
 | D-E02 | Provider observation and typed causes | D-E01 | NOT_STARTED |
 | D-E03 | Run-wide lifecycle and terminal integration | D-E02 | NOT_STARTED |
 | D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
@@ -37,24 +37,24 @@ Fixed planning decisions:
 
 ### Must do
 
-- [ ] Promote the accepted diagnostics contract into the normative SOT and set `SPEC_VERSION` to 1.11.0 without adding planning files to the runtime catalog.
-- [ ] Define closed `RuntimeDiagnosticEvent`, `RuntimeDiagnosticSink`, and `RuntimeDiagnosticSinkFactory` boundaries with noop/in-memory test implementations.
-- [ ] Validate identifiers, fields, safe values, levels, events, causes, timestamps, elapsed time, and monotonic `seq`.
-- [ ] Implement `.kar/diagnostics/<session>/<run>` anchored directory creation.
-- [ ] Implement serialized `kar-runtime.jsonl` append with complete-line and concurrency guarantees.
-- [ ] Implement atomic run/attempt/invocation `status.json` replacement.
-- [ ] Persist stdout and stderr as separate bounded raw artifacts through scan-before-write.
-- [ ] Implement caps, mandatory tail reserve, safe drop metadata, durable sync, and finalize behavior.
-- [ ] Test symlink/path escape, permissions, secret detection, overflow, partial write, crash recovery, concurrent append, and writer failure classification.
-- [ ] Regenerate checksums and builtin assets and record the resulting 85/84 catalog evidence.
+- [x] Promote the accepted diagnostics contract into the normative SOT and set `SPEC_VERSION` to 1.11.0 without adding planning files to the runtime catalog. Evidence: `d8c0352`; builtin manifest reports 85 unique sources, 84 checksum payloads, and zero `plan/` sources.
+- [x] Define closed `RuntimeDiagnosticEvent`, `RuntimeDiagnosticSink`, and `RuntimeDiagnosticSinkFactory` boundaries with noop/in-memory test implementations. Evidence: `TestRuntimeDiagnosticClosedCodeSets`, `TestRuntimeDiagnosticFinalizeIsExactlyOnceAndNoopHasNoURI`.
+- [x] Validate identifiers, fields, safe values, levels, events, causes, timestamps, elapsed time, and monotonic `seq`. Evidence: `TestRuntimeDiagnosticEventIsClosedSafeAndStamped`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestInMemoryRuntimeDiagnosticSinkSerializesRunWideSequence`.
+- [x] Implement `.kar/diagnostics/<session>/<run>` anchored directory creation. Evidence: `TestDiagnosticStoreOpenCreatesPrivateInstalledRun`.
+- [x] Implement serialized `kar-runtime.jsonl` append with complete-line and concurrency guarantees. Evidence: `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`.
+- [x] Implement atomic run/attempt/invocation `status.json` replacement. Evidence: `TestDiagnosticStoreAtomicallyReplacesAttemptAndInvocationStatus`, `TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce`.
+- [x] Persist stdout and stderr as separate bounded raw artifacts through scan-before-write. Evidence: `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`.
+- [x] Implement caps, mandatory tail reserve, safe drop metadata, durable sync, and finalize behavior. Evidence: `TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce`.
+- [x] Test symlink/path escape, permissions, secret detection, overflow, partial write, crash recovery, concurrent append, and writer failure classification. Evidence: `TestDiagnosticStoreRejectsSymlinkEscapeAndUnsafePermissions`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`, `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreClassifiesRawWriterFailure`.
+- [x] Regenerate checksums and builtin assets and record the resulting 85/84 catalog evidence. Evidence: both required generators and `make test-prepare` passed on 2026-07-23; `wc -l sot/CHECKSUMS.sha256` is 84 and the embedded manifest has 85 unique sources.
 
 ### Must not do
 
-- [ ] Do not grant diagnostics publication, CI, approval, or release authority.
-- [ ] Do not merge raw provider bytes into runtime JSONL.
-- [ ] Do not weaken secure-writer, cap, redaction, fsync, or no-follow rules.
-- [ ] Do not instrument every application layer before the model and store contracts pass focused tests.
-- [ ] Do not change provider assignment, fallback eligibility, or native authentication behavior.
+- [x] Do not grant diagnostics publication, CI, approval, or release authority. Evidence: run status fixes `diagnostic_only=true` and `publication_authority=false`; architecture dependency test passes.
+- [x] Do not merge raw provider bytes into runtime JSONL. Evidence: event input has no raw byte field and separated-stream filesystem tests pass.
+- [x] Do not weaken secure-writer, cap, redaction, fsync, or no-follow rules. Evidence: diagnostic raw persistence composes `SecureFileWriter`; secure, cap, permission, and recovery tests pass.
+- [x] Do not instrument every application layer before the model and store contracts pass focused tests. Evidence: D-E01 changes are limited to domain, ports, filesystem, normative SOT, and planning evidence.
+- [x] Do not change provider assignment, fallback eligibility, or native authentication behavior. Evidence: no provider, coordinator, reviewrun, or authentication production files changed in D-E01.
 
 ### Work method
 
@@ -76,9 +76,9 @@ git diff --check
 
 Completion evidence:
 
-- [ ] All commands above pass on the same tree.
-- [ ] Focused tests name the secure, concurrent, cap, and failure cases required by DIAG-SEC and DIAG-EVENT.
-- [ ] D-E02 can consume the ports without importing filesystem or entrypoint packages.
+- [x] All commands above pass on the same tree. Evidence: both generators, `make test-prepare`, the exact focused race command, and `git diff --check` passed on 2026-07-23.
+- [x] Focused tests name the secure, concurrent, cap, and failure cases required by DIAG-SEC and DIAG-EVENT. Evidence: the `TestDiagnosticStore*` cases cited above run under the focused race command.
+- [x] D-E02 can consume the ports without importing filesystem or entrypoint packages. Evidence: noop/in-memory factories live in `internal/ports`; `TestProductionDependencyDirection` passes.
 
 ## 3. D-E02 — Provider Observation and Typed Causes
 
@@ -249,4 +249,3 @@ After all four epic status rows are COMPLETE:
 - [ ] Start G010-T05 to diagnose and fix the actual-provider failure; require `make test-e2e` PASS there.
 - [ ] Restore and run the full-workflow actual-provider E2E required by the normative SOT.
 - [ ] Start G010-T06 only after T05 passes; require exact final-tree `make test` before `RELEASE_READY`.
-

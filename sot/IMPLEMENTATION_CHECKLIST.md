@@ -175,8 +175,8 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 
 ## Diagnostics D-E01 — Contract, Model, and Secure Storage
 
-- [ ] Promote the normative runtime diagnostic event, status, path, cap, security, durability, and authority-separation contract as SOT 1.11.0 without cataloging `sot/plan/**`.
-- [ ] Implement closed validated domain events and sink/factory ports with noop and in-memory implementations.
-- [ ] Implement the anchored `.kar/diagnostics/<session>/<run>` filesystem store with serialized JSONL, atomic status replacement, separated scanned raw streams, caps, mandatory tail reserve, durable sync, recovery, and exactly-once finalize.
-- [ ] Prove symlink/path escape, permissions, secret/overflow drop, partial/crash recovery, concurrent append, writer failure, and architecture boundaries under the race detector.
-- [ ] Preserve the 85-path/84-payload catalog and record exact D-E01 verification evidence without changing G010-T05/T06 or `RELEASE_READY`.
+- [x] Promote the normative runtime diagnostic event, status, path, cap, security, durability, and authority-separation contract as SOT 1.11.0 without cataloging `sot/plan/**`. Evidence: `d8c0352`, both required generators, and builtin catalog planning-source assertion.
+- [x] Implement closed validated domain events and sink/factory ports with noop and in-memory implementations. Evidence: `4414583`; domain and ports focused race tests.
+- [x] Implement the anchored `.kar/diagnostics/<session>/<run>` filesystem store with serialized JSONL, atomic status replacement, separated scanned raw streams, caps, mandatory tail reserve, durable sync, recovery, and exactly-once finalize. Evidence: `ea7b709`, `55b531f`, and focused diagnostic store tests.
+- [x] Prove symlink/path escape, permissions, secret/overflow drop, partial/crash recovery, concurrent append, writer failure, and architecture boundaries under the race detector. Evidence: `TestDiagnosticStoreRejectsSymlinkEscapeAndUnsafePermissions`, `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`, `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreClassifiesRawWriterFailure`, and `TestProductionDependencyDirection`.
+- [x] Preserve the 85-path/84-payload catalog and record exact D-E01 verification evidence without changing G010-T05/T06 or `RELEASE_READY`. Evidence: 85 unique embedded sources, 84 checksum lines, zero planning sources; G010-T05/T06 and `RELEASE_READY` remain unchecked.
