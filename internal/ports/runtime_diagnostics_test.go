@@ -152,7 +152,7 @@ func TestRuntimeDiagnosticFinalizeIsExactlyOnceAndNoopHasNoURI(t *testing.T) {
 	}
 	sink, _ := NewInMemoryRuntimeDiagnosticSink(request)
 	result, err := sink.Finalize(context.Background(), finalize)
-	if err != nil || !result.URI().Valid() {
+	if err != nil || !result.URI().Valid() || result.LastSequence() != 2 {
 		t.Fatalf("finalize = %#v, %v", result, err)
 	}
 	if _, err := sink.Finalize(context.Background(), finalize); err == nil {

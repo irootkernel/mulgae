@@ -282,6 +282,7 @@ type Dependencies struct {
 	Locker              ports.LaneLocker
 	Publication         publication.PublicationCommitter
 	Templates           review.TemplateSet
+	Diagnostics         ports.RuntimeDiagnosticSinkFactory
 }
 
 // Result exposes only the coherent P2 authority returned by publication.
@@ -292,6 +293,7 @@ type Result struct {
 	final       ports.FinalReviewIdentity
 	snapshot    ports.CommittedPublicationSnapshot
 	exit        domain.OperationalExitDecision
+	diagnostic  ports.SafeRelativePath
 }
 
 func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator review.CoordinatorResult, final ports.FinalReviewIdentity, snapshot ports.CommittedPublicationSnapshot, exit domain.OperationalExitDecision) (Result, error) {
@@ -310,6 +312,9 @@ func (result Result) Coordinator() review.CoordinatorResult        { return resu
 func (result Result) Final() ports.FinalReviewIdentity             { return result.final }
 func (result Result) Snapshot() ports.CommittedPublicationSnapshot { return result.snapshot }
 func (result Result) TerminalExit() domain.OperationalExitDecision { return result.exit }
+func (result Result) RuntimeDiagnosticURI() (ports.SafeRelativePath, bool) {
+	return result.diagnostic, result.diagnostic.Valid()
+}
 
 func nilInterface(value any) bool {
 	if value == nil {

@@ -548,6 +548,10 @@ func (sink *inMemoryRuntimeDiagnosticSink) Emit(ctx context.Context, draft domai
 	if sink.finalized {
 		return domain.RuntimeDiagnosticEvent{}, errors.New("runtime diagnostic sink finalized")
 	}
+	return sink.appendEventLocked(draft)
+}
+
+func (sink *inMemoryRuntimeDiagnosticSink) appendEventLocked(draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
 	input := draft.Input()
 	if input.SessionID != sink.request.sessionID || input.RunID != sink.request.runID {
 		return domain.RuntimeDiagnosticEvent{}, errors.New("runtime diagnostic event identity does not match sink")
@@ -645,6 +649,32 @@ func (sink *inMemoryRuntimeDiagnosticSink) Finalize(ctx context.Context, request
 	}
 	if request.status.sessionID != sink.request.sessionID || request.status.runID != sink.request.runID {
 		return RuntimeDiagnosticFinalizeResult{}, errors.New("runtime diagnostic final status identity does not match sink")
+	}
+	level := domain.RuntimeDiagnosticInfo
+	terminalEvent := domain.DiagnosticRunCompleted
+	if request.State() == domain.RunFailed || request.State() == domain.RunCancelled {
+		level = domain.RuntimeDiagnosticError
+		terminalEvent = domain.DiagnosticRunStopped
+	}
+	terminal, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: level, Component: "runtime", Operation: "finalize", Event: terminalEvent,
+		SessionID: sink.request.SessionID(), RunID: sink.request.RunID(), Cause: request.Cause(), State: string(request.State()),
+	})
+	if err != nil {
+		return RuntimeDiagnosticFinalizeResult{}, err
+	}
+	if _, err := sink.appendEventLocked(terminal); err != nil {
+		return RuntimeDiagnosticFinalizeResult{}, err
+	}
+	closed, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticInfo, Component: "runtime", Operation: "finalize", Event: domain.DiagnosticRuntimeClosed,
+		SessionID: sink.request.SessionID(), RunID: sink.request.RunID(), State: string(request.State()),
+	})
+	if err != nil {
+		return RuntimeDiagnosticFinalizeResult{}, err
+	}
+	if _, err := sink.appendEventLocked(closed); err != nil {
+		return RuntimeDiagnosticFinalizeResult{}, err
 	}
 	sink.finalized = true
 	uri := sink.request.RunPath()

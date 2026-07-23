@@ -40,6 +40,7 @@ type productionRuntimeGraph struct {
 	candidates      *configuredProductionCandidateSource
 	reviewValidator *validation.ReviewValidator
 	publisher       *publication.Service
+	diagnostics     ports.RuntimeDiagnosticSinkFactory
 	locker          ports.LaneLocker
 	templates       review.TemplateSet
 	clock           ports.Clock
@@ -209,6 +210,10 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: publisher: %w", err)
 	}
+	diagnostics, err := filesystem.NewDiagnosticStoreFactory(writer, clock)
+	if err != nil {
+		return nil, fmt.Errorf("production graph: diagnostics: %w", err)
+	}
 	locker, err := lanelock.New(root, writer)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: lane locker: %w", err)
@@ -218,7 +223,7 @@ func composeProductionRuntimeGraph(
 		return nil, fmt.Errorf("production graph: templates: %w", err)
 	}
 	graph.detector, graph.inputs, graph.authority, graph.qualified, graph.candidates, graph.reviewValidator = detector, inputs, authority, qualified, candidates, reviewValidator
-	graph.publisher, graph.locker, graph.templates = publisher, locker, templates
+	graph.publisher, graph.diagnostics, graph.locker, graph.templates = publisher, diagnostics, locker, templates
 	return graph, nil
 }
 

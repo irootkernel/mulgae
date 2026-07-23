@@ -132,7 +132,7 @@ func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.LastSequence() != 2 || result.URI() != fixture.request.RunPath() {
+	if result.LastSequence() != 3 || result.URI() != fixture.request.RunPath() {
 		t.Fatalf("unexpected finalize result: %#v", result)
 	}
 	if _, err := fixture.store.Finalize(context.Background(), finalize); err == nil {
@@ -143,7 +143,7 @@ func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(logBytes), "\n"), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		t.Fatalf("log lines = %d", len(lines))
 	}
 	for index, line := range lines {
@@ -160,8 +160,15 @@ func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.
 	if err := json.Unmarshal(statusBytes, &final); err != nil {
 		t.Fatal(err)
 	}
-	if final.State != domain.RunCompleted || final.LastSequence != 2 || final.PublicationAuthority {
+	if final.State != domain.RunCompleted || final.LastSequence != 3 || final.PublicationAuthority {
 		t.Fatalf("unexpected final status: %#v", final)
+	}
+	var closed runtimeDiagnosticEventWire
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &closed); err != nil {
+		t.Fatal(err)
+	}
+	if closed.Event != domain.DiagnosticRuntimeClosed {
+		t.Fatalf("last event = %q, want %q", closed.Event, domain.DiagnosticRuntimeClosed)
 	}
 }
 
@@ -372,10 +379,10 @@ func TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize(t *testing.
 	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunCompleted, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true})
 	finalize, _ := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunCompleted, "", status)
 	result, err := fixture.store.Finalize(context.Background(), finalize)
-	if err != nil || result.LastSequence() != 1 {
+	if err != nil || result.LastSequence() != 2 {
 		t.Fatalf("same-sink finalize = %#v, %v", result, err)
 	}
-	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 2)
 }
 
 func TestDiagnosticStoreRollsBackAppendAfterSyncFailure(t *testing.T) {
@@ -415,10 +422,10 @@ func TestDiagnosticStoreFinalizeRetryDoesNotDuplicateTerminalEvent(t *testing.T)
 	}
 	concrete.operations.close = originalClose
 	result, err := fixture.store.Finalize(context.Background(), finalize)
-	if err != nil || result.LastSequence() != 1 {
+	if err != nil || result.LastSequence() != 2 {
 		t.Fatalf("retry finalize = %#v, %v", result, err)
 	}
-	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 2)
 }
 
 func TestDiagnosticStoreRejectsReopenOfFinalizedRunWithoutChangingStatus(t *testing.T) {

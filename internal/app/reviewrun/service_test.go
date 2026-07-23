@@ -505,6 +505,69 @@ func TestIssueRootRunIdentityPreservesSuppliedSession(t *testing.T) {
 	assertServiceCalls(t, calls, []string{"run"})
 }
 
+func TestServiceExecuteOpensDiagnosticsBeforeQualification(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	authority := &serviceAuthority{calls: &calls, terminal: serviceQualifiedTerminal(t)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls, authority: authority})
+	diagnostics := &serviceDiagnosticFactory{calls: &calls}
+	service.dependencies.Diagnostics = diagnostics
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	if err == nil {
+		t.Fatal("Execute() succeeded after planning failure")
+	}
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "sink", "authority", "plan", "drain", "abort"})
+	want := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticCommandAccepted, domain.DiagnosticRuntimeOpened, domain.DiagnosticSessionCreated, domain.DiagnosticRunCreated,
+	}
+	if len(diagnostics.events) != len(want) {
+		t.Fatalf("initial diagnostic events = %v", diagnostics.events)
+	}
+	for index := range want {
+		if diagnostics.events[index] != want[index] {
+			t.Fatalf("initial diagnostic events = %v, want %v", diagnostics.events, want)
+		}
+	}
+}
+
+func TestServiceExecuteDiagnosticOpenFailurePreventsQualification(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls})
+	service.dependencies.Diagnostics = &serviceDiagnosticFactory{calls: &calls, openErr: errors.New("injected open failure")}
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("open failure = %v, want typed artifact failure", err)
+	}
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "sink", "abort"})
+	if _, ok := RuntimeDiagnosticURIFromError(err); ok {
+		t.Fatal("failed diagnostic open exposed a dangling URI")
+	}
+}
+
+func TestServiceExecuteDiagnosticFinalizeFailureHasNoURI(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	authority := &serviceAuthority{calls: &calls, terminal: serviceQualifiedTerminal(t)}
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls, authority: authority})
+	service.dependencies.Diagnostics = &serviceDiagnosticFactory{calls: &calls, finalizeErr: errors.New("injected finalize failure")}
+
+	_, err := service.Execute(context.Background(), serviceRequest(t, capture))
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("finalize failure = %v, want typed artifact failure", err)
+	}
+	if _, ok := RuntimeDiagnosticURIFromError(err); ok {
+		t.Fatal("failed diagnostic finalize exposed a dangling URI")
+	}
+}
+
 func TestServiceExecuteRejectsNoChangeReleaseReceiptMismatch(t *testing.T) {
 	calls := []string{}
 	lease := newServiceLease(t, &calls)
@@ -601,6 +664,42 @@ type serviceAuthorityFactory struct {
 	calls     *[]string
 	authority RunAuthority
 	err       error
+}
+
+type serviceDiagnosticFactory struct {
+	calls       *[]string
+	openErr     error
+	finalizeErr error
+	events      []domain.RuntimeDiagnosticEventCode
+}
+
+func (factory *serviceDiagnosticFactory) Open(_ context.Context, request ports.RuntimeDiagnosticOpenRequest) (ports.RuntimeDiagnosticSink, error) {
+	*factory.calls = append(*factory.calls, "sink")
+	if factory.openErr != nil {
+		return nil, factory.openErr
+	}
+	sink, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+	if err != nil {
+		return nil, err
+	}
+	return &serviceDiagnosticSink{RuntimeDiagnosticSink: sink, factory: factory}, nil
+}
+
+type serviceDiagnosticSink struct {
+	ports.RuntimeDiagnosticSink
+	factory *serviceDiagnosticFactory
+}
+
+func (sink *serviceDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	sink.factory.events = append(sink.factory.events, draft.Input().Event)
+	return sink.RuntimeDiagnosticSink.Emit(ctx, draft)
+}
+
+func (sink *serviceDiagnosticSink) Finalize(ctx context.Context, request ports.RuntimeDiagnosticFinalizeRequest) (ports.RuntimeDiagnosticFinalizeResult, error) {
+	if sink.factory.finalizeErr != nil {
+		return ports.RuntimeDiagnosticFinalizeResult{}, sink.factory.finalizeErr
+	}
+	return sink.RuntimeDiagnosticSink.Finalize(ctx, request)
 }
 
 func (factory *serviceAuthorityFactory) NewQualifiedRun(context.Context, CapturedRunInput, RunSelection) (RunAuthority, error) {
@@ -707,6 +806,7 @@ func serviceForLifecycle(t *testing.T, calls *[]string, capture ImmutableInputSo
 	service, err := NewService(Dependencies{
 		Clock: serviceClock{}, IDs: &serviceIDs{calls: calls}, Build: BuildIdentity{Product: "kar", Version: "1.0.0", Commit: "abc123"},
 		RunAuthorityFactory: factory, Validator: &validation.ReviewValidator{}, Publication: servicePublisher{calls: calls}, Templates: mustServiceTemplates(t),
+		Diagnostics: ports.NewInMemoryRuntimeDiagnosticSinkFactory(),
 	})
 	if err != nil {
 		t.Fatal(err)

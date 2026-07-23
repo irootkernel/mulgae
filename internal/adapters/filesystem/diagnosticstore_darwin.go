@@ -547,6 +547,23 @@ func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.Runtim
 		}
 		store.terminalEvent = true
 	}
+	if !store.closedEvent {
+		draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+			Level: domain.RuntimeDiagnosticInfo, Component: "runtime", Operation: "finalize", Event: domain.DiagnosticRuntimeClosed,
+			SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: string(request.State()),
+		})
+		if err != nil {
+			store.state = diagnosticStoreOpen
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "closed_event", err)
+		}
+		if _, err := store.appendEventLocked(draft); err != nil {
+			if store.state != diagnosticStorePoisoned {
+				store.state = diagnosticStoreOpen
+			}
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "closed_event", err)
+		}
+		store.closedEvent = true
+	}
 	if !store.terminalStatus {
 		if err := store.replaceRunStatusLocked(status, store.sequence); err != nil {
 			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_status", err)

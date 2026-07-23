@@ -798,8 +798,23 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	if err != nil {
 		t.Fatalf("read Kimi security artifact directory: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
-		t.Fatalf("Kimi security rejection created P2 artifacts: %v", entries)
+	if len(entries) != 2 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || !entries[1].IsDir() {
+		t.Fatalf("Kimi security rejection created unexpected artifacts: %v", entries)
+	}
+	diagnosticRuns, err := filepath.Glob(filepath.Join(project, ".kar", "diagnostics", "s_*", "r_*"))
+	if err != nil || len(diagnosticRuns) != 1 {
+		t.Fatalf("Kimi security diagnostics = %v, %v", diagnosticRuns, err)
+	}
+	logBytes, err := os.ReadFile(filepath.Join(diagnosticRuns[0], "kar-runtime.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(logBytes), "\n"), "\n")
+	var terminal struct {
+		Event domain.RuntimeDiagnosticEventCode `json:"event"`
+	}
+	if len(lines) == 0 || json.Unmarshal([]byte(lines[len(lines)-1]), &terminal) != nil || terminal.Event != domain.DiagnosticRuntimeClosed {
+		t.Fatalf("Kimi security diagnostics were not finalized: %q", logBytes)
 	}
 	observations := readFakeKimiObservations(t, logPath)
 	if len(observations) != 1 || !strings.Contains(observations[0].Prompt, "The object must contain exactly root, link, and role string fields.") {

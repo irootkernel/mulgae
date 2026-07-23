@@ -37,6 +37,7 @@ type DiagnosticStore struct {
 	terminalState  domain.RunState
 	terminalCause  domain.RuntimeDiagnosticCause
 	terminalEvent  bool
+	closedEvent    bool
 	terminalStatus bool
 	installed      bool
 	operations     diagnosticStoreOperations

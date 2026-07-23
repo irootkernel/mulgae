@@ -28,7 +28,7 @@ type Service struct {
 }
 
 func NewService(dependencies Dependencies) (*Service, error) {
-	if nilInterface(dependencies.Clock) || nilInterface(dependencies.IDs) || !dependencies.Build.Valid() || nilInterface(dependencies.RunAuthorityFactory) || dependencies.Validator == nil || nilInterface(dependencies.Publication) || dependencies.Templates.Common().ID() == "" {
+	if nilInterface(dependencies.Clock) || nilInterface(dependencies.IDs) || !dependencies.Build.Valid() || nilInterface(dependencies.RunAuthorityFactory) || dependencies.Validator == nil || nilInterface(dependencies.Publication) || dependencies.Templates.Common().ID() == "" || nilInterface(dependencies.Diagnostics) {
 		return nil, fmt.Errorf("review run: invalid dependencies")
 	}
 	return &Service{dependencies: dependencies, templates: dependencies.Templates}, nil
@@ -36,7 +36,7 @@ func NewService(dependencies Dependencies) (*Service, error) {
 
 // Execute captures input once, fails closed before provider observation on any
 // admission failure, and returns only a coherent P2 publication result.
-func (service *Service) Execute(ctx context.Context, request Request) (_ Result, err error) {
+func (service *Service) Execute(ctx context.Context, request Request) (result Result, err error) {
 	if service == nil {
 		return Result{}, fmt.Errorf("review run: nil service")
 	}
@@ -82,6 +82,24 @@ func (service *Service) Execute(ctx context.Context, request Request) (_ Result,
 	if err != nil {
 		return Result{}, err
 	}
+	diagnostics, err := openRuntimeDiagnosticLifecycle(ctx, service.dependencies.Diagnostics, request.ArtifactRoot, identity, request.Selection.Roles(), service.dependencies.Clock)
+	if err != nil {
+		return Result{}, err
+	}
+	defer func() {
+		state, cause := runtimeDiagnosticTerminalDecision(result, err)
+		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause)
+		if finalizeErr != nil {
+			result = Result{}
+			err = errors.Join(err, finalizeErr)
+			return
+		}
+		if err != nil {
+			err = runtimeDiagnosticReferenceError(finalized.URI(), err)
+			return
+		}
+		result.diagnostic = finalized.URI()
+	}()
 	if input.Target().NoChange() {
 		abortReason = ports.WorkspaceAbortPublicationFailure
 		return service.publishNoChange(ctx, request, cleanup, input, target, identity)
