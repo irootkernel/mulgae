@@ -3,12 +3,29 @@ package ports
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
+
+func TestProviderRuntimeErrorExposesOnlyClosedCause(t *testing.T) {
+	underlying := errors.New("private workspace path")
+	failure, err := NewProviderRuntimeError(domain.DiagnosticCauseWorkspaceRevalidationFailed, underlying)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.Error() != "provider runtime failed: workspace_revalidation_failed" ||
+		failure.Cause() != domain.DiagnosticCauseWorkspaceRevalidationFailed ||
+		!errors.Is(failure, underlying) {
+		t.Fatalf("typed provider failure = %#v", failure)
+	}
+	if _, err := NewProviderRuntimeError(domain.RuntimeDiagnosticCause("native text"), nil); err == nil {
+		t.Fatal("unknown provider runtime cause accepted")
+	}
+}
 
 func TestProviderExecutionStatusFailureClassMapping(t *testing.T) {
 	tests := []struct {

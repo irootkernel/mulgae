@@ -15,6 +15,40 @@ import (
 // requires the installed user to authenticate outside KAR before retrying.
 var ErrProviderLoginRequired = errors.New("provider login required")
 
+// ProviderRuntimeError carries a closed detailed cause when the provider
+// boundary itself fails. A caller may still receive a valid observation with
+// this error and must preserve that evidence before applying policy.
+type ProviderRuntimeError struct {
+	cause domain.RuntimeDiagnosticCause
+	err   error
+}
+
+func NewProviderRuntimeError(cause domain.RuntimeDiagnosticCause, err error) (*ProviderRuntimeError, error) {
+	if !cause.Valid() {
+		return nil, fmt.Errorf("provider runtime error: invalid cause")
+	}
+	return &ProviderRuntimeError{cause: cause, err: err}, nil
+}
+
+func (failure *ProviderRuntimeError) Error() string {
+	if failure == nil || !failure.cause.Valid() {
+		return "provider runtime failed"
+	}
+	return "provider runtime failed: " + string(failure.cause)
+}
+func (failure *ProviderRuntimeError) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.err
+}
+func (failure *ProviderRuntimeError) Cause() domain.RuntimeDiagnosticCause {
+	if failure == nil {
+		return ""
+	}
+	return failure.cause
+}
+
 // ProviderExecutionStatus is the closed, provider-neutral execution outcome.
 // It records execution facts only; it does not authorize repair, fallback,
 // validation, or publication decisions.

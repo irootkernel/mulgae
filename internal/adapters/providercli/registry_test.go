@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,9 +63,14 @@ func TestProviderResultStrictness(t *testing.T) {
 		[]byte("{\"type\":\"assistant\",\"content\":\"wrong field\"}"),
 		[]byte("[]"),
 	}
-	for _, stdout := range invalidKimi {
+	for index, stdout := range invalidKimi {
 		if _, _, err := providerResult(FamilyKimi, stdout); err == nil {
-			t.Fatalf("Kimi accepted malformed output %q", stdout)
+			t.Fatalf("Kimi accepted malformed fixture %d", index)
+		} else {
+			var failure *providerOutputFailure
+			if !errors.As(err, &failure) || !failure.Cause().Valid() || strings.Contains(err.Error(), string(stdout)) {
+				t.Fatalf("Kimi fixture %d did not return a safe typed cause", index)
+			}
 		}
 	}
 	content, isolated, err = providerResult(FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":\"draft\"}\n{\"role\":\"assistant\",\"content\":\"final answer\"}"))
@@ -115,9 +121,9 @@ func TestProviderResultStrictness(t *testing.T) {
 	if err != nil || !isolated || !bytes.Equal(got, want) {
 		t.Fatalf("AGY result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	for _, invalid := range [][]byte{[]byte("same-line {\"findings\":[]}"), []byte("{\"findings\":[]}\ntrailing")} {
+	for index, invalid := range [][]byte{[]byte("same-line {\"findings\":[]}"), []byte("{\"findings\":[]}\ntrailing")} {
 		if _, _, err := providerResult(FamilyAgy, invalid); err == nil {
-			t.Fatalf("AGY accepted nonterminal output %q", invalid)
+			t.Fatalf("AGY accepted nonterminal fixture %d", index)
 		}
 	}
 }
@@ -390,19 +396,62 @@ func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 	}
 }
 
-func TestRegistryObserveFailsClosedOnRunnerErrorWithObservation(t *testing.T) {
+func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 	process := testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0)
-	runner := &observationRunner{observation: process, err: errors.New("runner failed")}
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseProviderProcessWaitFailed, "", process.Stdout(), process.Stderr(), errors.New("runner failed"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &observationRunner{observation: process, err: runnerFailure}
 	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err == nil {
-		t.Fatal("runner error with a valid observation succeeded")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := observed.Validate(); err == nil {
-		t.Fatal("runner error returned an observation")
+	if err := observed.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
+		string(observed.Stdout()) != string(process.Stdout()) {
+		t.Fatalf("cause = %q, stdout was preserved = %t", observed.PrimaryCause(), bytes.Equal(observed.Stdout(), process.Stdout()))
+	}
+}
+
+func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		[]byte("partial stdout"),
+		[]byte("partial stderr"),
+		errors.New("private runner detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &observationRunner{err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := observed.AvailableProcessObservation(); ok {
+		t.Fatal("partial execution claimed a coherent process observation")
+	}
+	cleanup, ok := observed.CleanupCause()
+	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
+		!ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("primary = %q, cleanup = %q, present = %t", observed.PrimaryCause(), cleanup, ok)
+	}
+	if string(observed.Stdout()) != "partial stdout" || string(observed.Stderr()) != "partial stderr" {
+		t.Fatal("partial runner streams were lost")
 	}
 }
 func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.T) {
@@ -492,11 +541,12 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 
 func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T) {
 	tests := []struct {
-		family string
-		stdout []byte
+		family    string
+		stdout    []byte
+		wantCause domain.RuntimeDiagnosticCause
 	}{
-		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}")},
-		{FamilyAgy, []byte("{\"findings\":[]} trailing")},
+		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}"), domain.DiagnosticCauseOutputDecodeFailed},
+		{FamilyAgy, []byte("{\"findings\":[]} trailing"), domain.DiagnosticCauseOutputFrameMissing},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -516,6 +566,9 @@ func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T)
 			if observed.Status() != ports.ProviderExecutionStatusArtifactFailure || observed.DiagnosticCode() != "invalid_provider_output" {
 				t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
 			}
+			if observed.PrimaryCause() != test.wantCause {
+				t.Fatalf("cause = %q, want %q", observed.PrimaryCause(), test.wantCause)
+			}
 			if _, ok := observed.Result(); ok {
 				t.Fatal("malformed output produced a result")
 			}
@@ -533,22 +586,23 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 		exitCode    int
 		wantStatus  ports.ProviderExecutionStatus
 		wantCode    string
+		wantCause   domain.RuntimeDiagnosticCause
 	}{
-		{"timeout", ports.ProcessTerminationTimedOut, 0, ports.ProviderExecutionStatusTimedOut, "process_timeout"},
-		{"cancelled", ports.ProcessTerminationCancelled, 0, ports.ProviderExecutionStatusCancelled, "process_cancelled"},
-		{"stdout cap", ports.ProcessTerminationStdoutLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stdout_limit"},
-		{"stderr cap", ports.ProcessTerminationStderrLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stderr_limit"},
-		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable"},
-		{"lock unavailable", ports.ProcessTerminationLockUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable"},
-		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration"},
-		{"lock configuration", ports.ProcessTerminationLockConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration"},
-		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security"},
-		{"lock security", ports.ProcessTerminationLockSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security"},
-		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security"},
-		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusInternalFailure, "process_internal"},
-		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal"},
-		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal"},
-		{"lock failed", ports.ProcessTerminationLockFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal"},
+		{"timeout", ports.ProcessTerminationTimedOut, 0, ports.ProviderExecutionStatusTimedOut, "process_timeout", domain.DiagnosticCauseTimedOut},
+		{"cancelled", ports.ProcessTerminationCancelled, 0, ports.ProviderExecutionStatusCancelled, "process_cancelled", domain.DiagnosticCauseProviderExecutionFailed},
+		{"stdout cap", ports.ProcessTerminationStdoutLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stdout_limit", domain.DiagnosticCauseObservationInvalid},
+		{"stderr cap", ports.ProcessTerminationStderrLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stderr_limit", domain.DiagnosticCauseObservationInvalid},
+		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
+		{"lock unavailable", ports.ProcessTerminationLockUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
+		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
+		{"lock configuration", ports.ProcessTerminationLockConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
+		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
+		{"lock security", ports.ProcessTerminationLockSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
+		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProcessGroupCleanupFailed},
+		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
+		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
+		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
+		{"lock failed", ports.ProcessTerminationLockFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -568,6 +622,9 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 			if observed.Status() != test.wantStatus || observed.DiagnosticCode() != test.wantCode {
 				t.Fatalf("status = %q, diagnostic = %q; want %q, %q",
 					observed.Status(), observed.DiagnosticCode(), test.wantStatus, test.wantCode)
+			}
+			if observed.PrimaryCause() != test.wantCause {
+				t.Fatalf("cause = %q, want %q", observed.PrimaryCause(), test.wantCause)
 			}
 		})
 	}
@@ -596,6 +653,9 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 	if observed.Status() != ports.ProviderExecutionStatusAuthentication || observed.DiagnosticCode() != "login_required" {
 		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
 	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseLoginRequired {
+		t.Fatalf("cause = %q", observed.PrimaryCause())
+	}
 }
 
 func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
@@ -620,6 +680,42 @@ func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
 	}
 	if observed.Status() != ports.ProviderExecutionStatusTimedOut || observed.DiagnosticCode() != "provider_timeout" {
 		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
+	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseTimedOut {
+		t.Fatalf("cause = %q", observed.PrimaryCause())
+	}
+}
+
+func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
+	tests := []struct {
+		name, family, instance string
+		stderr                 []byte
+		wantStatus             ports.ProviderExecutionStatus
+		wantCause              domain.RuntimeDiagnosticCause
+	}{
+		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
+		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
+		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
+		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed},
+		{"quota", FamilyZcode, "zcode_default", []byte("quota_exceeded"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded},
+		{"rate limit", FamilyAgy, "agy_default", []byte("too many requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invocation := testInvocation(t, test.instance)
+			runner := &observationRunner{observation: testProcessObservation(t, nil, test.stderr, ports.ProcessTerminationExited, 1)}
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, test.family, test.instance, test.family+"_lane"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := registry.Observe(context.Background(), invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observed.Status() != test.wantStatus || observed.PrimaryCause() != test.wantCause {
+				t.Fatalf("status = %q, cause = %q; want %q, %q", observed.Status(), observed.PrimaryCause(), test.wantStatus, test.wantCause)
+			}
+		})
 	}
 }
 

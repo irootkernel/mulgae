@@ -21,6 +21,7 @@ import (
 func TestClassifyProbeFailurePreservesExplicitLoginRequired(t *testing.T) {
 	err := classifyProbeFailure(
 		context.Background(),
+		FamilyKimi,
 		errors.New("provider exited"),
 		[]byte(`{"code":"auth.login_required","message":"login first"}`),
 	)

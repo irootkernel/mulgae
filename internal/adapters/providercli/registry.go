@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const (
@@ -23,6 +25,24 @@ const (
 )
 
 var errInvalidZcodeEnvelope = errors.New("invalid ZCode headless envelope")
+var errProviderOutputFrameMissing = errors.New("provider output frame missing")
+
+type providerOutputFailure struct {
+	cause domain.RuntimeDiagnosticCause
+	err   error
+}
+
+func (failure *providerOutputFailure) Error() string {
+	return "provider output failed: " + string(failure.cause)
+}
+func (failure *providerOutputFailure) Unwrap() error { return failure.err }
+func (failure *providerOutputFailure) Cause() domain.RuntimeDiagnosticCause {
+	return failure.cause
+}
+
+func newProviderOutputFailure(cause domain.RuntimeDiagnosticCause, err error) error {
+	return &providerOutputFailure{cause: cause, err: err}
+}
 
 // RuntimeTransport is an immutable provider packet transport profile.
 type RuntimeTransport struct {
@@ -779,7 +799,37 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		processObservation, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment())
 	}
 	if runErr != nil {
-		return ports.ProviderExecutionObservation{}, runErr
+		cause, cleanupCause := providerRunCauses(runErr)
+		status, diagnostic := providerFailureProjection(cause)
+		var processFailure *ports.ProcessExecutionError
+		if !errors.As(runErr, &processFailure) {
+			typedErr, typedConstructErr := ports.NewProviderRuntimeError(cause, runErr)
+			if typedConstructErr != nil {
+				return ports.ProviderExecutionObservation{}, typedConstructErr
+			}
+			if !processObservation.Valid() {
+				return ports.ProviderExecutionObservation{}, typedErr
+			}
+			observation, observationErr := ports.NewFailedProviderExecutionObservationWithCause(
+				status, invocation, processObservation, diagnostic, cause, cleanupCause,
+				definition.maxStdoutBytes, definition.maxStderrBytes,
+			)
+			if observationErr != nil {
+				return ports.ProviderExecutionObservation{}, observationErr
+			}
+			return observation, typedErr
+		}
+		if processObservation.Valid() {
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				status, invocation, processObservation, diagnostic, cause, cleanupCause,
+				definition.maxStdoutBytes, definition.maxStderrBytes,
+			)
+		}
+		return ports.NewPartialFailedProviderExecutionObservation(
+			status, invocation, processFailure.Stdout(), processFailure.Stderr(), diagnostic,
+			cause, cleanupCause,
+			definition.maxStdoutBytes, definition.maxStderrBytes,
+		)
 	}
 	if !processObservation.Valid() {
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: process runner returned invalid observation")
@@ -787,18 +837,35 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if processObservation.Succeeded() {
 		resultBytes, isolated, parseErr := providerResult(definition.family, processObservation.Stdout())
 		if parseErr != nil {
-			return ports.NewFailedProviderExecutionObservation(ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation, "invalid_provider_output", definition.maxStdoutBytes, definition.maxStderrBytes)
+			cause := domain.DiagnosticCauseOutputDecodeFailed
+			var outputFailure *providerOutputFailure
+			if errors.As(parseErr, &outputFailure) {
+				cause = outputFailure.Cause()
+			}
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
+				providerOutputDiagnostic(cause), cause, "",
+				definition.maxStdoutBytes, definition.maxStderrBytes,
+			)
 		}
 		result, resultErr := ports.NewProviderResultForInput(resultBytes, invocation.InputIdentity())
 		if resultErr != nil {
-			return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: construct provider result: %w", resultErr)
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
+				"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
+				definition.maxStdoutBytes, definition.maxStderrBytes,
+			)
 		}
 		if isolated {
 			return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation, definition.maxStdoutBytes, definition.maxStderrBytes)
 		}
 		return ports.NewSuccessfulProviderExecutionObservation(invocation, result, processObservation, definition.maxStdoutBytes, definition.maxStderrBytes)
 	}
-	return ports.NewFailedProviderExecutionObservation(classify(processObservation), invocation, processObservation, diagnosticCode(processObservation), definition.maxStdoutBytes, definition.maxStderrBytes)
+	status, diagnostic, cause := classifyProviderFailure(definition.family, processObservation)
+	return ports.NewFailedProviderExecutionObservationWithCause(
+		status, invocation, processObservation, diagnostic, cause, "",
+		definition.maxStdoutBytes, definition.maxStderrBytes,
+	)
 }
 
 func (r *Registry) runLegacy(
@@ -818,7 +885,7 @@ func (r *Registry) runLegacy(
 	}
 	observation, err := r.runner.Run(ctx, request)
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("provider registry: process runner: %w", err)
+		return observation, fmt.Errorf("provider registry: process runner: %w", err)
 	}
 	return observation, nil
 }
@@ -841,7 +908,6 @@ func (r *Registry) runInWorkspace(
 	}
 	defer func() {
 		if closeErr := guard.Close(); closeErr != nil {
-			observation = ports.ProcessObservation{}
 			err = workspaceGuardError("close", closeErr)
 		}
 	}()
@@ -888,10 +954,10 @@ func (r *Registry) runInWorkspace(
 
 	observation, err = r.runner.Run(ctx, request)
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return ports.ProcessObservation{}, workspaceGuardError("post-execution revalidation", postErr)
+		return observation, workspaceGuardError("post-execution revalidation", postErr)
 	}
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("provider registry: process runner: %w", err)
+		return observation, fmt.Errorf("provider registry: process runner: %w", err)
 	}
 	return observation, nil
 }
@@ -1103,6 +1169,47 @@ func workspaceGuardError(operation string, cause error) error {
 	return fmt.Errorf("provider registry: workspace guard %s: %w: %w", operation, ports.ErrWorkspaceSnapshotDrift, cause)
 }
 
+func providerRunCauses(err error) (domain.RuntimeDiagnosticCause, domain.RuntimeDiagnosticCause) {
+	var failure *ports.ProcessExecutionError
+	if errors.As(err, &failure) {
+		cleanup, _ := failure.CleanupCause()
+		return failure.PrimaryCause(), cleanup
+	}
+	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
+		return domain.DiagnosticCauseWorkspaceRevalidationFailed, ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.DiagnosticCauseTimedOut, ""
+	}
+	return domain.DiagnosticCauseObservationInvalid, ""
+}
+
+func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.ProviderExecutionStatus, string) {
+	switch cause {
+	case domain.DiagnosticCauseTimedOut:
+		return ports.ProviderExecutionStatusTimedOut, "provider_timeout"
+	case domain.DiagnosticCauseLoginRequired:
+		return ports.ProviderExecutionStatusAuthentication, "login_required"
+	case domain.DiagnosticCauseAuthenticationFailed:
+		return ports.ProviderExecutionStatusAuthentication, "provider_auth"
+	case domain.DiagnosticCauseQuotaExceeded:
+		return ports.ProviderExecutionStatusQuota, "provider_quota"
+	case domain.DiagnosticCauseRateLimited:
+		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit"
+	case domain.DiagnosticCauseTransportVerificationFailed, domain.DiagnosticCauseWorkspaceRevalidationFailed:
+		return ports.ProviderExecutionStatusSecurityViolation, "process_security"
+	case domain.DiagnosticCauseOutputFrameMissing, domain.DiagnosticCauseOutputEnvelopeInvalid,
+		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed:
+		return ports.ProviderExecutionStatusArtifactFailure, providerOutputDiagnostic(cause)
+	default:
+		return ports.ProviderExecutionStatusInternalFailure, "process_internal"
+	}
+}
+
+func providerOutputDiagnostic(cause domain.RuntimeDiagnosticCause) string {
+	return "invalid_provider_output"
+}
+
 func nilWorkspaceExecutionGuard(guard ports.WorkspaceExecutionGuard) bool {
 	if guard == nil {
 		return true
@@ -1171,21 +1278,31 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 	switch family {
 	case FamilyKimi:
 		result, err := kimiContent(stdout)
-		return result, true, err
+		if err != nil {
+			cause := domain.DiagnosticCauseOutputDecodeFailed
+			if errors.Is(err, errProviderOutputFrameMissing) {
+				cause = domain.DiagnosticCauseOutputFrameMissing
+			}
+			return nil, true, newProviderOutputFailure(cause, err)
+		}
+		return result, true, nil
 	case FamilyZcode:
 		result, err := zcodeContent(stdout)
 		if err != nil {
 			if errors.Is(err, errInvalidZcodeEnvelope) {
-				return nil, false, err
+				return nil, false, newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
 			}
 			return append([]byte(nil), stdout...), false, nil
 		}
 		return result, true, nil
 	case FamilyAgy:
 		result, err := agyContent(stdout)
-		return result, true, err
+		if err != nil {
+			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputFrameMissing, err)
+		}
+		return result, true, nil
 	default:
-		return nil, false, fmt.Errorf("unknown provider family")
+		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
 }
 
@@ -1250,9 +1367,81 @@ func kimiContent(stdout []byte) ([]byte, error) {
 		content = []byte(value)
 	}
 	if content == nil {
-		return nil, fmt.Errorf("expected assistant content")
+		return nil, errProviderOutputFrameMissing
 	}
 	return content, nil
+}
+
+func classifyProviderFailure(
+	family string,
+	observation ports.ProcessObservation,
+) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause) {
+	if hasPostOutputTrailingBytes(observation) {
+		return ports.ProviderExecutionStatusArtifactFailure, "post_output_trailing_bytes", domain.DiagnosticCauseOutputEnvelopeInvalid
+	}
+	if observation.Termination() == ports.ProcessTerminationExited {
+		if status, diagnostic, cause, ok := nativeProviderOutcome(family, observation.Stdout(), observation.Stderr()); ok {
+			return status, diagnostic, cause
+		}
+	}
+	status := classify(observation)
+	diagnostic := diagnosticCode(observation)
+	switch observation.Termination() {
+	case ports.ProcessTerminationTimedOut:
+		return status, diagnostic, domain.DiagnosticCauseTimedOut
+	case ports.ProcessTerminationStartFailed, ports.ProcessTerminationStartUnavailable,
+		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity,
+		ports.ProcessTerminationLockFailed, ports.ProcessTerminationLockUnavailable,
+		ports.ProcessTerminationLockConfiguration, ports.ProcessTerminationLockSecurity:
+		return status, diagnostic, domain.DiagnosticCauseProviderSpawnFailed
+	case ports.ProcessTerminationResidualProcessGroup:
+		return status, diagnostic, domain.DiagnosticCauseProcessGroupCleanupFailed
+	case ports.ProcessTerminationStdoutLimit, ports.ProcessTerminationStderrLimit,
+		ports.ProcessTerminationStdinIncomplete:
+		return status, diagnostic, domain.DiagnosticCauseObservationInvalid
+	default:
+		return status, diagnostic, domain.DiagnosticCauseProviderExecutionFailed
+	}
+}
+
+func nativeProviderOutcome(
+	family string,
+	stdout, stderr []byte,
+) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause, bool) {
+	output := bytes.ToLower(bytes.Join([][]byte{stdout, stderr}, []byte{'\n'}))
+	containsAny := func(values ...string) bool {
+		for _, value := range values {
+			if bytes.Contains(output, []byte(value)) {
+				return true
+			}
+		}
+		return false
+	}
+	loginRequired := providerLoginRequired(output)
+	switch family {
+	case FamilyKimi:
+		loginRequired = loginRequired || containsAny("kimi.login_required", "kimi login required")
+	case FamilyZcode:
+		loginRequired = loginRequired || containsAny("zcode.login_required", "zcode login required")
+	case FamilyAgy:
+		loginRequired = loginRequired || containsAny("agy.login_required", "agy login required")
+	default:
+		return "", "", "", false
+	}
+	switch {
+	case loginRequired:
+		return ports.ProviderExecutionStatusAuthentication, "login_required", domain.DiagnosticCauseLoginRequired, true
+	case providerNativeTimeout(output):
+		return ports.ProviderExecutionStatusTimedOut, "provider_timeout", domain.DiagnosticCauseTimedOut, true
+	case containsAny("quota_exceeded", "insufficient_quota"):
+		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
+	case containsAny("rate_limit", "rate limit", "too many requests"):
+		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
+	case containsAny("authentication_failed", "invalid api key", "invalid_api_key"):
+		return ports.ProviderExecutionStatusAuthentication, "provider_auth", domain.DiagnosticCauseAuthenticationFailed, true
+	default:
+		return "", "", "", false
+	}
 }
 
 func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatus {

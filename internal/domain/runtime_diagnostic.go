@@ -121,6 +121,7 @@ type RuntimeDiagnosticCause string
 
 const (
 	DiagnosticCauseProviderSpawnFailed         RuntimeDiagnosticCause = "provider_spawn_failed"
+	DiagnosticCauseProviderExecutionFailed     RuntimeDiagnosticCause = "provider_execution_failed"
 	DiagnosticCauseProviderProcessWaitFailed   RuntimeDiagnosticCause = "provider_process_wait_failed"
 	DiagnosticCauseProcessGroupCleanupFailed   RuntimeDiagnosticCause = "provider_process_group_cleanup_failed"
 	DiagnosticCauseTransportVerificationFailed RuntimeDiagnosticCause = "provider_transport_verification_failed"
@@ -143,7 +144,7 @@ const (
 
 func (cause RuntimeDiagnosticCause) Valid() bool {
 	switch cause {
-	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
+	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
 		DiagnosticCauseTransportVerificationFailed, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputEnvelopeInvalid,
 		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
 		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,

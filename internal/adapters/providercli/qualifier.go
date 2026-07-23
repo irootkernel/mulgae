@@ -199,7 +199,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	}
 	version, err := plainSemver(versionObservation)
 	if err != nil {
-		return CurrentProbeResult{}, classifyProbeFailure(ctx, err, versionObservation.Stderr(), versionObservation.Stdout())
+		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), err, versionObservation.Stderr(), versionObservation.Stdout())
 	}
 	expires := request.Now.Add(request.TTL)
 	directExecutionProofs := make([]currentProbeDirectExecutionRoleProof, 0, len(fixtures))
@@ -232,7 +232,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch: "+evidenceErr.Error(), evidenceErr)
 		}
 		if !capabilityObservation.Succeeded() {
-			return CurrentProbeResult{}, classifyProbeFailure(ctx, fmt.Errorf("capability probe failed"), capabilityObservation.Stderr(), capabilityObservation.Stdout())
+			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), fmt.Errorf("capability probe failed"), capabilityObservation.Stderr(), capabilityObservation.Stdout())
 		}
 		output := capabilityObservation.Stdout()
 		if definition.Family() == FamilyKimi {
@@ -306,7 +306,6 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	defer func() {
 		if closeErr := guard.Close(); closeErr != nil {
-			observation = ports.ProcessObservation{}
 			err = securityProbeFailure("fixture", "fixture guard close failed", closeErr)
 		}
 	}()
@@ -360,10 +359,10 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	observation, err = probe.runner.Run(ctx, request)
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return ports.ProcessObservation{}, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
+		return observation, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
-		return ports.ProcessObservation{}, classifyProbeFailure(ctx, err, nil)
+		return observation, classifyProbeFailure(ctx, definition.Family(), err, nil)
 	}
 	return observation, nil
 }
@@ -788,9 +787,25 @@ func controlledProbeJSON(output []byte) ([]byte, error) {
 	return append([]byte(nil), trimmed...), nil
 }
 
-func classifyProbeFailure(ctx context.Context, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
+func classifyProbeFailure(ctx context.Context, family string, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	stdout := bytes.Join(additionalDiagnostics, []byte{'\n'})
+	if status, _, _, ok := nativeProviderOutcome(family, stdout, stderr); ok {
+		switch status {
+		case ports.ProviderExecutionStatusAuthentication:
+			if errors.Is(err, ports.ErrProviderLoginRequired) || providerLoginRequired(bytes.Join([][]byte{stdout, stderr}, []byte{'\n'})) {
+				return probeFailure("capability", domain.FailureAuthentication, "provider login required", errors.Join(ports.ErrProviderLoginRequired, err))
+			}
+			return probeFailure("capability", domain.FailureAuthentication, "provider authentication unavailable", err)
+		case ports.ProviderExecutionStatusTimedOut:
+			return probeFailure("capability", domain.FailureTimeout, "provider timed out", err)
+		case ports.ProviderExecutionStatusQuota:
+			return probeFailure("capability", domain.FailureQuota, "provider quota unavailable", err)
+		case ports.ProviderExecutionStatusRateLimit:
+			return probeFailure("capability", domain.FailureRateLimit, "provider rate limited", err)
+		}
 	}
 	message := strings.ToLower(string(stderr))
 	loginRequired := providerLoginRequired(stderr)
