@@ -59,7 +59,7 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 
 - [x] Require JSON-only provider output.
 - [x] Validate provider output against versioned schemas.
-- [x] Apply meaningful-value checks in addition to key presence.
+- [x] Apply meaningful-value checks in addition to key presence, including followup summary/rationale, current evidence quotes, every new-finding title/description/recommendation/evidence quote, and present limitations; reject deterministic resolved/rationale contradictions. Evidence: `TestFollowupValidatorRejectsMeaninglessProviderText`, `TestFollowupValidatorRejectsResolvedContradictions`, and `TestFollowupValidatorAcceptsNonContradictoryRationale`.
 - [x] Separate AI-owned and KAR-owned mandatory fields. See [Field Ownership Matrix](docs/16-field-ownership-matrix.md).
 - [x] Implement one constrained repair attempt by default.
 - [x] Support `reformat_only`, `fill_missing_fields`, and quote-only `exact_evidence` repair modes.
@@ -76,6 +76,7 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Verify evidence path, side, lines, and quote against captured target.
 - [x] Require verified evidence for configured high severities.
 - [x] Generate excerpts inside KAR after verification.
+- [x] Independently reread immutable source authority after followup, delta, and rerun child execution; classify reread failure or changed source identity/bytes as security policy, publish no child P2, and project exit `8`. Evidence: followup, delta, and rerun source-mutation service tests plus `TestApplicationG008FailureCancellationAndTypedExits`.
 
 ## Runtime
 
@@ -87,6 +88,7 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Serialize attempts by concurrency key.
 - [x] Add cross-process lane locking where supported.
 - [x] Implement fake providers before live adapters.
+- [x] Enforce production domain/application dependency direction, including the reviewrun-to-provider qualification port boundary and prohibitions on filesystem, `os/exec`, Cobra, YAML, and JSON Schema capability imports; ignore only generator files selected by a valid `//go:build ignore` constraint. Evidence: `TestProductionDependencyDirection`, `TestBuildIgnoreConstraintDetection`, and `TestAdapterCapabilityImportClassification`.
 - [ ] G010 macOS AGY native-auth boundary: use only the captured and inode-revalidated installed-user `HOME`/Keychain context for AGY authentication; do not create a synthetic AGY `HOME`, project credentials, or copy OAuth or installation files. KAR's namespace setup, policy, and cleanup paths must not write, overwrite, zero, or unlink user AGY authentication/settings files; normal provider-owned Keychain/profile refresh may still occur during AGY execution. Preserve the descriptor-bound immutable review CWD and KAR-owned XDG/cache/temp/scratch namespaces; enforce `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. AGY's minimum version is 1.1.4. Check this only after the non-skipping G010 AGY E2E passes.
 
 ## Artifacts
@@ -96,13 +98,14 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Use write, validate, fsync, and atomic rename for final review publication.
 - [x] Detect hash mismatch and multiple final files as corruption.
 - [x] Add safe retention/tombstone cleanup and redacted secure export paths.
+- [x] Allocate every production root and child publication epoch atomically through the root-scoped publication store; never use a process-local counter as production publication authority. Evidence: childrun lineage rejection tests, `TestPublishNextUsesRootBoundEpochTransaction`, `TestPublishNextRejectsStoreWithoutAtomicEpochTransaction`, and filesystem publication epoch/lock tests.
 
 ## CLI and CI
 
 - [x] Implement distinct review, followup, delta, and rerun application services with immutable child-workflow lineage.
 - [x] Make followup, delta, and rerun create child runs, never mutate the source run.
 - [x] Keep review verdict separate from CI decision.
-- [x] Implement documented exit-code precedence.
+- [x] Implement documented exit-code precedence through the single canonical `FailurePrecedence` reducer used by reviewrun, report, query, and CLI projections. Evidence: `TestFailurePrecedenceIsExactAndClosed`, report/query precedence agreement tests, and application failure-precedence tests.
 - [x] Add all required help topics and golden tests.
 - [x] Cover all seven init provider subsets and canonical family order in CLI E2E tests.
 - [x] Emit the rejected init request/result envelope for unambiguous invalid JSON requests.

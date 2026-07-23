@@ -124,6 +124,8 @@ KAR additionally parses the UUID and verifies version 7. It rejects separators, 
 A new followup, delta, or rerun never modifies source run files.
 G008 implements immutable child/source lineage: a child run references validated immutable source artifacts and immutable lineage-edge bytes; it never adopts, rewrites, or deletes source-run bytes.
 
+After child execution and before publication, followup, delta, and rerun independently reread and validate their immutable source authority. A reread failure, validation mismatch, or changed source identity or bytes is a security-policy failure: KAR publishes no child P2 result and projects exit `8`.
+
 ## 5. Session Metadata
 
 `session.json` records:
@@ -203,6 +205,8 @@ validate and fsync manifest temp and lineage-edge temp
 ```
 
 A reader exposes a final review as published only through the valid epoch record. A final filename, manifest, or lineage edge by itself is not publication authority.
+
+Every production root or child publication obtains its next root-scoped epoch atomically from the publication store and commits under that store-authorized transaction. Production publication must not derive authority from a process-local epoch counter. A store that cannot provide the atomic next-epoch contract fails closed before publication.
 
 ## 10. File Permissions and Git Ignore
 

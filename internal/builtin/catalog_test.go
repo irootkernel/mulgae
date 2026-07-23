@@ -161,6 +161,9 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		if walkErr != nil {
 			return walkErr
 		}
+		if filename == filepath.Join(testSOTRoot, "plan") && entry.IsDir() {
+			return filepath.SkipDir
+		}
 		info, err := os.Lstat(filename)
 		if err != nil {
 			return err
@@ -237,6 +240,28 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	for source := range bySource {
 		if _, exists := authoritativeSources[source]; !exists {
 			t.Errorf("manifest has non-authoritative source %q", source)
+		}
+	}
+}
+
+func TestProductionCatalogExcludesPlanningOnlySOT(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(filepath.Join(testSOTRoot, "plan", "diagnostics"))
+	if err != nil {
+		t.Fatalf("read diagnostics plan: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("diagnostics plan file count = %d, want 4", len(entries))
+	}
+
+	assets, err := NewCatalog().List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, asset := range assets {
+		if strings.HasPrefix(asset.Source().String(), "plan/") {
+			t.Fatalf("production catalog contains planning-only source %q", asset.Source())
 		}
 	}
 }

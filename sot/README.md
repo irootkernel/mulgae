@@ -14,6 +14,8 @@ CI is a trusted projection of a committed artifact, not a `review` command mode:
 
 This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. G010 freezes the Config v2 primary/fallback assignment contract and the real-provider release gate before implementation; its current state is deliberately incomplete.
 
+The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 85-path embedded catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
+
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |

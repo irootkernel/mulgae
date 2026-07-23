@@ -98,9 +98,15 @@ schema_version
 summary
 resolution
 rationale
-evidence
-new_findings
+evidence[].current.quote
+new_findings[].title
+new_findings[].description
+new_findings[].recommendation
+new_findings[].evidence[].current.quote
+limitations[] when present
 ```
+
+KAR checks every listed provider-owned text value after trimming and placeholder normalization. For `resolution=resolved`, KAR also normalizes punctuation and case in `rationale` and deterministically rejects an assertion that the issue remains, is still present or open, is not resolved, or remains unresolved. Non-contradictory text such as an assertion that the issue no longer remains is accepted; KAR does not use a model-based semantic judge.
 
 ## 4. JSON Schema Validation
 

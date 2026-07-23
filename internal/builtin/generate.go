@@ -214,6 +214,9 @@ func readSOT(root string) ([]sourceFile, error) {
 		if walkErr != nil {
 			return walkErr
 		}
+		if filename == filepath.Join(root, "plan") && entry.IsDir() {
+			return filepath.SkipDir
+		}
 		info, err := os.Lstat(filename)
 		if err != nil {
 			return err
