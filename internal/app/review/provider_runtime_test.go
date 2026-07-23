@@ -259,6 +259,34 @@ func TestObservedLoginRequiredIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation(t *testing.T) {
+	tests := []struct {
+		name   string
+		status ports.ProviderExecutionStatus
+		want   AttemptCondition
+	}{
+		{"unavailable", ports.ProviderExecutionStatusUnavailable, AttemptConditionProviderUnavailable},
+		{"configuration", ports.ProviderExecutionStatusConfigurationViolation, AttemptConditionConfigurationViolation},
+		{"security", ports.ProviderExecutionStatusSecurityViolation, AttemptConditionSecurityViolation},
+		{"internal", ports.ProviderExecutionStatusInternalFailure, AttemptConditionInternalInvariant},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := observedStatusCondition(test.status, domain.DiagnosticCauseProviderSpawnFailed); got != test.want {
+				t.Fatalf("spawn failure status %q condition = %q, want %q", test.status, got, test.want)
+			}
+		})
+	}
+
+	typed, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderSpawnFailed, errors.New("private spawn detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionInternalInvariant {
+		t.Fatalf("unobserved spawn failure condition = %q, want internal invariant", got)
+	}
+}
+
 func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
 	if got := initialValidationFailureCondition(nil); got != AttemptConditionUnrepairableProviderOutput {
 		t.Fatalf("planless validation failure condition = %q", got)
