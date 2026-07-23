@@ -14,7 +14,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 
 | Epic | Deliverable | Depends on | Status |
 |---|---|---|---|
-| D-E01 | Contract, model, secure storage | approved planning package | IN_PROGRESS |
+| D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
 | D-E02 | Provider observation and typed causes | D-E01 | NOT_STARTED |
 | D-E03 | Run-wide lifecycle and terminal integration | D-E02 | NOT_STARTED |
 | D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
@@ -31,9 +31,9 @@ Fixed planning decisions:
 
 The epic was reopened on 2026-07-23 after failure-injection review found that
 same-sink partial appends, finalize retries, and terminal-run reopen behavior
-were not covered by the original completion evidence. Checked requirements
-below describe the previously observed baseline; completion evidence must be
-re-observed after the corrective changes before the epic returns to COMPLETE.
+were not covered by the original completion evidence. Commits `fd72c11` and
+`a96f804` close those gaps; all completion gates were re-observed on the
+corrected tree before the epic returned to `COMPLETE`.
 
 ### Goal command
 
@@ -45,13 +45,13 @@ re-observed after the corrective changes before the epic returns to COMPLETE.
 
 - [x] Promote the accepted diagnostics contract into the normative SOT and set `SPEC_VERSION` to 1.11.0 without adding planning files to the runtime catalog. Evidence: `d8c0352`; builtin manifest reports 85 unique sources, 84 checksum payloads, and zero `plan/` sources.
 - [x] Define closed `RuntimeDiagnosticEvent`, `RuntimeDiagnosticSink`, and `RuntimeDiagnosticSinkFactory` boundaries with noop/in-memory test implementations. Evidence: `TestRuntimeDiagnosticClosedCodeSets`, `TestRuntimeDiagnosticFinalizeIsExactlyOnceAndNoopHasNoURI`.
-- [x] Validate identifiers, fields, safe values, levels, events, causes, timestamps, elapsed time, and monotonic `seq`. Evidence: `TestRuntimeDiagnosticEventIsClosedSafeAndStamped`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestInMemoryRuntimeDiagnosticSinkSerializesRunWideSequence`.
+- [x] Validate identifiers, fields, safe values, levels, events, causes, timestamps, elapsed time, and monotonic `seq`. Evidence: `TestRuntimeDiagnosticEventIsClosedSafeAndStamped`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestRuntimeDiagnosticClosedCodeSets`, `TestRuntimeDiagnosticPersistenceClassificationIsClosed`, `TestInMemoryRuntimeDiagnosticSinkSerializesRunWideSequence`.
 - [x] Implement `.kar/diagnostics/<session>/<run>` anchored directory creation. Evidence: `TestDiagnosticStoreOpenCreatesPrivateInstalledRun`.
-- [x] Implement serialized `kar-runtime.jsonl` append with complete-line and concurrency guarantees. Evidence: `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`.
-- [x] Implement atomic run/attempt/invocation `status.json` replacement. Evidence: `TestDiagnosticStoreAtomicallyReplacesAttemptAndInvocationStatus`, `TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce`.
+- [x] Implement serialized `kar-runtime.jsonl` append with complete-line and concurrency guarantees. Evidence: `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`, `TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize`, `TestDiagnosticStoreRollsBackAppendAfterSyncFailure`.
+- [x] Implement atomic run/attempt/invocation `status.json` replacement. Evidence: `TestDiagnosticStoreAtomicallyReplacesAttemptAndInvocationStatus`, `TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce`, `TestDiagnosticStoreRejectsPostInstallNamespaceSubstitution`.
 - [x] Persist stdout and stderr as separate bounded raw artifacts through scan-before-write. Evidence: `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`.
-- [x] Implement caps, mandatory tail reserve, safe drop metadata, durable sync, and finalize behavior. Evidence: `TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce`.
-- [x] Test symlink/path escape, permissions, secret detection, overflow, partial write, crash recovery, concurrent append, and writer failure classification. Evidence: `TestDiagnosticStoreRejectsSymlinkEscapeAndUnsafePermissions`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend`, `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreClassifiesRawWriterFailure`.
+- [x] Implement caps, mandatory tail reserve, safe drop metadata, durable sync, and finalize behavior. Evidence: `TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreFinalizeRetryDoesNotDuplicateTerminalEvent`, `TestDiagnosticStoreRejectsReopenOfFinalizedRunWithoutChangingStatus`.
+- [x] Test symlink/path escape, permissions, secret detection, overflow, partial write, crash recovery, concurrent append, and writer failure classification. Evidence: `TestDiagnosticStoreRejectsSymlinkEscapeAndUnsafePermissions`, `TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields`, `TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner`, `TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary`, `TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize`, `TestDiagnosticStoreRollsBackAppendAfterSyncFailure`, `TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence`, `TestDiagnosticStoreClassifiesRawWriterFailure`.
 - [x] Regenerate checksums and builtin assets and record the resulting 85/84 catalog evidence. Evidence: both required generators and `make test-prepare` passed on 2026-07-23; `wc -l sot/CHECKSUMS.sha256` is 84 and the embedded manifest has 85 unique sources.
 
 ### Must not do
@@ -82,7 +82,7 @@ git diff --check
 
 Completion evidence:
 
-- [x] All commands above pass on the same tree. Evidence: both generators, `make test-prepare`, the exact focused race command, and `git diff --check` passed on 2026-07-23.
+- [x] All commands above pass on the same tree. Evidence: after corrective commits `fd72c11` and `a96f804`, both generators, `make test-prepare`, the exact focused race command, and `git diff --check` passed again on 2026-07-23; `sot/CHECKSUMS.sha256` remains 84 lines and builtin catalog tests enforce 85 unique sources with no `plan/` source.
 - [x] Focused tests name the secure, concurrent, cap, and failure cases required by DIAG-SEC and DIAG-EVENT. Evidence: the `TestDiagnosticStore*` cases cited above run under the focused race command.
 - [x] D-E02 can consume the ports without importing filesystem or entrypoint packages. Evidence: noop/in-memory factories live in `internal/ports`; `TestProductionDependencyDirection` passes.
 
