@@ -438,42 +438,106 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 }
 
 func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
-			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
-		}
-		return coordinatorSuccessOutcome(t, job)
-	}}
-	root, request := coordinatorDiagnosticRoot(t, assignments)
-	base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
-	if err != nil {
-		t.Fatal(err)
+	for _, condition := range []AttemptCondition{
+		AttemptConditionProviderUnavailable,
+		AttemptConditionTimeout,
+		AttemptConditionAuthentication,
+		AttemptConditionQuota,
+		AttemptConditionRateLimit,
+	} {
+		t.Run(string(condition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false, true)
+			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+					return coordinatorConditionOutcome(t, job, condition)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil); err != nil {
+				t.Fatal(err)
+			}
+			want := []domain.RuntimeDiagnosticEventCode{
+				domain.DiagnosticAttemptFailed,
+				domain.DiagnosticFallbackEligible,
+				domain.DiagnosticFallbackScheduled,
+				domain.DiagnosticFallbackStarted,
+			}
+			position := 0
+			for _, event := range diagnostics.events {
+				if position < len(want) && event == want[position] {
+					position++
+				}
+			}
+			if position != len(want) {
+				t.Fatalf("%s fallback diagnostic order = %v, missing suffix %v", condition, diagnostics.events, want[position:])
+			}
+		})
 	}
-	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
-	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil); err != nil {
-		t.Fatal(err)
-	}
-	want := []domain.RuntimeDiagnosticEventCode{
-		domain.DiagnosticAttemptFailed,
-		domain.DiagnosticFallbackEligible,
-		domain.DiagnosticFallbackScheduled,
-		domain.DiagnosticFallbackStarted,
-	}
-	position := 0
-	for _, event := range diagnostics.events {
-		if position < len(want) && event == want[position] {
-			position++
-		}
-	}
-	if position != len(want) {
-		t.Fatalf("fallback diagnostic order = %v, missing suffix %v", diagnostics.events, want[position:])
+}
+
+func TestCoordinatorDiagnosticsPersistNonFallbackFailureBeforeRoleTerminal(t *testing.T) {
+	for _, condition := range []AttemptCondition{
+		AttemptConditionUnrepairableProviderOutput,
+		AttemptConditionUnrepairableEvidence,
+		AttemptConditionSemanticContradiction,
+		AttemptConditionConfigurationViolation,
+	} {
+		t.Run(string(condition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false, false)
+			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleLogic {
+					return coordinatorConditionOutcome(t, job, condition)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil); err != nil {
+				t.Fatal(err)
+			}
+			failureIndex, terminalIndex, reductionIndex := -1, -1, -1
+			for index, input := range diagnostics.inputs {
+				switch input.Event {
+				case domain.DiagnosticAttemptFailed:
+					if input.Role == domain.RoleLogic && input.Failure == string(condition) && failureIndex < 0 {
+						failureIndex = index
+					}
+				case domain.DiagnosticRoleExhausted:
+					if input.Role == domain.RoleLogic && input.Failure == string(condition) && terminalIndex < 0 {
+						terminalIndex = index
+					}
+				case domain.DiagnosticReductionStarted:
+					if reductionIndex < 0 {
+						reductionIndex = index
+					}
+				}
+			}
+			if failureIndex < 0 || terminalIndex <= failureIndex || reductionIndex <= terminalIndex {
+				t.Fatalf("%s terminal diagnostic chronology = %#v", condition, diagnostics.inputs)
+			}
+		})
 	}
 }
 
@@ -529,7 +593,7 @@ func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base, failOn: domain.DiagnosticFallbackEligible}
+	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base, failOn: domain.DiagnosticAttemptFailed}
 	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
 		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
 	)
@@ -554,6 +618,10 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAn
 		state     domain.RunState
 	}{
 		{condition: AttemptConditionLoginRequired, state: domain.RunCancelled},
+		{condition: AttemptConditionSecurityViolation, state: domain.RunCancelled},
+		{condition: AttemptConditionMutationViolation, state: domain.RunCancelled},
+		{condition: AttemptConditionCancelled, state: domain.RunCancelled},
+		{condition: AttemptConditionArtifactFailure, state: domain.RunFailed},
 		{condition: AttemptConditionInternalInvariant, state: domain.RunFailed},
 	} {
 		t.Run(string(test.condition), func(t *testing.T) {
