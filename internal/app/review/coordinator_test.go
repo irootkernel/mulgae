@@ -477,6 +477,45 @@ func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 	}
 }
 
+func TestCoordinatorDiagnosticsReportRepairLifecycle(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, false)
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		if job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial {
+			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	root, request := coordinatorDiagnosticRoot(t, assignments)
+	base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticRepairScheduled,
+		domain.DiagnosticRepairStarted,
+		domain.DiagnosticRepairCompleted,
+	}
+	position := 0
+	for _, event := range diagnostics.events {
+		if position < len(want) && event == want[position] {
+			position++
+		}
+	}
+	if position != len(want) {
+		t.Fatalf("repair diagnostic order = %v, missing %v", diagnostics.events, want[position:])
+	}
+}
+
 func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t, false, true)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
