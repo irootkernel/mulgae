@@ -183,6 +183,36 @@ func (service *Service) PublishNext(
 	artifactRoot ports.AnchoredRoot,
 	candidate PreparedCandidate,
 ) (PublicationResult, error) {
+	return service.publishNext(ctx, artifactRoot, candidate, nil)
+}
+
+func (service *Service) PublishNextObserved(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate PreparedCandidate,
+	observer LifecycleObserver,
+) (PublicationResult, error) {
+	if observer == nil {
+		return PublicationResult{}, publicationFailure("publish-next.observe", domain.FailureConfiguration, "publication lifecycle observer is required", nil)
+	}
+	return service.publishNext(ctx, artifactRoot, candidate, observer)
+}
+
+func (service *Service) publishNext(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate PreparedCandidate,
+	observer LifecycleObserver,
+) (result PublicationResult, err error) {
+	defer func() {
+		if err == nil || observer == nil {
+			return
+		}
+		if observationErr := observePublicationLifecycle(ctx, observer, LifecycleFailed); observationErr != nil {
+			result = PublicationResult{}
+			err = observationErr
+		}
+	}()
 	if service == nil {
 		return PublicationResult{}, fmt.Errorf("publish next: nil service")
 	}
@@ -197,9 +227,8 @@ func (service *Service) PublishNext(
 		return PublicationResult{}, publicationFailure("publish-next.validate", domain.FailureConfiguration, "publication store does not support atomic epoch commits", nil)
 	}
 
-	var result PublicationResult
 	called := false
-	err := committer.WithNextPublicationEpoch(ctx, artifactRoot, func(commitCtx context.Context, epoch uint64) error {
+	err = committer.WithNextPublicationEpoch(ctx, artifactRoot, func(commitCtx context.Context, epoch uint64) error {
 		if called {
 			return publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store invoked epoch commit callback more than once", nil)
 		}
@@ -210,7 +239,7 @@ func (service *Service) PublishNext(
 		if epoch == 0 {
 			return publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store supplied zero epoch", nil)
 		}
-		published, publishErr := service.Publish(commitCtx, artifactRoot, candidate, epoch)
+		published, publishErr := service.publish(commitCtx, artifactRoot, candidate, epoch, observer)
 		if publishErr != nil {
 			return publishErr
 		}
@@ -223,6 +252,11 @@ func (service *Service) PublishNext(
 	if !called {
 		return PublicationResult{}, publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store did not commit an epoch", nil)
 	}
+	if result.Decision().Authority() == domain.PublicationAuthorityP2 {
+		if err := observePublicationLifecycle(ctx, observer, LifecycleCommitted); err != nil {
+			return PublicationResult{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -234,6 +268,16 @@ func (service *Service) Publish(
 	artifactRoot ports.AnchoredRoot,
 	candidate PreparedCandidate,
 	epoch uint64,
+) (PublicationResult, error) {
+	return service.publish(ctx, artifactRoot, candidate, epoch, nil)
+}
+
+func (service *Service) publish(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate PreparedCandidate,
+	epoch uint64,
+	observer LifecycleObserver,
 ) (PublicationResult, error) {
 	if err := service.ready(ctx, "publish.validate"); err != nil {
 		return PublicationResult{}, err
@@ -248,6 +292,9 @@ func (service *Service) Publish(
 	candidateHash := candidate.ValidatedCandidateSHA256()
 	if candidateHash == "" {
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
+	}
+	if err := observePublicationLifecycle(ctx, observer, LifecyclePreparationStarted); err != nil {
+		return PublicationResult{}, err
 	}
 	if err := service.checkpoint(ctx, "publish.preflight"); err != nil {
 		return PublicationResult{}, err
@@ -412,6 +459,9 @@ func (service *Service) Publish(
 	if recovered {
 		return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
 	}
+	if err := observePublicationLifecycle(ctx, observer, LifecycleStaged); err != nil {
+		return PublicationResult{}, err
+	}
 	journal, err = journalForState(bundle.Journal(), domain.JournalFinalStaged)
 	if err != nil {
 		return PublicationResult{}, publicationFailure("publish.final_staged", domain.FailureInternal, "journal transition is invalid", err)
@@ -437,6 +487,9 @@ func (service *Service) Publish(
 	if installed.Durability() != ports.InstallFinalDurable ||
 		!installedFinalMatches(installed, run, bundle.Final()) {
 		return PublicationResult{}, publicationFailure("publish.install_final", domain.FailureArtifact, "store returned inconsistent final receipt", nil)
+	}
+	if err := observePublicationLifecycle(ctx, observer, LifecycleInstalled); err != nil {
+		return PublicationResult{}, err
 	}
 	journal, err = journalForState(bundle.Journal(), domain.JournalFinalFileInstalled)
 	if err != nil {

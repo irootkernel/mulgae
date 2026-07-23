@@ -897,6 +897,10 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		domain.DiagnosticOutputParsed,
 		domain.DiagnosticValidationSucceeded,
 		domain.DiagnosticReductionCompleted,
+		domain.DiagnosticPublicationPreparationStarted,
+		domain.DiagnosticPublicationStaged,
+		domain.DiagnosticPublicationInstalled,
+		domain.DiagnosticPublicationCommitted,
 		domain.DiagnosticRuntimeClosed,
 	}
 	diagnosticPosition := 0

@@ -589,6 +589,57 @@ func TestPublishNextUsesRootBoundEpochTransaction(t *testing.T) {
 	}
 }
 
+func TestPublishNextObservedReportsDurableLifecycle(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{}
+
+	result, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
+		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
+	}
+	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleStaged, LifecycleInstalled, LifecycleCommitted)
+}
+
+func TestPublishNextObservedPersistenceFailureStopsBeforeInstall(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{failOn: LifecycleStaged}
+
+	_, err = service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer)
+	if err == nil {
+		t.Fatal("PublishNextObserved succeeded after lifecycle persistence failure")
+	}
+	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleStaged, LifecycleFailed)
+	for _, call := range store.calls {
+		if call == "install" {
+			t.Fatal("publication installed a final after staged lifecycle persistence failed")
+		}
+	}
+}
+
 func TestPublishNextRejectsStoreWithoutAtomicEpochTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -2505,6 +2556,31 @@ type publicationServiceScriptedStore struct {
 	snapshot         func() (ports.CommittedPublicationSnapshot, error)
 	diagnostic       func(ports.CorruptionDiagnosticRequest) (ports.CorruptionDiagnosticResult, error)
 	withNextEpoch    func(context.Context, ports.AnchoredRoot, func(context.Context, uint64) error) error
+}
+
+type publicationLifecycleRecorder struct {
+	events []LifecycleEvent
+	failOn LifecycleEvent
+}
+
+func (recorder *publicationLifecycleRecorder) ObservePublicationLifecycle(_ context.Context, event LifecycleEvent) error {
+	recorder.events = append(recorder.events, event)
+	if event == recorder.failOn {
+		return errors.New("diagnostic persistence unavailable")
+	}
+	return nil
+}
+
+func (recorder *publicationLifecycleRecorder) requireEvents(t *testing.T, want ...LifecycleEvent) {
+	t.Helper()
+	if len(recorder.events) != len(want) {
+		t.Fatalf("lifecycle events = %#v, want %#v", recorder.events, want)
+	}
+	for index := range want {
+		if recorder.events[index] != want[index] {
+			t.Fatalf("lifecycle event %d = %q, want %q", index, recorder.events[index], want[index])
+		}
+	}
 }
 
 func (store *publicationServiceScriptedStore) WithNextPublicationEpoch(

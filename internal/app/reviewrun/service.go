@@ -102,7 +102,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}()
 	if input.Target().NoChange() {
 		abortReason = ports.WorkspaceAbortPublicationFailure
-		return service.publishNoChange(ctx, request, cleanup, input, target, identity)
+		return service.publishNoChange(ctx, request, cleanup, input, target, identity, diagnostics)
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -242,7 +242,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: prepare publication candidate: %w", err)
 	}
-	published, err := service.dependencies.Publication.PublishNext(ctx, request.ArtifactRoot, candidate)
+	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: publish: %w", err)
 	}
@@ -643,6 +643,7 @@ func (service *Service) publishNoChange(
 	input ImmutableReviewInput,
 	target domain.TargetIdentity,
 	identity rootRunIdentity,
+	diagnostics *runtimeDiagnosticLifecycle,
 ) (_ Result, err error) {
 	terminal := ports.NewEmptyProviderRunTerminalReceipt()
 	sessionID, runID := identity.sessionID, identity.runID
@@ -682,7 +683,7 @@ func (service *Service) publishNoChange(
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: prepare no-change publication candidate: %w", err)
 	}
-	published, err := service.dependencies.Publication.PublishNext(ctx, request.ArtifactRoot, candidate)
+	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: publish: %w", err)
 	}
@@ -696,6 +697,18 @@ func (service *Service) publishNoChange(
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
 	return newResult(sessionID, runID, review.CoordinatorResult{}, final, snapshot, exit)
+}
+
+func (service *Service) publishNext(
+	ctx context.Context,
+	root ports.AnchoredRoot,
+	candidate publication.PreparedCandidate,
+	diagnostics *runtimeDiagnosticLifecycle,
+) (publication.PublicationResult, error) {
+	if observed, ok := service.dependencies.Publication.(publication.ObservedPublicationCommitter); ok {
+		return observed.PublishNextObserved(ctx, root, candidate, diagnostics)
+	}
+	return service.dependencies.Publication.PublishNext(ctx, root, candidate)
 }
 
 type rootRunIdentity struct {

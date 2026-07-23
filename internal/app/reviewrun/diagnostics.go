@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -19,6 +20,31 @@ type runtimeDiagnosticLifecycle struct {
 	clock     ports.Clock
 	lastSeq   uint64
 	finalized bool
+}
+
+func (lifecycle *runtimeDiagnosticLifecycle) ObservePublicationLifecycle(ctx context.Context, event publication.LifecycleEvent) error {
+	code := domain.RuntimeDiagnosticEventCode("")
+	level := domain.RuntimeDiagnosticInfo
+	switch event {
+	case publication.LifecyclePreparationStarted:
+		code = domain.DiagnosticPublicationPreparationStarted
+	case publication.LifecycleStaged:
+		code = domain.DiagnosticPublicationStaged
+	case publication.LifecycleInstalled:
+		code = domain.DiagnosticPublicationInstalled
+	case publication.LifecycleCommitted:
+		code = domain.DiagnosticPublicationCommitted
+	case publication.LifecycleFailed:
+		code = domain.DiagnosticPublicationFailed
+		level = domain.RuntimeDiagnosticError
+	default:
+		return diagnosticArtifactFailure("reviewrun.diagnostics.publication", fmt.Errorf("unknown publication lifecycle event %q", event))
+	}
+	_, err := lifecycle.emit(ctx, domain.RuntimeDiagnosticEventInput{
+		Level: level, Component: "publication", Operation: "commit", Event: code,
+		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID,
+	})
+	return err
 }
 
 func (lifecycle *runtimeDiagnosticLifecycle) RuntimeDiagnosticSink(runID domain.RunID) (ports.RuntimeDiagnosticSink, bool) {
