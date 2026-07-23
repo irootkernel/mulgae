@@ -71,7 +71,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 			return
 		}
 		state, cause := runtimeDiagnosticTerminalDecision(ctx, result, err)
-		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, result, terminalCoordinator)
+		p2URI, p2Err := runtimeDiagnosticP2URI(result, err)
+		if p2Err != nil {
+			err = errors.Join(err, p2Err)
+		}
+		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, p2URI, terminalCoordinator)
 		if finalizeErr != nil {
 			result = Result{}
 			err = errors.Join(err, finalizeErr)

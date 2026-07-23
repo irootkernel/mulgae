@@ -627,17 +627,58 @@ func TestPublishNextObservedPersistenceFailureStopsBeforeInstall(t *testing.T) {
 	}
 	observer := &publicationLifecycleRecorder{failOn: LifecycleStaged}
 
-	_, err = service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer)
+	returned, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer)
 	if err == nil {
 		t.Fatal("PublishNextObserved succeeded after lifecycle persistence failure")
 	}
 	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+	if returned.Decision().Authority() != "" {
+		t.Fatalf("returned authority = %q, want no successful result alongside error", returned.Decision().Authority())
+	}
 	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleStaged, LifecycleFailed)
 	for _, call := range store.calls {
 		if call == "install" {
 			t.Fatal("publication installed a final after staged lifecycle persistence failed")
 		}
 	}
+}
+
+func TestPublishNextObservedCommittedPersistenceFailureRetainsP2Evidence(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{failOn: LifecycleCommitted}
+
+	returned, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer)
+	if err == nil {
+		t.Fatal("PublishNextObserved succeeded after committed lifecycle persistence failure")
+	}
+	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+	if returned.Decision().Authority() != "" {
+		t.Fatalf("returned authority = %q, want failure result kept only as error evidence", returned.Decision().Authority())
+	}
+	committed, ok := committedPublicationResultFromError(err)
+	if !ok || committed.Decision().Authority() != domain.PublicationAuthorityP2 {
+		t.Fatalf("committed result = (%#v, %t), want retained P2 evidence", committed, ok)
+	}
+	snapshot, hasSnapshot := committed.Snapshot()
+	if !hasSnapshot || !snapshot.Valid() || snapshot.Final().Identity() != fixture.bundle.Final().Identity() ||
+		snapshot.Manifest().Path() != fixture.bundle.Manifest().Path() || snapshot.Manifest().SHA256() != fixture.bundle.Manifest().SHA256() {
+		t.Fatal("committed diagnostic failure did not retain the authoritative snapshot")
+	}
+	manifestPath, hasManifestPath := CommittedPublicationManifestPathFromError(err)
+	if !hasManifestPath || manifestPath != fixture.bundle.Manifest().Path() {
+		t.Fatalf("committed manifest path = (%q, %t), want (%q, true)", manifestPath.String(), hasManifestPath, fixture.bundle.Manifest().Path().String())
+	}
+	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleStaged, LifecycleInstalled, LifecycleCommitted)
 }
 
 func TestPublishNextRejectsStoreWithoutAtomicEpochTransaction(t *testing.T) {

@@ -136,7 +136,7 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	parent context.Context,
 	state domain.RunState,
 	cause domain.RuntimeDiagnosticCause,
-	result Result,
+	p2URI ports.SafeRelativePath,
 	coordinator review.CoordinatorResult,
 ) (ports.RuntimeDiagnosticFinalizeResult, error) {
 	if lifecycle == nil || nilInterface(lifecycle.sink) {
@@ -160,14 +160,6 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 			laneCompleted++
 		} else {
 			laneFailed++
-		}
-	}
-	var p2URI ports.SafeRelativePath
-	if result.Snapshot().Valid() {
-		var pathErr error
-		p2URI, pathErr = ports.NewSafeRelativePath(".kar/" + result.Snapshot().Manifest().Path().String())
-		if pathErr != nil {
-			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", pathErr)
 		}
 	}
 	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
@@ -197,6 +189,23 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	lifecycle.lastSeq = finalized.LastSequence()
 	lifecycle.mu.Unlock()
 	return finalized, nil
+}
+
+func runtimeDiagnosticP2URI(result Result, terminalErr error) (ports.SafeRelativePath, error) {
+	manifest := ports.SafeRelativePath{}
+	if result.Snapshot().Valid() {
+		manifest = result.Snapshot().Manifest().Path()
+	} else if committedManifest, ok := publication.CommittedPublicationManifestPathFromError(terminalErr); ok {
+		manifest = committedManifest
+	}
+	if !manifest.Valid() {
+		return ports.SafeRelativePath{}, nil
+	}
+	p2URI, err := ports.NewSafeRelativePath(".kar/" + manifest.String())
+	if err != nil {
+		return ports.SafeRelativePath{}, diagnosticArtifactFailure("reviewrun.diagnostics.p2_reference", err)
+	}
+	return p2URI, nil
 }
 
 func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, err error) (domain.RunState, domain.RuntimeDiagnosticCause) {

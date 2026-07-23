@@ -204,8 +204,9 @@ func (service *Service) publishNext(
 	candidate PreparedCandidate,
 	observer LifecycleObserver,
 ) (result PublicationResult, err error) {
+	p2Committed := false
 	defer func() {
-		if err == nil || observer == nil {
+		if err == nil || observer == nil || p2Committed {
 			return
 		}
 		if observationErr := observePublicationLifecycle(ctx, observer, LifecycleFailed); observationErr != nil {
@@ -253,8 +254,9 @@ func (service *Service) publishNext(
 		return PublicationResult{}, publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store did not commit an epoch", nil)
 	}
 	if result.Decision().Authority() == domain.PublicationAuthorityP2 {
+		p2Committed = true
 		if err := observePublicationLifecycle(ctx, observer, LifecycleCommitted); err != nil {
-			return PublicationResult{}, err
+			return PublicationResult{}, newCommittedDiagnosticFailure(result, err)
 		}
 	}
 	return result, nil
