@@ -17,7 +17,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 | D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
 | D-E02 | Provider observation and typed causes | D-E01 | COMPLETE |
 | D-E03 | Run-wide lifecycle and terminal integration | D-E02 | COMPLETE |
-| D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
+| D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | COMPLETE |
 
 Fixed planning decisions:
 
@@ -205,25 +205,25 @@ Completion evidence:
 
 ### Must do
 
-- [ ] Project the same installed diagnostic URI in human and JSON failure output.
-- [ ] Preserve provider attribution for login-required and provider execution failures.
-- [ ] Reserve `.kar/diagnostics` so publication selectors do not report it as a malformed session.
-- [ ] Observe diagnostics-only failed runs separately from P2 runs and corruption.
-- [ ] Extend retention and `kar clean` so linked diagnostics and selected diagnostics-only runs are removed safely and unrelated runs remain.
-- [ ] Keep diagnostics and raw streams out of default export.
-- [ ] Add offline fake-provider integration for normal, failed, fallback, login-required, concurrent, and persistence-failure flows.
-- [ ] Verify status, JSONL, raw artifacts, sequence, IDs, and optional P2 reference are mutually consistent.
-- [ ] Preserve a private actual-E2E project/diagnostic path on failure and print only the safe discoverable path.
-- [ ] Run the actual-provider E2E once as diagnostic evidence and record its real exit status and diagnostic location.
+- [x] Project the same installed diagnostic URI in human and JSON failure output. Evidence: `70fdab0`; `TestApplicationReviewReportsProviderLoginRequiredFailClosed` compares `.kar/diagnostics/...` in both projections.
+- [x] Preserve provider attribution for login-required and provider execution failures. Evidence: `70fdab0`, `7060618`; `TestProviderLoginRequiredProvidersIncludeTerminalExecutionFacts` and `TestIntegrationKAROfflineDiagnosticFailureWorkflows` pass.
+- [x] Reserve `.kar/diagnostics` so publication selectors do not report it as a malformed session. Evidence: `fa68677`; `TestRunSelectorEnumeratesOnlyCanonicalSafeDirectories` passes with the reserved directory present.
+- [x] Observe diagnostics-only failed runs separately from P2 runs and corruption. Evidence: `fa68677`; `TestCleanupStoreObservesAndDeletesTerminalDiagnosticOnlyRun` and `TestCleanupStoreKeepsMalformedLinkedDiagnosticSeparateFromHealthyP2` pass.
+- [x] Extend retention and `kar clean` so linked diagnostics and selected diagnostics-only runs are removed safely and unrelated runs remain. Evidence: `fa68677`; `TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns`, `TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2`, and cleanup no-follow tests pass.
+- [x] Keep diagnostics and raw streams out of default export. Evidence: `fa68677`; export redaction manifests explicitly drop `runtime_diagnostics` and existing tests continue to drop `raw_provider_output`.
+- [x] Add offline fake-provider integration for normal, failed, fallback, login-required, concurrent, and persistence-failure flows. Evidence: `7060618`; `TestIntegrationKARProductionReviewSubprocessAGY`, `TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission`, and all subtests of `TestIntegrationKAROfflineDiagnosticFailureWorkflows` pass under `make test-int`.
+- [x] Verify status, JSONL, raw artifacts, sequence, IDs, and optional P2 reference are mutually consistent. Evidence: the integration tests above assert ordered/strictly increasing events, separated raw files, terminal status/identity, diagnostic-only absence of P2, and successful P2 linkage.
+- [x] Preserve a private actual-E2E project/diagnostic path on failure and print only the safe discoverable path. Evidence: `d63b3ca`, `428a38a`; the 2026-07-24 run preserved a mode-`0700` project and resolved its emitted URI to `status.json` and `kar-runtime.jsonl`.
+- [x] Run the actual-provider E2E once as diagnostic evidence and record its real exit status and diagnostic location. Evidence: [G010-T05 actual-provider evidence](./g010-t05-evidence.md) records `make test-e2e` exit 2 and the preserved session/run diagnostic URI without claiming PASS.
 
 ### Must not do
 
-- [ ] Do not name fake-provider integration tests `TestE2E`.
-- [ ] Do not remove, skip, relax, retry away, or report PASS for failing actual-provider assertions.
-- [ ] Do not remove `test-e2e` from the Makefile target graph.
-- [ ] Do not print raw provider output, credentials, prompts, source bytes, or free-form internal errors.
-- [ ] Do not mark G010-T05/T06 or `RELEASE_READY` complete.
-- [ ] Do not fix the discovered actual-provider cause within this epic; hand its evidence to G010-T05.
+- [x] Do not name fake-provider integration tests `TestE2E`. Evidence: offline cases retain the `TestIntegration...` prefix; `make test-e2e` selects only `^TestE2E`.
+- [x] Do not remove, skip, relax, retry away, or report PASS for failing actual-provider assertions. Evidence: the live test remains enabled with its three-attempt bound unchanged and the observed login-required failure was reported as failure immediately.
+- [x] Do not remove `test-e2e` from the Makefile target graph. Evidence: `test` still invokes `test-e2e`; only failure-artifact lifetime changed in `d63b3ca`.
+- [x] Do not print raw provider output, credentials, prompts, source bytes, or free-form internal errors. Evidence: CLI reasons remain closed safe projections, the live harness logs only URI/status/count metadata, and the handoff note contains no raw payload.
+- [x] Do not mark G010-T05/T06 or `RELEASE_READY` complete. Evidence: all three remain incomplete after D-E04 documentation.
+- [x] Do not fix the discovered actual-provider cause within this epic; hand its evidence to G010-T05. Evidence: native authentication behavior is unchanged and [the evidence note](./g010-t05-evidence.md) scopes the follow-up.
 
 ### Work method
 
@@ -252,16 +252,16 @@ The diagnostic evidence command may fail. A failure is acceptable for D-E04 comp
 
 Completion evidence:
 
-- [ ] All required gate commands pass on the same tree.
-- [ ] Offline end-to-end diagnostics satisfy DIAG-AC-001 through DIAG-AC-007.
-- [ ] Actual E2E exit status is recorded truthfully.
-- [ ] Failure diagnostics needed by G010-T05 are preserved and inspectable, or an unexpected actual E2E PASS is recorded without claiming G010 closeout.
+- [x] All required gate commands pass on the same tree. Evidence: `make test-prepare`, `make test-unit`, `make test-int`, and `git diff --check` passed on 2026-07-24 after the D-E04 implementation; the commands were repeated after this evidence update.
+- [x] Offline end-to-end diagnostics satisfy DIAG-AC-001 through DIAG-AC-007. Evidence: the public-binary integrations cited above cover normal/concurrent, fallback, login-required, non-P2, and persistence-stop flows; focused race tests cover secure storage/failure injection; cleanup tests preserve P2 authority separation.
+- [x] Actual E2E exit status is recorded truthfully. Evidence: [the handoff](./g010-t05-evidence.md) records `make test-e2e` exit 2 and `FAIL`, not PASS or SKIP.
+- [x] Failure diagnostics needed by G010-T05 are preserved and inspectable, or an unexpected actual E2E PASS is recorded without claiming G010 closeout. Evidence: the mode-`0700` project and emitted diagnostic URI in [the handoff](./g010-t05-evidence.md) resolve to terminal `status.json` and a closed ten-event `kar-runtime.jsonl`.
 
 ## 6. G010 Handoff
 
 After all four epic status rows are COMPLETE:
 
-- [ ] Create a G010-T05 evidence note containing the failing command, exit status, session/run identity, diagnostic URI, terminal cause, relevant raw artifact references, and rejected root-cause hypotheses.
+- [x] Create a G010-T05 evidence note containing the failing command, exit status, session/run identity, diagnostic URI, terminal cause, relevant raw artifact references, and rejected root-cause hypotheses. Evidence: [G010-T05 actual-provider evidence](./g010-t05-evidence.md); no raw stream exists because qualification stopped before invocation.
 - [ ] Start G010-T05 to diagnose and fix the actual-provider failure; require `make test-e2e` PASS there.
 - [ ] Restore and run the full-workflow actual-provider E2E required by the normative SOT.
 - [ ] Start G010-T06 only after T05 passes; require exact final-tree `make test` before `RELEASE_READY`.

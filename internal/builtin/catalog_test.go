@@ -251,8 +251,20 @@ func TestProductionCatalogExcludesPlanningOnlySOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read diagnostics plan: %v", err)
 	}
-	if len(entries) != 4 {
-		t.Fatalf("diagnostics plan file count = %d, want 4", len(entries))
+	wantPlanningFiles := map[string]bool{
+		"architecture.md":      true,
+		"g010-t05-evidence.md": true,
+		"roadmap.md":           true,
+		"sot.md":               true,
+		"spec.md":              true,
+	}
+	if len(entries) != len(wantPlanningFiles) {
+		t.Fatalf("diagnostics plan file count = %d, want %d", len(entries), len(wantPlanningFiles))
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !wantPlanningFiles[entry.Name()] {
+			t.Fatalf("unexpected diagnostics planning entry %q", entry.Name())
+		}
 	}
 
 	assets, err := NewCatalog().List(context.Background())
