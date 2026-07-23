@@ -1,6 +1,6 @@
 # Package Validation Report
 
-**Specification version:** 1.10.0
+**Specification version:** 1.11.0
 **Status date:** 2026-07-22
 
 ## G0 Contract and Implementation Baseline
@@ -17,7 +17,7 @@
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
 
-This SOT 1.10.0 report freezes G010 before implementation. It requires Config v2 role-owned primary/fallback family assignments, production composition for all four workflows, race unit/integration gates, and a non-skipping real Kimi/ZCode/AGY E2E gate. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and does not complete G010. Current implementation status is **IMPLEMENTATION_IN_PROGRESS**.
+This SOT 1.11.0 report promotes the runtime-diagnostics contract while retaining the frozen G010 requirements. It requires private run-wide diagnostics before provider spawn, typed closed events and causes, separated bounded raw streams, atomic status projections, and fail-closed secure persistence. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and does not complete G010. Current implementation status is **IMPLEMENTATION_IN_PROGRESS**.
 
 ## G0 Evidence Status
 
@@ -84,4 +84,4 @@ The recorded G001–G009 evidence is historical. G010 is **IMPLEMENTATION_IN_PRO
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.9.1 reports remain historical baselines. SOT 1.10.0 freezes the G010 contract before implementation; current checksums and the G010 checklist are authoritative for this revision.
+The 1.0.0 through 1.10.0 reports remain historical baselines. SOT 1.11.0 promotes runtime diagnostics without closing G010; current checksums and the implementation checklist are authoritative for this revision.

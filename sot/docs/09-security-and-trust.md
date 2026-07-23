@@ -191,3 +191,9 @@ v0.1 should state these limitations explicitly:
 - Prompt injection mitigations reduce risk but do not mathematically guarantee model behavior.
 - Secret detection is incomplete and may produce false positives or false negatives.
 - Read-only snapshot guarantees depend on the selected platform implementation.
+
+## 13. Runtime Diagnostic Security Boundary
+
+Runtime diagnostics may contain provider or user bytes only in separately bounded raw artifacts. Every such byte crosses the existing scan-before-write boundary before installation. A secret match or scan overflow terminates the producer, zeros and drops buffered content, removes the temporary file, and persists only bounded channel, detector, count, and source-ID metadata; no rejected content, substring, or hash is retained.
+
+Structured runtime events accept only closed codes, validated identifiers, numeric facts, UTC/elapsed ordering data, and installed safe relative references. Free-form provider errors, credentials, paths, prompts, source bytes, raw streams, and Go locations are forbidden. Security rejection preserves exit `8` semantics and prohibits repair, fallback, and publication. Diagnostic persistence failure fails closed before spawn or becomes a typed artifact failure after execution begins; it cannot be hidden by a provider failure.

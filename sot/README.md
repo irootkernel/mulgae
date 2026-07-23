@@ -1,7 +1,7 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.10.0**
-**Date:** 2026-07-22
+**Development Specification v1.11.0**
+**Date:** 2026-07-23
 **Primary binary:** `kar`
 **Implementation target:** Go
 
@@ -10,9 +10,9 @@ KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It
 KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
 CI is a trusted projection of a committed artifact, not a `review` command mode: `review --ci` and a CI request field are unsupported.
 
-## SOT 1.10.0 Contract and Implementation Baseline
+## SOT 1.11.0 Contract and Implementation Baseline
 
-This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. G010 freezes the Config v2 primary/fallback assignment contract and the real-provider release gate before implementation; its current state is deliberately incomplete.
+This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.11.0 promotes the private runtime-diagnostics contract while G010 and the real-provider release gate remain deliberately incomplete.
 
 The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 85-path embedded catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
@@ -63,6 +63,8 @@ The file is created only after deterministic schema, semantic, and evidence vali
 10. UUIDv7 provides identity and approximate time ordering. SHA-256 recorded in `manifest.json` provides integrity.
 11. Aggregated results are not called consensus unless multiple independent providers review the same role under an explicit comparison strategy.
 12. `review`, `followup`, `delta`, and `rerun` create distinct runs and answer distinct questions.
+13. After session and run identity allocation, runtime diagnostics open before provider spawn and finalize on every terminal path.
+14. Runtime JSONL, provider stdout, and provider stderr remain separate; diagnostics never grant publication, CI, approval, cleanup, or release authority.
 
 ## End-to-End Flow
 

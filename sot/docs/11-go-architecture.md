@@ -340,3 +340,18 @@ kar-platform-contract-evidence.v2       platform evidence readiness authority
 ```
 
 Within a major schema version, additions require careful `additionalProperties` policy and backward-compatible readers. Breaking field or semantic changes require a new schema version and migration/read compatibility plan.
+
+## 13. Runtime Diagnostic Ports
+
+The domain defines immutable diagnostic events and closed codes. Ports define `RuntimeDiagnosticSink` and `RuntimeDiagnosticSinkFactory`, including validated event emission, separated raw-stream installation, atomic run/attempt/invocation status replacement, exactly-once finalize, and installed safe URI results. Noop and in-memory implementations support application tests. The production filesystem adapter owns JSON encoding, serialized append, cap accounting, secure installation, durable sync, recovery, and close behavior.
+
+The dependency direction is `domain -> ports -> application -> adapters -> entrypoint`. Domain and application packages never import filesystem, CLI, or entrypoint packages; filesystem diagnostics never import publication policy or manufacture P2 authority. Provider adapters normalize native observations, while the application retains repair and fallback policy.
+
+The following version strings are additionally fixed by SOT 1.11.0:
+
+```text
+kar-runtime-log.v1
+kar-runtime-run-status.v1
+kar-runtime-attempt-status.v1
+kar-runtime-invocation-status.v1
+```

@@ -2,7 +2,7 @@
 
 **Status date:** 2026-07-22
 
-SOT 1.10.0 preserves historical G001–G009 evidence and opens G010 as the current implementation ledger. G010 is **IMPLEMENTATION_IN_PROGRESS**: no unchecked item below may be treated as delivered, and `RELEASE_READY` may be recorded only after the exact final-tree `make test` succeeds. Historical evidence and `.gjc/` remain append-only.
+SOT 1.11.0 preserves historical G001–G009 evidence, promotes the runtime-diagnostics contract, and keeps G010 as the current implementation ledger. G010 is **IMPLEMENTATION_IN_PROGRESS**: no unchecked item below may be treated as delivered, and `RELEASE_READY` may be recorded only after the exact final-tree `make test` succeeds. Historical evidence and `.gjc/` remain append-only.
 
 ## Goal Completion Snapshot
 
@@ -172,3 +172,11 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Make `make test` execute exactly `test-prepare`, `test-unit`, `test-int`, and `test-e2e` in order; define no separate offline, race, release, or retained-receipt gate. Evidence: the Makefile target graph and absence of alternate test gate targets.
 - [x] Preserve the 85-path/84-payload catalog, 25 schema/example pairs, checksum grammar, and generated embedded catalog after every SOT update. Evidence: both required generators and `test-prepare` passed on the exact updated SOT tree.
 - [ ] Run `make test` on the exact final SOT tree and record `RELEASE_READY` only after it succeeds.
+
+## Diagnostics D-E01 — Contract, Model, and Secure Storage
+
+- [ ] Promote the normative runtime diagnostic event, status, path, cap, security, durability, and authority-separation contract as SOT 1.11.0 without cataloging `sot/plan/**`.
+- [ ] Implement closed validated domain events and sink/factory ports with noop and in-memory implementations.
+- [ ] Implement the anchored `.kar/diagnostics/<session>/<run>` filesystem store with serialized JSONL, atomic status replacement, separated scanned raw streams, caps, mandatory tail reserve, durable sync, recovery, and exactly-once finalize.
+- [ ] Prove symlink/path escape, permissions, secret/overflow drop, partial/crash recovery, concurrent append, writer failure, and architecture boundaries under the race detector.
+- [ ] Preserve the 85-path/84-payload catalog and record exact D-E01 verification evidence without changing G010-T05/T06 or `RELEASE_READY`.

@@ -294,3 +294,9 @@ It must retain:
 - evidence verification status;
 - redaction manifest;
 - source artifact hashes where disclosure policy permits.
+
+## 15. Diagnostic Projection and Authority
+
+Human and JSON command results may expose the same installed safe diagnostic URI after session/run identity exists. They must not project a nonexistent or failed-to-install path. Login-required and provider execution failures retain closed provider attribution while raw provider output, credentials, prompts, source bytes, paths, and free-form internal errors remain private.
+
+Diagnostics cannot authorize a review artifact, CI pass, approval, release, retention decision, or cleanup of unrelated runs. `kar-runtime.jsonl` is chronological operational evidence and mutable status files are convenience projections; P2 remains the sole publication authority. Default export excludes diagnostics and raw streams.

@@ -344,3 +344,25 @@ Under the issuance lock, the issuer computes the successor bytes/hash first, wri
 Receipt-index verification always tries the canonical Gate path first. A matching live file hash is authoritative. If the live hash differs, fallback requires the candidate's valid `gate-archive-authority.json` entry only for the initial candidate-bound archived Gate hash, plus the exact immutable global `resolution.json` hash-chain at every hop. Verification follows successor hashes until the live Gate hash; later hops are authorized by their preceding immutable `resolution.json`, not by extending the candidate authority. The chain must be complete, acyclic, and free of trailing entries. The exact 27-entry `(kind,path,sha256)` receipt-index cardinality is independent of archive depth and remains 27; archive traversal permits at most 32 hops, and issuance must reject a 33rd hop before writing an archive, candidate authority, or pointer. Archive fallback for an active candidate is always artifact corruption with exit `7`. A missing archive, initial authority, or resolution, mismatched path/candidate/hash/successor/bound input, malformed or diagnostic record, broken chain, cycle, trailing hop, or excessive depth also exits `7`.
 
 This protocol never overwrites an old receipt, selects an archive by glob, treats an archive as current authority, or restores a superseded candidate.
+
+## 16. Private Runtime Diagnostics Store
+
+Operational diagnostics use the reserved tree below and do not migrate existing P2 paths:
+
+```text
+.kar/diagnostics/<session_id>/<run_id>/
+  status.json
+  kar-runtime.jsonl
+  attempts/<attempt_id>/
+    status.json
+    invocations/<ordinal>-<purpose>/
+      status.json
+      stdout.raw
+      stderr.raw
+```
+
+All paths are validated safe relative artifact URIs beneath an approved anchored `.kar` root. Directories are mode `0700`; files are mode `0600`. Traversal uses openat/no-follow identity checks and rejects symlinks, namespace substitution, path escape, non-regular files, and ownership or permission mismatch.
+
+`kar-runtime.jsonl` contains exactly one complete compact JSON object followed by LF per record. A serialized writer assigns sequence and prevents interleaving. Recovery treats only complete LF-terminated records as durable and removes a trailing partial record before append. Total JSONL capacity is 8 MiB, of which 256 KiB is reserved exclusively for mandatory lifecycle, error, terminal, and finalize events. Ordinary overflow increments bounded safe drop counters in status; exhaustion of mandatory reserve is a diagnostic persistence failure.
+
+Each raw stream freezes the invocation's approved stdout or stderr cap and passes through the shared scan-before-write boundary. Each status payload is capped at 256 KiB and replaced atomically. File and containing-directory fsync, crash recovery, and exactly-once finalize are mandatory. Secret, overflow, producer, write, close, rename, sync, or verification failure removes unsafe temporary content and returns a typed persistence failure. A URI may be returned only after its artifact has been installed and verified.

@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records SOT 1.10.0. Decision Readiness remains **READY**; G001–G009 retain historical evidence and G010 is `IMPLEMENTATION_IN_PROGRESS`.
+This roadmap records SOT 1.11.0. Decision Readiness remains **READY**; G001–G009 retain historical evidence, runtime diagnostics are implemented through four sequential epics, and G010 remains `IMPLEMENTATION_IN_PROGRESS` until its unchanged release gates pass.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|

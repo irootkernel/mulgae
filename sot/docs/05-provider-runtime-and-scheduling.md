@@ -16,7 +16,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
 It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator.
-G010 is `IMPLEMENTATION_IN_PROGRESS`. Production closure requires the exact Config v2 assignment and real-provider gate defined by SOT 1.10.0.
+G010 is `IMPLEMENTATION_IN_PROGRESS`. Production closure requires the exact Config v2 assignment and real-provider gate retained by SOT 1.11.0.
 
 ## 2. Driver, Instance, and Lane
 
@@ -326,3 +326,9 @@ validation/
 ```
 
 Each invocation `command.json` contains resolved binary, argv, working directory, transport, timeout, and output limits. Secrets and sensitive environment values are redacted or omitted. The attempt status summarizes the invocation chain and final validation state.
+
+## 13. Run-wide Operational Diagnostics
+
+After session/run identity allocation and before the first provider spawn, the review runtime opens one mandatory diagnostic sink. The sink owns the run start clock, UTC timestamps, monotonic elapsed time, and one serialized run-wide sequence across concurrent lanes. The coordinator retains scheduling and fallback authority; diagnostic sequence records operational chronology and never changes coordinator policy.
+
+Each invocation uses a run-wide positive ordinal and a closed purpose in the path `<ordinal>-<purpose>`; this ordinal is distinct from the invocation identity. Provider stdout and stderr remain separate byte-preserving streams with their already-approved invocation capture caps. They are never merged, timestamped, newline-normalized, or copied into `kar-runtime.jsonl`. Process/provider boundaries must eventually preserve the best valid observation with a typed cause, but diagnostics do not change provider assignment, fallback eligibility, native authentication, or repair policy.

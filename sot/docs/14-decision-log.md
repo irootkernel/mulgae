@@ -122,3 +122,14 @@ An allowlisted provider family is supported when its runtime capability and role
 - Structured SARIF export.
 
 These features must preserve the accepted invariants in this specification.
+
+## 6. Runtime Diagnostics Decisions
+
+| ID | Decision | Status | Rationale |
+|---|---|---|---|
+| D-051 | Use one private run-wide diagnostic sink opened before provider spawn and finalized on every terminal path | Accepted | Preserves normal and failure chronology without granting publication authority |
+| D-052 | Keep structured runtime JSONL, stdout, and stderr separate under `.kar/diagnostics/<session>/<run>` | Accepted | Prevents raw provider bytes from entering safe structured events or P2 |
+| D-053 | Let the sink own UTC time, monotonic elapsed time, and serialized run-wide sequence | Accepted | Produces deterministic concurrency and complete JSON lines |
+| D-054 | Freeze raw caps from invocation limits and cap JSONL at 8 MiB with a 256 KiB mandatory tail reserve | Accepted | Bounds storage while retaining terminal evidence |
+| D-055 | Use separate closed v1 run, attempt, and invocation status wires | Accepted | Avoids a weak optional-field union and validates identity at each hierarchy level |
+| D-056 | Reuse anchored no-follow scan-before-write and atomic replacement primitives | Accepted | Preserves existing permission, secret, durability, and crash guarantees |
