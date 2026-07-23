@@ -164,8 +164,8 @@ func TestReviewValidatorRejectsCompleteMaterialAccessLimitations(t *testing.T) {
 				document["limitations"] = []any{limitation}
 			})
 			_, plan, err := validator.Validate(context.Background(), raw, testScope())
-			if err == nil || plan != nil || !strings.Contains(err.Error(), "complete review cannot state that material scope was unreadable") {
-				t.Fatalf("limitation %q: err=%v plan=%#v", limitation, err, plan)
+			if err == nil || plan != nil || !errorChainContains(err, "complete review cannot state that material scope was unreadable") {
+				t.Fatalf("limitation fixture %q did not return the expected typed rejection", limitation)
 			}
 		})
 	}
@@ -437,7 +437,9 @@ func TestReviewValidatorRejectsStrictJSONAndOwnershipViolations(t *testing.T) {
 		document["session_id"] = "s_00000000-0000-7000-8000-000000000000"
 	})
 	if _, plan, err := validator.Validate(context.Background(), systemOwned, testScope()); err == nil || plan != nil {
-		t.Fatalf("system-owned input: err=%v plan=%#v", err, plan)
+		t.Fatal("system-owned input was accepted")
+	} else if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseObservationMismatch {
+		t.Fatalf("system-owned cause = %q, present = %t", cause, ok)
 	}
 	providerTarget := providerReviewWith(t, func(document map[string]any) {
 		finding := document["findings"].([]any)[0].(map[string]any)
@@ -445,7 +447,9 @@ func TestReviewValidatorRejectsStrictJSONAndOwnershipViolations(t *testing.T) {
 		current["target_sha256"] = "sha256:" + strings.Repeat("b", 64)
 	})
 	if _, plan, err := validator.Validate(context.Background(), providerTarget, testScope()); err == nil || plan != nil {
-		t.Fatalf("provider target identity: err=%v plan=%#v", err, plan)
+		t.Fatal("provider target identity was accepted")
+	} else if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseObservationMismatch {
+		t.Fatalf("provider target cause = %q, present = %t", cause, ok)
 	}
 }
 
@@ -515,8 +519,8 @@ func TestReviewValidatorOnlyRepairsDocumentViolations(t *testing.T) {
 		document["summary"] = "No findings were identified."
 	})
 	_, plan, err = validator.Validate(context.Background(), contradiction, testScope())
-	if err == nil || plan != nil || !errors.Is(err, documentCause) || !strings.Contains(err.Error(), "summary claims no findings") {
-		t.Fatalf("schema and semantic failures: err=%v plan=%#v", err, plan)
+	if err == nil || plan != nil || !errors.Is(err, documentCause) || !errorChainContains(err, "summary claims no findings") {
+		t.Fatal("schema and semantic failures did not retain their typed causes")
 	}
 }
 
@@ -578,8 +582,8 @@ func TestReviewValidatorRejectsUnfulfillableRepairPlan(t *testing.T) {
 	})
 
 	_, plan, err := validator.Validate(context.Background(), raw, testScope())
-	if err == nil || plan != nil || !strings.Contains(err.Error(), "repair requires 101 paths") {
-		t.Fatalf("unfulfillable repair: err=%v plan=%#v", err, plan)
+	if err == nil || plan != nil || !errorChainContains(err, "repair requires 101 paths") {
+		t.Fatal("unfulfillable repair did not retain its typed cause")
 	}
 }
 
@@ -616,9 +620,27 @@ func TestReviewValidatorRejectsWhitespaceAndCaseDuplicateFindings(t *testing.T) 
 		document["findings"] = []any{first, second}
 	})
 
-	if _, plan, err := validator.Validate(context.Background(), raw, testScope()); err == nil || plan != nil || !strings.Contains(err.Error(), "duplicate normalized finding content") {
-		t.Fatalf("duplicate findings: err=%v plan=%#v", err, plan)
+	if _, plan, err := validator.Validate(context.Background(), raw, testScope()); err == nil || plan != nil || !errorChainContains(err, "duplicate normalized finding content") {
+		t.Fatal("duplicate findings did not retain their typed cause")
 	}
+}
+
+func errorChainContains(err error, fragment string) bool {
+	if err == nil {
+		return false
+	}
+	if strings.Contains(err.Error(), fragment) {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, nested := range joined.Unwrap() {
+			if errorChainContains(nested, fragment) {
+				return true
+			}
+		}
+		return false
+	}
+	return errorChainContains(errors.Unwrap(err), fragment)
 }
 
 func TestReviewValidatorKeepsCaseDistinctPathsAndQualifiedSummaries(t *testing.T) {

@@ -1,12 +1,12 @@
 package review
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
@@ -40,6 +40,10 @@ type RuntimeArtifactInventory struct {
 	adapterProfile        string
 	adapterParameters     map[string]string
 	captures              []ports.CapturedAttemptArtifact
+	stdoutDiagnostic      ports.RuntimeDiagnosticRawResult
+	stderrDiagnostic      ports.RuntimeDiagnosticRawResult
+	hasStdoutDiagnostic   bool
+	hasStderrDiagnostic   bool
 }
 
 func (inventory RuntimeArtifactInventory) RunID() domain.RunID         { return inventory.runID }
@@ -80,6 +84,12 @@ func (inventory RuntimeArtifactInventory) AdapterParameters() map[string]string 
 func (inventory RuntimeArtifactInventory) Captures() []ports.CapturedAttemptArtifact {
 	return append([]ports.CapturedAttemptArtifact(nil), inventory.captures...)
 }
+func (inventory RuntimeArtifactInventory) DiagnosticStdout() (ports.RuntimeDiagnosticRawResult, bool) {
+	return inventory.stdoutDiagnostic, inventory.hasStdoutDiagnostic
+}
+func (inventory RuntimeArtifactInventory) DiagnosticStderr() (ports.RuntimeDiagnosticRawResult, bool) {
+	return inventory.stderrDiagnostic, inventory.hasStderrDiagnostic
+}
 
 // AdapterProfile and AdapterParameters identify the trusted execution adapter.
 // They are source material, never provider output.
@@ -107,6 +117,13 @@ func (input InvocationRepairInput) Plan() validation.RepairPlan { return input.p
 // one coordinator-authorized repair invocation of the same attempt.
 type InvocationPromptSource interface {
 	Prompt(context.Context, InvocationJob, *InvocationRepairInput) (RuntimePrompt, error)
+}
+
+// RuntimeDiagnosticSinkResolver supplies an already-opened run sink. The
+// provider runtime may persist per-invocation raw streams but never opens or
+// finalizes the sink; reviewrun owns that lifecycle in D-E03.
+type RuntimeDiagnosticSinkResolver interface {
+	RuntimeDiagnosticSink(domain.RunID) (ports.RuntimeDiagnosticSink, bool)
 }
 
 // DeltaInvocationMaterial is the immutable A-to-B input for one delta
@@ -181,6 +198,7 @@ type ProviderInvocationRuntime struct {
 	hasWorkspace      bool
 	policy            EvidencePolicy
 	allowSourceScope  bool
+	diagnostics       RuntimeDiagnosticSinkResolver
 
 	mu        sync.Mutex
 	pending   map[domain.AttemptID]InvocationRepairInput
@@ -230,6 +248,26 @@ func NewObservedProviderInvocationRuntime(provider ports.ObservedReviewProvider,
 	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
 }
 
+// NewObservedProviderInvocationRuntimeWithDiagnostics constructs an observed
+// runtime that may persist separated raw streams through an already-open sink.
+func NewObservedProviderInvocationRuntimeWithDiagnostics(
+	provider ports.ObservedReviewProvider,
+	source InvocationPromptSource,
+	validator *validation.ReviewValidator,
+	verifier *evidence.Verifier,
+	diagnostics RuntimeDiagnosticSinkResolver,
+) (*ProviderInvocationRuntime, error) {
+	if nilInterface(diagnostics) {
+		return nil, fmt.Errorf("provider invocation runtime: nil diagnostic sink resolver")
+	}
+	runtime, err := NewObservedProviderInvocationRuntime(provider, source, validator, verifier)
+	if err != nil {
+		return nil, err
+	}
+	runtime.diagnostics = diagnostics
+	return runtime, nil
+}
+
 // NewObservedProviderInvocationRuntimeWithWorkspace constructs an observed
 // runtime bound to one capture-owned workspace authority for every invocation.
 func NewObservedProviderInvocationRuntimeWithWorkspace(provider ports.ObservedReviewProvider, source InvocationPromptSource, workspace ports.WorkspaceExecutionAuthority, validator *validation.ReviewValidator, verifier *evidence.Verifier) (*ProviderInvocationRuntime, error) {
@@ -247,6 +285,27 @@ func NewObservedProviderInvocationRuntimeWithWorkspace(provider ports.ObservedRe
 	runtime.workspace = workspace
 	runtime.workspaceIdentity = identity
 	runtime.hasWorkspace = true
+	return runtime, nil
+}
+
+// NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics combines a
+// capture-owned workspace with an already-opened per-run diagnostic sink.
+func NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics(
+	provider ports.ObservedReviewProvider,
+	source InvocationPromptSource,
+	workspace ports.WorkspaceExecutionAuthority,
+	validator *validation.ReviewValidator,
+	verifier *evidence.Verifier,
+	diagnostics RuntimeDiagnosticSinkResolver,
+) (*ProviderInvocationRuntime, error) {
+	if nilInterface(diagnostics) {
+		return nil, fmt.Errorf("provider invocation runtime: nil diagnostic sink resolver")
+	}
+	runtime, err := NewObservedProviderInvocationRuntimeWithWorkspace(provider, source, workspace, validator, verifier)
+	if err != nil {
+		return nil, err
+	}
+	runtime.diagnostics = diagnostics
 	return runtime, nil
 }
 
@@ -433,6 +492,11 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if runtime.observed != nil {
 		observation, observeErr := runtime.observed.Observe(invocationCtx, providerInvocation)
 		if observeErr != nil {
+			if observation.Validate() == nil && sameProviderInvocation(observation.Invocation(), providerInvocation) {
+				if err := runtime.capture(invocationCtx, job, nil, observation.Stdout(), observation.Stderr(), false); err != nil {
+					return runtimeCondition(job, AttemptConditionArtifactFailure)
+				}
+			}
 			return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, observeErr))
 		}
 		if err := observation.Validate(); err != nil || !sameProviderInvocation(observation.Invocation(), providerInvocation) {
@@ -440,10 +504,10 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		rawStdout, stderr = observation.Stdout(), observation.Stderr()
 		if !observation.Succeeded() {
-			if err := runtime.capture(job, nil, rawStdout, stderr, false); err != nil {
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
 				return runtimeCondition(job, AttemptConditionArtifactFailure)
 			}
-			return runtimeCondition(job, observedStatusCondition(observation.Status(), observation.DiagnosticCode()))
+			return runtimeCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()))
 		}
 		result, ok := observation.Result()
 		if !ok || result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
@@ -451,7 +515,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		stdout = result.Stdout()
 		if int64(len(stdout)) > job.Limits().MaxStdoutBytes() {
-			if err := runtime.capture(job, nil, rawStdout, stderr, true); err != nil {
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, true); err != nil {
 				return runtimeCondition(job, AttemptConditionArtifactFailure)
 			}
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
@@ -464,7 +528,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		stdout = result.Stdout()
 		rawStdout = stdout
 		if int64(len(stdout)) > job.Limits().MaxStdoutBytes() {
-			if err := runtime.capture(job, nil, stdout, nil, true); err != nil {
+			if err := runtime.capture(invocationCtx, job, nil, stdout, nil, true); err != nil {
 				return runtimeCondition(job, AttemptConditionArtifactFailure)
 			}
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
@@ -478,8 +542,8 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if job.Purpose() == domain.InvocationInitial {
 		validated, plan, validationErr := runtime.validator.Validate(invocationCtx, stdout, scope)
 		if validationErr != nil {
-			securityRejected := isSecurityOutputError(validationErr)
-			if err := runtime.capture(job, stdout, rawStdout, stderr, securityRejected); err != nil {
+			securityRejected := isSecurityValidationError(validationErr)
+			if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, securityRejected); err != nil {
 				return runtimeCondition(job, AttemptConditionArtifactFailure)
 			}
 			if securityRejected {
@@ -495,18 +559,18 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if plan != nil {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
-		if err := runtime.capture(job, stdout, rawStdout, stderr, false); err != nil {
+		if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, false); err != nil {
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
 		}
 		return runtime.accept(invocationCtx, job, validated)
 	}
 	validated, repairedCandidate, validationErr := runtime.validator.ApplyRepairCandidate(invocationCtx, repair.initial, stdout, scope, repair.plan)
-	securityRejected := validationErr != nil && isSecurityOutputError(validationErr)
+	securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
 	if validationErr != nil {
-		if err := runtime.capture(job, nil, rawStdout, stderr, securityRejected); err != nil {
+		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, securityRejected); err != nil {
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
 		}
-	} else if err := runtime.capture(job, repairedCandidate, rawStdout, stderr, false); err != nil {
+	} else if err := runtime.capture(invocationCtx, job, repairedCandidate, rawStdout, stderr, false); err != nil {
 		return runtimeCondition(job, AttemptConditionArtifactFailure)
 	}
 	runtime.mu.Lock()
@@ -609,8 +673,8 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
 		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
 		workspaceIdentity: runtime.workspaceIdentity, hasWorkspace: runtime.hasWorkspace, policy: runtime.policy,
-		allowSourceScope: allowSourceScope,
-		pending:          clonePending, captures: make(map[captureKey]AttemptCapture),
+		allowSourceScope: allowSourceScope, diagnostics: runtime.diagnostics,
+		pending: clonePending, captures: make(map[captureKey]AttemptCapture),
 		inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
 	outcome := clone.Invoke(ctx, job)
@@ -731,7 +795,7 @@ func exactEvidenceRepairPaths(groups []VerifiedFindingEvidence) ([]string, bool)
 	return paths, len(paths) > 0
 }
 
-func (runtime *ProviderInvocationRuntime) capture(job InvocationJob, candidate, stdout, stderr []byte, reject bool) error {
+func (runtime *ProviderInvocationRuntime) capture(ctx context.Context, job InvocationJob, candidate, stdout, stderr []byte, reject bool) error {
 	artifacts := make([]ports.CapturedAttemptArtifact, 0, 3)
 	add := func(kind ports.AttemptArtifactKind, content []byte, securityRejected bool) error {
 		if len(content) == 0 && !securityRejected {
@@ -770,7 +834,69 @@ func (runtime *ProviderInvocationRuntime) capture(job InvocationJob, candidate, 
 		runtime.inventory[key] = inventory
 	}
 	runtime.mu.Unlock()
+	if !reject {
+		if err := runtime.persistDiagnosticRaw(ctx, job, key, stdout, stderr); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
+	ctx context.Context,
+	job InvocationJob,
+	key captureKey,
+	stdout, stderr []byte,
+) error {
+	if runtime.diagnostics == nil || len(stdout) == 0 && len(stderr) == 0 {
+		return nil
+	}
+	sink, ok := runtime.diagnostics.RuntimeDiagnosticSink(job.RunID())
+	if !ok || nilInterface(sink) {
+		return nil
+	}
+	runtime.mu.Lock()
+	inventory, exists := runtime.inventory[key]
+	runtime.mu.Unlock()
+	if !exists || inventory.executionInvocationID == "" {
+		return fmt.Errorf("provider invocation runtime: diagnostic raw inventory unavailable")
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	persist := func(stream domain.RuntimeDiagnosticStream, content []byte, maximum int64) error {
+		if len(content) == 0 {
+			return nil
+		}
+		request, err := ports.NewRuntimeDiagnosticRawRequest(
+			job.AttemptID(), inventory.executionInvocationID, key.sequence, runtimePurpose(job.Purpose()),
+			stream, bytes.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) {},
+		)
+		if err != nil {
+			return fmt.Errorf("provider invocation runtime: diagnostic raw request: %w", err)
+		}
+		result, err := sink.PersistRaw(persistCtx, request)
+		if err != nil {
+			return err
+		}
+		runtime.mu.Lock()
+		current, currentExists := runtime.inventory[key]
+		if currentExists {
+			if stream == domain.DiagnosticStdout {
+				current.stdoutDiagnostic, current.hasStdoutDiagnostic = result, true
+			} else {
+				current.stderrDiagnostic, current.hasStderrDiagnostic = result, true
+			}
+			runtime.inventory[key] = current
+		}
+		runtime.mu.Unlock()
+		if !currentExists {
+			return fmt.Errorf("provider invocation runtime: diagnostic raw inventory disappeared")
+		}
+		return nil
+	}
+	if err := persist(domain.DiagnosticStdout, stdout, job.Limits().MaxStdoutBytes()); err != nil {
+		return err
+	}
+	return persist(domain.DiagnosticStderr, stderr, job.Limits().MaxStderrBytes())
 }
 func (runtime *ProviderInvocationRuntime) promptMatchesJob(compiled prompt.CompiledPrompt, job InvocationJob) bool {
 	scope := compiled.Scope()
@@ -859,11 +985,9 @@ func runtimeErrorCondition(ctx context.Context, err error) AttemptCondition {
 	}
 	return AttemptConditionInvalidProviderOutput
 }
-func isSecurityOutputError(err error) bool {
-	message := err.Error()
-	return strings.Contains(message, "system-owned") ||
-		strings.Contains(message, "provider supplied") ||
-		strings.Contains(message, "forbidden")
+func isSecurityValidationError(err error) bool {
+	cause, ok := validation.RuntimeCause(err)
+	return ok && cause == domain.DiagnosticCauseObservationMismatch
 }
 func sha256Identifier(bytes []byte) string {
 	sum := sha256.Sum256(bytes)
@@ -876,18 +1000,43 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) || errors.Is(err, ports.ErrProviderPacketSecurity) {
 		return AttemptConditionSecurityViolation
 	}
-	message := err.Error()
-	switch {
-	case strings.Contains(message, "login_required"):
+	if errors.Is(err, ports.ErrProviderLoginRequired) {
 		return AttemptConditionLoginRequired
-	case strings.Contains(message, "unavailable"):
-		return AttemptConditionProviderUnavailable
-	case strings.Contains(message, "auth"):
+	}
+	var providerFailure *ports.ProviderRuntimeError
+	if errors.As(err, &providerFailure) {
+		return runtimeCauseCondition(providerFailure.Cause())
+	}
+	var processFailure *ports.ProcessExecutionError
+	if errors.As(err, &processFailure) {
+		return runtimeCauseCondition(processFailure.PrimaryCause())
+	}
+	return AttemptConditionInternalInvariant
+}
+
+func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition {
+	switch cause {
+	case domain.DiagnosticCauseLoginRequired:
+		return AttemptConditionLoginRequired
+	case domain.DiagnosticCauseAuthenticationFailed:
 		return AttemptConditionAuthentication
-	case strings.Contains(message, "quota"):
+	case domain.DiagnosticCauseQuotaExceeded:
 		return AttemptConditionQuota
-	case strings.Contains(message, "rate"):
+	case domain.DiagnosticCauseRateLimited:
 		return AttemptConditionRateLimit
+	case domain.DiagnosticCauseTimedOut:
+		return AttemptConditionTimeout
+	case domain.DiagnosticCauseWorkspaceRevalidationFailed,
+		domain.DiagnosticCauseTransportVerificationFailed,
+		domain.DiagnosticCauseObservationMismatch:
+		return AttemptConditionSecurityViolation
+	case domain.DiagnosticCauseOutputFrameMissing,
+		domain.DiagnosticCauseOutputEnvelopeInvalid,
+		domain.DiagnosticCauseOutputDecodeFailed,
+		domain.DiagnosticCauseResultBindingFailed,
+		domain.DiagnosticCauseCandidateValidationFailed,
+		domain.DiagnosticCauseCandidateRepairPlanInvalid:
+		return AttemptConditionInvalidProviderOutput
 	default:
 		return AttemptConditionInternalInvariant
 	}
@@ -923,8 +1072,12 @@ func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) 
 		leftSnapshotInode == rightSnapshotInode
 }
 
-func observedStatusCondition(status ports.ProviderExecutionStatus, diagnostic string) AttemptCondition {
-	if status == ports.ProviderExecutionStatusArtifactFailure && diagnostic == "invalid_provider_output" {
+func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.RuntimeDiagnosticCause) AttemptCondition {
+	switch cause {
+	case domain.DiagnosticCauseOutputFrameMissing,
+		domain.DiagnosticCauseOutputEnvelopeInvalid,
+		domain.DiagnosticCauseOutputDecodeFailed,
+		domain.DiagnosticCauseResultBindingFailed:
 		return AttemptConditionUnrepairableProviderOutput
 	}
 	switch status {
@@ -933,7 +1086,7 @@ func observedStatusCondition(status ports.ProviderExecutionStatus, diagnostic st
 	case ports.ProviderExecutionStatusTimedOut:
 		return AttemptConditionTimeout
 	case ports.ProviderExecutionStatusAuthentication:
-		if diagnostic == "login_required" {
+		if cause == domain.DiagnosticCauseLoginRequired {
 			return AttemptConditionLoginRequired
 		}
 		return AttemptConditionAuthentication

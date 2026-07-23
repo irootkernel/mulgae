@@ -25,6 +25,14 @@ func (validator *ReviewValidator) ApplyRepair(ctx context.Context, originalRaw, 
 // review candidate. For a patch repair, candidate is the reconstructed JSON;
 // repairRaw remains the distinct provider patch stream in ValidatedReview.
 func (validator *ReviewValidator) ApplyRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, []byte, error) {
+	review, candidate, err := validator.applyRepairCandidate(ctx, originalRaw, repairRaw, scope, plan)
+	if err != nil {
+		return ValidatedReview{}, nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateRepairPlanInvalid)
+	}
+	return review, candidate, nil
+}
+
+func (validator *ReviewValidator) applyRepairCandidate(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, []byte, error) {
 	if validator == nil {
 		return ValidatedReview{}, nil, fmt.Errorf("review repair: nil validator")
 	}

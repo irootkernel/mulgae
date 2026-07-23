@@ -47,6 +47,64 @@ type providerDocumentViolation interface {
 	DocumentViolation() bool
 }
 
+// RuntimeError carries the closed diagnostic cause selected by validation.
+// Its Error projection is safe and does not include provider bytes, paths, or
+// the wrapped validator detail.
+type RuntimeError struct {
+	cause domain.RuntimeDiagnosticCause
+	err   error
+}
+
+func (failure *RuntimeError) Error() string {
+	if failure == nil || !failure.cause.Valid() {
+		return "review validation failed"
+	}
+	return "review validation failed: " + string(failure.cause)
+}
+func (failure *RuntimeError) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.err
+}
+func (failure *RuntimeError) Cause() domain.RuntimeDiagnosticCause {
+	if failure == nil {
+		return ""
+	}
+	return failure.cause
+}
+
+// RuntimeCause extracts the closed validation cause without inspecting error
+// text.
+func RuntimeCause(err error) (domain.RuntimeDiagnosticCause, bool) {
+	var failure *RuntimeError
+	if !errors.As(err, &failure) || !failure.Cause().Valid() {
+		return "", false
+	}
+	return failure.Cause(), true
+}
+
+type ownershipViolation struct{ err error }
+
+func (violation *ownershipViolation) Error() string {
+	return "review validation: provider ownership violation"
+}
+func (violation *ownershipViolation) Unwrap() error { return violation.err }
+
+func wrapRuntimeError(err error, fallback domain.RuntimeDiagnosticCause) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := RuntimeCause(err); ok {
+		return err
+	}
+	var ownership *ownershipViolation
+	if errors.As(err, &ownership) {
+		return &RuntimeError{cause: domain.DiagnosticCauseObservationMismatch, err: err}
+	}
+	return &RuntimeError{cause: fallback, err: err}
+}
+
 func isProviderDocumentViolation(err error) bool {
 	var violation providerDocumentViolation
 	return errors.As(err, &violation) && violation.DocumentViolation()
@@ -176,7 +234,11 @@ func NewReviewValidator(schemaValidator SchemaValidator, schemaID ports.AssetID)
 // semantic validation. An error with a non-nil RepairPlan is eligible for at
 // most one caller-owned repair attempt.
 func (validator *ReviewValidator) Validate(ctx context.Context, raw []byte, scope ReviewValidationScope) (ValidatedReview, *RepairPlan, error) {
-	return validator.validate(ctx, raw, scope, raw, nil, true)
+	review, plan, err := validator.validate(ctx, raw, scope, raw, nil, true)
+	if err != nil {
+		return ValidatedReview{}, plan, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
+	}
+	return review, plan, nil
 }
 
 func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scope ReviewValidationScope, originalRaw, repairedRaw []byte, classifyRepair bool) (ValidatedReview, *RepairPlan, error) {
@@ -328,10 +390,10 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 				continue
 			}
 			if _, supplied := current["target_sha256"]; supplied {
-				return nil, fmt.Errorf("review validation: provider supplied system-owned target SHA-256 at findings[%d].evidence[%d]", findingIndex, evidenceIndex)
+				return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned target SHA-256 at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
 			}
 			if _, supplied := current["verification"]; supplied {
-				return nil, fmt.Errorf("review validation: provider supplied system-owned verification at findings[%d].evidence[%d]", findingIndex, evidenceIndex)
+				return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned verification at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
 			}
 			current["target_sha256"] = targetSHA256
 			current["verification"] = "claimed"
@@ -556,7 +618,7 @@ func requireOnlyKeys(object map[string]any, location string, allowed ...string) 
 	}
 	for key := range object {
 		if _, ok := allowedSet[key]; !ok {
-			return fmt.Errorf("review validation: provider supplied system-owned or unknown field %s.%s", location, key)
+			return &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned or unknown field %s.%s", location, key)}
 		}
 	}
 	return nil

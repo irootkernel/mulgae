@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,6 +16,93 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+type providerRuntimeDiagnosticResolver struct {
+	runID domain.RunID
+	sink  ports.RuntimeDiagnosticSink
+}
+
+func (resolver providerRuntimeDiagnosticResolver) RuntimeDiagnosticSink(runID domain.RunID) (ports.RuntimeDiagnosticSink, bool) {
+	return resolver.sink, resolver.sink != nil && runID == resolver.runID
+}
+
+type providerRuntimeRawSink struct {
+	streams map[domain.RuntimeDiagnosticStream][]byte
+}
+
+func (sink *providerRuntimeRawSink) Emit(context.Context, domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	return domain.RuntimeDiagnosticEvent{}, nil
+}
+func (sink *providerRuntimeRawSink) PersistRaw(_ context.Context, request ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
+	content, err := io.ReadAll(request.Source())
+	if err != nil {
+		return ports.RuntimeDiagnosticRawResult{}, err
+	}
+	if sink.streams == nil {
+		sink.streams = make(map[domain.RuntimeDiagnosticStream][]byte)
+	}
+	sink.streams[request.Stream()] = append([]byte(nil), content...)
+	path, err := ports.NewSafeRelativePath("diagnostics/test/" + string(request.Stream()) + ".raw")
+	if err != nil {
+		return ports.RuntimeDiagnosticRawResult{}, err
+	}
+	return ports.NewRuntimeDiagnosticRawResult(request.Stream(), path, nil, int64(len(content)))
+}
+func (*providerRuntimeRawSink) ReplaceRunStatus(context.Context, ports.RuntimeDiagnosticRunStatus) error {
+	return nil
+}
+func (*providerRuntimeRawSink) ReplaceAttemptStatus(context.Context, ports.RuntimeDiagnosticAttemptStatus) error {
+	return nil
+}
+func (*providerRuntimeRawSink) ReplaceInvocationStatus(context.Context, ports.RuntimeDiagnosticInvocationStatus) error {
+	return nil
+}
+func (*providerRuntimeRawSink) Finalize(context.Context, ports.RuntimeDiagnosticFinalizeRequest) (ports.RuntimeDiagnosticFinalizeResult, error) {
+	return ports.RuntimeDiagnosticFinalizeResult{}, nil
+}
+func (*providerRuntimeRawSink) URI() (ports.SafeRelativePath, bool) {
+	return ports.SafeRelativePath{}, false
+}
+
+func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := coordinatorTypesAttemptID(t, 12)
+	job, err := newCoordinatorInvocationJob(
+		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &providerRuntimeRawSink{}
+	key := captureKey{attemptID: attemptID, sequence: 1}
+	runtime := &ProviderInvocationRuntime{
+		diagnostics: providerRuntimeDiagnosticResolver{runID: runID, sink: sink},
+		inventory: map[captureKey]RuntimeArtifactInventory{
+			key: {runID: runID, attemptID: attemptID, sequence: 1, executionInvocationID: "i_019f5a09-5eec-7001-8001-000000000014"},
+		},
+	}
+	if err := runtime.persistDiagnosticRaw(context.Background(), job, key, []byte("stdout bytes"), []byte("stderr bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if string(sink.streams[domain.DiagnosticStdout]) != "stdout bytes" || string(sink.streams[domain.DiagnosticStderr]) != "stderr bytes" {
+		t.Fatal("diagnostic sink did not retain separated streams")
+	}
+	inventory := runtime.inventory[key]
+	stdout, hasStdout := inventory.DiagnosticStdout()
+	stderr, hasStderr := inventory.DiagnosticStderr()
+	if !hasStdout || !hasStderr || stdout.Stream() != domain.DiagnosticStdout || stderr.Stream() != domain.DiagnosticStderr {
+		t.Fatal("runtime inventory did not retain separated raw references")
+	}
+}
 
 func TestAttemptCaptureArtifactsAreDefensive(t *testing.T) {
 	attemptID, err := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000001")
@@ -142,25 +230,32 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 }
 
 func TestObservedUnparseableProviderOutputIsFallbackOnly(t *testing.T) {
-	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, "invalid_provider_output"); got != AttemptConditionUnrepairableProviderOutput {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputDecodeFailed); got != AttemptConditionUnrepairableProviderOutput {
 		t.Fatalf("invalid provider framing condition = %q", got)
 	}
-	for _, diagnostic := range []string{"stdout_limit", "stderr_limit", ""} {
-		if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, diagnostic); got != AttemptConditionArtifactFailure {
-			t.Fatalf("artifact diagnostic %q condition = %q", diagnostic, got)
+	for _, cause := range []domain.RuntimeDiagnosticCause{domain.DiagnosticCauseObservationInvalid, domain.DiagnosticCauseProviderExecutionFailed} {
+		if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, cause); got != AttemptConditionArtifactFailure {
+			t.Fatalf("artifact cause %q condition = %q", cause, got)
 		}
 	}
 }
 
 func TestObservedLoginRequiredIsFailClosed(t *testing.T) {
-	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, "login_required"); got != AttemptConditionLoginRequired {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired); got != AttemptConditionLoginRequired {
 		t.Fatalf("login-required observation condition = %q", got)
 	}
-	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, "provider_auth"); got != AttemptConditionAuthentication {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed); got != AttemptConditionAuthentication {
 		t.Fatalf("generic authentication observation condition = %q", got)
 	}
-	if got := runtimeProviderErrorCondition(context.Background(), errors.New("provider login_required")); got != AttemptConditionLoginRequired {
-		t.Fatalf("login-required runtime error condition = %q", got)
+	typed, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseLoginRequired, errors.New("private native detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionLoginRequired {
+		t.Fatalf("typed login-required runtime condition = %q", got)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), errors.New("provider login_required")); got != AttemptConditionInternalInvariant {
+		t.Fatalf("arbitrary runtime text condition = %q", got)
 	}
 }
 

@@ -9,6 +9,19 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
 
+func TestApplyRepairCandidateReturnsTypedRepairPlanCause(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	_, _, err := validator.ApplyRepairCandidate(
+		context.Background(), validProviderReview(), []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[]}`), testScope(), RepairPlan{},
+	)
+	if err == nil {
+		t.Fatal("invalid repair plan was accepted")
+	}
+	if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseCandidateRepairPlanInvalid {
+		t.Fatalf("repair plan cause = %q, present = %t", cause, ok)
+	}
+}
+
 func marshalRepairPatch(t *testing.T, repairs []map[string]any) []byte {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
