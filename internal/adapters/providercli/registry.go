@@ -1206,7 +1206,9 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 	}
 }
 
-func providerOutputDiagnostic(cause domain.RuntimeDiagnosticCause) string {
+// providerOutputDiagnostic deliberately projects every closed output cause to
+// one safe external code. Consumers that need the distinction use PrimaryCause.
+func providerOutputDiagnostic(_ domain.RuntimeDiagnosticCause) string {
 	return "invalid_provider_output"
 }
 

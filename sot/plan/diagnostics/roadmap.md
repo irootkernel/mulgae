@@ -139,6 +139,12 @@ Completion evidence:
 - [x] Tests prove each required typed cause without matching arbitrary error text. Evidence: the named process, provider-family, validation, transport, and cleanup tests above assert `RuntimeDiagnosticCause` values directly.
 - [x] Existing exhaustive repair/fallback policy tests remain unchanged or explicitly demonstrate equivalent behavior. Evidence: `TestDecideTransitionExhaustiveMatrix` and `TestAttemptConditionsAreExactAndExhaustivelyValidated` pass without changing `transitionPolicyRows`.
 
+### Post-completion review follow-up
+
+- [x] Lock the spawn-failure policy boundary explicitly. Evidence: `TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation` proves observed unavailable/configuration/security/internal statuses retain their existing conditions while an unobserved typed spawn failure remains fail-closed; commit `2e7b7ae`.
+- [ ] Provider qualification hardening, tracked separately from D-E03 and not a D-E02 completion gate: replace the residual generic `auth`/`login`/`sign in`/`not found`/`unavailable` matching in `classifyProbeFailure` with family-native or typed process signals, backed by false-positive and compatibility fixtures before removing the fallback.
+- [x] Keep output diagnostics as one safe external projection while retaining detailed typed causes in `PrimaryCause`. Evidence: provider output regression cases assert the shared `invalid_provider_output` code and their distinct closed causes; the projection helper documents this contract.
+
 ## 4. D-E03 — Run-wide Lifecycle and Terminal Integration
 
 ### Goal command
