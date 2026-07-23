@@ -84,7 +84,7 @@ func (store *DiagnosticStore) openOrCreateLog(ctx context.Context) error {
 		return err
 	}
 	store.logFD = fd
-	store.logIdentity = diagnosticFileIdentity{device: identity.device, inode: identity.inode}
+	store.logIdentity = diagnosticFileIdentity(identity)
 	if err := store.recoverLog(); err != nil {
 		store.closeLog()
 		return err
