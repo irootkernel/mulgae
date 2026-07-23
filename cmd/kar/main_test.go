@@ -891,12 +891,23 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		t.Fatalf("read AGY runtime diagnostics: %v", err)
 	}
 	wantDiagnosticOrder := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticQualificationStarted,
+		domain.DiagnosticQualificationCandidateChecked,
+		domain.DiagnosticQualificationSucceeded,
+		domain.DiagnosticReviewPlanCreated,
+		domain.DiagnosticAssignmentResolved,
+		domain.DiagnosticAssignmentResolved,
+		domain.DiagnosticRunBudgetAccepted,
 		domain.DiagnosticRunStarted,
 		domain.DiagnosticInvocationPrepared,
 		domain.DiagnosticProcessStarted,
 		domain.DiagnosticOutputParsed,
 		domain.DiagnosticValidationSucceeded,
 		domain.DiagnosticReductionCompleted,
+		domain.DiagnosticNamespaceDrainStarted,
+		domain.DiagnosticNamespaceDrained,
+		domain.DiagnosticWorkspaceCleanupStarted,
+		domain.DiagnosticWorkspaceCleanupCompleted,
 		domain.DiagnosticPublicationPreparationStarted,
 		domain.DiagnosticPublicationStaged,
 		domain.DiagnosticPublicationInstalled,
@@ -917,6 +928,23 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 	}
 	if diagnosticPosition != len(wantDiagnosticOrder) {
 		t.Fatalf("AGY runtime diagnostic order missing %v:\n%s", wantDiagnosticOrder[diagnosticPosition:], diagnosticLog)
+	}
+	statusBytes, err := os.ReadFile(filepath.Join(project, ".kar", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "status.json"))
+	if err != nil {
+		t.Fatalf("read AGY runtime diagnostic status: %v", err)
+	}
+	var diagnosticStatus struct {
+		State         domain.RunState `json:"state"`
+		LaneTotal     int             `json:"lane_total"`
+		LaneCompleted int             `json:"lane_completed"`
+		LaneFailed    int             `json:"lane_failed"`
+		P2URI         string          `json:"p2_uri"`
+	}
+	if err := json.Unmarshal(statusBytes, &diagnosticStatus); err != nil {
+		t.Fatalf("decode AGY runtime diagnostic status: %v", err)
+	}
+	if diagnosticStatus.State != domain.RunCompleted || diagnosticStatus.LaneTotal != 2 || diagnosticStatus.LaneCompleted != 2 || diagnosticStatus.LaneFailed != 0 || diagnosticStatus.P2URI != *reviewEnvelope.Result.RunManifestURI {
+		t.Fatalf("AGY runtime diagnostic status = %#v, want completed 2/2 lanes linked to %q", diagnosticStatus, *reviewEnvelope.Result.RunManifestURI)
 	}
 
 	status := runKARBinaryWithEnv(t, binary, project, environment,

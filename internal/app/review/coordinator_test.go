@@ -509,6 +509,66 @@ func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T)
 	}
 }
 
+func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAndPeerCancellation(t *testing.T) {
+	for _, test := range []struct {
+		condition AttemptCondition
+		state     domain.RunState
+	}{
+		{condition: AttemptConditionLoginRequired, state: domain.RunCancelled},
+		{condition: AttemptConditionInternalInvariant, state: domain.RunFailed},
+	} {
+		t.Run(string(test.condition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false, true)
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleLogic {
+					return coordinatorConditionOutcome(t, job, test.condition)
+				}
+				<-ctx.Done()
+				return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.RunState() != test.state {
+				t.Fatalf("run state = %q, want %q", result.RunState(), test.state)
+			}
+			failureIndex, prohibitedIndex, cancellationIndex := -1, -1, -1
+			for index, input := range diagnostics.inputs {
+				switch input.Event {
+				case domain.DiagnosticAttemptFailed:
+					if input.Failure == string(test.condition) && failureIndex < 0 {
+						failureIndex = index
+					}
+				case domain.DiagnosticFallbackProhibited:
+					if input.Failure == string(test.condition) && prohibitedIndex < 0 {
+						prohibitedIndex = index
+					}
+				case domain.DiagnosticLaneCancelled:
+					if cancellationIndex < 0 {
+						cancellationIndex = index
+					}
+				}
+			}
+			if failureIndex < 0 || prohibitedIndex <= failureIndex || cancellationIndex >= 0 && cancellationIndex <= failureIndex {
+				t.Fatalf("%s diagnostic chronology = %#v", test.condition, diagnostics.inputs)
+			}
+		})
+	}
+}
+
 func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionLoginRequired,
@@ -2616,12 +2676,14 @@ type coordinatorTestRuntime struct {
 type coordinatorDiagnosticSink struct {
 	ports.RuntimeDiagnosticSink
 	events []domain.RuntimeDiagnosticEventCode
+	inputs []domain.RuntimeDiagnosticEventInput
 	failOn domain.RuntimeDiagnosticEventCode
 }
 
 func (sink *coordinatorDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
 	code := draft.Input().Event
 	sink.events = append(sink.events, code)
+	sink.inputs = append(sink.inputs, draft.Input())
 	if code == sink.failOn {
 		return domain.RuntimeDiagnosticEvent{}, errors.New("injected diagnostic failure")
 	}

@@ -38,6 +38,29 @@ func (execution *coordinatorExecution) emitRuntimeDiagnostics(trace CoordinatorT
 	return nil
 }
 
+func (execution *coordinatorExecution) persistInitiatingFailure(job InvocationJob, outcome AttemptOutcome) error {
+	if execution == nil || execution.coordinator == nil || nilInterface(execution.coordinator.diagnostics) || outcome.Succeeded() {
+		return nil
+	}
+	condition, ok := outcome.Condition()
+	if !ok {
+		condition = AttemptConditionInternalInvariant
+	}
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticError, Component: "coordinator", Operation: "stop",
+		Event: domain.DiagnosticAttemptFailed, SessionID: execution.run.SessionID(), RunID: execution.run.ID(),
+		AttemptID: job.AttemptID(), Role: job.Role(), Provider: job.Route().ProviderInstance(),
+		Cause: diagnosticCauseForCondition(condition), Failure: string(condition), State: string(domain.AttemptRunning), Outcome: string(condition),
+	})
+	if err != nil {
+		return coordinatorDiagnosticFailure(err)
+	}
+	if _, err := execution.coordinator.diagnostics.Emit(context.WithoutCancel(execution.runContext), draft); err != nil {
+		return coordinatorDiagnosticFailure(err)
+	}
+	return nil
+}
+
 func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace CoordinatorTraceEvent) []domain.RuntimeDiagnosticEventInput {
 	base := domain.RuntimeDiagnosticEventInput{
 		Level: domain.RuntimeDiagnosticInfo, Component: "coordinator", Operation: "transition",
@@ -90,8 +113,17 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 			level, attemptEvent, roleEvent = domain.RuntimeDiagnosticInfo, domain.DiagnosticAttemptCompleted, domain.DiagnosticRoleCompleted
 		}
 		inputs := []domain.RuntimeDiagnosticEventInput{add(level, attemptEvent, string(state), string(trace.condition))}
+		if execution.diagnosticAttemptUsedRepair(trace.attemptID) {
+			if state == domain.AttemptSucceeded {
+				inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticRepairCompleted, string(state), string(trace.condition)))
+			} else {
+				inputs = append(inputs, add(domain.RuntimeDiagnosticError, domain.DiagnosticRepairExhausted, string(state), string(trace.condition)))
+			}
+		}
 		if trace.attemptKind == AttemptKindFallback {
 			inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticFallbackCompleted, string(state), string(trace.condition)))
+		} else if state != domain.AttemptSucceeded && execution.diagnosticRoleHasUnusedFallback(trace.role) {
+			inputs = append(inputs, add(domain.RuntimeDiagnosticError, domain.DiagnosticFallbackProhibited, string(state), string(trace.condition)))
 		}
 		roleLevel := domain.RuntimeDiagnosticError
 		if roleEvent == domain.DiagnosticRoleCompleted {
@@ -108,6 +140,22 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 	default:
 		return nil
 	}
+}
+
+func (execution *coordinatorExecution) diagnosticAttemptUsedRepair(id domain.AttemptID) bool {
+	for _, role := range execution.roles {
+		for index := range role.attempts {
+			if role.attempts[index].attempt.ID() == id {
+				return role.attempts[index].repairUsed
+			}
+		}
+	}
+	return false
+}
+
+func (execution *coordinatorExecution) diagnosticRoleHasUnusedFallback(role domain.Role) bool {
+	state, ok := execution.roles[role]
+	return ok && state.assignment.HasFallback() && !state.fallbackScheduled
 }
 
 func (execution *coordinatorExecution) diagnosticAttemptProvider(id domain.AttemptID) string {

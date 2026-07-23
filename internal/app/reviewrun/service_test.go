@@ -364,13 +364,31 @@ func TestServiceExecuteRetriesTerminalDrainBeforeAbort(t *testing.T) {
 		calls:     &calls,
 		authority: authority,
 	})
+	diagnostics := &serviceDiagnosticFactory{calls: &calls}
+	service.dependencies.Diagnostics = diagnostics
 	_, err := service.Execute(parent, serviceRequest(t, capture))
 	if err == nil {
 		t.Fatal("Execute() succeeded after planning failure")
 	}
-	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "plan", "drain", "drain", "abort"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "sink", "authority", "plan", "drain", "drain", "abort"})
 	if !providerTerminalMatches(lease.abort.TerminalReceipt(), terminal.ProviderRunTerminalReceipt()) {
 		t.Fatal("abort did not retain the retried terminal aggregate")
+	}
+	wantCleanup := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticNamespaceDrainStarted, domain.DiagnosticNamespaceDrained,
+		domain.DiagnosticWorkspaceCleanupStarted, domain.DiagnosticWorkspaceCleanupCompleted,
+	}
+	position := 0
+	for _, event := range diagnostics.events {
+		if position < len(wantCleanup) && event == wantCleanup[position] {
+			position++
+		}
+	}
+	if position != len(wantCleanup) {
+		t.Fatalf("cancelled cleanup diagnostics = %v, missing %v", diagnostics.events, wantCleanup[position:])
+	}
+	if len(diagnostics.finalizeRequests) != 1 || diagnostics.finalizeRequests[0].State() != domain.RunCancelled {
+		t.Fatalf("cancelled finalize requests = %#v", diagnostics.finalizeRequests)
 	}
 }
 
@@ -521,6 +539,9 @@ func TestServiceExecuteOpensDiagnosticsBeforeQualification(t *testing.T) {
 	assertServiceCalls(t, calls, []string{"capture", "session", "run", "sink", "authority", "plan", "drain", "abort"})
 	want := []domain.RuntimeDiagnosticEventCode{
 		domain.DiagnosticCommandAccepted, domain.DiagnosticRuntimeOpened, domain.DiagnosticSessionCreated, domain.DiagnosticRunCreated,
+		domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationCandidateChecked, domain.DiagnosticQualificationSucceeded,
+		domain.DiagnosticNamespaceDrainStarted, domain.DiagnosticNamespaceDrained,
+		domain.DiagnosticWorkspaceCleanupStarted, domain.DiagnosticWorkspaceCleanupCompleted,
 	}
 	if len(diagnostics.events) != len(want) {
 		t.Fatalf("initial diagnostic events = %v", diagnostics.events)
@@ -565,6 +586,47 @@ func TestServiceExecuteDiagnosticFinalizeFailureHasNoURI(t *testing.T) {
 	}
 	if _, ok := RuntimeDiagnosticURIFromError(err); ok {
 		t.Fatal("failed diagnostic finalize exposed a dangling URI")
+	}
+}
+
+func TestServiceExecuteFinalizesLoginRequiredAfterCleanup(t *testing.T) {
+	calls := []string{}
+	lease := newServiceLease(t, &calls)
+	capture := &serviceCapture{captured: serviceCapturedChanged(t, lease)}
+	authority := &serviceAuthority{calls: &calls, terminal: serviceQualifiedTerminal(t)}
+	failure, err := domain.NewFailure("qualification", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginErr := newProviderLoginRequiredError([]string{"agy"}, failure)
+	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls, authority: authority, err: loginErr})
+	diagnostics := &serviceDiagnosticFactory{calls: &calls}
+	service.dependencies.Diagnostics = diagnostics
+
+	_, err = service.Execute(context.Background(), serviceRequest(t, capture))
+	providers, loginRequired := ProviderLoginRequiredProvidersFromError(err)
+	if !loginRequired || len(providers) != 1 || providers[0] != "agy" {
+		t.Fatalf("login-required failure = %v, providers %v", err, providers)
+	}
+	if _, ok := RuntimeDiagnosticURIFromError(err); !ok {
+		t.Fatal("login-required failure did not expose installed diagnostics")
+	}
+	if len(diagnostics.finalizeRequests) != 1 || diagnostics.finalizeRequests[0].State() != domain.RunFailed || diagnostics.finalizeRequests[0].Cause() != domain.DiagnosticCauseLoginRequired {
+		t.Fatalf("login-required finalize requests = %#v", diagnostics.finalizeRequests)
+	}
+	want := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationRejected,
+		domain.DiagnosticNamespaceDrainStarted, domain.DiagnosticNamespaceDrained,
+		domain.DiagnosticWorkspaceCleanupStarted, domain.DiagnosticWorkspaceCleanupCompleted,
+	}
+	position := 0
+	for _, event := range diagnostics.events {
+		if position < len(want) && event == want[position] {
+			position++
+		}
+	}
+	if position != len(want) {
+		t.Fatalf("login-required diagnostics = %v, missing %v", diagnostics.events, want[position:])
 	}
 }
 
@@ -667,10 +729,11 @@ type serviceAuthorityFactory struct {
 }
 
 type serviceDiagnosticFactory struct {
-	calls       *[]string
-	openErr     error
-	finalizeErr error
-	events      []domain.RuntimeDiagnosticEventCode
+	calls            *[]string
+	openErr          error
+	finalizeErr      error
+	events           []domain.RuntimeDiagnosticEventCode
+	finalizeRequests []ports.RuntimeDiagnosticFinalizeRequest
 }
 
 func (factory *serviceDiagnosticFactory) Open(_ context.Context, request ports.RuntimeDiagnosticOpenRequest) (ports.RuntimeDiagnosticSink, error) {
@@ -696,6 +759,7 @@ func (sink *serviceDiagnosticSink) Emit(ctx context.Context, draft domain.Runtim
 }
 
 func (sink *serviceDiagnosticSink) Finalize(ctx context.Context, request ports.RuntimeDiagnosticFinalizeRequest) (ports.RuntimeDiagnosticFinalizeResult, error) {
+	sink.factory.finalizeRequests = append(sink.factory.finalizeRequests, request)
 	if sink.factory.finalizeErr != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, sink.factory.finalizeErr
 	}

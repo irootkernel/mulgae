@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -43,6 +44,20 @@ func (lifecycle *runtimeDiagnosticLifecycle) ObservePublicationLifecycle(ctx con
 	_, err := lifecycle.emit(ctx, domain.RuntimeDiagnosticEventInput{
 		Level: level, Component: "publication", Operation: "commit", Event: code,
 		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID,
+	})
+	return err
+}
+
+func (lifecycle *runtimeDiagnosticLifecycle) observeRunEvent(
+	ctx context.Context,
+	event domain.RuntimeDiagnosticEventCode,
+	component string,
+	operation string,
+	role domain.Role,
+) error {
+	_, err := lifecycle.emit(ctx, domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticInfo, Component: component, Operation: operation, Event: event,
+		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID, Role: role,
 	})
 	return err
 }
@@ -117,7 +132,13 @@ func (lifecycle *runtimeDiagnosticLifecycle) emit(ctx context.Context, input dom
 	return event, nil
 }
 
-func (lifecycle *runtimeDiagnosticLifecycle) finalize(parent context.Context, state domain.RunState, cause domain.RuntimeDiagnosticCause) (ports.RuntimeDiagnosticFinalizeResult, error) {
+func (lifecycle *runtimeDiagnosticLifecycle) finalize(
+	parent context.Context,
+	state domain.RunState,
+	cause domain.RuntimeDiagnosticCause,
+	result Result,
+	coordinator review.CoordinatorResult,
+) (ports.RuntimeDiagnosticFinalizeResult, error) {
 	if lifecycle == nil || nilInterface(lifecycle.sink) {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", fmt.Errorf("diagnostic lifecycle is unavailable"))
 	}
@@ -133,10 +154,27 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(parent context.Context, st
 	if now.IsZero() || now.Before(lifecycle.identity.startedAt) {
 		now = lifecycle.identity.startedAt
 	}
+	laneCompleted, laneFailed := 0, 0
+	for _, summary := range coordinator.RoleSummaries() {
+		if summary.State() == domain.RoleTaskSucceeded {
+			laneCompleted++
+		} else {
+			laneFailed++
+		}
+	}
+	var p2URI ports.SafeRelativePath
+	if result.Snapshot().Valid() {
+		var pathErr error
+		p2URI, pathErr = ports.NewSafeRelativePath(".kar/" + result.Snapshot().Manifest().Path().String())
+		if pathErr != nil {
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", pathErr)
+		}
+	}
 	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID, State: state,
 		StartedAt: lifecycle.identity.startedAt, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true,
-		SelectedRoles: lifecycle.roles, LaneTotal: len(lifecycle.roles), LastSequence: lastSequence, TerminalCause: cause,
+		SelectedRoles: lifecycle.roles, LaneTotal: len(lifecycle.roles), LaneCompleted: laneCompleted, LaneFailed: laneFailed,
+		LastSequence: lastSequence, TerminalCause: cause, P2URI: p2URI, HasP2URI: p2URI.Valid(),
 	})
 	if err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", err)
@@ -147,30 +185,27 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(parent context.Context, st
 	}
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), time.Minute)
 	defer cancel()
-	result, err := lifecycle.sink.Finalize(finalizeCtx, request)
+	finalized, err := lifecycle.sink.Finalize(finalizeCtx, request)
 	if err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", err)
 	}
-	if !result.URI().Valid() {
+	if !finalized.URI().Valid() {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", fmt.Errorf("diagnostic sink returned no installed URI"))
 	}
 	lifecycle.mu.Lock()
 	lifecycle.finalized = true
-	lifecycle.lastSeq = result.LastSequence()
+	lifecycle.lastSeq = finalized.LastSequence()
 	lifecycle.mu.Unlock()
-	return result, nil
+	return finalized, nil
 }
 
-func runtimeDiagnosticTerminalDecision(result Result, err error) (domain.RunState, domain.RuntimeDiagnosticCause) {
+func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, err error) (domain.RunState, domain.RuntimeDiagnosticCause) {
 	if err == nil {
 		state := result.Coordinator().RunState()
 		if state == domain.RunCompleted || state == domain.RunDegraded {
 			return state, ""
 		}
 		return domain.RunCompleted, ""
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return domain.RunCancelled, ""
 	}
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
 		return domain.RunFailed, domain.DiagnosticCauseLoginRequired
@@ -187,6 +222,10 @@ func runtimeDiagnosticTerminalDecision(result Result, err error) (domain.RunStat
 		case domain.FailureCancelled:
 			return domain.RunCancelled, ""
 		}
+		return domain.RunFailed, ""
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || parent != nil && parent.Err() != nil {
+		return domain.RunCancelled, ""
 	}
 	return domain.RunFailed, ""
 }

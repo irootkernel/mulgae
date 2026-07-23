@@ -59,13 +59,29 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	cleanup := newReviewRunCleanup(lease)
 	abortReason := ports.WorkspaceAbortCaptureFailure
+	var diagnostics *runtimeDiagnosticLifecycle
+	var terminalCoordinator review.CoordinatorResult
 	defer func() {
-		if err == nil || cleanup.WorkspaceDrained() {
+		if err != nil && !cleanup.WorkspaceDrained() {
+			if cleanupErr := cleanup.DrainAndAbort(ctx, workspaceAbortReason(err, abortReason)); cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
+		}
+		if diagnostics == nil {
 			return
 		}
-		if cleanupErr := cleanup.DrainAndAbort(ctx, workspaceAbortReason(err, abortReason)); cleanupErr != nil {
-			err = errors.Join(err, cleanupErr)
+		state, cause := runtimeDiagnosticTerminalDecision(ctx, result, err)
+		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, result, terminalCoordinator)
+		if finalizeErr != nil {
+			result = Result{}
+			err = errors.Join(err, finalizeErr)
+			return
 		}
+		if err != nil {
+			err = runtimeDiagnosticReferenceError(finalized.URI(), err)
+			return
+		}
+		result.diagnostic = finalized.URI()
 	}()
 	input := captured.Input()
 
@@ -82,24 +98,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, err
 	}
-	diagnostics, err := openRuntimeDiagnosticLifecycle(ctx, service.dependencies.Diagnostics, request.ArtifactRoot, identity, request.Selection.Roles(), service.dependencies.Clock)
+	diagnostics, err = openRuntimeDiagnosticLifecycle(ctx, service.dependencies.Diagnostics, request.ArtifactRoot, identity, request.Selection.Roles(), service.dependencies.Clock)
 	if err != nil {
 		return Result{}, err
 	}
-	defer func() {
-		state, cause := runtimeDiagnosticTerminalDecision(result, err)
-		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause)
-		if finalizeErr != nil {
-			result = Result{}
-			err = errors.Join(err, finalizeErr)
-			return
-		}
-		if err != nil {
-			err = runtimeDiagnosticReferenceError(finalized.URI(), err)
-			return
-		}
-		result.diagnostic = finalized.URI()
-	}()
+	cleanup.setDiagnostics(diagnostics)
 	if input.Target().NoChange() {
 		abortReason = ports.WorkspaceAbortPublicationFailure
 		return service.publishNoChange(ctx, request, cleanup, input, target, identity, diagnostics)
@@ -111,6 +114,9 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: capture returned invalid authority")
 	}
 	abortReason = ports.WorkspaceAbortPlanningFailure
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationStarted, "qualification", "admit", ""); err != nil {
+		return Result{}, err
+	}
 	qualified, err := service.dependencies.RunAuthorityFactory.NewQualifiedRun(ctx, captured, request.Selection)
 	if !nilInterface(qualified) {
 		cleanup.setProviderOwner(qualified)
@@ -121,6 +127,9 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		cleanup.setProviderOwner(constructionOwner)
 	}
 	if err != nil {
+		if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
+			return Result{}, diagnosticErr
+		}
 		constructionTerminal, hasConstructionTerminal := ProviderRunTerminalReceiptFromError(err)
 		if partialTerminal, hasPartialTerminal := PartialProviderRunTerminalReceiptFromError(err); hasPartialTerminal {
 			cleanup.terminal = partialTerminal
@@ -138,7 +147,16 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: qualify run: %w", err)
 	}
 	if nilInterface(qualified) || nilInterface(qualified.Provider()) || nilInterface(qualified.Planner()) || !qualified.BuildIdentity().Valid() {
+		if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
+			return Result{}, diagnosticErr
+		}
 		return Result{}, fmt.Errorf("review run: qualified run returned invalid authority")
+	}
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationCandidateChecked, "qualification", "candidate", ""); err != nil {
+		return Result{}, err
+	}
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationSucceeded, "qualification", "admit", ""); err != nil {
+		return Result{}, err
 	}
 
 	verifier, err := evidence.NewVerifier(reader)
@@ -158,6 +176,17 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, err
 	}
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticReviewPlanCreated, "planning", "plan", ""); err != nil {
+		return Result{}, err
+	}
+	for _, assignment := range plan.Assignments {
+		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticAssignmentResolved, "planning", "assign", assignment.Role()); err != nil {
+			return Result{}, err
+		}
+	}
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticRunBudgetAccepted, "planning", "budget", ""); err != nil {
+		return Result{}, err
+	}
 	source, err := newPromptSource(input, service.templates, invocationIDs{ids: service.dependencies.IDs, clock: service.dependencies.Clock}, func() (prompt.RoleTaskID, error) {
 		value, err := service.dependencies.IDs.NewRoleTaskID(service.dependencies.Clock.Now())
 		if err != nil {
@@ -174,6 +203,16 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: runtime: %w", err)
 	}
+	var inventory []review.RuntimeArtifactInventory
+	inventoryDrained := false
+	drainRuntimeInventory := func() []review.RuntimeArtifactInventory {
+		if !inventoryDrained {
+			inventory = runtime.DrainRuntimeArtifactsForRun(identity.runID)
+			inventoryDrained = true
+		}
+		return inventory
+	}
+	defer drainRuntimeInventory()
 	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, service.dependencies.IDs, runtime, service.dependencies.Locker, plan.MaxLanes, receipt, diagnostics.Sink())
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
@@ -183,6 +222,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, err
 	}
 	coordinatorResult, err := coordinator.ExecuteRun(ctx, &rootRun, plan.Assignments, plan.Threshold, plan.Policy)
+	terminalCoordinator = coordinatorResult
 	if detectorErr := screenedProvider.DetectorError(); detectorErr != nil {
 		return Result{}, fmt.Errorf("review run: detect provider packet: %w", detectorErr)
 	}
@@ -207,12 +247,18 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if failure := coordinatorNonPublishableFailure(coordinatorResult); failure != nil {
 		return Result{}, failure
 	}
-	inventory := runtime.DrainRuntimeArtifactsForRun(coordinatorResult.RunID())
+	inventory = drainRuntimeInventory()
+	if err := cleanup.observe(ctx, domain.DiagnosticNamespaceDrainStarted, "provider_namespace", "drain"); err != nil {
+		return Result{}, err
+	}
 	typedTerminal, drainErr := drainQualifiedTerminal(ctx, qualified)
 	if drainErr != nil {
 		return Result{}, drainErr
 	}
 	cleanup.setProviderTerminal(typedTerminal.ProviderRunTerminalReceipt())
+	if err := cleanup.observe(ctx, domain.DiagnosticNamespaceDrained, "provider_namespace", "drain"); err != nil {
+		return Result{}, err
+	}
 	workspaceSnapshot := lease.Receipt()
 	if !workspaceSnapshot.Valid() {
 		return Result{}, fmt.Errorf("review run: workspace snapshot receipt is invalid")
@@ -222,6 +268,9 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: construct workspace completion evidence: %w", err)
 	}
+	if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupStarted, "workspace", "cleanup"); err != nil {
+		return Result{}, err
+	}
 	workspaceReceipt, releaseErr := lease.Release(completion)
 	if releaseErr != nil {
 		return Result{}, fmt.Errorf("review run: release workspace lease: %w", releaseErr)
@@ -230,6 +279,9 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: workspace release receipt does not match completion evidence")
 	}
 	cleanup.setWorkspaceDrained()
+	if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupCompleted, "workspace", "cleanup"); err != nil {
+		return Result{}, err
+	}
 
 	if qualified.BuildIdentity() != service.dependencies.Build {
 		return Result{}, fmt.Errorf("review run: qualified build identity does not match configured build")
@@ -487,6 +539,7 @@ type ReviewRunCleanup struct {
 	provider         RunAuthority
 	workspace        ports.WorkspaceSnapshotLease
 	terminal         ports.ProviderRunTerminalReceipt
+	diagnostics      *runtimeDiagnosticLifecycle
 	providerDrained  bool
 	workspaceDrained bool
 }
@@ -512,6 +565,10 @@ func (cleanup *ReviewRunCleanup) setProviderTerminal(terminal ports.ProviderRunT
 
 func (cleanup *ReviewRunCleanup) setWorkspaceDrained() { cleanup.workspaceDrained = true }
 
+func (cleanup *ReviewRunCleanup) setDiagnostics(diagnostics *runtimeDiagnosticLifecycle) {
+	cleanup.diagnostics = diagnostics
+}
+
 func (cleanup *ReviewRunCleanup) ProviderOwner() RunAuthority { return cleanup.provider }
 
 func (cleanup *ReviewRunCleanup) WorkspaceLease() ports.WorkspaceSnapshotLease {
@@ -533,6 +590,9 @@ func (cleanup *ReviewRunCleanup) DrainAndAbort(ctx context.Context, reason ports
 
 	var cleanupErr error
 	if !cleanup.providerDrained {
+		if err := cleanup.observe(ctx, domain.DiagnosticNamespaceDrainStarted, "provider_namespace", "drain"); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
 		if nilInterface(cleanup.provider) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("review run: terminal drain: qualified run is unavailable"))
 		} else {
@@ -545,16 +605,25 @@ func (cleanup *ReviewRunCleanup) DrainAndAbort(ctx context.Context, reason ports
 				cleanupErr = errors.Join(cleanupErr, err)
 			} else {
 				cleanup.setProviderTerminal(terminal.ProviderRunTerminalReceipt())
+				if err := cleanup.observe(ctx, domain.DiagnosticNamespaceDrained, "provider_namespace", "drain"); err != nil {
+					cleanupErr = errors.Join(cleanupErr, err)
+				}
 			}
 		}
 	}
 	if !cleanup.workspaceDrained {
+		if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupStarted, "workspace", "cleanup"); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
 		if !cleanup.terminal.Valid() {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("review run: workspace cleanup requires complete provider terminal evidence"))
 		} else if err := abortWorkspace(cleanup.workspace, reason, cleanup.terminal); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		} else {
 			cleanup.workspaceDrained = true
+			if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupCompleted, "workspace", "cleanup"); err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
 		}
 	}
 	if cleanupErr == nil && cleanup.providerDrained && cleanup.workspaceDrained {
@@ -564,6 +633,19 @@ func (cleanup *ReviewRunCleanup) DrainAndAbort(ctx context.Context, reason ports
 		cleanupErr = fmt.Errorf("review run: cleanup remained unresolved")
 	}
 	return &reviewRunCleanupError{cause: cleanupErr, cleanup: cleanup}
+}
+
+func (cleanup *ReviewRunCleanup) observe(ctx context.Context, event domain.RuntimeDiagnosticEventCode, component string, operation string) error {
+	if cleanup == nil || cleanup.diagnostics == nil {
+		return nil
+	}
+	cleanup.diagnostics.mu.Lock()
+	finalized := cleanup.diagnostics.finalized
+	cleanup.diagnostics.mu.Unlock()
+	if finalized {
+		return nil
+	}
+	return cleanup.diagnostics.observeRunEvent(context.WithoutCancel(ctx), event, component, operation, "")
 }
 
 type reviewRunCleanupError struct {
@@ -661,11 +743,17 @@ func (service *Service) publishNoChange(
 	if !workspaceSnapshot.Valid() {
 		return Result{}, fmt.Errorf("review run: no-change workspace snapshot receipt is invalid")
 	}
+	if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupStarted, "workspace", "cleanup"); err != nil {
+		return Result{}, err
+	}
 	workspaceReceipt, releaseErr := cleanup.WorkspaceLease().Release(completion)
 	if releaseErr != nil {
 		return Result{}, fmt.Errorf("review run: release no-change workspace lease: %w", releaseErr)
 	}
 	cleanup.setWorkspaceDrained()
+	if err := cleanup.observe(ctx, domain.DiagnosticWorkspaceCleanupCompleted, "workspace", "cleanup"); err != nil {
+		return Result{}, err
+	}
 	if !workspaceReceiptMatchesCompletion(workspaceReceipt, completion) {
 		return Result{}, fmt.Errorf("review run: no-change workspace release receipt does not match completion evidence")
 	}

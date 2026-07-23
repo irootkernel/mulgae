@@ -1143,6 +1143,9 @@ func (execution *coordinatorExecution) collectWave(
 		}
 		collected.outcomes[result.job.Ordinal()] = normalized
 		if !stopping && conditionStopsCoordinatorRun(coordinatorOutcomeCondition(normalized)) {
+			if err := execution.persistInitiatingFailure(job, normalized); err != nil {
+				return coordinatorCollectedWave{}, err
+			}
 			stopping = true
 			scheduler.cancelDispatch()
 		}
