@@ -128,6 +128,35 @@ func TestProviderResultStrictness(t *testing.T) {
 	}
 }
 
+func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T) {
+	tests := []struct {
+		name      string
+		family    string
+		fixture   []byte
+		wantCause domain.RuntimeDiagnosticCause
+	}{
+		{"Kimi missing frame", FamilyKimi, []byte(`{"role":"system"}`), domain.DiagnosticCauseOutputFrameMissing},
+		{"Kimi decode failure", FamilyKimi, []byte(`{"role":"assistant","content":[]}`), domain.DiagnosticCauseOutputDecodeFailed},
+		{"ZCode invalid envelope", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"AGY malformed stream", FamilyAgy, []byte(`{"findings":[]} trailing`), domain.DiagnosticCauseOutputFrameMissing},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := providerResult(test.family, test.fixture)
+			var failure *providerOutputFailure
+			if !errors.As(err, &failure) {
+				t.Fatal("provider result did not return a typed output failure")
+			}
+			if failure.Cause() != test.wantCause {
+				t.Fatalf("typed cause = %q, want %q", failure.Cause(), test.wantCause)
+			}
+			if strings.Contains(err.Error(), string(test.fixture)) {
+				t.Fatal("safe provider output error exposed fixture bytes")
+			}
+		})
+	}
+}
+
 func TestNewRuntimeDefinitionAllowsOptionalProvenance(t *testing.T) {
 	for _, provenance := range []struct {
 		name      string
@@ -452,6 +481,30 @@ func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
 	}
 	if string(observed.Stdout()) != "partial stdout" || string(observed.Stderr()) != "partial stderr" {
 		t.Fatal("partial runner streams were lost")
+	}
+}
+
+func TestRegistryObservePreservesTransportVerificationCause(t *testing.T) {
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseTransportVerificationFailed, "", []byte("partial stdout"), nil,
+		errors.New("private prompt-file identity detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &observationRunner{err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+		observed.PrimaryCause() != domain.DiagnosticCauseTransportVerificationFailed ||
+		string(observed.Stdout()) != "partial stdout" {
+		t.Fatalf("status = %q, cause = %q, stdout preserved = %t", observed.Status(), observed.PrimaryCause(), string(observed.Stdout()) == "partial stdout")
 	}
 }
 func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.T) {
