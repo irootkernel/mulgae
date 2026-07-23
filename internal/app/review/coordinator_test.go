@@ -384,6 +384,59 @@ func TestCoordinatorScenarios(t *testing.T) {
 	})
 }
 
+func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, false)
+	now := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
+	identityIDs := &coordinatorTestIDs{}
+	sessionID, err := identityIDs.NewSessionID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := identityIDs.NewRunID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := make([]domain.RoleTask, 0, len(assignments))
+	for _, assignment := range assignments {
+		var fallbackProvider *string
+		if fallback, ok := assignment.FallbackRoute(); ok {
+			provider := fallback.ProviderInstance()
+			fallbackProvider = &provider
+		}
+		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		if taskErr != nil {
+			t.Fatal(taskErr)
+		}
+		tasks = append(tasks, task)
+	}
+	_, root, err := domain.NewReviewSession(sessionID, now, runID, coordinatorTestTarget(t), tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	result, err := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt).ExecuteRun(
+		context.Background(), &root, assignments, domain.SeverityHigh, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SessionID() != sessionID || result.RunID() != runID || root.ID() != runID || root.SessionID() != sessionID {
+		t.Fatalf("root identity = %s/%s result=%s/%s", root.SessionID(), root.ID(), result.SessionID(), result.RunID())
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.jobs) != len(assignments) {
+		t.Fatalf("job count = %d, want %d", len(runtime.jobs), len(assignments))
+	}
+	for _, job := range runtime.jobs {
+		if job.SessionID() != sessionID || job.RunID() != runID {
+			t.Fatalf("job identity = %s/%s, want %s/%s", job.SessionID(), job.RunID(), sessionID, runID)
+		}
+	}
+}
+
 func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionLoginRequired,

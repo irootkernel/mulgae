@@ -78,9 +78,13 @@ func (service *Service) Execute(ctx context.Context, request Request) (_ Result,
 	if !service.dependencies.Build.Valid() {
 		return Result{}, fmt.Errorf("review run: invalid build identity")
 	}
+	identity, err := service.issueRootRunIdentity(request.Selection)
+	if err != nil {
+		return Result{}, err
+	}
 	if input.Target().NoChange() {
 		abortReason = ports.WorkspaceAbortPublicationFailure
-		return service.publishNoChange(ctx, request, cleanup, input, target)
+		return service.publishNoChange(ctx, request, cleanup, input, target, identity)
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -156,7 +160,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (_ Result,
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
 	}
-	coordinatorResult, err := coordinator.Execute(ctx, target, plan.Assignments, plan.Threshold, plan.Policy)
+	rootRun, err := newRootReviewRun(identity, target, plan.Assignments)
+	if err != nil {
+		return Result{}, err
+	}
+	coordinatorResult, err := coordinator.ExecuteRun(ctx, &rootRun, plan.Assignments, plan.Threshold, plan.Policy)
 	if detectorErr := screenedProvider.DetectorError(); detectorErr != nil {
 		return Result{}, fmt.Errorf("review run: detect provider packet: %w", detectorErr)
 	}
@@ -616,23 +624,10 @@ func (service *Service) publishNoChange(
 	cleanup *ReviewRunCleanup,
 	input ImmutableReviewInput,
 	target domain.TargetIdentity,
+	identity rootRunIdentity,
 ) (_ Result, err error) {
 	terminal := ports.NewEmptyProviderRunTerminalReceipt()
-	now := service.dependencies.Clock.Now().UTC()
-	if now.IsZero() {
-		return Result{}, fmt.Errorf("review run: clock returned zero time")
-	}
-	sessionID, hasSession := request.Selection.SessionID()
-	if !hasSession {
-		sessionID, err = service.dependencies.IDs.NewSessionID(now)
-		if err != nil {
-			return Result{}, fmt.Errorf("review run: issue no-change session ID: %w", err)
-		}
-	}
-	runID, err := service.dependencies.IDs.NewRunID(now)
-	if err != nil {
-		return Result{}, fmt.Errorf("review run: issue no-change run ID: %w", err)
-	}
+	sessionID, runID := identity.sessionID, identity.runID
 	roles := request.Selection.Roles()
 	order := make(map[domain.Role]int, len(domain.FixedRoleOrder()))
 	for index, role := range domain.FixedRoleOrder() {
@@ -683,6 +678,70 @@ func (service *Service) publishNoChange(
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
 	return newResult(sessionID, runID, review.CoordinatorResult{}, final, snapshot, exit)
+}
+
+type rootRunIdentity struct {
+	sessionID domain.SessionID
+	runID     domain.RunID
+	startedAt time.Time
+}
+
+func (service *Service) issueRootRunIdentity(selection RunSelection) (rootRunIdentity, error) {
+	now := service.dependencies.Clock.Now().UTC()
+	if now.IsZero() {
+		return rootRunIdentity{}, fmt.Errorf("review run: clock returned zero time")
+	}
+	sessionID, hasSession := selection.SessionID()
+	if !hasSession {
+		var err error
+		sessionID, err = service.dependencies.IDs.NewSessionID(now)
+		if err != nil {
+			return rootRunIdentity{}, fmt.Errorf("review run: issue session ID: %w", err)
+		}
+	}
+	runID, err := service.dependencies.IDs.NewRunID(now)
+	if err != nil {
+		return rootRunIdentity{}, fmt.Errorf("review run: issue run ID: %w", err)
+	}
+	return rootRunIdentity{sessionID: sessionID, runID: runID, startedAt: now}, nil
+}
+
+func newRootReviewRun(identity rootRunIdentity, target domain.TargetIdentity, assignments []review.Assignment) (domain.Run, error) {
+	byRole := make(map[domain.Role]review.Assignment, len(assignments))
+	for _, assignment := range assignments {
+		if !assignment.Role().Valid() || !assignment.PrimaryRoute().Valid() {
+			return domain.Run{}, fmt.Errorf("review run: invalid root assignment")
+		}
+		if _, duplicate := byRole[assignment.Role()]; duplicate {
+			return domain.Run{}, fmt.Errorf("review run: duplicate root assignment for role %q", assignment.Role())
+		}
+		byRole[assignment.Role()] = assignment
+	}
+	tasks := make([]domain.RoleTask, 0, len(assignments))
+	for _, role := range domain.FixedRoleOrder() {
+		assignment, ok := byRole[role]
+		if !ok {
+			continue
+		}
+		var fallbackProvider *string
+		if fallback, hasFallback := assignment.FallbackRoute(); hasFallback {
+			provider := fallback.ProviderInstance()
+			fallbackProvider = &provider
+		}
+		task, err := domain.NewRoleTask(role, assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		if err != nil {
+			return domain.Run{}, fmt.Errorf("review run: construct root role %q: %w", role, err)
+		}
+		tasks = append(tasks, task)
+	}
+	if len(tasks) != len(assignments) {
+		return domain.Run{}, fmt.Errorf("review run: root assignments must use fixed roles")
+	}
+	_, run, err := domain.NewReviewSession(identity.sessionID, identity.startedAt, identity.runID, target, tasks)
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("review run: construct identified root run: %w", err)
+	}
+	return run, nil
 }
 
 type packetScreeningProvider struct {

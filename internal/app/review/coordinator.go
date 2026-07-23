@@ -546,8 +546,9 @@ func (runtime exactReplayInvocationRuntime) Invoke(ctx context.Context, job Invo
 	return runtime.runtime.InvokeExactReplay(ctx, job, runtime.input)
 }
 
-// ExecuteRun executes one supplied fresh pending child run without replacing its
-// run, session, or lineage identities.
+// ExecuteRun executes one supplied fresh pending run without replacing its run,
+// session, or lineage identities. Root review runs have no lineage while child
+// runs must retain both parent and source lineage.
 func (coordinator *Coordinator) ExecuteRun(
 	ctx context.Context,
 	run *domain.Run,
@@ -598,14 +599,17 @@ func (coordinator *Coordinator) execute(
 		if _, err := domain.ParseSessionID(supplied.SessionID().String()); err != nil {
 			return CoordinatorResult{}, fmt.Errorf("review coordinator: invalid supplied session ID: %w", err)
 		}
-		if supplied.Type() == domain.RunTypeReview || !supplied.Type().Valid() || supplied.State() != domain.RunPending {
-			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied run must be a fresh pending child run")
+		if !supplied.Type().Valid() || supplied.State() != domain.RunPending {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied run must be fresh and pending")
 		}
-		if _, ok := supplied.ParentRunID(); !ok {
-			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied child run is missing parent lineage")
-		}
-		if _, ok := supplied.SourceRunID(); !ok {
-			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied child run is missing source lineage")
+		_, hasParent := supplied.ParentRunID()
+		_, hasSource := supplied.SourceRunID()
+		if supplied.Type() == domain.RunTypeReview {
+			if hasParent || hasSource {
+				return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied root run must not have lineage")
+			}
+		} else if !hasParent || !hasSource {
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: supplied child run is missing lineage")
 		}
 		target = supplied.Target()
 	}
@@ -613,7 +617,8 @@ func (coordinator *Coordinator) execute(
 	if err != nil {
 		return CoordinatorResult{}, err
 	}
-	canonicalAssignments, roleTasks, err := coordinatorAssignments(assignments, coordinator.receipt, supplied != nil)
+	allowSubset := supplied != nil && supplied.Type() != domain.RunTypeReview
+	canonicalAssignments, roleTasks, err := coordinatorAssignments(assignments, coordinator.receipt, allowSubset)
 	if err != nil {
 		return CoordinatorResult{}, err
 	}

@@ -291,7 +291,7 @@ func TestServiceExecuteMalformedAuthorityDrainsProviderAndWorkspace(t *testing.T
 	if !errors.Is(err, providerFailure) || !errors.Is(err, workspaceFailure) {
 		t.Fatalf("Execute() error = %v, want joined provider and workspace cleanup failures", err)
 	}
-	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain", "abort"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "drain", "drain", "abort"})
 	state, ok := CleanupStateFromError(err)
 	if !ok || state.ProviderOwner() != authority || state.WorkspaceLease() != lease || state.ProviderDrained() || state.WorkspaceDrained() {
 		t.Fatal("malformed authority cleanup did not retain both retry authorities")
@@ -321,7 +321,7 @@ func TestServiceExecuteConstructionFailureRetainsOwnerForCleanupRetry(t *testing
 	if !errors.Is(err, constructionFailure) || !errors.Is(err, firstDrainFailure) {
 		t.Fatalf("Execute() error = %v, want construction and first drain failures", err)
 	}
-	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "drain", "drain"})
 	state, ok := CleanupStateFromError(err)
 	if !ok || state.ProviderOwner() != authority || state.WorkspaceLease() != lease || state.ProviderDrained() || state.WorkspaceDrained() {
 		t.Fatal("construction failure did not retain the exact cleanup authorities")
@@ -330,7 +330,7 @@ func TestServiceExecuteConstructionFailureRetainsOwnerForCleanupRetry(t *testing
 	if err := state.DrainAndAbort(context.Background(), ports.WorkspaceAbortPlanningFailure); err != nil {
 		t.Fatalf("cleanup retry = %v", err)
 	}
-	assertServiceCalls(t, calls, []string{"capture", "authority", "drain", "drain", "drain", "abort"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "drain", "drain", "drain", "abort"})
 	if !state.ProviderDrained() || !state.WorkspaceDrained() || lease.abort.WorkspaceSnapshotIdentity() != lease.identity {
 		t.Fatal("cleanup retry did not drain the retained provider then abort the captured workspace identity")
 	}
@@ -368,7 +368,7 @@ func TestServiceExecuteRetriesTerminalDrainBeforeAbort(t *testing.T) {
 	if err == nil {
 		t.Fatal("Execute() succeeded after planning failure")
 	}
-	assertServiceCalls(t, calls, []string{"capture", "authority", "plan", "drain", "drain", "abort"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "plan", "drain", "drain", "abort"})
 	if !providerTerminalMatches(lease.abort.TerminalReceipt(), terminal.ProviderRunTerminalReceipt()) {
 		t.Fatal("abort did not retain the retried terminal aggregate")
 	}
@@ -387,7 +387,7 @@ func TestServiceExecuteRetainsCleanupOwnerWhenTerminalDrainPersists(t *testing.T
 	if err == nil {
 		t.Fatal("Execute() succeeded with persistent terminal drain failure")
 	}
-	assertServiceCalls(t, calls, []string{"capture", "authority", "plan", "drain", "drain"})
+	assertServiceCalls(t, calls, []string{"capture", "session", "run", "authority", "plan", "drain", "drain"})
 	if lease.aborted {
 		t.Fatal("persistent drain failure aborted workspace without terminal proof")
 	}
@@ -482,6 +482,27 @@ func TestServiceExecuteNoChangePreReleaseFailureAbortsWithEmptyTerminal(t *testi
 	if !lease.abort.TerminalReceipt().NoNamespaces() {
 		t.Fatal("no-change abort did not use the exact empty provider terminal aggregate")
 	}
+}
+
+func TestIssueRootRunIdentityPreservesSuppliedSession(t *testing.T) {
+	calls := []string{}
+	supplied, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000099")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := NewRunSelection([]domain.Role{domain.RoleLogic, domain.RoleSecurity}, &supplied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{dependencies: Dependencies{Clock: serviceClock{}, IDs: &serviceIDs{calls: &calls}}}
+	identity, err := service.issueRootRunIdentity(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.sessionID != supplied || identity.runID.String() == "" || identity.startedAt.IsZero() {
+		t.Fatalf("identity = %#v, want supplied session and issued run", identity)
+	}
+	assertServiceCalls(t, calls, []string{"run"})
 }
 
 func TestServiceExecuteRejectsNoChangeReleaseReceiptMismatch(t *testing.T) {
