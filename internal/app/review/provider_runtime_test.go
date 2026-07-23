@@ -28,9 +28,11 @@ func (resolver providerRuntimeDiagnosticResolver) RuntimeDiagnosticSink(runID do
 
 type providerRuntimeRawSink struct {
 	streams map[domain.RuntimeDiagnosticStream][]byte
+	events  []domain.RuntimeDiagnosticEventCode
 }
 
-func (sink *providerRuntimeRawSink) Emit(context.Context, domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+func (sink *providerRuntimeRawSink) Emit(_ context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	sink.events = append(sink.events, draft.Input().Event)
 	return domain.RuntimeDiagnosticEvent{}, nil
 }
 func (sink *providerRuntimeRawSink) PersistRaw(_ context.Context, request ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
@@ -108,6 +110,73 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	stderr, hasStderr := inventory.DiagnosticStderr()
 	if !hasStdout || !hasStderr || stdout.Stream() != domain.DiagnosticStdout || stderr.Stream() != domain.DiagnosticStderr {
 		t.Fatal("runtime inventory did not retain separated raw references")
+	}
+}
+
+func TestProviderRuntimeOutputReceivedRequiresNonEmptyStdout(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := coordinatorTypesAttemptID(t, 12)
+	job, err := newCoordinatorInvocationJob(
+		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetBytes := []byte("provider packet")
+	packet, err := ports.NewProviderPacket(packetBytes, providerRuntimePacketDigest(packetBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := ports.NewProviderInvocationWithPacket(
+		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), ports.ProviderInvocationInitial, packet,
+		"i_019f5a09-5eec-7001-8001-000000000014", "019f5a09-5eec-7001-8001-000000000015",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name       string
+		stdout     []byte
+		wantOutput bool
+	}{
+		{name: "non-empty", stdout: []byte("candidate output"), wantOutput: true},
+		{name: "empty", stdout: nil, wantOutput: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation, err := ports.NewPartialFailedProviderExecutionObservation(
+				ports.ProviderExecutionStatusInternalFailure, invocation, test.stdout, nil,
+				"process_wait_failed", domain.DiagnosticCauseProviderProcessWaitFailed, "", 1024, 1024,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sink := &providerRuntimeRawSink{}
+			runtime := &ProviderInvocationRuntime{
+				diagnostics: providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: sink},
+			}
+			if err := runtime.emitObservationDiagnostics(context.Background(), job, observation); err != nil {
+				t.Fatal(err)
+			}
+			gotOutput := false
+			for _, event := range sink.events {
+				if event == domain.DiagnosticOutputReceived {
+					gotOutput = true
+				}
+			}
+			if gotOutput != test.wantOutput {
+				t.Fatalf("output-received event = %t, want %t; events=%v", gotOutput, test.wantOutput, sink.events)
+			}
+		})
 	}
 }
 
