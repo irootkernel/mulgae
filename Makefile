@@ -34,7 +34,8 @@ test-e2e:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e requires darwin/arm64" >&2; exit 1; }
 	@e2e_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
-	e2e_project="$$(mktemp -d "$${TMPDIR:-/tmp}/kar-e2e-project.XXXXXX")"; \
+	e2e_base="$${TMPDIR:-/tmp}"; \
+	e2e_project="$$(mktemp -d "$${e2e_base%/}/kar-e2e-project.XXXXXX")"; \
 	chmod 700 "$$e2e_project"; \
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
 	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
