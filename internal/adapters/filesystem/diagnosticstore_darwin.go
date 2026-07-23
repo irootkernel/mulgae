@@ -17,6 +17,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var errDiagnosticNamespaceUncertain = errors.New("diagnostic namespace durability is uncertain")
+
 func (factory *DiagnosticStoreFactory) Open(ctx context.Context, request ports.RuntimeDiagnosticOpenRequest) (ports.RuntimeDiagnosticSink, error) {
 	if ctx == nil {
 		return nil, diagnosticPersistenceError(ports.DiagnosticPersistenceOpen, "nil_context", errors.New("nil context"))
@@ -34,6 +36,15 @@ func (factory *DiagnosticStoreFactory) Open(ctx context.Context, request ports.R
 	if err := store.openOrCreateLog(ctx); err != nil {
 		return nil, diagnosticPersistenceError(ports.DiagnosticPersistenceOpen, "open_runtime_log", err)
 	}
+	existingStatus, err := store.validateExistingRunStatus()
+	if err != nil {
+		store.closeLog()
+		return nil, diagnosticPersistenceError(ports.DiagnosticPersistenceOpen, "initial_status", err)
+	}
+	if existingStatus {
+		store.installed = true
+		return store, nil
+	}
 	initial, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: request.SessionID(), RunID: request.RunID(), State: domain.RunRunning, StartedAt: request.StartedAt(), UpdatedAt: request.StartedAt(), LastSequence: store.sequence})
 	if err != nil {
 		store.closeLog()
@@ -45,6 +56,65 @@ func (factory *DiagnosticStoreFactory) Open(ctx context.Context, request ports.R
 	}
 	store.installed = true
 	return store, nil
+}
+
+func (store *DiagnosticStore) validateExistingRunStatus() (bool, error) {
+	parts := strings.Split(store.request.RunPath().String(), "/")
+	directory, err := walkPrivateDirectory(store.request.Root(), parts, false)
+	if err != nil {
+		return false, err
+	}
+	defer closeFD(directory)
+	fd, err := unix.Openat(directory, "status.json", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("open existing run status: %w", err)
+	}
+	defer closeFD(fd)
+	if err := verifyPrivateRegularFile(fd); err != nil {
+		return false, fmt.Errorf("verify existing run status: %w", err)
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil || stat.Size <= 0 || stat.Size > ports.RuntimeDiagnosticStatusMaxBytes {
+		return false, fmt.Errorf("existing run status size is invalid")
+	}
+	data := make([]byte, int(stat.Size))
+	for offset := 0; offset < len(data); {
+		count, readErr := unix.Pread(fd, data[offset:], int64(offset))
+		if count > 0 {
+			offset += count
+		}
+		if errors.Is(readErr, unix.EINTR) {
+			continue
+		}
+		if readErr != nil || count == 0 {
+			return false, fmt.Errorf("read existing run status: %w", errors.Join(readErr, io.ErrUnexpectedEOF))
+		}
+	}
+	var wire runtimeDiagnosticRunStatusWire
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return false, fmt.Errorf("decode existing run status: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("existing run status has trailing content")
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, wire.StartedAt)
+	updatedAt, updatedErr := time.Parse(time.RFC3339Nano, wire.UpdatedAt)
+	if err != nil || updatedErr != nil || wire.SchemaVersion != ports.RuntimeDiagnosticRunStatusSchema || wire.SessionID != store.request.SessionID().String() || wire.RunID != store.request.RunID().String() || !wire.DiagnosticOnly || wire.PublicationAuthority || wire.StartedAt != store.request.StartedAt().Format(time.RFC3339Nano) || !startedAt.Equal(store.request.StartedAt()) || wire.LastSequence > store.sequence {
+		return false, fmt.Errorf("existing run status identity or sequence mismatch")
+	}
+	if wire.State != domain.RunRunning {
+		return false, fmt.Errorf("existing diagnostic run is terminal")
+	}
+	if _, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, DroppedEvents: wire.DroppedEvents}); err != nil || wire.CompletedAt != "" || wire.P2URI != "" {
+		return false, fmt.Errorf("existing run status is invalid")
+	}
+	store.droppedEvents = wire.DroppedEvents
+	return true, nil
 }
 
 func (store *DiagnosticStore) openOrCreateLog(ctx context.Context) error {
@@ -165,11 +235,14 @@ func (store *DiagnosticStore) Emit(ctx context.Context, draft domain.RuntimeDiag
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if store.state != diagnosticStoreOpen {
+		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "closed", errors.New("diagnostic store is not writable"))
+	}
 	return store.appendEventLocked(draft)
 }
 
 func (store *DiagnosticStore) appendEventLocked(draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
-	if store.finalized || store.logFD < 0 {
+	if (store.state != diagnosticStoreOpen && store.state != diagnosticStoreFinalizing) || store.logFD < 0 {
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "closed", errors.New("diagnostic store is closed"))
 	}
 	input := draft.Input()
@@ -214,18 +287,36 @@ func (store *DiagnosticStore) appendEventLocked(draft domain.RuntimeDiagnosticEv
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "namespace_changed", err)
 	}
 	if err := writeAllWith(store.logFD, encoded, store.operations.write); err != nil {
-		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "append", err)
+		return domain.RuntimeDiagnosticEvent{}, store.rollbackAppendLocked("append", err)
 	}
 	if err := store.operations.fsync(store.logFD); err != nil {
-		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "sync", err)
+		return domain.RuntimeDiagnosticEvent{}, store.rollbackAppendLocked("sync", err)
 	}
 	if err := store.validateLogPath(); err != nil {
+		store.state = diagnosticStorePoisoned
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "post_sync_verification", err)
 	}
 	store.sequence = event.Sequence()
 	store.lastElapsed = event.ElapsedMillis()
 	store.logBytes += int64(len(encoded))
 	return event, nil
+}
+
+func (store *DiagnosticStore) rollbackAppendLocked(detail string, appendErr error) error {
+	truncateErr := store.operations.ftruncate(store.logFD, store.logBytes)
+	syncErr := error(nil)
+	verifyErr := error(nil)
+	if truncateErr == nil {
+		syncErr = store.operations.fsync(store.logFD)
+	}
+	if truncateErr == nil && syncErr == nil {
+		verifyErr = store.validateLogPath()
+	}
+	if recoveryErr := errors.Join(truncateErr, syncErr, verifyErr); recoveryErr != nil {
+		store.state = diagnosticStorePoisoned
+		return diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "terminal_event", errors.Join(appendErr, recoveryErr))
+	}
+	return diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, detail, appendErr)
 }
 
 func (store *DiagnosticStore) validateLogPath() error {
@@ -248,7 +339,7 @@ func (store *DiagnosticStore) ReplaceRunStatus(ctx context.Context, status ports
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.finalized {
+	if store.state != diagnosticStoreOpen {
 		return diagnosticPersistenceError(ports.DiagnosticPersistenceStatus, "closed", errors.New("diagnostic store is finalized"))
 	}
 	return store.replaceRunStatusLocked(status, status.LastSequence())
@@ -274,7 +365,7 @@ func (store *DiagnosticStore) ReplaceAttemptStatus(ctx context.Context, status p
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.finalized || status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() || status.LastSequence() > store.sequence {
+	if store.state != diagnosticStoreOpen || status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() || status.LastSequence() > store.sequence {
 		return diagnosticPersistenceError(ports.DiagnosticPersistenceStatus, "invalid_attempt_status", errors.New("invalid attempt status"))
 	}
 	encoded, err := encodeRuntimeDiagnosticAttemptStatus(status)
@@ -297,7 +388,7 @@ func (store *DiagnosticStore) ReplaceInvocationStatus(ctx context.Context, statu
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.finalized || status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() || status.LastSequence() > store.sequence {
+	if store.state != diagnosticStoreOpen || status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() || status.LastSequence() > store.sequence {
 		return diagnosticPersistenceError(ports.DiagnosticPersistenceStatus, "invalid_invocation_status", errors.New("invalid invocation status"))
 	}
 	encoded, err := encodeRuntimeDiagnosticInvocationStatus(status)
@@ -366,8 +457,13 @@ func (store *DiagnosticStore) atomicReplace(path ports.SafeRelativePath, data []
 			return cleanup(err)
 		}
 		if err := unix.Unlinkat(directory, temporaryName, 0); err != nil {
-			temporaryName = ""
-			return errors.Join(err, operations.close(temporaryFD))
+			rollbackErr := operations.renameatxNp(directory, temporaryName, directory, name, unix.RENAME_SWAP)
+			if rollbackErr != nil {
+				store.state = diagnosticStorePoisoned
+				temporaryName = ""
+				return errors.Join(errDiagnosticNamespaceUncertain, err, rollbackErr, operations.close(temporaryFD))
+			}
+			return cleanup(err)
 		}
 		temporaryName = ""
 	} else if errors.Is(openErr, unix.ENOENT) {
@@ -378,13 +474,30 @@ func (store *DiagnosticStore) atomicReplace(path ports.SafeRelativePath, data []
 	} else {
 		return cleanup(openErr)
 	}
+	store.operations.afterStatusInstall()
 	if err := validateSecureFileAt(directory, name, identity); err != nil {
-		return errors.Join(err, operations.close(temporaryFD))
+		store.state = diagnosticStorePoisoned
+		store.installed = false
+		return errors.Join(errDiagnosticNamespaceUncertain, err, operations.close(temporaryFD))
+	}
+	if err := revalidatePrivateDirectory(store.request.Root(), parts, directoryID, operations); err != nil {
+		store.state = diagnosticStorePoisoned
+		store.installed = false
+		return errors.Join(errDiagnosticNamespaceUncertain, err, operations.close(temporaryFD))
 	}
 	closeErr := operations.close(temporaryFD)
 	temporaryFD = -1
 	syncErr := operations.fsync(directory)
-	return errors.Join(closeErr, syncErr)
+	if closeErr != nil || syncErr != nil {
+		store.state = diagnosticStorePoisoned
+		return errors.Join(errDiagnosticNamespaceUncertain, closeErr, syncErr)
+	}
+	if err := revalidatePrivateDirectory(store.request.Root(), parts, directoryID, operations); err != nil {
+		store.state = diagnosticStorePoisoned
+		store.installed = false
+		return errors.Join(errDiagnosticNamespaceUncertain, err)
+	}
+	return nil
 }
 
 func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.RuntimeDiagnosticFinalizeRequest) (ports.RuntimeDiagnosticFinalizeResult, error) {
@@ -396,34 +509,55 @@ func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.Runtim
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.finalized {
+	if store.state == diagnosticStoreFinalized {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "already_finalized", errors.New("diagnostic store already finalized"))
+	}
+	if store.state == diagnosticStorePoisoned {
+		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", errors.New("diagnostic store durability is uncertain"))
 	}
 	status := request.Status()
 	if status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "identity_mismatch", errors.New("final status identity mismatch"))
 	}
-	level := domain.RuntimeDiagnosticInfo
-	closeEvent := domain.DiagnosticRunCompleted
-	if request.State() == domain.RunFailed || request.State() == domain.RunCancelled {
-		level = domain.RuntimeDiagnosticError
-		closeEvent = domain.DiagnosticRunStopped
+	if store.state == diagnosticStoreFinalizing && (store.terminalState != request.State() || store.terminalCause != request.Cause()) {
+		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "identity_mismatch", errors.New("finalize retry does not match terminal decision"))
 	}
-	draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{Level: level, Component: "runtime", Operation: "finalize", Event: closeEvent, SessionID: store.request.SessionID(), RunID: store.request.RunID(), Cause: request.Cause(), State: string(request.State())})
-	if err != nil {
-		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", err)
+	if store.state == diagnosticStoreOpen {
+		store.state = diagnosticStoreFinalizing
+		store.terminalState = request.State()
+		store.terminalCause = request.Cause()
 	}
-	if _, err := store.appendEventLocked(draft); err != nil {
-		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", err)
+	if !store.terminalEvent {
+		level := domain.RuntimeDiagnosticInfo
+		closeEvent := domain.DiagnosticRunCompleted
+		if request.State() == domain.RunFailed || request.State() == domain.RunCancelled {
+			level = domain.RuntimeDiagnosticError
+			closeEvent = domain.DiagnosticRunStopped
+		}
+		draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{Level: level, Component: "runtime", Operation: "finalize", Event: closeEvent, SessionID: store.request.SessionID(), RunID: store.request.RunID(), Cause: request.Cause(), State: string(request.State())})
+		if err != nil {
+			store.state = diagnosticStoreOpen
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", err)
+		}
+		if _, err := store.appendEventLocked(draft); err != nil {
+			if store.state != diagnosticStorePoisoned {
+				store.state = diagnosticStoreOpen
+			}
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", err)
+		}
+		store.terminalEvent = true
 	}
-	if err := store.replaceRunStatusLocked(status, store.sequence); err != nil {
-		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_status", err)
+	if !store.terminalStatus {
+		if err := store.replaceRunStatusLocked(status, store.sequence); err != nil {
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_status", err)
+		}
+		store.terminalStatus = true
 	}
 	if err := store.operations.close(store.logFD); err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "close_log", err)
 	}
 	store.logFD = -1
-	store.finalized = true
+	store.state = diagnosticStoreFinalized
 	result, err := ports.NewRuntimeDiagnosticFinalizeResult(store.request.RunPath(), store.sequence)
 	if err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "result", err)
@@ -439,7 +573,7 @@ func (store *DiagnosticStore) closeLog() {
 }
 
 func defaultDiagnosticStoreOperations() diagnosticStoreOperations {
-	return diagnosticStoreOperations{write: unix.Write, fsync: unix.Fsync, close: unix.Close}
+	return diagnosticStoreOperations{write: unix.Write, fsync: unix.Fsync, ftruncate: unix.Ftruncate, close: unix.Close, afterStatusInstall: func() {}}
 }
 
 func mandatoryRuntimeDiagnosticEvent(code domain.RuntimeDiagnosticEventCode) bool {
@@ -465,7 +599,7 @@ func (store *DiagnosticStore) PersistRaw(ctx context.Context, request ports.Runt
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.finalized {
+	if store.state != diagnosticStoreOpen {
 		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "closed", errors.New("diagnostic store is finalized"))
 	}
 	destination, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/attempts/%s/invocations/%03d-%s/%s.raw", store.request.RunPath().String(), request.AttemptID().String(), request.Ordinal(), request.Purpose(), request.Stream()))

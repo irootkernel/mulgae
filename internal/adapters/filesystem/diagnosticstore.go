@@ -23,20 +23,33 @@ func NewDiagnosticStoreFactory(writer ports.SecureFileWriter, clock ports.Clock)
 }
 
 type DiagnosticStore struct {
-	mu            sync.Mutex
-	request       ports.RuntimeDiagnosticOpenRequest
-	writer        ports.SecureFileWriter
-	clock         ports.Clock
-	logFD         int
-	logIdentity   diagnosticFileIdentity
-	sequence      uint64
-	lastElapsed   uint64
-	logBytes      int64
-	droppedEvents uint64
-	finalized     bool
-	installed     bool
-	operations    diagnosticStoreOperations
+	mu             sync.Mutex
+	request        ports.RuntimeDiagnosticOpenRequest
+	writer         ports.SecureFileWriter
+	clock          ports.Clock
+	logFD          int
+	logIdentity    diagnosticFileIdentity
+	sequence       uint64
+	lastElapsed    uint64
+	logBytes       int64
+	droppedEvents  uint64
+	state          diagnosticStoreState
+	terminalState  domain.RunState
+	terminalCause  domain.RuntimeDiagnosticCause
+	terminalEvent  bool
+	terminalStatus bool
+	installed      bool
+	operations     diagnosticStoreOperations
 }
+
+type diagnosticStoreState uint8
+
+const (
+	diagnosticStoreOpen diagnosticStoreState = iota
+	diagnosticStoreFinalizing
+	diagnosticStoreFinalized
+	diagnosticStorePoisoned
+)
 
 type diagnosticFileIdentity struct {
 	device uint64
@@ -44,9 +57,11 @@ type diagnosticFileIdentity struct {
 }
 
 type diagnosticStoreOperations struct {
-	write func(int, []byte) (int, error)
-	fsync func(int) error
-	close func(int) error
+	write              func(int, []byte) (int, error)
+	fsync              func(int) error
+	ftruncate          func(int, int64) error
+	close              func(int) error
+	afterStatusInstall func()
 }
 
 var _ ports.RuntimeDiagnosticSink = (*DiagnosticStore)(nil)

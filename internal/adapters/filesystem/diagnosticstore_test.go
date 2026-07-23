@@ -238,6 +238,11 @@ func TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner(t *test
 	if err == nil {
 		t.Fatal("secret stream persisted")
 	}
+	var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+	var persistence *ports.RuntimeDiagnosticPersistenceError
+	if !errors.As(err, &rejection) || errors.As(err, &persistence) {
+		t.Fatalf("secret rejection classification = %T, %v", err, err)
+	}
 	drop, ok := dropped.Drop()
 	if !ok || drop.Channel() != "provider_stderr" || !aborted.Load() {
 		t.Fatalf("secret drop = %#v, aborted=%v", dropped, aborted.Load())
@@ -256,6 +261,10 @@ func TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary(t *testing
 	result, err := fixture.store.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStdout, "overflow", 2, &aborted))
 	if err == nil {
 		t.Fatal("overflow persisted")
+	}
+	var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+	if !errors.As(err, &rejection) {
+		t.Fatalf("overflow classification = %T, %v", err, err)
 	}
 	drop, ok := result.Drop()
 	if !ok || drop.Detector() != "maximum_bytes_exceeded" || !aborted.Load() {
@@ -340,6 +349,141 @@ func TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend(t *testing.T) {
 	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
 	if len(logBytes) == 0 || logBytes[len(logBytes)-1] != '\n' || strings.Count(string(logBytes), "\n") != 1 {
 		t.Fatalf("recovered log is not one complete line: %q", logBytes)
+	}
+}
+
+func TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	originalWrite := concrete.operations.write
+	first := true
+	concrete.operations.write = func(fd int, data []byte) (int, error) {
+		if first {
+			first = false
+			count, err := originalWrite(fd, data[:len(data)/2])
+			return count, errors.Join(err, io.ErrShortWrite)
+		}
+		return originalWrite(fd, data)
+	}
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); err == nil {
+		t.Fatal("partial append reported success")
+	}
+	completed := fixture.request.StartedAt().Add(time.Second)
+	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunCompleted, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true})
+	finalize, _ := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunCompleted, "", status)
+	result, err := fixture.store.Finalize(context.Background(), finalize)
+	if err != nil || result.LastSequence() != 1 {
+		t.Fatalf("same-sink finalize = %#v, %v", result, err)
+	}
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+}
+
+func TestDiagnosticStoreRollsBackAppendAfterSyncFailure(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	originalSync := concrete.operations.fsync
+	injected := errors.New("injected sync failure")
+	first := true
+	concrete.operations.fsync = func(fd int) error {
+		if first {
+			first = false
+			return injected
+		}
+		return originalSync(fd)
+	}
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); !errors.Is(err, injected) {
+		t.Fatalf("sync failure = %v", err)
+	}
+	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
+	if err != nil || event.Sequence() != 1 {
+		t.Fatalf("event after recovered sync failure = %#v, %v", event, err)
+	}
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+}
+
+func TestDiagnosticStoreFinalizeRetryDoesNotDuplicateTerminalEvent(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	originalClose := concrete.operations.close
+	injected := errors.New("injected close failure")
+	concrete.operations.close = func(int) error { return injected }
+	completed := fixture.request.StartedAt().Add(time.Second)
+	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunCompleted, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true})
+	finalize, _ := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunCompleted, "", status)
+	if _, err := fixture.store.Finalize(context.Background(), finalize); !errors.Is(err, injected) {
+		t.Fatalf("first finalize error = %v", err)
+	}
+	concrete.operations.close = originalClose
+	result, err := fixture.store.Finalize(context.Background(), finalize)
+	if err != nil || result.LastSequence() != 1 {
+		t.Fatalf("retry finalize = %#v, %v", result, err)
+	}
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+}
+
+func TestDiagnosticStoreRejectsReopenOfFinalizedRunWithoutChangingStatus(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	completed := fixture.request.StartedAt().Add(time.Second)
+	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunCompleted, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true})
+	finalize, _ := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunCompleted, "", status)
+	if _, err := fixture.store.Finalize(context.Background(), finalize); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	factory, _ := NewDiagnosticStoreFactory(NewSecureWriter(), fixture.clock)
+	if _, err := factory.Open(context.Background(), fixture.request); err == nil {
+		t.Fatal("finalized run reopened")
+	}
+	after, _ := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	if string(before) != string(after) {
+		t.Fatal("terminal status changed during rejected reopen")
+	}
+}
+
+func TestDiagnosticStoreRejectsPostInstallNamespaceSubstitution(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	runPath := diagnosticStorePath(fixture, "")
+	displaced := runPath + ".displaced"
+	concrete.operations.afterStatusInstall = func() {
+		concrete.operations.afterStatusInstall = func() {}
+		if err := os.Rename(runPath, displaced); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.Mkdir(runPath, 0o700); err != nil {
+			t.Error(err)
+		}
+	}
+	updated := fixture.request.StartedAt().Add(time.Second)
+	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunRunning, StartedAt: fixture.request.StartedAt(), UpdatedAt: updated})
+	err := fixture.store.ReplaceRunStatus(context.Background(), status)
+	if !errors.Is(err, errDiagnosticNamespaceUncertain) {
+		t.Fatalf("namespace substitution error = %v", err)
+	}
+	if _, installed := fixture.store.URI(); installed {
+		t.Fatal("substituted namespace retained an installed diagnostic URI")
+	}
+	if _, err := os.Stat(filepath.Join(runPath, "status.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement namespace received status: %v", err)
+	}
+}
+
+func assertDiagnosticLogSequences(t *testing.T, path string, want int) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) != want {
+		t.Fatalf("log line count = %d, want %d", len(lines), want)
+	}
+	for index, line := range lines {
+		var wire runtimeDiagnosticEventWire
+		if err := json.Unmarshal([]byte(line), &wire); err != nil || wire.Sequence != uint64(index+1) {
+			t.Fatalf("line %d is not a complete sequential event: %v", index, err)
+		}
 	}
 }
 
