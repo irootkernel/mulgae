@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 )
 
 // ProviderLoginRequiredError is the safe provider-attributed application
@@ -59,8 +61,28 @@ func (failure *ProviderLoginRequiredError) Unwrap() error {
 // instances without exposing native stderr or credential material.
 func ProviderLoginRequiredProvidersFromError(err error) ([]string, bool) {
 	var failure *ProviderLoginRequiredError
-	if !errors.As(err, &failure) || failure == nil || len(failure.providers) == 0 {
+	if errors.As(err, &failure) && failure != nil && len(failure.providers) > 0 {
+		return append([]string(nil), failure.providers...), true
+	}
+	executionFailures, ok := ProviderExecutionFailuresFromError(err)
+	if !ok {
 		return nil, false
 	}
-	return append([]string(nil), failure.providers...), true
+	providers := make([]string, 0, len(executionFailures))
+	for _, executionFailure := range executionFailures {
+		if executionFailure.ReasonCode() == string(review.AttemptConditionLoginRequired) {
+			providers = append(providers, executionFailure.ProviderInstance())
+		}
+	}
+	if len(providers) == 0 {
+		return nil, false
+	}
+	sort.Strings(providers)
+	unique := providers[:0]
+	for _, provider := range providers {
+		if len(unique) == 0 || unique[len(unique)-1] != provider {
+			unique = append(unique, provider)
+		}
+	}
+	return unique, true
 }

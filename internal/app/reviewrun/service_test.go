@@ -84,6 +84,21 @@ func TestProviderExecutionFailuresAreSafeAndCanonical(t *testing.T) {
 	}
 }
 
+func TestProviderLoginRequiredProvidersIncludeTerminalExecutionFacts(t *testing.T) {
+	login, err := NewProviderExecutionFailure("zcode-default", domain.RoleSecurity, string(review.AttemptConditionLoginRequired), domain.FailureAuthentication)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := NewProviderExecutionFailure("zcode-default", domain.RoleLogic, string(review.AttemptConditionCancelled), domain.FailureCancelled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, ok := ProviderLoginRequiredProvidersFromError(NewProviderExecutionFailuresError([]ProviderExecutionFailure{cancelled, login}))
+	if !ok || len(providers) != 1 || providers[0] != "zcode-default" {
+		t.Fatalf("execution login providers = %v, present=%t", providers, ok)
+	}
+}
+
 func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
 	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
 	if err != nil {
@@ -608,7 +623,7 @@ func TestServiceExecuteFinalizesLoginRequiredAfterCleanup(t *testing.T) {
 	if !loginRequired || len(providers) != 1 || providers[0] != "agy" {
 		t.Fatalf("login-required failure = %v, providers %v", err, providers)
 	}
-	if _, ok := RuntimeDiagnosticURIFromError(err); !ok {
+	if uri, ok := RuntimeDiagnosticURIFromError(err); !ok || uri.String() != ".kar/diagnostics/s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7001-8001-000000000002" {
 		t.Fatal("login-required failure did not expose installed diagnostics")
 	}
 	if len(diagnostics.finalizeRequests) != 1 || diagnostics.finalizeRequests[0].State() != domain.RunFailed || diagnostics.finalizeRequests[0].Cause() != domain.DiagnosticCauseLoginRequired {

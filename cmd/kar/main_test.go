@@ -790,7 +790,7 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	if envelope.Command != "review" || envelope.Exit.Code != 8 || envelope.Exit.Kind != "security" ||
 		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil ||
 		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
-		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "security" ||
+		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "security" || envelope.Reasons[0].ArtifactURI == nil ||
 		envelope.Reasons[0].Code != "provider_qualification_failed" || envelope.Reasons[0].Retryable {
 		t.Fatalf("Kimi security envelope = %#v", envelope)
 	}
@@ -804,6 +804,10 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	diagnosticRuns, err := filepath.Glob(filepath.Join(project, ".kar", "diagnostics", "s_*", "r_*"))
 	if err != nil || len(diagnosticRuns) != 1 {
 		t.Fatalf("Kimi security diagnostics = %v, %v", diagnosticRuns, err)
+	}
+	wantDiagnosticURI, err := filepath.Rel(project, diagnosticRuns[0])
+	if err != nil || filepath.ToSlash(wantDiagnosticURI) != *envelope.Reasons[0].ArtifactURI {
+		t.Fatalf("Kimi diagnostic URI = %v, want %q (rel err %v)", envelope.Reasons[0].ArtifactURI, filepath.ToSlash(wantDiagnosticURI), err)
 	}
 	logBytes, err := os.ReadFile(filepath.Join(diagnosticRuns[0], "kar-runtime.jsonl"))
 	if err != nil {
@@ -915,9 +919,11 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		domain.DiagnosticRuntimeClosed,
 	}
 	diagnosticPosition := 0
+	var previousSequence uint64
 	for _, line := range strings.Split(strings.TrimSuffix(string(diagnosticLog), "\n"), "\n") {
 		var event struct {
-			Code domain.RuntimeDiagnosticEventCode `json:"event"`
+			Sequence uint64                            `json:"seq"`
+			Code     domain.RuntimeDiagnosticEventCode `json:"event"`
 		}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			t.Fatalf("decode AGY runtime diagnostic: %v", err)
@@ -925,6 +931,10 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		if diagnosticPosition < len(wantDiagnosticOrder) && event.Code == wantDiagnosticOrder[diagnosticPosition] {
 			diagnosticPosition++
 		}
+		if event.Sequence <= previousSequence {
+			t.Fatalf("AGY diagnostic sequence %d followed %d", event.Sequence, previousSequence)
+		}
+		previousSequence = event.Sequence
 	}
 	if diagnosticPosition != len(wantDiagnosticOrder) {
 		t.Fatalf("AGY runtime diagnostic order missing %v:\n%s", wantDiagnosticOrder[diagnosticPosition:], diagnosticLog)
@@ -945,6 +955,10 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 	}
 	if diagnosticStatus.State != domain.RunCompleted || diagnosticStatus.LaneTotal != 2 || diagnosticStatus.LaneCompleted != 2 || diagnosticStatus.LaneFailed != 0 || diagnosticStatus.P2URI != *reviewEnvelope.Result.RunManifestURI {
 		t.Fatalf("AGY runtime diagnostic status = %#v, want completed 2/2 lanes linked to %q", diagnosticStatus, *reviewEnvelope.Result.RunManifestURI)
+	}
+	rawStreams, err := filepath.Glob(filepath.Join(project, ".kar", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "attempts", "a_*", "invocations", "*", "*.raw"))
+	if err != nil || len(rawStreams) < 2 {
+		t.Fatalf("AGY raw diagnostic streams = %v, %v", rawStreams, err)
 	}
 
 	status := runKARBinaryWithEnv(t, binary, project, environment,
@@ -1026,6 +1040,161 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 	}
 }
 
+func TestIntegrationKAROfflineDiagnosticFailureWorkflows(t *testing.T) {
+	repository := repositoryRoot(t)
+	binary := buildKARBinary(t, repository)
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil {
+		t.Fatalf("current user unavailable: %#v, %v", installedUser, err)
+	}
+
+	t.Run("primary rate limit falls back and publishes linked diagnostics", func(t *testing.T) {
+		project := canonicalTestTempDir(t)
+		initializeReviewGitRepository(t, project)
+		providerDirectory := canonicalTestTempDir(t)
+		zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
+		agyLog := filepath.Join(canonicalTestTempDir(t), "agy.jsonl")
+		zcodeNode := filepath.Join(providerDirectory, "node")
+		zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+		buildFakeZCode(t, repository, zcodeNode, zcodeLauncher, zcodeLog, "rate_limit_review")
+		buildFakeAGY(t, repository, filepath.Join(providerDirectory, "agy"), agyLog)
+		environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
+		environment = append(environment, "KAR_FAKE_AGY_LOG="+agyLog)
+		initializeOfflineProviders(t, binary, project, environment, "zcode,agy", zcodeNode, zcodeLauncher, filepath.Join(providerDirectory, "agy"))
+
+		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+		var envelope commandEnvelope
+		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if result.exitCode != 0 || envelope.Result.RunManifestURI == nil || envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
+			observations, _ := os.ReadFile(zcodeLog)
+			t.Fatalf("fallback review = exit %d envelope %#v stderr %q zcode observations %s", result.exitCode, envelope, result.stderr, observations)
+		}
+		log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
+		for _, event := range []domain.RuntimeDiagnosticEventCode{domain.DiagnosticAttemptFailed, domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled, domain.DiagnosticFallbackStarted, domain.DiagnosticFallbackCompleted, domain.DiagnosticPublicationCommitted, domain.DiagnosticRuntimeClosed} {
+			if !bytes.Contains(log, []byte(`"event":"`+string(event)+`"`)) {
+				t.Fatalf("fallback diagnostic omitted %s:\n%s", event, log)
+			}
+		}
+		assertRuntimeDiagnosticStatus(t, project, *envelope.Result.SessionID, *envelope.Result.RunID, domain.RunCompleted, *envelope.Result.RunManifestURI)
+	})
+
+	for _, testCase := range []struct {
+		name       string
+		mode       string
+		wantExit   int
+		wantReason string
+	}{
+		{name: "login required is terminal without fallback", mode: "login_review", wantExit: 4, wantReason: "provider_login_required"},
+		{name: "non P2 execution failure remains inspectable", mode: "fail_review", wantExit: 10, wantReason: "provider_execution_failed"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			project := canonicalTestTempDir(t)
+			initializeReviewGitRepository(t, project)
+			providerDirectory := canonicalTestTempDir(t)
+			zcodeNode := filepath.Join(providerDirectory, "node")
+			zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+			buildFakeZCode(t, repository, zcodeNode, zcodeLauncher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), testCase.mode)
+			environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
+			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher, "")
+
+			result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+			var envelope commandEnvelope
+			if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if result.exitCode != testCase.wantExit || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != testCase.wantReason || envelope.Reasons[0].ArtifactURI == nil || envelope.Result.RunManifestURI != nil {
+				t.Fatalf("terminal review = exit %d envelope %#v stderr %q", result.exitCode, envelope, result.stderr)
+			}
+			diagnosticRoot := filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI))
+			statusBytes, err := os.ReadFile(filepath.Join(diagnosticRoot, "status.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var status struct {
+				State domain.RunState `json:"state"`
+				P2URI string          `json:"p2_uri"`
+			}
+			if err := json.Unmarshal(statusBytes, &status); err != nil || status.State != domain.RunFailed || status.P2URI != "" {
+				t.Fatalf("terminal diagnostic status = %#v, %v", status, err)
+			}
+			if log, err := os.ReadFile(filepath.Join(diagnosticRoot, "kar-runtime.jsonl")); err != nil || !bytes.Contains(log, []byte(`"event":"`+string(domain.DiagnosticRuntimeClosed)+`"`)) {
+				t.Fatalf("terminal diagnostic log = %q, %v", log, err)
+			}
+			raw, err := filepath.Glob(filepath.Join(diagnosticRoot, "attempts", "a_*", "invocations", "*", "*.raw"))
+			if err != nil || len(raw) == 0 {
+				t.Fatalf("terminal raw diagnostics = %v, %v", raw, err)
+			}
+		})
+	}
+
+	t.Run("diagnostic open failure stops before provider spawn", func(t *testing.T) {
+		project := canonicalTestTempDir(t)
+		initializeReviewGitRepository(t, project)
+		providerDirectory := canonicalTestTempDir(t)
+		zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
+		zcodeNode := filepath.Join(providerDirectory, "node")
+		zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+		buildFakeZCode(t, repository, zcodeNode, zcodeLauncher, zcodeLog, "success")
+		environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
+		initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher, "")
+		diagnosticsRoot := filepath.Join(project, ".kar", "diagnostics")
+		if err := os.Mkdir(diagnosticsRoot, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(diagnosticsRoot, 0o700) })
+
+		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+		var envelope commandEnvelope
+		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if result.exitCode != 7 || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "artifact_unavailable" || envelope.Reasons[0].ArtifactURI != nil {
+			t.Fatalf("diagnostic persistence failure = exit %d envelope %#v stderr %q", result.exitCode, envelope, result.stderr)
+		}
+		if observations, err := os.ReadFile(zcodeLog); err == nil && len(bytes.TrimSpace(observations)) != 0 {
+			t.Fatalf("provider spawned after diagnostic open failure: %s", observations)
+		}
+	})
+}
+
+func initializeOfflineProviders(t *testing.T, binary, project string, environment []string, providers, zcodeNode, zcodeLauncher, agy string) {
+	t.Helper()
+	arguments := []string{"init", "--providers", providers, "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
+	if agy != "" {
+		arguments = append(arguments, "--agy-executable", agy, "--agy-permission-mode", "dangerously-skip-permissions")
+	}
+	initialized := runKARBinaryWithEnv(t, binary, project, environment, arguments...)
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize offline providers: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+}
+
+func readRuntimeDiagnosticLog(t *testing.T, project, session, run string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(project, ".kar", "diagnostics", session, run, "kar-runtime.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func assertRuntimeDiagnosticStatus(t *testing.T, project, session, run string, wantState domain.RunState, wantP2 string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(project, ".kar", "diagnostics", session, run, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		State domain.RunState `json:"state"`
+		P2URI string          `json:"p2_uri"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil || status.State != wantState || status.P2URI != wantP2 {
+		t.Fatalf("runtime diagnostic status = %#v, %v; want %s/%q", status, err, wantState, wantP2)
+	}
+}
+
 type commandEnvelope struct {
 	Command string `json:"command"`
 	Exit    struct {
@@ -1042,9 +1211,11 @@ type commandEnvelope struct {
 		CompleteStdinSHA256 *string `json:"complete_stdin_sha256"`
 	} `json:"result"`
 	Reasons []struct {
-		Category  string `json:"category"`
-		Code      string `json:"code"`
-		Retryable bool   `json:"retryable"`
+		Category    string  `json:"category"`
+		Code        string  `json:"code"`
+		Message     string  `json:"message"`
+		Retryable   bool    `json:"retryable"`
+		ArtifactURI *string `json:"artifact_uri"`
 	} `json:"reasons"`
 }
 type fakeKimiObservation struct {
@@ -1156,6 +1327,91 @@ func main() {
 		t.Fatalf("build fake Kimi: %v\n%s", err, output)
 	}
 }
+
+func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) {
+	t.Helper()
+	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
+	source := filepath.Join(t.TempDir(), "main.go")
+	program := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
+
+type observation struct {
+	Argv []string ` + "`json:\"argv\"`" + `
+	CWD string ` + "`json:\"cwd\"`" + `
+	Prompt string ` + "`json:\"prompt\"`" + `
+}
+
+func main() {
+	argv := append([]string(nil), os.Args[1:]...)
+	if len(argv) == 2 && argv[1] == "--version" {
+		fmt.Println("22.14.0")
+		return
+	}
+	prompt := ""
+	for index := range argv {
+		if argv[index] == "--prompt" && index+1 < len(argv) {
+			prompt = argv[index+1]
+		}
+	}
+	if prompt == "" {
+		panic("non-canonical ZCode invocation")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	log, err := os.OpenFile("__FAKE_ZCODE_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	if err := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt}); err != nil {
+		panic(err)
+	}
+	if err := log.Close(); err != nil {
+		panic(err)
+	}
+	if strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.") {
+		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(prompt)
+		link := regexp.MustCompile("link must be ([^;]+);").FindStringSubmatch(prompt)
+		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(prompt)
+		if len(root) != 2 || len(link) != 2 || len(role) != 2 {
+			panic("native qualification reference did not resolve")
+		}
+		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
+		return
+	}
+	switch "__FAKE_ZCODE_MODE__" {
+	case "rate_limit_review":
+		fmt.Fprintln(os.Stderr, "rate_limit")
+		os.Exit(1)
+	case "login_review":
+		fmt.Fprintln(os.Stderr, "zcode login required")
+		os.Exit(1)
+	case "fail_review":
+		fmt.Fprintln(os.Stderr, "provider execution failed")
+		os.Exit(1)
+	}
+	fmt.Print("{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+}
+`
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_MODE__", mode)
+	mustWriteTestFile(t, source, []byte(program))
+	build := exec.Command("go", "build", "-o", binary, source)
+	build.Dir = root
+	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake ZCode: %v\n%s", err, output)
+	}
+}
+
 func buildFakeAGY(t *testing.T, root, binary, logPath string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), "main.go")

@@ -82,7 +82,13 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 			return
 		}
 		if err != nil {
-			err = runtimeDiagnosticReferenceError(finalized.URI(), err)
+			projectURI, uriErr := ports.NewSafeRelativePath(".kar/" + finalized.URI().String())
+			if uriErr != nil {
+				result = Result{}
+				err = errors.Join(err, diagnosticArtifactFailure("reviewrun.diagnostics.project_uri", uriErr))
+				return
+			}
+			err = runtimeDiagnosticReferenceError(projectURI, err)
 			return
 		}
 		result.diagnostic = finalized.URI()
