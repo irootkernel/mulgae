@@ -40,6 +40,7 @@ type Coordinator struct {
 	waveReadyHook                     func([]InvocationJob)
 	lanesCloseAuthorizedHook          func()
 	beforeLanesCloseLinearizationHook func()
+	diagnostics                       ports.RuntimeDiagnosticSink
 }
 
 func coordinatorAdmissionContextError(ctx context.Context) error {
@@ -68,6 +69,28 @@ func NewCoordinator(
 		receipt,
 		DefaultEvidencePolicy(),
 	)
+}
+
+// NewCoordinatorWithRuntimeDiagnostics constructs a coordinator whose logical
+// decisions are synchronously persisted through the already-opened run sink.
+func NewCoordinatorWithRuntimeDiagnostics(
+	clock ports.Clock,
+	ids CoordinatorIDIssuer,
+	runtime InvocationRuntime,
+	locker ports.LaneLocker,
+	maxActiveLanes int,
+	receipt RunBudgetReceipt,
+	diagnostics ports.RuntimeDiagnosticSink,
+) (*Coordinator, error) {
+	if nilInterface(diagnostics) {
+		return nil, fmt.Errorf("review coordinator: nil runtime diagnostics")
+	}
+	coordinator, err := NewCoordinator(clock, ids, runtime, locker, maxActiveLanes, receipt)
+	if err != nil {
+		return nil, err
+	}
+	coordinator.diagnostics = diagnostics
+	return coordinator, nil
 }
 
 // NewCoordinatorWithEvidencePolicy constructs a deterministic in-memory review
@@ -439,24 +462,25 @@ type coordinatorRole struct {
 }
 
 type coordinatorExecution struct {
-	coordinator           *Coordinator
-	run                   *domain.Run
-	issuer                *coordinatorIssuer
-	roles                 map[domain.Role]*coordinatorRole
-	trace                 []CoordinatorTraceEvent
-	nextEvent             uint64
-	nextJob               uint64
-	stopping              bool
-	runContext            context.Context
-	callerCtx             context.Context
-	cancelled             bool
-	runStarted            bool
-	lanesCloseAuthorized  bool
-	runTerminalRecorded   bool
-	terminalRoles         map[domain.Role]struct{}
-	dispatchStopRecorded  bool
-	stopCondition         AttemptCondition
-	dispatchStopCondition AttemptCondition
+	coordinator              *Coordinator
+	run                      *domain.Run
+	issuer                   *coordinatorIssuer
+	roles                    map[domain.Role]*coordinatorRole
+	trace                    []CoordinatorTraceEvent
+	nextEvent                uint64
+	nextJob                  uint64
+	stopping                 bool
+	runContext               context.Context
+	callerCtx                context.Context
+	cancelled                bool
+	runStarted               bool
+	lanesCloseAuthorized     bool
+	runTerminalRecorded      bool
+	terminalRoles            map[domain.Role]struct{}
+	dispatchStopRecorded     bool
+	stopCondition            AttemptCondition
+	dispatchStopCondition    AttemptCondition
+	diagnosticAttemptStarted map[domain.AttemptID]time.Time
 }
 
 // Execute runs every selected role. It owns all mutable Run and Attempt state
@@ -686,13 +710,14 @@ func (coordinator *Coordinator) execute(
 	}()
 
 	execution := &coordinatorExecution{
-		coordinator:   coordinator,
-		run:           &run,
-		issuer:        issuer,
-		roles:         make(map[domain.Role]*coordinatorRole, len(canonicalAssignments)),
-		runContext:    workCtx,
-		callerCtx:     ctx,
-		terminalRoles: make(map[domain.Role]struct{}, len(canonicalAssignments)),
+		coordinator:              coordinator,
+		run:                      &run,
+		issuer:                   issuer,
+		roles:                    make(map[domain.Role]*coordinatorRole, len(canonicalAssignments)),
+		runContext:               workCtx,
+		callerCtx:                ctx,
+		terminalRoles:            make(map[domain.Role]struct{}, len(canonicalAssignments)),
+		diagnosticAttemptStarted: make(map[domain.AttemptID]time.Time),
 	}
 	for _, assignment := range canonicalAssignments {
 		execution.roles[assignment.Role()] = &coordinatorRole{assignment: assignment, currentAttempt: -1}
@@ -2123,6 +2148,9 @@ func (execution *coordinatorExecution) record(
 	}
 	if err := event.validate(); err != nil {
 		return fmt.Errorf("review coordinator: record trace: %w", err)
+	}
+	if err := execution.emitRuntimeDiagnostics(event); err != nil {
+		return err
 	}
 	execution.trace = append(execution.trace, event)
 	execution.nextEvent++

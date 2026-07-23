@@ -861,6 +861,11 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		for _, observation := range observations {
 			argv = append(argv, observation.Argv)
 		}
+		if diagnosticRuns, _ := filepath.Glob(filepath.Join(project, ".kar", "diagnostics", "s_*", "r_*")); len(diagnosticRuns) == 1 {
+			if diagnosticLog, readErr := os.ReadFile(filepath.Join(diagnosticRuns[0], "kar-runtime.jsonl")); readErr == nil {
+				t.Logf("AGY runtime diagnostics:\n%s", diagnosticLog)
+			}
+		}
 		t.Fatalf("AGY production review failed: exit=%d launches=%d argv=%v stdout=%q stderr=%q", review.exitCode, len(observations), argv, review.stdout, review.stderr)
 	}
 	var reviewEnvelope commandEnvelope
@@ -880,6 +885,34 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(project, uri)); err != nil {
 			t.Fatalf("published URI %q is not reopenable: %v", uri, err)
 		}
+	}
+	diagnosticLog, err := os.ReadFile(filepath.Join(project, ".kar", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "kar-runtime.jsonl"))
+	if err != nil {
+		t.Fatalf("read AGY runtime diagnostics: %v", err)
+	}
+	wantDiagnosticOrder := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticRunStarted,
+		domain.DiagnosticInvocationPrepared,
+		domain.DiagnosticProcessStarted,
+		domain.DiagnosticOutputParsed,
+		domain.DiagnosticValidationSucceeded,
+		domain.DiagnosticReductionCompleted,
+		domain.DiagnosticRuntimeClosed,
+	}
+	diagnosticPosition := 0
+	for _, line := range strings.Split(strings.TrimSuffix(string(diagnosticLog), "\n"), "\n") {
+		var event struct {
+			Code domain.RuntimeDiagnosticEventCode `json:"event"`
+		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode AGY runtime diagnostic: %v", err)
+		}
+		if diagnosticPosition < len(wantDiagnosticOrder) && event.Code == wantDiagnosticOrder[diagnosticPosition] {
+			diagnosticPosition++
+		}
+	}
+	if diagnosticPosition != len(wantDiagnosticOrder) {
+		t.Fatalf("AGY runtime diagnostic order missing %v:\n%s", wantDiagnosticOrder[diagnosticPosition:], diagnosticLog)
 	}
 
 	status := runKARBinaryWithEnv(t, binary, project, environment,

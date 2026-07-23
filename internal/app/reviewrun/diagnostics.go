@@ -21,6 +21,20 @@ type runtimeDiagnosticLifecycle struct {
 	finalized bool
 }
 
+func (lifecycle *runtimeDiagnosticLifecycle) RuntimeDiagnosticSink(runID domain.RunID) (ports.RuntimeDiagnosticSink, bool) {
+	if lifecycle == nil || runID != lifecycle.identity.runID || nilInterface(lifecycle.sink) {
+		return nil, false
+	}
+	return lifecycle.sink, true
+}
+
+func (lifecycle *runtimeDiagnosticLifecycle) Sink() ports.RuntimeDiagnosticSink {
+	if lifecycle == nil {
+		return nil
+	}
+	return lifecycle.sink
+}
+
 func openRuntimeDiagnosticLifecycle(
 	ctx context.Context,
 	factory ports.RuntimeDiagnosticSinkFactory,

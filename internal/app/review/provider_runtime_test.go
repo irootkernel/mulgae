@@ -87,8 +87,15 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	runtime := &ProviderInvocationRuntime{
 		diagnostics: providerRuntimeDiagnosticResolver{runID: runID, sink: sink},
 		inventory: map[captureKey]RuntimeArtifactInventory{
-			key: {runID: runID, attemptID: attemptID, sequence: 1, executionInvocationID: "i_019f5a09-5eec-7001-8001-000000000014"},
+			key: {
+				runID: runID, attemptID: attemptID, sequence: 1,
+				sourceInvocationID:    "i_019f5a09-5eec-7001-8001-000000000014",
+				executionInvocationID: "019f5a09-5eec-7001-8001-000000000015",
+			},
 		},
+	}
+	if err := runtime.emitInvocationDiagnostic(context.Background(), job, domain.RuntimeDiagnosticInfo, domain.DiagnosticInvocationPrepared, "", string(domain.InvocationQueued), "", "", 0, false, "", 0); err != nil {
+		t.Fatalf("emit invocation prepared: %v", err)
 	}
 	if err := runtime.persistDiagnosticRaw(context.Background(), job, key, []byte("stdout bytes"), []byte("stderr bytes")); err != nil {
 		t.Fatal(err)
@@ -101,6 +108,20 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	stderr, hasStderr := inventory.DiagnosticStderr()
 	if !hasStdout || !hasStderr || stdout.Stream() != domain.DiagnosticStdout || stderr.Stream() != domain.DiagnosticStderr {
 		t.Fatal("runtime inventory did not retain separated raw references")
+	}
+}
+
+func TestDiagnosticPersistenceSecurityRejectionPreservesSecurityCondition(t *testing.T) {
+	drop, err := ports.NewDropMetadata("stdout", "secret_detected", 1, []string{"provider:stdout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejection := ports.NewRuntimeDiagnosticSecurityRejectionError(drop, errors.New("private scanner detail"))
+	if got := diagnosticConditionForPersistence(rejection); got != AttemptConditionSecurityViolation {
+		t.Fatalf("security rejection condition = %q", got)
+	}
+	if got := diagnosticConditionForPersistence(errors.New("disk failure")); got != AttemptConditionArtifactFailure {
+		t.Fatalf("persistence failure condition = %q", got)
 	}
 }
 

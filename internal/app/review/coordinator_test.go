@@ -437,6 +437,78 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 	}
 }
 
+func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, true)
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	root, request := coordinatorDiagnosticRoot(t, assignments)
+	base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticAttemptFailed,
+		domain.DiagnosticFallbackEligible,
+		domain.DiagnosticFallbackScheduled,
+		domain.DiagnosticFallbackStarted,
+	}
+	position := 0
+	for _, event := range diagnostics.events {
+		if position < len(want) && event == want[position] {
+			position++
+		}
+	}
+	if position != len(want) {
+		t.Fatalf("fallback diagnostic order = %v, missing suffix %v", diagnostics.events, want[position:])
+	}
+}
+
+func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, true)
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	root, request := coordinatorDiagnosticRoot(t, assignments)
+	base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base, failOn: domain.DiagnosticFallbackEligible}
+	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = coordinator.ExecuteRun(context.Background(), &root, assignments, domain.SeverityHigh, nil)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("diagnostic failure = %v, want artifact failure", err)
+	}
+	for _, job := range runtime.jobs {
+		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
+			t.Fatal("fallback provider was scheduled after diagnostic persistence failure")
+		}
+	}
+}
+
 func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionLoginRequired,
@@ -2539,6 +2611,61 @@ type coordinatorTestRuntime struct {
 	mu     sync.Mutex
 	jobs   []InvocationJob
 	invoke func(context.Context, InvocationJob) AttemptOutcome
+}
+
+type coordinatorDiagnosticSink struct {
+	ports.RuntimeDiagnosticSink
+	events []domain.RuntimeDiagnosticEventCode
+	failOn domain.RuntimeDiagnosticEventCode
+}
+
+func (sink *coordinatorDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	code := draft.Input().Event
+	sink.events = append(sink.events, code)
+	if code == sink.failOn {
+		return domain.RuntimeDiagnosticEvent{}, errors.New("injected diagnostic failure")
+	}
+	return sink.RuntimeDiagnosticSink.Emit(ctx, draft)
+}
+
+func coordinatorDiagnosticRoot(t *testing.T, assignments []Assignment) (domain.Run, ports.RuntimeDiagnosticOpenRequest) {
+	t.Helper()
+	now := time.Date(2026, 7, 23, 2, 3, 4, 0, time.UTC)
+	ids := &coordinatorTestIDs{}
+	sessionID, err := ids.NewSessionID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := ids.NewRunID(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := make([]domain.RoleTask, 0, len(assignments))
+	for _, assignment := range assignments {
+		var fallbackProvider *string
+		if fallback, ok := assignment.FallbackRoute(); ok {
+			provider := fallback.ProviderInstance()
+			fallbackProvider = &provider
+		}
+		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		if taskErr != nil {
+			t.Fatal(taskErr)
+		}
+		tasks = append(tasks, task)
+	}
+	_, root, err := domain.NewReviewSession(sessionID, now, runID, coordinatorTestTarget(t), tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchored, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewRuntimeDiagnosticOpenRequest(anchored, sessionID, runID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, request
 }
 
 func (runtime *coordinatorTestRuntime) Invoke(ctx context.Context, job InvocationJob) AttemptOutcome {

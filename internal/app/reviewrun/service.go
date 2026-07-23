@@ -170,11 +170,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	abortReason = ports.WorkspaceAbortExecutionFailure
 	screenedProvider := &packetScreeningProvider{provider: qualified.Provider(), detector: detector}
-	runtime, err := review.NewObservedProviderInvocationRuntimeWithWorkspace(screenedProvider, source, lease, service.dependencies.Validator, verifier)
+	runtime, err := review.NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics(screenedProvider, source, lease, service.dependencies.Validator, verifier, diagnostics)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: runtime: %w", err)
 	}
-	coordinator, err := review.NewCoordinator(service.dependencies.Clock, service.dependencies.IDs, runtime, service.dependencies.Locker, plan.MaxLanes, receipt)
+	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, service.dependencies.IDs, runtime, service.dependencies.Locker, plan.MaxLanes, receipt, diagnostics.Sink())
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
 	}

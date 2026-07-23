@@ -22,28 +22,29 @@ import (
 // RuntimeArtifactInventory is the immutable source material retained for one
 // provider invocation. It has no provider-output or publication authority.
 type RuntimeArtifactInventory struct {
-	runID                 domain.RunID
-	attemptID             domain.AttemptID
-	sequence              uint64
-	purpose               domain.InvocationPurpose
-	role                  domain.Role
-	target                []byte
-	targetIdentity        domain.TargetIdentity
-	stdin                 []byte
-	stdinSHA256           string
-	templateID            string
-	templateVersion       string
-	templateSHA256        string
-	sourceInvocationID    string
-	executionInvocationID string
-	scope                 string
-	adapterProfile        string
-	adapterParameters     map[string]string
-	captures              []ports.CapturedAttemptArtifact
-	stdoutDiagnostic      ports.RuntimeDiagnosticRawResult
-	stderrDiagnostic      ports.RuntimeDiagnosticRawResult
-	hasStdoutDiagnostic   bool
-	hasStderrDiagnostic   bool
+	runID                  domain.RunID
+	attemptID              domain.AttemptID
+	sequence               uint64
+	purpose                domain.InvocationPurpose
+	role                   domain.Role
+	target                 []byte
+	targetIdentity         domain.TargetIdentity
+	stdin                  []byte
+	stdinSHA256            string
+	templateID             string
+	templateVersion        string
+	templateSHA256         string
+	sourceInvocationID     string
+	executionInvocationID  string
+	scope                  string
+	adapterProfile         string
+	adapterParameters      map[string]string
+	captures               []ports.CapturedAttemptArtifact
+	stdoutDiagnostic       ports.RuntimeDiagnosticRawResult
+	stderrDiagnostic       ports.RuntimeDiagnosticRawResult
+	hasStdoutDiagnostic    bool
+	hasStderrDiagnostic    bool
+	diagnosticLastSequence uint64
 }
 
 func (inventory RuntimeArtifactInventory) RunID() domain.RunID         { return inventory.runID }
@@ -448,7 +449,17 @@ func cloneRuntimeArtifactInventory(inventory RuntimeArtifactInventory) RuntimeAr
 
 // Invoke executes exactly one coordinator-authorized invocation. A repair job is
 // accepted only after this runtime retained a repair plan for its initial job.
-func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) AttemptOutcome {
+func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) (outcome AttemptOutcome) {
+	var diagnosticObservation *ports.ProviderExecutionObservation
+	parseState, validationState := domain.ParseNotStarted, domain.ValidationNotStarted
+	defer func() {
+		if diagnosticObservation == nil {
+			return
+		}
+		if err := runtime.replaceInvocationDiagnosticStatus(ctx, job, *diagnosticObservation, parseState, validationState); err != nil {
+			outcome = runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+	}()
 	if runtime == nil || !job.Limits().Valid() {
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
 	}
@@ -488,13 +499,20 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if err != nil {
 		return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, err))
 	}
+	if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticInvocationPrepared, "", string(domain.InvocationQueued), "", "", 0, false, "", 0); err != nil {
+		return runtimeCondition(job, diagnosticConditionForPersistence(err))
+	}
 	var stdout, rawStdout, stderr []byte
 	if runtime.observed != nil {
 		observation, observeErr := runtime.observed.Observe(invocationCtx, providerInvocation)
 		if observeErr != nil {
 			if observation.Validate() == nil && sameProviderInvocation(observation.Invocation(), providerInvocation) {
+				diagnosticObservation = diagnosticObservationPointer(observation)
+				if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
 				if err := runtime.capture(invocationCtx, job, nil, observation.Stdout(), observation.Stderr(), false); err != nil {
-					return runtimeCondition(job, AttemptConditionArtifactFailure)
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
 				}
 			}
 			return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, observeErr))
@@ -502,10 +520,14 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if err := observation.Validate(); err != nil || !sameProviderInvocation(observation.Invocation(), providerInvocation) {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
 		}
+		diagnosticObservation = diagnosticObservationPointer(observation)
+		if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
 		rawStdout, stderr = observation.Stdout(), observation.Stderr()
 		if !observation.Succeeded() {
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-				return runtimeCondition(job, AttemptConditionArtifactFailure)
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
 			}
 			return runtimeCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()))
 		}
@@ -540,11 +562,26 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 
 	scope := validation.ReviewValidationScope{TargetSHA256: job.Target().SHA256(), Role: job.Role(), ProviderInstance: job.Route().ProviderInstance()}
 	if job.Purpose() == domain.InvocationInitial {
+		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
 		validated, plan, validationErr := runtime.validator.Validate(invocationCtx, stdout, scope)
+		parseState = diagnosticParseState(validationErr, stdout)
+		if validationErr == nil {
+			validationState = domain.ValidationValid
+		} else {
+			validationState = domain.ValidationInvalid
+		}
+		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
 		if validationErr != nil {
 			securityRejected := isSecurityValidationError(validationErr)
 			if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, securityRejected); err != nil {
-				return runtimeCondition(job, AttemptConditionArtifactFailure)
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
 			}
 			if securityRejected {
 				return runtimeCondition(job, AttemptConditionSecurityViolation)
@@ -560,18 +597,27 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
 		if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, false); err != nil {
-			return runtimeCondition(job, AttemptConditionArtifactFailure)
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
 		return runtime.accept(invocationCtx, job, validated)
 	}
 	validated, repairedCandidate, validationErr := runtime.validator.ApplyRepairCandidate(invocationCtx, repair.initial, stdout, scope, repair.plan)
+	parseState = diagnosticParseState(validationErr, stdout)
+	if validationErr == nil {
+		validationState = domain.ValidationRepairedValid
+	} else {
+		validationState = domain.ValidationRepairExhausted
+	}
+	if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, true); err != nil {
+		return runtimeCondition(job, diagnosticConditionForPersistence(err))
+	}
 	securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
 	if validationErr != nil {
 		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, securityRejected); err != nil {
-			return runtimeCondition(job, AttemptConditionArtifactFailure)
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
 	} else if err := runtime.capture(invocationCtx, job, repairedCandidate, rawStdout, stderr, false); err != nil {
-		return runtimeCondition(job, AttemptConditionArtifactFailure)
+		return runtimeCondition(job, diagnosticConditionForPersistence(err))
 	}
 	runtime.mu.Lock()
 	delete(runtime.pending, job.AttemptID())
@@ -858,7 +904,7 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 	runtime.mu.Lock()
 	inventory, exists := runtime.inventory[key]
 	runtime.mu.Unlock()
-	if !exists || inventory.executionInvocationID == "" {
+	if !exists || inventory.sourceInvocationID == "" {
 		return fmt.Errorf("provider invocation runtime: diagnostic raw inventory unavailable")
 	}
 	persistCtx := context.WithoutCancel(ctx)
@@ -867,7 +913,7 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 			return nil
 		}
 		request, err := ports.NewRuntimeDiagnosticRawRequest(
-			job.AttemptID(), inventory.executionInvocationID, key.sequence, runtimePurpose(job.Purpose()),
+			job.AttemptID(), inventory.sourceInvocationID, key.sequence, runtimePurpose(job.Purpose()),
 			stream, bytes.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) {},
 		)
 		if err != nil {
