@@ -15,7 +15,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 | Epic | Deliverable | Depends on | Status |
 |---|---|---|---|
 | D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
-| D-E02 | Provider observation and typed causes | D-E01 | NOT_STARTED |
+| D-E02 | Provider observation and typed causes | D-E01 | COMPLETE |
 | D-E03 | Run-wide lifecycle and terminal integration | D-E02 | NOT_STARTED |
 | D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
 
@@ -88,6 +88,10 @@ Completion evidence:
 
 ## 3. D-E02 — Provider Observation and Typed Causes
 
+Completed on 2026-07-23 through milestone commits `869d9db`, `f1ceaca`,
+`84960bc`, `039a845`, and focused regression commit `f04953b`. The final
+preparation and focused race gates were observed again on the completed tree.
+
 ### Goal command
 
 ```text
@@ -96,22 +100,22 @@ Completion evidence:
 
 ### Must do
 
-- [ ] Redesign process/provider result-error contracts so failures retain every valid observation already obtained.
-- [ ] Define and propagate typed process, transport, provider framing, parsing, binding, validation, and cleanup causes.
-- [ ] Normalize Kimi, ZCode, and AGY native login/timeout/auth/quota/rate signals at the adapter boundary.
-- [ ] Remove generic string-contains classification from runtime policy decisions.
-- [ ] Preserve stdout/stderr artifacts and references on failed observations whenever safe bytes exist.
-- [ ] Distinguish provider execution failure, provider output failure, KAR validation failure, and process-group cleanup failure.
-- [ ] Keep user-facing failure class/reason closed and safe while durable diagnostics retain the detailed cause.
-- [ ] Add family-specific golden/regression cases for malformed stream, invalid envelope, decode failure, native timeout, transport verification, and cleanup failure.
+- [x] Redesign process/provider result-error contracts so failures retain every valid observation already obtained. Evidence: `TestPartialFailedProviderExecutionObservationRetainsTypedCauseAndStreams`, `TestRegistryObservePreservesRunnerErrorWithObservation`, and `TestRegistryObservePreservesPartialStreamsAndCleanupCause` pass under the focused race gate.
+- [x] Define and propagate typed process, transport, provider framing, parsing, binding, validation, and cleanup causes. Evidence: closed causes flow through `ProcessExecutionError`, `ProviderRuntimeError`, `ProviderExecutionObservation`, and validation `RuntimeError`; `TestFailedProviderExecutionObservationRequiresClosedTypedCause`, `TestRegistryObservePreservesTransportVerificationCause`, and `TestApplyRepairCandidateReturnsTypedRepairPlanCause` pass.
+- [x] Normalize Kimi, ZCode, and AGY native login/timeout/auth/quota/rate signals at the adapter boundary. Evidence: `TestRegistryObserveNormalizesFamilyNativeFailureSignals` and `TestRegistryObserveClassifiesNativeProviderTimeout` pass.
+- [x] Remove generic string-contains classification from runtime policy decisions. Evidence: `runtimeProviderErrorCondition`, `observedStatusCondition`, and validation security mapping consume typed causes; `TestObservedLoginRequiredIsFailClosed` proves arbitrary login-like error text maps to `internal_invariant` while the typed cause maps to `login_required`.
+- [x] Preserve stdout/stderr artifacts and references on failed observations whenever safe bytes exist. Evidence: `TestProcessExecutionErrorPreservesTypedPrimaryCauseAndSeparatedEvidence`, `TestRegistryObservePreservesPartialStreamsAndCleanupCause`, and `TestProviderRuntimePersistsSeparatedRawReferences` pass.
+- [x] Distinguish provider execution failure, provider output failure, KAR validation failure, and process-group cleanup failure. Evidence: `TestRegistryObserveClassifiesProcessTerminations`, `TestProviderResultFailuresExposeExactTypedCausesWithoutRawText`, validation typed-cause tests, and `TestProcessExecutionFailureKeepsInitiatingCauseAheadOfCleanup` pass.
+- [x] Keep user-facing failure class/reason closed and safe while durable diagnostics retain the detailed cause. Evidence: `TestProviderRuntimeErrorExposesOnlyClosedCause`, `TestProviderResultFailuresExposeExactTypedCausesWithoutRawText`, and existing exhaustive attempt-condition validation pass.
+- [x] Add family-specific golden/regression cases for malformed stream, invalid envelope, decode failure, native timeout, transport verification, and cleanup failure. Evidence: `TestProviderResultFailuresExposeExactTypedCausesWithoutRawText`, `TestRegistryObserveClassifiesNativeProviderTimeout`, `TestRegistryObservePreservesTransportVerificationCause`, and `TestRegistryObservePreservesPartialStreamsAndCleanupCause` pass.
 
 ### Must not do
 
-- [ ] Do not make `internal_invariant`, login-required, security, configuration, artifact, cancellation, or mutation failures fallback-eligible.
-- [ ] Do not blame a provider for a KAR process, transport, validation, or workspace invariant.
-- [ ] Do not write provider raw content or free-form errors to command stdout/stderr or test failure messages.
-- [ ] Do not infer native status outside the provider adapter boundary.
-- [ ] Do not lose the initiating cause when cleanup also fails.
+- [x] Do not make `internal_invariant`, login-required, security, configuration, artifact, cancellation, or mutation failures fallback-eligible. Evidence: `TestDecideTransitionExhaustiveMatrix` and `TestAttemptConditionsAreExactAndExhaustivelyValidated` pass unchanged.
+- [x] Do not blame a provider for a KAR process, transport, validation, or workspace invariant. Evidence: typed process, transport, validation, cleanup, and workspace causes remain distinct from provider-native causes in the focused cause tests.
+- [x] Do not write provider raw content or free-form errors to command stdout/stderr or test failure messages. Evidence: typed `Error()` projections contain only closed causes, and `TestProviderResultFailuresExposeExactTypedCausesWithoutRawText` verifies fixture bytes are absent.
+- [x] Do not infer native status outside the provider adapter boundary. Evidence: family-native inspection is confined to `internal/adapters/providercli`; review tests consume only typed causes and statuses.
+- [x] Do not lose the initiating cause when cleanup also fails. Evidence: `TestProcessExecutionFailureKeepsInitiatingCauseAheadOfCleanup` and `TestRegistryObservePreservesPartialStreamsAndCleanupCause` assert wait remains primary and cleanup supplemental.
 
 ### Work method
 
@@ -131,9 +135,9 @@ git diff --check
 
 Completion evidence:
 
-- [ ] All commands above pass on the same tree.
-- [ ] Tests prove each required typed cause without matching arbitrary error text.
-- [ ] Existing exhaustive repair/fallback policy tests remain unchanged or explicitly demonstrate equivalent behavior.
+- [x] All commands above pass on the same tree. Evidence: `make test-prepare`, the exact focused race command, and `git diff --check` passed on 2026-07-23 after commits `869d9db`, `f1ceaca`, `84960bc`, `039a845`, and `f04953b`.
+- [x] Tests prove each required typed cause without matching arbitrary error text. Evidence: the named process, provider-family, validation, transport, and cleanup tests above assert `RuntimeDiagnosticCause` values directly.
+- [x] Existing exhaustive repair/fallback policy tests remain unchanged or explicitly demonstrate equivalent behavior. Evidence: `TestDecideTransitionExhaustiveMatrix` and `TestAttemptConditionsAreExactAndExhaustivelyValidated` pass without changing `transitionPolicyRows`.
 
 ## 4. D-E03 — Run-wide Lifecycle and Terminal Integration
 
