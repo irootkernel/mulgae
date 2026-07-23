@@ -131,9 +131,14 @@ type ProviderExecutionObservation struct {
 	status             ProviderExecutionStatus
 	invocation         ProviderInvocation
 	processObservation ProcessObservation
+	hasProcess         bool
 	result             ProviderResult
 	hasResult          bool
 	diagnosticCode     string
+	primaryCause       domain.RuntimeDiagnosticCause
+	cleanupCause       domain.RuntimeDiagnosticCause
+	stdout             []byte
+	stderr             []byte
 	stdoutLimit        int64
 	stderrLimit        int64
 	resultIsolated     bool
@@ -190,8 +195,11 @@ func newSuccessfulProviderExecutionObservation(
 		status:             ProviderExecutionStatusSucceeded,
 		invocation:         canonicalInvocation,
 		processObservation: canonicalProcess,
+		hasProcess:         true,
 		result:             canonicalResult,
 		hasResult:          true,
+		stdout:             canonicalProcess.Stdout(),
+		stderr:             canonicalProcess.Stderr(),
 		resultIsolated:     resultIsolated,
 		stdoutLimit:        stdoutLimit,
 		stderrLimit:        stderrLimit,
@@ -212,6 +220,23 @@ func NewFailedProviderExecutionObservation(
 	diagnosticCode string,
 	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
+	cause := providerExecutionCause(status, diagnosticCode, processObservation)
+	return NewFailedProviderExecutionObservationWithCause(
+		status, invocation, processObservation, diagnosticCode, cause, "", stdoutLimit, stderrLimit,
+	)
+}
+
+// NewFailedProviderExecutionObservationWithCause records a failed provider
+// observation with the exact detailed cause selected at the adapter boundary.
+// cleanupCause is optional and can only supplement, never replace, cause.
+func NewFailedProviderExecutionObservationWithCause(
+	status ProviderExecutionStatus,
+	invocation ProviderInvocation,
+	processObservation ProcessObservation,
+	diagnosticCode string,
+	cause, cleanupCause domain.RuntimeDiagnosticCause,
+	stdoutLimit, stderrLimit int64,
+) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
 	if err != nil {
 		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", err)
@@ -225,9 +250,41 @@ func NewFailedProviderExecutionObservation(
 		status:             status,
 		invocation:         canonicalInvocation,
 		processObservation: canonicalProcess,
+		hasProcess:         true,
 		diagnosticCode:     diagnosticCode,
+		primaryCause:       cause,
+		cleanupCause:       cleanupCause,
+		stdout:             canonicalProcess.Stdout(),
+		stderr:             canonicalProcess.Stderr(),
 		stdoutLimit:        stdoutLimit,
 		stderrLimit:        stderrLimit,
+	}
+	if err := observation.Validate(); err != nil {
+		return ProviderExecutionObservation{}, err
+	}
+	return observation, nil
+}
+
+// NewPartialFailedProviderExecutionObservation retains bounded streams and a
+// typed cause when process execution failed before a coherent neutral process
+// observation could be assembled.
+func NewPartialFailedProviderExecutionObservation(
+	status ProviderExecutionStatus,
+	invocation ProviderInvocation,
+	stdout, stderr []byte,
+	diagnosticCode string,
+	cause, cleanupCause domain.RuntimeDiagnosticCause,
+	stdoutLimit, stderrLimit int64,
+) (ProviderExecutionObservation, error) {
+	canonicalInvocation, err := canonicalProviderInvocation(invocation)
+	if err != nil {
+		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", err)
+	}
+	observation := ProviderExecutionObservation{
+		status: status, invocation: canonicalInvocation,
+		diagnosticCode: diagnosticCode, primaryCause: cause, cleanupCause: cleanupCause,
+		stdout: cloneBytes(stdout), stderr: cloneBytes(stderr),
+		stdoutLimit: stdoutLimit, stderrLimit: stderrLimit,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
@@ -256,6 +313,15 @@ func (observation ProviderExecutionObservation) Invocation() ProviderInvocation 
 // process evidence bound to this provider execution observation.
 func (observation ProviderExecutionObservation) ProcessObservation() ProcessObservation {
 	return cloneProcessObservation(observation.processObservation)
+}
+
+// AvailableProcessObservation returns coherent process evidence when one was
+// available. Partial failures may retain streams and causes without one.
+func (observation ProviderExecutionObservation) AvailableProcessObservation() (ProcessObservation, bool) {
+	if !observation.hasProcess {
+		return ProcessObservation{}, false
+	}
+	return cloneProcessObservation(observation.processObservation), true
 }
 
 // Termination returns the exact neutral process termination fact.
@@ -324,19 +390,30 @@ func (observation ProviderExecutionObservation) Result() (ProviderResult, bool) 
 // Stdout returns a caller-owned copy of the stdout captured by the bound
 // process observation.
 func (observation ProviderExecutionObservation) Stdout() []byte {
-	return observation.processObservation.Stdout()
+	return cloneBytes(observation.stdout)
 }
 
 // Stderr returns a caller-owned copy of the stderr captured by the bound
 // process observation.
 func (observation ProviderExecutionObservation) Stderr() []byte {
-	return observation.processObservation.Stderr()
+	return cloneBytes(observation.stderr)
 }
 
 // DiagnosticCode returns the safe, non-empty failure code. It is empty for a
 // successful observation and never contains an underlying error string.
 func (observation ProviderExecutionObservation) DiagnosticCode() string {
 	return observation.diagnosticCode
+}
+
+// PrimaryCause returns the detailed closed diagnostic cause for a failed
+// observation. Successful observations have no cause.
+func (observation ProviderExecutionObservation) PrimaryCause() domain.RuntimeDiagnosticCause {
+	return observation.primaryCause
+}
+
+// CleanupCause returns the supplemental process-group cleanup cause, if any.
+func (observation ProviderExecutionObservation) CleanupCause() (domain.RuntimeDiagnosticCause, bool) {
+	return observation.cleanupCause, observation.cleanupCause != ""
 }
 
 // StdoutLimit returns the positive stdout capture limit bound to the
@@ -367,24 +444,37 @@ func (observation ProviderExecutionObservation) Validate() error {
 	if err != nil {
 		return fmt.Errorf("provider execution observation: invalid invocation: %w", err)
 	}
-	canonicalProcess, err := canonicalProcessObservation(observation.processObservation)
-	if err != nil {
-		return fmt.Errorf("provider execution observation: invalid process observation: %w", err)
+	var canonicalProcess ProcessObservation
+	if observation.hasProcess {
+		canonicalProcess, err = canonicalProcessObservation(observation.processObservation)
+		if err != nil {
+			return fmt.Errorf("provider execution observation: invalid process observation: %w", err)
+		}
+	} else if observation.processObservation.Valid() {
+		return fmt.Errorf("provider execution observation: unmarked process observation")
 	}
 	if err := validateProviderExecutionLimits(observation.stdoutLimit, observation.stderrLimit); err != nil {
 		return fmt.Errorf("provider execution observation: %w", err)
 	}
-	if err := validateProviderExecutionStdinReceipt(canonicalInvocation, canonicalProcess); err != nil {
-		return fmt.Errorf("provider execution observation: %w", err)
+	if observation.hasProcess {
+		if err := validateProviderExecutionStdinReceipt(canonicalInvocation, canonicalProcess); err != nil {
+			return fmt.Errorf("provider execution observation: %w", err)
+		}
+		if !bytes.Equal(observation.stdout, canonicalProcess.stdout) || !bytes.Equal(observation.stderr, canonicalProcess.stderr) {
+			return fmt.Errorf("provider execution observation: streams do not match process observation")
+		}
 	}
-	if int64(len(canonicalProcess.stdout)) > observation.stdoutLimit {
+	if int64(len(observation.stdout)) > observation.stdoutLimit {
 		return fmt.Errorf("provider execution observation: stdout exceeds its limit")
 	}
-	if int64(len(canonicalProcess.stderr)) > observation.stderrLimit {
+	if int64(len(observation.stderr)) > observation.stderrLimit {
 		return fmt.Errorf("provider execution observation: stderr exceeds its limit")
 	}
 
 	if observation.Succeeded() {
+		if !observation.hasProcess {
+			return fmt.Errorf("provider execution observation: successful status requires process observation")
+		}
 		if !canonicalProcess.Succeeded() {
 			return fmt.Errorf("provider execution observation: successful status requires a successful process observation")
 		}
@@ -393,6 +483,9 @@ func (observation ProviderExecutionObservation) Validate() error {
 		}
 		if observation.diagnosticCode != "" {
 			return fmt.Errorf("provider execution observation: successful status must not have a diagnostic code")
+		}
+		if observation.primaryCause != "" || observation.cleanupCause != "" {
+			return fmt.Errorf("provider execution observation: successful status must not have a cause")
 		}
 		result, err := canonicalProviderResult(observation.result)
 		if err != nil {
@@ -423,10 +516,16 @@ func (observation ProviderExecutionObservation) Validate() error {
 	if !validProviderExecutionDiagnosticCode(observation.diagnosticCode) {
 		return fmt.Errorf("provider execution observation: diagnostic code must be non-empty and safe")
 	}
+	if !observation.primaryCause.Valid() {
+		return fmt.Errorf("provider execution observation: failed status requires a typed cause")
+	}
+	if observation.cleanupCause != "" && observation.cleanupCause != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		return fmt.Errorf("provider execution observation: invalid cleanup cause")
+	}
 	if observation.FailureClass() == "" {
 		return fmt.Errorf("provider execution observation: failed status has no failure class")
 	}
-	if !providerExecutionStatusMatchesProcessObservation(observation.status, canonicalProcess) {
+	if observation.hasProcess && !providerExecutionStatusMatchesProcessObservation(observation.status, canonicalProcess) {
 		return fmt.Errorf("provider execution observation: status does not match process termination")
 	}
 	return nil
@@ -509,6 +608,56 @@ func cloneProcessObservation(observation ProcessObservation) ProcessObservation 
 		return ProcessObservation{}
 	}
 	return clone
+}
+
+// providerExecutionCause keeps the legacy failed-observation constructor
+// compatible while ensuring every failure has a closed detailed cause. New
+// adapter code should select the exact cause explicitly with
+// NewFailedProviderExecutionObservationWithCause.
+func providerExecutionCause(
+	status ProviderExecutionStatus,
+	diagnosticCode string,
+	processObservation ProcessObservation,
+) domain.RuntimeDiagnosticCause {
+	switch diagnosticCode {
+	case "login_required":
+		return domain.DiagnosticCauseLoginRequired
+	case "provider_timeout", "process_timeout":
+		return domain.DiagnosticCauseTimedOut
+	case "provider_auth":
+		return domain.DiagnosticCauseAuthenticationFailed
+	case "provider_quota":
+		return domain.DiagnosticCauseQuotaExceeded
+	case "provider_rate_limit":
+		return domain.DiagnosticCauseRateLimited
+	case "invalid_provider_output":
+		return domain.DiagnosticCauseOutputDecodeFailed
+	case "post_output_trailing_bytes":
+		return domain.DiagnosticCauseOutputEnvelopeInvalid
+	case "transport_verification":
+		return domain.DiagnosticCauseTransportVerificationFailed
+	}
+	switch processObservation.Termination() {
+	case ProcessTerminationStartFailed, ProcessTerminationStartUnavailable,
+		ProcessTerminationStartConfiguration, ProcessTerminationStartSecurity:
+		return domain.DiagnosticCauseProviderSpawnFailed
+	case ProcessTerminationResidualProcessGroup:
+		return domain.DiagnosticCauseProcessGroupCleanupFailed
+	case ProcessTerminationTimedOut:
+		return domain.DiagnosticCauseTimedOut
+	}
+	switch status {
+	case ProviderExecutionStatusAuthentication:
+		return domain.DiagnosticCauseAuthenticationFailed
+	case ProviderExecutionStatusQuota:
+		return domain.DiagnosticCauseQuotaExceeded
+	case ProviderExecutionStatusRateLimit:
+		return domain.DiagnosticCauseRateLimited
+	case ProviderExecutionStatusTimedOut:
+		return domain.DiagnosticCauseTimedOut
+	default:
+		return domain.DiagnosticCauseObservationInvalid
+	}
 }
 
 func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, processObservation ProcessObservation) error {

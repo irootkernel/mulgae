@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -1567,6 +1568,83 @@ func (observation ProcessObservation) Valid() bool {
 // reject a nil context and must never introduce shell or TTY behavior.
 type ProcessRunner interface {
 	Run(context.Context, ProcessRequest) (ProcessObservation, error)
+}
+
+// ProcessExecutionError preserves the closed primary cause and any captured
+// streams when a runner cannot return a coherent ProcessObservation. Cleanup
+// failure is supplemental: it never replaces the initiating cause. The
+// wrapped error is retained only for local causal inspection; Error itself is
+// a closed safe projection and never includes adapter text.
+type ProcessExecutionError struct {
+	primaryCause domain.RuntimeDiagnosticCause
+	cleanupCause domain.RuntimeDiagnosticCause
+	stdout       []byte
+	stderr       []byte
+	err          error
+}
+
+// NewProcessExecutionError constructs a safe typed process failure. Primary
+// cause is mandatory. Cleanup cause, when present, must be the dedicated
+// process-group cleanup cause.
+func NewProcessExecutionError(
+	primaryCause domain.RuntimeDiagnosticCause,
+	cleanupCause domain.RuntimeDiagnosticCause,
+	stdout, stderr []byte,
+	err error,
+) (*ProcessExecutionError, error) {
+	if !primaryCause.Valid() ||
+		cleanupCause != "" && cleanupCause != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		return nil, fmt.Errorf("process execution error: invalid cause")
+	}
+	return &ProcessExecutionError{
+		primaryCause: primaryCause,
+		cleanupCause: cleanupCause,
+		stdout:       cloneBytes(stdout),
+		stderr:       cloneBytes(stderr),
+		err:          err,
+	}, nil
+}
+
+func (failure *ProcessExecutionError) Error() string {
+	if failure == nil || !failure.primaryCause.Valid() {
+		return "process execution failed"
+	}
+	return "process execution failed: " + string(failure.primaryCause)
+}
+
+func (failure *ProcessExecutionError) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.err
+}
+
+func (failure *ProcessExecutionError) PrimaryCause() domain.RuntimeDiagnosticCause {
+	if failure == nil {
+		return ""
+	}
+	return failure.primaryCause
+}
+
+func (failure *ProcessExecutionError) CleanupCause() (domain.RuntimeDiagnosticCause, bool) {
+	if failure == nil || failure.cleanupCause == "" {
+		return "", false
+	}
+	return failure.cleanupCause, true
+}
+
+func (failure *ProcessExecutionError) Stdout() []byte {
+	if failure == nil {
+		return nil
+	}
+	return cloneBytes(failure.stdout)
+}
+
+func (failure *ProcessExecutionError) Stderr() []byte {
+	if failure == nil {
+		return nil
+	}
+	return cloneBytes(failure.stderr)
 }
 
 // LaneAcquisitionFailureClass is the closed policy-relevant cause of a failed

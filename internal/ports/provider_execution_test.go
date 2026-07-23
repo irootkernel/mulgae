@@ -48,6 +48,55 @@ func TestProviderExecutionStatusFailureClassMapping(t *testing.T) {
 	}
 }
 
+func TestPartialFailedProviderExecutionObservationRetainsTypedCauseAndStreams(t *testing.T) {
+	invocation := newProviderExecutionTestInvocationWithStdin(t, []byte("provider input"))
+	observation, err := NewPartialFailedProviderExecutionObservation(
+		ProviderExecutionStatusInternalFailure,
+		invocation,
+		[]byte("partial stdout"),
+		[]byte("partial stderr"),
+		"process_wait_failed",
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		1024,
+		1024,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Succeeded() || observation.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed {
+		t.Fatalf("status = %q, cause = %q", observation.Status(), observation.PrimaryCause())
+	}
+	if cleanup, ok := observation.CleanupCause(); !ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("cleanup cause = %q, %t", cleanup, ok)
+	}
+	if _, ok := observation.AvailableProcessObservation(); ok {
+		t.Fatal("partial failure unexpectedly claims a coherent process observation")
+	}
+	stdout, stderr := observation.Stdout(), observation.Stderr()
+	stdout[0], stderr[0] = 'X', 'X'
+	if string(observation.Stdout()) != "partial stdout" || string(observation.Stderr()) != "partial stderr" {
+		t.Fatal("partial streams were not defensively copied")
+	}
+}
+
+func TestFailedProviderExecutionObservationRequiresClosedTypedCause(t *testing.T) {
+	invocation := newProviderExecutionTestInvocationWithStdin(t, []byte("provider input"))
+	if _, err := NewPartialFailedProviderExecutionObservation(
+		ProviderExecutionStatusInternalFailure,
+		invocation,
+		nil,
+		nil,
+		"process_wait_failed",
+		domain.RuntimeDiagnosticCause("unknown"),
+		"",
+		1024,
+		1024,
+	); err == nil {
+		t.Fatal("unknown typed cause accepted")
+	}
+}
+
 func TestSuccessfulProviderExecutionObservationBindsExactProcessFacts(t *testing.T) {
 	stdin := []byte("complete provider stdin")
 	invocation := newProviderExecutionTestInvocationWithStdin(t, stdin)

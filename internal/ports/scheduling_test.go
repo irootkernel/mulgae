@@ -12,7 +12,44 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
+
+func TestProcessExecutionErrorPreservesTypedPrimaryCauseAndSeparatedEvidence(t *testing.T) {
+	underlying := errors.New("private adapter detail")
+	failure, err := NewProcessExecutionError(
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		[]byte("stdout evidence"),
+		[]byte("stderr evidence"),
+		underlying,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := failure.Error(); got != "process execution failed: provider_process_wait_failed" {
+		t.Fatalf("safe error = %q", got)
+	}
+	if failure.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed {
+		t.Fatalf("primary cause = %q", failure.PrimaryCause())
+	}
+	if cleanup, ok := failure.CleanupCause(); !ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("cleanup cause = %q, %t", cleanup, ok)
+	}
+	if !errors.Is(failure, underlying) {
+		t.Fatal("underlying cause was not retained")
+	}
+	stdout := failure.Stdout()
+	stderr := failure.Stderr()
+	stdout[0], stderr[0] = 'X', 'X'
+	if string(failure.Stdout()) != "stdout evidence" || string(failure.Stderr()) != "stderr evidence" {
+		t.Fatal("process evidence was not defensively copied")
+	}
+	if _, err := NewProcessExecutionError(domain.DiagnosticCauseProviderProcessWaitFailed, domain.DiagnosticCauseOutputDecodeFailed, nil, nil, nil); err == nil {
+		t.Fatal("non-cleanup supplemental cause accepted")
+	}
+}
 
 func TestValidateProcessOutputFrameAllowsOnlyOneTerminalLF(t *testing.T) {
 	for _, valid := range [][]byte{[]byte(`{"status":"ok"}`), []byte("{\"status\":\"ok\"}\n")} {
