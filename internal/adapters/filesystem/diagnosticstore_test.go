@@ -5,10 +5,13 @@ package filesystem
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,5 +198,250 @@ func TestDiagnosticStoreAtomicallyReplacesAttemptAndInvocationStatus(t *testing.
 	}
 	if err := fixture.store.ReplaceAttemptStatus(context.Background(), attemptStatus); err != nil {
 		t.Fatalf("atomic replacement failed: %v", err)
+	}
+}
+
+func diagnosticRawRequest(t *testing.T, stream domain.RuntimeDiagnosticStream, content string, maximum int64, aborted *atomic.Bool) ports.RuntimeDiagnosticRawRequest {
+	t.Helper()
+	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	request, err := ports.NewRuntimeDiagnosticRawRequest(attempt, "i_019f596a-d04a-7a7a-8b3c-123456789abc", 1, ports.ProviderInvocationInitial, stream, strings.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) { aborted.Store(true) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func TestDiagnosticStorePersistsSeparatedBoundedRawStreamsThroughScanner(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	var aborted atomic.Bool
+	stdout, err := fixture.store.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStdout, "safe stdout\n", 64, &aborted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutURI, ok := stdout.URI()
+	if !ok || !strings.HasSuffix(stdoutURI.String(), "/stdout.raw") || stdout.ByteLength() != int64(len("safe stdout\n")) {
+		t.Fatalf("stdout result = %#v", stdout)
+	}
+	stdoutBytes, err := os.ReadFile(filepath.Join(fixture.root, filepath.FromSlash(stdoutURI.String())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stdoutBytes) != "safe stdout\n" {
+		t.Fatalf("stdout bytes = %q", stdoutBytes)
+	}
+	info, _ := os.Stat(filepath.Join(fixture.root, filepath.FromSlash(stdoutURI.String())))
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("stdout mode = %o", info.Mode().Perm())
+	}
+	secret := "KKACHI_SECRET_password=value_7f20c84d"
+	dropped, err := fixture.store.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStderr, secret, 1024, &aborted))
+	if err == nil {
+		t.Fatal("secret stream persisted")
+	}
+	drop, ok := dropped.Drop()
+	if !ok || drop.Channel() != "provider_stderr" || !aborted.Load() {
+		t.Fatalf("secret drop = %#v, aborted=%v", dropped, aborted.Load())
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatal("secret leaked through error")
+	}
+	if _, statErr := os.Stat(diagnosticStorePath(fixture, "attempts/a_019f596a-d048-79e7-b2b7-59822f012273/invocations/001-initial/stderr.raw")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("dropped stderr exists: %v", statErr)
+	}
+}
+
+func TestDiagnosticStoreRawOverflowReturnsSafeDropAndRemovesTemporary(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	var aborted atomic.Bool
+	result, err := fixture.store.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStdout, "overflow", 2, &aborted))
+	if err == nil {
+		t.Fatal("overflow persisted")
+	}
+	drop, ok := result.Drop()
+	if !ok || drop.Detector() != "maximum_bytes_exceeded" || !aborted.Load() {
+		t.Fatalf("overflow result = %#v, aborted=%v", result, aborted.Load())
+	}
+	directory := diagnosticStorePath(fixture, "attempts/a_019f596a-d048-79e7-b2b7-59822f012273/invocations/001-initial")
+	entries, readErr := os.ReadDir(directory)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".tmp") || entry.Name() == "stdout.raw" {
+			t.Fatalf("unsafe overflow artifact remains: %s", entry.Name())
+		}
+	}
+}
+
+func TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	concrete.mu.Lock()
+	concrete.logBytes = ports.RuntimeDiagnosticLogMaxBytes - ports.RuntimeDiagnosticTailReserveBytes
+	concrete.mu.Unlock()
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); !errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
+		t.Fatalf("ordinary cap error = %v", err)
+	}
+	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
+	if err != nil {
+		t.Fatalf("mandatory event did not use tail reserve: %v", err)
+	}
+	if event.Sequence() != 1 {
+		t.Fatalf("mandatory sequence = %d", event.Sequence())
+	}
+	completed := fixture.request.StartedAt().Add(time.Second)
+	status, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunCompleted, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true, LastSequence: event.Sequence()})
+	finalize, _ := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunCompleted, "", status)
+	if _, err := fixture.store.Finalize(context.Background(), finalize); err != nil {
+		t.Fatal(err)
+	}
+	statusBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	var wire runtimeDiagnosticRunStatusWire
+	if err := json.Unmarshal(statusBytes, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire.DroppedEvents != 1 {
+		t.Fatalf("dropped events = %d", wire.DroppedEvents)
+	}
+}
+
+func TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	concrete := fixture.store.(*DiagnosticStore)
+	originalWrite := concrete.operations.write
+	first := true
+	concrete.operations.write = func(fd int, data []byte) (int, error) {
+		if first {
+			first = false
+			count, err := originalWrite(fd, data[:len(data)/2])
+			if err != nil {
+				return count, err
+			}
+			return count, io.ErrShortWrite
+		}
+		return originalWrite(fd, data)
+	}
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); err == nil {
+		t.Fatal("partial append reported success")
+	}
+	concrete.closeLog()
+	factory, _ := NewDiagnosticStoreFactory(NewSecureWriter(), fixture.clock)
+	reopened, err := factory.Open(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := reopened.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Sequence() != 1 {
+		t.Fatalf("recovered sequence = %d", event.Sequence())
+	}
+	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
+	if len(logBytes) == 0 || logBytes[len(logBytes)-1] != '\n' || strings.Count(string(logBytes), "\n") != 1 {
+		t.Fatalf("recovered log is not one complete line: %q", logBytes)
+	}
+}
+
+func TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	const count = 32
+	var wait sync.WaitGroup
+	sequences := make(chan uint64, count)
+	for index := 0; index < count; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			sequences <- event.Sequence()
+		}()
+	}
+	wait.Wait()
+	close(sequences)
+	seen := map[uint64]bool{}
+	for sequence := range sequences {
+		if seen[sequence] {
+			t.Fatalf("duplicate sequence %d", sequence)
+		}
+		seen[sequence] = true
+	}
+	if len(seen) != count {
+		t.Fatalf("sequence count = %d", len(seen))
+	}
+	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
+	lines := strings.Split(strings.TrimSuffix(string(logBytes), "\n"), "\n")
+	if len(lines) != count {
+		t.Fatalf("line count = %d", len(lines))
+	}
+	for _, line := range lines {
+		var wire runtimeDiagnosticEventWire
+		if err := json.Unmarshal([]byte(line), &wire); err != nil {
+			t.Fatalf("interleaved JSON line: %v", err)
+		}
+	}
+}
+
+func TestDiagnosticStoreRejectsSymlinkEscapeAndUnsafePermissions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		prepare func(string) error
+	}{
+		{"symlink", func(root string) error { return os.Symlink(t.TempDir(), filepath.Join(root, "diagnostics")) }},
+		{"permissions", func(root string) error { return os.Mkdir(filepath.Join(root, "diagnostics"), 0o755) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			if err := test.prepare(rootPath); err != nil {
+				t.Fatal(err)
+			}
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+			run, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+			request, _ := ports.NewRuntimeDiagnosticOpenRequest(root, session, run, time.Now().UTC())
+			factory, _ := NewDiagnosticStoreFactory(NewSecureWriter(), &diagnosticStoreTestClock{now: time.Now().UTC()})
+			if _, err := factory.Open(context.Background(), request); err == nil {
+				t.Fatal("unsafe diagnostics namespace accepted")
+			}
+		})
+	}
+}
+
+type diagnosticFailingRawWriter struct {
+	delegate ports.SecureFileWriter
+	failure  error
+}
+
+func (writer diagnosticFailingRawWriter) EnsurePrivateDir(root ports.AnchoredRoot, path ports.SafeRelativePath) error {
+	return writer.delegate.EnsurePrivateDir(root, path)
+}
+func (writer diagnosticFailingRawWriter) Write(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	if strings.HasPrefix(request.Channel(), "provider_") {
+		return ports.SecureWriteReceipt{}, nil, writer.failure
+	}
+	return writer.delegate.Write(ctx, request)
+}
+
+func TestDiagnosticStoreClassifiesRawWriterFailure(t *testing.T) {
+	rootPath := t.TempDir()
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	run, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	started := time.Now().UTC()
+	request, _ := ports.NewRuntimeDiagnosticOpenRequest(root, session, run, started)
+	injected := errors.New("injected writer failure")
+	factory, _ := NewDiagnosticStoreFactory(diagnosticFailingRawWriter{delegate: NewSecureWriter(), failure: injected}, &diagnosticStoreTestClock{now: started})
+	sink, err := factory.Open(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var aborted atomic.Bool
+	_, err = sink.PersistRaw(context.Background(), diagnosticRawRequest(t, domain.DiagnosticStdout, "safe", 8, &aborted))
+	var persistence *ports.RuntimeDiagnosticPersistenceError
+	if !errors.As(err, &persistence) || persistence.Operation != ports.DiagnosticPersistenceRaw || !errors.Is(err, injected) {
+		t.Fatalf("writer error classification = %T %v", err, err)
 	}
 }

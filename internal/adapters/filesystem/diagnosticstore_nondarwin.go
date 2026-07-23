@@ -18,6 +18,9 @@ func (*DiagnosticStoreFactory) Open(context.Context, ports.RuntimeDiagnosticOpen
 func (*DiagnosticStore) Emit(context.Context, domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
 	return domain.RuntimeDiagnosticEvent{}, errDiagnosticStoreUnsupportedPlatform
 }
+func (*DiagnosticStore) PersistRaw(context.Context, ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
+	return ports.RuntimeDiagnosticRawResult{}, errDiagnosticStoreUnsupportedPlatform
+}
 func (*DiagnosticStore) ReplaceRunStatus(context.Context, ports.RuntimeDiagnosticRunStatus) error {
 	return errDiagnosticStoreUnsupportedPlatform
 }

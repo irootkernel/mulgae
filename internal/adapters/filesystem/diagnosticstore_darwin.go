@@ -30,7 +30,7 @@ func (factory *DiagnosticStoreFactory) Open(ctx context.Context, request ports.R
 	if err := factory.writer.EnsurePrivateDir(request.Root(), request.RunPath()); err != nil {
 		return nil, diagnosticPersistenceError(ports.DiagnosticPersistenceOpen, "ensure_run_directory", err)
 	}
-	store := &DiagnosticStore{request: request, writer: factory.writer, clock: factory.clock, logFD: -1}
+	store := &DiagnosticStore{request: request, writer: factory.writer, clock: factory.clock, logFD: -1, operations: defaultDiagnosticStoreOperations()}
 	if err := store.openOrCreateLog(ctx); err != nil {
 		return nil, diagnosticPersistenceError(ports.DiagnosticPersistenceOpen, "open_runtime_log", err)
 	}
@@ -127,7 +127,7 @@ func (store *DiagnosticStore) recoverLog() error {
 		if err := unix.Ftruncate(store.logFD, int64(durableLength)); err != nil {
 			return fmt.Errorf("truncate partial runtime log: %w", err)
 		}
-		if err := unix.Fsync(store.logFD); err != nil {
+		if err := store.operations.fsync(store.logFD); err != nil {
 			return fmt.Errorf("sync recovered runtime log: %w", err)
 		}
 	}
@@ -197,16 +197,26 @@ func (store *DiagnosticStore) appendEventLocked(draft domain.RuntimeDiagnosticEv
 	if err != nil {
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "encode", err)
 	}
-	if store.logBytes+int64(len(encoded)) > ports.RuntimeDiagnosticLogMaxBytes {
+	limit := ports.RuntimeDiagnosticLogMaxBytes - ports.RuntimeDiagnosticTailReserveBytes
+	if mandatoryRuntimeDiagnosticEvent(input.Event) {
+		limit = ports.RuntimeDiagnosticLogMaxBytes
+	}
+	if store.logBytes+int64(len(encoded)) > limit {
+		if !mandatoryRuntimeDiagnosticEvent(input.Event) {
+			if store.droppedEvents < ^uint64(0) {
+				store.droppedEvents++
+			}
+			return domain.RuntimeDiagnosticEvent{}, ports.ErrRuntimeDiagnosticEventDropped
+		}
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "log_cap", errors.New("runtime log cap exhausted"))
 	}
 	if err := store.validateLogPath(); err != nil {
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "namespace_changed", err)
 	}
-	if err := writeAll(store.logFD, encoded); err != nil {
+	if err := writeAllWith(store.logFD, encoded, store.operations.write); err != nil {
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "append", err)
 	}
-	if err := unix.Fsync(store.logFD); err != nil {
+	if err := store.operations.fsync(store.logFD); err != nil {
 		return domain.RuntimeDiagnosticEvent{}, diagnosticPersistenceError(ports.DiagnosticPersistenceEmit, "sync", err)
 	}
 	if err := store.validateLogPath(); err != nil {
@@ -247,7 +257,7 @@ func (store *DiagnosticStore) replaceRunStatusLocked(status ports.RuntimeDiagnos
 	if status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() || lastSequence > store.sequence {
 		return errors.New("run status identity or sequence does not match store")
 	}
-	encoded, err := encodeRuntimeDiagnosticRunStatusAtSequence(status, lastSequence)
+	encoded, err := encodeRuntimeDiagnosticRunStatusAt(status, lastSequence, store.droppedEvents)
 	if err != nil {
 		return err
 	}
@@ -409,7 +419,7 @@ func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.Runtim
 	if err := store.replaceRunStatusLocked(status, store.sequence); err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_status", err)
 	}
-	if err := unix.Close(store.logFD); err != nil {
+	if err := store.operations.close(store.logFD); err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "close_log", err)
 	}
 	store.logFD = -1
@@ -426,4 +436,66 @@ func (store *DiagnosticStore) closeLog() {
 		closeFD(store.logFD)
 		store.logFD = -1
 	}
+}
+
+func defaultDiagnosticStoreOperations() diagnosticStoreOperations {
+	return diagnosticStoreOperations{write: unix.Write, fsync: unix.Fsync, close: unix.Close}
+}
+
+func mandatoryRuntimeDiagnosticEvent(code domain.RuntimeDiagnosticEventCode) bool {
+	switch code {
+	case domain.DiagnosticRuntimeOpened, domain.DiagnosticRunStarted, domain.DiagnosticAttemptFailed,
+		domain.DiagnosticProcessTimedOut, domain.DiagnosticProcessCancelled, domain.DiagnosticProcessTerminated,
+		domain.DiagnosticOutputParseFailed, domain.DiagnosticValidationFailed, domain.DiagnosticRepairExhausted,
+		domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled, domain.DiagnosticFallbackProhibited,
+		domain.DiagnosticRoleExhausted, domain.DiagnosticPublicationFailed, domain.DiagnosticRunCompleted,
+		domain.DiagnosticRunStopped, domain.DiagnosticRuntimeClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (store *DiagnosticStore) PersistRaw(ctx context.Context, request ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
+	if ctx == nil {
+		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "nil_context", errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return ports.RuntimeDiagnosticRawResult{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.finalized {
+		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "closed", errors.New("diagnostic store is finalized"))
+	}
+	destination, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/attempts/%s/invocations/%03d-%s/%s.raw", store.request.RunPath().String(), request.AttemptID().String(), request.Ordinal(), request.Purpose(), request.Stream()))
+	if err != nil {
+		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "path", err)
+	}
+	writeRequest, err := ports.NewSecureWriteRequest(store.request.Root(), destination, "provider_"+string(request.Stream()), request.Source(), request.MaxBytes(), request.SourceIDs(), request.Abort())
+	if err != nil {
+		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "request", err)
+	}
+	receipt, drop, writeErr := store.writer.Write(ctx, writeRequest)
+	if drop != nil {
+		result, resultErr := ports.NewRuntimeDiagnosticRawResult(request.Stream(), ports.SafeRelativePath{}, drop, 0)
+		if resultErr != nil {
+			return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "drop_result", errors.Join(writeErr, resultErr))
+		}
+		return result, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "security_drop", writeErr)
+	}
+	if receipt.Destination().Valid() {
+		result, resultErr := ports.NewRuntimeDiagnosticRawResult(request.Stream(), receipt.Destination(), nil, receipt.ByteLength())
+		if resultErr != nil {
+			return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "installed_result", errors.Join(writeErr, resultErr))
+		}
+		if writeErr != nil {
+			return result, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "installed_undurable", writeErr)
+		}
+		return result, nil
+	}
+	if writeErr == nil {
+		writeErr = errors.New("secure writer returned no receipt or drop")
+	}
+	return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "write", writeErr)
 }

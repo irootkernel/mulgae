@@ -21,6 +21,8 @@ const (
 	RuntimeDiagnosticInvocationStatusSchema       = "kar-runtime-invocation-status.v1"
 )
 
+var ErrRuntimeDiagnosticEventDropped = errors.New("runtime diagnostic ordinary event dropped at cap")
+
 type RuntimeDiagnosticOpenRequest struct {
 	root      AnchoredRoot
 	sessionID domain.SessionID

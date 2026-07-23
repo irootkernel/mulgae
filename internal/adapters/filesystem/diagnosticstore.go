@@ -1,7 +1,6 @@
 package filesystem
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -24,22 +23,30 @@ func NewDiagnosticStoreFactory(writer ports.SecureFileWriter, clock ports.Clock)
 }
 
 type DiagnosticStore struct {
-	mu          sync.Mutex
-	request     ports.RuntimeDiagnosticOpenRequest
-	writer      ports.SecureFileWriter
-	clock       ports.Clock
-	logFD       int
-	logIdentity diagnosticFileIdentity
-	sequence    uint64
-	lastElapsed uint64
-	logBytes    int64
-	finalized   bool
-	installed   bool
+	mu            sync.Mutex
+	request       ports.RuntimeDiagnosticOpenRequest
+	writer        ports.SecureFileWriter
+	clock         ports.Clock
+	logFD         int
+	logIdentity   diagnosticFileIdentity
+	sequence      uint64
+	lastElapsed   uint64
+	logBytes      int64
+	droppedEvents uint64
+	finalized     bool
+	installed     bool
+	operations    diagnosticStoreOperations
 }
 
 type diagnosticFileIdentity struct {
 	device uint64
 	inode  uint64
+}
+
+type diagnosticStoreOperations struct {
+	write func(int, []byte) (int, error)
+	fsync func(int) error
+	close func(int) error
 }
 
 var _ ports.RuntimeDiagnosticSink = (*DiagnosticStore)(nil)
@@ -115,10 +122,14 @@ func encodeRuntimeDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus) (
 }
 
 func encodeRuntimeDiagnosticRunStatusAtSequence(status ports.RuntimeDiagnosticRunStatus, lastSequence uint64) ([]byte, error) {
+	return encodeRuntimeDiagnosticRunStatusAt(status, lastSequence, status.DroppedEvents())
+}
+
+func encodeRuntimeDiagnosticRunStatusAt(status ports.RuntimeDiagnosticRunStatus, lastSequence, droppedEvents uint64) ([]byte, error) {
 	total, completed, failed := status.LaneCounts()
 	completedAt, hasCompletedAt := status.CompletedAt()
 	p2, hasP2 := status.P2URI()
-	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), LaneTotal: total, LaneCompleted: completed, LaneFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), DroppedEvents: status.DroppedEvents(), DiagnosticOnly: true, PublicationAuthority: false}
+	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), LaneTotal: total, LaneCompleted: completed, LaneFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), DroppedEvents: droppedEvents, DiagnosticOnly: true, PublicationAuthority: false}
 	if hasCompletedAt {
 		wire.CompletedAt = completedAt.Format(time.RFC3339Nano)
 	}
@@ -235,8 +246,4 @@ func (store *DiagnosticStore) URI() (ports.SafeRelativePath, bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	return store.request.RunPath(), store.installed
-}
-
-func (store *DiagnosticStore) PersistRaw(context.Context, ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
-	return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "not_available", fmt.Errorf("raw persistence is not implemented"))
 }
