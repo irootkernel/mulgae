@@ -1817,6 +1817,11 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"zcode-default", "kimi-default", "kimi-default"}, cause)
+	diagnosticURI, err := ports.NewSafeRelativePath(".kar/diagnostics/s_test/r_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginErr = reviewrun.NewRuntimeDiagnosticReferenceError(diagnosticURI, loginErr)
 
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
@@ -1834,9 +1839,10 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 			Code int `json:"code"`
 		} `json:"exit"`
 		Reasons []struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
+			Code        string  `json:"code"`
+			Message     string  `json:"message"`
+			Retryable   bool    `json:"retryable"`
+			ArtifactURI *string `json:"artifact_uri"`
 		} `json:"reasons"`
 		Result struct {
 			Kind              string  `json:"kind"`
@@ -1851,6 +1857,7 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	}
 	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_login_required" ||
 		envelope.Reasons[0].Retryable ||
+		envelope.Reasons[0].ArtifactURI == nil || *envelope.Reasons[0].ArtifactURI != diagnosticURI.String() ||
 		envelope.Reasons[0].Message != "Login is required for provider kimi-default, zcode-default. Authenticate outside KAR, then rerun the command." ||
 		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil || envelope.Result.RunID != nil ||
 		envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
@@ -1861,8 +1868,30 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	humanFixture.application.reviewRuns = &reviewRunFake{err: loginErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "kar: login required for provider kimi-default, zcode-default; authenticate outside KAR, then rerun the command\n" {
+		string(human.Stderr()) != "kar: login required for provider kimi-default, zcode-default; authenticate outside KAR, then rerun the command\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
 		t.Fatalf("human login-required result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+}
+
+func TestApplicationReviewDoesNotProjectUninstalledRuntimeDiagnosticURI(t *testing.T) {
+	cause, err := domain.NewFailure("reviewrun.current.capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"kimi-default"}, cause)
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
+	result := fixture.application.Run(context.Background(), []string{"review", "--diff", "git", "--output", "json"}, testAnchoredRoot(t))
+	var envelope struct {
+		Reasons []struct {
+			ArtifactURI *string `json:"artifact_uri"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].ArtifactURI != nil {
+		t.Fatalf("uninstalled diagnostic projection = %#v", envelope.Reasons)
 	}
 }
 
@@ -1944,9 +1973,14 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	diagnosticURI, err := ports.NewSafeRelativePath(".kar/diagnostics/s_test/r_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	referencedExecutionErr := reviewrun.NewRuntimeDiagnosticReferenceError(diagnosticURI, executionErr)
 
 	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: executionErr}
+	fixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	machine := fixture.application.Run(
 		context.Background(),
 		[]string{"review", "--diff", "git", "--output", "json"},
@@ -1955,9 +1989,10 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSecurity)
 	var envelope struct {
 		Reasons []struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
+			Code        string  `json:"code"`
+			Message     string  `json:"message"`
+			Retryable   bool    `json:"retryable"`
+			ArtifactURI *string `json:"artifact_uri"`
 		} `json:"reasons"`
 	}
 	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
@@ -1965,15 +2000,16 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	}
 	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_execution_failed" ||
 		envelope.Reasons[0].Retryable ||
+		envelope.Reasons[0].ArtifactURI == nil || *envelope.Reasons[0].ArtifactURI != diagnosticURI.String() ||
 		envelope.Reasons[0].Message != "Provider execution failed: zcode-default=security_violation." {
 		t.Fatalf("provider execution failure envelope = %#v", envelope)
 	}
 
 	humanFixture := newFoundationFixture(t)
-	humanFixture.application.reviewRuns = &reviewRunFake{err: executionErr}
+	humanFixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "kar: provider execution failed: zcode-default=security_violation\n" {
+		string(human.Stderr()) != "kar: provider execution failed: zcode-default=security_violation\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
 		t.Fatalf("human provider execution failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }

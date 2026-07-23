@@ -962,14 +962,15 @@ type execution struct {
 }
 
 type executionFailure struct {
-	class        domain.FailureClass
-	code         string
-	message      string
-	humanMessage string
-	retryable    bool
-	hasRetryable bool
-	stage        string
-	exit         app.ExitCode
+	class         domain.FailureClass
+	code          string
+	message       string
+	humanMessage  string
+	retryable     bool
+	hasRetryable  bool
+	stage         string
+	exit          app.ExitCode
+	diagnosticURI string
 }
 
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
@@ -1013,12 +1014,12 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 	exit := projectedFailureExit(invocation.Command(), failure.exit)
 	if invocation.OutputFormat() == OutputFormatHuman {
 		if len(run.human) != 0 {
-			return newResult(terminalOutput(run.human), nil, exit)
+			return newResult(terminalOutput(appendDiagnosticURI(run.human, failure.diagnosticURI)), nil, exit)
 		}
 		if failure.humanMessage != "" {
-			return errorResult(exit, failure.humanMessage)
+			return errorResult(exit, string(appendDiagnosticURI([]byte(failure.humanMessage), failure.diagnosticURI)))
 		}
-		return errorResult(exit, humanFailureMessage(failure.class))
+		return errorResult(exit, string(appendDiagnosticURI([]byte(humanFailureMessage(failure.class)), failure.diagnosticURI)))
 	}
 	request, available, requestErr := envelopeRequestJSON(invocation)
 	if requestErr != nil {
@@ -1041,14 +1042,18 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 	}
 	var diagnostic app.Diagnostic
 	if failure.hasRetryable {
-		diagnostic, err = app.NewDiagnosticWithRetryable(failure.stage, failure.class, failure.code, message, failure.retryable)
+		if failure.diagnosticURI != "" {
+			diagnostic, err = app.NewDiagnosticWithRetryableArtifactPath(failure.stage, failure.class, failure.code, message, failure.retryable, failure.diagnosticURI)
+		} else {
+			diagnostic, err = app.NewDiagnosticWithRetryable(failure.stage, failure.class, failure.code, message, failure.retryable)
+		}
 	} else {
 		diagnostic, err = app.NewDiagnostic(
 			failure.stage,
 			failure.class,
 			failure.code,
 			message,
-			"", "", domain.AttemptID{}, false, false, "", "",
+			"", "", domain.AttemptID{}, false, false, failure.diagnosticURI, "",
 		)
 	}
 	if err != nil {
@@ -1223,7 +1228,15 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 	}
 }
 
-func executionFailureFor(command app.CommandName, err error, fallback domain.FailureClass) *executionFailure {
+func executionFailureFor(command app.CommandName, err error, fallback domain.FailureClass) (failure *executionFailure) {
+	defer func() {
+		if failure == nil {
+			return
+		}
+		if uri, ok := reviewrun.RuntimeDiagnosticURIFromError(err); ok {
+			failure.diagnosticURI = uri.String()
+		}
+	}()
 	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired {
 		providerList := strings.Join(providers, ", ")
 		return &executionFailure{
@@ -1279,7 +1292,7 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		}
 	}
 	class := reducedFailureClass(err, fallback)
-	failure := &executionFailure{
+	failure = &executionFailure{
 		class: class,
 		stage: "cli." + string(command),
 		exit:  requestedExit(class),
@@ -1305,6 +1318,15 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		failure.exit = app.ExitCodeInternal
 	}
 	return failure
+}
+
+func appendDiagnosticURI(message []byte, uri string) []byte {
+	if uri == "" {
+		return cloneApplicationBytes(message)
+	}
+	output := bytes.TrimRight(cloneApplicationBytes(message), "\n")
+	output = append(output, []byte("\ndiagnostic_uri: ")...)
+	return append(output, uri...)
 }
 
 func qualificationFailureRetryable(class domain.FailureClass) bool {

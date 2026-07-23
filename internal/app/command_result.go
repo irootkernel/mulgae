@@ -118,6 +118,25 @@ func NewDiagnosticWithRetryable(
 	return diagnostic, nil
 }
 
+// NewDiagnosticWithRetryableArtifactPath constructs a diagnostic with both a
+// command-owned retryability override and an installed, redacted artifact path.
+func NewDiagnosticWithRetryableArtifactPath(
+	stage string,
+	failureClass domain.FailureClass,
+	machineCode string,
+	message string,
+	retryable bool,
+	artifactPath string,
+) (Diagnostic, error) {
+	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, false, false, artifactPath, "")
+	if err != nil {
+		return Diagnostic{}, err
+	}
+	diagnostic.retryableOverride = new(bool)
+	*diagnostic.retryableOverride = retryable
+	return diagnostic, nil
+}
+
 // NewDiagnostic constructs a typed, redacted user-facing diagnostic. Empty
 // role, provider, attempt ID, artifact path, and recommended command represent
 // fields that are not applicable to this failure.

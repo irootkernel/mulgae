@@ -259,6 +259,12 @@ func (err *RuntimeDiagnosticReferenceError) Error() string {
 func (err *RuntimeDiagnosticReferenceError) Unwrap() error { return err.cause }
 
 func runtimeDiagnosticReferenceError(uri ports.SafeRelativePath, cause error) error {
+	return NewRuntimeDiagnosticReferenceError(uri, cause)
+}
+
+// NewRuntimeDiagnosticReferenceError attaches an installed runtime diagnostic
+// URI to a terminal error without exposing any diagnostic contents.
+func NewRuntimeDiagnosticReferenceError(uri ports.SafeRelativePath, cause error) error {
 	if cause == nil || !uri.Valid() {
 		return cause
 	}
