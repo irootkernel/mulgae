@@ -34,8 +34,16 @@ test-e2e:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e requires darwin/arm64" >&2; exit 1; }
 	@e2e_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
+	e2e_project="$$(mktemp -d "$${TMPDIR:-/tmp}/kar-e2e-project.XXXXXX")"; \
+	chmod 700 "$$e2e_project"; \
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
 	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
 	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.11.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
-	KAR_E2E_BINARY="$$KAR_E2E_BINARY" $(GO) test -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2E' ./cmd/kar
+	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" $(GO) test -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2E' ./cmd/kar; then \
+		rm -rf "$$e2e_project"; \
+	else \
+		status=$$?; \
+		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
+		exit $$status; \
+	fi
 	@printf '%s\n' '[test-e2e] completed'

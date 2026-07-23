@@ -54,10 +54,11 @@ type liveCommandEnvelope struct {
 		Doctor            json.RawMessage `json:"doctor"`
 	} `json:"result"`
 	Reasons []struct {
-		Category  string `json:"category"`
-		Code      string `json:"code"`
-		Message   string `json:"message"`
-		Retryable bool   `json:"retryable"`
+		Category    string  `json:"category"`
+		Code        string  `json:"code"`
+		Message     string  `json:"message"`
+		Retryable   bool    `json:"retryable"`
+		ArtifactURI *string `json:"artifact_uri"`
 	} `json:"reasons"`
 }
 
@@ -432,6 +433,7 @@ func runLiveFocusedPrimaryWorkflow(t *testing.T, validator *jsonschema.Validator
 	var last string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		envelope := runLiveKARAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
+		inspectLiveFailureDiagnostics(t, project, attempt, envelope)
 		if liveReasonPresent(envelope, "provider_login_required") {
 			t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
 		}
@@ -455,6 +457,49 @@ func runLiveFocusedPrimaryWorkflow(t *testing.T, validator *jsonschema.Validator
 	}
 	t.Fatalf("focused live provider gate did not produce one primary-only run after %d attempts: %s", maxAttempts, last)
 	return livePublishedRun{}
+}
+
+func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) {
+	t.Helper()
+	seen := make(map[string]struct{})
+	for _, reason := range envelope.Reasons {
+		if reason.ArtifactURI == nil {
+			continue
+		}
+		uri := *reason.ArtifactURI
+		if _, duplicate := seen[uri]; duplicate {
+			continue
+		}
+		seen[uri] = struct{}{}
+		if filepath.IsAbs(uri) || filepath.Clean(uri) != uri || !strings.HasPrefix(uri, ".kar/diagnostics/") {
+			t.Fatalf("focused live attempt %d returned unsafe diagnostic URI %q", attempt, uri)
+		}
+		root := filepath.Join(project, filepath.FromSlash(uri))
+		statusBytes, err := os.ReadFile(filepath.Join(root, "status.json"))
+		if err != nil {
+			t.Fatalf("focused live attempt %d cannot read diagnostic status %q: %v", attempt, uri, err)
+		}
+		var status struct {
+			SessionID     string `json:"session_id"`
+			RunID         string `json:"run_id"`
+			State         string `json:"state"`
+			TerminalCause string `json:"terminal_cause"`
+			LastSequence  uint64 `json:"last_seq"`
+			P2URI         string `json:"p2_uri"`
+		}
+		if err := json.Unmarshal(statusBytes, &status); err != nil {
+			t.Fatalf("focused live attempt %d cannot decode diagnostic status %q: %v", attempt, uri, err)
+		}
+		logInfo, err := os.Stat(filepath.Join(root, "kar-runtime.jsonl"))
+		if err != nil || !logInfo.Mode().IsRegular() {
+			t.Fatalf("focused live attempt %d diagnostic log %q is unavailable or non-regular: %v", attempt, uri, err)
+		}
+		rawStreams, err := filepath.Glob(filepath.Join(root, "attempts", "a_*", "invocations", "*", "*.raw"))
+		if err != nil {
+			t.Fatalf("focused live attempt %d cannot inventory raw diagnostic streams %q: %v", attempt, uri, err)
+		}
+		t.Logf("focused live attempt %d diagnostic_uri=%s session=%s run=%s state=%s terminal_cause=%s last_seq=%d p2_uri=%s raw_streams=%d", attempt, uri, status.SessionID, status.RunID, status.State, status.TerminalCause, status.LastSequence, status.P2URI, len(rawStreams))
+	}
 }
 
 func liveReasonPresent(envelope liveCommandEnvelope, code string) bool {
