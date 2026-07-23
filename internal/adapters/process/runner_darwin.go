@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 	"golang.org/x/sys/unix"
 )
@@ -192,18 +193,19 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	expectedStdinSHA256 := stdinWriteSHA256(stdin)
 	initialReceipt, err := stdinReceipt(stdin, 0)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", nil, nil, err)
 	}
 	var preStartIdentity ports.ProviderPacketIdentity
 	if providerRequest && binding.Channel() == ports.ProviderPacketChannelPromptFile {
 		preStartIdentity, err = promptFileIdentity(binding)
 		if err != nil {
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: verify prompt file before start: %w", err)
+			return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", nil, nil,
+				fmt.Errorf("process runner: verify prompt file before start: %w", err))
 		}
 	}
 	startedAt, err := runner.timestamp()
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", nil, nil, err)
 	}
 	timer := time.NewTimer(request.Timeout())
 	defer timer.Stop()
@@ -213,14 +215,16 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: create stdout pipe: %w", err)
+		return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+			fmt.Errorf("process runner: create stdout pipe: %w", err))
 	}
 	defer stdoutReader.Close()
 
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
 		_ = stdoutWriter.Close()
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: create stderr pipe: %w", err)
+		return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+			fmt.Errorf("process runner: create stderr pipe: %w", err))
 	}
 	defer stderrReader.Close()
 
@@ -238,13 +242,15 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		if root.Path() != request.WorkingDirectory() {
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: bound directory does not match diagnostic working directory")
+			return processExecutionFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, "", nil, nil,
+				fmt.Errorf("process runner: bound directory does not match diagnostic working directory"))
 		}
 		duplicate, err := unix.Dup(int(boundDirectory.Fd()))
 		if err != nil {
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: duplicate bound launch directory: %w", err)
+			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+				fmt.Errorf("process runner: duplicate bound launch directory: %w", err))
 		}
 		launchDirectory = os.NewFile(uintptr(duplicate), root.Path())
 		karExecutable, err := os.Executable()
@@ -252,14 +258,16 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			_ = launchDirectory.Close()
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: resolve trusted KAR executable: %w", err)
+			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+				fmt.Errorf("process runner: resolve trusted KAR executable: %w", err))
 		}
 		karExecutable, err = filepath.Abs(karExecutable)
 		if err != nil {
 			_ = launchDirectory.Close()
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: canonicalize trusted KAR executable: %w", err)
+			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+				fmt.Errorf("process runner: canonicalize trusted KAR executable: %w", err))
 		}
 		if authority, protected := request.NativeHomeLaunchAuthority(); protected {
 			child.Path = karExecutable
@@ -293,7 +301,8 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			}
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: create stdin pipe: %w", err)
+			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
+				fmt.Errorf("process runner: create stdin pipe: %w", err))
 		}
 	}
 	if ctx.Err() != nil {
@@ -317,18 +326,33 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	if launchDirectory != nil {
 		if err := launchDirectory.Close(); err != nil {
 			cleanupErr := cleanupStartedChild(child, child.Process.Pid, stdinWriter, stdoutWriter, stderrWriter)
-			return ports.ProcessObservation{}, fmt.Errorf("process runner: close bound launch directory: %w", errors.Join(err, cleanupErr))
+			cleanupCause := domain.RuntimeDiagnosticCause("")
+			if cleanupErr != nil {
+				cleanupCause = domain.DiagnosticCauseProcessGroupCleanupFailed
+			}
+			return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, cleanupCause, nil, nil,
+				fmt.Errorf("process runner: close bound launch directory: %w", errors.Join(err, cleanupErr)))
 		}
 	}
 
 	processGroupID, err := captureProcessGroup(child.Process.Pid)
 	if err != nil {
 		cleanupErr := cleanupStartedChild(child, child.Process.Pid, stdinWriter, stdoutWriter, stderrWriter)
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: capture child process group: %w", errors.Join(err, cleanupErr))
+		cleanupCause := domain.RuntimeDiagnosticCause("")
+		if cleanupErr != nil {
+			cleanupCause = domain.DiagnosticCauseProcessGroupCleanupFailed
+		}
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, cleanupCause, nil, nil,
+			fmt.Errorf("process runner: capture child process group: %w", errors.Join(err, cleanupErr)))
 	}
 	if err := errors.Join(stdoutWriter.Close(), stderrWriter.Close()); err != nil {
 		cleanupErr := cleanupStartedChild(child, processGroupID, stdinWriter)
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: close parent output pipes: %w", errors.Join(err, cleanupErr))
+		cleanupCause := domain.RuntimeDiagnosticCause("")
+		if cleanupErr != nil {
+			cleanupCause = domain.DiagnosticCauseProcessGroupCleanupFailed
+		}
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, cleanupCause, nil, nil,
+			fmt.Errorf("process runner: close parent output pipes: %w", errors.Join(err, cleanupErr)))
 	}
 	if lifecycle, ok := request.PostOutputLifecycle(); ok {
 		return runner.runBoundedPostOutput(
@@ -459,9 +483,15 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 				signals.recordStdin(result)
 			case <-teardownTimer.C:
 				closeErr := errors.Join(closeStdin(stdinWriter), stdoutReader.Close(), stderrReader.Close())
-				return ports.ProcessObservation{}, fmt.Errorf(
-					"process runner: bounded group teardown did not complete: %w",
-					errors.Join(teardownErr, closeErr),
+				return processExecutionFailure(
+					domain.DiagnosticCauseProviderProcessWaitFailed,
+					domain.DiagnosticCauseProcessGroupCleanupFailed,
+					stdout.bytes,
+					stderr.bytes,
+					fmt.Errorf(
+						"process runner: bounded group teardown did not complete: %w",
+						errors.Join(teardownErr, closeErr),
+					),
 				)
 			}
 			continue
@@ -501,35 +531,35 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	snapshotTerminalFacts(ctx, timer, &signals)
 	if tearingDown {
 		if err := verifyProcessGroupAbsent(processGroupID, teardownDeadline); err != nil {
-			return ports.ProcessObservation{}, err
+			return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, err)
 		}
 	} else if err := verifyProcessGroupAbsentAfterNaturalCompletion(processGroupID); err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 
 	if teardownErr != nil {
-		return ports.ProcessObservation{}, teardownErr
+		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, teardownErr)
 	}
 	if signals.internal != nil {
-		return ports.ProcessObservation{}, signals.internal
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, signals.internal)
 	}
 	if termination := signals.termination(); termination != "" {
 		transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 		if err != nil {
-			return ports.ProcessObservation{}, err
+			return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
 		}
 		return runner.observationWithTransport(stdout.bytes, stderr.bytes, nil, termination, stdinReceipt, transportReceipt, startedAt)
 	}
 	if err := normalWaitError(waitErr); err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	exitCode, signal, err := processExitStatus(child.ProcessState)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	if signal != nil {
 		return runner.signaledObservation(stdout.bytes, stderr.bytes, *signal, stdinReceipt, transportReceipt, startedAt)
@@ -546,13 +576,13 @@ func (runner *Runner) signaledObservation(
 ) (ports.ProcessObservation, error) {
 	endedAt, err := runner.timestamp()
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr, err)
 	}
 	if endedAt.Before(startedAt) {
-		return ports.ProcessObservation{}, &ClockRegressionError{
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr, &ClockRegressionError{
 			StartedAt: startedAt,
 			EndedAt:   endedAt,
-		}
+		})
 	}
 
 	var observation ports.ProcessObservation
@@ -581,7 +611,8 @@ func (runner *Runner) signaledObservation(
 		)
 	}
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct signaled observation: %w", err)
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr,
+			fmt.Errorf("process runner: construct signaled observation: %w", err))
 	}
 	return observation, nil
 }
@@ -868,10 +899,16 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 				}
 			}
 			if !waited || producersJoined != 2 || !stdinDone {
-				return ports.ProcessObservation{}, errors.Join(
-					signals.internal,
-					cleanupErr,
-					errors.New("process runner: terminal cleanup did not complete before terminal deadline"),
+				return processExecutionFailure(
+					domain.DiagnosticCauseProviderProcessWaitFailed,
+					domain.DiagnosticCauseProcessGroupCleanupFailed,
+					stdout.bytes,
+					stderr.bytes,
+					errors.Join(
+						signals.internal,
+						cleanupErr,
+						errors.New("process runner: terminal cleanup did not complete before terminal deadline"),
+					),
 				)
 			}
 			outDone, errDone = true, true
@@ -888,14 +925,21 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		absenceErr = verifyProcessGroupAbsent(pgid, terminalDeadline)
 	}
 	if signals.internal != nil || cleanupErr != nil || absenceErr != nil {
-		return ports.ProcessObservation{}, errors.Join(signals.internal, cleanupErr, absenceErr)
+		primary := domain.DiagnosticCauseProviderProcessWaitFailed
+		cleanup := domain.RuntimeDiagnosticCause("")
+		if signals.internal == nil {
+			primary = domain.DiagnosticCauseProcessGroupCleanupFailed
+		} else if cleanupErr != nil || absenceErr != nil {
+			cleanup = domain.DiagnosticCauseProcessGroupCleanupFailed
+		}
+		return processExecutionFailure(primary, cleanup, stdout.bytes, stderr.bytes, errors.Join(signals.internal, cleanupErr, absenceErr))
 	}
 	if err := normalWaitError(waitErr); err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	exit, signal, err := processExitStatus(child.ProcessState)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	var final ports.ProcessFinalTermination
 	if signal != nil {
@@ -904,7 +948,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		final, err = ports.NewExitedProcessFinalTermination(*exit)
 	}
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout.bytes, stderr.bytes, err)
 	}
 	disposition := signals.termination()
 	if disposition == "" {
@@ -918,7 +962,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	}
 	transport, err := providerTransportReceipt(binding, provider, pre)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
 	}
 	frames := []ports.ProcessOutputFrameReceipt(nil)
 	if hasFrame {
@@ -926,7 +970,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	}
 	lifecycleReceipt, err := ports.NewProcessLifecycleReceipt(final, true, requests, frames...)
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout.bytes, stderr.bytes, err)
 	}
 	return runner.observationWithLifecycleTransport(
 		stdout.bytes, stderr.bytes, disposition, receipt, *transport, lifecycleReceipt, started,

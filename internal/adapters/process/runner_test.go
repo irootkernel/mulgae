@@ -20,10 +20,34 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const processTestExecutionTimeout = 5 * time.Second
+
+func TestProcessExecutionFailureKeepsInitiatingCauseAheadOfCleanup(t *testing.T) {
+	_, err := processExecutionFailure(
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		[]byte("captured stdout"),
+		[]byte("captured stderr"),
+		errors.Join(errors.New("wait detail"), errors.New("cleanup detail")),
+	)
+	var failure *ports.ProcessExecutionError
+	if !errors.As(err, &failure) {
+		t.Fatalf("failure type = %T", err)
+	}
+	if failure.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed {
+		t.Fatalf("primary cause = %q", failure.PrimaryCause())
+	}
+	if cleanup, ok := failure.CleanupCause(); !ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("cleanup cause = %q, %t", cleanup, ok)
+	}
+	if string(failure.Stdout()) != "captured stdout" || string(failure.Stderr()) != "captured stderr" {
+		t.Fatal("captured streams were lost")
+	}
+}
 
 type postOutputSignalExpectation struct {
 	reason ports.ProcessGroupSignalRequestReason

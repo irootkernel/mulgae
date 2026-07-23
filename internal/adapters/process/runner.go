@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
@@ -37,6 +38,19 @@ func (runner *Runner) timestamp() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("process runner: clock returned zero time")
 	}
 	return timestamp, nil
+}
+
+func processExecutionFailure(
+	primaryCause domain.RuntimeDiagnosticCause,
+	cleanupCause domain.RuntimeDiagnosticCause,
+	stdout, stderr []byte,
+	err error,
+) (ports.ProcessObservation, error) {
+	failure, constructErr := ports.NewProcessExecutionError(primaryCause, cleanupCause, stdout, stderr, err)
+	if constructErr != nil {
+		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct typed failure: %w", constructErr)
+	}
+	return ports.ProcessObservation{}, failure
 }
 
 // ClockRegressionError reports an observation clock moving backward after a
@@ -77,13 +91,13 @@ func (runner *Runner) observationWithTransport(
 ) (ports.ProcessObservation, error) {
 	endedAt, err := runner.timestamp()
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr, err)
 	}
 	if endedAt.Before(startedAt) {
-		return ports.ProcessObservation{}, &ClockRegressionError{
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr, &ClockRegressionError{
 			StartedAt: startedAt,
 			EndedAt:   endedAt,
-		}
+		})
 	}
 
 	var observation ports.ProcessObservation
@@ -110,7 +124,8 @@ func (runner *Runner) observationWithTransport(
 		)
 	}
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct observation: %w", err)
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr,
+			fmt.Errorf("process runner: construct observation: %w", err))
 	}
 	return observation, nil
 }
@@ -124,16 +139,18 @@ func (runner *Runner) observationWithLifecycleTransport(
 ) (ports.ProcessObservation, error) {
 	endedAt, err := runner.timestamp()
 	if err != nil {
-		return ports.ProcessObservation{}, err
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr, err)
 	}
 	if endedAt.Before(startedAt) {
-		return ports.ProcessObservation{}, &ClockRegressionError{StartedAt: startedAt, EndedAt: endedAt}
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr,
+			&ClockRegressionError{StartedAt: startedAt, EndedAt: endedAt})
 	}
 	observation, err := ports.NewStartedProviderProcessObservation(
 		stdout, stderr, termination, stdinWriteReceipt, transportReceipt, lifecycle, startedAt, endedAt,
 	)
 	if err != nil {
-		return ports.ProcessObservation{}, fmt.Errorf("process runner: construct lifecycle observation: %w", err)
+		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout, stderr,
+			fmt.Errorf("process runner: construct lifecycle observation: %w", err))
 	}
 	return observation, nil
 }
