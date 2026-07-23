@@ -30,6 +30,9 @@ func Plan(snapshot RetentionSnapshot) (CleanPlan, error) {
 		if run.RegularFileBytes < 0 {
 			return CleanPlan{}, failure(FailureInvalidSnapshot, "negative bytes for "+run.RunID, nil)
 		}
+		if run.kind() != RunKindPublication && run.kind() != RunKindDiagnosticOnly {
+			return CleanPlan{}, failure(FailureInvalidSnapshot, "invalid run kind for "+run.RunID, nil)
+		}
 		if _, exists := byID[run.RunID]; exists {
 			return CleanPlan{}, failure(FailureInvalidSnapshot, "duplicate run "+run.RunID, nil)
 		}
@@ -57,7 +60,7 @@ func Plan(snapshot RetentionSnapshot) (CleanPlan, error) {
 			add(id, ReasonActive)
 			seed[id] = true
 		}
-		if !run.Committed {
+		if run.kind() == RunKindPublication && !run.Committed || run.kind() == RunKindDiagnosticOnly && run.DiagnosticProtected {
 			add(id, ReasonUncommitted)
 			seed[id] = true
 		}
@@ -248,7 +251,10 @@ func Plan(snapshot RetentionSnapshot) (CleanPlan, error) {
 	now := snapshot.Now.UTC()
 	retentionCutoff := now.Add(-time.Duration(snapshot.Policy.RetentionAgeSeconds) * time.Second)
 	sizeCutoff := now.Add(-time.Duration(snapshot.Policy.MinAgeForSizeSeconds) * time.Second)
-	initial := int64(0)
+	if snapshot.ProtectedRegularFileBytes < 0 {
+		return CleanPlan{}, failure(FailureInvalidSnapshot, "negative protected regular file bytes", nil)
+	}
+	initial := snapshot.ProtectedRegularFileBytes
 	for _, run := range byID {
 		if run.RegularFileBytes > math.MaxInt64-initial {
 			return CleanPlan{}, failure(FailureInvalidSnapshot, "regular file byte total overflows int64", nil)

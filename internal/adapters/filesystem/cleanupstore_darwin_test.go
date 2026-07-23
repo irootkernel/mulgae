@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"golang.org/x/sys/unix"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/clean"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"golang.org/x/sys/unix"
 )
 
 type cleanupTestClock struct{ now time.Time }
@@ -246,6 +248,102 @@ func TestCleanupStoreObservesTerminalP2States(t *testing.T) {
 	}
 }
 
+func TestCleanupStoreObservesAndDeletesTerminalDiagnosticOnlyRun(t *testing.T) {
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := "s_019f596a-cf80-7c67-b265-f37053d51ccf"
+	run := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+	writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunFailed, cleanupP2CompletedAt, "")
+	store := newCleanupStoreForTest(t, root)
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runs) != 1 || snapshot.Runs[0].Kind != clean.RunKindDiagnosticOnly || snapshot.Runs[0].Committed || snapshot.Runs[0].Corrupt || snapshot.Runs[0].Active || !snapshot.Runs[0].Completed || snapshot.Runs[0].RegularFileBytes == 0 {
+		t.Fatalf("diagnostic-only observation = %#v", snapshot.Runs)
+	}
+	tombstone := clean.Tombstone{RunID: run, PlanHash: cleanupPlanForTest(t).PlanHash}
+	if err := store.Tombstone(context.Background(), tombstone); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteTombstoned(context.Background(), tombstone); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(root.String(), "diagnostics", session, run)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("diagnostic-only run still exists: %v", err)
+	}
+}
+
+func TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		p2URI      func(string, string) string
+		wantDelete bool
+	}{
+		{name: "linked", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/manifest.json" }, wantDelete: true},
+		{name: "mismatched", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/other.json" }, wantDelete: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root, err := ports.NewAnchoredRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			session := "s_019f596a-cf80-7c67-b265-f37053d51ccf"
+			run := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+			writeCleanupP2Fixture(t, root.String(), session, "r_019f596a-cfe4-7c9c-b82e-7149158243ba", run, "completed", cleanupP2CompletedAt)
+			writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunCompleted, cleanupP2CompletedAt, testCase.p2URI(session, run))
+			store := newCleanupStoreForTest(t, root)
+			snapshot, err := store.Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Runs) != 1 || snapshot.Runs[0].Kind != clean.RunKindPublication || snapshot.Runs[0].Corrupt {
+				t.Fatalf("P2 observation changed by diagnostic link: %#v", snapshot.Runs)
+			}
+			if testCase.wantDelete && snapshot.ProtectedRegularFileBytes != 0 || !testCase.wantDelete && snapshot.ProtectedRegularFileBytes == 0 {
+				t.Fatalf("protected bytes = %d", snapshot.ProtectedRegularFileBytes)
+			}
+			tombstone := clean.Tombstone{RunID: run, PlanHash: cleanupPlanForTest(t).PlanHash}
+			if err := store.Tombstone(context.Background(), tombstone); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.DeleteTombstoned(context.Background(), tombstone); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(filepath.Join(root.String(), session, run)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("P2 run still exists: %v", err)
+			}
+			_, err = os.Lstat(filepath.Join(root.String(), "diagnostics", session, run))
+			if testCase.wantDelete && !errors.Is(err, os.ErrNotExist) || !testCase.wantDelete && err != nil {
+				t.Fatalf("diagnostic existence error = %v, want delete %t", err, testCase.wantDelete)
+			}
+		})
+	}
+}
+
+func TestCleanupStoreKeepsMalformedLinkedDiagnosticSeparateFromHealthyP2(t *testing.T) {
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := "s_019f596a-cf80-7c67-b265-f37053d51ccf"
+	run := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+	writeCleanupP2Fixture(t, root.String(), session, "r_019f596a-cfe4-7c9c-b82e-7149158243ba", run, "completed", cleanupP2CompletedAt)
+	diagnosticPath := writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunCompleted, cleanupP2CompletedAt, ".kar/"+session+"/"+run+"/manifest.json")
+	if err := os.WriteFile(filepath.Join(diagnosticPath, "status.json"), []byte(`{"schema_version":"tampered"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := newCleanupStoreForTest(t, root).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runs) != 1 || snapshot.Runs[0].Corrupt || !snapshot.Runs[0].Committed || snapshot.ProtectedRegularFileBytes == 0 {
+		t.Fatalf("malformed diagnostic contaminated P2 observation: %#v protected=%d", snapshot.Runs, snapshot.ProtectedRegularFileBytes)
+	}
+}
+
 func TestCleanupStoreRetainsMalformedTerminalCompletion(t *testing.T) {
 	root, err := ports.NewAnchoredRoot(t.TempDir())
 	if err != nil {
@@ -469,6 +567,41 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 		}
 	}
 	return cleanupP2Paths{edge: edgePath}
+}
+
+func writeCleanupDiagnosticFixture(t *testing.T, root, session, run string, state domain.RunState, completedAt, p2URI string) string {
+	t.Helper()
+	status := runtimeDiagnosticRunStatusWire{
+		SchemaVersion:        ports.RuntimeDiagnosticRunStatusSchema,
+		SessionID:            session,
+		RunID:                run,
+		State:                state,
+		StartedAt:            completedAt,
+		UpdatedAt:            completedAt,
+		SelectedRoles:        []domain.Role{},
+		LastSequence:         1,
+		P2URI:                p2URI,
+		DiagnosticOnly:       true,
+		PublicationAuthority: false,
+	}
+	switch state {
+	case domain.RunCompleted, domain.RunDegraded, domain.RunFailed, domain.RunCancelled:
+		status.CompletedAt = completedAt
+		status.TerminalCause = domain.DiagnosticCauseProviderExecutionFailed
+	}
+	runPath := filepath.Join(root, "diagnostics", session, run)
+	if err := os.MkdirAll(runPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"status.json":       cleanupJSON(t, status),
+		"kar-runtime.jsonl": []byte("{}\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(runPath, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return runPath
 }
 
 func cleanupJSON(t *testing.T, value any) []byte {

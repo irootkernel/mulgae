@@ -53,6 +53,7 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var evidence []Evidence
+	var redaction RedactionManifest
 	var decodedMembers []byte
 	for index, file := range reader.File {
 		if file.Name != first.Members[index].Path || !canonicalPathPattern.MatchString(file.Name) {
@@ -76,9 +77,17 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		if file.Name == "redaction.json" {
+			if err := json.Unmarshal(data, &redaction); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	if len(evidence) != 1 || evidence[0].SourceExcerptSHA256 != source.Evidence[0].SourceExcerptSHA256 || evidence[0].CurrentExcerptSHA256 != source.Evidence[0].CurrentExcerptSHA256 {
 		t.Fatalf("evidence digest mapping = %#v", evidence)
+	}
+	if !containsExportString(redaction.Dropped, "runtime_diagnostics") {
+		t.Fatalf("runtime diagnostics are not explicitly excluded: %#v", redaction.Dropped)
 	}
 	if bytes.Contains(decodedMembers, []byte("/Users/alice/private")) {
 		t.Fatal("absolute path was retained")
@@ -101,6 +110,15 @@ func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
 	if bytes.Contains(manifestBytes, []byte("raw_provider_output")) {
 		t.Fatal("sidecar unexpectedly embeds bundle contents")
 	}
+}
+
+func containsExportString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 func TestBuildRedactedBundlePreservesSelectedFollowupAndHistoricalEvidenceIdentities(t *testing.T) {
 	source := validProjection()

@@ -84,15 +84,31 @@ type StoreEpoch struct {
 	SHA256 string `json:"sha256"`
 }
 
+type RunKind string
+
+const (
+	RunKindPublication    RunKind = "publication"
+	RunKindDiagnosticOnly RunKind = "diagnostic_only"
+)
+
 type RunObservation struct {
-	RunID            string
-	SessionID        string
-	Completed        bool
-	CompletedAt      *time.Time
-	Active           bool
-	Committed        bool
-	Corrupt          bool
-	RegularFileBytes int64
+	RunID               string
+	SessionID           string
+	Kind                RunKind
+	Completed           bool
+	CompletedAt         *time.Time
+	Active              bool
+	Committed           bool
+	Corrupt             bool
+	DiagnosticProtected bool
+	RegularFileBytes    int64
+}
+
+func (r RunObservation) kind() RunKind {
+	if r.Kind == "" {
+		return RunKindPublication
+	}
+	return r.Kind
 }
 
 func (r RunObservation) completion() (time.Time, bool) {
@@ -116,12 +132,13 @@ type LineageEdgeObservation struct {
 }
 
 type RetentionSnapshot struct {
-	Now               time.Time
-	StoreEpoch        StoreEpoch
-	InputPolicySHA256 string
-	Policy            Policy
-	Runs              []RunObservation
-	Edges             []LineageEdgeObservation
+	Now                       time.Time
+	StoreEpoch                StoreEpoch
+	InputPolicySHA256         string
+	Policy                    Policy
+	Runs                      []RunObservation
+	Edges                     []LineageEdgeObservation
+	ProtectedRegularFileBytes int64
 }
 
 func (s RetentionSnapshot) Clone() RetentionSnapshot {

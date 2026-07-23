@@ -65,6 +65,49 @@ func TestPlanNormalizesCollectionsAndIsPermutationInvariant(t *testing.T) {
 	}
 }
 
+func TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns(t *testing.T) {
+	diagnostic := oldRun(cleanRunOne, 5)
+	diagnostic.Kind = RunKindDiagnosticOnly
+	diagnostic.Committed = false
+	newestP2 := oldRun(cleanRunTwo, 3)
+	newestP2.CompletedAt = cleanTime("2026-07-13T11:59:59Z")
+	snapshot := cleanSnapshot([]RunObservation{diagnostic, newestP2})
+	snapshot.ProtectedRegularFileBytes = 7
+	plan, err := Plan(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.DeleteSets.AgeDeleteSet) != 1 || plan.DeleteSets.AgeDeleteSet[0].RunID != cleanRunOne || plan.DeleteSets.AgeDeleteSet[0].RegularFileBytes != 5 {
+		t.Fatalf("diagnostic-only retention selection = %#v", plan.DeleteSets.AgeDeleteSet)
+	}
+	if plan.ByteAccounting.InitialRegularFileBytes != 15 || plan.ByteAccounting.PlannedDeleteBytes != 5 || plan.ByteAccounting.ProjectedRegularFileBytes != 10 {
+		t.Fatalf("diagnostic byte accounting = %#v", plan.ByteAccounting)
+	}
+
+	diagnostic.DiagnosticProtected = true
+	protectedPlan, err := Plan(cleanSnapshot([]RunObservation{diagnostic, newestP2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(protectedPlan.DeleteSets.AgeDeleteSet) != 0 || !containsReason(protectedPlan.RunDecisions, cleanRunOne, ReasonUncommitted) {
+		t.Fatalf("mismatched diagnostic was not protected: %#v", protectedPlan.RunDecisions)
+	}
+}
+
+func containsReason(decisions []RunDecision, runID string, reason Reason) bool {
+	for _, decision := range decisions {
+		if decision.RunID != runID {
+			continue
+		}
+		for _, candidate := range decision.Reasons {
+			if candidate == reason {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestExecuteApplyRejectsForgedSelfHashedPlanWithoutReceipt(t *testing.T) {
 	snapshot := cleanSnapshot([]RunObservation{oldRun(cleanRunOne, 1), RunObservation{RunID: cleanRunTwo, SessionID: cleanSession, Completed: true, CompletedAt: cleanTime("2026-07-13T11:59:59Z"), Committed: true, RegularFileBytes: 1}})
 	dryRun, err := Plan(snapshot)

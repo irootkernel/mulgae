@@ -117,7 +117,7 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 		SchemaVersions:  []string{"kar-run-manifest.v2", "kar-review-artifact.v2"},
 		Review:          appexport.Review{SchemaVersion: "kar-review-artifact.v2", ContentVerdict: string(committed.ContentVerdict()), CoverageStatus: string(committed.CoverageStatus())},
 		Run:             appexport.Run{SchemaVersion: "kar-run-manifest.v2", State: string(committed.RunState())},
-		Redaction:       appexport.RedactionManifest{Policy: "allowlisted-p2-projection", Dropped: []string{"raw_provider_output", "target_bytes", "environment", "host_paths"}},
+		Redaction:       appexport.RedactionManifest{Policy: "allowlisted-p2-projection", Dropped: []string{"raw_provider_output", "runtime_diagnostics", "target_bytes", "environment", "host_paths"}},
 		SourceIdentity:  appexport.SourceIdentity{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String(), SourceTargetSHA256: committed.TargetSHA256()},
 		CurrentIdentity: appexport.CurrentIdentity{TargetSHA256: committed.TargetSHA256()},
 	}

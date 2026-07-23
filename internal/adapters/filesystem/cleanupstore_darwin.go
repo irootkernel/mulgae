@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -140,7 +141,7 @@ func (store *CleanupStore) snapshotLocked(ctx context.Context) (clean.RetentionS
 	if err := ctx.Err(); err != nil {
 		return clean.RetentionSnapshot{}, err
 	}
-	runs, edges, material, err := store.observeLocked(ctx)
+	runs, edges, protectedBytes, material, err := store.observeLocked(ctx)
 	if err != nil {
 		return clean.RetentionSnapshot{}, err
 	}
@@ -149,7 +150,7 @@ func (store *CleanupStore) snapshotLocked(ctx context.Context) (clean.RetentionS
 	if value == 0 {
 		value = 1
 	}
-	return clean.RetentionSnapshot{Now: store.clock.Now().UTC(), StoreEpoch: clean.StoreEpoch{Value: value, SHA256: "sha256:" + hex.EncodeToString(digest[:])}, InputPolicySHA256: store.policyHash, Policy: cloneCleanupPolicy(store.policy), Runs: runs, Edges: edges}, nil
+	return clean.RetentionSnapshot{Now: store.clock.Now().UTC(), StoreEpoch: clean.StoreEpoch{Value: value, SHA256: "sha256:" + hex.EncodeToString(digest[:])}, InputPolicySHA256: store.policyHash, Policy: cloneCleanupPolicy(store.policy), Runs: runs, Edges: edges, ProtectedRegularFileBytes: protectedBytes}, nil
 }
 
 func (store *CleanupStore) DryRunPlan(ctx context.Context, hash string) (clean.CleanPlan, error) {
@@ -267,10 +268,10 @@ func (store *CleanupStore) DeleteTombstoned(ctx context.Context, tombstone clean
 	return unix.Fsync(directory)
 }
 
-func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObservation, []clean.LineageEdgeObservation, []byte, error) {
+func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObservation, []clean.LineageEdgeObservation, int64, []byte, error) {
 	entries, err := os.ReadDir(store.root.String())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, 0, nil, err
 	}
 	var runs []clean.RunObservation
 	var edges []clean.LineageEdgeObservation
@@ -290,7 +291,7 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 		}
 		children, err := os.ReadDir(sessionPath)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, 0, nil, err
 		}
 		for _, child := range children {
 			if !strings.HasPrefix(child.Name(), "r_") {
@@ -302,7 +303,7 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 			}
 			runPath := filepath.Join(sessionPath, child.Name())
 			info, err := os.Lstat(runPath)
-			observation := clean.RunObservation{RunID: child.Name(), SessionID: session.Name(), Corrupt: err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0}
+			observation := clean.RunObservation{RunID: child.Name(), SessionID: session.Name(), Kind: clean.RunKindPublication, Corrupt: err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0}
 			material := []byte(session.Name() + "/" + child.Name() + "\x00")
 			if !observation.Corrupt {
 				observation.RegularFileBytes, err = lstatTreeBytes(runPath)
@@ -350,9 +351,194 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 			runs = append(runs, observation)
 		}
 	}
+	protectedBytes, diagnosticMaterial, err := store.observeDiagnosticRuns(ctx, &runs)
+	if err != nil {
+		return nil, nil, 0, nil, err
+	}
+	hashInput = append(hashInput, diagnosticMaterial...)
 	sort.Slice(runs, func(i, j int) bool { return runs[i].RunID < runs[j].RunID })
 	sort.Slice(edges, func(i, j int) bool { return edges[i].ChildRunID < edges[j].ChildRunID })
-	return runs, edges, hashInput, nil
+	return runs, edges, protectedBytes, hashInput, nil
+}
+
+func (store *CleanupStore) observeDiagnosticRuns(ctx context.Context, runs *[]clean.RunObservation) (int64, []byte, error) {
+	diagnosticsRoot := filepath.Join(store.root.String(), "diagnostics")
+	rootInfo, err := os.Lstat(diagnosticsRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil, nil
+	}
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return 0, []byte("diagnostics\x00unsafe\n"), nil
+	}
+	sessions, err := os.ReadDir(diagnosticsRoot)
+	if err != nil {
+		return 0, nil, err
+	}
+	publicationByRun := make(map[string]int, len(*runs))
+	for index := range *runs {
+		publicationByRun[(*runs)[index].RunID] = index
+	}
+	var protectedBytes int64
+	material := make([]byte, 0)
+	for _, sessionEntry := range sessions {
+		if err := ctx.Err(); err != nil {
+			return 0, nil, err
+		}
+		sessionID, parseErr := domain.ParseSessionID(sessionEntry.Name())
+		sessionPath := filepath.Join(diagnosticsRoot, sessionEntry.Name())
+		sessionInfo, statErr := os.Lstat(sessionPath)
+		if parseErr != nil || statErr != nil || !sessionInfo.IsDir() || sessionInfo.Mode()&os.ModeSymlink != 0 {
+			material = append(material, []byte("diagnostics/"+sessionEntry.Name()+"\x00unsafe\n")...)
+			continue
+		}
+		runEntries, readErr := os.ReadDir(sessionPath)
+		if readErr != nil {
+			return 0, nil, readErr
+		}
+		for _, runEntry := range runEntries {
+			runID, parseErr := domain.ParseRunID(runEntry.Name())
+			if parseErr != nil {
+				material = append(material, []byte("diagnostics/"+sessionEntry.Name()+"/"+runEntry.Name()+"\x00malformed\n")...)
+				continue
+			}
+			runPath := filepath.Join(sessionPath, runEntry.Name())
+			runInfo, statErr := os.Lstat(runPath)
+			observation := clean.RunObservation{RunID: runEntry.Name(), SessionID: sessionEntry.Name(), Kind: clean.RunKindDiagnosticOnly}
+			matchingPublication := -1
+			if index, ok := publicationByRun[runEntry.Name()]; ok && (*runs)[index].SessionID == sessionEntry.Name() {
+				matchingPublication = index
+			}
+			if statErr != nil || !runInfo.IsDir() || runInfo.Mode()&os.ModeSymlink != 0 {
+				observation.Corrupt = true
+				if matchingPublication < 0 {
+					*runs = append(*runs, observation)
+				}
+				material = append(material, diagnosticObservationMaterial(observation, nil)...)
+				continue
+			}
+			bytes, treeErr := lstatTreeBytes(runPath)
+			if treeErr != nil {
+				observation.Corrupt = true
+				if matchingPublication < 0 {
+					*runs = append(*runs, observation)
+				}
+				material = append(material, diagnosticObservationMaterial(observation, nil)...)
+				continue
+			}
+			statusBytes, readErr := os.ReadFile(filepath.Join(runPath, "status.json"))
+			status, statusErr := decodeCleanupDiagnosticStatus(statusBytes, sessionID, runID)
+			observation.RegularFileBytes = bytes
+			if readErr != nil || statusErr != nil {
+				observation.Corrupt = true
+				if matchingPublication >= 0 {
+					if protectedBytes > math.MaxInt64-bytes {
+						return 0, nil, errors.New("cleanup store: protected diagnostic bytes overflow")
+					}
+					protectedBytes += bytes
+				} else {
+					*runs = append(*runs, observation)
+				}
+				material = append(material, diagnosticObservationMaterial(observation, statusBytes)...)
+				continue
+			}
+			completedAt, terminal := cleanupDiagnosticCompletion(status)
+			observation.Completed = terminal
+			observation.CompletedAt = completedAt
+			observation.Active = !terminal
+			p2URI, hasP2 := status.P2URI()
+			expectedP2 := ".kar/" + sessionEntry.Name() + "/" + runEntry.Name() + "/manifest.json"
+			linked := matchingPublication >= 0 && terminal && hasP2 && p2URI.String() == expectedP2
+			switch {
+			case linked:
+				publication := &(*runs)[matchingPublication]
+				if publication.RegularFileBytes > math.MaxInt64-bytes {
+					return 0, nil, errors.New("cleanup store: linked diagnostic bytes overflow")
+				}
+				publication.RegularFileBytes += bytes
+			case matchingPublication >= 0:
+				if protectedBytes > math.MaxInt64-bytes {
+					return 0, nil, errors.New("cleanup store: protected diagnostic bytes overflow")
+				}
+				protectedBytes += bytes
+			case terminal && !hasP2:
+				*runs = append(*runs, observation)
+			default:
+				observation.DiagnosticProtected = terminal
+				*runs = append(*runs, observation)
+			}
+			material = append(material, diagnosticObservationMaterial(observation, statusBytes)...)
+		}
+	}
+	return protectedBytes, material, nil
+}
+
+func decodeCleanupDiagnosticStatus(data []byte, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	var wire runtimeDiagnosticRunStatusWire
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: malformed diagnostic status")
+	}
+	if wire.SchemaVersion != ports.RuntimeDiagnosticRunStatusSchema || wire.SessionID != sessionID.String() || wire.RunID != runID.String() || !wire.DiagnosticOnly || wire.PublicationAuthority {
+		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: invalid diagnostic status authority or identity")
+	}
+	startedAt, startedErr := parseCleanupDiagnosticTime(wire.StartedAt)
+	updatedAt, updatedErr := parseCleanupDiagnosticTime(wire.UpdatedAt)
+	completedAt, completedErr := parseOptionalCleanupDiagnosticTime(wire.CompletedAt)
+	if startedErr != nil || updatedErr != nil || completedErr != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: invalid diagnostic status time")
+	}
+	p2URI := ports.SafeRelativePath{}
+	if wire.P2URI != "" {
+		var err error
+		p2URI, err = ports.NewSafeRelativePath(wire.P2URI)
+		if err != nil {
+			return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: invalid diagnostic P2 URI")
+		}
+	}
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, CompletedAt: completedAt, HasCompletedAt: wire.CompletedAt != "", SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, P2URI: p2URI, HasP2URI: wire.P2URI != "", DroppedEvents: wire.DroppedEvents})
+	if err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, err
+	}
+	_, terminal := cleanupDiagnosticCompletion(status)
+	if terminal != (wire.CompletedAt != "") {
+		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: inconsistent diagnostic terminal status")
+	}
+	return status, nil
+}
+
+func parseCleanupDiagnosticTime(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil || parsed.UTC().Format(time.RFC3339Nano) != value {
+		return time.Time{}, errors.New("noncanonical diagnostic time")
+	}
+	return parsed.UTC(), nil
+}
+
+func parseOptionalCleanupDiagnosticTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return parseCleanupDiagnosticTime(value)
+}
+
+func cleanupDiagnosticCompletion(status ports.RuntimeDiagnosticRunStatus) (*time.Time, bool) {
+	switch status.State() {
+	case domain.RunCompleted, domain.RunDegraded, domain.RunFailed, domain.RunCancelled:
+		completedAt, ok := status.CompletedAt()
+		if !ok {
+			return nil, false
+		}
+		return &completedAt, true
+	default:
+		return nil, false
+	}
+}
+
+func diagnosticObservationMaterial(observation clean.RunObservation, status []byte) []byte {
+	material := []byte("diagnostics/" + observation.SessionID + "/" + observation.RunID + "\x00")
+	material = append(material, status...)
+	return append(material, []byte(fmt.Sprintf("\x00%t:%t:%t:%t:%d\n", observation.Completed, observation.Active, observation.Corrupt, observation.DiagnosticProtected, observation.RegularFileBytes))...)
 }
 
 func authoritativeCompletion(data []byte) (*time.Time, bool) {
@@ -449,6 +635,15 @@ func (store *CleanupStore) deleteRun(id string) error {
 			sessionName = name
 		}
 	}
+	diagnosticSession, err := store.deletableDiagnosticSession(id, sessionName)
+	if err != nil {
+		return err
+	}
+	if diagnosticSession != "" {
+		if err := store.deleteDiagnosticRun(diagnosticSession, id); err != nil {
+			return err
+		}
+	}
 	if sessionName == "" {
 		return nil
 	}
@@ -464,6 +659,111 @@ func (store *CleanupStore) deleteRun(id string) error {
 		return fmt.Errorf("cleanup store: sync run parent: %w", err)
 	}
 	return nil
+}
+
+func (store *CleanupStore) deletableDiagnosticSession(id, publicationSession string) (string, error) {
+	rootFD, err := unix.Open(store.root.String(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return "", fmt.Errorf("cleanup store: open artifact root for diagnostic selection: %w", err)
+	}
+	defer unix.Close(rootFD)
+	diagnosticsFD, err := unix.Openat(rootFD, "diagnostics", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("cleanup store: open diagnostic namespace: %w", err)
+	}
+	defer unix.Close(diagnosticsFD)
+	entries, err := cleanupDirNames(diagnosticsFD)
+	if err != nil {
+		return "", fmt.Errorf("cleanup store: read diagnostic namespace: %w", err)
+	}
+	found := ""
+	for _, entry := range entries {
+		sessionID, parseErr := domain.ParseSessionID(entry)
+		if parseErr != nil || publicationSession != "" && entry != publicationSession {
+			continue
+		}
+		sessionFD, openErr := unix.Openat(diagnosticsFD, entry, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if openErr != nil {
+			if publicationSession == "" {
+				return "", errors.New("cleanup store: diagnostic-only session is unsafe")
+			}
+			return "", nil
+		}
+		var stat unix.Stat_t
+		statErr := unix.Fstatat(sessionFD, id, &stat, unix.AT_SYMLINK_NOFOLLOW)
+		if errors.Is(statErr, unix.ENOENT) {
+			unix.Close(sessionFD)
+			continue
+		}
+		if statErr != nil || stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+			unix.Close(sessionFD)
+			if publicationSession == "" {
+				return "", errors.New("cleanup store: diagnostic-only deletion target is unsafe")
+			}
+			return "", nil
+		}
+		runFD, openErr := unix.Openat(sessionFD, id, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		unix.Close(sessionFD)
+		if openErr != nil {
+			if publicationSession == "" {
+				return "", errors.New("cleanup store: diagnostic-only deletion target changed")
+			}
+			return "", nil
+		}
+		runID, parseErr := domain.ParseRunID(id)
+		if parseErr != nil {
+			unix.Close(runFD)
+			return "", errors.New("cleanup store: invalid diagnostic deletion run ID")
+		}
+		statusBytes, readErr := cleanupReadRegularAt(runFD, "status.json")
+		unix.Close(runFD)
+		status, statusErr := decodeCleanupDiagnosticStatus(statusBytes, sessionID, runID)
+		_, terminal := cleanupDiagnosticCompletion(status)
+		if readErr != nil || statusErr != nil || !terminal {
+			if publicationSession == "" {
+				return "", errors.New("cleanup store: diagnostic-only deletion target changed")
+			}
+			return "", nil
+		}
+		p2URI, hasP2 := status.P2URI()
+		expectedP2 := ".kar/" + entry + "/" + id + "/manifest.json"
+		if publicationSession != "" && (!hasP2 || p2URI.String() != expectedP2) || publicationSession == "" && hasP2 && p2URI.String() != expectedP2 {
+			return "", nil
+		}
+		if found != "" {
+			return "", errors.New("cleanup store: duplicate diagnostic run ID")
+		}
+		found = entry
+	}
+	return found, nil
+}
+
+func (store *CleanupStore) deleteDiagnosticRun(session, id string) error {
+	rootFD, err := unix.Open(store.root.String(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("cleanup store: open artifact root for diagnostic deletion: %w", err)
+	}
+	defer unix.Close(rootFD)
+	diagnosticsFD, err := unix.Openat(rootFD, "diagnostics", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("cleanup store: open diagnostic namespace: %w", err)
+	}
+	defer unix.Close(diagnosticsFD)
+	sessionFD, err := unix.Openat(diagnosticsFD, session, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("cleanup store: open diagnostic session: %w", err)
+	}
+	defer unix.Close(sessionFD)
+	if err := cleanupRemoveTreeAt(sessionFD, id); err != nil {
+		return fmt.Errorf("cleanup store: remove diagnostic run: %w", err)
+	}
+	if err := unix.Fsync(sessionFD); err != nil {
+		return fmt.Errorf("cleanup store: sync diagnostic session: %w", err)
+	}
+	return unix.Fsync(diagnosticsFD)
 }
 
 func cleanupDirNames(fd int) ([]string, error) {

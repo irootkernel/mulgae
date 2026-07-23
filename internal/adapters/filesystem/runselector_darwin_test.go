@@ -22,6 +22,7 @@ func TestRunSelectorEnumeratesOnlyCanonicalSafeDirectories(t *testing.T) {
 	const run = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 	mustSelectorMkdir(t, filepath.Join(rootPath, session), 0o700)
 	mustSelectorMkdir(t, filepath.Join(rootPath, session, run), 0o700)
+	mustSelectorMkdir(t, filepath.Join(rootPath, "diagnostics"), 0o700)
 	mustSelectorMkdir(t, filepath.Join(rootPath, "not-a-session"), 0o700)
 	if err := os.Symlink(t.TempDir(), filepath.Join(rootPath, session, "r_019f596a-cf80-7c67-b265-f37053d51ccd")); err != nil {
 		t.Fatal(err)

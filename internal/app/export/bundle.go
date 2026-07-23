@@ -88,7 +88,7 @@ func redactedProjection(source VerifiedSourceProjection) (redactedSource, bool, 
 	result.Evidence = append([]Evidence(nil), source.Evidence...)
 	result.Redaction = RedactionManifest{
 		Policy:  "redacted_export",
-		Dropped: []string{"absolute_paths", "environment_metadata", "raw_provider_output", "secrets", "target_bytes"},
+		Dropped: []string{"absolute_paths", "environment_metadata", "raw_provider_output", "runtime_diagnostics", "secrets", "target_bytes"},
 	}
 	changed := false
 	for i := range result.Findings {

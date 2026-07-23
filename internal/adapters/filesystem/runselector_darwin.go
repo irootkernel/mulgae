@@ -63,6 +63,9 @@ func (selector *RunSelector) Enumerate(ctx context.Context, root ports.AnchoredR
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
+		if sessionName == "diagnostics" {
+			continue
+		}
 		sessionID, err := domain.ParseSessionID(sessionName)
 		if err != nil {
 			diagnostics = append(diagnostics, RunSelectorDiagnostic{Path: sessionName, Reason: "malformed session ID"})
