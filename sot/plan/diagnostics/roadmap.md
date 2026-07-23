@@ -16,7 +16,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 |---|---|---|---|
 | D-E01 | Contract, model, secure storage | approved planning package | COMPLETE |
 | D-E02 | Provider observation and typed causes | D-E01 | COMPLETE |
-| D-E03 | Run-wide lifecycle and terminal integration | D-E02 | NOT_STARTED |
+| D-E03 | Run-wide lifecycle and terminal integration | D-E02 | COMPLETE |
 | D-E04 | CLI, cleanup, offline end-to-end diagnostics | D-E03 | NOT_STARTED |
 
 Fixed planning decisions:
@@ -155,23 +155,23 @@ Completion evidence:
 
 ### Must do
 
-- [ ] Allocate or expose session/run identity early enough to open the sink before provider spawn.
-- [ ] Emit qualification, planning, assignment, budget, lane, attempt, invocation, repair, fallback, cancellation, reduction, publication, and cleanup events.
-- [ ] Preserve coordinator decision order and map it into one run-wide diagnostic sequence.
-- [ ] Make the initiating failure durable before fallback, mitigation, or peer cancellation begins.
-- [ ] Finalize diagnostics before every login-required and non-publishable return.
-- [ ] Finalize successful and degraded P2 runs and link their committed P2 URI.
-- [ ] Treat sink open/write/finalize failure as a typed artifact failure without returning a dangling URI.
-- [ ] Adjust memory inventory drain order so non-P2 evidence is not abandoned.
-- [ ] Test primary-only success, primary-failure/fallback-success, login-required/fallback-prohibited, internal-stop/peer-cancellation, cancellation, and publication failure chronology.
+- [x] Allocate or expose session/run identity early enough to open the sink before provider spawn. Evidence: `TestIssueRootRunIdentityPreservesSuppliedSession`, `TestCoordinatorExecuteRunPreservesSuppliedRootIdentity`, and `TestServiceExecuteOpensDiagnosticsBeforeQualification` pass; commits `519a8d9` and `ffb4edf`.
+- [x] Emit qualification, planning, assignment, budget, lane, attempt, invocation, repair, fallback, cancellation, reduction, publication, and cleanup events. Evidence: `TestIntegrationKARProductionReviewSubprocessAGY`, `TestCoordinatorDiagnosticsReportRepairLifecycle`, `TestCoordinatorDiagnosticsPersistFailureBeforeFallback`, `TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAndPeerCancellation`, and `TestPublishNextObservedReportsDurableLifecycle` assert the ordered categories; commits `73d89a8`, `2a0ac95`, `7d49660`, and `f6e6a87`.
+- [x] Preserve coordinator decision order and map it into one run-wide diagnostic sequence. Evidence: `TestCoordinatorDiagnosticsPersistFailureBeforeFallback` and the AGY integration assert one monotonic ordered stream through reduction, cleanup, publication, and close.
+- [x] Make the initiating failure durable before fallback, mitigation, or peer cancellation begins. Evidence: `TestCoordinatorDiagnosticsPersistFailureBeforeFallback`, `TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling`, and `TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAndPeerCancellation` pass.
+- [x] Finalize diagnostics before every login-required and non-publishable return. Evidence: `TestServiceExecuteFinalizesLoginRequiredAfterCleanup` and `TestServiceExecuteRetriesTerminalDrainBeforeAbort` observe cleanup followed by exactly one terminal finalize with the expected state/cause.
+- [x] Finalize successful and degraded P2 runs and link their committed P2 URI. Evidence: `TestCoordinatorOptionalDegradationAndFourInvocationBound` proves the degraded terminal projection, while `TestIntegrationKARProductionReviewSubprocessAGY` observes the shared finalizer's `runtime_diagnostics_closed`, lane counts, and `status.json.p2_uri` equal to the committed run-manifest URI.
+- [x] Treat sink open/write/finalize failure as a typed artifact failure without returning a dangling URI. Evidence: `TestServiceExecuteDiagnosticOpenFailurePreventsQualification`, `TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling`, `TestPublishNextObservedPersistenceFailureStopsBeforeInstall`, and `TestServiceExecuteDiagnosticFinalizeFailureHasNoURI` pass.
+- [x] Adjust memory inventory drain order so non-P2 evidence is not abandoned. Evidence: `reviewrun.Service.Execute` installs the single deferred `DrainRuntimeArtifactsForRun` immediately after runtime construction and uses the same drain result for P2 preparation; login/non-publishable exits are covered by the ordered terminal tests without bypassing the defer.
+- [x] Test primary-only success, primary-failure/fallback-success, login-required/fallback-prohibited, internal-stop/peer-cancellation, cancellation, and publication failure chronology. Evidence: respectively `TestIntegrationKARProductionReviewSubprocessAGY`, `TestCoordinatorDiagnosticsPersistFailureBeforeFallback`, both subtests of `TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAndPeerCancellation`, `TestServiceExecuteRetriesTerminalDrainBeforeAbort`, and `TestPublishNextObservedPersistenceFailureStopsBeforeInstall` pass.
 
 ### Must not do
 
-- [ ] Do not spawn providers when the mandatory sink cannot be opened and validated.
-- [ ] Do not hide diagnostic persistence failure behind a provider failure.
-- [ ] Do not let peer cancellation replace the initiating terminal cause.
-- [ ] Do not make diagnostics input to the P2 classifier or validator.
-- [ ] Do not change configured primary/fallback assignment semantics.
+- [x] Do not spawn providers when the mandatory sink cannot be opened and validated. Evidence: `TestServiceExecuteDiagnosticOpenFailurePreventsQualification` observes no authority/qualification call after the sink open failure.
+- [x] Do not hide diagnostic persistence failure behind a provider failure. Evidence: coordinator and publication persistence-failure tests return typed `artifact_failure` and stop before fallback/install.
+- [x] Do not let peer cancellation replace the initiating terminal cause. Evidence: login-required and internal-invariant subtests persist the initiating failure before `lane_cancelled`; terminal decision precedence retains typed initiating failures.
+- [x] Do not make diagnostics input to the P2 classifier or validator. Evidence: publication lifecycle is an observer invoked after authoritative receipts, and `TestPublishNextObservedPersistenceFailureStopsBeforeInstall` proves it can only stop publication with an artifact failure rather than manufacture P2.
+- [x] Do not change configured primary/fallback assignment semantics. Evidence: existing exhaustive transition tests pass unchanged, while `TestCoordinatorDiagnosticsPersistFailureBeforeFallback` observes the pre-existing configured fallback decision.
 
 ### Work method
 
@@ -191,9 +191,9 @@ git diff --check
 
 Completion evidence:
 
-- [ ] All commands above pass on the same tree.
-- [ ] Ordered event assertions cover all named terminal paths.
-- [ ] No test uses diagnostics as publication authority.
+- [x] All commands above pass on the same tree. Evidence: `make test-prepare`, the exact focused race command, and `git diff --check` passed on 2026-07-23 after commits `519a8d9`, `ffb4edf`, `73d89a8`, `2a0ac95`, `7d49660`, and `f6e6a87`.
+- [x] Ordered event assertions cover all named terminal paths. Evidence: the primary, repair, fallback, login-required, internal-stop, cancellation, and publication tests named above pass with ordered assertions.
+- [x] No test uses diagnostics as publication authority. Evidence: P2 assertions continue to require `PublicationAuthorityP2`, final/snapshot/exit coherence, and durable publication receipts independently of diagnostic observations.
 
 ## 5. D-E04 — CLI, Cleanup, and End-to-end Diagnostics
 
