@@ -197,6 +197,12 @@ Completion evidence:
 
 ## 5. D-E04 — CLI, Cleanup, and End-to-end Diagnostics
 
+The epic received a corrective review on 2026-07-24 after its initial
+completion. Commit `72dcd43` closes a delete-time revalidation gap: a
+diagnostics-only run that gains either a canonical or mismatched P2 link after
+its tombstone is now rejected fail-closed, with both the diagnostic and durable
+tombstone retained for inspection.
+
 ### Goal command
 
 ```text
@@ -209,7 +215,7 @@ Completion evidence:
 - [x] Preserve provider attribution for login-required and provider execution failures. Evidence: `70fdab0`, `7060618`; `TestProviderLoginRequiredProvidersIncludeTerminalExecutionFacts` and `TestIntegrationKAROfflineDiagnosticFailureWorkflows` pass.
 - [x] Reserve `.kar/diagnostics` so publication selectors do not report it as a malformed session. Evidence: `fa68677`; `TestRunSelectorEnumeratesOnlyCanonicalSafeDirectories` passes with the reserved directory present.
 - [x] Observe diagnostics-only failed runs separately from P2 runs and corruption. Evidence: `fa68677`; `TestCleanupStoreObservesAndDeletesTerminalDiagnosticOnlyRun` and `TestCleanupStoreKeepsMalformedLinkedDiagnosticSeparateFromHealthyP2` pass.
-- [x] Extend retention and `kar clean` so linked diagnostics and selected diagnostics-only runs are removed safely and unrelated runs remain. Evidence: `fa68677`; `TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns`, `TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2`, and cleanup no-follow tests pass.
+- [x] Extend retention and `kar clean` so linked diagnostics and selected diagnostics-only runs are removed safely and unrelated or changed runs remain. Evidence: `fa68677`, corrective commit `72dcd43`; `TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns`, `TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2`, `TestCleanupStoreRejectsDiagnosticOnlyTargetChangedToP2AfterTombstone`, and cleanup no-follow tests pass.
 - [x] Keep diagnostics and raw streams out of default export. Evidence: `fa68677`; export redaction manifests explicitly drop `runtime_diagnostics` and existing tests continue to drop `raw_provider_output`.
 - [x] Add offline fake-provider integration for normal, failed, fallback, login-required, concurrent, and persistence-failure flows. Evidence: `7060618`; `TestIntegrationKARProductionReviewSubprocessAGY`, `TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission`, and all subtests of `TestIntegrationKAROfflineDiagnosticFailureWorkflows` pass under `make test-int`.
 - [x] Verify status, JSONL, raw artifacts, sequence, IDs, and optional P2 reference are mutually consistent. Evidence: the integration tests above assert ordered/strictly increasing events, separated raw files, terminal status/identity, diagnostic-only absence of P2, and successful P2 linkage.
@@ -252,7 +258,7 @@ The diagnostic evidence command may fail. A failure is acceptable for D-E04 comp
 
 Completion evidence:
 
-- [x] All required gate commands pass on the same tree. Evidence: `make test-prepare`, `make test-unit`, `make test-int`, and `git diff --check` passed on 2026-07-24 after the D-E04 implementation; the commands were repeated after this evidence update.
+- [x] All required gate commands pass on the same tree. Evidence: `make test-prepare`, `make test-unit`, `make test-int`, and `git diff --check` passed on 2026-07-24 after the D-E04 implementation and again after corrective commit `72dcd43` plus this evidence update.
 - [x] Offline end-to-end diagnostics satisfy DIAG-AC-001 through DIAG-AC-007. Evidence: the public-binary integrations cited above cover normal/concurrent, fallback, login-required, non-P2, and persistence-stop flows; focused race tests cover secure storage/failure injection; cleanup tests preserve P2 authority separation.
 - [x] Actual E2E exit status is recorded truthfully. Evidence: [the handoff](./g010-t05-evidence.md) records `make test-e2e` exit 2 and `FAIL`, not PASS or SKIP.
 - [x] Failure diagnostics needed by G010-T05 are preserved and inspectable, or an unexpected actual E2E PASS is recorded without claiming G010 closeout. Evidence: the mode-`0700` project and emitted diagnostic URI in [the handoff](./g010-t05-evidence.md) resolve to terminal `status.json` and a closed ten-event `kar-runtime.jsonl`.
