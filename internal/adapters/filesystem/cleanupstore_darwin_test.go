@@ -276,6 +276,49 @@ func TestCleanupStoreObservesAndDeletesTerminalDiagnosticOnlyRun(t *testing.T) {
 	}
 }
 
+func TestCleanupStoreRejectsDiagnosticOnlyTargetChangedToP2AfterTombstone(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		p2URI func(string, string) string
+	}{
+		{name: "canonical link", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/manifest.json" }},
+		{name: "mismatched link", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/other.json" }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root, err := ports.NewAnchoredRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			session := "s_019f596a-cf80-7c67-b265-f37053d51ccf"
+			run := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+			diagnosticPath := writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunFailed, cleanupP2CompletedAt, "")
+			store := newCleanupStoreForTest(t, root)
+			snapshot, err := store.Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Runs) != 1 || snapshot.Runs[0].Kind != clean.RunKindDiagnosticOnly || snapshot.Runs[0].DiagnosticProtected {
+				t.Fatalf("initial diagnostic-only observation = %#v", snapshot.Runs)
+			}
+			tombstone := clean.Tombstone{RunID: run, PlanHash: cleanupPlanForTest(t).PlanHash}
+			if err := store.Tombstone(context.Background(), tombstone); err != nil {
+				t.Fatal(err)
+			}
+			writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunFailed, cleanupP2CompletedAt, testCase.p2URI(session, run))
+
+			if err := store.DeleteTombstoned(context.Background(), tombstone); err == nil {
+				t.Fatal("cleanup deleted or accepted a diagnostic-only target that gained a P2 link")
+			}
+			if _, err := os.Lstat(diagnosticPath); err != nil {
+				t.Fatalf("changed diagnostic-only target was not retained: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(root.String(), cleanupTombDirectory, cleanupTombstoneName(tombstone))); err != nil {
+				t.Fatalf("tombstone was not retained after fail-closed rejection: %v", err)
+			}
+		})
+	}
+}
+
 func TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string

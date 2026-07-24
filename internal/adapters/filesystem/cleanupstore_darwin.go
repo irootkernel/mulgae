@@ -730,7 +730,11 @@ func (store *CleanupStore) deletableDiagnosticSession(id, publicationSession str
 		}
 		p2URI, hasP2 := status.P2URI()
 		expectedP2 := ".kar/" + entry + "/" + id + "/manifest.json"
-		if publicationSession != "" && (!hasP2 || p2URI.String() != expectedP2) || publicationSession == "" && hasP2 && p2URI.String() != expectedP2 {
+		if publicationSession == "" {
+			if hasP2 {
+				return "", errors.New("cleanup store: diagnostic-only deletion target changed")
+			}
+		} else if !hasP2 || p2URI.String() != expectedP2 {
 			return "", nil
 		}
 		if found != "" {
