@@ -577,7 +577,7 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 	stagedPath := prefix + "/publication/staged/review_" + review + ".json.tmp"
 	edge := map[string]any{"schema_version": "kar-lineage-edge.v1", "edge_id": "edge-1", "child": map[string]any{"session_id": session, "run_id": child, "review_id": review}, "parent_run_id": parent}
 	edgeBytes := cleanupJSON(t, edge)
-	final := map[string]any{"schema_version": "kar-review-artifact.v2", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
+	final := map[string]any{"schema_version": "kar-review-artifact.v3", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
 	finalBytes := cleanupJSON(t, final)
 	exitCode := 0
 	switch state {

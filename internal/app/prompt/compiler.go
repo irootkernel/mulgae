@@ -42,17 +42,19 @@ const (
 type SectionKind string
 
 const (
-	SectionProjectContext      SectionKind = "project_context"
-	SectionReviewTarget        SectionKind = "review_target"
-	SectionPriorProviderOutput SectionKind = "prior_provider_output"
-	SectionPriorFinding        SectionKind = "prior_finding"
-	SectionPriorReport         SectionKind = "prior_report"
-	SectionExternalLog         SectionKind = "external_log"
+	SectionProjectContext       SectionKind = "project_context"
+	SectionTaskRequirements     SectionKind = "task_requirements"
+	SectionVisualAssetsManifest SectionKind = "visual_assets_manifest"
+	SectionReviewTarget         SectionKind = "review_target"
+	SectionPriorProviderOutput  SectionKind = "prior_provider_output"
+	SectionPriorFinding         SectionKind = "prior_finding"
+	SectionPriorReport          SectionKind = "prior_report"
+	SectionExternalLog          SectionKind = "external_log"
 )
 
 func (kind SectionKind) Valid() bool {
 	switch kind {
-	case SectionProjectContext, SectionReviewTarget, SectionPriorProviderOutput,
+	case SectionProjectContext, SectionTaskRequirements, SectionVisualAssetsManifest, SectionReviewTarget, SectionPriorProviderOutput,
 		SectionPriorFinding, SectionPriorReport, SectionExternalLog:
 		return true
 	default:
@@ -442,13 +444,15 @@ func (payload Payload) SHA256() string  { return payloadSHA256(payload.bytes) }
 // CompileInput describes the only permitted frame cardinalities. The compiler
 // determines every frame kind and order; callers cannot supply raw frames.
 type CompileInput struct {
-	Scope               ScopeCoordinates
-	ProjectContext      *Payload
-	ReviewTarget        Payload
-	PriorProviderOutput *Payload
-	PriorFinding        *Payload
-	PriorReport         *Payload
-	ExternalLogs        []Payload
+	Scope                ScopeCoordinates
+	ProjectContext       *Payload
+	TaskRequirements     *Payload
+	VisualAssetsManifest *Payload
+	ReviewTarget         Payload
+	PriorProviderOutput  *Payload
+	PriorFinding         *Payload
+	PriorReport          *Payload
+	ExternalLogs         []Payload
 }
 
 // InvocationIDIssuer issues fresh canonical identities. The compiler tracks
@@ -774,9 +778,15 @@ func orderedPayloads(input CompileInput) ([]pendingPayload, error) {
 	if len(input.ReviewTarget.bytes) > MaxReviewTargetBytes {
 		return nil, fmt.Errorf("prompt compiler: review target exceeds %d bytes", MaxReviewTargetBytes)
 	}
-	pending := make([]pendingPayload, 0, 5+len(input.ExternalLogs))
+	pending := make([]pendingPayload, 0, 7+len(input.ExternalLogs))
 	if input.ProjectContext != nil {
 		pending = append(pending, pendingPayload{kind: SectionProjectContext, payload: cloneBytes(input.ProjectContext.bytes)})
+	}
+	if input.TaskRequirements != nil {
+		pending = append(pending, pendingPayload{kind: SectionTaskRequirements, payload: cloneBytes(input.TaskRequirements.bytes)})
+	}
+	if input.VisualAssetsManifest != nil {
+		pending = append(pending, pendingPayload{kind: SectionVisualAssetsManifest, payload: cloneBytes(input.VisualAssetsManifest.bytes)})
 	}
 	pending = append(pending, pendingPayload{kind: SectionReviewTarget, payload: cloneBytes(input.ReviewTarget.bytes)})
 	if input.PriorProviderOutput != nil {
@@ -1186,16 +1196,20 @@ func sectionOrder(kind SectionKind) (rank int, singleton bool) {
 	switch kind {
 	case SectionProjectContext:
 		return 0, true
-	case SectionReviewTarget:
+	case SectionTaskRequirements:
 		return 1, true
-	case SectionPriorProviderOutput:
+	case SectionVisualAssetsManifest:
 		return 2, true
-	case SectionPriorFinding:
+	case SectionReviewTarget:
 		return 3, true
-	case SectionPriorReport:
+	case SectionPriorProviderOutput:
 		return 4, true
+	case SectionPriorFinding:
+		return 5, true
+	case SectionPriorReport:
+		return 6, true
 	case SectionExternalLog:
-		return 5, false
+		return 7, false
 	default:
 		return -1, true
 	}

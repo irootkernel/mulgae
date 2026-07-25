@@ -916,7 +916,7 @@ func reportCommittedFixtureWithMutations(
 	excerptBytes := []byte("line one\nline two")
 	currentExcerptSHA256 := reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, excerptBytes)
 	finalBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
 		"kar":{"version":"0.1.0","commit":"abc123"},
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222"},

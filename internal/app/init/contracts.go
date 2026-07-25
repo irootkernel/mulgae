@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
@@ -177,10 +178,10 @@ func (result InitializeProjectResult) Validate() error {
 }
 
 func canonicalRoleIDs(values []string) bool {
-	if len(values) < 2 || len(values) > 6 {
+	if len(values) < 2 || len(values) > len(domain.FixedRoleOrder()) {
 		return false
 	}
-	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	last := -1
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {

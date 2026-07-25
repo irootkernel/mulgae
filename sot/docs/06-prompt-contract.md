@@ -14,9 +14,11 @@ Final root-review byte order is:
 5. KAR provider-review wire output contract
 6. KAR-FRAMES/1 sentinel
 7. Untrusted project_context frame, zero or one
-8. Untrusted review_target frame, exactly one
-9. Untrusted prior_provider_output frame, zero or one for repair
-10. KAR-FRAMES-END/1 sentinel
+8. Untrusted task_requirements frame, zero or one for artist
+9. Untrusted visual_assets_manifest frame, zero or one for artist
+10. Untrusted review_target frame, exactly one
+11. Untrusted prior_provider_output frame, zero or one for repair
+12. KAR-FRAMES-END/1 sentinel
 ```
 
 The first five layers form one trusted template. The objective can narrow attention only; it cannot alter any other layer. Project context, targets, prior output, and all workspace or snapshot content are frames after the trusted template and never become instructions. A later trusted repair contract may select its own response form without weakening the preceding contracts.
@@ -54,7 +56,7 @@ Use only adapter-authorized read-only access inside the immutable review workspa
 Never invent a finding, location, quote, verification result, ID, hash, or system state.
 ```
 
-The final `output-provider-review-wire.v2` layer, not the common layer, owns the
+The final `output-provider-review-wire.v3` layer, not the common layer, owns the
 strengthened wire instruction: exactly one UTF-8 RFC 8259 JSON object, with no
 Markdown, code fence, commentary, prefix, suffix, or second JSON value. The two
 trusted layers are composed in the fixed order in §1, so this distribution does
@@ -91,12 +93,13 @@ This repeats a prior role attempt. Preserve the original scope and role. In exac
 Built-in guides:
 
 ```text
-builtin:roles/logic@2
-builtin:roles/security@2
-builtin:roles/maintainability@2
-builtin:roles/product@2
-builtin:roles/documentation@2
-builtin:roles/testing@2
+builtin:roles/logic@3
+builtin:roles/security@3
+builtin:roles/maintainability@3
+builtin:roles/product@3
+builtin:roles/documentation@3
+builtin:roles/testing@3
+builtin:roles/artist@3
 ```
 
 Each guide defines:
@@ -109,6 +112,10 @@ Each guide defines:
 - what to place in limitations.
 
 Role guides must avoid claiming broad approval. A security role result does not imply correctness, and a logic role result does not imply security.
+The seven guides are authored in root `roles/<role>.yaml`, validated during
+generation, and embedded into the binary. Project files cannot override them.
+Artist findings additionally require a captured visual path/SHA-256/bounding
+box reference whose identity KAR checks against the immutable capture archive.
 
 ## 6. User Objective
 

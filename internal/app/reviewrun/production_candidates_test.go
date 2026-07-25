@@ -18,10 +18,11 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 	if err := validateProductionCandidateTemplates(templates); err != nil {
 		t.Fatal(err)
 	}
-	roles := domain.FixedRoleOrder()
-	for familyIndex, family := range Families() {
-		for roleIndex, role := range roles {
-			template := templates[familyIndex*len(roles)+roleIndex]
+	offset := 0
+	for _, family := range Families() {
+		for _, role := range productionRolesForFamily(family) {
+			template := templates[offset]
+			offset++
 			wantInstance := string(family) + "-" + string(role)
 			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || template.concurrencyKey.String() != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
 				t.Fatalf("template %s/%s = %#v", family, role, template)
@@ -56,13 +57,14 @@ func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := templates[2*len(domain.FixedRoleOrder())].transportArgvIndex; got != test.want {
+		agyOffset := len(productionRolesForFamily(FamilyKimi)) + len(productionRolesForFamily(FamilyZCode))
+		if got := templates[agyOffset].transportArgvIndex; got != test.want {
 			t.Fatalf("AGY %s argv index = %d, want %d", test.mode, got, test.want)
 		}
 	}
 }
 
-func TestProductionCandidatesShardZCodeRolesAcrossSixInstances(t *testing.T) {
+func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{{
 		family: FamilyZCode, executable: "/private/bin/node", launcher: ZCodeLauncher,
 		argv: []string{"/private/bin/node", ZCodeLauncher}, sha256: "node-sha", launcherSHA256: "launcher-sha", reason: "unqualified_discovery",
@@ -79,13 +81,14 @@ func TestProductionCandidatesShardZCodeRolesAcrossSixInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 6 {
-		t.Fatalf("ZCode candidate count = %d, want 6", len(candidates))
+	if len(candidates) != 7 {
+		t.Fatalf("ZCode candidate count = %d, want 7", len(candidates))
 	}
 	want := map[string][]domain.Role{
 		"zcode-logic": {domain.RoleLogic}, "zcode-security": {domain.RoleSecurity},
 		"zcode-maintainability": {domain.RoleMaintainability}, "zcode-product": {domain.RoleProduct},
 		"zcode-documentation": {domain.RoleDocumentation}, "zcode-testing": {domain.RoleTesting},
+		"zcode-artist": {domain.RoleArtist},
 	}
 	for _, candidate := range candidates {
 		instance := candidate.Definition.Instance()

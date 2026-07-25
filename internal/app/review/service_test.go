@@ -283,8 +283,8 @@ func requiredAssignments(t *testing.T) []Assignment {
 
 func allAssignments(t *testing.T) []Assignment {
 	t.Helper()
-	assignments := make([]Assignment, 0, len(domain.FixedRoleOrder()))
-	for _, role := range domain.FixedRoleOrder() {
+	assignments := make([]Assignment, 0, len(domain.CoreRoleOrder()))
+	for _, role := range domain.CoreRoleOrder() {
 		assignment, err := NewAssignment(role, false, "fake."+string(role))
 		if err != nil {
 			t.Fatal(err)
@@ -295,18 +295,18 @@ func allAssignments(t *testing.T) []Assignment {
 }
 
 func validNoFindingReview() []byte {
-	return []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
+	return []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
 }
 
 func validHighFindingReview() []byte {
-	return []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"One high finding was identified.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"One high finding was identified.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 func validIncompleteHighFindingReview() []byte {
-	return []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"One incomplete high finding was identified.","completeness":"incomplete","limitations":["The provider could not inspect generated fixtures."],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"One incomplete high finding was identified.","completeness":"incomplete","limitations":["The provider could not inspect generated fixtures."],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 
 func repairableHighFindingReview() []byte {
-	return []byte(`{"schema_version":"kar-provider-review-output.v2","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"kar-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 
 func repairSummaryPatch() []byte {
@@ -694,7 +694,7 @@ func TestExecuteUsesCanonicalOrderForAllShuffledRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	executions := result.RoleExecutions()
-	for index, role := range domain.FixedRoleOrder() {
+	for index, role := range domain.CoreRoleOrder() {
 		if provider.invocations[index].Role() != role || executions[index].Role() != role {
 			t.Fatalf("canonical role %d = provider %q, result %q; want %q", index, provider.invocations[index].Role(), executions[index].Role(), role)
 		}

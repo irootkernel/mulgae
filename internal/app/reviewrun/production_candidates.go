@@ -245,9 +245,9 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	if err != nil {
 		return nil, err
 	}
-	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder()))
+	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-1)
 	for _, family := range Families() {
-		for _, role := range domain.FixedRoleOrder() {
+		for _, role := range productionRolesForFamily(family) {
 			instance := string(family) + "-" + string(role)
 			key, keyErr := ports.ParseConcurrencyKey(instance)
 			if keyErr != nil {
@@ -274,7 +274,7 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 }
 
 func validateProductionCandidateTemplates(templates []productionCandidateTemplate) error {
-	if len(templates) != len(Families())*len(domain.FixedRoleOrder()) {
+	if len(templates) != len(Families())*len(domain.FixedRoleOrder())-1 {
 		return fmt.Errorf("template count")
 	}
 	seenInstances := make(map[string]struct{}, len(templates))
@@ -318,12 +318,32 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 	}
 	for _, family := range Families() {
 		for _, role := range domain.FixedRoleOrder() {
-			if roleCoverage[family][role] != 1 {
+			want := 1
+			if family == FamilyKimi && role == domain.RoleArtist {
+				want = 0
+			}
+			if roleCoverage[family][role] != want {
 				return fmt.Errorf("invalid template role coverage for %q", family)
 			}
 		}
 	}
 	return nil
+}
+
+func productionRolesForFamily(family Family) []domain.Role {
+	roles := domain.FixedRoleOrder()
+	if family != FamilyKimi {
+		return roles
+	}
+	return append([]domain.Role(nil), roles[:len(roles)-1]...)
+}
+
+// SupportedProductionRoles returns the closed role capability matrix for one family.
+func SupportedProductionRoles(family Family) []domain.Role {
+	if !family.Valid() {
+		return nil
+	}
+	return productionRolesForFamily(family)
 }
 
 func intersectCanonicalRoles(left, right []domain.Role) []domain.Role {

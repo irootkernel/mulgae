@@ -702,6 +702,21 @@ type finalFindingDTO struct {
 type finalEvidenceDTO struct {
 	Source  sourceEvidenceDTO  `json:"source"`
 	Current currentEvidenceDTO `json:"current"`
+	Visual  *visualEvidenceDTO `json:"visual,omitempty"`
+}
+
+type visualEvidenceDTO struct {
+	Path         string        `json:"path"`
+	SHA256       string        `json:"sha256"`
+	BBox         visualBBoxDTO `json:"bbox"`
+	Verification string        `json:"verification"`
+}
+
+type visualBBoxDTO struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 type sourceEvidenceDTO struct {

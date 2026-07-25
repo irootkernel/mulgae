@@ -25,7 +25,7 @@ import (
 const (
 	liveCommandSchema  = "https://kar.local/schemas/kar-command-result.v1.schema.json"
 	liveManifestSchema = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
-	liveReviewSchema   = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	liveReviewSchema   = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 )
 
 type liveE2EEnvironment struct {
@@ -53,13 +53,15 @@ type liveCommandEnvelope struct {
 		Policy            json.RawMessage `json:"policy"`
 		Doctor            json.RawMessage `json:"doctor"`
 	} `json:"result"`
-	Reasons []struct {
-		Category    string  `json:"category"`
-		Code        string  `json:"code"`
-		Message     string  `json:"message"`
-		Retryable   bool    `json:"retryable"`
-		ArtifactURI *string `json:"artifact_uri"`
-	} `json:"reasons"`
+	Reasons []liveReason `json:"reasons"`
+}
+
+type liveReason struct {
+	Category    string  `json:"category"`
+	Code        string  `json:"code"`
+	Message     string  `json:"message"`
+	Retryable   bool    `json:"retryable"`
+	ArtifactURI *string `json:"artifact_uri"`
 }
 
 type liveLineage struct {
@@ -179,7 +181,7 @@ func TestE2EActualProvidersSixConcurrentPrimaryLanes(t *testing.T) {
 	}
 	run := runLiveFocusedPrimaryWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the KAR contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one kar-provider-review-output.v2 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the KAR contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one kar-provider-review-output.v3 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLivePrimaryAssignments(t, run, expected)
@@ -264,9 +266,26 @@ func liveInitArguments(environment liveE2EEnvironment, providers string) []strin
 		arguments = append(arguments, "--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher)
 	}
 	if strings.Contains(providers, "agy") {
-		arguments = append(arguments, "--agy-executable", environment.agy)
+		arguments = append(arguments,
+			"--agy-executable", environment.agy,
+			"--agy-permission-mode", "dangerously-skip-permissions",
+		)
 	}
 	return append(arguments, "--output", "json")
+}
+
+func TestLiveInitArgumentsAuthorizeAgyInIsolatedFixture(t *testing.T) {
+	t.Parallel()
+	environment := liveE2EEnvironment{agy: "/private/bin/agy"}
+	want := []string{
+		"init", "--providers", "agy",
+		"--agy-executable", environment.agy,
+		"--agy-permission-mode", "dangerously-skip-permissions",
+		"--output", "json",
+	}
+	if got := liveInitArguments(environment, "agy"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("live init arguments = %v, want %v", got, want)
+	}
 }
 
 func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
@@ -479,15 +498,18 @@ func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator,
 	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=six-concurrent-primary-lanes attempt=%d/%d", attempt, maxAttempts))
 	defer scope.end()
 	envelope := runLiveKARAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
-	inspectLiveFailureDiagnostics(t, project, attempt, envelope)
+	diagnosticCauses := inspectLiveFailureDiagnostics(t, project, attempt, envelope)
 	if liveReasonPresent(envelope, "provider_login_required") {
 		t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
 	}
 	if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		boundedMissingFrameRetry := liveMissingFrameQualificationRetryAuthority(envelope, diagnosticCauses)
 		retryableProviderResult := liveReasonPresent(envelope, "provider_execution_failed") ||
 			liveReasonPresent(envelope, "readiness_unverified") ||
-			liveRetryableReasonPresent(envelope, "provider_qualification_failed")
-		if !retryableProviderResult || envelope.Exit.Kind != "internal" && envelope.Exit.Kind != "readiness" {
+			liveRetryableReasonPresent(envelope, "provider_qualification_failed") || boundedMissingFrameRetry
+		allowedRetryExit := envelope.Exit.Kind == "internal" || envelope.Exit.Kind == "readiness" ||
+			boundedMissingFrameRetry && envelope.Exit.Kind == "security"
+		if !retryableProviderResult || !allowedRetryExit {
 			t.Fatalf("focused live attempt %d stopped without retry authority: exit=%#v reasons=%#v result=%#v", attempt, envelope.Exit, envelope.Reasons, envelope.Result)
 		}
 		reason = fmt.Sprintf("non-P2 %s: %#v", envelope.Exit.Kind, envelope.Reasons)
@@ -519,9 +541,10 @@ func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator,
 	return livePublishedRun{}, scope.status, reason
 }
 
-func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) {
+func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) []string {
 	t.Helper()
 	seen := make(map[string]struct{})
+	causes := make([]string, 0, len(envelope.Reasons))
 	for _, reason := range envelope.Reasons {
 		if reason.ArtifactURI == nil {
 			continue
@@ -550,6 +573,7 @@ func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, en
 		if err := json.Unmarshal(statusBytes, &status); err != nil {
 			t.Fatalf("focused live attempt %d cannot decode diagnostic status %q: %v", attempt, uri, err)
 		}
+		causes = append(causes, status.TerminalCause)
 		logInfo, err := os.Stat(filepath.Join(root, "kar-runtime.jsonl"))
 		if err != nil || !logInfo.Mode().IsRegular() {
 			t.Fatalf("focused live attempt %d diagnostic log %q is unavailable or non-regular: %v", attempt, uri, err)
@@ -560,6 +584,24 @@ func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, en
 		}
 		t.Logf("focused live attempt %d diagnostic_uri=%s session=%s run=%s state=%s terminal_cause=%s last_seq=%d p2_uri=%s raw_streams=%d", attempt, uri, status.SessionID, status.RunID, status.State, status.TerminalCause, status.LastSequence, status.P2URI, len(rawStreams))
 	}
+	return causes
+}
+
+func liveMissingFrameQualificationRetryAuthority(envelope liveCommandEnvelope, diagnosticCauses []string) bool {
+	if envelope.Exit.Kind != "security" || len(envelope.Reasons) == 0 || len(diagnosticCauses) != len(envelope.Reasons) {
+		return false
+	}
+	for _, reason := range envelope.Reasons {
+		if reason.Category != "security" || reason.Code != "provider_qualification_failed" || reason.Retryable || reason.ArtifactURI == nil {
+			return false
+		}
+	}
+	for _, cause := range diagnosticCauses {
+		if cause != "provider_output_frame_missing" {
+			return false
+		}
+	}
+	return true
 }
 
 func liveReasonPresent(envelope liveCommandEnvelope, code string) bool {
@@ -583,15 +625,7 @@ func liveRetryableReasonPresent(envelope liveCommandEnvelope, code string) bool 
 func TestLiveRetryableReasonRequiresMatchingCodeAndAuthority(t *testing.T) {
 	t.Parallel()
 	envelope := liveCommandEnvelope{}
-	envelope.Reasons = append(envelope.Reasons,
-		struct {
-			Category    string  `json:"category"`
-			Code        string  `json:"code"`
-			Message     string  `json:"message"`
-			Retryable   bool    `json:"retryable"`
-			ArtifactURI *string `json:"artifact_uri"`
-		}{Code: "provider_qualification_failed", Retryable: true},
-	)
+	envelope.Reasons = append(envelope.Reasons, liveReason{Code: "provider_qualification_failed", Retryable: true})
 	if !liveRetryableReasonPresent(envelope, "provider_qualification_failed") ||
 		liveRetryableReasonPresent(envelope, "readiness_unverified") {
 		t.Fatal("retryable qualification reason authority was not matched exactly")
@@ -599,6 +633,40 @@ func TestLiveRetryableReasonRequiresMatchingCodeAndAuthority(t *testing.T) {
 	envelope.Reasons[0].Retryable = false
 	if liveRetryableReasonPresent(envelope, "provider_qualification_failed") {
 		t.Fatal("non-retryable qualification reason granted retry authority")
+	}
+}
+
+func TestLiveMissingFrameQualificationRetryAuthorityIsNarrow(t *testing.T) {
+	t.Parallel()
+	uri := ".kar/diagnostics/s/r"
+	base := liveCommandEnvelope{}
+	base.Exit.Kind = "security"
+	base.Reasons = []liveReason{{
+		Category: "security", Code: "provider_qualification_failed", Retryable: false, ArtifactURI: &uri,
+	}}
+	if !liveMissingFrameQualificationRetryAuthority(base, []string{"provider_output_frame_missing"}) {
+		t.Fatal("exact missing-frame qualification stop was not granted bounded E2E retry authority")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*liveCommandEnvelope)
+		causes []string
+	}{
+		{name: "different security cause", causes: []string{"provider_transport_receipt_mismatch"}},
+		{name: "missing diagnostic", causes: nil},
+		{name: "different reason", mutate: func(value *liveCommandEnvelope) { value.Reasons[0].Code = "security_rejected" }, causes: []string{"provider_output_frame_missing"}},
+		{name: "non-security exit", mutate: func(value *liveCommandEnvelope) { value.Exit.Kind = "internal" }, causes: []string{"provider_output_frame_missing"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			candidate.Reasons = append([]liveReason(nil), base.Reasons...)
+			if test.mutate != nil {
+				test.mutate(&candidate)
+			}
+			if liveMissingFrameQualificationRetryAuthority(candidate, test.causes) {
+				t.Fatal("unexpected bounded E2E retry authority")
+			}
+		})
 	}
 }
 
@@ -672,12 +740,16 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	want := map[string][2]string{
 		"logic": {"kimi", "zcode"}, "security": {"zcode", "agy"}, "maintainability": {"zcode", "agy"},
 		"product": {"zcode", "agy"}, "documentation": {"agy", "zcode"}, "testing": {"zcode", "agy"},
+		"artist": {"", ""},
 	}
 	if len(redacted.Policy.RoleAssignments) != len(want) {
 		t.Fatalf("role assignment count = %d", len(redacted.Policy.RoleAssignments))
 	}
 	for _, assignment := range redacted.Policy.RoleAssignments {
 		expected, ok := want[assignment.Role]
+		if assignment.Role == "artist" && ok && assignment.PrimaryProvider == "" && assignment.FallbackProvider == nil {
+			continue
+		}
 		if !ok || assignment.FallbackProvider == nil || assignment.PrimaryProvider != expected[0] || *assignment.FallbackProvider != expected[1] {
 			t.Fatalf("unexpected config assignment: %#v", assignment)
 		}
@@ -723,7 +795,7 @@ func validateLivePrimaryProcessOverlap(project string, run livePublishedRun, exp
 		}
 		started, startErr := time.Parse(time.RFC3339Nano, status.StartedAt)
 		completed, completeErr := time.Parse(time.RFC3339Nano, status.CompletedAt)
-		if startErr != nil || completeErr != nil || status.ProcessState != "succeeded" || !started.Before(completed) {
+		if startErr != nil || completeErr != nil || !liveTerminalProcessState(status.ProcessState) || !started.Before(completed) {
 			return false, fmt.Errorf("invalid %s process interval state=%q started=%q completed=%q", role, status.ProcessState, status.StartedAt, status.CompletedAt)
 		}
 		if latestStart.IsZero() || started.After(latestStart) {
@@ -734,6 +806,24 @@ func validateLivePrimaryProcessOverlap(project string, run livePublishedRun, exp
 		}
 	}
 	return latestStart.Before(earliestEnd), nil
+}
+
+func liveTerminalProcessState(state string) bool {
+	return state == "succeeded" || state == "failed"
+}
+
+func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"succeeded", "failed"} {
+		if !liveTerminalProcessState(state) {
+			t.Fatalf("terminal process state %q was rejected", state)
+		}
+	}
+	for _, state := range []string{"", "pending", "running"} {
+		if liveTerminalProcessState(state) {
+			t.Fatalf("non-terminal process state %q was accepted", state)
+		}
+	}
 }
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {

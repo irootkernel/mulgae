@@ -464,6 +464,18 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/examples/provider-review-output.v3.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-output.v3.schema.json",
+      "pair": "sot/schemas/kar-provider-review-output.v3.schema.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/examples/provider-review-output.valid.json",
       "disposition": "UNCHANGED_VALIDATED",
       "media_type": "application/json",
@@ -481,6 +493,18 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json",
       "pair": "sot/schemas/kar-provider-review-wire.v2.schema.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/provider-review-wire.v3.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v3.schema.json",
+      "pair": "sot/schemas/kar-provider-review-wire.v3.schema.json",
       "consumers": [
         "provider-output-validator"
       ],
@@ -517,6 +541,18 @@
       "media_type": "application/json",
       "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
       "pair": "sot/schemas/kar-review-artifact.v2.schema.json",
+      "consumers": [
+        "review-artifact-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/review-artifact.v3.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://kar.local/schemas/kar-review-artifact.v3.schema.json",
+      "pair": "sot/schemas/kar-review-artifact.v3.schema.json",
       "consumers": [
         "review-artifact-validator"
       ],
@@ -620,79 +656,19 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/prompts/root-review/output-provider-review-wire.v3.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/prompts/root-review/repair-provider-review.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/documentation.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/logic.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/maintainability.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/product.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/security.v2.txt",
-      "disposition": "ADDED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "root-review-prompt"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/prompts/root-review/roles/testing.v2.txt",
       "disposition": "ADDED",
       "media_type": "text/plain",
       "schema_id": null,
@@ -914,11 +890,35 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/schemas/kar-provider-review-output.v3.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-output.v3.schema.json",
+      "pair": "sot/examples/provider-review-output.v3.valid.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/schemas/kar-provider-review-wire.v2.schema.json",
       "disposition": "ADDED",
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json",
       "pair": "sot/examples/provider-review-wire.v2.valid.json",
+      "consumers": [
+        "provider-output-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-provider-review-wire.v3.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-provider-review-wire.v3.schema.json",
+      "pair": "sot/examples/provider-review-wire.v3.valid.json",
       "consumers": [
         "provider-output-validator"
       ],
@@ -967,6 +967,18 @@
       "media_type": "application/schema+json",
       "schema_id": "https://kar.local/schemas/kar-review-artifact.v2.schema.json",
       "pair": "sot/examples/review-artifact.v2.valid.json",
+      "consumers": [
+        "review-artifact-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/kar-review-artifact.v3.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://kar.local/schemas/kar-review-artifact.v3.schema.json",
+      "pair": "sot/examples/review-artifact.v3.valid.json",
       "consumers": [
         "review-artifact-validator"
       ],

@@ -20,12 +20,13 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
 const (
-	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 	runManifestSchemaAsset = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
 
 	targetManifestPath   = "target/target-manifest.json"
@@ -535,6 +536,16 @@ type preparedEvidence struct {
 	sourceFindingID      string
 	sourceTargetSHA256   string
 	sourceExcerptSHA256  string
+	visual               *preparedVisualEvidence
+}
+
+type preparedVisualEvidence struct {
+	path   string
+	sha256 string
+	x      int
+	y      int
+	width  int
+	height int
 }
 type preparedFollowupOutcome struct {
 	resolution domain.FollowupResolution
@@ -1453,10 +1464,11 @@ func prepareFindings(
 			return nil, fmt.Errorf("publication candidate: finding %q: %w", expectedID, err)
 		}
 		receipts := groups[index].Receipts()
+		visuals := groups[index].VisualReferences()
 		if len(receipts) == 0 {
 			return nil, fmt.Errorf("publication candidate: finding %q has no current evidence receipts", expectedID)
 		}
-		preparedReceipts, authoritative, err := reducePublicationEvidence(receipts, finding, target, expectedID)
+		preparedReceipts, authoritative, err := reducePublicationEvidence(receipts, visuals, finding, target, expectedID)
 		if err != nil {
 			return nil, err
 		}
@@ -1476,11 +1488,12 @@ func prepareFindings(
 }
 func reducePublicationEvidence(
 	receipts []evidence.CurrentReceipt,
+	visuals []validation.VerifiedVisualReference,
 	finding domain.Finding,
 	target domain.TargetIdentity,
 	findingID string,
 ) ([]preparedEvidence, bool, error) {
-	if len(receipts) == 0 || len(receipts) > 20 {
+	if len(receipts) == 0 || len(receipts) > 20 || len(visuals) != len(receipts) {
 		return nil, false, fmt.Errorf("publication candidate: finding %q evidence count must be between 1 and 20", findingID)
 	}
 
@@ -1535,6 +1548,14 @@ func reducePublicationEvidence(
 			targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(),
 			lineEnd: claim.LineEnd(), quote: claim.Quote(), currentExcerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(excerpt),
 		}
+		if visual := visuals[receiptIndex]; visual.Valid() {
+			prepared[receiptIndex].visual = &preparedVisualEvidence{
+				path: visual.Path().String(), sha256: visual.SHA256(), x: visual.X(), y: visual.Y(),
+				width: visual.Width(), height: visual.Height(),
+			}
+		} else if visual != (validation.VerifiedVisualReference{}) {
+			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has invalid visual reference", findingID, receiptIndex)
+		}
 	}
 	if err := canonicalizePreparedEvidence(prepared); err != nil {
 		return nil, false, fmt.Errorf("publication candidate: finding %q evidence ordering: %w", findingID, err)
@@ -1572,6 +1593,10 @@ func canonicalPreparedEvidenceKey(item preparedEvidence) string {
 		strconv.Itoa(item.lineStart),
 		strconv.Itoa(item.lineEnd),
 		"verified",
+	}
+	if item.visual != nil {
+		fields = append(fields, item.visual.path, item.visual.sha256, strconv.Itoa(item.visual.x), strconv.Itoa(item.visual.y),
+			strconv.Itoa(item.visual.width), strconv.Itoa(item.visual.height), "verified")
 	}
 	var key strings.Builder
 	for _, field := range fields {
@@ -1898,6 +1923,10 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 			if err != nil || currentExcerptSHA256 != item.currentExcerptSHA256 {
 				return fmt.Errorf("finding %q evidence %d current excerpt identity is invalid", finding.id, evidenceIndex)
 			}
+			if item.visual != nil && (!safePath(item.visual.path) || !validSHA256(item.visual.sha256) ||
+				item.visual.x < 0 || item.visual.y < 0 || item.visual.width < 1 || item.visual.height < 1) {
+				return fmt.Errorf("finding %q evidence %d visual reference is invalid", finding.id, evidenceIndex)
+			}
 		}
 		expectedFindingIDs[finding.role] = append(expectedFindingIDs[finding.role], finding.id)
 	}
@@ -1934,6 +1963,10 @@ func validatePreparedEvidence(items []preparedEvidence, targetSHA256 string) err
 		currentExcerptSHA256, err := claim.ExcerptSHA256(item.excerpt)
 		if err != nil || currentExcerptSHA256 != item.currentExcerptSHA256 {
 			return fmt.Errorf("evidence %d current excerpt identity is invalid", index)
+		}
+		if item.visual != nil && (!safePath(item.visual.path) || !validSHA256(item.visual.sha256) ||
+			item.visual.x < 0 || item.visual.y < 0 || item.visual.width < 1 || item.visual.height < 1) {
+			return fmt.Errorf("evidence %d visual reference is invalid", index)
 		}
 	}
 	return nil
@@ -2421,7 +2454,7 @@ func validatePublicationCompositeSemantics(
 	if err != nil {
 		return 0, err
 	}
-	if finalWire.SchemaVersion != "kar-review-artifact.v2" ||
+	if finalWire.SchemaVersion != "kar-review-artifact.v3" ||
 		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
@@ -3190,6 +3223,10 @@ func clonePreparedFindings(source []preparedFinding) []preparedFinding {
 		for evidenceIndex, item := range finding.evidence {
 			cloned[index].evidence[evidenceIndex] = item
 			cloned[index].evidence[evidenceIndex].excerpt = cloneBytes(item.excerpt)
+			if item.visual != nil {
+				visual := *item.visual
+				cloned[index].evidence[evidenceIndex].visual = &visual
+			}
 		}
 	}
 	return cloned

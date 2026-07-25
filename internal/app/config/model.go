@@ -24,6 +24,7 @@ type Config struct {
 type ProjectConfig struct {
 	Name    string `yaml:"name" json:"name"`
 	Context string `yaml:"context,omitempty" json:"context,omitempty"`
+	Kind    string `yaml:"kind,omitempty" json:"kind,omitempty"`
 }
 type NativeUserConfig struct {
 	Home string `yaml:"home" json:"home"`
@@ -56,11 +57,17 @@ type RolesConfig struct {
 	Product         RoleConfig `yaml:"product" json:"product"`
 	Documentation   RoleConfig `yaml:"documentation" json:"documentation"`
 	Testing         RoleConfig `yaml:"testing" json:"testing"`
+	Artist          RoleConfig `yaml:"artist,omitempty" json:"artist,omitempty"`
 }
 type RoleConfig struct {
-	Enabled          bool   `yaml:"enabled" json:"enabled"`
-	PrimaryProvider  string `yaml:"primary_provider" json:"primary_provider"`
-	FallbackProvider string `yaml:"fallback_provider,omitempty" json:"fallback_provider,omitempty"`
+	Enabled          bool                `yaml:"enabled" json:"enabled"`
+	PrimaryProvider  string              `yaml:"primary_provider" json:"primary_provider"`
+	FallbackProvider string              `yaml:"fallback_provider,omitempty" json:"fallback_provider,omitempty"`
+	Inputs           *ArtistInputsConfig `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+}
+type ArtistInputsConfig struct {
+	TaskPath        string   `yaml:"task_path" json:"task_path"`
+	DesignSpecGlobs []string `yaml:"design_spec_globs" json:"design_spec_globs"`
 }
 type ReviewConfig struct {
 	RequiredRoles    []string `yaml:"required_roles" json:"required_roles"`
@@ -97,11 +104,21 @@ const (
 	DefaultAGYPermissionMode = "safe"
 	ConfigRelativePath       = ".kar/config.yaml"
 	MaximumConfigBytes       = 1 << 20
+	ProjectKindNonUI         = "non_ui"
+	ProjectKindUI            = "ui"
+	DefaultArtistTaskPath    = "TASK.md"
 )
 
-// Ordered returns the six role configurations in canonical role order.
+var DefaultArtistDesignSpecGlobs = []string{
+	"design-specs/**/*.png",
+	"design-specs/**/*.jpg",
+	"design-specs/**/*.jpeg",
+	"design-specs/**/*.webp",
+}
+
+// Ordered returns the role configurations in canonical role order.
 func (roles RolesConfig) Ordered() []RoleConfig {
-	return []RoleConfig{roles.Logic, roles.Security, roles.Maintainability, roles.Product, roles.Documentation, roles.Testing}
+	return []RoleConfig{roles.Logic, roles.Security, roles.Maintainability, roles.Product, roles.Documentation, roles.Testing, roles.Artist}
 }
 
 // HasFamily reports whether a provider family is explicitly configured.
@@ -119,6 +136,10 @@ func (providers ProvidersConfig) HasFamily(family string) bool {
 // calls this function to invent an assignment.
 func CanonicalRolesConfig(families []string) (RolesConfig, error) {
 	return CanonicalRolesConfigForSelection(families, []string{"logic", "security", "maintainability", "product", "documentation", "testing"})
+}
+
+func CanonicalRolesConfigForUI(families []string) (RolesConfig, error) {
+	return CanonicalRolesConfigForSelection(families, []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"})
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
@@ -144,7 +165,7 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 	if len(configured) == 0 {
 		return RolesConfig{}, fmt.Errorf("canonical role assignments: provider families are required")
 	}
-	fixedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	fixedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	enabled := make(map[string]bool, len(selectedRoles))
 	lastRole := -1
 	for _, selected := range selectedRoles {
@@ -180,6 +201,22 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 		}
 		return role
 	}
+	selectOptionalRole := func(preferences []string) RoleConfig {
+		selected := make([]string, 0, 2)
+		for _, family := range preferences {
+			if _, ok := configured[family]; ok {
+				selected = append(selected, family)
+			}
+		}
+		if len(selected) == 0 {
+			return RoleConfig{}
+		}
+		role := RoleConfig{PrimaryProvider: selected[0]}
+		if len(selected) > 1 {
+			role.FallbackProvider = selected[1]
+		}
+		return role
+	}
 	logic := selectRole([]string{"kimi", "zcode", "agy"})
 	documentation := selectRole([]string{"agy", "zcode", "kimi"})
 	other := selectRole([]string{"zcode", "agy", "kimi"})
@@ -193,7 +230,16 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 	documentation.Enabled = enabled["documentation"]
 	testing := other
 	testing.Enabled = enabled["testing"]
-	return RolesConfig{Logic: logic, Security: security, Maintainability: maintainability, Product: product, Documentation: documentation, Testing: testing}, nil
+	var artist RoleConfig
+	if enabled["artist"] {
+		artist = selectOptionalRole([]string{"agy", "zcode"})
+		if artist.PrimaryProvider == "" {
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy or zcode")
+		}
+		artist.Enabled = true
+		artist.Inputs = &ArtistInputsConfig{TaskPath: DefaultArtistTaskPath, DesignSpecGlobs: append([]string(nil), DefaultArtistDesignSpecGlobs...)}
+	}
+	return RolesConfig{Logic: logic, Security: security, Maintainability: maintainability, Product: product, Documentation: documentation, Testing: testing, Artist: artist}, nil
 }
 
 func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }

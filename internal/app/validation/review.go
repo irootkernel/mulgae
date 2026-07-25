@@ -25,12 +25,12 @@ import (
 )
 
 const (
-	// ProviderReviewWireSchemaID validates the provider-owned v2 projection
+	// ProviderReviewWireSchemaID validates the provider-owned v3 projection
 	// before KAR injects target identity and verification state.
-	ProviderReviewWireSchemaID = "https://kar.local/schemas/kar-provider-review-wire.v2.schema.json"
-	// ProviderReviewSchemaID validates the normalized v2 envelope after trusted
+	ProviderReviewWireSchemaID = "https://kar.local/schemas/kar-provider-review-wire.v3.schema.json"
+	// ProviderReviewSchemaID validates the normalized v3 envelope after trusted
 	// target identity and claimed verification have been injected.
-	ProviderReviewSchemaID = "https://kar.local/schemas/kar-provider-review-output.v2.schema.json"
+	ProviderReviewSchemaID = "https://kar.local/schemas/kar-provider-review-output.v3.schema.json"
 	repairPatchSchemaID    = "urn:kar:schema:repair-patch:v1"
 	maxRepairOperations    = 100
 )
@@ -116,6 +116,11 @@ type ReviewValidationScope struct {
 	TargetSHA256     string
 	Role             domain.Role
 	ProviderInstance string
+	// VisualAssets binds captured design-spec paths to trusted SHA-256 values.
+	// It is used only for artist findings and is never populated from provider output.
+	VisualAssets           map[string]string
+	ArtistInputsConfigured bool
+	ArtistInputsReady      bool
 	// SourceBearing is false for a root review. Source identity is not accepted
 	// from providers in either mode; source-bearing validation needs a later,
 	// trusted source-identity reducer and is intentionally out of this slice.
@@ -323,6 +328,12 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		}
 		return ValidatedReview{}, nil, inspection.error()
 	}
+	if scope.Role == domain.RoleArtist && scope.ArtistInputsConfigured && !scope.ArtistInputsReady && inspection.review.completeness != "incomplete" {
+		return ValidatedReview{}, nil, fmt.Errorf("review validation: unavailable artist inputs require incomplete coverage")
+	}
+	if err := validateVisualEvidence(provider, scope); err != nil {
+		return ValidatedReview{}, nil, err
+	}
 
 	findings, evidenceClaims, err := normalizeFindings(inspection.review.findings, scope, trustedTarget)
 	if err != nil {
@@ -337,6 +348,35 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		originalRaw:    append([]byte(nil), originalRaw...),
 		repairedRaw:    cloneOptionalBytes(repairedRaw),
 	}, nil, nil
+}
+
+func validateVisualEvidence(provider map[string]any, scope ReviewValidationScope) error {
+	findings, _ := provider["findings"].([]any)
+	for findingIndex, findingValue := range findings {
+		finding, _ := findingValue.(map[string]any)
+		evidence, _ := finding["evidence"].([]any)
+		verified := false
+		for evidenceIndex, evidenceValue := range evidence {
+			evidenceObject, _ := evidenceValue.(map[string]any)
+			visual, present := evidenceObject["visual"].(map[string]any)
+			if !present {
+				continue
+			}
+			if scope.Role != domain.RoleArtist {
+				return fmt.Errorf("review validation: visual evidence is only valid for artist findings")
+			}
+			path, _ := visual["path"].(string)
+			digest, _ := visual["sha256"].(string)
+			if expected, ok := scope.VisualAssets[path]; !ok || expected != digest {
+				return fmt.Errorf("review validation: unverified visual evidence at findings[%d].evidence[%d]", findingIndex, evidenceIndex)
+			}
+			verified = true
+		}
+		if scope.Role == domain.RoleArtist && !verified {
+			return fmt.Errorf("review validation: artist finding %d requires a verified visual reference", findingIndex)
+		}
+	}
+	return nil
 }
 
 func validateScope(scope ReviewValidationScope) (string, error) {
@@ -397,6 +437,12 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 			}
 			current["target_sha256"] = targetSHA256
 			current["verification"] = "claimed"
+			if visual, ok := evidenceObject["visual"].(map[string]any); ok {
+				if _, supplied := visual["verification"]; supplied {
+					return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned visual verification at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
+				}
+				visual["verification"] = "claimed"
+			}
 		}
 	}
 	return candidate, nil
@@ -596,7 +642,7 @@ func guardProviderReview(provider map[string]any) error {
 				continue
 			}
 			evidencePath := fmt.Sprintf("%s.evidence[%d]", findingPath, evidenceIndex)
-			if err := requireOnlyKeys(evidenceObject, evidencePath, "current"); err != nil {
+			if err := requireOnlyKeys(evidenceObject, evidencePath, "current", "visual"); err != nil {
 				return err
 			}
 			current, ok := evidenceObject["current"].(map[string]any)
@@ -605,6 +651,16 @@ func guardProviderReview(provider map[string]any) error {
 			}
 			if err := requireOnlyKeys(current, evidencePath+".current", "path", "line_start", "line_end", "side", "quote"); err != nil {
 				return err
+			}
+			if visual, ok := evidenceObject["visual"].(map[string]any); ok {
+				if err := requireOnlyKeys(visual, evidencePath+".visual", "path", "sha256", "bbox"); err != nil {
+					return err
+				}
+				if bbox, ok := visual["bbox"].(map[string]any); ok {
+					if err := requireOnlyKeys(bbox, evidencePath+".visual.bbox", "x", "y", "width", "height"); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
@@ -646,6 +702,16 @@ type providerEvidence struct {
 	lineEnd   int
 	side      string
 	quote     string
+	visual    *providerVisualEvidence
+}
+
+type providerVisualEvidence struct {
+	path   string
+	sha256 string
+	x      int
+	y      int
+	width  int
+	height int
 }
 
 type reviewInspection struct {
@@ -682,7 +748,7 @@ func (inspection reviewInspection) error() error {
 // repaired without replacing meaningful data.
 func inspectReview(provider map[string]any, trustedTargetSHA256 string) reviewInspection {
 	inspection := reviewInspection{}
-	requiredConstant(provider, "schema_version", "/schema_version", "kar-provider-review-output.v2", &inspection)
+	requiredConstant(provider, "schema_version", "/schema_version", "kar-provider-review-output.v3", &inspection)
 	inspection.review.summary = requiredText(provider, "summary", "/summary", 4000, &inspection)
 	inspection.review.completeness = requiredEnum(provider, "completeness", "/completeness", []string{"complete", "incomplete"}, &inspection)
 	limitations, repairableLimitations := requiredLimitations(provider, &inspection)
@@ -846,6 +912,27 @@ func requiredEvidence(finding map[string]any, base string, inspection *reviewIns
 			side:      requiredEnum(current, "side", currentPath+"/side", []string{"base", "head", "worktree"}, inspection),
 			quote:     requiredText(current, "quote", currentPath+"/quote", 0, inspection),
 		}
+		if visualValue, present := evidenceObject["visual"]; present && visualValue != nil {
+			visual, ok := visualValue.(map[string]any)
+			visualPath := base + "/evidence/" + strconv.Itoa(index) + "/visual"
+			if !ok {
+				inspection.addFatal("%s must be an object", visualPath)
+			} else {
+				bbox, bboxOK := visual["bbox"].(map[string]any)
+				if !bboxOK {
+					inspection.addFatal("%s/bbox must be an object", visualPath)
+					bbox = map[string]any{}
+				}
+				item.visual = &providerVisualEvidence{
+					path:   requiredText(visual, "path", visualPath+"/path", 4096, inspection),
+					sha256: requiredText(visual, "sha256", visualPath+"/sha256", 71, inspection),
+					x:      requiredNonNegativeInteger(bbox, "x", visualPath+"/bbox/x", inspection),
+					y:      requiredNonNegativeInteger(bbox, "y", visualPath+"/bbox/y", inspection),
+					width:  requiredPositiveInteger(bbox, "width", visualPath+"/bbox/width", inspection),
+					height: requiredPositiveInteger(bbox, "height", visualPath+"/bbox/height", inspection),
+				}
+			}
+		}
 		if item.path != "" && (!utf8.ValidString(item.path) || norm.NFC.String(item.path) != item.path) {
 			inspection.addFatal("%s/path must be UTF-8 NFC", currentPath)
 		}
@@ -940,6 +1027,26 @@ func requiredPositiveInteger(object map[string]any, key, path string, inspection
 	if err != nil || parsed < 1 {
 		inspection.addRepair(path)
 		return 0
+	}
+	return int(parsed)
+}
+
+func requiredNonNegativeInteger(object map[string]any, key, path string, inspection *reviewInspection) int {
+	value, exists := object[key]
+	if !exists || value == nil {
+		inspection.addRepair(path)
+		return -1
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		inspection.addFatal("%s must be an integer", path)
+		return -1
+	}
+	text := number.String()
+	parsed, err := strconv.ParseInt(text, 10, 0)
+	if err != nil || strings.ContainsAny(text, ".eE") || parsed < 0 {
+		inspection.addFatal("%s must be a non-negative integer", path)
+		return -1
 	}
 	return int(parsed)
 }
@@ -1174,7 +1281,7 @@ func reviewAccessVerb(word string) bool {
 func duplicateNormalizedFinding(findings []providerFinding, trustedTargetSHA256 string) bool {
 	seen := make(map[string]struct{}, len(findings))
 	for _, finding := range findings {
-		claims, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
+		claims, _, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
 		if err != nil {
 			return false
 		}
@@ -1199,6 +1306,7 @@ type normalizedFindingEvidence struct {
 	finding  domain.Finding
 	identity normalizedFindingIdentity
 	claims   []CurrentEvidenceClaim
+	visuals  []VerifiedVisualReference
 }
 
 type normalizedFindingIdentity struct {
@@ -1224,7 +1332,7 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 		if len(finding.evidence) == 0 {
 			return nil, nil, fmt.Errorf("review validation: finding %d has no evidence", index)
 		}
-		claims, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
+		claims, visuals, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
 		if err != nil {
 			return nil, nil, fmt.Errorf("review validation: normalize finding %d evidence: %w", index, err)
 		}
@@ -1254,6 +1362,7 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 			finding:  findingValue,
 			identity: normalizedFindingIdentityFor(findingValue),
 			claims:   claims,
+			visuals:  visuals,
 		})
 	}
 	if err := validateUniqueFindingIdentities(normalized); err != nil {
@@ -1287,7 +1396,7 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 		if finding.ID() == "" {
 			return nil, nil, fmt.Errorf("review validation: ordered finding has no assigned ID")
 		}
-		evidenceGroup, err := newFindingEvidenceClaims(finding, normalized[matchIndex].claims, trustedTargetSHA256)
+		evidenceGroup, err := newFindingEvidenceClaims(finding, normalized[matchIndex].claims, normalized[matchIndex].visuals, trustedTargetSHA256)
 		if err != nil {
 			return nil, nil, fmt.Errorf("review validation: finding %q evidence proof: %w", finding.ID(), err)
 		}
@@ -1296,21 +1405,25 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 	return ordered, evidenceClaims, nil
 }
 
-func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA256 string) ([]CurrentEvidenceClaim, error) {
-	claims := make([]CurrentEvidenceClaim, len(input))
+func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA256 string) ([]CurrentEvidenceClaim, []VerifiedVisualReference, error) {
+	type claimWithVisual struct {
+		claim  CurrentEvidenceClaim
+		visual VerifiedVisualReference
+	}
+	items := make([]claimWithVisual, len(input))
 	for index, evidence := range input {
 		path, err := ports.NewSafeRelativePath(evidence.path)
 		if err != nil {
-			return nil, fmt.Errorf("claim %d path: %w", index, err)
+			return nil, nil, fmt.Errorf("claim %d path: %w", index, err)
 		}
 		side := CurrentEvidenceSide(evidence.side)
 		if !side.Valid() {
-			return nil, fmt.Errorf("claim %d has invalid side %q", index, evidence.side)
+			return nil, nil, fmt.Errorf("claim %d has invalid side %q", index, evidence.side)
 		}
 		if evidence.lineStart < 1 || evidence.lineEnd < evidence.lineStart {
-			return nil, fmt.Errorf("claim %d has invalid line range", index)
+			return nil, nil, fmt.Errorf("claim %d has invalid line range", index)
 		}
-		claims[index] = CurrentEvidenceClaim{
+		items[index].claim = CurrentEvidenceClaim{
 			targetSHA256: trustedTargetSHA256,
 			path:         path,
 			lineStart:    evidence.lineStart,
@@ -1318,9 +1431,30 @@ func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA25
 			side:         side,
 			quote:        []byte(evidence.quote),
 		}
+		if evidence.visual != nil {
+			visualPath, pathErr := ports.NewSafeRelativePath(evidence.visual.path)
+			if pathErr != nil {
+				return nil, nil, fmt.Errorf("claim %d visual path: %w", index, pathErr)
+			}
+			items[index].visual = VerifiedVisualReference{
+				path: visualPath, sha256: evidence.visual.sha256,
+				x: evidence.visual.x, y: evidence.visual.y,
+				width: evidence.visual.width, height: evidence.visual.height,
+			}
+			if !items[index].visual.Valid() {
+				return nil, nil, fmt.Errorf("claim %d has invalid verified visual reference", index)
+			}
+		}
 	}
-	sortCurrentEvidenceClaims(claims)
-	return claims, nil
+	sort.SliceStable(items, func(left, right int) bool {
+		return CompareCurrentEvidenceClaims(items[left].claim, items[right].claim) < 0
+	})
+	claims := make([]CurrentEvidenceClaim, len(items))
+	visuals := make([]VerifiedVisualReference, len(items))
+	for index := range items {
+		claims[index], visuals[index] = items[index].claim, items[index].visual
+	}
+	return claims, visuals, nil
 }
 
 func normalizedFindingIdentityFor(finding domain.Finding) normalizedFindingIdentity {

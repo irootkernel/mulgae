@@ -299,7 +299,7 @@ their source-derived IDs, schema `$id` URLs, or help aliases, for example:
 
 ```text
 sot:prompts/root-review/common.v2.txt
-sot:prompts/root-review/roles/security.v2.txt
+roles/security.yaml
 https://kar.local/schemas/kar-provider-review-output.v2.schema.json
 help:security
 ```
@@ -331,7 +331,7 @@ kar-review-artifact.v1                  compatibility reader only
 kar-run-manifest.v1                     compatibility reader only
 kar-provider-review-output.v2           G0 execution contract
 kar-provider-followup-output.v2         G0 execution contract
-kar-review-artifact.v2                  G0 publication contract
+kar-review-artifact.v3                  G0 publication contract
 kar-run-manifest.v2                     G0 publication contract
 kar-provider-contract-evidence.v1       compatibility-only; never readiness authority
 kar-platform-contract-evidence.v1       compatibility-only; never readiness authority

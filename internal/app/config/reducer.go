@@ -76,6 +76,8 @@ func configuredRole(roles RolesConfig, role domain.Role) RoleConfig {
 		return roles.Documentation
 	case domain.RoleTesting:
 		return roles.Testing
+	case domain.RoleArtist:
+		return roles.Artist
 	default:
 		return RoleConfig{}
 	}
@@ -149,5 +151,10 @@ func cloneConfig(value Config) Config {
 	copyValue.Review.RequestChangesOn = append([]string(nil), value.Review.RequestChangesOn...)
 	copyValue.Validation.Evidence.RequireVerifiedFor = append([]string(nil), value.Validation.Evidence.RequireVerifiedFor...)
 	copyValue.CI.FailOnSeverity = append([]string(nil), value.CI.FailOnSeverity...)
+	if value.Roles.Artist.Inputs != nil {
+		inputs := *value.Roles.Artist.Inputs
+		inputs.DesignSpecGlobs = append([]string(nil), value.Roles.Artist.Inputs.DesignSpecGlobs...)
+		copyValue.Roles.Artist.Inputs = &inputs
+	}
 	return copyValue
 }

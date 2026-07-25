@@ -156,6 +156,9 @@ func (m *Materializer) Materialize(ctx context.Context, request ports.WorkspaceS
 		if err := ctx.Err(); err != nil {
 			return ports.WorkspaceSnapshotReceipt{}, err
 		}
+		if !file.IsText() {
+			continue
+		}
 		verdict, err := m.detector.DetectWorkspaceContent(ctx, file.Path(), file.Bytes())
 		if err != nil {
 			return ports.WorkspaceSnapshotReceipt{}, fmt.Errorf("workspace content detector: %w", err)

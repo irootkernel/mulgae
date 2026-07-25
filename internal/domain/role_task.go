@@ -14,17 +14,21 @@ const (
 	RoleProduct         Role = "product"
 	RoleDocumentation   Role = "documentation"
 	RoleTesting         Role = "testing"
+	RoleArtist          Role = "artist"
 )
 
-var fixedRoleOrder = [...]Role{RoleLogic, RoleSecurity, RoleMaintainability, RoleProduct, RoleDocumentation, RoleTesting}
+var fixedRoleOrder = [...]Role{RoleLogic, RoleSecurity, RoleMaintainability, RoleProduct, RoleDocumentation, RoleTesting, RoleArtist}
 
 func (role Role) Valid() bool {
-	return oneOf(string(role), string(RoleLogic), string(RoleSecurity), string(RoleMaintainability), string(RoleProduct), string(RoleDocumentation), string(RoleTesting))
+	return oneOf(string(role), string(RoleLogic), string(RoleSecurity), string(RoleMaintainability), string(RoleProduct), string(RoleDocumentation), string(RoleTesting), string(RoleArtist))
 }
 
 func (role Role) RequiredFloor() bool { return role == RoleLogic || role == RoleSecurity }
 
 func FixedRoleOrder() []Role { return append([]Role(nil), fixedRoleOrder[:]...) }
+
+// CoreRoleOrder returns the six unconditional roles retained for non-UI projects.
+func CoreRoleOrder() []Role { return append([]Role(nil), fixedRoleOrder[:len(fixedRoleOrder)-1]...) }
 
 type RoleTask struct {
 	role                Role

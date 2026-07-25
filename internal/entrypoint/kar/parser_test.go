@@ -92,6 +92,13 @@ func TestParseInitForms(t *testing.T) {
 		t.Fatalf("init roles = %#v, %t", subsetRequest, ok)
 	}
 	assertRequestJSON(t, subset, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+
+	ui := mustParse(t, []string{"init", "--project-kind", "ui", "--artist-task", "TASK.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
+	uiRequest, ok := ui.Init()
+	if !ok || !reflect.DeepEqual(uiRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}) {
+		t.Fatalf("UI init roles = %#v, %t", uiRequest, ok)
+	}
+	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_task":"TASK.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 	for _, roles := range []string{"logic", "security,testing", "logic,documentation"} {
 		if _, err := Parse([]string{"init", "--roles", roles}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("init --roles %q error = %v, want usage", roles, err)

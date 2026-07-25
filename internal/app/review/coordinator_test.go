@@ -371,8 +371,8 @@ func TestCoordinatorScenarios(t *testing.T) {
 
 	t.Run("random-completion-deterministic-aggregation", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, false, false)
-		first := coordinatorRandomCompletionResult(t, assignments, receipt, domain.FixedRoleOrder())
-		secondOrder := domain.FixedRoleOrder()
+		first := coordinatorRandomCompletionResult(t, assignments, receipt, domain.CoreRoleOrder())
+		secondOrder := domain.CoreRoleOrder()
 		for left, right := 0, len(secondOrder)-1; left < right; left, right = left+1, right-1 {
 			secondOrder[left], secondOrder[right] = secondOrder[right], secondOrder[left]
 		}
@@ -2263,7 +2263,7 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 			if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
 				t.Fatal(err)
 			}
-			for _, role := range domain.FixedRoleOrder() {
+			for _, role := range domain.CoreRoleOrder() {
 				if closure.roleState != domain.RoleTaskCancelled {
 					if err := execution.run.TransitionRole(role, domain.RoleTaskPrimaryQueued); err != nil {
 						t.Fatal(err)
@@ -2308,7 +2308,7 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 				t.Fatal(err)
 			}
 			trace := execution.trace
-			if len(trace) != len(domain.FixedRoleOrder())+3 ||
+			if len(trace) != len(domain.CoreRoleOrder())+3 ||
 				trace[0].Kind() != CoordinatorEventRunStarted ||
 				trace[len(trace)-2].Kind() != CoordinatorEventLanesCloseAuthorized ||
 				trace[len(trace)-1].Kind() != CoordinatorEventRunTerminal {
@@ -3083,13 +3083,13 @@ func coordinatorTestPlanInNamespace(
 	sameLane, logicFallback bool,
 ) ([]Assignment, RunBudgetReceipt) {
 	t.Helper()
-	assignments := make([]Assignment, 0, len(domain.FixedRoleOrder()))
-	budgets := make([]RoleBudget, 0, len(domain.FixedRoleOrder()))
+	assignments := make([]Assignment, 0, len(domain.CoreRoleOrder()))
+	budgets := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
 	limits, err := NewInvocationLimits(time.Second, 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		lane := namespace + "lane-" + string(role)
 		if sameLane {
 			lane = namespace + "shared"
@@ -3384,7 +3384,7 @@ func coordinatorVerifiedEvidenceFixture(
 		return validation.ValidatedReview{}, nil, err
 	}
 	raw := fmt.Sprintf(
-		`{"schema_version":"kar-provider-review-output.v2","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
+		`{"schema_version":"kar-provider-review-output.v3","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
 		string(input.severity),
 		input.title,
 		input.path,
@@ -3603,8 +3603,8 @@ func coordinatorRecordExecution(t *testing.T) *coordinatorExecution {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tasks := make([]domain.RoleTask, 0, len(domain.FixedRoleOrder()))
-	for _, role := range domain.FixedRoleOrder() {
+	tasks := make([]domain.RoleTask, 0, len(domain.CoreRoleOrder()))
+	for _, role := range domain.CoreRoleOrder() {
 		task, err := domain.NewRoleTask(role, false, "provider."+string(role), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -3648,7 +3648,7 @@ func coordinatorRandomCompletionResult(t *testing.T, assignments []Assignment, r
 	entered := make(chan domain.Role, len(assignments))
 	delivered := make(chan domain.Role, len(assignments))
 	releases := make(map[domain.Role]chan struct{}, len(assignments))
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		releases[role] = make(chan struct{})
 	}
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {

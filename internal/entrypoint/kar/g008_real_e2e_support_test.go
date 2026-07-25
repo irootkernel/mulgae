@@ -272,15 +272,15 @@ func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports
 		stdout = append([]byte(nil), provider.followup...)
 		provider.followup = nil
 	case provider.logicNoFindings && invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"F001: one high finding.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"F001","description":"Fallback must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Preserve the valid result.","confidence":"high"}]}`)
+		stdout = []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"F001: one high finding.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"F001","description":"Fallback must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Preserve the valid result.","confidence":"high"}]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationRepair:
 		stdout = []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[{"path":"/summary","value":"F001: one high finding."}]}`)
 	case invocation.Role() == domain.RoleSecurity && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"No security findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No security findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	case invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"kar-provider-review-output.v2","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	default:
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("unexpected scripted provider call %s/%s", invocation.Role(), invocation.Purpose())
 	}
@@ -391,9 +391,9 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	}
 	key, _ := ports.ParseConcurrencyKey("g008")
 	limits, _ := review.NewInvocationLimits(time.Second, 256<<10, 256<<10)
-	roleBudgets := make([]review.RoleBudget, 0, len(domain.FixedRoleOrder()))
-	assignments := make([]review.Assignment, 0, len(domain.FixedRoleOrder()))
-	for _, role := range domain.FixedRoleOrder() {
+	roleBudgets := make([]review.RoleBudget, 0, len(domain.CoreRoleOrder()))
+	assignments := make([]review.Assignment, 0, len(domain.CoreRoleOrder()))
+	for _, role := range domain.CoreRoleOrder() {
 		route, routeErr := ports.NewProviderRoute("g008."+string(role), key)
 		if routeErr != nil {
 			t.Fatal(routeErr)

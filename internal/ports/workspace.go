@@ -27,9 +27,10 @@ const (
 // WorkspaceSnapshotFile is a captured regular UTF-8 file. Its bytes are copied
 // at construction and when returned so callers cannot alter the request later.
 type WorkspaceSnapshotFile struct {
-	path   SafeRelativePath
-	bytes  []byte
-	sha256 string
+	path      SafeRelativePath
+	bytes     []byte
+	sha256    string
+	mediaType string
 }
 
 // NewWorkspaceSnapshotFile validates a captured file and its expected identity.
@@ -44,12 +45,36 @@ func NewWorkspaceSnapshotFile(path SafeRelativePath, bytes []byte, expectedSHA25
 	if expectedSHA256 != "sha256:"+hex.EncodeToString(actual[:]) {
 		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace snapshot file: expected SHA-256 does not match bytes")
 	}
-	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256}, nil
+	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256, mediaType: "text/plain"}, nil
+}
+
+// NewWorkspaceVisualAsset validates a bounded raster design reference. Visual
+// assets are materialized for UI review but are never passed through text or
+// line-evidence readers.
+func NewWorkspaceVisualAsset(path SafeRelativePath, bytes []byte, expectedSHA256, mediaType string) (WorkspaceSnapshotFile, error) {
+	if !path.Valid() || workspaceReservedPath(path.String()) || !validRasterBytes(bytes, mediaType) {
+		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace visual asset: invalid path, media type, or raster bytes")
+	}
+	if !workspaceSHA256(expectedSHA256) {
+		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace visual asset: invalid SHA-256 identity")
+	}
+	actual := sha256.Sum256(bytes)
+	if expectedSHA256 != "sha256:"+hex.EncodeToString(actual[:]) {
+		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace visual asset: expected SHA-256 does not match bytes")
+	}
+	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256, mediaType: mediaType}, nil
 }
 
 func (file WorkspaceSnapshotFile) Path() SafeRelativePath { return file.path }
 func (file WorkspaceSnapshotFile) Bytes() []byte          { return append([]byte(nil), file.bytes...) }
 func (file WorkspaceSnapshotFile) SHA256() string         { return file.sha256 }
+func (file WorkspaceSnapshotFile) MediaType() string {
+	if file.mediaType == "" {
+		return "text/plain"
+	}
+	return file.mediaType
+}
+func (file WorkspaceSnapshotFile) IsText() bool { return file.MediaType() == "text/plain" }
 
 // WorkspaceSnapshotRequest contains only already-captured source bytes. It has
 // no live-project-root field by design.
@@ -68,7 +93,7 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 	previous := ""
 	foldedPaths := make(map[string]struct{}, len(copied))
 	for i, file := range copied {
-		if file.path.String() == "" || !file.path.Valid() || workspaceReservedPath(file.path.String()) || !utf8.Valid(file.bytes) || strings.IndexByte(string(file.bytes), 0) >= 0 || !workspaceSHA256(file.sha256) {
+		if file.path.String() == "" || !file.path.Valid() || workspaceReservedPath(file.path.String()) || !validWorkspaceFileBytes(file) || !workspaceSHA256(file.sha256) {
 			return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: invalid file %d", i)
 		}
 		actual := sha256.Sum256(file.bytes)
@@ -92,6 +117,29 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 		copied[i].bytes = append([]byte(nil), file.bytes...)
 	}
 	return WorkspaceSnapshotRequest{files: copied, policyIdentity: policyIdentity}, nil
+}
+
+func validWorkspaceFileBytes(file WorkspaceSnapshotFile) bool {
+	if file.IsText() {
+		return utf8.Valid(file.bytes) && strings.IndexByte(string(file.bytes), 0) < 0
+	}
+	return validRasterBytes(file.bytes, file.MediaType())
+}
+
+func validRasterBytes(bytes []byte, mediaType string) bool {
+	if len(bytes) == 0 || int64(len(bytes)) > WorkspaceSnapshotMaxFileBytes {
+		return false
+	}
+	switch mediaType {
+	case "image/png":
+		return len(bytes) >= 8 && string(bytes[:8]) == "\x89PNG\r\n\x1a\n"
+	case "image/jpeg":
+		return len(bytes) >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff
+	case "image/webp":
+		return len(bytes) >= 12 && string(bytes[:4]) == "RIFF" && string(bytes[8:12]) == "WEBP"
+	default:
+		return false
+	}
 }
 
 func (request WorkspaceSnapshotRequest) Files() []WorkspaceSnapshotFile {

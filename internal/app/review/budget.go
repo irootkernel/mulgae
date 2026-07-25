@@ -12,7 +12,7 @@ import (
 
 const (
 	maxBudgetInvocationsPerRole = 4
-	maxBudgetInvocationsPerRun  = 24
+	maxBudgetInvocationsPerRun  = 28
 	maxBudgetTotalOutputBytes   = int64(64 << 20)
 	maxBudgetRunDeadline        = 50 * time.Minute
 
@@ -128,7 +128,7 @@ type HarnessCeilings struct {
 }
 
 // NewHarnessCeilings validates trusted execution ceilings. The fixed SOT
-// maxima are closed: four invocations per role, 24 per run, 64 MiB output,
+// maxima are closed: four invocations per role, 28 per run, 64 MiB output,
 // and a 50 minute run deadline.
 func NewHarnessCeilings(
 	maxTimeout time.Duration,

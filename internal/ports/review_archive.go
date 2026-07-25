@@ -33,9 +33,10 @@ type capturedTargetIdentityWire struct {
 }
 
 type capturedFileWire struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Bytes  []byte `json:"bytes"`
+	Path      string `json:"path"`
+	SHA256    string `json:"sha256"`
+	Bytes     []byte `json:"bytes"`
+	MediaType string `json:"media_type,omitempty"`
 }
 
 type capturedEvidenceWire struct {
@@ -130,7 +131,7 @@ func UnmarshalCapturedReviewMaterial(bytes []byte) (CapturedReviewMaterial, erro
 func filesToArchive(files []WorkspaceSnapshotFile) []capturedFileWire {
 	result := make([]capturedFileWire, len(files))
 	for index, file := range files {
-		result[index] = capturedFileWire{Path: file.Path().String(), SHA256: file.SHA256(), Bytes: file.Bytes()}
+		result[index] = capturedFileWire{Path: file.Path().String(), SHA256: file.SHA256(), Bytes: file.Bytes(), MediaType: file.MediaType()}
 	}
 	return result
 }
@@ -142,7 +143,11 @@ func archiveToFiles(files []capturedFileWire) ([]WorkspaceSnapshotFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("captured review archive: file path: %w", err)
 		}
-		result[index], err = NewWorkspaceSnapshotFile(path, file.Bytes, file.SHA256)
+		if file.MediaType == "" || file.MediaType == "text/plain" {
+			result[index], err = NewWorkspaceSnapshotFile(path, file.Bytes, file.SHA256)
+		} else {
+			result[index], err = NewWorkspaceVisualAsset(path, file.Bytes, file.SHA256, file.MediaType)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("captured review archive: file: %w", err)
 		}

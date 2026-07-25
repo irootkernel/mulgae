@@ -42,6 +42,12 @@ func (verified VerifiedFindingEvidence) Receipts() []evidence.CurrentReceipt {
 	return append([]evidence.CurrentReceipt(nil), verified.receipts...)
 }
 
+// VisualReferences returns verified visual references aligned with Receipts.
+// Zero values identify current claims without visual evidence.
+func (verified VerifiedFindingEvidence) VisualReferences() []validation.VerifiedVisualReference {
+	return verified.validationProof.VisualReferences()
+}
+
 // EvidencePolicy is an immutable minimum receipt-verification policy.
 type EvidencePolicy struct {
 	required   []domain.Severity

@@ -17,7 +17,7 @@ const fixedCommandSpecCount = 17
 const (
 	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
 	runManifestContractURI              = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
-	reviewArtifactContractURI           = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	reviewArtifactContractURI           = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 	providerFollowupOutputContractURI   = "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json"
 	providerContractEvidenceContractURI = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
 	promptManifestContractURI           = "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json"

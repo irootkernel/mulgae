@@ -10,6 +10,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -49,7 +50,7 @@ func TestReducePublicationEvidenceUsesTotalAuthorityReducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, authoritative, err := reducePublicationEvidence(
-		[]evidence.CurrentReceipt{unavailableReceipt}, finding, target, "F001",
+		[]evidence.CurrentReceipt{unavailableReceipt}, make([]validation.VerifiedVisualReference, 1), finding, target, "F001",
 	)
 	if err != nil || authoritative || len(items) != 0 {
 		t.Fatalf("allowed low patch exception = (%#v, %t, %v), want no authority or excerpts", items, authoritative, err)
@@ -66,7 +67,7 @@ func TestReducePublicationEvidenceUsesTotalAuthorityReducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := reducePublicationEvidence(
-		[]evidence.CurrentReceipt{verifiedReceipt, unavailableReceipt}, finding, target, "F001",
+		[]evidence.CurrentReceipt{verifiedReceipt, unavailableReceipt}, make([]validation.VerifiedVisualReference, 2), finding, target, "F001",
 	); err == nil {
 		t.Fatal("mixed evidence authority was accepted")
 	}

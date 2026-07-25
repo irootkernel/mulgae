@@ -10,7 +10,7 @@ import (
 func TestNewAssignmentPreservesG004CompatibilityAndLegacyLane(t *testing.T) {
 	t.Parallel()
 
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		t.Run(string(role), func(t *testing.T) {
 			assignment, err := NewAssignment(role, false, "fake."+string(role))
 			if err != nil {
@@ -72,7 +72,7 @@ func TestNewScheduledAssignmentStoresExplicitRoutes(t *testing.T) {
 func TestNewScheduledAssignmentPreservesRequiredFloorForAllRoles(t *testing.T) {
 	t.Parallel()
 
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		t.Run(string(role), func(t *testing.T) {
 			primary := assignmentTestRoute(t, "scheduled."+string(role), "lane-"+string(role))
 			assignment, err := NewScheduledAssignment(role, false, primary, nil)

@@ -567,6 +567,18 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 
 	scope := validation.ReviewValidationScope{TargetSHA256: job.Target().SHA256(), Role: job.Role(), ProviderInstance: job.Route().ProviderInstance()}
+	if job.Role() == domain.RoleArtist && len(material.CapturedArchive) > 0 {
+		if captured, archiveErr := ports.UnmarshalCapturedReviewMaterial(material.CapturedArchive); archiveErr == nil {
+			scope.ArtistInputsConfigured = true
+			scope.ArtistInputsReady = bytes.Contains(captured.ProjectContext(), []byte(`"status":"ready"`))
+			scope.VisualAssets = make(map[string]string)
+			for _, file := range captured.Snapshot().Files() {
+				if !file.IsText() {
+					scope.VisualAssets[file.Path().String()] = file.SHA256()
+				}
+			}
+		}
+	}
 	if job.Purpose() == domain.InvocationInitial {
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))

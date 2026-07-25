@@ -4375,7 +4375,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "kar-review-artifact.v2" {
+	if err != nil || schema != "kar-review-artifact.v3" {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")

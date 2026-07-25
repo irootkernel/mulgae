@@ -25,14 +25,14 @@ G010 is `IMPLEMENTATION_IN_PROGRESS`. Production closure requires the exact Conf
 | Driver | G0 provider-family adapter: exactly `kimi`, `zcode`, or `agy` |
 | Provider instance | Local executable plus account/profile, adapter options, approved limits, and concurrency key |
 | Lane | Serial work queue for one normalized `concurrency_key` |
-| Role task | Required or selected work for one of the six fixed functional roles |
+| Role task | Required or selected work for one of six core roles plus the UI-only artist role |
 | Attempt | One logical primary or fallback provider selection for a role task |
 | Invocation | One child-process execution inside an attempt, with purpose `initial` or `repair` |
 
 `codex` and `claude` are rejected: they are not G0 provider families, inventory entries, assignment-fixture candidates, or permitted configuration until a separately approved SOT extension authorizes them. Different provider instances share a lane when their normalized concurrency keys are equal.
 
-Each family is materialized as six fixed role templates over its admitted
-executable identities. A selected route is named exactly `{family}-{role}`;
+Kimi is materialized for the six core roles. ZCode and AGY additionally expose
+the UI-only artist capability. A selected route is named exactly `{family}-{role}`;
 for example, `zcode-logic` and `zcode-testing`. Its provider instance, runtime
 profile ID, credential namespace, and concurrency key use that same value.
 Only configured primary/fallback routes receive namespaces and qualification.

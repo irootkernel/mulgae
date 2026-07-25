@@ -59,7 +59,7 @@
 
 D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. G010 remains `IMPLEMENTATION_IN_PROGRESS` until its final-tree `make test` passes.
 
-The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Historical evidence remains qualification provenance, not current closure. The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs. Production closure remains incomplete pending separately required current evidence. Only `darwin-arm64` is supported; future platforms remain unsupported and release-ineligible.
+The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Historical evidence remains qualification provenance, not current closure. The current SOT oracle is 17 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, and 27 schema/example pairs. Production closure remains incomplete pending separately required current evidence. Only `darwin-arm64` is supported; future platforms remain unsupported and release-ineligible.
 
 
 ## 2. Superseded Draft Decisions

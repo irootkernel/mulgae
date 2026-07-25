@@ -9,26 +9,22 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
 )
 
 type templateDescriptor struct {
-	id     string
-	source string
-	layer  string
-	role   domain.Role
+	id      string
+	source  string
+	layer   string
+	version string
+	role    domain.Role
 }
 
 var rootReviewTemplateDescriptors = [...]templateDescriptor{
-	{id: "sot:prompts/root-review/common.v2.txt", source: "prompts/root-review/common.v2.txt", layer: "builtin:review/common"},
-	{id: "sot:prompts/root-review/run-review.v2.txt", source: "prompts/root-review/run-review.v2.txt", layer: "builtin:run/review"},
-	{id: "sot:prompts/root-review/roles/logic.v2.txt", source: "prompts/root-review/roles/logic.v2.txt", layer: "builtin:roles/logic", role: domain.RoleLogic},
-	{id: "sot:prompts/root-review/roles/security.v2.txt", source: "prompts/root-review/roles/security.v2.txt", layer: "builtin:roles/security", role: domain.RoleSecurity},
-	{id: "sot:prompts/root-review/roles/maintainability.v2.txt", source: "prompts/root-review/roles/maintainability.v2.txt", layer: "builtin:roles/maintainability", role: domain.RoleMaintainability},
-	{id: "sot:prompts/root-review/roles/product.v2.txt", source: "prompts/root-review/roles/product.v2.txt", layer: "builtin:roles/product", role: domain.RoleProduct},
-	{id: "sot:prompts/root-review/roles/documentation.v2.txt", source: "prompts/root-review/roles/documentation.v2.txt", layer: "builtin:roles/documentation", role: domain.RoleDocumentation},
-	{id: "sot:prompts/root-review/roles/testing.v2.txt", source: "prompts/root-review/roles/testing.v2.txt", layer: "builtin:roles/testing", role: domain.RoleTesting},
-	{id: "sot:prompts/root-review/output-provider-review-wire.v2.txt", source: "prompts/root-review/output-provider-review-wire.v2.txt", layer: "builtin:output/provider-review-wire"},
-	{id: "sot:prompts/root-review/repair-provider-review.v2.txt", source: "prompts/root-review/repair-provider-review.v2.txt", layer: "builtin:repair/provider-review"},
+	{id: "sot:prompts/root-review/common.v2.txt", source: "prompts/root-review/common.v2.txt", layer: "builtin:review/common", version: "2"},
+	{id: "sot:prompts/root-review/run-review.v2.txt", source: "prompts/root-review/run-review.v2.txt", layer: "builtin:run/review", version: "2"},
+	{id: "sot:prompts/root-review/output-provider-review-wire.v3.txt", source: "prompts/root-review/output-provider-review-wire.v3.txt", layer: "builtin:output/provider-review-wire", version: "3"},
+	{id: "sot:prompts/root-review/repair-provider-review.v2.txt", source: "prompts/root-review/repair-provider-review.v2.txt", layer: "builtin:repair/provider-review", version: "2"},
 }
 
 // LoadDefaultTemplateSet loads the fixed root-review prompt contract from the
@@ -38,7 +34,7 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 		return review.TemplateSet{}, fmt.Errorf("review templates: nil context or catalog")
 	}
 	var common, run, output, repair prompt.TrustedLayer
-	roles := make(map[domain.Role]prompt.TrustedLayer, 6)
+	roles := make(map[domain.Role]prompt.TrustedLayer, len(domain.FixedRoleOrder()))
 	for _, descriptor := range rootReviewTemplateDescriptors {
 		assetID, err := ports.ParseAssetID(descriptor.id)
 		if err != nil {
@@ -59,7 +55,7 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 				return review.TemplateSet{}, fmt.Errorf("review templates: invalid content for %q", descriptor.id)
 			}
 		}
-		layer, err := prompt.NewTrustedLayer(descriptor.layer, "2", raw)
+		layer, err := prompt.NewTrustedLayer(descriptor.layer, descriptor.version, raw)
 		if err != nil {
 			return review.TemplateSet{}, fmt.Errorf("review templates: layer %q: %w", descriptor.id, err)
 		}
@@ -78,6 +74,34 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 		default:
 			roles[descriptor.role] = layer
 		}
+	}
+	definitions := make([]rolecatalog.Definition, 0, len(domain.FixedRoleOrder()))
+	for _, role := range domain.FixedRoleOrder() {
+		source := "roles/" + string(role) + ".yaml"
+		assetID, err := ports.ParseAssetID("sot:" + source)
+		if err != nil {
+			return review.TemplateSet{}, fmt.Errorf("review templates: role %q asset ID: %w", role, err)
+		}
+		metadata, raw, err := catalog.Read(ctx, assetID)
+		if err != nil {
+			return review.TemplateSet{}, fmt.Errorf("review templates: read role %q: %w", role, err)
+		}
+		if metadata.Source().String() != source || metadata.MediaType() != "application/yaml" {
+			return review.TemplateSet{}, fmt.Errorf("review templates: unexpected role metadata for %q", role)
+		}
+		definition, err := rolecatalog.Parse(raw)
+		if err != nil || definition.ID != string(role) {
+			return review.TemplateSet{}, fmt.Errorf("review templates: invalid role document %q: %w", role, err)
+		}
+		definitions = append(definitions, definition)
+		layer, err := prompt.NewTrustedLayer("builtin:roles/"+string(role), "3", []byte(definition.SystemPrompt))
+		if err != nil {
+			return review.TemplateSet{}, fmt.Errorf("review templates: role layer %q: %w", role, err)
+		}
+		roles[role] = layer
+	}
+	if err := rolecatalog.ValidateCatalog(definitions); err != nil {
+		return review.TemplateSet{}, fmt.Errorf("review templates: role catalog: %w", err)
 	}
 	return review.NewTemplateSet(common, run, output, repair, roles)
 }

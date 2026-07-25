@@ -186,6 +186,9 @@ func newCapturedTargetReader(material ports.CapturedReviewMaterial) (evidence.Im
 		}
 		reader.files[side] = make(map[ports.SafeRelativePath][]byte, len(files))
 		for _, file := range files {
+			if !file.IsText() {
+				continue
+			}
 			reader.files[side][file.Path()] = file.Bytes()
 		}
 	}

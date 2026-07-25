@@ -155,7 +155,7 @@ func TestProbeFixtureLeaseKeepsRoleWorkspacesIndependentWithoutRoleClaims(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		fixture, err := fixtures.Acquire(context.Background(), role)
 		if err != nil {
 			t.Fatal(err)
@@ -164,7 +164,7 @@ func TestProbeFixtureLeaseKeepsRoleWorkspacesIndependentWithoutRoleClaims(t *tes
 			t.Fatalf("role fixture %q contained an unsupported role claim", role)
 		}
 	}
-	if len(factory.requests) != len(domain.FixedRoleOrder()) {
+	if len(factory.requests) != len(domain.CoreRoleOrder()) {
 		t.Fatalf("materialized fixtures = %d", len(factory.requests))
 	}
 }

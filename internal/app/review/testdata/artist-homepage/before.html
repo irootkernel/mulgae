@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northstar</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: #17213a; background: #f5f7fb; font-family: Arial, sans-serif; }
+    header { height: 76px; padding: 0 72px; display: flex; align-items: center; justify-content: space-between; background: white; }
+    .brand { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+    nav { display: flex; gap: 32px; color: #526079; font-size: 15px; }
+    main { min-height: 644px; padding: 92px 96px; display: grid; grid-template-columns: 1fr 420px; gap: 72px; align-items: center; }
+    .eyebrow { color: #4b63d3; font-size: 14px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+    h1 { max-width: 650px; margin: 18px 0; font-size: 60px; line-height: 1.02; letter-spacing: -2.5px; }
+    p { max-width: 610px; margin: 0; color: #59657b; font-size: 20px; line-height: 1.55; }
+    .actions { margin-top: 34px; display: flex; gap: 16px; align-items: center; }
+    .primary-action { width: 168px; height: 52px; border: 0; border-radius: 12px; color: white; background: #4b63d3; font-size: 16px; font-weight: 800; }
+    .secondary-action { color: #33415f; font-size: 16px; font-weight: 700; }
+    .preview { height: 390px; padding: 28px; border-radius: 28px; background: #17213a; box-shadow: 0 24px 60px rgba(23, 33, 58, 0.2); }
+    .preview-card { height: 100%; padding: 30px; border-radius: 18px; background: linear-gradient(145deg, #fff, #e9edff); }
+    .metric { margin-top: 82px; color: #4b63d3; font-size: 72px; font-weight: 900; }
+  </style>
+</head>
+<body>
+  <header><div class="brand">Northstar</div><nav><span>Product</span><span>Stories</span><span>Pricing</span></nav></header>
+  <main>
+    <section>
+      <div class="eyebrow">Design with confidence</div>
+      <h1>Ship polished experiences, together.</h1>
+      <p>Bring product decisions, visual direction, and delivery into one calm workspace your whole team can trust.</p>
+      <div class="actions">
+        <button class="primary-action">Start free</button>
+        <span class="secondary-action">See how it works →</span>
+      </div>
+    </section>
+    <aside class="preview"><div class="preview-card"><strong>Weekly momentum</strong><div class="metric">+38%</div></div></aside>
+  </main>
+</body>
+</html>

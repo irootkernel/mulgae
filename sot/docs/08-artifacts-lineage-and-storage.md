@@ -158,7 +158,7 @@ For G008 child runs, lineage edges are immutable, content-addressed child-to-par
 Schemas:
 
 - [Run manifest v2 schema](../schemas/kar-run-manifest.v2.schema.json)
-- [Final review artifact v2 schema](../schemas/kar-review-artifact.v2.schema.json)
+- [Final review artifact v3 schema](../schemas/kar-review-artifact.v3.schema.json)
 
 ## 7. Final Review Artifact
 A completed successful or policy-valid degraded run has at most one canonical final review file:

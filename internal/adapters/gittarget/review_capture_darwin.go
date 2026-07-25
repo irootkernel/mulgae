@@ -7,10 +7,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -30,51 +32,187 @@ type ReviewTargetAdapter struct {
 	stdin          ports.CapturedStdinStore
 	detector       ports.ReviewInputContentDetector
 	detectorPolicy string
+	artistTaskPath string
+	artistGlobs    []*regexp.Regexp
 }
 
 var _ ports.ReviewTargetCapturer = (*ReviewTargetAdapter)(nil)
 
 // NewReviewTargetCapturer constructs the production review-input capturer.
 func NewReviewTargetCapturer(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector) (*ReviewTargetAdapter, error) {
+	return newReviewTargetCapturer(runner, stdin, detector, "", nil)
+}
+
+// NewReviewTargetCapturerWithArtistInputs enables bounded raster capture for
+// a project explicitly declared as UI. Patterns use slash-separated glob
+// syntax with * and ** wildcards.
+func NewReviewTargetCapturerWithArtistInputs(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector, taskPath string, designSpecGlobs []string) (*ReviewTargetAdapter, error) {
+	if taskPath == "" || len(designSpecGlobs) == 0 {
+		return nil, fmt.Errorf("review target capturer: artist inputs are required")
+	}
+	patterns := make([]*regexp.Regexp, len(designSpecGlobs))
+	for index, pattern := range designSpecGlobs {
+		compiled, err := compileArtistGlob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("review target capturer: artist glob %q: %w", pattern, err)
+		}
+		patterns[index] = compiled
+	}
+	return newReviewTargetCapturer(runner, stdin, detector, taskPath, patterns)
+}
+
+func newReviewTargetCapturer(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector, taskPath string, patterns []*regexp.Regexp) (*ReviewTargetAdapter, error) {
 	identity, ok := detector.(ports.ReviewInputContentDetectorIdentity)
 	if runner == nil || stdin == nil || detector == nil || !ok || !validPolicyIdentity(identity.ReviewInputDetectorIdentity()) {
 		return nil, fmt.Errorf("review target capturer: runner, stdin store, and identified detector are required")
 	}
-	return &ReviewTargetAdapter{runner: runner, stdin: stdin, detector: detector, detectorPolicy: identity.ReviewInputDetectorIdentity()}, nil
+	return &ReviewTargetAdapter{runner: runner, stdin: stdin, detector: detector, detectorPolicy: identity.ReviewInputDetectorIdentity(), artistTaskPath: taskPath, artistGlobs: patterns}, nil
 }
 
 func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, root ports.AnchoredRoot, selector ports.ReviewTargetSelector) (ports.CapturedReviewMaterial, error) {
 	if adapter == nil || adapter.runner == nil || adapter.stdin == nil || adapter.detector == nil || ctx == nil || !root.Valid() || !selector.Valid() {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: invalid input")
 	}
+	var material ports.CapturedReviewMaterial
+	var err error
 	switch selector.Kind() {
 	case ports.ReviewTargetWorkspace:
-		return adapter.captureWorkspace(ctx, root)
+		material, err = adapter.captureWorkspace(ctx, root)
 	case ports.ReviewTargetStage:
-		material, err := adapter.captureStage(ctx, root)
+		material, err = adapter.captureStage(ctx, root)
 		if err != nil {
 			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: stage requires a Git repository with an existing HEAD; use --workspace before the first commit: %w", err)
 		}
-		return material, nil
 	case ports.ReviewTargetDirty:
-		material, err := adapter.captureDirty(ctx, root)
+		material, err = adapter.captureDirty(ctx, root)
 		if err != nil {
 			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: dirty requires a Git repository with an existing HEAD; use --workspace before the first commit: %w", err)
 		}
-		return material, nil
 	case ports.ReviewTargetDiff:
-		material, err := adapter.captureDiff(ctx, root, selector.Value())
+		material, err = adapter.captureDiff(ctx, root, selector.Value())
 		if err != nil {
 			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: diff requires a Git repository and resolvable references: %w", err)
 		}
-		return material, nil
 	case ports.ReviewTargetPatch:
-		return adapter.capturePatch(ctx, root, selector.Value())
+		material, err = adapter.capturePatch(ctx, root, selector.Value())
 	case ports.ReviewTargetStdin:
-		return adapter.captureStdin(ctx, root, selector.Value())
+		material, err = adapter.captureStdin(ctx, root, selector.Value())
 	default:
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: unsupported selector")
 	}
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	return adapter.withArtistContext(material)
+}
+
+type artistAssetManifest struct {
+	Path      string `json:"path"`
+	SHA256    string `json:"sha256"`
+	MediaType string `json:"media_type"`
+}
+
+type artistInputManifest struct {
+	SchemaVersion string                `json:"schema_version"`
+	Status        string                `json:"status"`
+	TaskPath      string                `json:"task_path"`
+	Task          string                `json:"task,omitempty"`
+	VisualAssets  []artistAssetManifest `json:"visual_assets"`
+}
+
+func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedReviewMaterial) (ports.CapturedReviewMaterial, error) {
+	if adapter.artistTaskPath == "" {
+		return material, nil
+	}
+	manifest := artistInputManifest{SchemaVersion: "kar-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistTaskPath, VisualAssets: []artistAssetManifest{}}
+	for _, file := range material.Snapshot().Files() {
+		if file.Path().String() == adapter.artistTaskPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
+			manifest.Task = string(file.Bytes())
+		}
+		if !file.IsText() && adapter.artistMediaType(file.Path().String()) != "" {
+			manifest.VisualAssets = append(manifest.VisualAssets, artistAssetManifest{Path: file.Path().String(), SHA256: file.SHA256(), MediaType: file.MediaType()})
+		}
+	}
+	if manifest.Task != "" && len(manifest.VisualAssets) > 0 {
+		manifest.Status = "ready"
+	} else if manifest.Task != "" || len(manifest.VisualAssets) > 0 {
+		manifest.Status = "incomplete"
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	contextBytes := material.ProjectContext()
+	if len(contextBytes) > 0 {
+		contextBytes = append(contextBytes, '\n')
+	}
+	contextBytes = append(contextBytes, encoded...)
+	return ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(material.Target(), material.Snapshot(), contextBytes, true, material.Evidence())
+}
+
+func (adapter *ReviewTargetAdapter) artistMediaType(path string) string {
+	matched := false
+	for _, pattern := range adapter.artistGlobs {
+		if pattern.MatchString(path) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return ""
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	default:
+		return ""
+	}
+}
+
+func (adapter *ReviewTargetAdapter) newCapturedFile(ctx context.Context, path ports.SafeRelativePath, data []byte) (ports.WorkspaceSnapshotFile, error) {
+	digest := sha256.Sum256(data)
+	identity := "sha256:" + hex.EncodeToString(digest[:])
+	if mediaType := adapter.artistMediaType(path.String()); mediaType != "" {
+		return ports.NewWorkspaceVisualAsset(path, data, identity, mediaType)
+	}
+	if err := adapter.clean(ctx, ports.ReviewInputReference, path.String(), data); err != nil {
+		return ports.WorkspaceSnapshotFile{}, err
+	}
+	return ports.NewWorkspaceSnapshotFile(path, data, identity)
+}
+
+func compileArtistGlob(pattern string) (*regexp.Regexp, error) {
+	var expression strings.Builder
+	expression.WriteByte('^')
+	for index := 0; index < len(pattern); {
+		switch pattern[index] {
+		case '*':
+			if index+1 < len(pattern) && pattern[index+1] == '*' {
+				index += 2
+				if index < len(pattern) && pattern[index] == '/' {
+					expression.WriteString("(?:.*/)?")
+					index++
+				} else {
+					expression.WriteString(".*")
+				}
+			} else {
+				expression.WriteString("[^/]*")
+				index++
+			}
+		case '?':
+			expression.WriteString("[^/]")
+			index++
+		default:
+			expression.WriteString(regexp.QuoteMeta(pattern[index : index+1]))
+			index++
+		}
+	}
+	expression.WriteByte('$')
+	return regexp.Compile(expression.String())
 }
 
 func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.AnchoredRoot, value string) (ports.CapturedReviewMaterial, error) {
@@ -414,13 +552,9 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 		if int64(len(blob.Stdout)) > ports.WorkspaceSnapshotMaxFileBytes {
 			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .karignore", split[1])
 		}
-		if err := adapter.clean(ctx, ports.ReviewInputReference, path.String(), blob.Stdout); err != nil {
-			return nil, fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", split[1], err)
-		}
-		digest := sha256.Sum256(blob.Stdout)
-		file, err := ports.NewWorkspaceSnapshotFile(path, blob.Stdout, "sha256:"+hex.EncodeToString(digest[:]))
+		file, err := adapter.newCapturedFile(ctx, path, blob.Stdout)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", split[1], err)
 		}
 		files = append(files, file)
 	}
@@ -678,21 +812,21 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		if !selected {
 			return nil
 		}
-		bytes, err := readStableRegular(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
+		read := readStableRegular
+		if adapter.artistMediaType(relative) != "" {
+			read = readStableRegularBinary
+		}
+		bytes, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
 			return fmt.Errorf("captured path %q: %w; add it to .karignore", relative, err)
-		}
-		if err := adapter.clean(ctx, ports.ReviewInputReference, relative, bytes); err != nil {
-			return fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", relative, err)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil {
 			return err
 		}
-		digest := sha256.Sum256(bytes)
-		file, err := ports.NewWorkspaceSnapshotFile(path, bytes, "sha256:"+hex.EncodeToString(digest[:]))
+		file, err := adapter.newCapturedFile(ctx, path, bytes)
 		if err != nil {
-			return err
+			return fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", relative, err)
 		}
 		files = append(files, file)
 		return nil
@@ -725,6 +859,14 @@ func validateCapturedPathSet(sets ...map[string]bool) error {
 // opened descriptor pinned while reading, then repeats the descriptor walk to
 // reject replacement races.
 func readStableRegular(root, relative string, limit int) ([]byte, error) {
+	return readStableRegularMode(root, relative, limit, true)
+}
+
+func readStableRegularBinary(root, relative string, limit int) ([]byte, error) {
+	return readStableRegularMode(root, relative, limit, false)
+}
+
+func readStableRegularMode(root, relative string, limit int, requireText bool) ([]byte, error) {
 	path, err := ports.NewSafeRelativePath(relative)
 	if err != nil || reservedReviewPath(relative) || !utf8.ValidString(relative) || norm.NFC.String(relative) != relative || limit <= 0 {
 		return nil, fmt.Errorf("invalid capture path")
@@ -758,7 +900,7 @@ func readStableRegular(root, relative string, limit int) ([]byte, error) {
 	if statErr != nil || !sameStableFile(before, afterPath) {
 		return nil, fmt.Errorf("capture path changed while reading")
 	}
-	if len(data) > limit || !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+	if len(data) > limit || requireText && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
 		return nil, fmt.Errorf("capture file is not bounded UTF-8 text")
 	}
 	return data, nil

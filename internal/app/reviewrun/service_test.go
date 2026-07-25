@@ -104,13 +104,13 @@ func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, role := range []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleDocumentation, domain.RoleTesting} {
+	for _, role := range domain.FixedRoleOrder() {
 		layer, ok := templates.RoleTemplate(role)
-		if !ok || layer.ID() != "builtin:roles/"+string(role) || layer.Version() != "2" {
+		if !ok || layer.ID() != "builtin:roles/"+string(role) || layer.Version() != "3" {
 			t.Fatalf("template for %s = %#v, present=%t", role, layer, ok)
 		}
 	}
-	if templates.Common().Version() != "2" || templates.ReviewRun().Version() != "2" || templates.JSONOutput().Version() != "2" || templates.Repair().Version() != "2" {
+	if templates.Common().Version() != "2" || templates.ReviewRun().Version() != "2" || templates.JSONOutput().Version() != "3" || templates.Repair().Version() != "2" {
 		t.Fatal("default template versions are not explicit")
 	}
 }

@@ -28,6 +28,7 @@ All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 
 | `kar-provider-review-output.v2` | `../examples/provider-review-output.v2.valid.json` | KAR-normalized review/delta/rerun provider result | KAR validation pipeline |
 | `kar-provider-review-wire.v2` | `../examples/provider-review-wire.v2.valid.json` | Provider root-review wire | KAR normalization and validation |
 | `kar-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` | KAR publisher | CLI, CI, reporting, and external consumers |
+| `kar-review-artifact.v3` | `../examples/review-artifact.v3.valid.json` | KAR publisher | CLI, CI, reporting, and external consumers; verified visual evidence |
 | `kar-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` | KAR artifact store | CLI, recovery, integrity, and publication validation |
 | `kar-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` | KAR validator | G0 receipts, diagnostics, and tests |
 | `kar-validation-result.v2` | `../examples/validation-result.v2.valid.json` | KAR validator | Artifacts, diagnostics, and tests |

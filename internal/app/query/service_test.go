@@ -788,7 +788,7 @@ func TestReadCommittedRejectsArtifactAndSchemaCorruption(t *testing.T) {
 			validator.err = errors.New("schema rejected")
 		},
 		"semantic final mismatch": func(store *queryStore, _ *queryValidator) {
-			badFinalBytes := []byte(`{"schema_version":"kar-review-artifact.v2"}`)
+			badFinalBytes := []byte(`{"schema_version":"kar-review-artifact.v3"}`)
 			identity := snapshot.Final().Identity()
 			badIdentity, err := ports.NewFinalReviewIdentity(identity.ReviewID(), identity.Path(), querySHA(badFinalBytes))
 			if err != nil {
@@ -2472,7 +2472,7 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		t.Fatal(err)
 	}
 	finalBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
 		"kar":{"version":"0.1.0","commit":null},
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},

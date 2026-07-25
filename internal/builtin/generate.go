@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
 )
 
 const (
@@ -68,6 +70,12 @@ func generate() error {
 	if err != nil {
 		return err
 	}
+	roleFiles, err := readRoleDocuments(filepath.Join(repositoryRoot, "roles"))
+	if err != nil {
+		return err
+	}
+	files = append(files, roleFiles...)
+	sort.Slice(files, func(left, right int) bool { return files[left].source < files[right].source })
 	assets, err := buildManifestAssets(files)
 	if err != nil {
 		return err
@@ -119,10 +127,46 @@ func generateChecksums(sotRoot string) error {
 		sum := sha256.Sum256(file.bytes)
 		lines = append(lines, hex.EncodeToString(sum[:])+"  "+file.source+"\n")
 	}
-	if len(lines) != 84 {
-		return fmt.Errorf("generate checksums: payload count = %d, want 84", len(lines))
+	if len(lines) == 0 {
+		return fmt.Errorf("generate checksums: no SOT payloads")
 	}
 	return writeFileAtomically(filepath.Join(sotRoot, "CHECKSUMS.sha256"), []byte(strings.Join(lines, "")), 0o644)
+}
+
+func readRoleDocuments(root string) ([]sourceFile, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read role catalog: %w", err)
+	}
+	files := make([]sourceFile, 0, len(entries))
+	definitions := make([]rolecatalog.Definition, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			return nil, fmt.Errorf("role catalog contains unsupported entry %q", entry.Name())
+		}
+		filename := filepath.Join(root, entry.Name())
+		info, err := os.Lstat(filename)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("role catalog entry %q is not a regular file", entry.Name())
+		}
+		contents, err := os.ReadFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("read role catalog entry %q: %w", entry.Name(), err)
+		}
+		definition, err := rolecatalog.Parse(contents)
+		if err != nil {
+			return nil, fmt.Errorf("parse role catalog entry %q: %w", entry.Name(), err)
+		}
+		if entry.Name() != definition.ID+".yaml" {
+			return nil, fmt.Errorf("role catalog filename %q does not match role %q", entry.Name(), definition.ID)
+		}
+		definitions = append(definitions, definition)
+		files = append(files, sourceFile{source: "roles/" + entry.Name(), bytes: contents})
+	}
+	if err := rolecatalog.ValidateCatalog(definitions); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func updateEmbeddedArchiveDigest(filename, digest string) error {

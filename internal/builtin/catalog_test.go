@@ -17,6 +17,7 @@ import (
 )
 
 const testSOTRoot = "../../sot"
+const testRolesRoot = "../../roles"
 
 func TestCatalogFailsClosedAfterInitializationError(t *testing.T) {
 	t.Parallel()
@@ -115,8 +116,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 97 {
-		t.Fatalf("manifest asset count = %d, want 97", len(manifest.Assets))
+	if len(manifest.Assets) != 105 {
+		t.Fatalf("manifest asset count = %d, want 105", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -187,8 +188,17 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 85 {
-		t.Fatalf("authoritative SOT source count = %d, want 85", len(authoritativeSources))
+	if len(authoritativeSources) != 86 {
+		t.Fatalf("authoritative SOT source count = %d, want 86", len(authoritativeSources))
+	}
+	roleEntries, err := os.ReadDir(testRolesRoot)
+	if err != nil {
+		t.Fatalf("read authoritative roles: %v", err)
+	}
+	for _, entry := range roleEntries {
+		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".yaml") {
+			authoritativeSources["roles/"+entry.Name()] = struct{}{}
+		}
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -201,7 +211,11 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 			t.Errorf("manifest omits authoritative source %q", source)
 			continue
 		}
-		want, err := os.ReadFile(filepath.Join(testSOTRoot, filepath.FromSlash(source)))
+		root, relative := testSOTRoot, source
+		if strings.HasPrefix(source, "roles/") {
+			root, relative = testRolesRoot, strings.TrimPrefix(source, "roles/")
+		}
+		want, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
 		if err != nil {
 			t.Errorf("read authoritative source %q: %v", source, err)
 			continue
@@ -422,19 +436,22 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "schemas/kar-provider-followup-output.v2.schema.json", "examples/provider-followup-output.v2.valid.json"},
 		{"urn:kar:schema:provider-review-output:v1", "schemas/kar-provider-review-output.v1.schema.json", "examples/provider-review-output.valid.json"},
 		{"https://kar.local/schemas/kar-provider-review-output.v2.schema.json", "schemas/kar-provider-review-output.v2.schema.json", "examples/provider-review-output.v2.valid.json"},
+		{"https://kar.local/schemas/kar-provider-review-output.v3.schema.json", "schemas/kar-provider-review-output.v3.schema.json", "examples/provider-review-output.v3.valid.json"},
 		{"https://kar.local/schemas/kar-provider-review-wire.v2.schema.json", "schemas/kar-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v2.valid.json"},
+		{"https://kar.local/schemas/kar-provider-review-wire.v3.schema.json", "schemas/kar-provider-review-wire.v3.schema.json", "examples/provider-review-wire.v3.valid.json"},
 		{"urn:kar:schema:repair-patch:v1", "schemas/kar-repair-patch.v1.schema.json", "examples/repair-patch.json"},
 		{"urn:kar:schema:repair-request:v1", "schemas/kar-repair-request.v1.schema.json", "examples/repair-request.json"},
 		{"urn:kar:schema:review-artifact:v1", "schemas/kar-review-artifact.v1.schema.json", "examples/review-artifact.valid.json"},
 		{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", "schemas/kar-review-artifact.v2.schema.json", "examples/review-artifact.v2.valid.json"},
+		{"https://kar.local/schemas/kar-review-artifact.v3.schema.json", "schemas/kar-review-artifact.v3.schema.json", "examples/review-artifact.v3.valid.json"},
 		{"urn:kar:schema:run-manifest:v1", "schemas/kar-run-manifest.v1.schema.json", "examples/run-manifest.valid.json"},
 		{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", "schemas/kar-run-manifest.v2.schema.json", "examples/run-manifest.v2.valid.json"},
 		{"https://kar.local/schemas/kar-validation-receipt.v1.schema.json", "schemas/kar-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"urn:kar:schema:validation-result:v1", "schemas/kar-validation-result.v1.schema.json", "examples/validation-result.valid.json"},
 		{"https://kar.local/schemas/kar-validation-result.v2.schema.json", "schemas/kar-validation-result.v2.schema.json", "examples/validation-result.v2.valid.json"},
 	}
-	if len(expected) != 25 {
-		t.Fatalf("test pair inventory contains %d pairs, want 25", len(expected))
+	if len(expected) != 28 {
+		t.Fatalf("test pair inventory contains %d pairs, want 28", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

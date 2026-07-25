@@ -431,7 +431,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 			for _, role := range selected {
 				selectedSet[role] = true
 			}
-			for index, role := range domain.FixedRoleOrder() {
+			for index, role := range domain.CoreRoleOrder() {
 				if got, want := config.Roles.Ordered()[index].Enabled, selectedSet[string(role)]; got != want {
 					t.Errorf("role %s enabled = %t, want %t", role, got, want)
 				}

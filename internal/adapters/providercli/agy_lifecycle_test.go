@@ -23,6 +23,8 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
+const agyLifecycleFixtureTimeout = time.Minute
+
 func TestMain(m *testing.M) {
 	handled, err := processadapter.ExecInheritedDirectory(os.Args)
 	if handled {
@@ -43,7 +45,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	}
 
 	t.Run("strict print output is bounded and drains the complete process group", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "post", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "post", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
 		if err != nil {
@@ -64,7 +66,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 		}
 	})
 	t.Run("TERM-handler trailing bytes fail as artifacts after full drain", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "trailing", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "trailing", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
 		if err != nil {
@@ -83,7 +85,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	})
 
 	t.Run("SIGTERM-resistant process escalates and still succeeds", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "resistant", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "resistant", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
 		if err != nil {
@@ -104,7 +106,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	})
 
 	t.Run("SIGTERM handler exit after stable output still succeeds", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "handled", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "handled", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
 		if err != nil {
@@ -130,9 +132,9 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 		status      ports.ProviderExecutionStatus
 	}{
 		{name: "timeout", mode: "timeout", cap: 256, timeout: 250 * time.Millisecond, termination: ports.ProcessTerminationTimedOut},
-		{name: "cancellation", mode: "timeout", cap: 256, timeout: 20 * time.Second, termination: ports.ProcessTerminationCancelled},
-		{name: "output cap", mode: "oversize", cap: 64, timeout: 20 * time.Second, termination: ports.ProcessTerminationStdoutLimit},
-		{name: "malformed strict output", mode: "malformed", cap: 256, timeout: 20 * time.Second, status: ports.ProviderExecutionStatusArtifactFailure},
+		{name: "cancellation", mode: "timeout", cap: 256, timeout: agyLifecycleFixtureTimeout, termination: ports.ProcessTerminationCancelled},
+		{name: "output cap", mode: "oversize", cap: 64, timeout: agyLifecycleFixtureTimeout, termination: ports.ProcessTerminationStdoutLimit},
+		{name: "malformed strict output", mode: "malformed", cap: 256, timeout: agyLifecycleFixtureTimeout, status: ports.ProviderExecutionStatusArtifactFailure},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h := newAgyLifecycleHarness(t, test.mode, test.cap, test.timeout)
@@ -158,7 +160,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	}
 
 	t.Run("spawn permission drift fails closed", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "valid", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "valid", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		if err := os.Chmod(h.executable, 0600); err != nil {
 			t.Fatal(err)
@@ -169,7 +171,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	})
 
 	t.Run("snapshot drift fails before spawn", func(t *testing.T) {
-		h := newAgyLifecycleHarness(t, "valid", 256, 20*time.Second)
+		h := newAgyLifecycleHarness(t, "valid", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
 		target := filepath.Join(h.workspace.WorkspaceSnapshotIdentity().SnapshotPath(), "roadmap.md")
 		if err := os.Chmod(target, 0600); err != nil {

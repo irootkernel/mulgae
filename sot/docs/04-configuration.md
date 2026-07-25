@@ -35,16 +35,20 @@ and credential fields do not exist. `execution.workspace_access` is required and
 may only be `none` or `readonly_snapshot`; omission is rejected. `kar init`
 explicitly writes `none` into every newly created configuration.
 
-Each fixed role contains `enabled`, `primary_provider`, and, except for a
+Each role contains `enabled`, `primary_provider`, and, except for a
 singleton provider configuration, `fallback_provider`. Both provider values are
 family IDs from the configured nonempty subset. They must differ. Version 1 is
 rejected without migration or compatibility fallback.
 
-The enabled project set contains two to six roles and must include `logic` and
+`project.kind` is `non_ui` when omitted and may be explicitly set to `ui`.
+The enabled project set contains two to seven roles and must include `logic` and
 `security`. Disabled roles retain deterministic provider assignments so the
 document shape remains fixed, but they are not qualified, scheduled, budgeted,
 or selected by a default review. Every `review.required_roles` member must be
-enabled. `kar init --roles ...` writes this set; omission enables all six.
+enabled. Non-UI projects use the six core roles. UI projects additionally
+enable `artist`, whose `inputs.task_path` and `inputs.design_spec_globs` select
+one UTF-8 task document and bounded PNG/JPEG/WebP design references. Artist is
+assigned only to AGY then ZCode; Kimi is not an artist-capable fallback.
 
 With all three families, init writes `logic=kimi/zcode`,
 `documentation=agy/zcode`, and
@@ -53,6 +57,10 @@ With all three families, init writes `logic=kimi/zcode`,
 from `kimi,zcode,agy` for logic, `agy,zcode,kimi` for documentation, and
 `zcode,agy,kimi` for the other roles. A singleton uses the sole family as
 primary and has no fallback.
+
+Artist activation is declaration-only: filenames and framework detection never
+turn it on. Missing task or visual input is represented as incomplete artist
+input and cannot produce a verified artist finding.
 
 Parsing is strict: one UTF-8 YAML document, exact keys, no aliases, tags, merges,
 duplicates, nulls, placeholders, controls, or unknown fields. Canonical output

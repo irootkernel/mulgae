@@ -322,7 +322,7 @@ func TestPublicationStoreRejectsStagedFinalIdentitySubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q}`,
+	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`,
 		fixture.run.SessionID().String(), fixture.run.RunID().String(), otherReviewID.String()))
 	substitutedFinal, err := ports.NewFinalReviewIdentity(
 		fixture.final.Identity().ReviewID(),
@@ -1767,7 +1767,7 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 	}
 	prefix := session.String() + "/" + runID.String()
 	finalPath := mustRelativePath(t, prefix+"/review_"+reviewID.String()+".json")
-	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v2","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
+	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
 	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, publicationSHA256(finalBytes))
 	if err != nil {
 		t.Fatal(err)

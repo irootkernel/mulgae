@@ -32,7 +32,7 @@ A reader treats `review_{uuidv7}.json` as a final machine contract only when the
 
 Schemas:
 
-- [kar-review-artifact.v2.schema.json](../schemas/kar-review-artifact.v2.schema.json)
+- [kar-review-artifact.v3.schema.json](../schemas/kar-review-artifact.v3.schema.json)
 - [kar-run-manifest.v2.schema.json](../schemas/kar-run-manifest.v2.schema.json)
 - [kar-validation-result.v2.schema.json](../schemas/kar-validation-result.v2.schema.json)
 

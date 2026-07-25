@@ -65,9 +65,12 @@ retains security precedence after the three rows are assembled.
 
 The exact init selection grammar is
 `--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`,
-plus optional `--roles ROLE[,ROLE...]`. Omitting `--roles` enables all six roles.
-An explicit project role set is canonicalized to fixed order, contains two to
-six unique roles, and must contain `logic` and `security`.
+plus optional `--roles ROLE[,ROLE...]` and `--project-kind non_ui|ui`.
+Omitting the project kind selects the six core roles. UI init additionally
+enables artist and accepts `--artist-task PATH` and
+`--artist-design-specs GLOB[,GLOB...]`. An explicit project role set is
+canonicalized to fixed order, contains two to seven unique roles, and must
+contain `logic` and `security`; artist is valid only with `project-kind=ui`.
 It accepts each of the seven nonempty family subsets and canonicalizes request,
 result, and configuration order to Kimi, ZCode, AGY. Empty tokens, whitespace,
 unknown or duplicate families, and mixing `auto` with a family are usage
@@ -77,7 +80,7 @@ KAR emits the rejected request
 with `init_selection_invalid` at exit `2`; it does not fabricate accepted
 selection or path fields.
 
-The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v2.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-prompt-manifest.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v3.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-prompt-manifest.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
 `help` is intentionally repository-independent. It renders only embedded documentation, reads no project configuration, and remains available in non-Git and unborn directories without locality attestation.
 For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.kar`, `.git`, `.gjc`, and KAR-owned root configuration names before any publication lookup.
 

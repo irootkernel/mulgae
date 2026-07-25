@@ -25,7 +25,7 @@ const (
 	renderExcerptStage     = "query.render_excerpt"
 	readRuntimeTargetStage = "query.read_runtime_target"
 
-	finalReviewSchemaURI = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	finalReviewSchemaURI = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 	runManifestSchemaURI = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
 )
 
@@ -1118,7 +1118,7 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	if final.SchemaVersion != "kar-review-artifact.v2" || manifest.SchemaVersion != "kar-run-manifest.v2" {
+	if final.SchemaVersion != "kar-review-artifact.v3" || manifest.SchemaVersion != "kar-run-manifest.v2" {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)

@@ -42,6 +42,34 @@ type CurrentEvidenceClaim struct {
 	quote        []byte
 }
 
+// VerifiedVisualReference is an immutable visual-evidence identity verified
+// against the trusted captured design-spec inventory during validation.
+type VerifiedVisualReference struct {
+	path   ports.SafeRelativePath
+	sha256 string
+	x      int
+	y      int
+	width  int
+	height int
+}
+
+func (reference VerifiedVisualReference) Path() ports.SafeRelativePath { return reference.path }
+func (reference VerifiedVisualReference) SHA256() string               { return reference.sha256 }
+func (reference VerifiedVisualReference) X() int                       { return reference.x }
+func (reference VerifiedVisualReference) Y() int                       { return reference.y }
+func (reference VerifiedVisualReference) Width() int                   { return reference.width }
+func (reference VerifiedVisualReference) Height() int                  { return reference.height }
+func (reference VerifiedVisualReference) Verification() string         { return "verified" }
+
+// Valid reports whether the reference retains a complete verified visual
+// identity. A zero value denotes that the corresponding current claim has no
+// visual reference.
+func (reference VerifiedVisualReference) Valid() bool {
+	canonical, err := canonicalTargetSHA256(reference.sha256)
+	return err == nil && canonical == reference.sha256 && reference.path.Valid() &&
+		reference.x >= 0 && reference.y >= 0 && reference.width > 0 && reference.height > 0
+}
+
 // TargetSHA256 returns the canonical sha256:<lowercase-hex> trusted target ID.
 func (claim CurrentEvidenceClaim) TargetSHA256() string { return claim.targetSHA256 }
 
@@ -106,6 +134,7 @@ type FindingEvidenceClaims struct {
 	targetSHA256 string
 	finding      domain.Finding
 	claims       []CurrentEvidenceClaim
+	visuals      []VerifiedVisualReference
 }
 
 // FindingID returns the final system-assigned finding ID.
@@ -126,13 +155,21 @@ func (claims FindingEvidenceClaims) Claims() []CurrentEvidenceClaim {
 	return cloneCurrentEvidenceClaims(claims.claims)
 }
 
+// VisualReferences returns visual references aligned with Claims. A zero
+// value means that the corresponding current claim has no visual reference.
+func (claims FindingEvidenceClaims) VisualReferences() []VerifiedVisualReference {
+	return append([]VerifiedVisualReference(nil), claims.visuals...)
+}
+
 func (claims FindingEvidenceClaims) clone() FindingEvidenceClaims {
 	claims.claims = cloneCurrentEvidenceClaims(claims.claims)
+	claims.visuals = append([]VerifiedVisualReference(nil), claims.visuals...)
 	return claims
 }
 func newFindingEvidenceClaims(
 	finding domain.Finding,
 	claims []CurrentEvidenceClaim,
+	visuals []VerifiedVisualReference,
 	trustedTargetSHA256 string,
 ) (FindingEvidenceClaims, error) {
 	result := FindingEvidenceClaims{
@@ -140,6 +177,7 @@ func newFindingEvidenceClaims(
 		targetSHA256: trustedTargetSHA256,
 		finding:      finding,
 		claims:       cloneCurrentEvidenceClaims(claims),
+		visuals:      append([]VerifiedVisualReference(nil), visuals...),
 	}
 	if !result.valid() {
 		return FindingEvidenceClaims{}, fmt.Errorf("finding evidence proof, ID, and claims disagree")
@@ -154,7 +192,7 @@ func (claims FindingEvidenceClaims) valid() bool {
 		claims.finding.Lifecycle() != domain.FindingOpen ||
 		claims.finding.EvidenceState() != domain.EvidenceUnverified ||
 		claims.finding.Validate() != nil ||
-		len(claims.claims) == 0 {
+		len(claims.claims) == 0 || len(claims.visuals) != len(claims.claims) {
 		return false
 	}
 
@@ -167,6 +205,9 @@ func (claims FindingEvidenceClaims) valid() bool {
 			return false
 		}
 		regionParts[index] = evidenceKey(claim)
+		if visual := claims.visuals[index]; visual != (VerifiedVisualReference{}) && !visual.Valid() {
+			return false
+		}
 	}
 
 	reconstructed, err := domain.NewFinding(domain.FindingInput{

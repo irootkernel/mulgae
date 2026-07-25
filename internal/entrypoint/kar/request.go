@@ -262,6 +262,10 @@ type InitRequest struct {
 	projectName         string
 	contextPath         string
 	hasContextPath      bool
+	projectKind         string
+	hasProjectKind      bool
+	artistTaskPath      string
+	artistDesignGlobs   []string
 	selectionMode       string
 	providerIDs         []string
 	roleIDs             []string
@@ -285,6 +289,14 @@ func (request InitRequest) ProjectName() string { return request.projectName }
 // ContextPath returns the optional safe relative context path.
 func (request InitRequest) ContextPath() (string, bool) {
 	return request.contextPath, request.hasContextPath
+}
+
+func (request InitRequest) ProjectKind() (string, bool) {
+	return request.projectKind, request.hasProjectKind
+}
+
+func (request InitRequest) ArtistInputs() (string, []string) {
+	return request.artistTaskPath, cloneStrings(request.artistDesignGlobs)
 }
 
 func (request InitRequest) Selection() (string, []string) {

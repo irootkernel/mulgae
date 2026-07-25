@@ -354,6 +354,7 @@ func parseHelp(arguments []string, requestID string) (Invocation, error) {
 func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true, "--name": true, "--context": true, "--providers": true, "--roles": true,
+		"--project-kind": true, "--artist-task": true, "--artist-design-specs": true,
 		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
 		"--zcode-node-executable": true, "--zcode-launcher": true,
 		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
@@ -377,9 +378,11 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 
 	request := InitRequest{
-		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: fixedRoleNames(),
+		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: coreRoleNames(),
 	}
+	rolesExplicit := false
 	if rolesValue, present := options["--roles"]; present {
+		rolesExplicit = true
 		request.roleIDs, err = parseCanonicalRolesCSV(rolesValue)
 		if err != nil {
 			return Invocation{}, err
@@ -387,6 +390,40 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		if !containsString(request.roleIDs, "logic") || !containsString(request.roleIDs, "security") {
 			return Invocation{}, usageError("project roles require logic and security")
 		}
+	}
+	if value, present := options["--project-kind"]; present {
+		if value != "ui" && value != "non_ui" {
+			return Invocation{}, usageError("project kind must be ui or non_ui")
+		}
+		request.projectKind, request.hasProjectKind = value, true
+	}
+	if value, present := options["--artist-task"]; present {
+		if !validRelativePath(value) {
+			return Invocation{}, usageError("artist task path is not safe")
+		}
+		request.artistTaskPath = value
+	}
+	if value, present := options["--artist-design-specs"]; present {
+		request.artistDesignGlobs = strings.Split(value, ",")
+		if len(request.artistDesignGlobs) == 0 || len(request.artistDesignGlobs) > 16 {
+			return Invocation{}, usageError("artist design spec list is invalid")
+		}
+		for _, pattern := range request.artistDesignGlobs {
+			if !validArtistGlob(pattern) {
+				return Invocation{}, usageError("artist design spec glob is not safe")
+			}
+		}
+	}
+	ui := request.hasProjectKind && request.projectKind == "ui"
+	if ui {
+		if rolesExplicit && !containsString(request.roleIDs, "artist") {
+			return Invocation{}, usageError("UI project roles require artist")
+		}
+		if !containsString(request.roleIDs, "artist") {
+			request.roleIDs = append(request.roleIDs, "artist")
+		}
+	} else if containsString(request.roleIDs, "artist") || request.artistTaskPath != "" || len(request.artistDesignGlobs) != 0 {
+		return Invocation{}, usageError("artist requires an explicitly declared UI project")
 	}
 	if value, present := options["--context"]; present {
 		if !validRelativePath(value) {
@@ -460,13 +497,16 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		ProjectRoot  string        `json:"project_root"`
 		ProjectName  string        `json:"project_name"`
 		Context      *string       `json:"context"`
+		ProjectKind  *string       `json:"project_kind,omitempty"`
+		ArtistTask   *string       `json:"artist_task,omitempty"`
+		ArtistDesign []string      `json:"artist_design_specs,omitempty"`
 		Selection    selectionJSON `json:"selection"`
 		Roles        []string      `json:"roles"`
 		Overrides    overridesJSON `json:"overrides"`
 		Overwrite    bool          `json:"overwrite"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistTask: optionalString(request.artistTaskPath, request.artistTaskPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -607,7 +647,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		}
 		request.rolesExplicit = true
 	} else {
-		request.roles = fixedRoleNames()
+		request.roles = coreRoleNames()
 	}
 	if sessionID, present := options["--session"]; present {
 		session, parseErr := domain.ParseSessionID(sessionID)
@@ -1245,7 +1285,7 @@ func parseDelta(arguments []string, requestID string) (Invocation, error) {
 	if !present {
 		return Invocation{}, usageError("delta requires --roles")
 	}
-	roles, err := parseRolesCSV(rolesValue)
+	roles, err := parseCanonicalRolesCSV(rolesValue)
 	if err != nil {
 		return Invocation{}, err
 	}
@@ -1448,8 +1488,8 @@ func parseRolesCSV(value string) ([]string, error) {
 		return nil, usageError("role list is malformed")
 	}
 	roles := strings.Split(value, ",")
-	if len(roles) > 6 {
-		return nil, usageError("role list exceeds six roles")
+	if len(roles) > len(domain.FixedRoleOrder()) {
+		return nil, usageError("role list exceeds supported roles")
 	}
 	seen := make(map[string]struct{}, len(roles))
 	for _, role := range roles {
@@ -1470,6 +1510,27 @@ func fixedRoleNames() []string {
 		roles[index] = string(role)
 	}
 	return roles
+}
+
+func coreRoleNames() []string {
+	fixedRoles := domain.CoreRoleOrder()
+	roles := make([]string, len(fixedRoles))
+	for index, role := range fixedRoles {
+		roles[index] = string(role)
+	}
+	return roles
+}
+
+func validArtistGlob(value string) bool {
+	if !validRelativePath(value) || strings.ContainsAny(value, "[]{}!\\") {
+		return false
+	}
+	switch strings.ToLower(path.Ext(value)) {
+	case ".png", ".jpg", ".jpeg", ".webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseCanonicalRolesCSV(value string) ([]string, error) {

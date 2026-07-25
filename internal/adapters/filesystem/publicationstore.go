@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v2.schema.json"
+	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 	runManifestSchemaAsset = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
 )
 

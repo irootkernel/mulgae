@@ -1,12 +1,15 @@
 package reviewrun
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 )
 
 // ProductionPromptSource is the shared current-template prompt authority for
@@ -80,7 +83,7 @@ func (source *promptSource) Prompt(ctx context.Context, job review.InvocationJob
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	compileInput := compileInputForReview(scope, source.input)
+	compileInput := compileInputForReview(scope, source.input, job.Role())
 	if repair != nil {
 		prior := prompt.NewPayload(repair.InitialCandidate())
 		compileInput.PriorProviderOutput = &prior
@@ -133,6 +136,7 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 	sourcePayload := prompt.NewPayload(material.SourceTarget)
 	deltaPayload := prompt.NewPayload(material.Delta)
 	input := prompt.CompileInput{Scope: scope, ProjectContext: &sourcePayload, ReviewTarget: prompt.NewPayload(material.CurrentTarget), PriorReport: &deltaPayload}
+	applyArtistPromptInputs(&input, source.input, job.Role())
 	if repair != nil {
 		prior := prompt.NewPayload(repair.InitialCandidate())
 		input.PriorProviderOutput = &prior
@@ -179,11 +183,46 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 	}
 	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: input.AdapterProfile, AdapterParameters: input.AdapterParameters}, nil
 }
-func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput) prompt.CompileInput {
+func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput, role domain.Role) prompt.CompileInput {
 	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(input.Target().Bytes())}
 	if input.HasProjectContext() {
 		project := prompt.NewPayload(input.ProjectContext())
 		compileInput.ProjectContext = &project
 	}
+	applyArtistPromptInputs(&compileInput, input, role)
 	return compileInput
+}
+
+type artistPromptManifest struct {
+	SchemaVersion string          `json:"schema_version"`
+	Status        string          `json:"status"`
+	TaskPath      string          `json:"task_path"`
+	Task          string          `json:"task"`
+	VisualAssets  json.RawMessage `json:"visual_assets"`
+}
+
+func applyArtistPromptInputs(compileInput *prompt.CompileInput, input ImmutableReviewInput, role domain.Role) {
+	if compileInput == nil || role != domain.RoleArtist || !input.HasProjectContext() {
+		return
+	}
+	raw := input.ProjectContext()
+	if index := bytes.LastIndexByte(raw, '\n'); index >= 0 {
+		raw = raw[index+1:]
+	}
+	var manifest artistPromptManifest
+	if json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != "kar-artist-inputs.v1" {
+		return
+	}
+	task := prompt.NewPayload([]byte(manifest.Task))
+	compileInput.TaskRequirements = &task
+	visual, err := json.Marshal(struct {
+		SchemaVersion string          `json:"schema_version"`
+		Status        string          `json:"status"`
+		TaskPath      string          `json:"task_path"`
+		VisualAssets  json.RawMessage `json:"visual_assets"`
+	}{manifest.SchemaVersion, manifest.Status, manifest.TaskPath, manifest.VisualAssets})
+	if err == nil {
+		payload := prompt.NewPayload(visual)
+		compileInput.VisualAssetsManifest = &payload
+	}
 }

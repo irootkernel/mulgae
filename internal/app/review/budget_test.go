@@ -15,8 +15,8 @@ func TestPreflightRunBudgetExactOutputBoundaryAndCapOneOver(t *testing.T) {
 
 	const mib = int64(1 << 20)
 	ceilings := budgetTestCeilings(t, time.Second, 11*mib-1, 1, 64*mib, 2*time.Minute, 3*time.Minute, 4, 24)
-	roles := make([]RoleBudget, 0, len(domain.FixedRoleOrder()))
-	for index, role := range domain.FixedRoleOrder() {
+	roles := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
+	for index, role := range domain.CoreRoleOrder() {
 		outputCap := mib
 		if index == 0 {
 			outputCap = 11 * mib
@@ -240,7 +240,7 @@ func TestPreflightRunBudgetCanonicalizesShuffledInputs(t *testing.T) {
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("canonical receipts differ\nordered: %#v\nshuffled: %#v", first, second)
 	}
-	for index, role := range domain.FixedRoleOrder() {
+	for index, role := range domain.CoreRoleOrder() {
 		if got := first.RoleBudgets()[index].Role(); got != role {
 			t.Fatalf("canonical role %d = %q, want %q", index, got, role)
 		}
@@ -339,7 +339,7 @@ func TestDefaultHarnessCeilingsAreClosedAndValid(t *testing.T) {
 		t.Fatal("DefaultHarnessCeilings() returned invalid ceilings")
 	}
 	if ceilings.MaxInvocationsPerRole() != 4 ||
-		ceilings.MaxInvocationsPerRun() != 24 ||
+		ceilings.MaxInvocationsPerRun() != 28 ||
 		ceilings.MaxTimeout() != 6*time.Minute ||
 		ceilings.MaxTotalOutput() != 64<<20 ||
 		ceilings.MaxRunDeadline() != 50*time.Minute {
@@ -482,8 +482,8 @@ func budgetTestCompleteRoles(
 	primaryLane, fallbackLane func(int) string,
 ) []RoleBudget {
 	t.Helper()
-	roles := make([]RoleBudget, 0, len(domain.FixedRoleOrder()))
-	for index, role := range domain.FixedRoleOrder() {
+	roles := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
+	for index, role := range domain.CoreRoleOrder() {
 		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), primaryLane(index), primaryLimits)
 		fallback := budgetTestRoute(t, fmt.Sprintf("fallback-%d", index), fallbackLane(index), fallbackLimits)
 		roles = append(roles, budgetTestRole(t, role, primary, &fallback))

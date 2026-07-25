@@ -4,6 +4,7 @@ package gittarget
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -15,6 +16,51 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	if err := os.MkdirAll(filepath.Join(root, "design-specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "TASK.md"), "Match the primary action layout.\n")
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "home.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	anchored, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewReviewTargetCapturerWithArtistInputs(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector(), "TASK.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := adapter.artistMediaType("design-specs/home.png"); got != "image/png" {
+		t.Fatalf("artist glob did not match: %q", got)
+	}
+	material, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundVisual := false
+	for _, file := range material.Snapshot().Files() {
+		foundVisual = foundVisual || file.Path().String() == "design-specs/home.png" && file.MediaType() == "image/png" && !file.IsText()
+	}
+	if !foundVisual || !strings.Contains(string(material.ProjectContext()), `"status":"ready"`) {
+		t.Fatalf("UI inputs were not captured: visual=%t context=%s", foundVisual, material.ProjectContext())
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	if err != nil || !restored.Valid() {
+		t.Fatalf("visual archive did not round-trip: %v", err)
+	}
+}
 
 type oneShotStdin struct {
 	bytes []byte

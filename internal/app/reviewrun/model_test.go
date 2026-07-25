@@ -238,7 +238,7 @@ func TestPromptCompilerProjectContextFramePresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			compiled, err := compiler.Compile(compileInputForReview(scope, input))
+			compiled, err := compiler.Compile(compileInputForReview(scope, input, domain.RoleLogic))
 			if err != nil {
 				t.Fatal(err)
 			}

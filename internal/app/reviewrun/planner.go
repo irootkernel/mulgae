@@ -111,6 +111,9 @@ func NewRoleProviderAssignment(role domain.Role, primary, fallback Family) (Role
 	if !role.Valid() || !primary.Valid() || (fallback != "" && (!fallback.Valid() || fallback == primary)) {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
 	}
+	if role == domain.RoleArtist && (primary == FamilyKimi || fallback == FamilyKimi) {
+		return RoleProviderAssignment{}, fmt.Errorf("review run: artist requires agy or zcode")
+	}
 	return RoleProviderAssignment{role: role, primary: primary, fallback: fallback}, nil
 }
 

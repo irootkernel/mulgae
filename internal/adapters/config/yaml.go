@@ -36,7 +36,7 @@ var (
 		"password": {}, "passwd": {}, "private_key": {}, "refresh_token": {},
 		"secret": {}, "secret_key": {}, "session_cookie": {}, "session_token": {}, "token": {},
 	}
-	fixedRoles      = []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	fixedRoles      = []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	fixedSeverities = []string{"info", "low", "medium", "high", "critical", "blocker"}
 )
 
@@ -331,6 +331,12 @@ func validate(config *Config) error {
 	if config.Project.Context != "" && !safeContext(config.Project.Context) {
 		return fmt.Errorf("project context")
 	}
+	if config.Project.Kind == "" {
+		config.Project.Kind = ProjectKindNonUI
+	}
+	if config.Project.Kind != ProjectKindNonUI && config.Project.Kind != ProjectKindUI {
+		return fmt.Errorf("project kind")
+	}
 	if !canonicalAbsolute(config.NativeUser.Home) {
 		return fmt.Errorf("native home")
 	}
@@ -373,14 +379,31 @@ func validate(config *Config) error {
 	}
 	configuredRoles := config.Roles.Ordered()
 	enabledRoleCount := 0
-	for _, role := range configuredRoles {
+	for index, role := range configuredRoles {
+		if index == len(configuredRoles)-1 {
+			if err := validateArtistRole(config, role); err != nil {
+				return err
+			}
+			if !role.Enabled {
+				continue
+			}
+		}
 		if !config.Providers.HasFamily(role.PrimaryProvider) {
 			return fmt.Errorf("role")
 		}
 		if role.Enabled {
 			enabledRoleCount++
 		}
-		if config.Providers.Count() == 1 {
+		providerCount := config.Providers.Count()
+		if index == len(configuredRoles)-1 {
+			providerCount = 0
+			for _, family := range []string{"agy", "zcode"} {
+				if config.Providers.HasFamily(family) {
+					providerCount++
+				}
+			}
+		}
+		if providerCount == 1 {
 			if role.FallbackProvider != "" {
 				return fmt.Errorf("role fallback")
 			}
@@ -415,13 +438,47 @@ func validate(config *Config) error {
 	if config.Providers.Count() >= 2 {
 		roleCost += 1 + config.Resources.FallbackRepairAttempts
 	}
-	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 24 {
+	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 28 {
 		return fmt.Errorf("budgets")
 	}
 	if _, err := parseByteSize(config.Resources.RunTotalOutputCap); err != nil {
 		return err
 	}
 	return nil
+}
+
+func validateArtistRole(config *Config, role RoleConfig) error {
+	if config.Project.Kind == ProjectKindNonUI {
+		if role.Enabled || role.PrimaryProvider != "" || role.FallbackProvider != "" || role.Inputs != nil {
+			return fmt.Errorf("artist is only valid for UI projects")
+		}
+		return nil
+	}
+	if !role.Enabled || (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.FallbackProvider == "kimi" || role.Inputs == nil {
+		return fmt.Errorf("UI project artist role")
+	}
+	if !safeContext(role.Inputs.TaskPath) || len(role.Inputs.DesignSpecGlobs) == 0 || len(role.Inputs.DesignSpecGlobs) > 16 {
+		return fmt.Errorf("artist inputs")
+	}
+	seen := make(map[string]struct{}, len(role.Inputs.DesignSpecGlobs))
+	for _, pattern := range role.Inputs.DesignSpecGlobs {
+		if !safeArtistGlob(pattern) {
+			return fmt.Errorf("artist glob")
+		}
+		if _, duplicate := seen[pattern]; duplicate {
+			return fmt.Errorf("artist glob duplicate")
+		}
+		seen[pattern] = struct{}{}
+	}
+	return nil
+}
+
+func safeArtistGlob(value string) bool {
+	if !safeContext(value) || len(value) > 4096 || strings.ContainsAny(value, "[]{}!\\") {
+		return false
+	}
+	extension := strings.ToLower(path.Ext(value))
+	return extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".webp"
 }
 
 func visibleRunes(value string) int {
@@ -513,6 +570,9 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	if config.Project.Context != "" {
 		out.WriteString("  context: " + q(config.Project.Context) + "\n")
 	}
+	if config.Project.Kind == ProjectKindUI {
+		out.WriteString("  kind: \"ui\"\n")
+	}
 	out.WriteString("native_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
 	if provider := config.Providers.Kimi; provider != nil {
 		out.WriteString("  kimi:\n    executable: " + q(provider.Executable) + "\n")
@@ -535,6 +595,17 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
 	for index, role := range fixedRoles {
 		configured := config.Roles.Ordered()[index]
+		if role == "artist" && !configured.Enabled {
+			continue
+		}
+		if role == "artist" {
+			out.WriteString("  artist:\n    enabled: true\n    primary_provider: " + q(configured.PrimaryProvider) + "\n")
+			if configured.FallbackProvider != "" {
+				out.WriteString("    fallback_provider: " + q(configured.FallbackProvider) + "\n")
+			}
+			out.WriteString("    inputs:\n      task_path: " + q(configured.Inputs.TaskPath) + "\n      design_spec_globs: " + quotedList(configured.Inputs.DesignSpecGlobs) + "\n")
+			continue
+		}
 		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider))
 		if configured.FallbackProvider != "" {
 			out.WriteString(", fallback_provider: " + q(configured.FallbackProvider))

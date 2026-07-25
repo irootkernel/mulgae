@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -603,6 +604,8 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
 	contextPath, _ := request.ContextPath()
+	projectKind, _ := request.ProjectKind()
+	artistTaskPath, artistDesignGlobs := request.ArtistInputs()
 	installer, ok := application.writer.(ports.ConfigInstaller)
 	if !ok {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_installer_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
@@ -610,6 +613,11 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
 	if !ok {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_attestor_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
+	}
+	if _, statErr := os.Lstat(filepath.Join(root.String(), ".git")); os.IsNotExist(statErr) {
+		attestor = adapterconfig.NewFilesystemLocalityAttestor()
+	} else if statErr != nil {
+		return initObservedFailure(invocation, appinit.Selection{}, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, "config_locality_unsafe", "The project-local KAR configuration failed locality admission.", false)
 	}
 	mode, providerIDs := request.Selection()
 	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
@@ -717,7 +725,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The installed native home changed during admission.", false)
 	}
 	initialized, err := service.InitializeProject(ctx, appinit.InitializeProjectRequest{
-		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, NativeHome: nativeHome,
+		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, ProjectKind: projectKind, ArtistTaskPath: artistTaskPath, ArtistDesignSpecGlobs: artistDesignGlobs, NativeHome: nativeHome,
 		NativeHomeAsserted: nativeHomeAsserted,
 		Selection:          selection,
 		RoleIDs:            request.Roles(),

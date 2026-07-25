@@ -119,6 +119,21 @@ type reportFindingDTO struct {
 type reportEvidenceDTO struct {
 	Source  reportSourceEvidenceDTO  `json:"source"`
 	Current reportCurrentEvidenceDTO `json:"current"`
+	Visual  *reportVisualEvidenceDTO `json:"visual,omitempty"`
+}
+
+type reportVisualEvidenceDTO struct {
+	Path         string              `json:"path"`
+	SHA256       string              `json:"sha256"`
+	BBox         reportVisualBBoxDTO `json:"bbox"`
+	Verification string              `json:"verification"`
+}
+
+type reportVisualBBoxDTO struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 type reportSourceEvidenceDTO struct {
@@ -282,7 +297,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "kar-review-artifact.v2" ||
+	if final.SchemaVersion != "kar-review-artifact.v3" ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||

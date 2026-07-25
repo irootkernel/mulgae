@@ -40,7 +40,7 @@ test-e2e:
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
 	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
 	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.11.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
-	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2E' ./cmd/kar; then \
+	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" KAR_REQUIRE_ARTIST_E2E=1 PLAYWRIGHT_CHANNEL="$${PLAYWRIGHT_CHANNEL:-chrome}" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^Test(E2E|Live)' ./cmd/kar; then \
 		rm -rf "$$e2e_project"; \
 	else \
 		status=$$?; \

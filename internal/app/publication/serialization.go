@@ -584,7 +584,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: "kar-review-artifact.v2",
+		SchemaVersion: "kar-review-artifact.v3",
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
@@ -745,6 +745,15 @@ func (candidate PreparedCandidate) finalFindings(reviewID domain.ReviewID) []fin
 					TargetSHA256: item.targetSHA256, Side: string(item.side), Path: item.path, LineStart: item.lineStart, LineEnd: item.lineEnd,
 					Quote: item.quote, CurrentExcerptSHA256: item.currentExcerptSHA256, Verification: "verified",
 				},
+			}
+			if item.visual != nil {
+				evidenceItems[evidenceIndex].Visual = &visualEvidenceWire{
+					Path: item.visual.path, SHA256: item.visual.sha256,
+					BBox: visualBoundingBoxWire{
+						X: item.visual.x, Y: item.visual.y, Width: item.visual.width, Height: item.visual.height,
+					},
+					Verification: "verified",
+				}
 			}
 		}
 		findings[index] = finalFindingWire{
@@ -973,6 +982,21 @@ type finalFindingWire struct {
 type findingEvidenceWire struct {
 	Source  sourceEvidenceWire  `json:"source"`
 	Current currentEvidenceWire `json:"current"`
+	Visual  *visualEvidenceWire `json:"visual,omitempty"`
+}
+
+type visualEvidenceWire struct {
+	Path         string                `json:"path"`
+	SHA256       string                `json:"sha256"`
+	BBox         visualBoundingBoxWire `json:"bbox"`
+	Verification string                `json:"verification"`
+}
+
+type visualBoundingBoxWire struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 type sourceEvidenceWire struct {

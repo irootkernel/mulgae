@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
@@ -174,6 +175,31 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	journalBytes[0] = '!'
 	if first.Journal().Bytes()[0] == '!' {
 		t.Fatal("journal bytes are not defensively copied")
+	}
+}
+
+func TestFinalArtifactV3SerializesVerifiedVisualEvidence(t *testing.T) {
+	t.Parallel()
+	candidate := publicationTestCandidate(t, true)
+	candidate.findings[0].evidence[0].visual = &preparedVisualEvidence{
+		path: "design-specs/home.png", sha256: "sha256:" + strings.Repeat("d", 64),
+		x: 24, y: 120, width: 320, height: 48,
+	}
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var final finalReviewWire
+	if err := unmarshalExact(bundle.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	if final.SchemaVersion != "kar-review-artifact.v3" {
+		t.Fatalf("schema version = %q", final.SchemaVersion)
+	}
+	visual := final.Findings[0].Evidence[0].Visual
+	if visual == nil || visual.Path != "design-specs/home.png" || visual.SHA256 != "sha256:"+strings.Repeat("d", 64) ||
+		visual.BBox != (visualBoundingBoxWire{X: 24, Y: 120, Width: 320, Height: 48}) || visual.Verification != "verified" {
+		t.Fatalf("serialized visual evidence = %#v", visual)
 	}
 }
 func TestPublicationBundleBindsCanonicalSupportIndex(t *testing.T) {

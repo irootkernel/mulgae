@@ -12,9 +12,9 @@ CI is a trusted projection of a committed artifact, not a `review` command mode:
 
 ## SOT 1.11.0 Contract and Implementation Baseline
 
-This package defines an 85-path/84-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.11.0 promotes the private runtime-diagnostics contract while G010 and the real-provider release gate remain deliberately incomplete.
+This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.11.0 promotes the private runtime-diagnostics contract while G010 and the real-provider release gate remain deliberately incomplete.
 
-The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 85-path embedded catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
+The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 86-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
 | Readiness axis | Status |
 |---|---|
@@ -28,7 +28,7 @@ Revision 14 keeps `darwin-arm64` as the sole G0 `required`/blocking native platf
 
 Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for exactly `kimi`, `zcode`, and `agy`; that G0 family qualification evidence remains separate from current runtime support. G007 provides adapters for those families with direct noninteractive profiles, strict output isolation, process bounds and cancellation, runtime-capability validation, strict rejection of unlisted families, and provider CLI reporting. A configured `kimi`, `zcode`, or `agy` instance is supported when its family and runtime capability contract are satisfied; user version pins, executable paths, SHA allowlists, and profiles are diagnostic provenance for issue reports and reproducibility, never general runtime authorization. Unknown or new versions are not denied solely for identity. Capability failures produce actionable typed diagnostics, and known incompatibilities may be explicitly blocked. No automatic provider substitution occurs. Historical G008 evidence covers fake/offline root/followup/delta/rerun lineage and P2 publication proof, raw and repaired attempt artifacts, runtime target and prompt inventories, retention/tombstone cleanup, and redacted secure export; it is not production root-review proof. The retained controlled Kimi tuple receipt is historical qualification evidence, not a current support boundary.
 
-Current independent oracles are: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **85/84**; and schema/example relationships **25**.
+Current independent oracles are: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **86/85**; and schema/example relationships **28**.
 
 
 ## Canonical Artifact Contract
@@ -126,6 +126,7 @@ All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts r
 | Provider followup output v2 | [kar-provider-followup-output.v2.schema.json](schemas/kar-provider-followup-output.v2.schema.json) |
 | Final review artifact v1 | [kar-review-artifact.v1.schema.json](schemas/kar-review-artifact.v1.schema.json) |
 | Final review artifact v2 | [kar-review-artifact.v2.schema.json](schemas/kar-review-artifact.v2.schema.json) |
+| Final review artifact v3 | [kar-review-artifact.v3.schema.json](schemas/kar-review-artifact.v3.schema.json) |
 | Run manifest v1 | [kar-run-manifest.v1.schema.json](schemas/kar-run-manifest.v1.schema.json) |
 | Run manifest v2 | [kar-run-manifest.v2.schema.json](schemas/kar-run-manifest.v2.schema.json) |
 | Validation result v1 | [kar-validation-result.v1.schema.json](schemas/kar-validation-result.v1.schema.json) |

@@ -41,7 +41,7 @@ func (runtime *plannerCoordinatorRuntime) Invoke(_ context.Context, job review.I
 }
 
 func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	for _, test := range []struct {
 		name     string
 		routes   []QualifiedRoute
@@ -83,7 +83,7 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 	}
 }
 func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	families := []Family{FamilyKimi, FamilyZCode, FamilyAGY}
 	for mask := 1; mask < 1<<len(families); mask++ {
 		routes := make([]QualifiedRoute, 0, len(families))
@@ -106,7 +106,7 @@ func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
 }
 
 func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
 		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
@@ -129,7 +129,7 @@ func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 }
 
 func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
 		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
@@ -150,7 +150,7 @@ func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.
 }
 
 func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := make([]QualifiedRoute, 0, 12)
 	primaryFamilies := []Family{FamilyKimi, FamilyZCode, FamilyZCode, FamilyZCode, FamilyAGY, FamilyZCode}
 	fallbackFamilies := []Family{FamilyZCode, FamilyAGY, FamilyAGY, FamilyAGY, FamilyZCode, FamilyAGY}
@@ -195,7 +195,7 @@ func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
 }
 
 func TestIntegrationQualifiedPlannerRoutesReachSixLaneCoordinatorUnchanged(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := make([]QualifiedRoute, 0, 12)
 	primaryFamilies := []Family{FamilyKimi, FamilyZCode, FamilyZCode, FamilyZCode, FamilyAGY, FamilyZCode}
 	fallbackFamilies := []Family{FamilyZCode, FamilyAGY, FamilyAGY, FamilyAGY, FamilyZCode, FamilyAGY}
@@ -266,7 +266,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixLaneCoordinatorUnchanged(t *te
 }
 
 func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles),
 		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
@@ -281,7 +281,7 @@ func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testin
 }
 
 func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyZCode, "zcode.one", "lane-zcode", roles),
 		plannerTestRoute(t, FamilyAGY, "agy.one", "lane-agy", roles),
@@ -312,7 +312,7 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 
 func TestQualifiedPlannerPreservesRequestedRoleOrder(t *testing.T) {
 	roles := []domain.Role{domain.RoleTesting, domain.RoleSecurity, domain.RoleLogic, domain.RoleProduct, domain.RoleDocumentation, domain.RoleMaintainability}
-	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", domain.FixedRoleOrder())
+	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", domain.CoreRoleOrder())
 	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, plannerTestCanonicalPolicy(t, []Family{FamilyKimi}))
 	if err != nil {
 		t.Fatal(err)
@@ -326,7 +326,7 @@ func TestQualifiedPlannerPreservesRequestedRoleOrder(t *testing.T) {
 }
 
 func TestQualifiedRouteRejectsInvalidOrMismatchedQualification(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	valid := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles)
 	qualification := valid.Qualification()
 	route, err := ports.NewProviderRoute("kimi.other", valid.Route().ConcurrencyKey())
@@ -344,7 +344,7 @@ func TestQualifiedRouteRejectsInvalidOrMismatchedQualification(t *testing.T) {
 }
 
 func TestQualifiedPlannerAcceptsRunSubsetWithoutProjectFloor(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles)
 	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, plannerTestCanonicalPolicy(t, []Family{FamilyKimi}))
 	if err != nil {
@@ -407,7 +407,7 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 }
 
 func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
-	roles := domain.FixedRoleOrder()
+	roles := domain.CoreRoleOrder()
 	yellow := plannerTestQualification(t, FamilyAGY, "agy.yellow", "9.0.0", ReceiptPass)
 	key, err := ports.ParseConcurrencyKey("lane-yellow")
 	if err != nil {
@@ -522,7 +522,7 @@ func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
 		return selected[0], selected[1]
 	}
 	policy := DefaultPlannerPolicy()
-	for _, role := range domain.FixedRoleOrder() {
+	for _, role := range domain.CoreRoleOrder() {
 		preferences := []Family{FamilyZCode, FamilyAGY, FamilyKimi}
 		if role == domain.RoleLogic {
 			preferences = []Family{FamilyKimi, FamilyZCode, FamilyAGY}

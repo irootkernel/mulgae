@@ -129,22 +129,23 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		if !entry.Type().IsRegular() {
 			return fmt.Errorf("workspace path %q is not a regular file; add it to .karignore", relative)
 		}
-		data, err := readStableRegular(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
+		read := readStableRegular
+		if adapter.artistMediaType(relative) != "" {
+			read = readStableRegularBinary
+		}
+		data, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
 			return fmt.Errorf("workspace path %q: %w; add it to .karignore if it is not reviewable", relative, err)
 		}
-		if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+		if adapter.artistMediaType(relative) == "" && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
 			return fmt.Errorf("workspace path %q is not UTF-8 text; add it to .karignore", relative)
-		}
-		if err := adapter.clean(ctx, ports.ReviewInputReference, relative, data); err != nil {
-			return fmt.Errorf("workspace path %q: %w", relative, err)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil || norm.NFC.String(relative) != relative {
 			return fmt.Errorf("workspace path %q is not canonical", relative)
 		}
 		digest := sha256.Sum256(data)
-		file, err := ports.NewWorkspaceSnapshotFile(path, data, "sha256:"+hex.EncodeToString(digest[:]))
+		file, err := adapter.newCapturedFile(ctx, path, data)
 		if err != nil {
 			return err
 		}

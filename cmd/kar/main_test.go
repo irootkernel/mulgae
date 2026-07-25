@@ -42,11 +42,11 @@ func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T
 		base   domain.Role
 	}{
 		{reviewrun.FamilyKimi, []domain.Role{domain.RoleLogic}, domain.RoleLogic},
-		{reviewrun.FamilyZCode, domain.FixedRoleOrder(), domain.RoleSecurity},
+		{reviewrun.FamilyZCode, domain.CoreRoleOrder(), domain.RoleSecurity},
 		{reviewrun.FamilyAGY, []domain.Role{domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleDocumentation, domain.RoleTesting}, domain.RoleDocumentation},
 	}
 	for _, test := range tests {
-		roles, base := configuredQualificationRoles(config, domain.FixedRoleOrder(), test.family)
+		roles, base := configuredQualificationRoles(config, domain.CoreRoleOrder(), test.family)
 		if !slices.Equal(roles, test.roles) || base != test.base {
 			t.Fatalf("%s qualification roles/base = %v/%s, want %v/%s", test.family, roles, base, test.roles, test.base)
 		}
@@ -631,7 +631,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 			argv    []string
 			exit    int
 		}{
-			{"init", []string{"init"}, 8},
+			{"init", []string{"init"}, 4},
 			{"doctor", []string{"doctor"}, 4},
 			{"review", []string{"review", "--dirty", "--output", "json"}, 2},
 			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--dirty"}, 2},
@@ -821,8 +821,15 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 		t.Fatalf("Kimi security diagnostics were not finalized: %q", logBytes)
 	}
 	observations := readFakeKimiObservations(t, logPath)
-	if len(observations) != 1 || !strings.Contains(observations[0].Prompt, "The object must contain exactly root, link, and role string fields.") {
-		t.Fatalf("Kimi executed beyond its qualification launch: %#v", observations)
+	if len(observations) == 0 || len(observations) > 2 {
+		t.Fatalf("Kimi qualification launch count = %d, want 1..2: %#v", len(observations), observations)
+	}
+	for index, observation := range observations {
+		role := []string{"logic", "security"}[index]
+		if !strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") ||
+			!strings.Contains(observation.Prompt, "role must be "+role+".") {
+			t.Fatalf("Kimi executed outside ordered qualification at launch %d: %#v", index+1, observations)
+		}
 	}
 }
 
@@ -1305,7 +1312,7 @@ func main() {
 	if err := log.Close(); err != nil {
 		panic(err)
 	}
-	content := "{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+	content := "{\"schema_version\":\"kar-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
 	if prompt == "@roadmap.md" {
 		roadmap, err := os.ReadFile("roadmap.md")
 		if err != nil {
@@ -1403,7 +1410,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "provider execution failed")
 		os.Exit(1)
 	}
-	fmt.Print("{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+	fmt.Print("{\"schema_version\":\"kar-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
 }
 `
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
@@ -1418,6 +1425,10 @@ func main() {
 }
 
 func buildFakeAGY(t *testing.T, root, binary, logPath string) {
+	buildFakeAGYWithReviewOutput(t, root, binary, logPath, "")
+}
+
+func buildFakeAGYWithReviewOutput(t *testing.T, root, binary, logPath, reviewOutput string) {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), "main.go")
 	program := `package main
@@ -1482,7 +1493,11 @@ func main() {
 		_ = os.Stdout.Close()
 		for { time.Sleep(time.Hour) }
 	}
-	fmt.Print("{\"schema_version\":\"kar-provider-review-output.v2\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+	content := __FAKE_AGY_REVIEW_OUTPUT__
+	if content == "" {
+		content = "{\"schema_version\":\"kar-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+	}
+	fmt.Print(content)
 	_ = os.Stdout.Close()
 	for { time.Sleep(time.Hour) }
 }
@@ -1497,7 +1512,9 @@ func write(observation observation) {
 		panic(err)
 	}
 }`
-	mustWriteTestFile(t, source, []byte(strings.ReplaceAll(program, "__FAKE_AGY_LOG__", logPath)))
+	program = strings.ReplaceAll(program, "__FAKE_AGY_LOG__", logPath)
+	program = strings.ReplaceAll(program, "__FAKE_AGY_REVIEW_OUTPUT__", strconv.Quote(reviewOutput))
+	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())

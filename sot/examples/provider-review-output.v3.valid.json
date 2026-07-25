@@ -1,0 +1,28 @@
+{
+  "schema_version": "kar-provider-review-output.v3",
+  "summary": "One high-severity coordinator issue was identified with a current-target location claim that KAR must verify.",
+  "completeness": "complete",
+  "limitations": [],
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Fallback is triggered after a valid negative review",
+      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping. KAR must verify the current target excerpt before accepting the finding.",
+      "evidence": [
+        {
+          "current": {
+            "target_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "path": "internal/app/coordinator.go",
+            "line_start": 120,
+            "line_end": 128,
+            "side": "head",
+            "quote": "if result.RequestChanges {\n    queueFallback(task)\n}",
+            "verification": "claimed"
+          }
+        }
+      ],
+      "recommendation": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results.",
+      "confidence": "high"
+    }
+  ]
+}

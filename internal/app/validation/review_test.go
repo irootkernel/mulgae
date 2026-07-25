@@ -67,7 +67,7 @@ func testScope() ReviewValidationScope {
 
 func validProviderReview() []byte {
 	return []byte(`{
-		"schema_version":"kar-provider-review-output.v2",
+		"schema_version":"kar-provider-review-output.v3",
 		"summary":"A high severity issue was found.",
 		"completeness":"complete",
 		"limitations":[],
@@ -209,6 +209,36 @@ func TestReviewValidatorInjectsTrustedIdentityAndNormalizesFindings(t *testing.T
 		t.Fatal("OriginalRaw leaked mutable storage")
 	}
 }
+
+func TestReviewValidatorRequiresCapturedVisualIdentityForArtistFindings(t *testing.T) {
+	const path = "design-specs/home.png"
+	const digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	raw := providerReviewWith(t, func(document map[string]any) {
+		evidence := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
+		evidence["visual"] = map[string]any{
+			"path": path, "sha256": digest,
+			"bbox": map[string]any{"x": 0, "y": 12, "width": 44, "height": 20},
+		}
+	})
+	scope := testScope()
+	scope.Role = domain.RoleArtist
+	scope.VisualAssets = map[string]string{path: digest}
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	validated, plan, err := validator.Validate(context.Background(), raw, scope)
+	if err != nil || plan != nil {
+		t.Fatalf("captured visual identity rejected: plan=%v err=%v", plan, err)
+	}
+	visuals := validated.EvidenceClaims()[0].VisualReferences()
+	if len(visuals) != 1 || visuals[0].Path().String() != path || visuals[0].SHA256() != digest ||
+		visuals[0].X() != 0 || visuals[0].Y() != 12 || visuals[0].Width() != 44 || visuals[0].Height() != 20 ||
+		visuals[0].Verification() != "verified" {
+		t.Fatalf("verified visual reference was not retained: %#v", visuals)
+	}
+	scope.VisualAssets[path] = "sha256:" + strings.Repeat("c", 64)
+	if _, _, err := validator.Validate(context.Background(), raw, scope); err == nil || !strings.Contains(err.Error(), "candidate_validation_failed") {
+		t.Fatalf("mismatched visual identity was accepted: %v", err)
+	}
+}
 func TestReviewValidatorCorrelatesEvidenceClaimsAfterFindingOrdering(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	raw := providerReviewWith(t, func(document map[string]any) {
@@ -343,17 +373,17 @@ func TestFindingEvidenceClaimsFailClosedOnProofIDOrClaimDisagreement(t *testing.
 	claims := group.Claims()
 	trustedTarget := claims[0].TargetSHA256()
 
-	if _, err := newFindingEvidenceClaims(finding, claims, trustedTarget); err != nil {
+	if _, err := newFindingEvidenceClaims(finding, claims, make([]VerifiedVisualReference, len(claims)), trustedTarget); err != nil {
 		t.Fatalf("newFindingEvidenceClaims() error = %v", err)
 	}
 	claims[0].targetSHA256 = "sha256:" + strings.Repeat("b", 64)
-	if _, err := newFindingEvidenceClaims(finding, claims, trustedTarget); err == nil {
+	if _, err := newFindingEvidenceClaims(finding, claims, make([]VerifiedVisualReference, len(claims)), trustedTarget); err == nil {
 		t.Fatal("newFindingEvidenceClaims() accepted a mismatched target claim")
 	}
 
 	claims = group.Claims()
 	claims[0].quote = []byte("changed quote")
-	if _, err := newFindingEvidenceClaims(finding, claims, trustedTarget); err == nil {
+	if _, err := newFindingEvidenceClaims(finding, claims, make([]VerifiedVisualReference, len(claims)), trustedTarget); err == nil {
 		t.Fatal("newFindingEvidenceClaims() accepted a mismatched quote claim")
 	}
 
