@@ -108,6 +108,10 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, err
 	}
+	runIDs, err := newRunIdentityAuthority(service.dependencies.Clock, service.dependencies.IDs)
+	if err != nil {
+		return Result{}, err
+	}
 	diagnostics, err = openRuntimeDiagnosticLifecycle(ctx, service.dependencies.Diagnostics, request.ArtifactRoot, identity, request.Selection.Roles(), service.dependencies.Clock)
 	if err != nil {
 		return Result{}, err
@@ -137,6 +141,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		cleanup.setProviderOwner(constructionOwner)
 	}
 	if err != nil {
+		for _, observation := range qualificationObservationsFromError(err) {
+			if diagnosticErr := diagnostics.observeQualificationCandidate(ctx, observation); diagnosticErr != nil {
+				return Result{}, diagnosticErr
+			}
+		}
 		if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
 			return Result{}, diagnosticErr
 		}
@@ -162,11 +171,21 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		}
 		return Result{}, fmt.Errorf("review run: qualified run returned invalid authority")
 	}
-	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationCandidateChecked, "qualification", "candidate", ""); err != nil {
-		return Result{}, err
+	observedCandidates := false
+	if source, ok := qualified.(interface {
+		QualificationObservations() []ProviderQualificationObservation
+	}); ok {
+		for _, observation := range source.QualificationObservations() {
+			if err := diagnostics.observeQualificationCandidate(ctx, observation); err != nil {
+				return Result{}, err
+			}
+			observedCandidates = true
+		}
 	}
-	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationSucceeded, "qualification", "admit", ""); err != nil {
-		return Result{}, err
+	if !observedCandidates {
+		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationCandidateChecked, "qualification", "candidate", ""); err != nil {
+			return Result{}, err
+		}
 	}
 
 	verifier, err := evidence.NewVerifier(reader)
@@ -179,7 +198,15 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	plan, err := qualified.Planner().Plan(ctx, planningRequest)
 	if err != nil {
+		if _, qualificationRejected := ProviderQualificationFailuresFromError(err); qualificationRejected {
+			if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
+				return Result{}, diagnosticErr
+			}
+		}
 		return Result{}, fmt.Errorf("review run: plan: %w", err)
+	}
+	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationSucceeded, "qualification", "admit", ""); err != nil {
+		return Result{}, err
 	}
 	plan = plan.clone()
 	receipt, err := validatePlan(plan, request.Selection.Roles())
@@ -197,8 +224,8 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticRunBudgetAccepted, "planning", "budget", ""); err != nil {
 		return Result{}, err
 	}
-	source, err := newPromptSource(input, service.templates, invocationIDs{ids: service.dependencies.IDs, clock: service.dependencies.Clock}, func() (prompt.RoleTaskID, error) {
-		value, err := service.dependencies.IDs.NewRoleTaskID(service.dependencies.Clock.Now())
+	source, err := newPromptSource(input, service.templates, invocationIDs{ids: runIDs, clock: service.dependencies.Clock}, func() (prompt.RoleTaskID, error) {
+		value, err := runIDs.NewRoleTaskID(time.Time{})
 		if err != nil {
 			return prompt.RoleTaskID{}, err
 		}
@@ -223,7 +250,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return inventory
 	}
 	defer drainRuntimeInventory()
-	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, service.dependencies.IDs, runtime, service.dependencies.Locker, plan.MaxLanes, receipt, diagnostics.Sink())
+	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, runIDs, runtime, service.dependencies.Locker, plan.MaxLanes, receipt, diagnostics.Sink())
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
 	}

@@ -64,7 +64,7 @@ func TestNativeProbeInvocationRejectsInvalidAgySnapshotIdentity(t *testing.T) {
 func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
 	for family, want := range map[string][]string{
-		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "fixture-packet", "--output-format", "stream-json"},
+		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "fixture-packet", "--output-format", "stream-json"},
 		FamilyZcode: {"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", "*"},
 	} {
 		definition := testProfile(t, family, "provider_current", "provider-current", "", "")
@@ -124,7 +124,7 @@ func TestNativeProbeInvocationRejectsUnrecognizedBaseArguments(t *testing.T) {
 		{name: "duplicate permission bypass", family: FamilyAgy, args: []string{"--dangerously-skip-permissions"}},
 		{name: "conflicting permission bypass spelling", family: FamilyAgy, args: []string{"--dangerously-skip-permissions=true"}},
 		{name: "unsupported yolo", family: FamilyKimi, args: []string{"--yolo"}},
-		{name: "duplicate model", family: FamilyKimi, args: []string{"--model", "kimi-code/k3"}},
+		{name: "duplicate model", family: FamilyKimi, args: []string{"--model", "kimi-code/kimi-for-coding"}},
 		{name: "conflicting model", family: FamilyKimi, args: []string{"--model", "kimi-code/k2"}},
 		{name: "conflicting plan", family: FamilyAgy, args: []string{"--mode", "execute"}},
 	}

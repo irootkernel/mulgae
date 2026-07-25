@@ -47,6 +47,7 @@ type InitializeProjectRequest struct {
 	// equal to the installed account home by the command boundary.
 	NativeHomeAsserted bool
 	Selection          Selection
+	RoleIDs            []string
 	Overrides          Overrides
 }
 
@@ -72,6 +73,7 @@ type InitializeProjectResult struct {
 	SelectedProviderIDs   []string                     `json:"selected_provider_ids"`
 	CandidateProviderIDs  []string                     `json:"candidate_provider_ids"`
 	ConfiguredProviderIDs []string                     `json:"configured_provider_ids"`
+	ConfiguredRoleIDs     []string                     `json:"configured_role_ids"`
 	WriteState            string                       `json:"write_state"`
 	Committed             bool                         `json:"committed"`
 	DestinationState      ports.ConfigDestinationState `json:"destination_state"`
@@ -149,6 +151,11 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
 	}
 	result.SelectedProviderIDs = selected
+	roles, err := validateRoleSelection(request.RoleIDs)
+	if err != nil {
+		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
+	}
+	result.ConfiguredRoleIDs = roles
 	source, err := service.sources.OpenConfigSource(request.ProjectRoot, true)
 	if err != nil {
 		return result, newFailure(domain.FailureSecurityPolicy, "config_locality_unsafe", false, err)
@@ -554,19 +561,50 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 
 func candidateConfig(request InitializeProjectRequest, value candidates) appconfig.Config {
 	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy}
-	roles, err := appconfig.CanonicalRolesConfig(providers.Families())
+	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
+	roles, err := appconfig.CanonicalRolesConfigForSelection(providers.Families(), selectedRoles)
 	if err != nil {
 		return appconfig.Config{}
 	}
-	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 }
-func resourceDefaults(value candidates) appconfig.ResourcesConfig {
+func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig {
 	count := len(candidateIDs(value))
-	role, run := 2, 12
+	role := 2
 	if count >= 2 {
-		role, run = 4, 24
+		role = 4
 	}
-	return appconfig.ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: run, RunTotalOutputCap: "64MiB"}
+	run := role * roleCount
+	return appconfig.ResourcesConfig{MaxActiveLanes: roleCount, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: run, RunTotalOutputCap: "64MiB"}
+}
+
+func validateRoleSelection(roles []string) ([]string, error) {
+	fixed := []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	if roles == nil {
+		return append([]string(nil), fixed...), nil
+	}
+	if len(roles) < 2 || len(roles) > len(fixed) {
+		return nil, fmt.Errorf("roles")
+	}
+	last := -1
+	seen := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		ordinal := -1
+		for index, candidate := range fixed {
+			if role == candidate {
+				ordinal = index
+				break
+			}
+		}
+		if ordinal <= last {
+			return nil, fmt.Errorf("roles")
+		}
+		seen[role], last = true, ordinal
+	}
+	if !seen["logic"] || !seen["security"] {
+		return nil, fmt.Errorf("role floor")
+	}
+	return append([]string(nil), roles...), nil
 }
 func candidateIDs(value candidates) []string {
 	ids := make([]string, 0, 3)
@@ -615,7 +653,8 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	return selected, nil
 }
 func baseResult(request InitializeProjectRequest) InitializeProjectResult {
-	return InitializeProjectResult{Kind: "initialization_failed", ConfigURI: appconfig.ConfigRelativePath, SelectedProviderIDs: []string{}, CandidateProviderIDs: []string{}, ConfiguredProviderIDs: []string{}, WriteState: "not_attempted", DestinationState: ports.ConfigDestinationNotObserved, Discovery: []DiscoveryRow{}}
+	roles, _ := validateRoleSelection(request.RoleIDs)
+	return InitializeProjectResult{Kind: "initialization_failed", ConfigURI: appconfig.ConfigRelativePath, SelectedProviderIDs: []string{}, CandidateProviderIDs: []string{}, ConfiguredProviderIDs: []string{}, ConfiguredRoleIDs: roles, WriteState: "not_attempted", DestinationState: ports.ConfigDestinationNotObserved, Discovery: []DiscoveryRow{}}
 }
 func markConfigured(rows []DiscoveryRow, ids []string) {
 	for index := range rows {

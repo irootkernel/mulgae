@@ -89,6 +89,37 @@ func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
 	}
 }
 
+func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.T) {
+	config := validConfig()
+	roles, err := CanonicalRolesConfigForSelection([]string{"kimi"}, []string{"logic", "security", "documentation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Roles = roles
+	config.Resources.MaxActiveLanes = 3
+	config.Resources.RunMaxInvocations = 6
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Roles.Logic.Enabled || !decoded.Roles.Security.Enabled || !decoded.Roles.Documentation.Enabled || decoded.Roles.Testing.Enabled {
+		t.Fatalf("decoded subset = %#v", decoded.Roles)
+	}
+
+	config.Review.RequiredRoles = []string{"logic", "security", "testing"}
+	if _, err := EncodeCanonical(config); err == nil {
+		t.Fatal("disabled required role was accepted")
+	}
+	config.Review.RequiredRoles = []string{"logic"}
+	if _, err := EncodeCanonical(config); err == nil {
+		t.Fatal("project configuration without security required floor was accepted")
+	}
+}
+
 func TestDecodeRejectsUnknownDuplicateNullAliasAndBounds(t *testing.T) {
 	base, _ := EncodeCanonical(validConfig())
 	cases := [][]byte{
@@ -179,7 +210,7 @@ func TestCredentialDetectorUsesReasonOnlyAndBoundaries(t *testing.T) {
 	if credentialKey("tokenization") || credentialKey("key") || credentialKey("model") || credentialKey("sha256") {
 		t.Fatal("negative credential key matched")
 	}
-	for _, value := range []string{"kimi-code/k3", "/usr/local/bin/kimi", strings.Repeat("a", 64), "019f7e98-c3b2-7000-8c62-1baabe37bae9", "https://github.com/example/repo/issues/1", "Bearer", "ordinary prose mentioning token", "${TOKEN}"} {
+	for _, value := range []string{"kimi-code/kimi-for-coding", "/usr/local/bin/kimi", strings.Repeat("a", 64), "019f7e98-c3b2-7000-8c62-1baabe37bae9", "https://github.com/example/repo/issues/1", "Bearer", "ordinary prose mentioning token", "${TOKEN}"} {
 		if credentialValue(value) {
 			t.Fatalf("negative credential value %q matched", value)
 		}

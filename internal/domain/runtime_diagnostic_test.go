@@ -83,6 +83,18 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 	if !DiagnosticCausePersistenceFailed.Valid() || RuntimeDiagnosticCause("native text").Valid() {
 		t.Fatal("cause set is not closed")
 	}
+	for _, cause := range []RuntimeDiagnosticCause{
+		DiagnosticCausePromptFilePreStartFailed,
+		DiagnosticCausePromptFilePostEndFailed,
+		DiagnosticCauseTransportReceiptMismatch,
+		DiagnosticCauseLifecycleReceiptInvalid,
+		DiagnosticCauseOutputFrameMismatch,
+		DiagnosticCauseSignalReceiptMismatch,
+	} {
+		if !cause.Valid() {
+			t.Fatalf("transport/lifecycle subtype %q is not closed", cause)
+		}
+	}
 	if !DiagnosticStdout.Valid() || RuntimeDiagnosticStream("combined").Valid() {
 		t.Fatal("stream set is not closed")
 	}

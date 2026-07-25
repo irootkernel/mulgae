@@ -271,6 +271,41 @@ func TestProviderCurrentQualifierRetriesOnlyInvalidCapabilityOutputOnce(t *testi
 	}
 }
 
+type currentQualifierDiagnosticError struct {
+	cause domain.RuntimeDiagnosticCause
+	err   error
+}
+
+func (err currentQualifierDiagnosticError) Error() string                        { return err.err.Error() }
+func (err currentQualifierDiagnosticError) Unwrap() error                        { return err.err }
+func (err currentQualifierDiagnosticError) Cause() domain.RuntimeDiagnosticCause { return err.cause }
+
+func TestQualifyProviderCurrentWithRetryPreservesAttemptChronology(t *testing.T) {
+	invalid, err := domain.NewFailure(
+		"capability", domain.FailureInvalidOutput, "invalid output",
+		currentQualifierDiagnosticError{cause: domain.DiagnosticCauseOutputFrameMissing, err: errors.New("missing")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	result, observations, err := qualifyProviderCurrentWithRetry(context.Background(), "kimi-default", func() (ports.ProviderCurrentProbeResult, error) {
+		calls++
+		if calls == 1 {
+			return ports.ProviderCurrentProbeResult{}, invalid
+		}
+		return ports.ProviderCurrentProbeResult{Version: "1.2.3"}, nil
+	})
+	if err != nil || result.Version != "1.2.3" || calls != 2 {
+		t.Fatalf("retry result = %#v, observations=%#v, calls=%d, err=%v", result, observations, calls, err)
+	}
+	if len(observations) != 2 || observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Cause() != domain.DiagnosticCauseOutputFrameMissing || observations[0].Mitigation() != qualificationMitigationRetry ||
+		observations[1].Outcome() != qualificationOutcomeQualified || observations[1].Cause() != "" {
+		t.Fatalf("retry chronology = %#v", observations)
+	}
+}
+
 func TestProviderCurrentQualifierAttributesLoginRequiredWithoutRetry(t *testing.T) {
 	auth, err := domain.NewFailure(
 		"capability",

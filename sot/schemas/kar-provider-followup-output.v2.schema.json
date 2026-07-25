@@ -157,7 +157,8 @@
           "enum": [
             "base",
             "head",
-            "worktree"
+            "worktree",
+            "index"
           ]
         },
         "quote": {

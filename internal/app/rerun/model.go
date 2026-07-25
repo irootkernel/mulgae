@@ -50,9 +50,10 @@ type Parameter struct {
 // Target is a captured immutable target. Identity and bytes are copied at
 // package boundaries so neither readers nor executors can modify source material.
 type Target struct {
-	Identity domain.TargetIdentity
-	Bytes    []byte
-	SHA256   string
+	Identity        domain.TargetIdentity
+	Bytes           []byte
+	SHA256          string
+	CapturedArchive []byte
 }
 
 // PromptManifest is the verified source prompt material needed for exact

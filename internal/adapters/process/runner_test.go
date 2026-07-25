@@ -502,6 +502,10 @@ func TestRunnerVerifiesPromptFileProviderPacketTransport(t *testing.T) {
 			if err == nil {
 				t.Fatal("prompt-file verification succeeded")
 			}
+			var failure *ports.ProcessExecutionError
+			if !errors.As(err, &failure) || failure.PrimaryCause() != domain.DiagnosticCausePromptFilePreStartFailed {
+				t.Fatalf("pre-start prompt-file cause = %#v, err=%v", failure, err)
+			}
 			if _, ok := observation.ProviderPacketTransportReceipt(); ok {
 				t.Fatalf("failed prompt-file verification claimed delivery: %#v", observation)
 			}
@@ -523,6 +527,10 @@ func TestRunnerVerifiesPromptFileProviderPacketTransport(t *testing.T) {
 	result := waitForRunnerResultAllowError(t, done)
 	if result.err == nil {
 		t.Fatal("prompt-file mutation before post-check succeeded")
+	}
+	var failure *ports.ProcessExecutionError
+	if !errors.As(result.err, &failure) || failure.PrimaryCause() != domain.DiagnosticCausePromptFilePostEndFailed {
+		t.Fatalf("post-termination prompt-file cause = %#v, err=%v", failure, result.err)
 	}
 	if _, ok := result.observation.ProviderPacketTransportReceipt(); ok {
 		t.Fatalf("post-check mismatch claimed delivery: %#v", result.observation)

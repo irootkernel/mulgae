@@ -1,6 +1,33 @@
 package ports
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
+
+func TestCapturedReviewArchiveRoundTrip(t *testing.T) {
+	target, snapshot, evidence := capturedReviewMaterialParts(t)
+	material, err := NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, []byte("context"), true, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := UnmarshalCapturedReviewMaterial(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Target().Identity() != material.Target().Identity() || !bytes.Equal(restored.Target().Bytes(), material.Target().Bytes()) ||
+		!bytes.Equal(restored.ProjectContext(), material.ProjectContext()) || restored.Snapshot().PolicyIdentity() != material.Snapshot().PolicyIdentity() {
+		t.Fatal("captured review archive did not preserve material")
+	}
+	archive[len(archive)-2] ^= 1
+	if _, err := UnmarshalCapturedReviewMaterial(archive); err == nil {
+		t.Fatal("mutated captured review archive was accepted")
+	}
+}
 
 func TestCapturedReviewMaterialProjectContextPresence(t *testing.T) {
 	target, snapshot, evidence := capturedReviewMaterialParts(t)

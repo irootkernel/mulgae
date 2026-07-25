@@ -371,9 +371,14 @@ func validate(config *Config) error {
 	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
 		return fmt.Errorf("workspace")
 	}
-	for _, role := range config.Roles.Ordered() {
-		if !role.Enabled || !config.Providers.HasFamily(role.PrimaryProvider) {
+	configuredRoles := config.Roles.Ordered()
+	enabledRoleCount := 0
+	for _, role := range configuredRoles {
+		if !config.Providers.HasFamily(role.PrimaryProvider) {
 			return fmt.Errorf("role")
+		}
+		if role.Enabled {
+			enabledRoleCount++
 		}
 		if config.Providers.Count() == 1 {
 			if role.FallbackProvider != "" {
@@ -383,8 +388,18 @@ func validate(config *Config) error {
 			return fmt.Errorf("role fallback")
 		}
 	}
+	if !config.Roles.Logic.Enabled || !config.Roles.Security.Enabled {
+		return fmt.Errorf("role floor")
+	}
 	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic", "security"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
 		return fmt.Errorf("sets")
+	}
+	for _, required := range config.Review.RequiredRoles {
+		for index, candidate := range fixedRoles {
+			if required == candidate && !configuredRoles[index].Enabled {
+				return fmt.Errorf("required role disabled")
+			}
+		}
 	}
 	if config.Validation.Repair.Enabled {
 		if config.Validation.Repair.MaxAttempts != 1 || config.Resources.PrimaryRepairAttempts < 0 || config.Resources.PrimaryRepairAttempts > 1 || config.Resources.FallbackRepairAttempts < 0 || config.Resources.FallbackRepairAttempts > 1 || config.Resources.PrimaryRepairAttempts > config.Validation.Repair.MaxAttempts || config.Resources.FallbackRepairAttempts > config.Validation.Repair.MaxAttempts {
@@ -400,7 +415,7 @@ func validate(config *Config) error {
 	if config.Providers.Count() >= 2 {
 		roleCost += 1 + config.Resources.FallbackRepairAttempts
 	}
-	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*len(fixedRoles) || config.Resources.RunMaxInvocations > 24 {
+	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 24 {
 		return fmt.Errorf("budgets")
 	}
 	if _, err := parseByteSize(config.Resources.RunTotalOutputCap); err != nil {
@@ -520,7 +535,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
 	for index, role := range fixedRoles {
 		configured := config.Roles.Ordered()[index]
-		out.WriteString("  " + role + ": {enabled: true, primary_provider: " + q(configured.PrimaryProvider))
+		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider))
 		if configured.FallbackProvider != "" {
 			out.WriteString(", fallback_provider: " + q(configured.FallbackProvider))
 		}

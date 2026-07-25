@@ -616,7 +616,8 @@
           "enum": [
             "base",
             "head",
-            "worktree"
+            "worktree",
+            "index"
           ]
         },
         "path": {

@@ -52,6 +52,7 @@ type CurrentQualificationResult struct {
 	SupportedRoles    []domain.Role
 	RoleReceipts      []CurrentRoleReceipt
 	BaseRole          domain.Role
+	Observations      []ProviderQualificationObservation
 }
 
 // CurrentRoleReceipt is explicit current evidence for one role.
@@ -81,26 +82,41 @@ type QualifiedRunRegistryFactory = ports.ProviderQualificationRegistryFactory
 // QualifiedRunFactory turns identity-only discovery into immutable routes and a
 // run-owned registry. It has no fallback to live process state.
 type QualifiedRunFactory struct {
-	qualifier  CurrentQualifier
-	registries QualifiedRunRegistryFactory
-	clock      ports.Clock
+	qualifier     CurrentQualifier
+	registries    QualifiedRunRegistryFactory
+	clock         ports.Clock
+	authenticator ports.ProviderLoginAuthenticator
 }
 
 // NewQualifiedRunFactory validates the injected current probe and production
 // registry authorities. Clock is required so all receipts share one expiry basis.
 func NewQualifiedRunFactory(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock) (*QualifiedRunFactory, error) {
+	return newQualifiedRunFactory(qualifier, registries, clock, nil)
+}
+
+// NewQualifiedRunFactoryWithLoginAuthenticator enables one bounded Kimi login
+// recovery after a typed qualification-stage login-required response.
+func NewQualifiedRunFactoryWithLoginAuthenticator(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock, authenticator ports.ProviderLoginAuthenticator) (*QualifiedRunFactory, error) {
+	if nilInterface(authenticator) {
+		return nil, fmt.Errorf("review run: provider login authenticator unavailable")
+	}
+	return newQualifiedRunFactory(qualifier, registries, clock, authenticator)
+}
+
+func newQualifiedRunFactory(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock, authenticator ports.ProviderLoginAuthenticator) (*QualifiedRunFactory, error) {
 	if nilInterface(qualifier) || nilInterface(registries) || nilInterface(clock) {
 		return nil, fmt.Errorf("review run: current qualifier dependencies unavailable")
 	}
-	return &QualifiedRunFactory{qualifier: qualifier, registries: registries, clock: clock}, nil
+	return &QualifiedRunFactory{qualifier: qualifier, registries: registries, clock: clock, authenticator: authenticator}, nil
 }
 
 // QualifiedRun owns immutable routes and an admitted-only composite registry.
 type QualifiedRun struct {
-	routes                []QualifiedRoute
-	registry              QualifiedRunRegistry
-	admitted              []qualifiedProviderEvidence
-	qualificationFailures []ProviderQualificationFailure
+	routes                    []QualifiedRoute
+	registry                  QualifiedRunRegistry
+	admitted                  []qualifiedProviderEvidence
+	qualificationFailures     []ProviderQualificationFailure
+	qualificationObservations []ProviderQualificationObservation
 
 	terminalMu sync.Mutex
 	receipt    QualifiedRunTerminalReceipt
@@ -156,6 +172,49 @@ type qualifiedRunRegistryComposite struct {
 // Operational unavailability skips only that candidate; all other failures
 // drain every acquired namespace and fail closed.
 func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candidates []QualifiedRunCandidate) (*QualifiedRun, error) {
+	run, err := factory.newQualifiedRunAttempt(ctx, candidates)
+	if err == nil || nilInterface(factory.authenticator) {
+		return run, err
+	}
+	candidate, ok := kimiLoginRecoveryCandidate(err, candidates)
+	if !ok {
+		return nil, err
+	}
+	receipt, drained := ProviderRunTerminalReceiptFromError(err)
+	if !drained {
+		return nil, err
+	}
+	firstObservations := loginMitigatedQualificationObservations(qualificationObservationsFromError(err))
+	if loginErr := factory.authenticator.LoginProvider(ctx, candidate.Definition); loginErr != nil {
+		cause, causeErr := domain.NewFailure("reviewrun.login", domain.FailureAuthentication, "provider login failed", loginErr)
+		if causeErr != nil {
+			return nil, newQualifiedRunConstructionError(causeErr, receipt)
+		}
+		return nil, newQualifiedRunConstructionError(withQualificationObservations(NewProviderLoginRequiredError([]string{candidate.Definition.Instance()}, cause), firstObservations), receipt)
+	}
+	run, retryErr := factory.newQualifiedRunAttempt(ctx, candidates)
+	if retryErr != nil {
+		observations := append(firstObservations, qualificationObservationsFromError(retryErr)...)
+		return nil, withQualificationObservations(retryErr, observations)
+	}
+	run.qualificationObservations = append(firstObservations, run.qualificationObservations...)
+	return run, nil
+}
+
+func kimiLoginRecoveryCandidate(err error, candidates []QualifiedRunCandidate) (QualifiedRunCandidate, bool) {
+	providers, loginRequired := ProviderLoginRequiredProvidersFromError(err)
+	if !loginRequired || len(providers) != 1 {
+		return QualifiedRunCandidate{}, false
+	}
+	for _, candidate := range candidates {
+		if candidate.Definition != nil && candidate.Definition.Instance() == providers[0] && Family(candidate.Definition.Family()) == FamilyKimi {
+			return candidate, true
+		}
+	}
+	return QualifiedRunCandidate{}, false
+}
+
+func (factory *QualifiedRunFactory) newQualifiedRunAttempt(ctx context.Context, candidates []QualifiedRunCandidate) (*QualifiedRun, error) {
 	if factory == nil || ctx == nil || len(candidates) == 0 || len(candidates) > 32 {
 		return nil, fmt.Errorf("review run: invalid qualified run request")
 	}
@@ -174,6 +233,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 	admittedInstances := make([]string, 0, len(candidates))
 	admittedEvidence := make([]qualifiedProviderEvidence, 0, len(candidates))
 	qualificationFailures := make([]ProviderQualificationFailure, 0, len(candidates))
+	qualificationObservations := make([]ProviderQualificationObservation, 0, len(candidates))
 	closedReceipts := make(map[string]ports.ProviderRunTerminalReceipt, len(candidates))
 	cleanupFailures := 0
 	release := func(ctx context.Context, instance string) error {
@@ -276,6 +336,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 			RequestedRoles: append([]domain.Role(nil), candidate.SupportedRoles...), BaseRole: candidate.BaseRole, Now: now,
 		})
 		if qualificationErr != nil {
+			qualificationObservations = append(qualificationObservations, qualificationObservationsFromError(qualificationErr)...)
 			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
 				return fail(fmt.Errorf("review run: current qualification for %q: %w; terminal drain: %v", definition.Instance(), qualificationErr, closeErr))
 			}
@@ -292,6 +353,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 			}
 			return fail(providerQualificationBoundaryError(definition, qualificationErr, qualificationReasonCode(qualificationErr, "qualification_failed")))
 		}
+		qualificationObservations = append(qualificationObservations, result.Observations...)
 		identity := requestIdentity
 		identity.Version = result.Version
 		profile := candidate.Profile.WithQualifiedVersion(result.VersionArgv, result.Version)
@@ -367,6 +429,7 @@ func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candida
 			registries: admitted, generations: admittedGenerations, instances: retainedInstances,
 		},
 		admitted: admittedEvidence, qualificationFailures: append([]ProviderQualificationFailure(nil), qualificationFailures...),
+		qualificationObservations: append([]ProviderQualificationObservation(nil), qualificationObservations...),
 	}, nil
 }
 
@@ -705,6 +768,14 @@ func (run *QualifiedRun) QualificationFailures() []ProviderQualificationFailure 
 		return nil
 	}
 	return append([]ProviderQualificationFailure(nil), run.qualificationFailures...)
+}
+
+// QualificationObservations returns ordered, safe probe-attempt facts.
+func (run *QualifiedRun) QualificationObservations() []ProviderQualificationObservation {
+	if run == nil {
+		return nil
+	}
+	return append([]ProviderQualificationObservation(nil), run.qualificationObservations...)
 }
 
 // Registry returns the run-owned production execution authority.

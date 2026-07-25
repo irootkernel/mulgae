@@ -565,7 +565,7 @@ func (service *Service) invoke(ctx context.Context, task domain.RoleTask, attemp
 
 func requestRoleTasks(assignments []Assignment, templates TemplateSet) ([]domain.RoleTask, *roleFailure) {
 	if len(assignments) == 0 {
-		return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "at least the required role assignments are required", nil)
+		return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "at least one role assignment is required", nil)
 	}
 	seen := make(map[domain.Role]struct{}, len(assignments))
 	roles := make([]domain.RoleTask, 0, len(assignments))
@@ -593,12 +593,6 @@ func requestRoleTasks(assignments []Assignment, templates TemplateSet) ([]domain
 			return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "trusted templates are incomplete or invalid", err)
 		}
 		roles = append(roles, task)
-	}
-	if _, exists := seen[domain.RoleLogic]; !exists {
-		return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "logic required-floor assignment is missing", nil)
-	}
-	if _, exists := seen[domain.RoleSecurity]; !exists {
-		return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "security required-floor assignment is missing", nil)
 	}
 	return roles, nil
 }

@@ -199,7 +199,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	if providerRequest && binding.Channel() == ports.ProviderPacketChannelPromptFile {
 		preStartIdentity, err = promptFileIdentity(binding)
 		if err != nil {
-			return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", nil, nil,
+			return processExecutionFailure(domain.DiagnosticCausePromptFilePreStartFailed, "", nil, nil,
 				fmt.Errorf("process runner: verify prompt file before start: %w", err))
 		}
 	}
@@ -546,7 +546,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	if termination := signals.termination(); termination != "" {
 		transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 		if err != nil {
-			return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
+			return processExecutionFailure(providerTransportReceiptCause(binding), "", stdout.bytes, stderr.bytes, err)
 		}
 		return runner.observationWithTransport(stdout.bytes, stderr.bytes, nil, termination, stdinReceipt, transportReceipt, startedAt)
 	}
@@ -559,7 +559,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	}
 	transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 	if err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
+		return processExecutionFailure(providerTransportReceiptCause(binding), "", stdout.bytes, stderr.bytes, err)
 	}
 	if signal != nil {
 		return runner.signaledObservation(stdout.bytes, stderr.bytes, *signal, stdinReceipt, transportReceipt, startedAt)
@@ -962,7 +962,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	}
 	transport, err := providerTransportReceipt(binding, provider, pre)
 	if err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", stdout.bytes, stderr.bytes, err)
+		return processExecutionFailure(providerTransportReceiptCause(binding), "", stdout.bytes, stderr.bytes, err)
 	}
 	frames := []ports.ProcessOutputFrameReceipt(nil)
 	if hasFrame {
@@ -1127,6 +1127,13 @@ func providerTransportReceipt(
 		return nil, fmt.Errorf("process runner: construct provider transport receipt: %w", err)
 	}
 	return &receipt, nil
+}
+
+func providerTransportReceiptCause(binding ports.ProviderPacketBinding) domain.RuntimeDiagnosticCause {
+	if binding.Channel() == ports.ProviderPacketChannelPromptFile {
+		return domain.DiagnosticCausePromptFilePostEndFailed
+	}
+	return domain.DiagnosticCauseTransportVerificationFailed
 }
 
 func promptFileIdentity(binding ports.ProviderPacketBinding) (ports.ProviderPacketIdentity, error) {

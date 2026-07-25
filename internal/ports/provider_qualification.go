@@ -140,6 +140,13 @@ type ProviderCurrentProbe interface {
 	QualifyProviderCurrent(context.Context, ProviderCurrentProbeRequest) (ProviderCurrentProbeResult, error)
 }
 
+// ProviderLoginAuthenticator performs an explicit operator-facing login flow
+// for one exact discovered runtime. Implementations must not inherit ambient
+// process environment or retain native provider output.
+type ProviderLoginAuthenticator interface {
+	LoginProvider(context.Context, ProviderRuntimeDefinition) error
+}
+
 // ProviderQualificationRegistry is the retained admitted execution authority.
 type ProviderQualificationRegistry interface {
 	ObservedReviewProvider

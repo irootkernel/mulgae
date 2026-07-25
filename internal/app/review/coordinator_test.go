@@ -794,6 +794,120 @@ func TestCoordinatorMaxActiveLanes(t *testing.T) {
 	}
 }
 
+func TestIntegrationCoordinatorSixDistinctPrimaryLanesEnterBarrier(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, false)
+	if len(assignments) != 6 {
+		t.Fatalf("assignment count = %d, want 6", len(assignments))
+	}
+	entered := make(chan InvocationJob, len(assignments))
+	release := make(chan struct{})
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		entered <- job
+		<-release
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+	done := make(chan coordinatorTestExecution, 1)
+	go func() {
+		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+		done <- coordinatorTestExecution{result: result, err: err}
+	}()
+
+	roles := make(map[domain.Role]struct{}, 6)
+	keys := make(map[string]struct{}, 6)
+	for range assignments {
+		select {
+		case job := <-entered:
+			roles[job.Role()] = struct{}{}
+			keys[job.Route().ConcurrencyKey().String()] = struct{}{}
+		case <-time.After(3 * time.Second):
+			close(release)
+			t.Fatal("six primary lanes did not all enter the barrier")
+		}
+	}
+	if len(roles) != 6 || len(keys) != 6 {
+		close(release)
+		t.Fatalf("barrier entrants = roles:%d keys:%d, want 6/6", len(roles), len(keys))
+	}
+	close(release)
+	execution := <-done
+	if execution.err != nil || execution.result.RunState() != domain.RunCompleted {
+		t.Fatalf("six-lane execution = state:%q error:%v", execution.result.RunState(), execution.err)
+	}
+}
+
+func TestIntegrationCoordinatorFallbackDoesNotSerializeOrCancelPeerLanes(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, true)
+	primaryEntered := make(chan InvocationJob, len(assignments))
+	releasePrimaries := make(chan struct{})
+	fallbackEntered := make(chan struct{}, 1)
+	var mu sync.Mutex
+	active := 0
+	maximum := 0
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		mu.Lock()
+		active++
+		if active > maximum {
+			maximum = active
+		}
+		mu.Unlock()
+		defer func() {
+			mu.Lock()
+			active--
+			mu.Unlock()
+		}()
+
+		if job.AttemptKind() == AttemptKindFallback {
+			fallbackEntered <- struct{}{}
+			return coordinatorSuccessOutcome(t, job)
+		}
+		primaryEntered <- job
+		<-releasePrimaries
+		if job.Role() == domain.RoleLogic {
+			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+	done := make(chan coordinatorTestExecution, 1)
+	go func() {
+		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+		done <- coordinatorTestExecution{result: result, err: err}
+	}()
+	for range assignments {
+		select {
+		case <-primaryEntered:
+		case <-time.After(3 * time.Second):
+			close(releasePrimaries)
+			t.Fatal("primary lanes did not all enter before fallback test release")
+		}
+	}
+	close(releasePrimaries)
+	select {
+	case <-fallbackEntered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("fallback did not start after the concurrent primary wave")
+	}
+	mu.Lock()
+	gotMaximum := maximum
+	mu.Unlock()
+	if gotMaximum != 6 {
+		t.Fatalf("primary wave maximum concurrency = %d, want 6", gotMaximum)
+	}
+	execution := <-done
+	if execution.err != nil || execution.result.RunState() != domain.RunCompleted {
+		t.Fatalf("fallback execution = state:%q error:%v", execution.result.RunState(), execution.err)
+	}
+	for _, role := range execution.result.RoleSummaries() {
+		if role.State() != domain.RoleTaskSucceeded {
+			t.Fatalf("peer role %q was serialized or cancelled: %#v", role.Role(), role)
+		}
+	}
+	if !coordinatorRoleByRole(t, execution.result, domain.RoleLogic).FallbackScheduled() {
+		t.Fatal("logic fallback was not recorded")
+	}
+}
+
 func TestCoordinatorResultDefensiveCopies(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t, false, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {

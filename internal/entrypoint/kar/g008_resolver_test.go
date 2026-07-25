@@ -158,8 +158,8 @@ func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 	}
 
 	for _, arguments := range [][]string{
-		{"followup", "--run", "latest", "--finding", "F001", "--diff", "git"},
-		{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic"},
+		{"followup", "--run", "latest", "--finding", "F001", "--dirty"},
+		{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"},
 		{"rerun", "--run", "latest", "--attempt", second.AttemptID.String()},
 		{"export", "--run", "latest", "--output-path", "exports/review.zip"},
 	} {

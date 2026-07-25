@@ -684,6 +684,7 @@ func appendPublicationRuntimeRepairInvocation(t *testing.T, candidate *PreparedC
 func clonePreparedRuntimeArtifact(runtime *preparedRuntimeArtifact) *preparedRuntimeArtifact {
 	cloned := *runtime
 	cloned.target = append([]byte(nil), runtime.target...)
+	cloned.capturedArchive = append([]byte(nil), runtime.capturedArchive...)
 	cloned.stdin = append([]byte(nil), runtime.stdin...)
 	cloned.adapterParameters = make(map[string]string, len(runtime.adapterParameters))
 	for key, value := range runtime.adapterParameters {

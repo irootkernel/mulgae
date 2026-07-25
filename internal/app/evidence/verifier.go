@@ -27,12 +27,13 @@ const (
 	SideBase     Side = "base"
 	SideHead     Side = "head"
 	SideWorktree Side = "worktree"
+	SideIndex    Side = "index"
 )
 
 // Valid reports whether side is one of the closed current-target sides.
 func (side Side) Valid() bool {
 	switch side {
-	case SideBase, SideHead, SideWorktree:
+	case SideBase, SideHead, SideWorktree, SideIndex:
 		return true
 	default:
 		return false

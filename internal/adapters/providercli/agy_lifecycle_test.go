@@ -103,6 +103,24 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 		}
 	})
 
+	t.Run("SIGTERM handler exit after stable output still succeeds", func(t *testing.T) {
+		h := newAgyLifecycleHarness(t, "handled", 256, 20*time.Second)
+		defer h.close(t)
+		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !observation.Succeeded() || !observation.ProcessGroupAbsent() {
+			t.Fatalf("handled post-output SIGTERM did not preserve the accepted AGY result: %#v", observation)
+		}
+		if got := string(observation.ProcessObservation().Stdout()); got != `{"findings":[]}` {
+			t.Fatalf("handled post-output AGY stdout = %q", got)
+		}
+		if got := string(observation.ProcessObservation().Stderr()); !strings.Contains(got, "Error: timeout waiting for response\n") {
+			t.Fatalf("handled post-output AGY stderr omitted native signal-handler text: %q", got)
+		}
+	})
+
 	for _, test := range []struct {
 		name        string
 		mode        string
@@ -201,6 +219,7 @@ case "$KAR_AGY_TEST_MODE" in
 post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$KAR_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
 resistant) trap '' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
+handled) trap 'printf "Error: timeout waiting for response\n" >&2; exit 1' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
 timeout) sleep 30 ;;
 oversize) i=0; while [ $i -lt 2048 ]; do printf x; i=$((i+1)); done ;;
 malformed) printf '{\n' ;;

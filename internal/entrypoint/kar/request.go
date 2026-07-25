@@ -264,6 +264,7 @@ type InitRequest struct {
 	hasContextPath      bool
 	selectionMode       string
 	providerIDs         []string
+	roleIDs             []string
 	nativeHome          string
 	hasNativeHome       bool
 	kimiExecutable      string
@@ -289,6 +290,9 @@ func (request InitRequest) ContextPath() (string, bool) {
 func (request InitRequest) Selection() (string, []string) {
 	return request.selectionMode, cloneStrings(request.providerIDs)
 }
+
+// Roles returns the canonical project role set selected for initialization.
+func (request InitRequest) Roles() []string { return cloneStrings(request.roleIDs) }
 func (request InitRequest) NativeHome() (string, bool) {
 	return request.nativeHome, request.hasNativeHome
 }
@@ -427,7 +431,7 @@ type TargetRequest struct {
 	value string
 }
 
-// Kind returns the target kind: diff, patch, or stdin.
+// Kind returns the selected project or external-input target kind.
 func (request TargetRequest) Kind() string { return request.kind }
 
 // Value returns the target value.
@@ -435,12 +439,13 @@ func (request TargetRequest) Value() string { return request.value }
 
 // ReviewRequest contains the immutable independent-review fields.
 type ReviewRequest struct {
-	target       TargetRequest
-	objective    string
-	hasObjective bool
-	roles        []string
-	sessionID    string
-	hasSessionID bool
+	target        TargetRequest
+	objective     string
+	hasObjective  bool
+	roles         []string
+	rolesExplicit bool
+	sessionID     string
+	hasSessionID  bool
 }
 
 // Target returns the literal target request.
@@ -453,6 +458,9 @@ func (request ReviewRequest) Objective() (string, bool) {
 
 // Roles returns a caller-owned copy of the requested roles.
 func (request ReviewRequest) Roles() []string { return cloneStrings(request.roles) }
+
+// RolesExplicit reports whether --roles was supplied by the caller.
+func (request ReviewRequest) RolesExplicit() bool { return request.rolesExplicit }
 
 // SessionID returns the optional imported workflow session ID.
 func (request ReviewRequest) SessionID() (string, bool) {
@@ -590,6 +598,7 @@ func (request ExportRequest) Redacted() bool { return request.redacted }
 
 func cloneInitRequest(request InitRequest) InitRequest {
 	request.providerIDs = cloneStrings(request.providerIDs)
+	request.roleIDs = cloneStrings(request.roleIDs)
 	return request
 }
 

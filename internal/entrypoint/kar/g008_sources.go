@@ -150,7 +150,7 @@ func (sources *G008Sources) ReadRerunSource(ctx context.Context, runID domain.Ru
 	prompt := attempt.Prompt()
 	source := apprerun.SourceAttempt{
 		SessionID: attempt.SessionID(), RunID: attempt.RunID(), ReviewID: attempt.ReviewID(), AttemptID: attempt.AttemptID(), ProviderInstance: attempt.Provider(),
-		Target: apprerun.Target{Identity: target.Identity(), Bytes: target.Bytes(), SHA256: target.Identity().SHA256()},
+		Target: apprerun.Target{Identity: target.Identity(), Bytes: target.Bytes(), SHA256: target.Identity().SHA256(), CapturedArchive: target.CapturedArchive()},
 		Prompt: apprerun.PromptManifest{URI: prompt.ManifestPath().String(), SHA256: strings.TrimPrefix(prompt.ManifestSHA256(), "sha256:"),
 			ComposedStdin: prompt.Stdin(), ComposedStdinSHA256: strings.TrimPrefix(prompt.StdinSHA256(), "sha256:"),
 			CompleteStdinSHA256: prompt.CompleteStdinSHA256(),
@@ -222,6 +222,12 @@ func (sources *G008Sources) ReadSource(ctx context.Context, runID domain.RunID) 
 	immutable, err := appdelta.NewP2ImmutableTarget(target.Identity(), target.Bytes())
 	if err != nil {
 		return appdelta.SourceSnapshot{}, fmt.Errorf("g008 delta target: %w", err)
+	}
+	if archive := target.CapturedArchive(); len(archive) > 0 {
+		immutable, err = immutable.WithCapturedArchive(archive)
+		if err != nil {
+			return appdelta.SourceSnapshot{}, fmt.Errorf("g008 delta capture archive: %w", err)
+		}
 	}
 	roles, err := deltaRoles(review.Roles())
 	if err != nil {

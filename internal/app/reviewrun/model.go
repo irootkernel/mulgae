@@ -110,6 +110,7 @@ func (selection RunSelection) Valid() bool {
 // ImmutableReviewInput is the single captured snapshot used throughout a run.
 type ImmutableReviewInput struct {
 	target            ports.CapturedReviewTarget
+	capturedArchive   []byte
 	objective         []byte
 	hasObjective      bool
 	projectContext    []byte
@@ -119,12 +120,24 @@ type ImmutableReviewInput struct {
 // NewImmutableReviewInputWithProjectContext validates a captured target and
 // takes defensive ownership of the exact objective and project-context bytes.
 func NewImmutableReviewInputWithProjectContext(target ports.CapturedReviewTarget, objective []byte, hasObjective bool, projectContext []byte, hasProjectContext bool) (ImmutableReviewInput, error) {
+	return NewImmutableReviewInputWithCapturedArchive(target, objective, hasObjective, projectContext, hasProjectContext, nil)
+}
+
+// NewImmutableReviewInputWithCapturedArchive additionally retains the exact
+// authority-free capture needed to reproduce this input after publication.
+func NewImmutableReviewInputWithCapturedArchive(target ports.CapturedReviewTarget, objective []byte, hasObjective bool, projectContext []byte, hasProjectContext bool, capturedArchive []byte) (ImmutableReviewInput, error) {
 	if !target.Valid() || (!hasObjective && len(objective) != 0) || (!hasProjectContext && len(projectContext) != 0) {
 		return ImmutableReviewInput{}, fmt.Errorf("review run: invalid captured review target")
 	}
+	if len(capturedArchive) > 0 {
+		material, err := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
+		if err != nil || material.Target().Identity() != target.Identity() || !reflect.DeepEqual(material.Target().Bytes(), target.Bytes()) {
+			return ImmutableReviewInput{}, fmt.Errorf("review run: captured archive does not bind target")
+		}
+	}
 	input := ImmutableReviewInput{
 		target: target, objective: append([]byte(nil), objective...), hasObjective: hasObjective,
-		hasProjectContext: hasProjectContext,
+		hasProjectContext: hasProjectContext, capturedArchive: append([]byte(nil), capturedArchive...),
 	}
 	if hasProjectContext {
 		input.projectContext = append([]byte{}, projectContext...)
@@ -140,8 +153,11 @@ func NewImmutableReviewInput(target ports.CapturedReviewTarget, objective []byte
 }
 
 func (input ImmutableReviewInput) Target() ports.CapturedReviewTarget { return input.target }
-func (input ImmutableReviewInput) Objective() []byte                  { return append([]byte(nil), input.objective...) }
-func (input ImmutableReviewInput) HasObjective() bool                 { return input.hasObjective }
+func (input ImmutableReviewInput) CapturedArchive() []byte {
+	return append([]byte(nil), input.capturedArchive...)
+}
+func (input ImmutableReviewInput) Objective() []byte  { return append([]byte(nil), input.objective...) }
+func (input ImmutableReviewInput) HasObjective() bool { return input.hasObjective }
 func (input ImmutableReviewInput) ProjectContext() []byte {
 	if !input.hasProjectContext {
 		return nil

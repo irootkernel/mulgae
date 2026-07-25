@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
 	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
@@ -21,6 +24,12 @@ import (
 )
 
 type publicationIntegrationIDs struct{ reviewID domain.ReviewID }
+
+type publicationArchiveStdin struct{}
+
+func (publicationArchiveStdin) TakeCapturedStdin(context.Context, string) ([]byte, error) {
+	return nil, errors.New("stdin is not used by the archive lifecycle fixture")
+}
 
 func (ids publicationIntegrationIDs) NewReviewID(time.Time) (domain.ReviewID, error) {
 	return ids.reviewID, nil
@@ -260,6 +269,203 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	}
 	assertPublicationIntegrationFile(t, rootPath, expectedStatus.Path(), expectedStatus.Bytes(), 0o600)
 	assertPublicationIntegrationFilesEqual(t, rootPath, immutable, before)
+}
+
+func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t *testing.T) {
+	ctx := context.Background()
+	project := t.TempDir()
+	publicationArchiveGit(t, project, "init")
+	publicationArchiveGit(t, project, "config", "user.email", "test@example.invalid")
+	publicationArchiveGit(t, project, "config", "user.name", "Test")
+	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "base\n")
+	publicationArchiveGit(t, project, "add", "tracked.txt")
+	publicationArchiveGit(t, project, "commit", "-m", "base")
+	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "captured worktree\n")
+	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "captured untracked\n")
+
+	projectRoot, err := ports.NewAnchoredRoot(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detector := filesystem.NewContentDetector()
+	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), publicationArchiveStdin{}, detector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, err := ports.NewReviewTargetSelector(ports.ReviewTargetDirty, "dirty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := capturer.CaptureReviewTarget(ctx, projectRoot, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate := publicationRuntimeCandidate(t)
+	identity := material.Target().Identity()
+	candidate.target = preparedTarget{
+		sha256:  "sha256:" + identity.SHA256(),
+		baseOID: identity.BaseObjectID(),
+		headOID: identity.HeadObjectID(),
+	}
+	for roleIndex := range candidate.roles {
+		for attemptIndex := range candidate.roles[roleIndex].attempts {
+			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+				runtime := candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime
+				runtime.target = material.Target().Bytes()
+				runtime.capturedArchive = append([]byte(nil), archive...)
+				runtime.targetSHA256 = identity.SHA256()
+				runtime.targetKind = identity.Kind()
+				runtime.targetRepository = identity.RepositoryID()
+				runtime.targetBaseOID = identity.BaseObjectID()
+				runtime.targetHeadOID = identity.HeadObjectID()
+				runtime.targetHeadTreeOID = identity.HeadTreeObjectID()
+				runtime.targetIndexTreeOID = identity.IndexTreeObjectID()
+				runtime.targetGitMode = identity.GitMode()
+			}
+		}
+	}
+	if err := candidate.validate(); err != nil {
+		t.Fatalf("archive lifecycle candidate is invalid: %v", err)
+	}
+
+	catalog := builtin.NewCatalog()
+	validator, err := jsonschema.New(ctx, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicationPath := filepath.Join(t.TempDir(), ".kar")
+	if err := os.Mkdir(publicationPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publicationRoot, err := ports.NewAnchoredRoot(publicationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := filesystem.NewPublicationStore(
+		validator,
+		publicationServiceClock{now: publicationTestTime()},
+		publicationIntegrationIDs{reviewID: publicationTestReviewID(t)},
+		filesystem.NewSecureWriter(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := NewService(store, validator, publicationServiceClock{now: publicationTestTime()}, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := publisher.Publish(ctx, publicationRoot, candidate, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Decision().Authority() != domain.PublicationAuthorityP2 {
+		t.Fatalf("publication authority = %q, want P2", published.Decision().Authority())
+	}
+
+	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "mutated after P2\n")
+	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "mutated after P2\n")
+	publicationArchiveWrite(t, filepath.Join(project, "later.txt"), "created after P2\n")
+
+	queries, err := appquery.NewService(store, validator, nil, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := ports.NewPublicationRun(publicationRoot, candidate.SessionID(), candidate.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeTarget, err := queries.ReadRuntimeTarget(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeTarget.Identity() != identity || !bytes.Equal(runtimeTarget.Bytes(), material.Target().Bytes()) || !bytes.Equal(runtimeTarget.CapturedArchive(), archive) {
+		t.Fatal("queried runtime target changed after live worktree mutation")
+	}
+	archived, err := ports.UnmarshalCapturedReviewMaterial(runtimeTarget.CapturedArchive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.Target().Identity() != material.Target().Identity() || !bytes.Equal(archived.Target().Bytes(), material.Target().Bytes()) {
+		t.Fatal("archive did not reproduce the captured target")
+	}
+	for _, side := range []ports.CapturedEvidenceSide{ports.CapturedEvidenceBase, ports.CapturedEvidenceWorktree} {
+		want, wantOK := material.Evidence().Files(side)
+		got, gotOK := archived.Evidence().Files(side)
+		if wantOK != gotOK || !publicationArchiveFilesEqual(want, got) {
+			t.Fatalf("archive evidence side %q changed", side)
+		}
+	}
+
+	materializationRoot, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializer, err := workspace.NewMaterializer(materializationRoot, detector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := materializer.MaterializeLease(ctx, archived.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := lease.WorkspaceSnapshotIdentity().SnapshotPath()
+	t.Cleanup(func() { publicationArchiveMakeWritable(snapshotPath) })
+	for _, file := range material.Snapshot().Files() {
+		got, readErr := os.ReadFile(filepath.Join(snapshotPath, filepath.FromSlash(file.Path().String())))
+		if readErr != nil || !bytes.Equal(got, file.Bytes()) {
+			t.Fatalf("rematerialized %q = %q, %v", file.Path(), got, readErr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(snapshotPath, "later.txt")); !os.IsNotExist(err) {
+		t.Fatalf("post-P2 live file entered rematerialized archive: %v", err)
+	}
+}
+
+func publicationArchiveGit(t *testing.T, root string, arguments ...string) {
+	t.Helper()
+	command := exec.Command("/usr/bin/git", arguments...)
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", arguments, err, output)
+	}
+}
+
+func publicationArchiveWrite(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func publicationArchiveFilesEqual(left, right []ports.WorkspaceSnapshotFile) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Path() != right[index].Path() || left[index].SHA256() != right[index].SHA256() || !bytes.Equal(left[index].Bytes(), right[index].Bytes()) {
+			return false
+		}
+	}
+	return true
+}
+
+func publicationArchiveMakeWritable(root string) {
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		mode := os.FileMode(0o600)
+		if info.IsDir() {
+			mode = 0o700
+		}
+		_ = os.Chmod(path, mode)
+		return nil
+	})
 }
 
 func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {

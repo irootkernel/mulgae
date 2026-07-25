@@ -303,8 +303,17 @@ func TestRunRejectsInvalidRoleSelections(t *testing.T) {
 	_, _, err := NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), duplicate)
 	requireInvariant(t, err)
 
-	_, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), validRoleTasks(t)[:1])
+	_, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), nil)
 	requireInvariant(t, err)
+
+	logicOnly := validRoleTasks(t)[:1]
+	if _, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), logicOnly); err != nil {
+		t.Fatalf("single-role review session: %v", err)
+	}
+	documentation := roleTask(t, RoleDocumentation, false, "provider-c", nil)
+	if _, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), []RoleTask{documentation}); err != nil {
+		t.Fatalf("optional-only review session: %v", err)
+	}
 
 	forgedFloor := validRoleTasks(t)
 	forgedFloor[0].required = false

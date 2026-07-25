@@ -146,6 +146,11 @@ func resolveProductionRunPolicy(ctx context.Context, root ports.AnchoredRoot, re
 	if !ok {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureInternal, "config locality attestor unavailable", nil)
 	}
+	if _, err := os.Lstat(filepath.Join(root.String(), ".git")); os.IsNotExist(err) {
+		attestor = adapterconfig.NewFilesystemLocalityAttestor()
+	} else if err != nil {
+		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project locality unavailable", err)
+	}
 	source, err := adapterconfig.NewLocalConfigSource(root, false)
 	if err != nil {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "local configuration unavailable", err)
@@ -337,8 +342,12 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	filtered := make([]reviewrun.QualifiedRunCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		roles, base := configuredQualificationRoles(source.config.Roles, selection.Roles(), reviewrun.Family(candidate.Definition.Family()))
+		roles = intersectConfiguredCandidateRoles(roles, candidate.SupportedRoles)
 		if len(roles) == 0 {
 			continue
+		}
+		if !rolePresent(roles, base) {
+			base = roles[0]
 		}
 		candidate.SupportedRoles = roles
 		candidate.BaseRole = base
@@ -348,6 +357,29 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 		return nil, fmt.Errorf("configured provider discovery produced no assigned candidate")
 	}
 	return filtered, nil
+}
+
+func intersectConfiguredCandidateRoles(configured, supported []domain.Role) []domain.Role {
+	supportedSet := make(map[domain.Role]struct{}, len(supported))
+	for _, role := range supported {
+		supportedSet[role] = struct{}{}
+	}
+	result := make([]domain.Role, 0, len(configured))
+	for _, role := range configured {
+		if _, ok := supportedSet[role]; ok {
+			result = append(result, role)
+		}
+	}
+	return result
+}
+
+func rolePresent(roles []domain.Role, expected domain.Role) bool {
+	for _, role := range roles {
+		if role == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []domain.Role, family reviewrun.Family) ([]domain.Role, domain.Role) {
@@ -363,6 +395,9 @@ func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []d
 			continue
 		}
 		assignment := configured[index]
+		if !assignment.Enabled {
+			continue
+		}
 		if reviewrun.Family(assignment.PrimaryProvider) != family && reviewrun.Family(assignment.FallbackProvider) != family {
 			continue
 		}
@@ -400,6 +435,9 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role policy is incomplete", nil)
 		}
 		enabled[role] = definition.Enabled()
+		if !definition.Enabled() {
+			continue
+		}
 		fallback, _ := definition.FallbackProvider()
 		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()), reviewrun.Family(fallback))
 		if err != nil {
@@ -418,7 +456,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 	}
 	return productionRunPolicy{
 		planner: reviewrun.PlannerPolicy{
-			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes, Assignments: assignments,
+			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes, Assignments: assignments, RequiredRoles: resolved.RequiredRoles(),
 		},
 		requiredRoles:     resolved.RequiredRoles(),
 		enabledRoles:      enabled,

@@ -40,6 +40,12 @@ singleton provider configuration, `fallback_provider`. Both provider values are
 family IDs from the configured nonempty subset. They must differ. Version 1 is
 rejected without migration or compatibility fallback.
 
+The enabled project set contains two to six roles and must include `logic` and
+`security`. Disabled roles retain deterministic provider assignments so the
+document shape remains fixed, but they are not qualified, scheduled, budgeted,
+or selected by a default review. Every `review.required_roles` member must be
+enabled. `kar init --roles ...` writes this set; omission enables all six.
+
 With all three families, init writes `logic=kimi/zcode`,
 `documentation=agy/zcode`, and
 `security|maintainability|product|testing=zcode/agy`, where each pair is
@@ -85,10 +91,12 @@ identity, byte, and locality re-attestation. Installed-but-unconfirmed bytes are
 retained and reported truthfully; output delivery failure never rolls back a
 committed config.
 
-Kimi defaults to `kimi-code/k3` and projects only its two allowed native files.
+Kimi defaults to `kimi-code/kimi-for-coding` and projects only its two allowed native files.
 ZCode binds the configured Node executable identity and the bundled readable
 CJS launcher identity; the launcher is descriptor-hashed but does not require
-execute permission. ZCode projects only its native CLI config. AGY uses the effective OS account home and an explicit
+execute permission. ZCode projects only its native CLI config into the distinct
+`zcode-{role}` namespace for each configured ZCode route; no additional
+configuration field or second native credential source is required. AGY uses the effective OS account home and an explicit
 `safe` or `dangerously-skip-permissions` mode; omission is `safe`. KAR never
 persists credentials or copies provider state back. Runtime review uses only
 the absolute executable, launcher, and Kimi data-home paths admitted from this

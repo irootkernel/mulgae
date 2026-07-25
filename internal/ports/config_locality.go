@@ -140,6 +140,7 @@ func (request ConfigLocalityRequest) TargetBytes() []byte {
 }
 
 type ConfigLocalityContext struct {
+	kind            string
 	repositoryID    string
 	rootDevice      uint64
 	rootInode       uint64
@@ -162,8 +163,22 @@ func NewConfigLocalityContext(repositoryID string, rootDevice, rootInode uint64,
 	if hasUnmerged || !target.PrivatePathFree {
 		return ConfigLocalityContext{}, fmt.Errorf("config locality context: unsafe")
 	}
-	return ConfigLocalityContext{repositoryID: repositoryID, rootDevice: rootDevice, rootInode: rootInode, rootUID: rootUID, rootMode: rootMode, headCommit: headCommit, headTree: headTree, indexSHA256: indexSHA256, indexEntryCount: indexEntryCount, hasUnmerged: hasUnmerged, applicable: append([]string(nil), applicable...), config: config, target: target}, nil
+	return ConfigLocalityContext{kind: "git", repositoryID: repositoryID, rootDevice: rootDevice, rootInode: rootInode, rootUID: rootUID, rootMode: rootMode, headCommit: headCommit, headTree: headTree, indexSHA256: indexSHA256, indexEntryCount: indexEntryCount, hasUnmerged: hasUnmerged, applicable: append([]string(nil), applicable...), config: config, target: target}, nil
 }
+
+func NewFilesystemConfigLocalityContext(config ConfigFileProof, target ParsedTargetProof) (ConfigLocalityContext, error) {
+	rootDevice, rootInode, rootUID, rootMode := config.RootIdentity()
+	if rootDevice == 0 || rootInode == 0 || target.SHA256 == "" || !target.PrivatePathFree {
+		return ConfigLocalityContext{}, fmt.Errorf("filesystem config locality context: incomplete or unsafe")
+	}
+	return ConfigLocalityContext{
+		kind: "filesystem", repositoryID: fmt.Sprintf("filesystem:%d:%d", rootDevice, rootInode),
+		rootDevice: rootDevice, rootInode: rootInode, rootUID: rootUID, rootMode: rootMode,
+		indexSHA256: "sha256:filesystem", config: config, target: target,
+	}, nil
+}
+
+func (context ConfigLocalityContext) Kind() string         { return context.kind }
 func (context ConfigLocalityContext) RepositoryID() string { return context.repositoryID }
 func (context ConfigLocalityContext) Checkout() (string, string) {
 	return context.headCommit, context.headTree
@@ -177,7 +192,7 @@ func (context ConfigLocalityContext) ApplicableCommitOIDs() []string {
 func (context ConfigLocalityContext) Config() ConfigFileProof   { return context.config }
 func (context ConfigLocalityContext) Target() ParsedTargetProof { return context.target }
 func (context ConfigLocalityContext) Equal(other ConfigLocalityContext) bool {
-	if context.repositoryID != other.repositoryID || context.rootDevice != other.rootDevice || context.rootInode != other.rootInode || context.rootUID != other.rootUID || context.rootMode != other.rootMode || context.headCommit != other.headCommit || context.headTree != other.headTree || context.indexSHA256 != other.indexSHA256 || context.indexEntryCount != other.indexEntryCount || context.hasUnmerged != other.hasUnmerged || context.config != other.config || context.target != other.target || len(context.applicable) != len(other.applicable) {
+	if context.kind != other.kind || context.repositoryID != other.repositoryID || context.rootDevice != other.rootDevice || context.rootInode != other.rootInode || context.rootUID != other.rootUID || context.rootMode != other.rootMode || context.headCommit != other.headCommit || context.headTree != other.headTree || context.indexSHA256 != other.indexSHA256 || context.indexEntryCount != other.indexEntryCount || context.hasUnmerged != other.hasUnmerged || context.config != other.config || context.target != other.target || len(context.applicable) != len(other.applicable) {
 		return false
 	}
 	for index := range context.applicable {
@@ -188,7 +203,7 @@ func (context ConfigLocalityContext) Equal(other ConfigLocalityContext) bool {
 	return true
 }
 func (context ConfigLocalityContext) SameRepositoryEnvironment(other ConfigLocalityContext) bool {
-	if context.repositoryID != other.repositoryID || context.rootDevice != other.rootDevice || context.rootInode != other.rootInode || context.rootUID != other.rootUID || context.rootMode != other.rootMode || context.headCommit != other.headCommit || context.headTree != other.headTree || context.indexSHA256 != other.indexSHA256 || context.indexEntryCount != other.indexEntryCount || context.hasUnmerged != other.hasUnmerged || context.target != other.target || len(context.applicable) != len(other.applicable) {
+	if context.kind != other.kind || context.repositoryID != other.repositoryID || context.rootDevice != other.rootDevice || context.rootInode != other.rootInode || context.rootUID != other.rootUID || context.rootMode != other.rootMode || context.headCommit != other.headCommit || context.headTree != other.headTree || context.indexSHA256 != other.indexSHA256 || context.indexEntryCount != other.indexEntryCount || context.hasUnmerged != other.hasUnmerged || context.target != other.target || len(context.applicable) != len(other.applicable) {
 		return false
 	}
 	for index := range context.applicable {

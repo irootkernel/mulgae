@@ -32,6 +32,49 @@ func TestClassifyProbeFailurePreservesExplicitLoginRequired(t *testing.T) {
 	}
 }
 
+func TestQualificationFamilyOutputCauseIsExact(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		family string
+		err    error
+		want   domain.RuntimeDiagnosticCause
+	}{
+		{name: "kimi missing frame", family: FamilyKimi, err: errProviderOutputFrameMissing, want: domain.DiagnosticCauseOutputFrameMissing},
+		{name: "kimi decode", family: FamilyKimi, err: errors.New("decode"), want: domain.DiagnosticCauseOutputDecodeFailed},
+		{name: "zcode envelope", family: FamilyZcode, err: errInvalidZcodeEnvelope, want: domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{name: "agy missing frame", family: FamilyAgy, err: errProviderOutputFrameMissing, want: domain.DiagnosticCauseOutputFrameMissing},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := qualificationFamilyOutputCause(test.family, test.err); got != test.want {
+				t.Fatalf("cause = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestQualificationProcessFailurePreservesExecutionStage(t *testing.T) {
+	observation := testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 1)
+	err := qualificationProcessFailure(FamilyKimi, observation, errors.New("capability probe failed"))
+	var failure *providerOutputFailure
+	if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseProviderExecutionFailed {
+		t.Fatalf("qualification process failure = %#v, err=%v", failure, err)
+	}
+}
+
+func TestQualificationProcessFailurePreservesExactProcessCause(t *testing.T) {
+	processErr, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCausePromptFilePostEndFailed, "", nil, nil, errors.New("prompt identity changed"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 1)
+	requireProviderDiagnosticCause(t,
+		qualificationProcessFailure(FamilyAgy, observation, processErr),
+		domain.DiagnosticCausePromptFilePostEndFailed,
+	)
+}
+
 type currentProbeNamespace struct {
 	environment []ports.EnvironmentVariable
 	nativeHome  ports.NativeHomeLaunchAuthority
@@ -423,11 +466,12 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 		exitCode              int
 		wantLifecycleFailure  bool
 		wantValidationFailure bool
+		wantCause             domain.RuntimeDiagnosticCause
 	}{
 		{name: "natural exit"},
 		{name: "term", signals: []signalSpec{term}},
 		{name: "term then kill", signals: []signalSpec{term, kill}},
-		{name: "failed natural exit", exitCode: 1, wantValidationFailure: true},
+		{name: "failed natural exit", exitCode: 1, wantValidationFailure: true, wantCause: domain.DiagnosticCauseLifecycleReceiptInvalid},
 		{name: "lone kill", signals: []signalSpec{kill}, wantLifecycleFailure: true},
 		{name: "reverse", signals: []signalSpec{kill, term}, wantLifecycleFailure: true},
 		{name: "duplicate term", signals: []signalSpec{term, term}, wantLifecycleFailure: true},
@@ -486,6 +530,13 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 			if (err != nil) != test.wantValidationFailure {
 				t.Fatalf("validateProbeTransportAndLifecycle() error = %v, want failure %t", err, test.wantValidationFailure)
 			}
+			if test.wantValidationFailure {
+				wantCause := test.wantCause
+				if wantCause == "" {
+					wantCause = domain.DiagnosticCauseSignalReceiptMismatch
+				}
+				requireProviderDiagnosticCause(t, err, wantCause)
+			}
 		})
 	}
 	final, err := ports.NewExitedProcessFinalTermination(1)
@@ -516,6 +567,40 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 	if err := validateProbeTransportAndLifecycle(definition, packet, failed); err != nil {
 		t.Fatalf("terminal failed launch without an output frame was masked as transport failure: %v", err)
 	}
+
+	mismatchedFrame, err := ports.NewProcessOutputFrameReceipt(lifecyclePolicy.Framing(), []byte(`{"result":false}`), lifecyclePolicy.StabilityGrace())
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err = ports.NewExitedProcessFinalTermination(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err = ports.NewProcessLifecycleReceipt(final, true, nil, mismatchedFrame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatched, err := ports.NewStartedProviderProcessObservation(
+		output, nil, ports.ProcessTerminationExited, stdin, transport, lifecycle,
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireProviderDiagnosticCause(t, validateProbeTransportAndLifecycle(definition, packet, mismatched), domain.DiagnosticCauseOutputFrameMismatch)
+
+	lifecycle, err = ports.NewProcessLifecycleReceipt(final, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingFrame, err := ports.NewStartedProviderProcessObservation(
+		output, nil, ports.ProcessTerminationExited, stdin, transport, lifecycle,
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireProviderDiagnosticCause(t, validateProbeTransportAndLifecycle(definition, packet, missingFrame), domain.DiagnosticCauseOutputFrameMissing)
 }
 
 func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
@@ -539,8 +624,16 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 	if err := validateProbeTransportAndLifecycle(definition, packet, observation); err != nil {
 		t.Fatalf("valid transport without lifecycle rejected: %v", err)
 	}
-	if err := validateProbeTransportAndLifecycle(definition, packet, testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0)); err == nil {
-		t.Fatal("missing matching transport without lifecycle was accepted")
+	requireProviderDiagnosticCause(t,
+		validateProbeTransportAndLifecycle(definition, packet, testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0)),
+		domain.DiagnosticCauseTransportReceiptMismatch,
+	)
+}
+
+func requireProviderDiagnosticCause(t *testing.T, err error, want domain.RuntimeDiagnosticCause) {
+	t.Helper()
+	if cause, ok := providerDiagnosticCause(err); !ok || cause != want {
+		t.Fatalf("provider diagnostic cause = %q, present=%t, want %q; err=%v", cause, ok, want, err)
 	}
 }
 
@@ -616,6 +709,7 @@ func TestCurrentProbeDoesNotMintReceiptsWhenTransportValidationFails(t *testing.
 	if err == nil || len(result.Receipts) != 0 {
 		t.Fatalf("transport failure minted qualification receipts: result=%#v err=%v", result, err)
 	}
+	requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseTransportReceiptMismatch)
 }
 
 func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *testing.T) {
@@ -818,7 +912,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	}
 	fixture := &currentProbeFixture{identity: identity}
 	for family, want := range map[string][]string{
-		FamilyKimi:  {"--model", "kimi-code/k3", "--prompt", "fixture", "--output-format", "stream-json"},
+		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
 		FamilyZcode: {"--mode", "build", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", "*"},
 		FamilyAgy:   {"--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@roadmap.md"},
 	} {

@@ -74,13 +74,15 @@ func (service *Service) StartFollowupRun(ctx context.Context, request Request) (
 		return Result{}, fail(ErrorExecution, "target", err.Error(), nil)
 	}
 	current.Bytes = append([]byte(nil), current.Bytes...)
+	current.CapturedArchive = append([]byte(nil), current.CapturedArchive...)
 
 	execution := Execution{
 		SessionID: source.SessionID,
 		Source:    cloneSource(source),
 		Current: CurrentTarget{
-			Identity: current.Identity,
-			Bytes:    append([]byte(nil), current.Bytes...),
+			Identity:        current.Identity,
+			Bytes:           append([]byte(nil), current.Bytes...),
+			CapturedArchive: append([]byte(nil), current.CapturedArchive...),
 		},
 		Objective: objectiveValue(request.Objective),
 		Role:      cloneRole(request.Role),
@@ -186,6 +188,7 @@ func validateTargetIdentity(identity domain.TargetIdentity) error {
 		Kind: identity.Kind(), SHA256: identity.SHA256(), RepositoryID: identity.RepositoryID(),
 		BaseObjectID: identity.BaseObjectID(), HeadObjectID: identity.HeadObjectID(),
 		HeadTreeObjectID: identity.HeadTreeObjectID(), IndexTreeObjectID: identity.IndexTreeObjectID(),
+		GitMode: identity.GitMode(),
 	})
 	return err
 }

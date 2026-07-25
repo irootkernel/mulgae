@@ -18,17 +18,28 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 	if err := validateProductionCandidateTemplates(templates); err != nil {
 		t.Fatal(err)
 	}
-	if got := []Family{templates[0].family, templates[1].family, templates[2].family}; !reflect.DeepEqual(got, Families()) {
-		t.Fatalf("template family order = %v, want %v", got, Families())
-	}
-	if templates[0].lifecycle != nil || templates[1].lifecycle != nil || templates[2].lifecycle == nil || !templates[2].lifecycle.Valid() {
-		t.Fatal("AGY lifecycle binding is not exclusive and valid")
-	}
-	if templates[1].transportArgvIndex != 6 {
-		t.Fatalf("ZCode transport argv index = %d, want 6", templates[1].transportArgvIndex)
-	}
-	if templates[2].transportArgvIndex != 12 {
-		t.Fatalf("default AGY transport argv index = %d, want safe-mode index 12", templates[2].transportArgvIndex)
+	roles := domain.FixedRoleOrder()
+	for familyIndex, family := range Families() {
+		for roleIndex, role := range roles {
+			template := templates[familyIndex*len(roles)+roleIndex]
+			wantInstance := string(family) + "-" + string(role)
+			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || template.concurrencyKey.String() != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
+				t.Fatalf("template %s/%s = %#v", family, role, template)
+			}
+			if family == FamilyZCode && (template.transportArgvIndex != 6 || template.limits.Timeout() != productionZCodeTimeout) {
+				t.Fatalf("ZCode template %s = %#v", role, template)
+			}
+			if family != FamilyZCode && template.limits.Timeout() != productionTimeout {
+				t.Fatalf("%s template timeout = %s, want %s", family, template.limits.Timeout(), productionTimeout)
+			}
+			if family == FamilyAGY {
+				if template.transportArgvIndex != 12 || template.lifecycle == nil || !template.lifecycle.Valid() {
+					t.Fatalf("AGY template %s lifecycle = %#v", role, template)
+				}
+			} else if template.lifecycle != nil {
+				t.Fatalf("%s template %s has unexpected lifecycle", family, role)
+			}
+		}
 	}
 }
 
@@ -45,8 +56,41 @@ func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := templates[2].transportArgvIndex; got != test.want {
+		if got := templates[2*len(domain.FixedRoleOrder())].transportArgvIndex; got != test.want {
 			t.Fatalf("AGY %s argv index = %d, want %d", test.mode, got, test.want)
+		}
+	}
+}
+
+func TestProductionCandidatesShardZCodeRolesAcrossSixInstances(t *testing.T) {
+	profiles := []DiscoveredProviderProfile{{
+		family: FamilyZCode, executable: "/private/bin/node", launcher: ZCodeLauncher,
+		argv: []string{"/private/bin/node", ZCodeLauncher}, sha256: "node-sha", launcherSHA256: "launcher-sha", reason: "unqualified_discovery",
+	}}
+	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := NewRunSelection(domain.FixedRoleOrder(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 6 {
+		t.Fatalf("ZCode candidate count = %d, want 6", len(candidates))
+	}
+	want := map[string][]domain.Role{
+		"zcode-logic": {domain.RoleLogic}, "zcode-security": {domain.RoleSecurity},
+		"zcode-maintainability": {domain.RoleMaintainability}, "zcode-product": {domain.RoleProduct},
+		"zcode-documentation": {domain.RoleDocumentation}, "zcode-testing": {domain.RoleTesting},
+	}
+	for _, candidate := range candidates {
+		instance := candidate.Definition.Instance()
+		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != "/private/bin/node" || candidate.Definition.Launcher() != ZCodeLauncher || candidate.Definition.ConcurrencyKey().String() != instance {
+			t.Fatalf("ZCode candidate %s = roles %v definition %#v", instance, candidate.SupportedRoles, candidate.Definition)
 		}
 	}
 }
@@ -171,10 +215,15 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 3 {
-		t.Fatalf("candidate count = %d, want 3", len(candidates))
+	if len(candidates) != 6 {
+		t.Fatalf("candidate count = %d, want 6", len(candidates))
 	}
 	ceilings := review.DefaultHarnessCeilings()
+	wantRoles := map[string][]domain.Role{
+		"kimi-security": {domain.RoleSecurity}, "kimi-testing": {domain.RoleTesting},
+		"zcode-security": {domain.RoleSecurity}, "zcode-testing": {domain.RoleTesting},
+		"agy-security": {domain.RoleSecurity}, "agy-testing": {domain.RoleTesting},
+	}
 	for _, candidate := range candidates {
 		if candidate.Definition.Version() != "" || candidate.SnapshotManifest != "sha256:"+qualifierTestSHA {
 			t.Fatalf("candidate = %#v", candidate)
@@ -184,7 +233,8 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 				candidate.Definition.Family(), candidate.Limits.MaxStdoutBytes(), candidate.Limits.MaxStderrBytes(),
 				ceilings.MaxStdoutBytes(), ceilings.MaxStderrBytes())
 		}
-		if !reflect.DeepEqual(candidate.SupportedRoles, []domain.Role{domain.RoleSecurity, domain.RoleTesting}) || candidate.BaseRole != domain.RoleSecurity {
+		want := wantRoles[candidate.Definition.Instance()]
+		if !reflect.DeepEqual(candidate.SupportedRoles, want) || candidate.BaseRole != want[0] {
 			t.Fatalf("candidate roles/base = %v/%q", candidate.SupportedRoles, candidate.BaseRole)
 		}
 		environment := candidate.Definition.Environment()
@@ -203,7 +253,12 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 			}
 		}
 	}
-	if got := candidates[1].Definition.BaseArgv(); !reflect.DeepEqual(got, []string{"/private/bin/node", ZCodeLauncher}) {
-		t.Fatalf("ZCode argv = %v", got)
+	for _, candidate := range candidates {
+		if Family(candidate.Definition.Family()) == FamilyZCode {
+			if got := candidate.Definition.BaseArgv(); !reflect.DeepEqual(got, []string{"/private/bin/node", ZCodeLauncher}) {
+				t.Fatalf("ZCode argv = %v", got)
+			}
+			break
+		}
 	}
 }

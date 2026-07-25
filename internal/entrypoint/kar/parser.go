@@ -353,7 +353,7 @@ func parseHelp(arguments []string, requestID string) (Invocation, error) {
 
 func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--project-root": true, "--name": true, "--context": true, "--providers": true,
+		"--project-root": true, "--name": true, "--context": true, "--providers": true, "--roles": true,
 		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
 		"--zcode-node-executable": true, "--zcode-launcher": true,
 		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
@@ -377,7 +377,16 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 
 	request := InitRequest{
-		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto",
+		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: fixedRoleNames(),
+	}
+	if rolesValue, present := options["--roles"]; present {
+		request.roleIDs, err = parseCanonicalRolesCSV(rolesValue)
+		if err != nil {
+			return Invocation{}, err
+		}
+		if !containsString(request.roleIDs, "logic") || !containsString(request.roleIDs, "security") {
+			return Invocation{}, usageError("project roles require logic and security")
+		}
 	}
 	if value, present := options["--context"]; present {
 		if !validRelativePath(value) {
@@ -452,11 +461,12 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		ProjectName  string        `json:"project_name"`
 		Context      *string       `json:"context"`
 		Selection    selectionJSON `json:"selection"`
+		Roles        []string      `json:"roles"`
 		Overrides    overridesJSON `json:"overrides"`
 		Overwrite    bool          `json:"overwrite"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -569,6 +579,7 @@ func parseProviders(arguments []string, defaultProjectRoot, requestID string) (I
 
 func parseReview(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
+		"--workspace": false, "--stage": false, "--dirty": false,
 		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
 		"--roles": true, "--session": true, "--output": true,
 	})
@@ -594,6 +605,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		if err != nil {
 			return Invocation{}, err
 		}
+		request.rolesExplicit = true
 	} else {
 		request.roles = fixedRoleNames()
 	}
@@ -622,15 +634,16 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
 		} `json:"target"`
-		Objective    *string      `json:"objective"`
-		Roles        []string     `json:"roles"`
-		SessionID    *string      `json:"session_id"`
-		OutputFormat OutputFormat `json:"output_format"`
+		Objective     *string      `json:"objective"`
+		Roles         []string     `json:"roles"`
+		RoleSelection string       `json:"role_selection"`
+		SessionID     *string      `json:"session_id"`
+		OutputFormat  OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), sessionID, outputFormat,
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], sessionID, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1141,7 +1154,8 @@ func parseSchema(arguments []string, defaultProjectRoot, requestID string) (Invo
 }
 func parseFollowup(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--run": true, "--finding": true, "--diff": true, "--patch": true, "--stdin": true,
+		"--run": true, "--finding": true, "--workspace": false, "--stage": false, "--dirty": false,
+		"--diff": true, "--patch": true, "--stdin": true,
 		"--objective": true, "--role": true, "--output": true,
 	})
 	if err != nil {
@@ -1210,7 +1224,8 @@ func parseFollowup(arguments []string, requestID string) (Invocation, error) {
 
 func parseDelta(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--since-run": true, "--diff": true, "--patch": true, "--stdin": true, "--roles": true, "--output": true,
+		"--since-run": true, "--workspace": false, "--stage": false, "--dirty": false,
+		"--diff": true, "--patch": true, "--stdin": true, "--roles": true, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1396,9 +1411,13 @@ func parseExport(arguments []string, requestID string) (Invocation, error) {
 func optionTarget(options map[string]string) (TargetRequest, error) {
 	var target TargetRequest
 	for _, candidate := range []struct {
-		kind string
-		flag string
+		kind      string
+		flag      string
+		valueless bool
 	}{
+		{kind: "workspace", flag: "--workspace", valueless: true},
+		{kind: "stage", flag: "--stage", valueless: true},
+		{kind: "dirty", flag: "--dirty", valueless: true},
 		{kind: "diff", flag: "--diff"},
 		{kind: "patch", flag: "--patch"},
 		{kind: "stdin", flag: "--stdin"},
@@ -1410,7 +1429,10 @@ func optionTarget(options map[string]string) (TargetRequest, error) {
 		if target.kind != "" {
 			return TargetRequest{}, usageError("target kind flags are mutually exclusive")
 		}
-		if !validTargetValue(value) {
+		if candidate.valueless {
+			value = candidate.kind
+		}
+		if !validTargetValue(value) || candidate.kind == "diff" && value == "git" {
 			return TargetRequest{}, usageError("target value is malformed")
 		}
 		target = TargetRequest{kind: candidate.kind, value: value}
@@ -1528,11 +1550,16 @@ func parseOptions(arguments []string, allowed map[string]bool) ([]string, map[st
 			positionals = append(positionals, argument)
 			continue
 		}
-		if !strings.HasPrefix(argument, "--") || argument == "--" || !allowed[argument] {
+		requiresValue, allowedFlag := allowed[argument]
+		if !strings.HasPrefix(argument, "--") || argument == "--" || !allowedFlag {
 			return nil, nil, usageError("unknown flag")
 		}
 		if _, duplicate := options[argument]; duplicate {
 			return nil, nil, usageError("duplicate flag")
+		}
+		if !requiresValue {
+			options[argument] = "true"
+			continue
 		}
 		if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
 			return nil, nil, usageError("flag value is missing")

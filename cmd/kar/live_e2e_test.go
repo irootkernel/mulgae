@@ -130,7 +130,35 @@ type livePublishedRun struct {
 	review   liveReview
 }
 
-func TestE2EActualProvidersThreeIndependentPrimaryLanes(t *testing.T) {
+type liveInvocationStatus struct {
+	ProcessState string `json:"process_state"`
+	StartedAt    string `json:"started_at"`
+	CompletedAt  string `json:"completed_at"`
+}
+
+type liveE2ELogScope struct {
+	t       *testing.T
+	kind    string
+	fields  string
+	started time.Time
+	status  string
+}
+
+func beginLiveE2ELogScope(t *testing.T, kind, fields string) *liveE2ELogScope {
+	t.Helper()
+	scope := &liveE2ELogScope{t: t, kind: kind, fields: fields, started: time.Now(), status: "failed"}
+	t.Logf("[test-e2e] %s START %s", kind, fields)
+	return scope
+}
+
+func (scope *liveE2ELogScope) end() {
+	scope.t.Helper()
+	scope.t.Logf("[test-e2e] %s END %s status=%s duration=%s", scope.kind, scope.fields, scope.status, time.Since(scope.started).Round(time.Millisecond))
+}
+
+func TestE2EActualProvidersSixConcurrentPrimaryLanes(t *testing.T) {
+	scenario := beginLiveE2ELogScope(t, "scenario", "name=six-concurrent-primary-lanes")
+	defer scenario.end()
 	environment := requireLiveE2EEnvironment(t)
 	validator := newLiveE2EValidator(t)
 	project := initializeLiveE2ERepository(t)
@@ -141,24 +169,26 @@ func TestE2EActualProvidersThreeIndependentPrimaryLanes(t *testing.T) {
 	}
 	configResult := runLiveKAR(t, validator, environment, project, 0, "config", "--output", "json")
 	assertLiveConfigMatrix(t, configResult.Result.Policy)
-	assertLiveThreeLaneConfig(t, project)
+	assertLiveSixLaneConfig(t, project)
 	doctorResult := runLiveKAR(t, validator, environment, project, 4, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
 	expected := map[string]string{
-		"logic": "kimi-default", "security": "zcode-default", "documentation": "agy-default",
+		"logic": "kimi-logic", "security": "zcode-security", "maintainability": "zcode-maintainability",
+		"product": "zcode-product", "documentation": "agy-documentation", "testing": "zcode-testing",
 	}
 	run := runLiveFocusedPrimaryWorkflow(t, validator, environment, project, expected,
-		"review", "--diff", "HEAD^...HEAD",
-		"--objective", "Review only the deterministic fixture assigned to the current role and do not report any other path. Logic: counter.go is intentionally correct; return findings: []. Documentation: README.md accurately documents ClampNonNegative; return findings: []. Security: report exactly one high-severity finding for the planted traversal in report.go. Its only evidence must use path report.go, side head, line_start 8, line_end 9, and the exact JSON-string quote func ReadReport(base, name string) ([]byte, error) {\\n\\treturn os.ReadFile(filepath.Join(base, name)) // deliberate directory traversal for KAR live E2E\\n. Return only the single schema-valid result required for the current role.",
-		"--roles", "logic,security,documentation", "--output", "json",
+		"review", "--dirty",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the KAR contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one kar-provider-review-output.v2 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
+		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLivePrimaryAssignments(t, run, expected)
-	assertLiveSecurityFinding(t, run, "zcode-default")
+	assertLiveRoleFinding(t, run, "security", "zcode-security")
+	scenario.status = "passed"
 }
 
 // runLiveFullProductionWorkflows retains the full G010 workflow scenario while
-// T05 stabilizes the focused three-provider lane gate. It is deliberately not
+// T05 stabilizes the focused six-instance lane gate. It is deliberately not
 // a Test function and therefore cannot enter test-e2e until explicitly restored.
 func runLiveFullProductionWorkflows(t *testing.T) {
 	t.Helper()
@@ -177,14 +207,14 @@ func runLiveFullProductionWorkflows(t *testing.T) {
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
 	root := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
-		"review", "--diff", "HEAD^...HEAD",
+		"review", "--dirty",
 		"--objective", "Review the deliberate directory traversal in report.go. The security role must report the unvalidated user-controlled path as a verified finding; every role must return a schema-valid result.",
 		"--roles", "logic,security,maintainability,product,documentation,testing",
 		"--output", "json",
 	)
 	assertLiveAssignments(t, root, map[string][2]string{
-		"logic": {"kimi-default", "zcode-default"}, "security": {"zcode-default", "agy-default"}, "maintainability": {"zcode-default", "agy-default"},
-		"product": {"zcode-default", "agy-default"}, "documentation": {"agy-default", "zcode-default"}, "testing": {"zcode-default", "agy-default"},
+		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"}, "maintainability": {"zcode-maintainability", "agy-maintainability"},
+		"product": {"zcode-product", "agy-product"}, "documentation": {"agy-documentation", "zcode-documentation"}, "testing": {"zcode-testing", "agy-testing"},
 	})
 	if len(root.review.Findings) == 0 {
 		t.Fatal("six-role review produced no source finding for the deliberate directory traversal")
@@ -195,19 +225,19 @@ func runLiveFullProductionWorkflows(t *testing.T) {
 	writeLiveFixedReportPath(t, project)
 	followup := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
 		"followup", "--run", root.manifest.RunID, "--finding", sourceFinding.ID,
-		"--diff", "git", "--objective", "Verify only whether the original directory traversal is resolved.",
+		"--dirty", "--objective", "Verify only whether the original directory traversal is resolved.",
 		"--output", "json",
 	)
 	assertLiveSourceLineage(t, followup, root, sourceFinding.ID, "")
 	assertLiveSourceBoundAssignment(t, followup, sourceFinding.Role, sourceFinding.ProviderInstance)
 
 	delta := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
-		"delta", "--since-run", root.manifest.RunID, "--diff", "git",
+		"delta", "--since-run", root.manifest.RunID, "--dirty",
 		"--roles", "logic,security,documentation", "--output", "json",
 	)
 	assertLiveSourceLineage(t, delta, root, "", "")
 	assertLiveAssignments(t, delta, map[string][2]string{
-		"logic": {"kimi-default", "zcode-default"}, "security": {"zcode-default", "agy-default"}, "documentation": {"agy-default", "zcode-default"},
+		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"}, "documentation": {"agy-documentation", "zcode-documentation"},
 	})
 
 	exact := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
@@ -222,7 +252,7 @@ func runLiveFullProductionWorkflows(t *testing.T) {
 		"--replay", "recompose", "--output", "json",
 	)
 	assertLiveSourceLineage(t, recompose, root, "", "recompose")
-	assertLiveAssignments(t, recompose, map[string][2]string{"logic": {"kimi-default", "zcode-default"}})
+	assertLiveAssignments(t, recompose, map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}})
 }
 
 func liveInitArguments(environment liveE2EEnvironment, providers string) []string {
@@ -328,7 +358,7 @@ func initializeLiveE2ERepository(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(project, "report.go"), []byte(vulnerable), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	correctLogic := "package report\n\nfunc ClampNonNegative(value int) int {\n\tif value < 0 {\n\t\treturn 0\n\t}\n\treturn value\n}\n"
+	correctLogic := "package report\n\nfunc ClampNonNegative(value int) int {\n\tif value < 0 {\n\t\treturn 0\n\t}\n\treturn value\n}\n\n// IsLegacyCounter deliberately preserves an unreadable legacy condition.\nfunc IsLegacyCounter(value int) bool {\n\treturn value == 1 || value == 2 || value == 3 || value == 4 ||\n\t\tvalue == 5 || value == 6 || value == 7 || value == 8\n}\n"
 	if err := os.WriteFile(filepath.Join(project, "counter.go"), []byte(correctLogic), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -336,8 +366,10 @@ func initializeLiveE2ERepository(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(project, "README.md"), []byte(documentation), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mustLiveGit(t, project, "add", "report.go", "counter.go", "README.md")
-	mustLiveGit(t, project, "commit", "--quiet", "-m", "focused review fixtures")
+	mustLiveGit(t, project, "add", "report.go")
+	if err := os.WriteFile(filepath.Join(project, "UNTRACKED.md"), []byte("# Untracked review fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return project
 }
 
@@ -432,31 +464,59 @@ func runLiveFocusedPrimaryWorkflow(t *testing.T, validator *jsonschema.Validator
 	const maxAttempts = 3
 	var last string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		envelope := runLiveKARAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
-		inspectLiveFailureDiagnostics(t, project, attempt, envelope)
-		if liveReasonPresent(envelope, "provider_login_required") {
-			t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
-		}
-		if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
-			if !liveReasonPresent(envelope, "provider_execution_failed") || envelope.Exit.Kind != "internal" && envelope.Exit.Kind != "readiness" {
-				t.Fatalf("focused live attempt %d stopped without retry authority: exit=%#v reasons=%#v result=%#v", attempt, envelope.Exit, envelope.Reasons, envelope.Result)
-			}
-			last = fmt.Sprintf("non-P2 %s: %#v", envelope.Exit.Kind, envelope.Reasons)
-			t.Logf("focused live attempt %d/%d did not reach P2; retrying bounded provider execution: %s", attempt, maxAttempts, last)
-			continue
-		}
-		run := loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
-		if err := validateLivePrimaryAssignments(run, expected); err == nil && liveSecurityFindingPresent(run, "zcode-default") {
+		run, status, reason := runLiveFocusedPrimaryAttempt(t, validator, environment, project, expected, attempt, maxAttempts, arguments...)
+		if status == "passed" {
 			return run
-		} else if err != nil {
-			last = err.Error()
-		} else {
-			last = "successful primaries did not publish the required ZCode security finding"
 		}
-		t.Logf("focused live attempt %d/%d used a non-primary outcome; retrying the whole review: %s", attempt, maxAttempts, last)
+		last = reason
 	}
 	t.Fatalf("focused live provider gate did not produce one primary-only run after %d attempts: %s", maxAttempts, last)
 	return livePublishedRun{}
+}
+
+func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
+	t.Helper()
+	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=six-concurrent-primary-lanes attempt=%d/%d", attempt, maxAttempts))
+	defer scope.end()
+	envelope := runLiveKARAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
+	inspectLiveFailureDiagnostics(t, project, attempt, envelope)
+	if liveReasonPresent(envelope, "provider_login_required") {
+		t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
+	}
+	if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		retryableProviderResult := liveReasonPresent(envelope, "provider_execution_failed") ||
+			liveReasonPresent(envelope, "readiness_unverified") ||
+			liveRetryableReasonPresent(envelope, "provider_qualification_failed")
+		if !retryableProviderResult || envelope.Exit.Kind != "internal" && envelope.Exit.Kind != "readiness" {
+			t.Fatalf("focused live attempt %d stopped without retry authority: exit=%#v reasons=%#v result=%#v", attempt, envelope.Exit, envelope.Reasons, envelope.Result)
+		}
+		reason = fmt.Sprintf("non-P2 %s: %#v", envelope.Exit.Kind, envelope.Reasons)
+		scope.status = "retry_non_p2"
+		if attempt == maxAttempts {
+			scope.status = "failed"
+		}
+		t.Logf("focused live attempt %d/%d did not reach P2; retrying bounded provider execution: %s", attempt, maxAttempts, reason)
+		return livePublishedRun{}, scope.status, reason
+	}
+	run = loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
+	if err := validateLivePrimaryLaunchesAndOutcomes(run, expected); err != nil {
+		reason = err.Error()
+	} else if !liveRoleFindingPresent(run, "security", "zcode-security") {
+		reason = "successful primaries did not publish the required ZCode security finding"
+	} else if overlap, overlapErr := validateLivePrimaryProcessOverlap(project, run, expected); overlapErr != nil {
+		t.Fatalf("focused live attempt %d has invalid process diagnostics: %v", attempt, overlapErr)
+	} else if overlap {
+		scope.status = "passed"
+		return run, scope.status, ""
+	} else {
+		reason = "six successful primary process intervals had no common overlap"
+	}
+	scope.status = "retry_gate"
+	if attempt == maxAttempts {
+		scope.status = "failed"
+	}
+	t.Logf("focused live attempt %d/%d did not satisfy the six-lane primary gate; retrying the whole review: %s", attempt, maxAttempts, reason)
+	return livePublishedRun{}, scope.status, reason
 }
 
 func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) {
@@ -509,6 +569,37 @@ func liveReasonPresent(envelope liveCommandEnvelope, code string) bool {
 		}
 	}
 	return false
+}
+
+func liveRetryableReasonPresent(envelope liveCommandEnvelope, code string) bool {
+	for _, reason := range envelope.Reasons {
+		if reason.Code == code && reason.Retryable {
+			return true
+		}
+	}
+	return false
+}
+
+func TestLiveRetryableReasonRequiresMatchingCodeAndAuthority(t *testing.T) {
+	t.Parallel()
+	envelope := liveCommandEnvelope{}
+	envelope.Reasons = append(envelope.Reasons,
+		struct {
+			Category    string  `json:"category"`
+			Code        string  `json:"code"`
+			Message     string  `json:"message"`
+			Retryable   bool    `json:"retryable"`
+			ArtifactURI *string `json:"artifact_uri"`
+		}{Code: "provider_qualification_failed", Retryable: true},
+	)
+	if !liveRetryableReasonPresent(envelope, "provider_qualification_failed") ||
+		liveRetryableReasonPresent(envelope, "readiness_unverified") {
+		t.Fatal("retryable qualification reason authority was not matched exactly")
+	}
+	envelope.Reasons[0].Retryable = false
+	if liveRetryableReasonPresent(envelope, "provider_qualification_failed") {
+		t.Fatal("non-retryable qualification reason granted retry authority")
+	}
 }
 
 func loadLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, project string, envelope liveCommandEnvelope, command string) livePublishedRun {
@@ -593,7 +684,7 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	}
 }
 
-func assertLiveThreeLaneConfig(t *testing.T, project string) {
+func assertLiveSixLaneConfig(t *testing.T, project string) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(project, ".kar", "config.yaml"))
 	if err != nil {
@@ -603,9 +694,46 @@ func assertLiveThreeLaneConfig(t *testing.T, project string) {
 	if err != nil {
 		t.Fatalf("decode live config: %v", err)
 	}
-	if config.Resources.MaxActiveLanes != 3 {
-		t.Fatalf("max_active_lanes = %d, want 3", config.Resources.MaxActiveLanes)
+	if config.Resources.MaxActiveLanes != 6 {
+		t.Fatalf("max_active_lanes = %d, want 6", config.Resources.MaxActiveLanes)
 	}
+}
+
+func validateLivePrimaryProcessOverlap(project string, run livePublishedRun, expected map[string]string) (bool, error) {
+	if run.envelope.Result.SessionID == nil || run.envelope.Result.RunID == nil {
+		return false, fmt.Errorf("run has no diagnostic identity")
+	}
+	latestStart := time.Time{}
+	earliestEnd := time.Time{}
+	for role, provider := range expected {
+		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
+		primary, ok := livePrimaryAttempt(attempts, provider)
+		if !ok {
+			return false, fmt.Errorf("%s process interval has no exact primary attempt", role)
+		}
+		path := filepath.Join(project, ".kar", "diagnostics", *run.envelope.Result.SessionID, *run.envelope.Result.RunID,
+			"attempts", primary.AttemptID, "invocations", "001-initial", "status.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false, fmt.Errorf("read %s invocation status: %w", role, err)
+		}
+		var status liveInvocationStatus
+		if err := json.Unmarshal(data, &status); err != nil {
+			return false, fmt.Errorf("decode %s invocation status: %w", role, err)
+		}
+		started, startErr := time.Parse(time.RFC3339Nano, status.StartedAt)
+		completed, completeErr := time.Parse(time.RFC3339Nano, status.CompletedAt)
+		if startErr != nil || completeErr != nil || status.ProcessState != "succeeded" || !started.Before(completed) {
+			return false, fmt.Errorf("invalid %s process interval state=%q started=%q completed=%q", role, status.ProcessState, status.StartedAt, status.CompletedAt)
+		}
+		if latestStart.IsZero() || started.After(latestStart) {
+			latestStart = started
+		}
+		if earliestEnd.IsZero() || completed.Before(earliestEnd) {
+			earliestEnd = completed
+		}
+	}
+	return latestStart.Before(earliestEnd), nil
 }
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
@@ -679,24 +807,25 @@ func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[stri
 
 func assertLivePrimaryAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
 	t.Helper()
-	if err := validateLivePrimaryAssignments(run, expected); err != nil {
+	if err := validateLivePrimaryLaunchesAndOutcomes(run, expected); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func validateLivePrimaryAssignments(run livePublishedRun, expected map[string]string) error {
+// validateLivePrimaryLaunchesAndOutcomes verifies the concurrency contract:
+// every configured primary was launched exactly once and every role reached a
+// selected successful terminal attempt. Provider-output repair and fallback
+// are valid runtime behavior and do not negate primary process concurrency.
+func validateLivePrimaryLaunchesAndOutcomes(run livePublishedRun, expected map[string]string) error {
 	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
 		return fmt.Errorf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
 	}
 	providers := make(map[string]struct{}, len(expected))
 	for role, provider := range expected {
 		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
-		if len(attempts) != 1 {
-			return fmt.Errorf("%s role has %d attempts, want one primary attempt: %#v; failures=%#v outcomes=%#v", role, len(attempts), attempts, run.manifest.Failures, run.review.RoleOutcomes)
-		}
-		attempt := attempts[0]
-		if attempt.ProviderInstance != provider || attempt.SelectedAs != "primary" || attempt.State != "succeeded" || attempt.InvocationCount != 1 {
-			return fmt.Errorf("%s primary lane mismatch: %#v, want provider=%s state=succeeded invocation_count=1; failures=%#v", role, attempt, provider, run.manifest.Failures)
+		primary, ok := livePrimaryAttempt(attempts, provider)
+		if !ok || primary.InvocationCount < 1 || primary.InvocationCount > 2 {
+			return fmt.Errorf("%s primary launch mismatch: %#v, want one %s primary with one initial and at most one repair invocation", role, attempts, provider)
 		}
 		if _, duplicate := providers[provider]; duplicate {
 			return fmt.Errorf("provider %s was assigned more than one focused primary role", provider)
@@ -710,9 +839,18 @@ func validateLivePrimaryAssignments(run livePublishedRun, expected map[string]st
 				break
 			}
 		}
-		if outcome == nil || outcome.Outcome != "completed" && outcome.Outcome != "degraded" || outcome.AttemptID == nil || *outcome.AttemptID != attempt.AttemptID ||
-			outcome.ProviderInstance == nil || *outcome.ProviderInstance != provider || outcome.SelectedVia == nil || *outcome.SelectedVia != "primary" {
-			return fmt.Errorf("%s primary outcome mismatch: attempt=%#v outcome=%#v", role, attempt, outcome)
+		if outcome == nil || outcome.Outcome != "completed" && outcome.Outcome != "degraded" || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
+			return fmt.Errorf("%s role has no successful terminal outcome: primary=%#v outcome=%#v", role, primary, outcome)
+		}
+		selected := false
+		for _, attempt := range attempts {
+			if attempt.AttemptID == *outcome.AttemptID && attempt.ProviderInstance == *outcome.ProviderInstance && attempt.State == "succeeded" && attempt.SelectedAs == *outcome.SelectedVia {
+				selected = true
+				break
+			}
+		}
+		if !selected {
+			return fmt.Errorf("%s selected outcome does not bind a successful primary or fallback: attempts=%#v outcome=%#v", role, attempts, outcome)
 		}
 	}
 	if len(providers) != len(expected) {
@@ -721,17 +859,32 @@ func validateLivePrimaryAssignments(run livePublishedRun, expected map[string]st
 	return nil
 }
 
-func assertLiveSecurityFinding(t *testing.T, run livePublishedRun, provider string) {
-	t.Helper()
-	if liveSecurityFindingPresent(run, provider) {
-		return
+func livePrimaryAttempt(attempts []liveAttempt, provider string) (liveAttempt, bool) {
+	var result liveAttempt
+	found := false
+	for _, attempt := range attempts {
+		if attempt.SelectedAs != "primary" {
+			continue
+		}
+		if found || attempt.ProviderInstance != provider {
+			return liveAttempt{}, false
+		}
+		result, found = attempt, true
 	}
-	t.Fatalf("focused run has no security finding from %s: %#v", provider, run.review.Findings)
+	return result, found
 }
 
-func liveSecurityFindingPresent(run livePublishedRun, provider string) bool {
+func assertLiveRoleFinding(t *testing.T, run livePublishedRun, role, provider string) {
+	t.Helper()
+	if liveRoleFindingPresent(run, role, provider) {
+		return
+	}
+	t.Fatalf("focused run has no %s finding from %s: %#v", role, provider, run.review.Findings)
+}
+
+func liveRoleFindingPresent(run livePublishedRun, role, provider string) bool {
 	for _, finding := range run.review.Findings {
-		if finding.Role == "security" && finding.ProviderInstance == provider {
+		if finding.Role == role && finding.ProviderInstance == provider {
 			return true
 		}
 	}

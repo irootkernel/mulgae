@@ -196,6 +196,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 		Kind: domain.TargetKind(manifest.TargetKind), SHA256: strings.TrimPrefix(manifest.Target.SHA256, "sha256:"),
 		RepositoryID: manifest.RepositoryID, BaseObjectID: manifest.BaseObjectID, HeadObjectID: manifest.HeadObjectID,
 		HeadTreeObjectID: manifest.HeadTreeObjectID, IndexTreeObjectID: manifest.IndexTreeObjectID,
+		GitMode: domain.GitTargetMode(manifest.GitMode),
 	})
 	if err != nil {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity is invalid", err)
@@ -203,7 +204,26 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if identity.SHA256() != strings.TrimPrefix(manifest.Target.SHA256, "sha256:") {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity digest mismatch", nil)
 	}
-	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes()}, nil
+	var capturedArchive []byte
+	if manifest.CapturedArchive != nil {
+		if !validSHA256(manifest.CapturedArchive.SHA256) {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive identity is invalid", nil)
+		}
+		archivePath, pathErr := ports.NewSafeRelativePath(manifest.CapturedArchive.Path)
+		if pathErr != nil || index[archivePath.String()] != manifest.CapturedArchive.SHA256 {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive is not support-indexed", pathErr)
+		}
+		archiveArtifact, readErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, archivePath)
+		if readErr != nil {
+			return RuntimeTarget{}, readErr
+		}
+		material, decodeErr := ports.UnmarshalCapturedReviewMaterial(archiveArtifact.Bytes())
+		if decodeErr != nil || material.Target().Identity() != identity || !bytes.Equal(material.Target().Bytes(), targetArtifact.Bytes()) {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive target binding is invalid", decodeErr)
+		}
+		capturedArchive = archiveArtifact.Bytes()
+	}
+	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes(), capturedArchive: capturedArchive}, nil
 }
 
 func sameOptionalTargetOID(value string, expected *string) bool {
@@ -1497,7 +1517,7 @@ func buildRoles(values []finalRoleDTO) ([]Role, map[domain.Role][]string, error)
 	return buildRolesForRun(values, domain.RunTypeReview, nil)
 }
 
-func buildRolesForRun(values []finalRoleDTO, runType domain.RunType, replayMode *string) ([]Role, map[domain.Role][]string, error) {
+func buildRolesForRun(values []finalRoleDTO, _ domain.RunType, _ *string) ([]Role, map[domain.Role][]string, error) {
 	if len(values) == 0 {
 		return nil, nil, fmt.Errorf("final has no role outcomes")
 	}
@@ -1578,15 +1598,6 @@ func buildRolesForRun(values []finalRoleDTO, runType domain.RunType, replayMode 
 		}
 		if value.FailureReason != nil {
 			roles[index].failureReason = *value.FailureReason
-		}
-	}
-	singleRoleRerun := runType == domain.RunTypeRerun && replayMode != nil &&
-		(*replayMode == "exact" || *replayMode == "recompose")
-	if runType != domain.RunTypeFollowup && !singleRoleRerun {
-		for _, mandatory := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
-			if _, present := seen[mandatory]; !present {
-				return nil, nil, fmt.Errorf("mandatory role outcome is missing")
-			}
 		}
 	}
 	return roles, findingIDs, nil
@@ -1991,18 +2002,6 @@ func validateOutcomeProjection(
 		return fmt.Errorf("content axis does not match findings")
 	}
 	expectedCoverage := domain.CoverageComplete
-	if final.RunType == string(domain.RunTypeRerun) &&
-		final.ImmutableLineage.ReplayMode != nil && *final.ImmutableLineage.ReplayMode == "exact" {
-		mandatory := map[domain.Role]bool{domain.RoleLogic: false, domain.RoleSecurity: false}
-		for _, role := range roles {
-			if _, present := mandatory[role.Name()]; present {
-				mandatory[role.Name()] = true
-			}
-		}
-		if !mandatory[domain.RoleLogic] || !mandatory[domain.RoleSecurity] {
-			expectedCoverage = domain.CoverageIncomplete
-		}
-	}
 	for _, role := range roles {
 		switch role.Outcome() {
 		case "failed", "skipped":

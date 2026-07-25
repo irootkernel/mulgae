@@ -62,6 +62,20 @@ func (lifecycle *runtimeDiagnosticLifecycle) observeRunEvent(
 	return err
 }
 
+func (lifecycle *runtimeDiagnosticLifecycle) observeQualificationCandidate(
+	ctx context.Context,
+	observation ProviderQualificationObservation,
+) error {
+	_, err := lifecycle.emit(ctx, domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticInfo, Component: "qualification", Operation: "candidate",
+		Event:     domain.DiagnosticQualificationCandidateChecked,
+		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID,
+		Provider: observation.ProviderInstance(), Cause: observation.Cause(), Failure: observation.Failure(),
+		Mitigation: observation.Mitigation(), Outcome: observation.Outcome(),
+	})
+	return err
+}
+
 func (lifecycle *runtimeDiagnosticLifecycle) RuntimeDiagnosticSink(runID domain.RunID) (ports.RuntimeDiagnosticSink, bool) {
 	if lifecycle == nil || runID != lifecycle.identity.runID || nilInterface(lifecycle.sink) {
 		return nil, false
@@ -219,6 +233,9 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
 		return domain.RunFailed, domain.DiagnosticCauseLoginRequired
 	}
+	if cause := qualificationTerminalCause(err); cause.Valid() {
+		return domain.RunFailed, cause
+	}
 	var failure *domain.Failure
 	if errors.As(err, &failure) {
 		switch failure.Class() {
@@ -237,6 +254,40 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 		return domain.RunCancelled, ""
 	}
 	return domain.RunFailed, ""
+}
+
+func qualificationTerminalCause(err error) domain.RuntimeDiagnosticCause {
+	observations := qualificationObservationsFromError(err)
+	var cause domain.RuntimeDiagnosticCause
+	for _, observation := range observations {
+		if observation.Outcome() != qualificationOutcomeRejected || !observation.Cause().Valid() {
+			continue
+		}
+		if cause == "" {
+			cause = observation.Cause()
+			continue
+		}
+		if cause != observation.Cause() {
+			return domain.DiagnosticCauseObservationInvalid
+		}
+	}
+	if cause.Valid() {
+		return cause
+	}
+	failures, ok := ProviderQualificationFailuresFromError(err)
+	if !ok {
+		return ""
+	}
+	for _, failure := range failures {
+		if cause == "" {
+			cause = failure.DiagnosticCause()
+			continue
+		}
+		if cause != failure.DiagnosticCause() {
+			return domain.DiagnosticCauseObservationInvalid
+		}
+	}
+	return cause
 }
 
 func diagnosticArtifactFailure(stage string, cause error) error {

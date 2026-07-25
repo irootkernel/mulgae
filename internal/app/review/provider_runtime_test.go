@@ -312,6 +312,22 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	if got := runtimeProviderErrorCondition(context.Background(), ports.ErrProviderPacketSecurity); got != AttemptConditionSecurityViolation {
 		t.Fatalf("packet screening condition = %q, want security violation", got)
 	}
+	for _, cause := range []domain.RuntimeDiagnosticCause{
+		domain.DiagnosticCausePromptFilePreStartFailed,
+		domain.DiagnosticCausePromptFilePostEndFailed,
+		domain.DiagnosticCauseTransportReceiptMismatch,
+		domain.DiagnosticCauseLifecycleReceiptInvalid,
+		domain.DiagnosticCauseOutputFrameMismatch,
+		domain.DiagnosticCauseSignalReceiptMismatch,
+	} {
+		typed, err := ports.NewProviderRuntimeError(cause, errors.New("closed local detail"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionSecurityViolation {
+			t.Fatalf("transport/lifecycle cause %q condition = %q, want security violation", cause, got)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got := runtimeProviderErrorCondition(ctx, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {
@@ -387,6 +403,21 @@ func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
 	}
 	if got := initialValidationFailureCondition(plan); got != AttemptConditionInvalidProviderOutput {
 		t.Fatalf("planned validation failure condition = %q", got)
+	}
+}
+
+func TestPromptConstructionFailureDoesNotAuthorizeProviderOutputRepair(t *testing.T) {
+	if got := runtimePromptErrorCondition(context.Background(), errors.New("identity issuance failed")); got != AttemptConditionInternalInvariant {
+		t.Fatalf("prompt construction failure condition = %q, want %q", got, AttemptConditionInternalInvariant)
+	}
+	decision, err := DecideTransition(TransitionInput{
+		Condition: AttemptConditionInternalInvariant, FallbackConfigured: true, FallbackEligible: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.ScheduleRepair() || decision.ScheduleFallback() || decision.TerminalProjection() != TerminalProjectionFailed {
+		t.Fatalf("prompt construction decision = %#v", decision)
 	}
 }
 

@@ -156,7 +156,7 @@ func NewHarnessCeilings(
 // must pass it explicitly to PreflightRunBudget when these defaults are wanted.
 func DefaultHarnessCeilings() HarnessCeilings {
 	return HarnessCeilings{
-		maxTimeout:            4 * time.Minute,
+		maxTimeout:            6 * time.Minute,
 		maxStdoutBytes:        256 << 10,
 		maxStderrBytes:        256 << 10,
 		maxTotalOutput:        maxBudgetTotalOutputBytes,
@@ -206,7 +206,6 @@ const (
 	BudgetReasonInvalidCeilings       BudgetReasonCode = "invalid_ceilings"
 	BudgetReasonInvalidRole           BudgetReasonCode = "invalid_role"
 	BudgetReasonDuplicateRole         BudgetReasonCode = "duplicate_role"
-	BudgetReasonMissingRequiredRole   BudgetReasonCode = "missing_required_role"
 	BudgetReasonInvalidPrimaryRoute   BudgetReasonCode = "invalid_primary_route"
 	BudgetReasonInvalidFallbackRoute  BudgetReasonCode = "invalid_fallback_route"
 	BudgetReasonDuplicateRoleRoute    BudgetReasonCode = "duplicate_role_route"
@@ -225,7 +224,6 @@ func (code BudgetReasonCode) Valid() bool {
 		BudgetReasonInvalidCeilings,
 		BudgetReasonInvalidRole,
 		BudgetReasonDuplicateRole,
-		BudgetReasonMissingRequiredRole,
 		BudgetReasonInvalidPrimaryRoute,
 		BudgetReasonInvalidFallbackRoute,
 		BudgetReasonDuplicateRoleRoute,
@@ -522,11 +520,6 @@ func validateRoleSelection(roles []RoleBudget) BudgetReasonCode {
 	for _, role := range domain.FixedRoleOrder() {
 		if counts[role] > 1 {
 			return BudgetReasonDuplicateRole
-		}
-	}
-	for _, role := range domain.FixedRoleOrder() {
-		if role.RequiredFloor() && counts[role] == 0 {
-			return BudgetReasonMissingRequiredRole
 		}
 	}
 	for _, budget := range roles {

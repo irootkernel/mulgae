@@ -395,7 +395,7 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 		t.Fatalf("malformed usage result = %#v", malformed)
 	}
 
-	unavailable := fixture.application.Run(ctx, []string{"review", "--diff", "git"}, root)
+	unavailable := fixture.application.Run(ctx, []string{"review", "--dirty"}, root)
 	if unavailable.ExitCode() != app.ExitCodeReadiness || len(unavailable.Stdout()) != 0 || len(unavailable.Stderr()) == 0 {
 		t.Fatalf("authority-absent review result = %#v", unavailable)
 	}
@@ -1549,7 +1549,7 @@ func TestApplicationReviewAndPromptFailClosedWithoutAuthority(t *testing.T) {
 		argv []string
 		exit app.ExitCode
 	}{
-		{name: "review", argv: []string{"review", "--diff", "git"}, exit: app.ExitCodeReadiness},
+		{name: "review", argv: []string{"review", "--dirty"}, exit: app.ExitCodeReadiness},
 		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, exit: app.ExitCodeArtifact},
 	}
 	for _, test := range tests {
@@ -1647,6 +1647,37 @@ func TestNewReviewRunServicePreservesNilDependencies(t *testing.T) {
 	var typedNil *typedNilReviewRunInputSourceFactory
 	if got := NewReviewRunService(new(reviewrun.Service), typedNil); got != nil {
 		t.Fatalf("typed-nil factory adapter = %#v, want nil", got)
+	}
+}
+
+func TestPolicyReviewRunServiceUsesProjectDefaultOrExactExplicitSubset(t *testing.T) {
+	t.Parallel()
+	enabled := map[domain.Role]bool{
+		domain.RoleLogic: true, domain.RoleSecurity: true, domain.RoleDocumentation: true,
+	}
+	root := testReviewRunAnchoredRoot(t)
+	for _, test := range []struct {
+		name     string
+		request  ReviewRequest
+		want     []string
+		wantCall bool
+	}{
+		{name: "project default", request: ReviewRequest{roles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}}, want: []string{"logic", "security", "documentation"}, wantCall: true},
+		{name: "explicit optional only", request: ReviewRequest{roles: []string{"documentation"}, rolesExplicit: true}, want: []string{"documentation"}, wantCall: true},
+		{name: "disabled explicit role", request: ReviewRequest{roles: []string{"testing"}, rolesExplicit: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &reviewRunFake{}
+			service := NewPolicyReviewRunService(fake, []domain.Role{domain.RoleLogic, domain.RoleSecurity}, enabled)
+			_, err := service.StartReviewRun(context.Background(), test.request, root)
+			if test.wantCall {
+				if err != nil || fake.calls != 1 || !reflect.DeepEqual(fake.request.Roles(), test.want) || !fake.request.RolesExplicit() {
+					t.Fatalf("result err=%v calls=%d roles=%v explicit=%t", err, fake.calls, fake.request.Roles(), fake.request.RolesExplicit())
+				}
+			} else if err == nil || fake.calls != 0 {
+				t.Fatalf("disabled role err=%v calls=%d", err, fake.calls)
+			}
+		})
 	}
 }
 
@@ -1749,7 +1780,7 @@ func TestApplicationReviewRunServiceSeam(t *testing.T) {
 				fixture.application.reviewRuns = fake
 			}
 			ctx := context.WithValue(context.Background(), "review-context", test.name)
-			argv := []string{"review", "--diff", "git"}
+			argv := []string{"review", "--dirty"}
 			if test.wantCalls != 0 {
 				argv = append(argv, "--output", "json")
 			}
@@ -1827,7 +1858,7 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
 	machine := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--diff", "git", "--output", "json"},
+		[]string{"review", "--dirty", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
@@ -1866,7 +1897,7 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 
 	humanFixture := newFoundationFixture(t)
 	humanFixture.application.reviewRuns = &reviewRunFake{err: loginErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
 		string(human.Stderr()) != "kar: login required for provider kimi-default, zcode-default; authenticate outside KAR, then rerun the command\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
 		t.Fatalf("human login-required result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
@@ -1881,7 +1912,7 @@ func TestApplicationReviewDoesNotProjectUninstalledRuntimeDiagnosticURI(t *testi
 	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"kimi-default"}, cause)
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
-	result := fixture.application.Run(context.Background(), []string{"review", "--diff", "git", "--output", "json"}, testAnchoredRoot(t))
+	result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
 	var envelope struct {
 		Reasons []struct {
 			ArtifactURI *string `json:"artifact_uri"`
@@ -1918,7 +1949,7 @@ func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
 	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
 	machine := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--diff", "git", "--output", "json"},
+		[]string{"review", "--dirty", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
@@ -1946,7 +1977,7 @@ func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
 
 	humanFixture := newFoundationFixture(t)
 	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
 		string(human.Stderr()) != "kar: provider qualification failed: kimi-default=invalid_provider_output, zcode-default=timeout\n" {
 		t.Fatalf("human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
@@ -1983,7 +2014,7 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	fixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	machine := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--diff", "git", "--output", "json"},
+		[]string{"review", "--dirty", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSecurity)
@@ -2007,7 +2038,7 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 
 	humanFixture := newFoundationFixture(t)
 	humanFixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--diff", "git"}, testAnchoredRoot(t))
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
 		string(human.Stderr()) != "kar: provider execution failed: zcode-default=security_violation\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
 		t.Fatalf("human provider execution failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
@@ -3541,7 +3572,7 @@ func TestIntegrationProductionKARCompositionFailsClosedAtLiveBoundaries(t *testi
 		argv []string
 		exit app.ExitCode
 	}{
-		{name: "review", argv: []string{"review", "--diff", "git", "--output", "json"}, exit: app.ExitCodeUsage},
+		{name: "review", argv: []string{"review", "--dirty", "--output", "json"}, exit: app.ExitCodeUsage},
 		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"}, exit: app.ExitCodeArtifact},
 	} {
 		if stdout, stderr, exit := run(test.argv...); exit != test.exit || len(stdout) == 0 || len(stderr) != 0 {
@@ -3554,8 +3585,8 @@ func TestIntegrationProductionKARCompositionFailsClosedAtLiveBoundaries(t *testi
 		}
 	}
 	for _, argv := range [][]string{
-		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--output", "json"},
-		{"delta", "--since-run", testRunID, "--diff", "git", "--roles", "logic", "--output", "json"},
+		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--output", "json"},
+		{"delta", "--since-run", testRunID, "--dirty", "--roles", "logic", "--output", "json"},
 		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"},
 	} {
 		stdout, stderr, exit := run(argv...)

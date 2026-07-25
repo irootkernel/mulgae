@@ -16,6 +16,7 @@ type ProviderQualificationFailure struct {
 	providerInstance string
 	family           Family
 	reasonCode       string
+	diagnosticCause  domain.RuntimeDiagnosticCause
 	cause            error
 }
 
@@ -24,6 +25,9 @@ func (failure ProviderQualificationFailure) ProviderInstance() string {
 }
 func (failure ProviderQualificationFailure) Family() Family     { return failure.family }
 func (failure ProviderQualificationFailure) ReasonCode() string { return failure.reasonCode }
+func (failure ProviderQualificationFailure) DiagnosticCause() domain.RuntimeDiagnosticCause {
+	return failure.diagnosticCause
+}
 
 func newOperationalQualificationFailure(definition ports.ProviderRuntimeDefinition, cause error) (ProviderQualificationFailure, error) {
 	var typed *domain.Failure
@@ -51,6 +55,7 @@ func NewProviderQualificationFailure(providerInstance string, family Family, rea
 		providerInstance: providerInstance,
 		family:           family,
 		reasonCode:       reasonCode,
+		diagnosticCause:  qualificationDiagnosticCause(cause),
 		cause:            cause,
 	}
 	if err := failure.validate(); err != nil {
@@ -60,7 +65,7 @@ func NewProviderQualificationFailure(providerInstance string, family Family, rea
 }
 
 func (failure ProviderQualificationFailure) validate() error {
-	if failure.providerInstance == "" || !failure.family.Valid() || failure.cause == nil {
+	if failure.providerInstance == "" || !failure.family.Valid() || !failure.diagnosticCause.Valid() || failure.cause == nil {
 		return fmt.Errorf("review run: invalid provider qualification failure")
 	}
 	switch failure.reasonCode {
@@ -175,6 +180,21 @@ func (failure *ProviderQualificationFailuresError) Unwrap() error {
 	return failure.cause
 }
 
+func (failure *ProviderQualificationFailuresError) QualificationObservations() []ProviderQualificationObservation {
+	if failure == nil {
+		return nil
+	}
+	observations := make([]ProviderQualificationObservation, 0, len(failure.failures))
+	for _, item := range failure.failures {
+		candidate := qualificationObservationsFromError(item.cause)
+		if len(candidate) == 0 {
+			candidate = append(candidate, rejectedQualificationObservation(item.providerInstance, item.cause, false))
+		}
+		observations = append(observations, candidate...)
+	}
+	return observations
+}
+
 // ProviderQualificationFailuresFromError returns canonical safe rejection
 // records without exposing wrapped native causes.
 func ProviderQualificationFailuresFromError(err error) ([]ProviderQualificationFailure, bool) {
@@ -188,6 +208,7 @@ func ProviderQualificationFailuresFromError(err error) ([]ProviderQualificationF
 			providerInstance: item.providerInstance,
 			family:           item.family,
 			reasonCode:       item.reasonCode,
+			diagnosticCause:  item.diagnosticCause,
 		}
 	}
 	return result, true

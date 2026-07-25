@@ -511,6 +511,8 @@ func verifiedEvidenceSide(side validation.CurrentEvidenceSide) (evidence.Side, e
 		return evidence.SideHead, nil
 	case validation.CurrentEvidenceSideWorktree:
 		return evidence.SideWorktree, nil
+	case validation.CurrentEvidenceSideIndex:
+		return evidence.SideIndex, nil
 	default:
 		return "", fmt.Errorf("invalid current evidence side %q", side)
 	}

@@ -905,6 +905,7 @@ func canonicalCoordinatorTarget(target domain.TargetIdentity) (domain.TargetIden
 		HeadObjectID:      target.HeadObjectID(),
 		HeadTreeObjectID:  target.HeadTreeObjectID(),
 		IndexTreeObjectID: target.IndexTreeObjectID(),
+		GitMode:           target.GitMode(),
 	})
 	if err != nil {
 		return domain.TargetIdentity{}, fmt.Errorf("review coordinator: invalid target: %w", err)

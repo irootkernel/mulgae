@@ -391,6 +391,7 @@ type FollowupRuntimeArtifactInput struct {
 	RuntimePurpose               domain.InvocationPurpose
 	RuntimeRole                  domain.Role
 	RuntimeTarget                []byte
+	RuntimeCapturedArchive       []byte
 	RuntimeTargetIdentity        domain.TargetIdentity
 	RuntimeStdin                 []byte
 	RuntimeStdinSHA256           string
@@ -412,6 +413,7 @@ type runtimeArtifactInventory interface {
 	Purpose() domain.InvocationPurpose
 	Role() domain.Role
 	Target() []byte
+	CapturedArchive() []byte
 	TargetIdentity() domain.TargetIdentity
 	Stdin() []byte
 	StdinSHA256() string
@@ -434,6 +436,9 @@ func (input FollowupRuntimeArtifactInput) Purpose() domain.InvocationPurpose {
 }
 func (input FollowupRuntimeArtifactInput) Role() domain.Role { return input.RuntimeRole }
 func (input FollowupRuntimeArtifactInput) Target() []byte    { return cloneBytes(input.RuntimeTarget) }
+func (input FollowupRuntimeArtifactInput) CapturedArchive() []byte {
+	return cloneBytes(input.RuntimeCapturedArchive)
+}
 func (input FollowupRuntimeArtifactInput) TargetIdentity() domain.TargetIdentity {
 	return input.RuntimeTargetIdentity
 }
@@ -479,6 +484,7 @@ type preparedInvocation struct {
 
 type preparedRuntimeArtifact struct {
 	target                []byte
+	capturedArchive       []byte
 	targetSHA256          string
 	targetKind            domain.TargetKind
 	targetRepository      string
@@ -486,6 +492,7 @@ type preparedRuntimeArtifact struct {
 	targetHeadOID         string
 	targetHeadTreeOID     string
 	targetIndexTreeOID    string
+	targetGitMode         domain.GitTargetMode
 	stdin                 []byte
 	stdinSHA256           string
 	templateID            string
@@ -905,10 +912,12 @@ func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runt
 					identity := input.TargetIdentity()
 					invocation.runtime = &preparedRuntimeArtifact{
 						target: input.Target(), targetSHA256: identity.SHA256(), targetKind: identity.Kind(),
+						capturedArchive:  input.CapturedArchive(),
 						targetRepository: identity.RepositoryID(), targetBaseOID: identity.BaseObjectID(),
 						targetHeadOID: identity.HeadObjectID(), stdin: input.Stdin(),
 						targetHeadTreeOID: identity.HeadTreeObjectID(), targetIndexTreeOID: identity.IndexTreeObjectID(),
-						stdinSHA256: input.StdinSHA256(), templateID: input.TemplateID(),
+						targetGitMode: identity.GitMode(),
+						stdinSHA256:   input.StdinSHA256(), templateID: input.TemplateID(),
 						templateVersion: input.TemplateVersion(), templateSHA256: input.TemplateSHA256(),
 						sourceInvocationID: input.SourceInvocationID(), executionInvocationID: input.ExecutionInvocationID(),
 						scope: input.Scope(), role: input.Role(), adapterProfile: input.AdapterProfile(),
@@ -1298,16 +1307,6 @@ func (candidate PreparedCandidate) validate() error {
 			return fmt.Errorf("roles are not in deterministic order")
 		}
 	}
-	singleRoleRerun := candidate.lineage.runType == domain.RunTypeRerun &&
-		candidate.lineage.replayMode != nil
-	if candidate.lineage.runType != domain.RunTypeFollowup && !singleRoleRerun {
-		if _, ok := seenRoles[domain.RoleLogic]; !ok {
-			return fmt.Errorf("required logic role is absent")
-		}
-		if _, ok := seenRoles[domain.RoleSecurity]; !ok {
-			return fmt.Errorf("required security role is absent")
-		}
-	}
 	if err := validatePreparedFindings(candidate.findings, candidate.roles, candidate.target.sha256); err != nil {
 		return err
 	}
@@ -1495,7 +1494,7 @@ func reducePublicationEvidence(
 		case receipt.Status() == evidence.ReceiptUnverifiable &&
 			receipt.ReasonCode() == evidence.ReasonTargetUnavailable &&
 			finding.Severity() == domain.SeverityLow &&
-			(target.Kind() == domain.TargetPatch || target.Kind() == domain.TargetStdin):
+			(target.Kind() == domain.TargetWorkspace || target.Kind() == domain.TargetPatch || target.Kind() == domain.TargetStdin):
 			allowedException++
 		default:
 			rejected++
@@ -1975,6 +1974,7 @@ func validateTarget(target domain.TargetIdentity) error {
 	canonical, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
 		Kind: target.Kind(), SHA256: target.SHA256(), RepositoryID: target.RepositoryID(), BaseObjectID: target.BaseObjectID(),
 		HeadObjectID: target.HeadObjectID(), HeadTreeObjectID: target.HeadTreeObjectID(), IndexTreeObjectID: target.IndexTreeObjectID(),
+		GitMode: target.GitMode(),
 	})
 	if err != nil || canonical != target {
 		return fmt.Errorf("target identity is invalid")

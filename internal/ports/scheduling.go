@@ -1507,15 +1507,24 @@ func (observation ProcessObservation) Succeeded() bool {
 	switch observation.termination {
 	case ProcessTerminationExited:
 		exitCode, ok := final.ExitCode()
-		if !ok || !observation.hasExitCode || observation.exitCode != 0 || exitCode != 0 {
+		if !ok || !observation.hasExitCode || observation.exitCode != exitCode {
 			return false
 		}
-		for _, request := range lifecycle.SignalRequests() {
+		requests := lifecycle.SignalRequests()
+		for _, request := range requests {
 			if request.Reason() == ProcessGroupSignalRequestPostOutputEscalation {
 				return false
 			}
 		}
-		return true
+		if exitCode == 0 {
+			return true
+		}
+		// A provider may handle the accepted post-output SIGTERM and map that
+		// intentional teardown to a non-zero native exit. The exact stable
+		// frame predates the signal and remains authoritative; require the
+		// single bounded post-output request so an unrelated non-zero exit can
+		// never be promoted to success.
+		return hasFrame && len(requests) == 1 && requests[0].Reason() == ProcessGroupSignalRequestPostOutput
 	case ProcessTerminationSignaled:
 		signal, ok := final.Signal()
 		if !ok || !hasFrame {

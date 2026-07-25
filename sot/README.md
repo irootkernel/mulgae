@@ -194,7 +194,7 @@ kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
 A remediation check creates a new run in the same session:
 
 ```bash
-kar followup --run latest --finding F001 --diff git \
+kar followup --run latest --finding F001 --dirty \
   --objective "Verify only whether the original issue is resolved."
 ```
 

@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -21,7 +23,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 		family string
 		want   []string
 	}{
-		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"}},
+		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
 		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"}},
 		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "review bytes"}},
 	}
@@ -379,6 +381,51 @@ func TestRegistrySerializesEqualKeysAndAllowsDistinctKeys(t *testing.T) {
 	close(runner.release)
 	calls.Wait()
 }
+
+func TestRegistryRunsSixZCodeRoleInstancesConcurrentlyInSameGuardedCWD(t *testing.T) {
+	runner := newBarrierRunner()
+	instances := []string{"zcode-logic", "zcode-security", "zcode-maintainability", "zcode-product", "zcode-documentation", "zcode-testing"}
+	definitions := make([]definition, 0, len(instances))
+	for _, instance := range instances {
+		definitions = append(definitions, testDefinition(t, FamilyZcode, instance, instance))
+	}
+	registry, err := newRegistry(context.Background(), runner, definitions...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, identity := testWorkspaceRoot(t)
+	var calls sync.WaitGroup
+	calls.Add(len(instances))
+	for _, instance := range instances {
+		instance := instance
+		events := []string{}
+		authority := &workspaceAuthorityFake{identity: identity, guard: &workspaceGuardFake{root: root, identity: identity, events: &events}, events: &events}
+		go func() {
+			defer calls.Done()
+			_, _ = registry.Observe(context.Background(), testWorkspaceInvocation(t, instance, authority))
+		}()
+	}
+	for index := 0; index < len(instances); index++ {
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("six ZCode role instances did not enter the runner concurrently")
+		}
+	}
+	if active := runner.activeCount(); active != len(instances) {
+		t.Fatalf("active ZCode requests = %d, want %d", active, len(instances))
+	}
+	directories := runner.workingDirectories()
+	wantDirectories := make([]string, len(instances))
+	for index := range wantDirectories {
+		wantDirectories[index] = root.Path()
+	}
+	if !reflect.DeepEqual(directories, wantDirectories) {
+		t.Fatalf("ZCode working directories = %v, want shared guarded root %q", directories, root.Path())
+	}
+	close(runner.release)
+	calls.Wait()
+}
 func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 	runner := newBarrierRunner()
 	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "shared_lane"))
@@ -520,7 +567,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			stdout:       []byte("{\"role\":\"system\",\"content\":\"ignored\"}\n{\"role\":\"assistant\",\"content\":\"answer\"}\n"),
 			wantResult:   []byte("answer"),
 			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/k3", "--prompt", "review bytes", "--output-format", "stream-json"},
+			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"},
 		},
 		{
 			family:       FamilyZcode,
@@ -1145,16 +1192,33 @@ func cloneRuntimeDefinition(profile RuntimeDefinition) RuntimeDefinition {
 	return profile
 }
 
+func TestProviderFailureProjectionKeepsTransportLifecycleSubtypesSecurityClosed(t *testing.T) {
+	for _, cause := range []domain.RuntimeDiagnosticCause{
+		domain.DiagnosticCausePromptFilePreStartFailed,
+		domain.DiagnosticCausePromptFilePostEndFailed,
+		domain.DiagnosticCauseTransportReceiptMismatch,
+		domain.DiagnosticCauseLifecycleReceiptInvalid,
+		domain.DiagnosticCauseOutputFrameMismatch,
+		domain.DiagnosticCauseSignalReceiptMismatch,
+	} {
+		status, diagnostic := providerFailureProjection(cause)
+		if status != ports.ProviderExecutionStatusSecurityViolation || diagnostic != "process_security" {
+			t.Fatalf("cause %q projection = (%q, %q)", cause, status, diagnostic)
+		}
+	}
+}
+
 type barrierRunner struct {
-	started chan struct{}
-	release chan struct{}
-	mu      sync.Mutex
-	active  int
+	started     chan struct{}
+	release     chan struct{}
+	mu          sync.Mutex
+	active      int
+	directories []string
 }
 
 func newBarrierRunner() *barrierRunner {
 	return &barrierRunner{
-		started: make(chan struct{}, 2),
+		started: make(chan struct{}, 4),
 		release: make(chan struct{}),
 	}
 }
@@ -1162,6 +1226,7 @@ func newBarrierRunner() *barrierRunner {
 func (runner *barrierRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
 	runner.mu.Lock()
 	runner.active++
+	runner.directories = append(runner.directories, request.WorkingDirectory())
 	runner.mu.Unlock()
 	defer func() {
 		runner.mu.Lock()
@@ -1170,6 +1235,9 @@ func (runner *barrierRunner) Run(_ context.Context, request ports.ProcessRequest
 	}()
 	runner.started <- struct{}{}
 	<-runner.release
+	if directory, _, ok := request.BoundLaunchDirectory(); ok {
+		_ = directory.Close()
+	}
 	receipt, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
 	if err != nil {
 		return ports.ProcessObservation{}, err
@@ -1187,6 +1255,14 @@ func (runner *barrierRunner) Run(_ context.Context, request ports.ProcessRequest
 	}
 	exitCode := 0
 	return ports.NewProviderProcessObservation([]byte("{}"), nil, &exitCode, ports.ProcessTerminationExited, receipt, transport, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
+}
+
+func (runner *barrierRunner) workingDirectories() []string {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	result := append([]string(nil), runner.directories...)
+	sort.Strings(result)
+	return result
 }
 
 func (runner *barrierRunner) activeCount() int {

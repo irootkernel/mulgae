@@ -40,7 +40,7 @@ func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, i
 		}
 		objective = &candidate
 	}
-	captured, err := NewImmutableReviewInputWithProjectContext(input.Target(), input.Objective(), input.HasObjective(), input.ProjectContext(), input.HasProjectContext())
+	captured, err := NewImmutableReviewInputWithCapturedArchive(input.Target(), input.Objective(), input.HasObjective(), input.ProjectContext(), input.HasProjectContext(), input.CapturedArchive())
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (source *promptSource) Prompt(ctx context.Context, job review.InvocationJob
 		return review.RuntimePrompt{}, err
 	}
 	return review.RuntimePrompt{
-		Prompt: compiled, Target: source.input.Target().Bytes(), AdapterProfile: "root-review",
+		Prompt: compiled, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: "root-review",
 		AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest},
 	}, nil
 }
@@ -141,7 +141,7 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	return review.RuntimePrompt{Prompt: compiled, Target: append([]byte(nil), material.CurrentTarget...), AdapterProfile: "root-review", AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest}}, nil
+	return review.RuntimePrompt{Prompt: compiled, Target: append([]byte(nil), material.CurrentTarget...), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: "root-review", AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest}}, nil
 }
 
 // ExactReplayPrompt validates persisted stdin as a canonical packet and mints
@@ -177,7 +177,7 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), AdapterProfile: input.AdapterProfile, AdapterParameters: input.AdapterParameters}, nil
+	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: input.AdapterProfile, AdapterParameters: input.AdapterParameters}, nil
 }
 func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput) prompt.CompileInput {
 	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(input.Target().Bytes())}

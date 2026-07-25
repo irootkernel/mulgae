@@ -542,6 +542,7 @@ const (
 	RunSupportArtifactInvocationStderr  RunSupportArtifactKind = "invocation_stderr"
 	RunSupportArtifactTargetBytes       RunSupportArtifactKind = "target_bytes"
 	RunSupportArtifactTargetManifest    RunSupportArtifactKind = "target_manifest"
+	RunSupportArtifactCapturedArchive   RunSupportArtifactKind = "captured_archive"
 	RunSupportArtifactPromptStdin       RunSupportArtifactKind = "prompt_stdin"
 	RunSupportArtifactPromptManifest    RunSupportArtifactKind = "prompt_manifest"
 	RunSupportArtifactSupportIndex      RunSupportArtifactKind = "support_index"
@@ -554,6 +555,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactInitialCandidate, RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
+		RunSupportArtifactCapturedArchive,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex:
 		return true
@@ -804,6 +806,9 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	}
 	if relative == "target/target-manifest.json" {
 		return RunSupportArtifactTargetManifest, nil
+	}
+	if relative == "target/captured-review.json" {
+		return RunSupportArtifactCapturedArchive, nil
 	}
 	if relative == "support/index.json" {
 		return RunSupportArtifactSupportIndex, nil

@@ -93,6 +93,36 @@ func (qualifierRegistryFactory) RegistryFromConstructionError(error) (ports.Prov
 	return nil, false
 }
 
+type qualifierRegistrySequenceFactory struct {
+	registries []*qualifierRegistry
+	calls      int
+}
+
+func (factory *qualifierRegistrySequenceFactory) NewProviderQualificationRegistry(_ context.Context, _ []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
+	if factory.calls >= len(factory.registries) {
+		return nil, errors.New("unexpected registry construction")
+	}
+	registry := factory.registries[factory.calls]
+	factory.calls++
+	return registry, nil
+}
+
+func (*qualifierRegistrySequenceFactory) RegistryFromConstructionError(error) (ports.ProviderQualificationRegistry, bool) {
+	return nil, false
+}
+
+type qualifierLoginAuthenticator struct {
+	calls       int
+	definitions []ports.ProviderRuntimeDefinition
+	err         error
+}
+
+func (authenticator *qualifierLoginAuthenticator) LoginProvider(_ context.Context, definition ports.ProviderRuntimeDefinition) error {
+	authenticator.calls++
+	authenticator.definitions = append(authenticator.definitions, definition)
+	return authenticator.err
+}
+
 func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *testing.T) {
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := DiscoveredProviderProfile{family: FamilyKimi, executable: "/private/bin/kimi", launcher: "/private/bin/kimi", argv: []string{"/private/bin/kimi"}, sha256: qualifierTestSHA, launcherSHA256: qualifierTestSHA, reason: "unqualified_discovery"}
@@ -419,6 +449,157 @@ func TestQualifiedRunFactoryDoesNotSkipLoginRequiredCandidate(t *testing.T) {
 	}
 	if terminal, ok := ProviderRunTerminalReceiptFromError(err); !ok || !terminal.Valid() {
 		t.Fatalf("login-required terminal cleanup = %#v present=%t", terminal, ok)
+	}
+}
+
+func TestQualifiedRunFactoryLogsInKimiOnceAndRestartsWithFreshNamespace(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	candidate := authorityCandidateForRoles(t, FamilyKimi, "kimi-main", []domain.Role{domain.RoleLogic})
+	registry := func(generation string) *qualifierRegistry {
+		namespace := &qualifierNamespace{instance: candidate.Definition.Instance(), generation: generation, policy: candidate.Definition.RuntimeSafetyPolicyIdentity()}
+		return &qualifierRegistry{
+			namespaces: map[string]ports.ProviderQualificationNamespace{candidate.Definition.Instance(): namespace},
+			receipt:    mustProviderRunTerminalReceipt(t, acquiredProviderNamespaceTerminalReceipt(t, candidate.Definition.Instance(), generation)),
+		}
+	}
+	first, second := registry("generation-1"), registry("generation-1")
+	registries := &qualifierRegistrySequenceFactory{registries: []*qualifierRegistry{first, second}}
+	authenticator := &qualifierLoginAuthenticator{}
+	qualifications := 0
+	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		qualifications++
+		if qualifications == 1 {
+			cause, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation := rejectedQualificationObservation(request.Definition.Instance(), cause, false)
+			return CurrentQualificationResult{}, withQualificationObservations(NewProviderLoginRequiredError([]string{request.Definition.Instance()}, cause), []ProviderQualificationObservation{observation})
+		}
+		if request.Namespace == first.namespaces[candidate.Definition.Instance()] {
+			t.Fatal("retry reused the drained qualification namespace")
+		}
+		result, err := authorityQualifier(t, now).QualifyCurrent(context.Background(), request)
+		if err != nil {
+			return CurrentQualificationResult{}, err
+		}
+		result.Observations = []ProviderQualificationObservation{qualifiedQualificationObservation(request.Definition.Instance())}
+		return result, nil
+	})
+	factory, err := NewQualifiedRunFactoryWithLoginAuthenticator(qualifier, registries, qualifierClock{now: now}, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authenticator.calls != 1 || len(authenticator.definitions) != 1 || authenticator.definitions[0].Instance() != candidate.Definition.Instance() {
+		t.Fatalf("login calls = %d definitions=%#v", authenticator.calls, authenticator.definitions)
+	}
+	if qualifications != 2 || registries.calls != 2 || first.closed != 1 || second.closed != 0 {
+		t.Fatalf("attempts=%d registries=%d closes=(%d,%d)", qualifications, registries.calls, first.closed, second.closed)
+	}
+	observations := run.QualificationObservations()
+	if len(observations) != 2 || observations[0].Mitigation() != qualificationMitigationLogin || observations[1].Outcome() != qualificationOutcomeQualified {
+		t.Fatalf("login recovery observations = %#v", observations)
+	}
+	if _, err := run.Registry().Close(context.Background()); err != nil || second.closed != 1 {
+		t.Fatalf("close recovered run: %v; closes=%d", err, second.closed)
+	}
+}
+
+func TestQualifiedRunFactoryDoesNotAutoLoginForNonKimiProvider(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	registry := newAuthorityRegistry(t)
+	authenticator := &qualifierLoginAuthenticator{}
+	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		cause, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return CurrentQualificationResult{}, NewProviderLoginRequiredError([]string{request.Definition.Instance()}, cause)
+	})
+	factory, err := NewQualifiedRunFactoryWithLoginAuthenticator(qualifier, qualifierRegistryFactory{registry: registry}, qualifierClock{now: now}, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{authorityCandidate(t)})
+	if _, ok := ProviderLoginRequiredProvidersFromError(err); !ok || authenticator.calls != 0 || registry.closed != 1 {
+		t.Fatalf("non-Kimi recovery: error=%v login calls=%d closes=%d", err, authenticator.calls, registry.closed)
+	}
+}
+
+func TestQualifiedRunFactoryBoundsKimiLoginRecoveryToOneAttempt(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	candidate := authorityCandidateForRoles(t, FamilyKimi, "kimi-main", []domain.Role{domain.RoleLogic})
+	registry := func() *qualifierRegistry {
+		return &qualifierRegistry{
+			namespaces: map[string]ports.ProviderQualificationNamespace{candidate.Definition.Instance(): &qualifierNamespace{
+				instance: candidate.Definition.Instance(), generation: "generation-1", policy: candidate.Definition.RuntimeSafetyPolicyIdentity(),
+			}},
+			receipt: mustProviderRunTerminalReceipt(t, acquiredProviderNamespaceTerminalReceipt(t, candidate.Definition.Instance(), "generation-1")),
+		}
+	}
+	first, second := registry(), registry()
+	registries := &qualifierRegistrySequenceFactory{registries: []*qualifierRegistry{first, second}}
+	authenticator := &qualifierLoginAuthenticator{}
+	qualifications := 0
+	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		qualifications++
+		cause, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation := rejectedQualificationObservation(request.Definition.Instance(), cause, false)
+		return CurrentQualificationResult{}, withQualificationObservations(NewProviderLoginRequiredError([]string{request.Definition.Instance()}, cause), []ProviderQualificationObservation{observation})
+	})
+	factory, err := NewQualifiedRunFactoryWithLoginAuthenticator(qualifier, registries, qualifierClock{now: now}, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{candidate})
+	providers, loginRequired := ProviderLoginRequiredProvidersFromError(err)
+	if !loginRequired || len(providers) != 1 || providers[0] != candidate.Definition.Instance() {
+		t.Fatalf("bounded recovery error = providers %#v error %v", providers, err)
+	}
+	if authenticator.calls != 1 || qualifications != 2 || registries.calls != 2 || first.closed != 1 || second.closed != 1 {
+		t.Fatalf("login=%d qualifications=%d registries=%d closes=(%d,%d)", authenticator.calls, qualifications, registries.calls, first.closed, second.closed)
+	}
+	observations := qualificationObservationsFromError(err)
+	if len(observations) != 2 || observations[0].Mitigation() != qualificationMitigationLogin || observations[1].Mitigation() != "" {
+		t.Fatalf("bounded recovery observations = %#v", observations)
+	}
+}
+
+func TestQualifiedRunFactoryDoesNotLoginBeforeQualificationNamespaceDrains(t *testing.T) {
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	candidate := authorityCandidateForRoles(t, FamilyKimi, "kimi-main", []domain.Role{domain.RoleLogic})
+	registry := &qualifierRegistry{
+		namespaces: map[string]ports.ProviderQualificationNamespace{candidate.Definition.Instance(): &qualifierNamespace{
+			instance: candidate.Definition.Instance(), generation: "generation-1", policy: candidate.Definition.RuntimeSafetyPolicyIdentity(),
+		}},
+		receipt:   mustProviderRunTerminalReceipt(t, acquiredProviderNamespaceTerminalReceipt(t, candidate.Definition.Instance(), "generation-1")),
+		closeErrs: []error{errors.New("first drain failed"), errors.New("second drain failed")},
+	}
+	authenticator := &qualifierLoginAuthenticator{}
+	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+		cause, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return CurrentQualificationResult{}, NewProviderLoginRequiredError([]string{request.Definition.Instance()}, cause)
+	})
+	factory, err := NewQualifiedRunFactoryWithLoginAuthenticator(qualifier, qualifierRegistryFactory{registry: registry}, qualifierClock{now: now}, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{candidate})
+	if err == nil || authenticator.calls != 0 || registry.closed != 2 {
+		t.Fatalf("incomplete drain recovery: error=%v login=%d closes=%d", err, authenticator.calls, registry.closed)
+	}
+	if _, ok := QualifiedRunRegistryFromError(err); !ok {
+		t.Fatalf("incomplete drain did not retain cleanup authority: %v", err)
 	}
 }
 

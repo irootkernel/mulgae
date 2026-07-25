@@ -350,24 +350,22 @@ func (service unavailableReviewRunService) StartReviewRun(
 }
 
 // NewPolicyReviewRunService binds the resolved production role policy at the
-// command boundary. Requested roles may add enabled roles, but cannot omit a
-// required role or select a disabled role.
-func NewPolicyReviewRunService(service ReviewRunService, required []domain.Role, enabled map[domain.Role]bool) ReviewRunService {
+// command boundary. An omitted --roles selects every enabled project role;
+// an explicit --roles selects exactly that enabled non-empty subset.
+func NewPolicyReviewRunService(service ReviewRunService, _ []domain.Role, enabled map[domain.Role]bool) ReviewRunService {
 	if nilApplicationDependency(service) {
 		return nil
 	}
-	requiredCopy := append([]domain.Role(nil), required...)
 	enabledCopy := make(map[domain.Role]bool, len(enabled))
 	for role, allowed := range enabled {
 		enabledCopy[role] = allowed
 	}
-	return policyReviewRunService{service: service, required: requiredCopy, enabled: enabledCopy}
+	return policyReviewRunService{service: service, enabled: enabledCopy}
 }
 
 type policyReviewRunService struct {
-	service  ReviewRunService
-	required []domain.Role
-	enabled  map[domain.Role]bool
+	service ReviewRunService
+	enabled map[domain.Role]bool
 }
 
 func (service policyReviewRunService) StartReviewRun(
@@ -375,21 +373,22 @@ func (service policyReviewRunService) StartReviewRun(
 	request ReviewRequest,
 	root ports.AnchoredRoot,
 ) (ReviewRunResult, error) {
-	selected := make(map[domain.Role]bool, len(request.roles)+len(service.required))
-	for _, raw := range request.roles {
-		role := domain.Role(raw)
-		if !role.Valid() || !service.enabled[role] {
-			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "requested role is not enabled by production policy", nil)
-			return ReviewRunResult{}, failure
+	selected := make(map[domain.Role]bool, len(request.roles))
+	if request.rolesExplicit {
+		for _, raw := range request.roles {
+			role := domain.Role(raw)
+			if !role.Valid() || !service.enabled[role] {
+				failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "requested role is not enabled by production policy", nil)
+				return ReviewRunResult{}, failure
+			}
+			selected[role] = true
 		}
-		selected[role] = true
-	}
-	for _, role := range service.required {
-		if !service.enabled[role] {
-			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "required role is not enabled by production policy", nil)
-			return ReviewRunResult{}, failure
+	} else {
+		for _, role := range domain.FixedRoleOrder() {
+			if service.enabled[role] {
+				selected[role] = true
+			}
 		}
-		selected[role] = true
 	}
 	request.roles = request.roles[:0]
 	for _, role := range domain.FixedRoleOrder() {
@@ -397,6 +396,7 @@ func (service policyReviewRunService) StartReviewRun(
 			request.roles = append(request.roles, string(role))
 		}
 	}
+	request.rolesExplicit = true
 	return service.service.StartReviewRun(ctx, request, root)
 }
 
@@ -466,7 +466,7 @@ func (adapter reviewRunAdapter) StartReviewRun(
 
 func validReviewRunRequest(request ReviewRequest) bool {
 	switch request.target.kind {
-	case "diff", "patch", "stdin":
+	case "workspace", "stage", "dirty", "diff", "patch", "stdin":
 	default:
 		return false
 	}
@@ -1098,11 +1098,12 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			SelectedProviderIDs   []string `json:"selected_provider_ids"`
 			CandidateProviderIDs  []string `json:"candidate_provider_ids"`
 			ConfiguredProviderIDs []string `json:"configured_provider_ids"`
+			ConfiguredRoleIDs     []string `json:"configured_role_ids"`
 			WriteState            string   `json:"write_state"`
 			Committed             bool     `json:"committed"`
 			DestinationState      string   `json:"destination_state"`
 			Discovery             []any    `json:"discovery"`
-		}{"initialization_failed", ".kar/config.yaml", "", ids, []string{}, []string{}, "not_attempted", false, "not_observed", []any{}})
+		}{"initialization_failed", ".kar/config.yaml", "", ids, []string{}, []string{}, []string{}, "not_attempted", false, "not_observed", []any{}})
 	case app.CommandReview:
 		return json.Marshal(struct {
 			Kind              string  `json:"kind"`

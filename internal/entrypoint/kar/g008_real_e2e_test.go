@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +129,7 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 	}{
 		{name: "followup", argv: []string{"followup", "--run", root.RunID.String(), "--finding", "F001", "--patch", "current.patch"}, exit: app.ExitCodePolicy},
 		{name: "delta", argv: []string{"delta", "--since-run", root.RunID.String(), "--patch", "current.patch", "--roles", "logic,security"}, exit: app.ExitCodePolicy},
-		{name: "exact rerun", argv: []string{"rerun", "--run", root.RunID.String(), "--attempt", root.AttemptID.String(), "--replay", "exact"}, exit: app.ExitCodeReadiness},
+		{name: "exact rerun", argv: []string{"rerun", "--run", root.RunID.String(), "--attempt", root.AttemptID.String(), "--replay", "exact"}, exit: app.ExitCodePolicy},
 		{name: "recomposed rerun", argv: []string{"rerun", "--run", root.RunID.String(), "--attempt", root.AttemptID.String(), "--replay", "recompose"}, exit: app.ExitCodePolicy},
 	} {
 		result := application.Run(context.Background(), test.argv, fixture.root.String())
@@ -213,6 +214,9 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		}
 		committed, err := fixture.queries.ReadCommitted(context.Background(), run)
 		if err != nil {
+			for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+				t.Logf("run %s committed read cause: %v", candidate.RunID, cause)
+			}
 			t.Fatalf("run %s committed read: %v", candidate.RunID, err)
 		}
 		if strings.TrimPrefix(committed.FinalSHA256(), "sha256:") != g008RealTargetHash(committed.FinalBytes()) ||
@@ -309,8 +313,8 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 					t.Fatalf("delta lineage unexpectedly has replay authority: %#v", lineage)
 				}
 			case "exact rerun", "recomposed rerun":
-				if committed.CoverageStatus() != domain.CoverageIncomplete && workflow == "exact rerun" {
-					t.Fatalf("exact rerun child coverage = %q, want incomplete", committed.CoverageStatus())
+				if committed.CoverageStatus() != domain.CoverageComplete && workflow == "exact rerun" {
+					t.Fatalf("exact rerun child coverage = %q, want complete selected-role coverage", committed.CoverageStatus())
 				}
 				wantMode := query.ReplayModeExact
 				if workflow == "recomposed rerun" {

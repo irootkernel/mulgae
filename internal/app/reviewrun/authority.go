@@ -153,6 +153,7 @@ func restrictCandidatesToSelectedAssignments(candidates []QualifiedRunCandidate,
 	}
 
 	restricted := make([]QualifiedRunCandidate, 0, len(candidates))
+	coverage := make(map[Family]map[domain.Role]int, len(rolesByFamily))
 	for _, candidate := range candidates {
 		family := Family(candidate.Definition.Family())
 		assigned := rolesByFamily[family]
@@ -165,22 +166,30 @@ func restrictCandidatesToSelectedAssignments(candidates []QualifiedRunCandidate,
 		}
 		roles := make([]domain.Role, 0, len(assigned))
 		for _, role := range assigned {
-			if _, ok := supported[role]; !ok {
-				return nil, fmt.Errorf("review run: configured %s candidate does not declare selected role %q", family, role)
+			if _, ok := supported[role]; ok {
+				roles = append(roles, role)
 			}
-			roles = append(roles, role)
 		}
 		roles = canonicalSelectedRoles(roles)
-		base := roles[0]
+		if len(roles) == 0 {
+			continue
+		}
+		if coverage[family] == nil {
+			coverage[family] = make(map[domain.Role]int)
+		}
 		for _, role := range roles {
-			if role == domain.RoleLogic {
-				base = role
-				break
-			}
+			coverage[family][role]++
 		}
 		candidate.SupportedRoles = roles
-		candidate.BaseRole = base
+		candidate.BaseRole = qualificationBaseRole(roles)
 		restricted = append(restricted, candidate)
+	}
+	for family, roles := range rolesByFamily {
+		for _, role := range canonicalSelectedRoles(roles) {
+			if coverage[family][role] != 1 {
+				return nil, fmt.Errorf("review run: configured %s role %q does not resolve to exactly one candidate", family, role)
+			}
+		}
 	}
 	if len(restricted) == 0 {
 		return nil, fmt.Errorf("review run: no candidate is assigned to a selected role")
@@ -288,6 +297,13 @@ func (authority *runAuthority) BuildIdentity() BuildIdentity {
 		return BuildIdentity{}
 	}
 	return authority.build
+}
+
+func (authority *runAuthority) QualificationObservations() []ProviderQualificationObservation {
+	if authority == nil || authority.run == nil {
+		return nil
+	}
+	return authority.run.QualificationObservations()
 }
 
 func (authority *runAuthority) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {

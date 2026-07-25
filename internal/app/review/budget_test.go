@@ -131,6 +131,65 @@ func TestPreflightRunBudgetIndependentLanesUseMaximumDeadline(t *testing.T) {
 	}
 }
 
+func TestPreflightRunBudgetAcceptsProductionSixRoleTopology(t *testing.T) {
+	t.Parallel()
+
+	standard := budgetTestLimits(t, 4*time.Minute, 256<<10, 256<<10)
+	zcode := budgetTestLimits(t, 6*time.Minute, 256<<10, 256<<10)
+	route := func(instance string) RouteBudget {
+		t.Helper()
+		limits := standard
+		if len(instance) >= len("zcode-") && instance[:len("zcode-")] == "zcode-" {
+			limits = zcode
+		}
+		return budgetTestRoute(t, instance, instance, limits)
+	}
+	role := func(name domain.Role, primary, fallback string) RoleBudget {
+		t.Helper()
+		primaryRoute := route(primary)
+		fallbackRoute := route(fallback)
+		return budgetTestRole(t, name, primaryRoute, &fallbackRoute)
+	}
+	roles := []RoleBudget{
+		role(domain.RoleLogic, "kimi-logic", "zcode-logic"),
+		role(domain.RoleSecurity, "zcode-security", "agy-security"),
+		role(domain.RoleMaintainability, "zcode-maintainability", "agy-maintainability"),
+		role(domain.RoleProduct, "zcode-product", "agy-product"),
+		role(domain.RoleDocumentation, "agy-documentation", "zcode-documentation"),
+		role(domain.RoleTesting, "zcode-testing", "agy-testing"),
+	}
+
+	receipt, err := PreflightRunBudget(roles, DefaultHarnessCeilings())
+	if err != nil {
+		t.Fatalf("PreflightRunBudget() error = %v", err)
+	}
+	if !receipt.Eligible() || receipt.TotalInvocations() != 24 {
+		t.Fatalf("production receipt = eligible=%t reason=%q invocations=%d",
+			receipt.Eligible(), receipt.ReasonCode(), receipt.TotalInvocations())
+	}
+	wantDeadlines := map[string]time.Duration{
+		"kimi-logic": 8*time.Minute + 4*time.Second, "zcode-logic": 12*time.Minute + 2*time.Second,
+		"zcode-security": 12*time.Minute + 4*time.Second, "agy-security": 8*time.Minute + 2*time.Second,
+		"zcode-maintainability": 12*time.Minute + 4*time.Second, "agy-maintainability": 8*time.Minute + 2*time.Second,
+		"zcode-product": 12*time.Minute + 4*time.Second, "agy-product": 8*time.Minute + 2*time.Second,
+		"agy-documentation": 8*time.Minute + 4*time.Second, "zcode-documentation": 12*time.Minute + 2*time.Second,
+		"zcode-testing": 12*time.Minute + 4*time.Second, "agy-testing": 8*time.Minute + 2*time.Second,
+	}
+	for _, lane := range receipt.LaneDeadlines() {
+		want, ok := wantDeadlines[lane.ConcurrencyKey().String()]
+		if !ok || lane.Deadline() != want {
+			t.Fatalf("lane %q deadline = %s, want %s", lane.ConcurrencyKey(), lane.Deadline(), want)
+		}
+		delete(wantDeadlines, lane.ConcurrencyKey().String())
+	}
+	if len(wantDeadlines) != 0 {
+		t.Fatalf("missing production lane deadlines: %v", wantDeadlines)
+	}
+	if got, want := receipt.RunDeadline(), 12*time.Minute+9*time.Second; got != want {
+		t.Fatalf("production run deadline = %s, want %s", got, want)
+	}
+}
+
 func TestPreflightRunBudgetLaneAndRunDeadlineOneOver(t *testing.T) {
 	t.Parallel()
 
@@ -212,11 +271,10 @@ func TestPreflightRunBudgetAcceptsRoleSubsetsAndRejectsInvalidSelection(t *testi
 	duplicate := append(append([]RoleBudget(nil), roles...), roles[0])
 	assertBudgetRejection(t, duplicate, ceilings, BudgetReasonDuplicateRole)
 
-	missingLogic := append([]RoleBudget(nil), roles[1:]...)
-	assertBudgetRejection(t, missingLogic, ceilings, BudgetReasonMissingRequiredRole)
-
-	missingSecurity := append([]RoleBudget{roles[0]}, roles[2:]...)
-	assertBudgetRejection(t, missingSecurity, ceilings, BudgetReasonMissingRequiredRole)
+	optionalOnly, err := PreflightRunBudget(roles[5:], ceilings)
+	if err != nil || !optionalOnly.Eligible() {
+		t.Fatalf("optional-only subset rejected: receipt=%#v error=%v", optionalOnly, err)
+	}
 
 	invalidRole := append([]RoleBudget(nil), roles...)
 	invalidRole[0].role = domain.Role("invalid")
@@ -282,7 +340,7 @@ func TestDefaultHarnessCeilingsAreClosedAndValid(t *testing.T) {
 	}
 	if ceilings.MaxInvocationsPerRole() != 4 ||
 		ceilings.MaxInvocationsPerRun() != 24 ||
-		ceilings.MaxTimeout() != 4*time.Minute ||
+		ceilings.MaxTimeout() != 6*time.Minute ||
 		ceilings.MaxTotalOutput() != 64<<20 ||
 		ceilings.MaxRunDeadline() != 50*time.Minute {
 		t.Fatalf("default ceilings = role=%d run=%d timeout=%s output=%d deadline=%s",

@@ -124,11 +124,12 @@ func (assignment RoleProviderAssignment) Fallback() (Family, bool) {
 // provider assignments, and outcome policy. Zero threshold, ceilings, and lane
 // count select the closed defaults; assignments never default.
 type PlannerPolicy struct {
-	Ceilings    review.HarnessCeilings
-	Threshold   domain.Severity
-	Policy      *domain.CIPolicy
-	MaxLanes    int
-	Assignments []RoleProviderAssignment
+	Ceilings      review.HarnessCeilings
+	Threshold     domain.Severity
+	Policy        *domain.CIPolicy
+	MaxLanes      int
+	Assignments   []RoleProviderAssignment
+	RequiredRoles []domain.Role
 }
 
 // DefaultPlannerPolicy returns the closed planner policy used when no narrower
@@ -270,7 +271,11 @@ func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primari
 			}
 			fallbackRoute, fallbackBudget = &route, &budget
 		}
-		assignment, err := review.NewScheduledAssignment(role, role.RequiredFloor(), primaries[index].Route(), fallbackRoute)
+		required := role.RequiredFloor()
+		for _, configuredRequired := range planner.policy.RequiredRoles {
+			required = required || configuredRequired == role
+		}
+		assignment, err := review.NewScheduledAssignment(role, required, primaries[index].Route(), fallbackRoute)
 		if err != nil {
 			return ExecutionPlan{}, err
 		}
@@ -308,18 +313,44 @@ func normalizePlannerPolicy(policy PlannerPolicy) (PlannerPolicy, error) {
 	if err := validatePlannerAssignments(policy.Assignments); err != nil {
 		return PlannerPolicy{}, err
 	}
+	lastRequired := -1
+	for _, required := range policy.RequiredRoles {
+		ordinal := roleOrdinal(required)
+		if ordinal <= lastRequired {
+			return PlannerPolicy{}, fmt.Errorf("review run: invalid required role policy")
+		}
+		if !plannerRoleConfigured(policy.Assignments, required) {
+			return PlannerPolicy{}, fmt.Errorf("review run: required role is not configured")
+		}
+		lastRequired = ordinal
+	}
 	return policy, nil
 }
 
-func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
-	if len(assignments) != len(domain.FixedRoleOrder()) {
-		return fmt.Errorf("review run: planner policy requires six configured assignments")
-	}
-	for index, role := range domain.FixedRoleOrder() {
-		assignment := assignments[index]
-		if assignment.role != role || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
-			return fmt.Errorf("review run: invalid configured assignment for role %q", role)
+func plannerRoleConfigured(assignments []RoleProviderAssignment, role domain.Role) bool {
+	for _, assignment := range assignments {
+		if assignment.role == role {
+			return true
 		}
+	}
+	return false
+}
+
+func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
+	if len(assignments) < 2 || len(assignments) > len(domain.FixedRoleOrder()) {
+		return fmt.Errorf("review run: planner policy requires the project role set")
+	}
+	lastOrdinal := -1
+	seen := make(map[domain.Role]bool, len(assignments))
+	for _, assignment := range assignments {
+		ordinal := roleOrdinal(assignment.role)
+		if ordinal <= lastOrdinal || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
+			return fmt.Errorf("review run: invalid configured assignment for role %q", assignment.role)
+		}
+		seen[assignment.role], lastOrdinal = true, ordinal
+	}
+	if !seen[domain.RoleLogic] || !seen[domain.RoleSecurity] {
+		return fmt.Errorf("review run: planner policy omits the project role floor")
 	}
 	return nil
 }
@@ -327,6 +358,7 @@ func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
 func clonePlannerPolicy(policy PlannerPolicy) PlannerPolicy {
 	result := policy
 	result.Assignments = append([]RoleProviderAssignment(nil), policy.Assignments...)
+	result.RequiredRoles = append([]domain.Role(nil), policy.RequiredRoles...)
 	if policy.Policy != nil {
 		copy := *policy.Policy
 		result.Policy = &copy

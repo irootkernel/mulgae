@@ -1,6 +1,7 @@
 package childrun
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -124,6 +125,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		runtime.RuntimeSequence != 1 || runtime.RuntimePurpose != domain.InvocationInitial ||
 		runtime.RuntimeRole != role || runtime.RuntimeTargetIdentity != execution.Current.Identity ||
 		string(runtime.RuntimeTarget) != string(execution.Current.Bytes) ||
+		!bytes.Equal(runtime.RuntimeCapturedArchive, execution.Current.CapturedArchive) ||
 		string(runtime.RuntimeStdin) != string(invocation.Stdin()) ||
 		runtime.RuntimeStdinSHA256 != invocation.CompleteStdinSHA256() ||
 		runtime.RuntimeSourceInvocationID != invocation.SourceInvocationID() ||

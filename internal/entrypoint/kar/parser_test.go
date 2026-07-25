@@ -64,7 +64,7 @@ func TestParseInitForms(t *testing.T) {
 	if request.Overwrite() {
 		t.Fatal("init overwrite must remain false")
 	}
-	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
 	invocation := mustParse(t, []string{
 		"init", "--project-root", "/work/other", "--name", "other-project",
@@ -84,7 +84,19 @@ func TestParseInitForms(t *testing.T) {
 	if want := []string{"kimi", "zcode"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("init intended providers = %v, want %v", got, want)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"roles":["logic","security","maintainability","product","documentation","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+
+	subset := mustParse(t, []string{"init", "--roles", "testing,security,logic"})
+	subsetRequest, ok := subset.Init()
+	if !ok || !reflect.DeepEqual(subsetRequest.Roles(), []string{"logic", "security", "testing"}) {
+		t.Fatalf("init roles = %#v, %t", subsetRequest, ok)
+	}
+	assertRequestJSON(t, subset, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	for _, roles := range []string{"logic", "security,testing", "logic,documentation"} {
+		if _, err := Parse([]string{"init", "--roles", roles}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("init --roles %q error = %v, want usage", roles, err)
+		}
+	}
 }
 
 func TestParseDoctorAndConfigForms(t *testing.T) {
@@ -179,10 +191,10 @@ func TestParsePublicationQueryForms(t *testing.T) {
 	assertRequestJSON(t, excerpt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"excerpt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F_SOURCE-1","current_target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_format":"human"}`)
 }
 func TestParseG008RequestForms(t *testing.T) {
-	followup := mustParse(t, []string{"followup", "--run", testRunID, "--finding", "F_SOURCE-1", "--diff", "git", "--output", "json"})
+	followup := mustParse(t, []string{"followup", "--run", testRunID, "--finding", "F_SOURCE-1", "--dirty", "--output", "json"})
 	followupRequest, ok := followup.Followup()
 	if !ok || followupRequest.SourceRunID() != testRunID || followupRequest.FindingID() != "F_SOURCE-1" ||
-		followupRequest.Target().Kind() != "diff" || followupRequest.Target().Value() != "git" {
+		followupRequest.Target().Kind() != "dirty" || followupRequest.Target().Value() != "dirty" {
 		t.Fatalf("followup request = %#v, %t; want literal source and target fields", followupRequest, ok)
 	}
 	if _, present := followupRequest.Objective(); present {
@@ -191,7 +203,7 @@ func TestParseG008RequestForms(t *testing.T) {
 	if _, present := followupRequest.Role(); present {
 		t.Fatal("default followup role must be null")
 	}
-	assertRequestJSON(t, followup, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F_SOURCE-1","target":{"kind":"diff","value":"git"},"objective":null,"role":null,"output_format":"json"}`)
+	assertRequestJSON(t, followup, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F_SOURCE-1","target":{"kind":"dirty","value":"dirty"},"objective":null,"role":null,"output_format":"json"}`)
 
 	delta := mustParse(t, []string{"delta", "--since-run", testRunID, "--patch", "changes.patch", "--roles", "logic,security"})
 	deltaRequest, ok := delta.Delta()
@@ -281,11 +293,11 @@ func TestParseResolvedFreezesCanonicalG008Requests(t *testing.T) {
 		t.Fatal("resolved request JSON was not defensively copied")
 	}
 
-	delta, err := ParseResolved(context.Background(), []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic"}, testProjectRoot, testRequestID, resolver)
+	delta, err := ParseResolved(context.Background(), []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"}, testProjectRoot, testRequestID, resolver)
 	if err != nil {
 		t.Fatalf("ParseResolved delta error = %v", err)
 	}
-	assertRequestJSON(t, delta, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic"],"output_format":"human"}`)
+	assertRequestJSON(t, delta, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"dirty","value":"dirty"},"roles":["logic"],"output_format":"human"}`)
 
 	rerun, err := ParseResolved(context.Background(), []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "kimi"}, testProjectRoot, testRequestID, resolver)
 	if err != nil {
@@ -300,12 +312,12 @@ func TestParseResolvedFreezesCanonicalG008Requests(t *testing.T) {
 	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
 }
 func TestParseReviewAndPromptRequests(t *testing.T) {
-	defaults := mustParse(t, []string{"review", "--diff", "git"})
+	defaults := mustParse(t, []string{"review", "--dirty"})
 	defaultRequest, ok := defaults.Review()
 	if !ok || !reflect.DeepEqual(defaultRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing"}) {
 		t.Fatalf("default review roles = %#v, %t; want fixed role order", defaultRequest, ok)
 	}
-	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"diff","value":"git"},"objective":null,"roles":["logic","security","maintainability","product","documentation","testing"],"session_id":null,"output_format":"human"}`)
+	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"dirty","value":"dirty"},"objective":null,"roles":["logic","security","maintainability","product","documentation","testing"],"role_selection":"project_default","session_id":null,"output_format":"human"}`)
 	review := mustParse(t, []string{"review", "--patch", "changes.patch", "--objective", "Review changes.", "--roles", "testing,logic", "--session", testSessionID, "--output", "json"})
 	request, ok := review.Review()
 	if !ok {
@@ -322,7 +334,7 @@ func TestParseReviewAndPromptRequests(t *testing.T) {
 	if got, present := request.SessionID(); !present || got != testSessionID {
 		t.Fatalf("review session = %q, %t; want %q, true", got, present, testSessionID)
 	}
-	assertRequestJSON(t, review, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"patch","value":"changes.patch"},"objective":"Review changes.","roles":["logic","testing"],"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
+	assertRequestJSON(t, review, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"patch","value":"changes.patch"},"objective":"Review changes.","roles":["logic","testing"],"role_selection":"explicit","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
 
 	prompt := mustParse(t, []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes"})
 	promptRequest, ok := prompt.Prompt()
@@ -332,13 +344,42 @@ func TestParseReviewAndPromptRequests(t *testing.T) {
 	assertRequestJSON(t, prompt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"prompt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","include_guarded_bytes":true,"output_format":"human"}`)
 }
 
+func TestParseReviewProjectTargetModes(t *testing.T) {
+	for _, test := range []struct {
+		arguments   []string
+		kind, value string
+	}{
+		{[]string{"review", "--workspace"}, "workspace", "workspace"},
+		{[]string{"review", "--stage"}, "stage", "stage"},
+		{[]string{"review", "--dirty"}, "dirty", "dirty"},
+		{[]string{"review", "--diff", "main"}, "diff", "main"},
+		{[]string{"review", "--diff", "main..topic"}, "diff", "main..topic"},
+		{[]string{"review", "--diff", "main...topic"}, "diff", "main...topic"},
+	} {
+		invocation, err := Parse(test.arguments, testProjectRoot, testRequestID)
+		if err != nil {
+			t.Fatalf("Parse(%v): %v", test.arguments, err)
+		}
+		request, ok := invocation.Review()
+		if !ok || request.Target().Kind() != test.kind || request.Target().Value() != test.value {
+			t.Fatalf("Parse(%v) target = %#v", test.arguments, request.Target())
+		}
+	}
+	if _, err := Parse([]string{"review", "--diff", "git"}, testProjectRoot, testRequestID); err == nil {
+		t.Fatal("deprecated --diff git was accepted")
+	}
+	if _, err := Parse([]string{"review", "--workspace", "--dirty"}, testProjectRoot, testRequestID); err == nil {
+		t.Fatal("multiple project target modes were accepted")
+	}
+}
+
 func TestParseResolvedReviewStdin(t *testing.T) {
 	arguments := []string{"review", "--stdin", "--roles", "security,logic"}
 	invocation, err := ParseResolved(context.Background(), arguments, testProjectRoot, testRequestID, parserTestResolver{target: "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
 	if err != nil {
 		t.Fatalf("ParseResolved review error = %v", err)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"stdin","value":"stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"objective":null,"roles":["logic","security"],"session_id":null,"output_format":"human"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"stdin","value":"stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"objective":null,"roles":["logic","security"],"role_selection":"explicit","session_id":null,"output_format":"human"}`)
 	if arguments[2] != "--roles" {
 		t.Fatal("ParseResolved mutated review arguments")
 	}
@@ -375,23 +416,23 @@ func TestParseDocumentedG008CommandGoldens(t *testing.T) {
 		},
 		{
 			name:      "lineage followup",
-			arguments: []string{"followup", "--run", "latest", "--finding", "F001", "--diff", "git"},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F001","target":{"kind":"diff","value":"git"},"objective":null,"role":null,"output_format":"human"}`,
+			arguments: []string{"followup", "--run", "latest", "--finding", "F001", "--dirty"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F001","target":{"kind":"dirty","value":"dirty"},"objective":null,"role":null,"output_format":"human"}`,
 		},
 		{
 			name:      "followup role",
-			arguments: []string{"followup", "--run", testRunID, "--finding", "F003", "--diff", "git", "--role", "logic"},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","target":{"kind":"diff","value":"git"},"objective":null,"role":"logic","output_format":"human"}`,
+			arguments: []string{"followup", "--run", testRunID, "--finding", "F003", "--dirty", "--role", "logic"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"followup","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","finding_id":"F003","target":{"kind":"dirty","value":"dirty"},"objective":null,"role":"logic","output_format":"human"}`,
 		},
 		{
 			name:      "delta since run",
-			arguments: []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic,security"},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic","security"],"output_format":"human"}`,
+			arguments: []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic,security"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"dirty","value":"dirty"},"roles":["logic","security"],"output_format":"human"}`,
 		},
 		{
 			name:      "lineage delta",
-			arguments: []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic,security"},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"diff","value":"git"},"roles":["logic","security"],"output_format":"human"}`,
+			arguments: []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic,security"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"delta","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","target":{"kind":"dirty","value":"dirty"},"roles":["logic","security"],"output_format":"human"}`,
 		},
 		{
 			name:      "rerun role provider selector",
@@ -449,10 +490,10 @@ func TestParseResolvedDistinguishesSelectorUsageFromOperationalFailures(t *testi
 func TestParseRejectsMalformedG008Requests(t *testing.T) {
 	planHash := "sha256:" + strings.Repeat("b", 64)
 	for _, arguments := range [][]string{
-		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--patch", "changes.patch"},
-		{"followup", "--run", testRunID, "--finding", "lowercase", "--diff", "git"},
-		{"followup", "--run", testRunID, "--finding", "F001", "--diff", "git", "--role", "Logic"},
-		{"delta", "--run", testRunID, "--diff", "git", "--roles", "logic"},
+		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--patch", "changes.patch"},
+		{"followup", "--run", testRunID, "--finding", "lowercase", "--dirty"},
+		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--role", "Logic"},
+		{"delta", "--run", testRunID, "--dirty", "--roles", "logic"},
 		{"clean", "--older-than", "30d"},
 		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,logic"},
 		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,security,testing,docs,ops,release,extra"},
@@ -548,9 +589,9 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 	foundation := map[app.CommandName][]string{
 		app.CommandInit:      {"init"},
 		app.CommandDoctor:    {"doctor"},
-		app.CommandReview:    {"review", "--diff", "git"},
-		app.CommandFollowup:  {"followup", "--run", testRunID, "--finding", "F001", "--diff", "git"},
-		app.CommandDelta:     {"delta", "--since-run", testRunID, "--diff", "git", "--roles", "logic"},
+		app.CommandReview:    {"review", "--dirty"},
+		app.CommandFollowup:  {"followup", "--run", testRunID, "--finding", "F001", "--dirty"},
+		app.CommandDelta:     {"delta", "--since-run", testRunID, "--dirty", "--roles", "logic"},
 		app.CommandRerun:     {"rerun", "--run", testRunID, "--attempt", testAttemptID},
 		app.CommandPrompt:    {"prompt", "--run", testRunID, "--attempt", testAttemptID},
 		app.CommandClean:     {"clean"},
@@ -591,9 +632,9 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 	}{
 		{name: "unknown command", arguments: []string{"unknown"}},
 		{name: "review extra positional", arguments: []string{"review", "extra"}},
-		{name: "review duplicate target", arguments: []string{"review", "--diff", "git", "--patch", "changes.patch"}},
-		{name: "review duplicate roles", arguments: []string{"review", "--diff", "git", "--roles", "logic,logic"}},
-		{name: "review invalid session", arguments: []string{"review", "--diff", "git", "--session", "s_invalid"}},
+		{name: "review duplicate target", arguments: []string{"review", "--dirty", "--patch", "changes.patch"}},
+		{name: "review duplicate roles", arguments: []string{"review", "--dirty", "--roles", "logic,logic"}},
+		{name: "review invalid session", arguments: []string{"review", "--dirty", "--session", "s_invalid"}},
 		{name: "prompt missing run", arguments: []string{"prompt", "--attempt", testAttemptID}},
 		{name: "prompt missing attempt", arguments: []string{"prompt", "--run", testRunID}},
 		{name: "prompt boolean value", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes", "true"}},
@@ -739,12 +780,12 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "init error", arguments: []string{"init", "--unknown"}, wantError: true},
 		{name: "doctor success", arguments: []string{"doctor"}, command: app.CommandDoctor},
 		{name: "doctor error", arguments: []string{"doctor", "--json"}, wantError: true},
-		{name: "review success", arguments: []string{"review", "--diff", "git"}, command: app.CommandReview},
+		{name: "review success", arguments: []string{"review", "--dirty"}, command: app.CommandReview},
 		{name: "review error", arguments: []string{"review"}, wantError: true},
-		{name: "readme followup", arguments: []string{"followup", "--run", "latest", "--finding", "F001", "--diff", "git", "--objective", "Verify only whether the original issue is resolved."}, resolved: true, command: app.CommandFollowup},
+		{name: "readme followup", arguments: []string{"followup", "--run", "latest", "--finding", "F001", "--dirty", "--objective", "Verify only whether the original issue is resolved."}, resolved: true, command: app.CommandFollowup},
 		{name: "followup error", arguments: []string{"followup", "--run", testRunID, "--finding", "F001"}, wantError: true},
-		{name: "delta success", arguments: []string{"delta", "--since-run", "latest", "--diff", "git", "--roles", "logic"}, resolved: true, command: app.CommandDelta},
-		{name: "delta error", arguments: []string{"delta", "--since-run", testRunID, "--diff", "git"}, wantError: true},
+		{name: "delta success", arguments: []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"}, resolved: true, command: app.CommandDelta},
+		{name: "delta error", arguments: []string{"delta", "--since-run", testRunID, "--dirty"}, wantError: true},
 		{name: "rerun success", arguments: []string{"rerun", "--run", "latest", "--role", "documentation", "--provider", "kimi-main"}, resolved: true, command: app.CommandRerun},
 		{name: "rerun error", arguments: []string{"rerun", "--run", testRunID}, wantError: true},
 		{name: "status json example", arguments: []string{"status", "--run", testRunID, "--output", "json"}, command: app.CommandStatus},
@@ -799,8 +840,8 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 }
 func TestParseReviewRejectsUnsupportedCIFlag(t *testing.T) {
 	for _, arguments := range [][]string{
-		{"review", "--diff", "git", "--ci"},
-		{"review", "--ci", "--diff", "git"},
+		{"review", "--dirty", "--ci"},
+		{"review", "--ci", "--dirty"},
 	} {
 		_, err := Parse(arguments, testProjectRoot, testRequestID)
 		if !errors.Is(err, ErrUsage) {

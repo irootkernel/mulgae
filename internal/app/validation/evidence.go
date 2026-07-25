@@ -17,12 +17,13 @@ const (
 	CurrentEvidenceSideBase     CurrentEvidenceSide = "base"
 	CurrentEvidenceSideHead     CurrentEvidenceSide = "head"
 	CurrentEvidenceSideWorktree CurrentEvidenceSide = "worktree"
+	CurrentEvidenceSideIndex    CurrentEvidenceSide = "index"
 )
 
 // Valid reports whether side is a supported current-target side.
 func (side CurrentEvidenceSide) Valid() bool {
 	switch side {
-	case CurrentEvidenceSideBase, CurrentEvidenceSideHead, CurrentEvidenceSideWorktree:
+	case CurrentEvidenceSideBase, CurrentEvidenceSideHead, CurrentEvidenceSideWorktree, CurrentEvidenceSideIndex:
 		return true
 	default:
 		return false

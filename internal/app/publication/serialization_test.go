@@ -295,6 +295,37 @@ func TestFailedAttemptRetainsInitialReplayPrompt(t *testing.T) {
 	}
 }
 
+func TestRuntimeArtifactsPersistCapturedReviewArchive(t *testing.T) {
+	t.Parallel()
+	candidate := publicationRuntimeCandidate(t)
+	archive := []byte(`{"schema_version":"test-capture"}`)
+	for roleIndex := range candidate.roles {
+		for attemptIndex := range candidate.roles[roleIndex].attempts {
+			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+				candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime.capturedArchive = append([]byte(nil), archive...)
+			}
+		}
+	}
+	artifacts, err := candidate.buildRuntimeArtifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest runtimeTargetManifestWire
+	foundArchive := false
+	for _, artifact := range artifacts {
+		if artifact.Path().String() == candidate.sessionID.String()+"/"+candidate.runID.String()+"/target/captured-review.json" {
+			foundArchive = bytes.Equal(artifact.Bytes(), archive)
+		}
+		var decoded runtimeTargetManifestWire
+		if unmarshalExact(artifact.Bytes(), &decoded) == nil && decoded.SchemaVersion == "kar-runtime-target-manifest.v1" {
+			manifest = decoded
+		}
+	}
+	if !foundArchive || manifest.CapturedArchive == nil || manifest.CapturedArchive.Path == "" || manifest.CapturedArchive.SHA256 == "" {
+		t.Fatal("captured review archive was not persisted and manifest-bound")
+	}
+}
+
 func TestPreparedCandidateBuildRejectsSchemaFailure(t *testing.T) {
 	t.Parallel()
 	validator := &publicationTestValidator{reject: true}

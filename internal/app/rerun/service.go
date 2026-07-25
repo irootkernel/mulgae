@@ -273,7 +273,7 @@ func cloneChildReplay(child ChildReplay) ChildReplay {
 }
 
 func cloneTarget(target Target) Target {
-	return Target{Identity: target.Identity, Bytes: append([]byte(nil), target.Bytes...), SHA256: target.SHA256}
+	return Target{Identity: target.Identity, Bytes: append([]byte(nil), target.Bytes...), SHA256: target.SHA256, CapturedArchive: append([]byte(nil), target.CapturedArchive...)}
 }
 
 func sameSource(left, right SourceAttempt) bool {
@@ -319,6 +319,7 @@ func sourceAttemptDigest(source SourceAttempt) string {
 	writeReplayDigestField(hasher, "attempt_id", []byte(source.AttemptID.String()))
 	writeReplayDigestField(hasher, "provider_instance", []byte(source.ProviderInstance))
 	writeReplayDigestField(hasher, "target_bytes", source.Target.Bytes)
+	writeReplayDigestField(hasher, "captured_archive", source.Target.CapturedArchive)
 	writeReplayDigestField(hasher, "target_sha256", []byte(source.Target.SHA256))
 	writeReplayDigestField(hasher, "target_kind", []byte(source.Target.Identity.Kind()))
 	writeReplayDigestField(hasher, "target_repository_id", []byte(source.Target.Identity.RepositoryID()))
@@ -326,6 +327,7 @@ func sourceAttemptDigest(source SourceAttempt) string {
 	writeReplayDigestField(hasher, "target_head_oid", []byte(source.Target.Identity.HeadObjectID()))
 	writeReplayDigestField(hasher, "target_head_tree_oid", []byte(source.Target.Identity.HeadTreeObjectID()))
 	writeReplayDigestField(hasher, "target_index_tree_oid", []byte(source.Target.Identity.IndexTreeObjectID()))
+	writeReplayDigestField(hasher, "target_git_mode", []byte(source.Target.Identity.GitMode()))
 	writeReplayDigestField(hasher, "prompt_uri", []byte(source.Prompt.URI))
 	writeReplayDigestField(hasher, "prompt_sha256", []byte(source.Prompt.SHA256))
 	writeReplayDigestField(hasher, "composed_stdin", source.Prompt.ComposedStdin)

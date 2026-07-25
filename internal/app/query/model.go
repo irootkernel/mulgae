@@ -262,12 +262,14 @@ func (item FollowupEvidence) Verification() evidence.ReceiptStatus {
 // RuntimeTarget is the immutable target material reconstructed from a committed
 // P2 target manifest. Its bytes and identity are returned as defensive copies.
 type RuntimeTarget struct {
-	identity domain.TargetIdentity
-	bytes    []byte
+	identity        domain.TargetIdentity
+	bytes           []byte
+	capturedArchive []byte
 }
 
 func (target RuntimeTarget) Identity() domain.TargetIdentity { return target.identity }
 func (target RuntimeTarget) Bytes() []byte                   { return cloneBytes(target.bytes) }
+func (target RuntimeTarget) CapturedArchive() []byte         { return cloneBytes(target.capturedArchive) }
 
 // RuntimePrompt is exact persisted replay material from one initial invocation.
 type RuntimePrompt struct {
@@ -327,7 +329,7 @@ func (attempt CommittedAttempt) AttemptID() domain.AttemptID { return attempt.at
 func (attempt CommittedAttempt) Role() domain.Role           { return attempt.role }
 func (attempt CommittedAttempt) Provider() string            { return attempt.provider }
 func (attempt CommittedAttempt) Target() RuntimeTarget {
-	return RuntimeTarget{identity: attempt.target.identity, bytes: cloneBytes(attempt.target.bytes)}
+	return RuntimeTarget{identity: attempt.target.identity, bytes: cloneBytes(attempt.target.bytes), capturedArchive: cloneBytes(attempt.target.capturedArchive)}
 }
 func (attempt CommittedAttempt) Prompt() RuntimePrompt {
 	return RuntimePrompt{
@@ -357,12 +359,14 @@ func (source CommittedFindingSource) Excerpt() []byte         { return cloneByte
 type runtimeTargetManifestDTO struct {
 	SchemaVersion         string                    `json:"schema_version"`
 	Target                artifactIdentityDTO       `json:"target"`
+	CapturedArchive       *artifactIdentityDTO      `json:"captured_archive,omitempty"`
 	TargetKind            string                    `json:"target_kind"`
 	RepositoryID          string                    `json:"repository_id"`
 	BaseObjectID          string                    `json:"base_object_id"`
 	HeadObjectID          string                    `json:"head_object_id"`
 	HeadTreeObjectID      string                    `json:"head_tree_object_id"`
 	IndexTreeObjectID     string                    `json:"index_tree_object_id"`
+	GitMode               string                    `json:"git_mode"`
 	Prompts               []artifactIdentityDTO     `json:"prompts"`
 	SelectedReplayPrompts []selectedReplayPromptDTO `json:"selected_replay_prompts"`
 }

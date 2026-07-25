@@ -59,6 +59,44 @@ type immutableInputSource struct {
 	quarantinedLease ports.WorkspaceSnapshotLease
 }
 
+// CaptureArchived reconstructs a P2-verified capture without consulting the
+// current project filesystem. The archive itself carries no root authority.
+func (factory *Factory) CaptureArchived(ctx context.Context, archive []byte, objective []byte, hasObjective bool) (reviewrun.CapturedRunInput, error) {
+	if factory == nil || ctx == nil || len(archive) == 0 || (!hasObjective && len(objective) != 0) {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: invalid archived capture")
+	}
+	if err := ctx.Err(); err != nil {
+		return reviewrun.CapturedRunInput{}, err
+	}
+	material, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived capture decode failed: %w", err)
+	}
+	if hasObjective {
+		detection, detectErr := factory.detector.DetectReviewInput(ctx, ports.ReviewInputObjective, objectiveDetectorLabel, objective)
+		if detectErr != nil || !detection.Valid() || detection.Verdict() != ports.ReviewInputClean {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective rejected")
+		}
+	}
+	lease, err := factory.leases.MaterializeLease(ctx, material.Snapshot())
+	if err != nil || nilInterface(lease) {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived workspace materialization failed")
+	}
+	input, err := reviewrun.NewImmutableReviewInputWithCapturedArchive(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext(), archive)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived immutable input failed")
+	}
+	reader, err := newCapturedTargetReader(material)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived evidence failed")
+	}
+	captured, err := reviewrun.NewCapturedRunInput(input, lease, reader, factory.detector)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived captured input failed")
+	}
+	return captured, nil
+}
+
 var _ reviewrun.ImmutableInputSource = (*immutableInputSource)(nil)
 
 func (source *immutableInputSource) Capture(ctx context.Context, request reviewrun.Request) (reviewrun.CapturedRunInput, error) {
@@ -99,7 +137,12 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace materialization failed")
 	}
 
-	input, err := reviewrun.NewImmutableReviewInputWithProjectContext(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext())
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		source.quarantine(lease)
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured archive construction failed")
+	}
+	input, err := reviewrun.NewImmutableReviewInputWithCapturedArchive(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext(), archive)
 	if err != nil {
 		source.quarantine(lease)
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: immutable input construction failed")
@@ -135,6 +178,7 @@ func newCapturedTargetReader(material ports.CapturedReviewMaterial) (evidence.Im
 		ports.CapturedEvidenceBase:     evidence.SideBase,
 		ports.CapturedEvidenceHead:     evidence.SideHead,
 		ports.CapturedEvidenceWorktree: evidence.SideWorktree,
+		ports.CapturedEvidenceIndex:    evidence.SideIndex,
 	} {
 		files, ok := evidenceMaterial.Files(capturedSide)
 		if !ok {

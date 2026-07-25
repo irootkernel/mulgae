@@ -1126,32 +1126,49 @@ func materialScopeUnreadable(limitation string) bool {
 		return !unicode.IsLetter(runeValue)
 	})
 
-	hasMaterialScope := false
-	hasAccessibilityFailure := false
-	hasReviewVerb := false
-	hasNegation := strings.Contains(normalized, "could not") ||
-		strings.Contains(normalized, "couldn't") ||
-		strings.Contains(normalized, "cannot") ||
-		strings.Contains(normalized, "can't")
-
-	for _, word := range words {
+	const relationWindow = 5
+	scopeIndexes := make([]int, 0)
+	negationIndexes := make([]int, 0)
+	for index, word := range words {
 		switch word {
 		case "material", "scope", "target", "file", "files":
-			hasMaterialScope = true
-		case "unreadable", "inaccessible":
-			hasAccessibilityFailure = true
-		case "not", "unable", "failed":
-			hasNegation = true
-		}
-		if strings.HasPrefix(word, "read") ||
-			strings.HasPrefix(word, "access") ||
-			strings.HasPrefix(word, "inspect") ||
-			strings.HasPrefix(word, "review") ||
-			strings.HasPrefix(word, "load") {
-			hasReviewVerb = true
+			scopeIndexes = append(scopeIndexes, index)
+		case "not", "cannot", "unable", "failed":
+			negationIndexes = append(negationIndexes, index)
 		}
 	}
-	return hasMaterialScope && (hasAccessibilityFailure || (hasNegation && hasReviewVerb))
+	for index, word := range words {
+		if (word == "unreadable" || word == "inaccessible") && nearbyWordIndex(scopeIndexes, index, relationWindow) {
+			return true
+		}
+		if reviewAccessVerb(word) &&
+			nearbyWordIndex(scopeIndexes, index, relationWindow) &&
+			nearbyWordIndex(negationIndexes, index, relationWindow) {
+			return true
+		}
+	}
+	return false
+}
+
+func nearbyWordIndex(indexes []int, target, maximumDistance int) bool {
+	for _, index := range indexes {
+		distance := index - target
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance <= maximumDistance {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewAccessVerb(word string) bool {
+	return strings.HasPrefix(word, "read") ||
+		strings.HasPrefix(word, "access") ||
+		strings.HasPrefix(word, "inspect") ||
+		strings.HasPrefix(word, "review") ||
+		strings.HasPrefix(word, "load")
 }
 
 func duplicateNormalizedFinding(findings []providerFinding, trustedTargetSHA256 string) bool {

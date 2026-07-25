@@ -31,3 +31,6 @@ func DefaultKimiDataHome(nativeHome string) string { return appconfig.DefaultKim
 func CanonicalRolesConfig(families []string) (RolesConfig, error) {
 	return appconfig.CanonicalRolesConfig(families)
 }
+func CanonicalRolesConfigForSelection(families, roles []string) (RolesConfig, error) {
+	return appconfig.CanonicalRolesConfigForSelection(families, roles)
+}

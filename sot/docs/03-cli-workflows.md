@@ -64,7 +64,10 @@ family does not suppress another valid candidate, while any security failure
 retains security precedence after the three rows are assembled.
 
 The exact init selection grammar is
-`--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`.
+`--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`,
+plus optional `--roles ROLE[,ROLE...]`. Omitting `--roles` enables all six roles.
+An explicit project role set is canonicalized to fixed order, contains two to
+six unique roles, and must contain `logic` and `security`.
 It accepts each of the seven nonempty family subsets and canonicalizes request,
 result, and configuration order to Kimi, ZCode, AGY. Empty tokens, whitespace,
 unknown or duplicate families, and mixing `auto` with a family are usage
@@ -99,7 +102,7 @@ kar review --diff origin/main...HEAD \
 ```
 
 ```bash
-kar review --diff git \
+kar review --dirty \
   --roles logic,security,testing
 ```
 
@@ -115,6 +118,8 @@ Semantics:
 - captures the target before provider execution;
 - creates a new session unless `--session` is explicitly provided for an imported workflow;
 - does not inherit findings from another run;
+- with no `--roles`, selects every role enabled by project configuration;
+- with explicit `--roles`, selects exactly that nonempty enabled subset without automatically adding `logic`, `security`, or `review.required_roles`;
 - publishes at most one final review artifact.
 - preserves immutable captured target bytes; native `@file` transport, when selected, refers only to that captured material and never weakens the no-live-root or no-`HOME` boundary.
 
@@ -130,7 +135,7 @@ kar followup --run latest --finding F_SOURCE-1 --stdin \
 Optional role targeting:
 
 ```bash
-kar followup --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F003 --diff git \
+kar followup --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F003 --dirty \
   --role logic
 ```
 
@@ -147,7 +152,7 @@ Semantics:
 Reviews the difference between immutable target snapshots.
 
 ```bash
-kar delta --since-run latest --diff git --roles logic,security
+kar delta --since-run latest --dirty --roles logic,security
 ```
 
 Delta is defined as:
@@ -195,11 +200,31 @@ kar rerun --run latest --attempt a_019f596a-cf80-7c67-b265-f37053d51ccf --replay
 Supported target inputs:
 
 ```text
---diff git
+--workspace
+--stage
+--dirty
+--diff <base>
+--diff <base>..<head>
 --diff <base>...<head>
 --patch <path>
 --stdin
 ```
+
+Exactly one target input is required. `--workspace`, `--stage`, and `--dirty`
+are valueless. `--diff git` is not accepted.
+
+- `--workspace` captures every eligible project text file without requiring a
+  Git repository. `.git/` and `.kar/` are always excluded; `.gitignore` and
+  `.karignore` form independent exclusion sets.
+- `--stage` captures `HEAD` to the current index and exposes current evidence
+  through side `index`.
+- `--dirty` captures `HEAD` to the worktree, including staged, unstaged, and
+  non-ignored untracked files; current evidence uses side `worktree`.
+- `--diff A` compares commit A to the captured index, `A..B` compares the two
+  endpoint trees, and `A...B` follows Git semantics by comparing the merge base
+  of A and B to B.
+- A project without Git can use only `--workspace`. A Git repository without a
+  first commit must also use `--workspace` rather than `--stage` or `--dirty`.
 
 `--stdin` is valueless at the CLI boundary. KAR captures it before canonical target creation; the frozen request records the resulting nonempty canonical stdin target value.
 
@@ -213,6 +238,18 @@ For Git targets, KAR captures:
 - staged and unstaged patch bytes according to selected mode;
 - untracked manifest when explicitly included;
 - canonical target SHA-256.
+
+The root `.karignore` uses Git-ignore pattern syntax and applies to workspace,
+stage, dirty, and commit diff targets, including tracked files. Eligible
+symlinks, special files, non-UTF-8 files, and bounded-size violations fail with
+an explicit path instead of being silently omitted.
+
+KAR publishes a captured-review archive beside the target bytes. The run
+support index digest-binds its materialized workspace and evidence sides.
+Rerun reconstructs from that archive instead of recapturing the checkout;
+followup preserves the newly captured archive, and delta compares the source
+and current archived file sets. Child workflows therefore remain stable after
+the original worktree, index, or branch changes.
 
 KAR never stores only a mutable ref such as `origin/main` as the source of truth.
 
@@ -245,12 +282,12 @@ sequenceDiagram
     KAR->>ReviewRun: create run_id and capture target A
     ReviewRun-->>User: review_A.json
 
-    User->>KAR: kar followup --run latest --finding F001 --diff git
+    User->>KAR: kar followup --run latest --finding F001 --dirty
     KAR->>FollowupRun: create new run in same session
     FollowupRun->>ReviewRun: reference source finding and target A
     FollowupRun-->>User: followup result
 
-    User->>KAR: kar delta --since-run latest --diff git --roles logic,security
+    User->>KAR: kar delta --since-run latest --dirty --roles logic,security
     KAR->>DeltaRun: capture target B
     DeltaRun->>ReviewRun: compare immutable target A to B
     DeltaRun-->>User: delta review

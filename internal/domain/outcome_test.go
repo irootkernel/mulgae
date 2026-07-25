@@ -39,8 +39,17 @@ func TestComputeCoverageRequiredAndOptional(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if axes.CoverageStatus() != CoverageIncomplete || axes.ContentVerdict() != ContentNoFindings {
-		t.Fatalf("missing required results = %#v", axes)
+	if axes.CoverageStatus() != CoverageComplete || axes.ContentVerdict() != ContentNoFindings {
+		t.Fatalf("empty selected subset = %#v", axes)
+	}
+
+	optionalOnly := []RoleResultSummary{{Role: RoleDocumentation, Selected: true, Valid: true}}
+	axes, err = ComputeOutcomeAxes(nil, optionalOnly, SeverityHigh, PublicationNotPublished, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if axes.CoverageStatus() != CoverageComplete {
+		t.Fatalf("valid optional-only result coverage = %q", axes.CoverageStatus())
 	}
 
 	results := append(validRequiredResults(), RoleResultSummary{Role: RoleDocumentation, Selected: true, Valid: false})
@@ -123,8 +132,8 @@ func TestCoverageAdversarialMatrix(t *testing.T) {
 		want    CoverageStatus
 		wantErr bool
 	}{
-		{"missing logic", base[1:], CoverageIncomplete, false},
-		{"missing security", base[:1], CoverageIncomplete, false},
+		{"security-only subset", base[1:], CoverageComplete, false},
+		{"logic-only subset", base[:1], CoverageComplete, false},
 		{"required unselected", append(base, RoleResultSummary{Role: RoleTesting, Required: true, Selected: false, Valid: true}), CoverageIncomplete, false},
 		{"optional unselected invalid", append(base, RoleResultSummary{Role: RoleTesting, Selected: false, Valid: false}), CoverageComplete, false},
 		{"optional selected degraded", append(base, RoleResultSummary{Role: RoleTesting, Selected: true, Valid: true, Degraded: true}), CoverageDegraded, false},

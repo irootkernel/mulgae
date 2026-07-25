@@ -1196,7 +1196,14 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		return ports.ProviderExecutionStatusQuota, "provider_quota"
 	case domain.DiagnosticCauseRateLimited:
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit"
-	case domain.DiagnosticCauseTransportVerificationFailed, domain.DiagnosticCauseWorkspaceRevalidationFailed:
+	case domain.DiagnosticCauseTransportVerificationFailed,
+		domain.DiagnosticCausePromptFilePreStartFailed,
+		domain.DiagnosticCausePromptFilePostEndFailed,
+		domain.DiagnosticCauseTransportReceiptMismatch,
+		domain.DiagnosticCauseLifecycleReceiptInvalid,
+		domain.DiagnosticCauseOutputFrameMismatch,
+		domain.DiagnosticCauseSignalReceiptMismatch,
+		domain.DiagnosticCauseWorkspaceRevalidationFailed:
 		return ports.ProviderExecutionStatusSecurityViolation, "process_security"
 	case domain.DiagnosticCauseOutputFrameMissing, domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed:

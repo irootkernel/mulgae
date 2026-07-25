@@ -99,7 +99,7 @@ func (function ResultPrevalidatorFunc) PrevalidateInitOutcome(ctx context.Contex
 // Validate enforces the command-owned semantic relationship between the init
 // result projections. JSON Schema additionally validates their wire shape.
 func (result InitializeProjectResult) Validate() error {
-	if result.ConfigURI != ".kar/config.yaml" || !canonicalFamilyIDs(result.SelectedProviderIDs) || !canonicalFamilyIDs(result.CandidateProviderIDs) || !canonicalFamilyIDs(result.ConfiguredProviderIDs) {
+	if result.ConfigURI != ".kar/config.yaml" || !canonicalFamilyIDs(result.SelectedProviderIDs) || !canonicalFamilyIDs(result.CandidateProviderIDs) || !canonicalFamilyIDs(result.ConfiguredProviderIDs) || !canonicalRoleIDs(result.ConfiguredRoleIDs) {
 		return fmt.Errorf("init result: invalid identity projection")
 	}
 	if len(result.ConfiguredProviderIDs) == 0 {
@@ -174,6 +174,29 @@ func (result InitializeProjectResult) Validate() error {
 		return fmt.Errorf("init result: invalid write state")
 	}
 	return nil
+}
+
+func canonicalRoleIDs(values []string) bool {
+	if len(values) < 2 || len(values) > 6 {
+		return false
+	}
+	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing"}
+	last := -1
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		ordinal := -1
+		for index, role := range roles {
+			if value == role {
+				ordinal = index
+				break
+			}
+		}
+		if ordinal <= last {
+			return false
+		}
+		seen[value], last = true, ordinal
+	}
+	return seen["logic"] && seen["security"]
 }
 
 func validDiscoverySources(row DiscoveryRow) bool {

@@ -490,7 +490,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 						expected = append(expected, "agy")
 					}
 					if providerCount >= 2 {
-						arguments = append(arguments, "--kimi-executable", paths["kimi"], "--kimi-model", "kimi-code/k3", "--kimi-data-home", paths["data"])
+						arguments = append(arguments, "--kimi-executable", paths["kimi"], "--kimi-model", "kimi-code/kimi-for-coding", "--kimi-data-home", paths["data"])
 						expected = []string{"kimi", "agy"}
 					}
 					if providerCount >= 3 {
@@ -633,9 +633,9 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 		}{
 			{"init", []string{"init"}, 8},
 			{"doctor", []string{"doctor"}, 4},
-			{"review", []string{"review", "--diff", "git", "--output", "json"}, 2},
-			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--diff", "git"}, 2},
-			{"delta", []string{"delta", "--since-run", runID, "--diff", "git", "--roles", "logic"}, 2},
+			{"review", []string{"review", "--dirty", "--output", "json"}, 2},
+			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--dirty"}, 2},
+			{"delta", []string{"delta", "--since-run", runID, "--dirty", "--roles", "logic"}, 2},
 			{"rerun", []string{"rerun", "--run", runID, "--attempt", attemptID}, 2},
 			{"status", []string{"status", "--run", runID}, 7},
 			{"report", []string{"report", "--run", runID, "--output-path", "report.md"}, 7},
@@ -680,7 +680,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 		for _, argv := range [][]string{
 			{"not-a-command"},
 			{"review", "--diff"},
-			{"review", "--diff", "git", "--ci"},
+			{"review", "--dirty", "--ci"},
 		} {
 			got := runKARBinary(t, binary, t.TempDir(), argv...)
 			if got.exitCode != 2 || len(got.stdout) != 0 || !bytes.Equal(got.stderr, []byte("kar: invalid command usage\n")) {
@@ -712,7 +712,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 		}{
 			{
 				name:       "review",
-				argv:       []string{"review", "--diff", "git", "--output", "json"},
+				argv:       []string{"review", "--dirty", "--output", "json"},
 				exit:       2,
 				nullFields: []string{"session_id", "run_id", "run_manifest_uri", "review_artifact_uri"},
 				check: func(t *testing.T, envelope commandEnvelope) {
@@ -779,7 +779,7 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	}
 
 	review := runKARBinaryWithEnv(t, binary, project, environment,
-		"review", "--diff", "git", "--objective", "@roadmap.md review the changed behavior without rewriting this objective", "--roles", "logic,security", "--output", "json")
+		"review", "--dirty", "--objective", "@roadmap.md review the changed behavior without rewriting this objective", "--roles", "logic,security", "--output", "json")
 	if review.exitCode != 8 || len(review.stderr) != 0 {
 		t.Fatalf("Kimi security non-admission = exit %d stdout %q stderr %q", review.exitCode, review.stdout, review.stderr)
 	}
@@ -854,7 +854,7 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 
 	const objective = "@roadmap.md review the changed behavior without rewriting this objective"
 	review := runKARBinaryWithEnv(t, binary, project, environment,
-		"review", "--diff", "git", "--objective", objective, "--roles", "logic,security", "--output", "json")
+		"review", "--dirty", "--objective", objective, "--roles", "logic,security", "--output", "json")
 	if review.exitCode != 0 || len(review.stderr) != 0 {
 		var failed commandEnvelope
 		if err := json.Unmarshal(review.stdout, &failed); err == nil {
@@ -1062,14 +1062,19 @@ func TestIntegrationKAROfflineDiagnosticFailureWorkflows(t *testing.T) {
 		environment = append(environment, "KAR_FAKE_AGY_LOG="+agyLog)
 		initializeOfflineProviders(t, binary, project, environment, "zcode,agy", zcodeNode, zcodeLauncher, filepath.Join(providerDirectory, "agy"))
 
-		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "security", "--output", "json")
 		var envelope commandEnvelope
 		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
 		if result.exitCode != 0 || envelope.Result.RunManifestURI == nil || envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
 			observations, _ := os.ReadFile(zcodeLog)
-			t.Fatalf("fallback review = exit %d envelope %#v stderr %q zcode observations %s", result.exitCode, envelope, result.stderr, observations)
+			agyObservations, _ := os.ReadFile(agyLog)
+			var diagnostics []byte
+			if len(envelope.Reasons) != 0 && envelope.Reasons[0].ArtifactURI != nil {
+				diagnostics, _ = os.ReadFile(filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI), "kar-runtime.jsonl"))
+			}
+			t.Fatalf("fallback review = exit %d envelope %#v stderr %q zcode observations %s agy observations %s diagnostics %s", result.exitCode, envelope, result.stderr, observations, agyObservations, diagnostics)
 		}
 		log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
 		for _, event := range []domain.RuntimeDiagnosticEventCode{domain.DiagnosticAttemptFailed, domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled, domain.DiagnosticFallbackStarted, domain.DiagnosticFallbackCompleted, domain.DiagnosticPublicationCommitted, domain.DiagnosticRuntimeClosed} {
@@ -1099,7 +1104,7 @@ func TestIntegrationKAROfflineDiagnosticFailureWorkflows(t *testing.T) {
 			environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
 			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher, "")
 
-			result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+			result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "security", "--output", "json")
 			var envelope commandEnvelope
 			if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 				t.Fatal(err)
@@ -1145,7 +1150,7 @@ func TestIntegrationKAROfflineDiagnosticFailureWorkflows(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(diagnosticsRoot, 0o700) })
 
-		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--diff", "git", "--roles", "security", "--output", "json")
+		result := runKARBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "security", "--output", "json")
 		var envelope commandEnvelope
 		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 			t.Fatal(err)
@@ -1281,7 +1286,7 @@ func main() {
 		return
 	}
 	if len(os.Args) != 7 || os.Args[1] != "--model" ||
-		os.Args[2] != "kimi-code/k3" || os.Args[3] != "--prompt" ||
+		os.Args[2] != "kimi-code/kimi-for-coding" || os.Args[3] != "--prompt" ||
 		os.Args[5] != "--output-format" || os.Args[6] != "stream-json" {
 		panic("non-canonical Kimi invocation")
 	}

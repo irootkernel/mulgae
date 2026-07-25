@@ -78,7 +78,7 @@ func appendZcodeInvocation(argv []string, prompt string) []string {
 func appendKimiInvocation(argv []string, model, prompt string) []string {
 	result := append([]string(nil), argv...)
 	if model == "" {
-		model = "kimi-code/k3"
+		model = "kimi-code/kimi-for-coding"
 	}
 	result = append(result, "--model", model)
 	return append(result, "--prompt", prompt, "--output-format", "stream-json")

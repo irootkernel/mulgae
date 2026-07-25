@@ -3,9 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,7 +99,7 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
-	capturer := staticFollowupTargetCapturer{target: appfollowup.CurrentTarget{Identity: captured.Input().Target().Identity(), Bytes: captured.Input().Target().Bytes()}}
+	capturer := staticFollowupTargetCapturer{target: appfollowup.CurrentTarget{Identity: captured.Input().Target().Identity(), Bytes: captured.Input().Target().Bytes(), CapturedArchive: captured.Input().CapturedArchive()}}
 	workflow, err := appfollowup.NewService(service.composer.sources, capturer, executor)
 	if err != nil {
 		return kar.StartedRun{}, err
@@ -146,7 +149,7 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 		return kar.StartedRun{}, err
 	}
 	_ = assignments
-	target, err := deltaTargetFromCapture(request.Target, captured.Input().Target())
+	target, err := deltaTargetFromCapture(request.Target, captured.Input().Target(), captured.Input().CapturedArchive())
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -173,11 +176,17 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 		return kar.StartedRun{}, err
 	}
 	role := domain.Role(source.Prompt.Role)
-	selector, err := replaySelector(source)
-	if err != nil {
-		return kar.StartedRun{}, err
+	var captured reviewrun.CapturedRunInput
+	var selection reviewrun.RunSelection
+	if len(source.Target.CapturedArchive) > 0 {
+		captured, selection, err = graph.captureArchive(ctx, source.Target.CapturedArchive, []domain.Role{role})
+	} else {
+		var selector ports.ReviewTargetSelector
+		selector, err = replaySelector(source)
+		if err == nil {
+			captured, selection, err = graph.capture(ctx, selector, []domain.Role{role})
+		}
 	}
-	captured, selection, err := graph.capture(ctx, selector, []domain.Role{role})
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -214,6 +223,15 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 	}
 	childRunID, completed = result.RunID, true
 	return result, nil
+}
+
+func (graph *productionRuntimeGraph) captureArchive(ctx context.Context, archive []byte, roles []domain.Role) (reviewrun.CapturedRunInput, reviewrun.RunSelection, error) {
+	selection, err := reviewrun.NewRunSelection(roles, nil)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, reviewrun.RunSelection{}, err
+	}
+	captured, err := graph.inputs.CaptureArchived(ctx, archive, nil, false)
+	return captured, selection, err
 }
 
 func (graph *productionRuntimeGraph) capture(ctx context.Context, selector ports.ReviewTargetSelector, roles []domain.Role) (reviewrun.CapturedRunInput, reviewrun.RunSelection, error) {
@@ -305,7 +323,7 @@ func (issuer productionPromptIDs) newRoleTaskID() (prompt.RoleTaskID, error) {
 type staticFollowupTargetCapturer struct{ target appfollowup.CurrentTarget }
 
 func (capturer staticFollowupTargetCapturer) CaptureFollowupTarget(context.Context, appfollowup.Target) (appfollowup.CurrentTarget, error) {
-	return appfollowup.CurrentTarget{Identity: capturer.target.Identity, Bytes: append([]byte(nil), capturer.target.Bytes...)}, nil
+	return appfollowup.CurrentTarget{Identity: capturer.target.Identity, Bytes: append([]byte(nil), capturer.target.Bytes...), CapturedArchive: append([]byte(nil), capturer.target.CapturedArchive...)}, nil
 }
 
 type staticDeltaTargetCapturer struct{ target appdelta.ImmutableTarget }
@@ -317,7 +335,85 @@ func (capturer staticDeltaTargetCapturer) CaptureTarget(context.Context, appdelt
 type canonicalDeltaComparator struct{}
 
 func (canonicalDeltaComparator) Compare(_ context.Context, source, current appdelta.ImmutableTarget) (appdelta.Delta, error) {
-	return appdelta.Delta{Bytes: []byte(fmt.Sprintf("KAR-DELTA/1\nsource_sha256:%s\ncurrent_sha256:%s\n", source.SHA256(), current.SHA256()))}, nil
+	if len(source.CapturedArchive()) == 0 || len(current.CapturedArchive()) == 0 {
+		return appdelta.Delta{Bytes: []byte(fmt.Sprintf("KAR-DELTA/1\nsource_sha256:%s\ncurrent_sha256:%s\n", source.SHA256(), current.SHA256()))}, nil
+	}
+	sourceMaterial, err := ports.UnmarshalCapturedReviewMaterial(source.CapturedArchive())
+	if err != nil {
+		return appdelta.Delta{}, fmt.Errorf("delta comparator: source archive: %w", err)
+	}
+	currentMaterial, err := ports.UnmarshalCapturedReviewMaterial(current.CapturedArchive())
+	if err != nil {
+		return appdelta.Delta{}, fmt.Errorf("delta comparator: current archive: %w", err)
+	}
+	left := snapshotFileMap(sourceMaterial.Snapshot().Files())
+	right := snapshotFileMap(currentMaterial.Snapshot().Files())
+	paths := make([]string, 0, len(left)+len(right))
+	seen := make(map[string]struct{}, len(left)+len(right))
+	for path := range left {
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	for path := range right {
+		if _, ok := seen[path]; !ok {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	var output strings.Builder
+	output.WriteString("KAR-DELTA/2\n")
+	output.WriteString("source_sha256:" + source.SHA256() + "\ncurrent_sha256:" + current.SHA256() + "\n")
+	for _, path := range paths {
+		before, beforeOK := left[path]
+		after, afterOK := right[path]
+		if beforeOK && afterOK && bytes.Equal(before, after) {
+			continue
+		}
+		writeWholeFileDelta(&output, path, before, beforeOK, after, afterOK)
+		if output.Len() > appdelta.MaxTargetBytes {
+			return appdelta.Delta{}, fmt.Errorf("delta comparator: archive delta exceeds %d bytes; narrow the target or add generated files to .karignore", appdelta.MaxTargetBytes)
+		}
+	}
+	return appdelta.Delta{Bytes: []byte(output.String())}, nil
+}
+
+func snapshotFileMap(files []ports.WorkspaceSnapshotFile) map[string][]byte {
+	result := make(map[string][]byte, len(files))
+	for _, file := range files {
+		result[file.Path().String()] = file.Bytes()
+	}
+	return result
+}
+
+func writeWholeFileDelta(output *strings.Builder, path string, before []byte, beforeOK bool, after []byte, afterOK bool) {
+	leftName, rightName := "/dev/null", "b/"+path
+	if beforeOK {
+		leftName = "a/" + path
+	}
+	if !afterOK {
+		rightName = "/dev/null"
+	}
+	output.WriteString("--- " + leftName + "\n+++ " + rightName + "\n")
+	beforeLines := splitDeltaLines(before, beforeOK)
+	afterLines := splitDeltaLines(after, afterOK)
+	output.WriteString(fmt.Sprintf("@@ -1,%d +1,%d @@\n", len(beforeLines), len(afterLines)))
+	for _, line := range beforeLines {
+		output.WriteByte('-')
+		output.WriteString(line)
+		output.WriteByte('\n')
+	}
+	for _, line := range afterLines {
+		output.WriteByte('+')
+		output.WriteString(line)
+		output.WriteByte('\n')
+	}
+}
+
+func splitDeltaLines(value []byte, exists bool) []string {
+	if !exists || len(value) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(value), "\n"), "\n")
 }
 
 func followupSelector(target appfollowup.Target) ports.ReviewTargetSelector {
@@ -337,7 +433,9 @@ func replaySelector(source appreplay.SourceAttempt) (ports.ReviewTargetSelector,
 	return ports.NewReviewTargetSelector(ports.ReviewTargetDiff, source.Target.Identity.BaseObjectID()+"..."+source.Target.Identity.HeadObjectID())
 }
 
-func deltaTargetFromCapture(request appdelta.TargetRequest, captured ports.CapturedReviewTarget) (appdelta.ImmutableTarget, error) {
+func deltaTargetFromCapture(request appdelta.TargetRequest, captured ports.CapturedReviewTarget, archive []byte) (appdelta.ImmutableTarget, error) {
+	var target appdelta.ImmutableTarget
+	var err error
 	if captured.Kind() == domain.TargetGit {
 		repository, _ := captured.RepositoryID()
 		base, _ := captured.BaseObjectID()
@@ -348,13 +446,22 @@ func deltaTargetFromCapture(request appdelta.TargetRequest, captured ports.Captu
 		if hasIndex {
 			indexPointer = &index
 		}
-		gitTarget, err := ports.NewCapturedGitTarget(repository, base, head, tree, indexPointer, captured.Bytes())
+		var gitTarget ports.CapturedGitTarget
+		gitTarget, err = ports.NewCapturedGitTarget(repository, base, head, tree, indexPointer, captured.Bytes())
 		if err != nil {
 			return appdelta.ImmutableTarget{}, err
 		}
-		return appdelta.NewGitImmutableTarget(request.Value, gitTarget)
+		target, err = appdelta.NewGitImmutableTargetForKind(request.Kind, request.Value, gitTarget)
+	} else {
+		target, err = appdelta.NewByteImmutableTarget(request.Kind, request.Value, captured.Bytes())
 	}
-	return appdelta.NewByteImmutableTarget(request.Kind, request.Value, captured.Bytes())
+	if err != nil {
+		return appdelta.ImmutableTarget{}, err
+	}
+	if len(archive) > 0 {
+		return target.WithCapturedArchive(archive)
+	}
+	return target, nil
 }
 
 func sourceProviderForFinding(source appfollowup.VerifiedSource) string {

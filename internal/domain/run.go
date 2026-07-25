@@ -32,8 +32,8 @@ func NewChildRun(id RunID, runType RunType, parent Run, source Run, target Targe
 }
 
 // NewFollowupChildRun creates a fresh, finding-scoped followup child. Followups
-// deliberately execute only the selected source role; the broad review floors
-// remain enforced by NewChildRun and NewChildRunFromImmutableSource.
+// deliberately execute only the selected source role. Broad recomposed runs
+// validate the exact non-empty role subset selected by their caller.
 func NewFollowupChildRun(id RunID, parent Run, source Run, target TargetIdentity, selected RoleTask) (Run, error) {
 	if err := validateChildProvenance("parent", parent); err != nil {
 		return Run{}, err
@@ -112,7 +112,7 @@ func NewFollowupChildRunFromImmutableSource(
 
 // NewRerunChildRunFromImmutableSource creates an exact-replay child with only
 // the source-selected role. Broad recomposed reruns continue to use
-// NewChildRunFromImmutableSource and its full role-floor validation.
+// NewChildRunFromImmutableSource and validate their exact selected subset.
 func NewRerunChildRunFromImmutableSource(
 	id RunID,
 	sessionID SessionID,
@@ -227,10 +227,16 @@ func newRun(id RunID, sessionID SessionID, runType RunType, target TargetIdentit
 }
 
 func validateRoleTasks(roles []RoleTask) ([]RoleTask, error) {
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("run: %w: at least one role task is required", ErrInvariant)
+	}
 	seen := make(map[Role]RoleTask, len(roles))
 	for _, task := range roles {
 		if !task.Role().Valid() {
 			return nil, fmt.Errorf("run: %w: invalid role task", ErrInvariant)
+		}
+		if task.Role().RequiredFloor() && !task.Required() {
+			return nil, fmt.Errorf("run: %w: selected required-floor role %q is not required", ErrInvariant, task.Role())
 		}
 		if task.State() != RoleTaskPending {
 			return nil, fmt.Errorf("run: %w: fresh role task %q is not pending", ErrInvariant, task.Role())
@@ -239,15 +245,6 @@ func validateRoleTasks(roles []RoleTask) ([]RoleTask, error) {
 			return nil, fmt.Errorf("run: %w: duplicate role task %q", ErrInvariant, task.Role())
 		}
 		seen[task.Role()] = task
-	}
-	for _, required := range []Role{RoleLogic, RoleSecurity} {
-		task, exists := seen[required]
-		if !exists {
-			return nil, fmt.Errorf("run: %w: required role %q is missing", ErrInvariant, required)
-		}
-		if !task.Required() {
-			return nil, fmt.Errorf("run: %w: required-floor role %q is not marked required", ErrInvariant, required)
-		}
 	}
 	canonical := make([]RoleTask, 0, len(roles))
 	for _, role := range FixedRoleOrder() {

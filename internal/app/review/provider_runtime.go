@@ -28,6 +28,7 @@ type RuntimeArtifactInventory struct {
 	purpose                domain.InvocationPurpose
 	role                   domain.Role
 	target                 []byte
+	capturedArchive        []byte
 	targetIdentity         domain.TargetIdentity
 	stdin                  []byte
 	stdinSHA256            string
@@ -56,6 +57,9 @@ func (inventory RuntimeArtifactInventory) Purpose() domain.InvocationPurpose {
 func (inventory RuntimeArtifactInventory) Role() domain.Role { return inventory.role }
 func (inventory RuntimeArtifactInventory) Target() []byte {
 	return append([]byte(nil), inventory.target...)
+}
+func (inventory RuntimeArtifactInventory) CapturedArchive() []byte {
+	return append([]byte(nil), inventory.capturedArchive...)
 }
 func (inventory RuntimeArtifactInventory) TargetIdentity() domain.TargetIdentity {
 	return inventory.targetIdentity
@@ -97,6 +101,7 @@ func (inventory RuntimeArtifactInventory) DiagnosticStderr() (ports.RuntimeDiagn
 type RuntimePrompt struct {
 	Prompt            prompt.CompiledPrompt
 	Target            []byte
+	CapturedArchive   []byte
 	AdapterProfile    string
 	AdapterParameters map[string]string
 }
@@ -441,6 +446,7 @@ func (runtime *ProviderInvocationRuntime) runtimeArtifacts(drain bool) []Runtime
 func cloneRuntimeArtifactInventory(inventory RuntimeArtifactInventory) RuntimeArtifactInventory {
 	clone := inventory
 	clone.target = append([]byte(nil), inventory.target...)
+	clone.capturedArchive = append([]byte(nil), inventory.capturedArchive...)
 	clone.stdin = append([]byte(nil), inventory.stdin...)
 	clone.adapterParameters = inventory.AdapterParameters()
 	clone.captures = append([]ports.CapturedAttemptArtifact(nil), inventory.captures...)
@@ -485,7 +491,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	material, err := runtime.source.Prompt(invocationCtx, job, repair)
 	if err != nil {
-		return runtimeCondition(job, runtimeErrorCondition(invocationCtx, err))
+		return runtimeCondition(job, runtimePromptErrorCondition(invocationCtx, err))
 	}
 	if err := material.Prompt.Validate(); err != nil ||
 		!runtime.promptMatchesJob(material.Prompt, job) ||
@@ -758,7 +764,8 @@ type explicitRuntimePromptSource struct {
 func (source explicitRuntimePromptSource) Prompt(_ context.Context, _ InvocationJob, _ *InvocationRepairInput) (RuntimePrompt, error) {
 	return RuntimePrompt{
 		Prompt: source.material.Prompt, Target: append([]byte(nil), source.material.Target...),
-		AdapterProfile: source.material.AdapterProfile, AdapterParameters: cloneAdapterParameters(source.material.AdapterParameters),
+		CapturedArchive: append([]byte(nil), source.material.CapturedArchive...),
+		AdapterProfile:  source.material.AdapterProfile, AdapterParameters: cloneAdapterParameters(source.material.AdapterParameters),
 	}, nil
 }
 
@@ -963,7 +970,8 @@ func (runtime *ProviderInvocationRuntime) recordRuntimeArtifact(job InvocationJo
 	inventory := RuntimeArtifactInventory{
 		runID: job.RunID(), attemptID: job.AttemptID(), sequence: invocationSequence(job.Purpose()),
 		purpose: job.Purpose(), role: job.Role(), target: append([]byte(nil), material.Target...),
-		targetIdentity: job.Target(), stdin: material.Prompt.Stdin(),
+		capturedArchive: append([]byte(nil), material.CapturedArchive...),
+		targetIdentity:  job.Target(), stdin: material.Prompt.Stdin(),
 		stdinSHA256: material.Prompt.CompleteStdinSHA256(), templateID: template.ID(),
 		templateVersion: template.Version(), templateSHA256: template.SHA256(),
 		sourceInvocationID:    scope.SourceInvocationID().String(),
@@ -1031,6 +1039,22 @@ func runtimeErrorCondition(ctx context.Context, err error) AttemptCondition {
 	}
 	return AttemptConditionInvalidProviderOutput
 }
+
+// Prompt construction is trusted pre-provider work. Treating its failures as
+// invalid provider output incorrectly authorizes a repair without a retained
+// validation repair plan.
+func runtimePromptErrorCondition(ctx context.Context, err error) AttemptCondition {
+	if ctx != nil && ctx.Err() != nil {
+		return runtimeContextCondition(ctx.Err())
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return AttemptConditionTimeout
+	}
+	if errors.Is(err, context.Canceled) {
+		return AttemptConditionCancelled
+	}
+	return AttemptConditionInternalInvariant
+}
 func isSecurityValidationError(err error) bool {
 	cause, ok := validation.RuntimeCause(err)
 	return ok && cause == domain.DiagnosticCauseObservationMismatch
@@ -1074,6 +1098,12 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		return AttemptConditionTimeout
 	case domain.DiagnosticCauseWorkspaceRevalidationFailed,
 		domain.DiagnosticCauseTransportVerificationFailed,
+		domain.DiagnosticCausePromptFilePreStartFailed,
+		domain.DiagnosticCausePromptFilePostEndFailed,
+		domain.DiagnosticCauseTransportReceiptMismatch,
+		domain.DiagnosticCauseLifecycleReceiptInvalid,
+		domain.DiagnosticCauseOutputFrameMismatch,
+		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseObservationMismatch:
 		return AttemptConditionSecurityViolation
 	case domain.DiagnosticCauseOutputFrameMissing,

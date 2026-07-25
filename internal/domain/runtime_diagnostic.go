@@ -125,7 +125,13 @@ const (
 	DiagnosticCauseProviderProcessWaitFailed   RuntimeDiagnosticCause = "provider_process_wait_failed"
 	DiagnosticCauseProcessGroupCleanupFailed   RuntimeDiagnosticCause = "provider_process_group_cleanup_failed"
 	DiagnosticCauseTransportVerificationFailed RuntimeDiagnosticCause = "provider_transport_verification_failed"
+	DiagnosticCausePromptFilePreStartFailed    RuntimeDiagnosticCause = "provider_prompt_file_prestart_identity_failed"
+	DiagnosticCausePromptFilePostEndFailed     RuntimeDiagnosticCause = "provider_prompt_file_posttermination_identity_failed"
+	DiagnosticCauseTransportReceiptMismatch    RuntimeDiagnosticCause = "provider_transport_receipt_mismatch"
+	DiagnosticCauseLifecycleReceiptInvalid     RuntimeDiagnosticCause = "provider_lifecycle_receipt_invalid"
 	DiagnosticCauseOutputFrameMissing          RuntimeDiagnosticCause = "provider_output_frame_missing"
+	DiagnosticCauseOutputFrameMismatch         RuntimeDiagnosticCause = "provider_output_frame_mismatch"
+	DiagnosticCauseSignalReceiptMismatch       RuntimeDiagnosticCause = "provider_signal_receipt_mismatch"
 	DiagnosticCauseOutputEnvelopeInvalid       RuntimeDiagnosticCause = "provider_output_envelope_invalid"
 	DiagnosticCauseOutputDecodeFailed          RuntimeDiagnosticCause = "provider_output_decode_failed"
 	DiagnosticCauseResultBindingFailed         RuntimeDiagnosticCause = "provider_result_binding_failed"
@@ -145,7 +151,9 @@ const (
 func (cause RuntimeDiagnosticCause) Valid() bool {
 	switch cause {
 	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
-		DiagnosticCauseTransportVerificationFailed, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputEnvelopeInvalid,
+		DiagnosticCauseTransportVerificationFailed, DiagnosticCausePromptFilePreStartFailed, DiagnosticCausePromptFilePostEndFailed,
+		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing,
+		DiagnosticCauseOutputFrameMismatch, DiagnosticCauseSignalReceiptMismatch, DiagnosticCauseOutputEnvelopeInvalid,
 		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
 		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,
 		DiagnosticCauseWorkspaceRevalidationFailed, DiagnosticCausePersistenceFailed, DiagnosticCauseLoginRequired,

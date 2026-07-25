@@ -403,12 +403,14 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 type runtimeTargetManifestWire struct {
 	SchemaVersion         string                     `json:"schema_version"`
 	Target                artifactIdentityWire       `json:"target"`
+	CapturedArchive       *artifactIdentityWire      `json:"captured_archive,omitempty"`
 	TargetKind            string                     `json:"target_kind"`
 	RepositoryID          string                     `json:"repository_id"`
 	BaseObjectID          string                     `json:"base_object_id"`
 	HeadObjectID          string                     `json:"head_object_id"`
 	HeadTreeObjectID      string                     `json:"head_tree_object_id"`
 	IndexTreeObjectID     string                     `json:"index_tree_object_id"`
+	GitMode               string                     `json:"git_mode"`
 	Prompts               []artifactIdentityWire     `json:"prompts"`
 	SelectedReplayPrompts []selectedReplayPromptWire `json:"selected_replay_prompts"`
 }
@@ -437,6 +439,7 @@ type runtimePromptManifestWire struct {
 
 func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePublicationArtifact, error) {
 	var target []byte
+	var capturedArchive []byte
 	prompts := make([]artifactIdentityWire, 0)
 	selectedPrompts := make([]selectedReplayPromptWire, 0)
 	var identity *preparedRuntimeArtifact
@@ -453,8 +456,9 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				runtime := invocation.runtime
 				if target == nil {
 					target = cloneBytes(runtime.target)
+					capturedArchive = cloneBytes(runtime.capturedArchive)
 					identity = runtime
-				} else if !bytes.Equal(target, runtime.target) {
+				} else if !bytes.Equal(target, runtime.target) || !bytes.Equal(capturedArchive, runtime.capturedArchive) {
 					return nil, fmt.Errorf("publication build: runtime target bytes diverge")
 				}
 				stdinPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
@@ -521,6 +525,20 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 	if len(target) == 0 {
 		return artifacts, nil
 	}
+	var capturedArchiveIdentity *artifactIdentityWire
+	if len(capturedArchive) > 0 {
+		archivePath, pathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/captured-review.json", candidate.sessionID, candidate.runID))
+		if pathErr != nil {
+			return nil, fmt.Errorf("publication build: captured archive path: %w", pathErr)
+		}
+		archiveArtifact, artifactErr := immutableArtifact(archivePath, capturedArchive)
+		if artifactErr != nil {
+			return nil, fmt.Errorf("publication build: captured archive: %w", artifactErr)
+		}
+		artifacts = append(artifacts, archiveArtifact)
+		value := artifactIdentityWire{Path: archiveArtifact.Path().String(), SHA256: archiveArtifact.SHA256()}
+		capturedArchiveIdentity = &value
+	}
 	targetManifestArtifactPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
 		"%s/%s/%s", candidate.sessionID, candidate.runID, targetManifestPath,
 	))
@@ -533,9 +551,11 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 			Path:   fmt.Sprintf("%s/%s/target/target.bytes", candidate.sessionID, candidate.runID),
 			SHA256: sha256Identifier(target),
 		},
-		TargetKind: string(identity.targetKind), RepositoryID: identity.targetRepository,
+		CapturedArchive: capturedArchiveIdentity,
+		TargetKind:      string(identity.targetKind), RepositoryID: identity.targetRepository,
 		BaseObjectID: identity.targetBaseOID, HeadObjectID: identity.targetHeadOID,
 		HeadTreeObjectID: identity.targetHeadTreeOID, IndexTreeObjectID: identity.targetIndexTreeOID,
+		GitMode: string(identity.targetGitMode),
 		Prompts: prompts, SelectedReplayPrompts: selectedPrompts,
 	})
 	if err != nil {

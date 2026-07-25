@@ -79,26 +79,18 @@ func (qualifier *ProviderCurrentQualifier) QualifyCurrent(ctx context.Context, r
 		roleFixtures = append(roleFixtures, fixture)
 	}
 
-	probeResult, probeErr := qualifier.probe.QualifyProviderCurrent(ctx, ports.ProviderCurrentProbeRequest{
-		Definition: request.Definition, Namespace: request.Namespace, Fixture: base, RoleFixtures: roleFixtures,
-		Now: request.Now, TTL: currentQualificationTTL,
-	})
-	if retryableCapabilityOutputFailure(probeErr) && ctx.Err() == nil {
-		retryResult, retryErr := qualifier.probe.QualifyProviderCurrent(ctx, ports.ProviderCurrentProbeRequest{
+	provider := request.Definition.Instance()
+	probeResult, observations, probeErr := qualifyProviderCurrentWithRetry(ctx, provider, func() (ports.ProviderCurrentProbeResult, error) {
+		return qualifier.probe.QualifyProviderCurrent(ctx, ports.ProviderCurrentProbeRequest{
 			Definition: request.Definition, Namespace: request.Namespace, Fixture: base, RoleFixtures: roleFixtures,
 			Now: request.Now, TTL: currentQualificationTTL,
 		})
-		if retryErr == nil {
-			probeResult, probeErr = retryResult, nil
-		} else {
-			probeErr = errors.Join(probeErr, retryErr)
-		}
-	}
+	})
 	if probeErr != nil {
 		if errors.Is(probeErr, ports.ErrProviderLoginRequired) {
-			return CurrentQualificationResult{}, newProviderLoginRequiredError([]string{request.Definition.Instance()}, probeErr)
+			return CurrentQualificationResult{}, withQualificationObservations(newProviderLoginRequiredError([]string{provider}, probeErr), observations)
 		}
-		return CurrentQualificationResult{}, admissionProbeError(probeErr)
+		return CurrentQualificationResult{}, withQualificationObservations(admissionProbeError(probeErr), observations)
 	}
 	observed := request.Identity
 	observed.Version = probeResult.Version
@@ -119,8 +111,33 @@ func (qualifier *ProviderCurrentQualifier) QualifyCurrent(ctx context.Context, r
 	return CurrentQualificationResult{
 		VersionArgv: append([]string(nil), probeResult.VersionArgv...), Version: probeResult.Version,
 		Receipts: receipts, SupportedRoles: append([]domain.Role(nil), roles...),
-		RoleReceipts: roleReceipts, BaseRole: request.BaseRole,
+		RoleReceipts: roleReceipts, BaseRole: request.BaseRole, Observations: observations,
 	}, nil
+}
+
+func qualifyProviderCurrentWithRetry(
+	ctx context.Context,
+	provider string,
+	probe func() (ports.ProviderCurrentProbeResult, error),
+) (ports.ProviderCurrentProbeResult, []ProviderQualificationObservation, error) {
+	probeResult, probeErr := probe()
+	observations := make([]ProviderQualificationObservation, 0, 2)
+	if retryableCapabilityOutputFailure(probeErr) && ctx.Err() == nil {
+		observations = append(observations, rejectedQualificationObservation(provider, probeErr, true))
+		retryResult, retryErr := probe()
+		if retryErr == nil {
+			probeResult, probeErr = retryResult, nil
+			observations = append(observations, qualifiedQualificationObservation(provider))
+		} else {
+			observations = append(observations, rejectedQualificationObservation(provider, retryErr, false))
+			probeErr = errors.Join(probeErr, retryErr)
+		}
+	} else if probeErr != nil {
+		observations = append(observations, rejectedQualificationObservation(provider, probeErr, false))
+	} else {
+		observations = append(observations, qualifiedQualificationObservation(provider))
+	}
+	return probeResult, observations, probeErr
 }
 
 func retryableCapabilityOutputFailure(err error) bool {

@@ -150,14 +150,31 @@ func composeProductionRuntimeGraph(
 	instancePolicies := make(map[string]providercli.RuntimeSafetyPolicy)
 	nativeHomes := make(map[string]string)
 	sourceRoots := make(map[string]string)
-	if provider := policy.config.Providers.Kimi; provider != nil {
-		instanceFamilies["kimi-default"], instancePolicies["kimi-default"], sourceRoots["kimi-default"] = providercli.CredentialSourceKimi, policies[reviewrun.FamilyKimi], provider.DataHome
-	}
-	if policy.config.Providers.ZCode != nil {
-		instanceFamilies["zcode-default"], instancePolicies["zcode-default"] = providercli.CredentialSourceZCode, policies[reviewrun.FamilyZCode]
-	}
-	if policy.config.Providers.AGY != nil {
-		instanceFamilies["agy-default"], instancePolicies["agy-default"], nativeHomes["agy-default"] = providercli.CredentialSourceAGY, policies[reviewrun.FamilyAGY], installedUser.HomeDir
+	configuredRoles := policy.config.Roles.Ordered()
+	for index, role := range domain.FixedRoleOrder() {
+		configured := configuredRoles[index]
+		if !configured.Enabled {
+			continue
+		}
+		families := []string{configured.PrimaryProvider}
+		if configured.FallbackProvider != "" {
+			families = append(families, configured.FallbackProvider)
+		}
+		for _, familyName := range families {
+			family := reviewrun.Family(familyName)
+			instance := familyName + "-" + string(role)
+			switch family {
+			case reviewrun.FamilyKimi:
+				provider := policy.config.Providers.Kimi
+				instanceFamilies[instance], instancePolicies[instance], sourceRoots[instance] = providercli.CredentialSourceKimi, policies[family], provider.DataHome
+			case reviewrun.FamilyZCode:
+				instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
+			case reviewrun.FamilyAGY:
+				instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
+			default:
+				return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
+			}
+		}
 	}
 	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(namespaces, installedUser.HomeDir, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 	if err != nil {
@@ -190,7 +207,16 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: registry factory: %w", err)
 	}
-	qualified, err := reviewrun.NewQualifiedRunFactory(current, registries, clock)
+	var qualified *reviewrun.QualifiedRunFactory
+	if provider := policy.config.Providers.Kimi; provider != nil {
+		login, loginErr := providercli.NewKimiLoginAuthenticator(runner, baseSpawnVerifier, installedUser.HomeDir, provider.DataHome)
+		if loginErr != nil {
+			return nil, fmt.Errorf("production graph: Kimi login authenticator: %w", loginErr)
+		}
+		qualified, err = reviewrun.NewQualifiedRunFactoryWithLoginAuthenticator(current, registries, clock, login)
+	} else {
+		qualified, err = reviewrun.NewQualifiedRunFactory(current, registries, clock)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("production graph: qualified run factory: %w", err)
 	}
@@ -233,7 +259,8 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 	}
 	family := reviewrun.Family("")
 	for _, candidate := range []reviewrun.Family{reviewrun.FamilyKimi, reviewrun.FamilyZCode, reviewrun.FamilyAGY} {
-		if providerInstance == string(candidate)+"-default" {
+		current := string(candidate) + "-" + string(role)
+		if providerInstance == current || legacyProviderInstanceFamily(providerInstance) == candidate {
 			family = candidate
 			break
 		}
@@ -251,4 +278,17 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 		policy.Assignments = append(policy.Assignments, assignment)
 	}
 	return reviewrun.NewRunAuthorityAdapter(graph.qualified, graph.candidates, policy, graph.build)
+}
+
+func legacyProviderInstanceFamily(instance string) reviewrun.Family {
+	switch instance {
+	case "kimi-default":
+		return reviewrun.FamilyKimi
+	case "zcode-default", "zcode-secondary", "zcode-third", "zcode-fourth":
+		return reviewrun.FamilyZCode
+	case "agy-default":
+		return reviewrun.FamilyAGY
+	default:
+		return ""
+	}
 }

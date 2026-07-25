@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 	"golang.org/x/sys/unix"
 	"golang.org/x/text/cases"
@@ -47,8 +48,26 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, roo
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: invalid input")
 	}
 	switch selector.Kind() {
+	case ports.ReviewTargetWorkspace:
+		return adapter.captureWorkspace(ctx, root)
+	case ports.ReviewTargetStage:
+		material, err := adapter.captureStage(ctx, root)
+		if err != nil {
+			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: stage requires a Git repository with an existing HEAD; use --workspace before the first commit: %w", err)
+		}
+		return material, nil
+	case ports.ReviewTargetDirty:
+		material, err := adapter.captureDirty(ctx, root)
+		if err != nil {
+			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: dirty requires a Git repository with an existing HEAD; use --workspace before the first commit: %w", err)
+		}
+		return material, nil
 	case ports.ReviewTargetDiff:
-		return adapter.captureDiff(ctx, root, selector.Value())
+		material, err := adapter.captureDiff(ctx, root, selector.Value())
+		if err != nil {
+			return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: diff requires a Git repository and resolvable references: %w", err)
+		}
+		return material, nil
 	case ports.ReviewTargetPatch:
 		return adapter.capturePatch(ctx, root, selector.Value())
 	case ports.ReviewTargetStdin:
@@ -60,12 +79,16 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, roo
 
 func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.AnchoredRoot, value string) (ports.CapturedReviewMaterial, error) {
 	if value == "git" {
-		return adapter.captureDirty(ctx, root)
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: --dirty was removed; use --dirty")
 	}
-	parts := strings.Split(value, "...")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || validateReference(parts[0]) != nil || validateReference(parts[1]) != nil {
-		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: diff must be git or base...head")
+	left, right, mergeBase, indexTarget, err := parseDiffSelector(value)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
 	}
+	if indexTarget {
+		return adapter.captureIndexDiff(ctx, root, left)
+	}
+	parts := []string{left, right}
 	repo, cleanup, err := newCanonicalRepository(root, parts[0], parts[1], "HEAD")
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
@@ -79,6 +102,16 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	if mergeBase {
+		out, mergeErr := adapter.run(ctx, repo.command("merge-base", base.String(), head.String()))
+		if mergeErr != nil {
+			return ports.CapturedReviewMaterial{}, mergeErr
+		}
+		base, mergeErr = parseObjectID(out.Stdout, "merge base")
+		if mergeErr != nil {
+			return ports.CapturedReviewMaterial{}, mergeErr
+		}
+	}
 	tree, err := adapter.tree(ctx, repo, head)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
@@ -87,22 +120,122 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	karRules, karDigest, err := capturedKarIgnore(root)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	patch, err = filterKarIgnoredPatch(patch, karRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "diff", patch); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles, err := adapter.objectSnapshot(ctx, root, base)
+	baseFiles, err := adapter.objectSnapshot(ctx, root, base, karRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	headFiles, err := adapter.objectSnapshot(ctx, root, head)
+	headFiles, err := adapter.objectSnapshot(ctx, root, head, karRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
+	headFiles = filterKarIgnoredSnapshot(headFiles, karRules)
 	return adapter.materialize(patch, headFiles, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase: baseFiles,
 		ports.CapturedEvidenceHead: headFiles,
-	}, "diff;git=canonical-v1;ignore=none;detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+	}, "diff;git=canonical-v1;ignore=karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		return ports.NewCapturedReviewGitTarget(repo.repositoryID, base, head, tree, nil, patch)
+	})
+}
+
+func parseDiffSelector(value string) (left, right string, mergeBase, indexTarget bool, err error) {
+	if strings.Count(value, "...") == 1 {
+		parts := strings.SplitN(value, "...", 2)
+		left, right, mergeBase = parts[0], parts[1], true
+	} else if strings.Count(value, "..") == 1 {
+		parts := strings.SplitN(value, "..", 2)
+		left, right = parts[0], parts[1]
+	} else if !strings.Contains(value, "..") {
+		left, indexTarget = value, true
+	} else {
+		err = fmt.Errorf("review target capture: diff must be A, A..B, or A...B")
+		return
+	}
+	if validateReference(left) != nil || !indexTarget && validateReference(right) != nil {
+		err = fmt.Errorf("review target capture: diff must be A, A..B, or A...B")
+	}
+	return
+}
+
+func (adapter *ReviewTargetAdapter) captureStage(ctx context.Context, root ports.AnchoredRoot) (ports.CapturedReviewMaterial, error) {
+	return adapter.captureIndexDiff(ctx, root, "HEAD")
+}
+
+func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root ports.AnchoredRoot, baseRef string) (ports.CapturedReviewMaterial, error) {
+	repo, cleanup, err := newCanonicalRepository(root, baseRef, "HEAD")
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	defer func() { _ = cleanup() }()
+	base, err := adapter.resolve(ctx, repo, baseRef)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	head, err := adapter.resolve(ctx, repo, "HEAD")
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: stage and index diff require an existing HEAD; use --workspace before the first commit: %w", err)
+	}
+	headTree, err := adapter.tree(ctx, repo, head)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	indexOut, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	indexTree, err := parseObjectID(indexOut.Stdout, "index tree")
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	patchOut, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--cached", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", base.String()}})
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	karRules, karDigest, err := capturedKarIgnore(root)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	patch, err := filterKarIgnoredPatch(patchOut.Stdout, karRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	if err := adapter.clean(ctx, ports.ReviewInputTarget, "index", patch); err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	baseFiles, err := adapter.objectSnapshot(ctx, root, base, karRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	indexFiles, err := adapter.objectSnapshot(ctx, root, indexTree, karRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
+	indexFiles = filterKarIgnoredSnapshot(indexFiles, karRules)
+	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
+	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("index changed while capturing")
+	}
+	return adapter.materialize(patch, indexFiles, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
+		ports.CapturedEvidenceBase:  baseFiles,
+		ports.CapturedEvidenceIndex: indexFiles,
+	}, "index;git=canonical-v1;ignore=karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+		mode := domain.GitTargetDiff
+		if baseRef == "HEAD" {
+			mode = domain.GitTargetStage
+		}
+		return ports.NewCapturedReviewGitTargetWithMode(mode, repo.repositoryID, base, head, headTree, &indexTree, patch)
 	})
 }
 
@@ -244,7 +377,7 @@ func (adapter *ReviewTargetAdapter) headSnapshot(ctx context.Context, root ports
 	return head, files, err
 }
 
-func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root ports.AnchoredRoot, commit ports.GitObjectID) ([]ports.WorkspaceSnapshotFile, error) {
+func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root ports.AnchoredRoot, commit ports.GitObjectID, ignored ...[]workspaceIgnoreRule) ([]ports.WorkspaceSnapshotFile, error) {
 	repo, cleanup, err := newCanonicalObjectRepository(root, commit)
 	if err != nil {
 		return nil, err
@@ -264,22 +397,25 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 			return nil, fmt.Errorf("invalid tree entry")
 		}
 		fields := strings.Fields(split[0])
-		if len(fields) != 3 || (fields[0] != "100644" && fields[0] != "100755") || fields[1] != "blob" {
-			continue
-		}
 		path, err := ports.NewSafeRelativePath(split[1])
 		if err != nil || reservedReviewPath(split[1]) {
 			continue
+		}
+		if len(ignored) == 1 && workspaceIgnored(split[1], ignored[0]) {
+			continue
+		}
+		if len(fields) != 3 || (fields[0] != "100644" && fields[0] != "100755") || fields[1] != "blob" {
+			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .karignore", split[1])
 		}
 		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", fields[2]))
 		if err != nil {
 			return nil, err
 		}
 		if int64(len(blob.Stdout)) > ports.WorkspaceSnapshotMaxFileBytes {
-			return nil, fmt.Errorf("reference file exceeds limit")
+			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .karignore", split[1])
 		}
 		if err := adapter.clean(ctx, ports.ReviewInputReference, path.String(), blob.Stdout); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", split[1], err)
 		}
 		digest := sha256.Sum256(blob.Stdout)
 		file, err := ports.NewWorkspaceSnapshotFile(path, blob.Stdout, "sha256:"+hex.EncodeToString(digest[:]))
@@ -319,7 +455,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	defer func() { _ = cleanup() }()
 	head, err := adapter.resolve(ctx, repo, "HEAD")
 	if err != nil {
-		return ports.CapturedReviewMaterial{}, err
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: dirty requires an existing HEAD; use --workspace before the first commit: %w", err)
 	}
 	tree, err := adapter.tree(ctx, repo, head)
 	if err != nil {
@@ -337,6 +473,15 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	karRules, karDigest, err := capturedKarIgnore(root)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	for path := range eligible.eligible {
+		if workspaceIgnored(path, karRules) {
+			delete(eligible.eligible, path)
+		}
+	}
 	out, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", head.String()}})
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
@@ -346,17 +491,23 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 		return ports.CapturedReviewMaterial{}, err
 	}
 	patch := append(append([]byte(nil), out.Stdout...), untracked...)
+	patch, err = filterKarIgnoredPatch(patch, karRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "git", patch); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles, err := adapter.objectSnapshot(ctx, root, head)
+	baseFiles, err := adapter.objectSnapshot(ctx, root, head, karRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	files, err := adapter.worktreeSnapshot(ctx, root, eligible.eligible)
+	files, err := adapter.worktreeSnapshot(ctx, root, eligible.eligible, karRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
+	files = filterKarIgnoredSnapshot(files, karRules)
 	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
@@ -372,8 +523,8 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	return adapter.materialize(patch, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase:     baseFiles,
 		ports.CapturedEvidenceWorktree: files,
-	}, "dirty;git=canonical-v1;ignore="+eligible.identity+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
-		return ports.NewCapturedReviewGitTarget(repo.repositoryID, head, head, tree, &indexTree, patch)
+	}, "dirty;git=canonical-v1;ignore="+eligible.identity+"+karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+		return ports.NewCapturedReviewGitTargetWithMode(domain.GitTargetDirty, repo.repositoryID, head, head, tree, &indexTree, patch)
 	})
 }
 
@@ -394,7 +545,7 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 	for _, path := range paths {
 		bytes, err := readStableRegular(root.String(), path, int(ports.ReviewTargetMaxBytes))
 		if err != nil {
-			return nil, fmt.Errorf("untracked %q: %w", path, err)
+			return nil, fmt.Errorf("untracked path %q: %w; add it to .karignore", path, err)
 		}
 		if len(patch)+len(bytes) > ports.ReviewTargetMaxBytes {
 			return nil, fmt.Errorf("dirty patch exceeds limit")
@@ -465,7 +616,7 @@ func quoteGitPath(path string) string {
 	return quoted.String()
 }
 
-func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root ports.AnchoredRoot, eligible map[string]bool) ([]ports.WorkspaceSnapshotFile, error) {
+func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root ports.AnchoredRoot, eligible map[string]bool, ignored ...[]workspaceIgnoreRule) ([]ports.WorkspaceSnapshotFile, error) {
 	trackedOut, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "ls-files", "-z"}})
 	if err != nil {
 		return nil, err
@@ -506,9 +657,12 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 			return nil
 		}
 		selected := tracked[relative] || eligible[relative]
+		if selected && len(ignored) == 1 && workspaceIgnored(relative, ignored[0]) {
+			selected = false
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if selected {
-				return fmt.Errorf("captured path is a symlink")
+				return fmt.Errorf("captured path %q is a symlink; add it to .karignore", relative)
 			}
 			return nil
 		}
@@ -517,7 +671,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		if !entry.Type().IsRegular() {
 			if selected {
-				return fmt.Errorf("captured path is not a regular file")
+				return fmt.Errorf("captured path %q is not a regular file; add it to .karignore", relative)
 			}
 			return nil
 		}
@@ -526,10 +680,10 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		bytes, err := readStableRegular(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
-			return err
+			return fmt.Errorf("captured path %q: %w; add it to .karignore", relative, err)
 		}
 		if err := adapter.clean(ctx, ports.ReviewInputReference, relative, bytes); err != nil {
-			return err
+			return fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", relative, err)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil {

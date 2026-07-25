@@ -8,11 +8,24 @@ import (
 
 type TargetKind string
 
+type GitTargetMode string
+
 const (
-	TargetGit   TargetKind = "git"
-	TargetPatch TargetKind = "patch"
-	TargetStdin TargetKind = "stdin"
+	TargetGit       TargetKind = "git"
+	TargetWorkspace TargetKind = "workspace"
+	TargetPatch     TargetKind = "patch"
+	TargetStdin     TargetKind = "stdin"
 )
+
+const (
+	GitTargetDiff  GitTargetMode = "diff"
+	GitTargetStage GitTargetMode = "stage"
+	GitTargetDirty GitTargetMode = "dirty"
+)
+
+func (mode GitTargetMode) Valid() bool {
+	return mode == GitTargetDiff || mode == GitTargetStage || mode == GitTargetDirty
+}
 
 var (
 	lowerSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -27,6 +40,7 @@ type TargetIdentityInput struct {
 	HeadObjectID      string
 	HeadTreeObjectID  string
 	IndexTreeObjectID string
+	GitMode           GitTargetMode
 }
 
 // TargetIdentity binds a run to immutable target bytes and, for Git targets,
@@ -39,6 +53,7 @@ type TargetIdentity struct {
 	headObjectID      string
 	headTreeObjectID  string
 	indexTreeObjectID string
+	gitMode           GitTargetMode
 }
 
 func NewTargetIdentity(input TargetIdentityInput) (TargetIdentity, error) {
@@ -52,9 +67,16 @@ func NewTargetIdentity(input TargetIdentityInput) (TargetIdentity, error) {
 		kind: input.Kind, sha256: input.SHA256, repositoryID: input.RepositoryID,
 		baseObjectID: input.BaseObjectID, headObjectID: input.HeadObjectID,
 		headTreeObjectID: input.HeadTreeObjectID, indexTreeObjectID: input.IndexTreeObjectID,
+		gitMode: input.GitMode,
 	}
 	switch input.Kind {
 	case TargetGit:
+		if identity.gitMode == "" {
+			identity.gitMode = GitTargetDiff
+		}
+		if !identity.gitMode.Valid() {
+			return TargetIdentity{}, fmt.Errorf("target identity: %w: invalid Git target mode", ErrInvariant)
+		}
 		if strings.TrimSpace(input.RepositoryID) == "" {
 			return TargetIdentity{}, fmt.Errorf("target identity: %w: Git repository identity is required", ErrInvariant)
 		}
@@ -74,8 +96,8 @@ func NewTargetIdentity(input TargetIdentityInput) (TargetIdentity, error) {
 		if input.IndexTreeObjectID != "" && (!gitOIDPattern.MatchString(input.IndexTreeObjectID) || allZeroHex(input.IndexTreeObjectID)) {
 			return TargetIdentity{}, fmt.Errorf("target identity: %w: index tree is not a canonical nonzero Git object ID", ErrInvariant)
 		}
-	case TargetPatch, TargetStdin:
-		if input.RepositoryID != "" || input.BaseObjectID != "" || input.HeadObjectID != "" || input.HeadTreeObjectID != "" || input.IndexTreeObjectID != "" {
+	case TargetWorkspace, TargetPatch, TargetStdin:
+		if input.RepositoryID != "" || input.BaseObjectID != "" || input.HeadObjectID != "" || input.HeadTreeObjectID != "" || input.IndexTreeObjectID != "" || input.GitMode != "" {
 			return TargetIdentity{}, fmt.Errorf("target identity: %w: non-Git target cannot carry Git object identities", ErrInvariant)
 		}
 	default:
@@ -103,3 +125,4 @@ func (identity TargetIdentity) BaseObjectID() string      { return identity.base
 func (identity TargetIdentity) HeadObjectID() string      { return identity.headObjectID }
 func (identity TargetIdentity) HeadTreeObjectID() string  { return identity.headTreeObjectID }
 func (identity TargetIdentity) IndexTreeObjectID() string { return identity.indexTreeObjectID }
+func (identity TargetIdentity) GitMode() GitTargetMode    { return identity.gitMode }

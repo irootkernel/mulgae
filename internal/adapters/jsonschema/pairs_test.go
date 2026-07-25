@@ -18,7 +18,7 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 		"command":        "init",
 		"request": map[string]any{
 			"request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf", "command": "init", "project_root": ".", "project_name": "project", "context": nil,
-			"selection": map[string]any{"mode": "selected", "provider_ids": []string{"agy"}}, "overrides": map[string]any{}, "overwrite": false, "output_format": "json",
+			"selection": map[string]any{"mode": "selected", "provider_ids": []string{"agy"}}, "roles": []string{"logic", "security"}, "overrides": map[string]any{}, "overwrite": false, "output_format": "json",
 		},
 		"completed_at": "2026-07-21T00:00:00.000Z",
 		"exit":         map[string]any{"code": 8, "kind": "security"},
@@ -27,7 +27,7 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 		}},
 		"result": map[string]any{
 			"kind": "initialization_failed", "config_uri": ".kar/config.yaml", "config_sha256": "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
-			"selected_provider_ids": []string{"agy"}, "candidate_provider_ids": []string{"agy"}, "configured_provider_ids": []string{"agy"},
+			"selected_provider_ids": []string{"agy"}, "candidate_provider_ids": []string{"agy"}, "configured_provider_ids": []string{"agy"}, "configured_role_ids": []string{"logic", "security"},
 			"write_state": "installed_unconfirmed", "committed": false, "destination_state": "present",
 			"discovery": []any{
 				map[string]any{"family": "kimi", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "executable_source": "not_selected", "model_source": "not_selected", "data_home_source": "not_selected"},

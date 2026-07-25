@@ -32,7 +32,7 @@ validation:
     max_attempts: 1
     same_provider: true
 resources:
-  max_active_lanes: 3
+  max_active_lanes: 6
   primary_repair_attempts: 1
   fallback_repair_attempts: 1
   role_max_invocations: 4

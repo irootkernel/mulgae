@@ -15,6 +15,7 @@ const (
 	productionProfileGeneration       = "reviewrun-production-candidates-v1"
 	productionWorkingDirectory        = "/private/var/empty"
 	productionTimeout                 = 4 * time.Minute
+	productionZCodeTimeout            = 6 * time.Minute
 	productionOutputCap         int64 = 256 << 10
 )
 
@@ -32,6 +33,7 @@ type productionCandidateTemplate struct {
 	limits                      review.InvocationLimits
 	lifecycle                   *ports.BoundedPostOutputLifecycle
 	kimiModel                   string
+	supportedRoles              []domain.Role
 }
 
 // ProductionQualifiedRunCandidateSource binds startup-frozen identity-only
@@ -65,12 +67,12 @@ func NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(builder ports.
 }
 
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder, profiles, identities, agyPermissionMode, "kimi-code/k3")
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder, profiles, identities, agyPermissionMode, "kimi-code/kimi-for-coding")
 }
 
 // NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings
 // binds operator-admitted family settings to every probe and production
-// invocation. Kimi's model is explicit here; callers pass the canonical K3
+// invocation. Kimi's model is explicit here; callers pass the canonical
 // default only when the configuration omitted the field.
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string) (*ProductionQualifiedRunCandidateSource, error) {
 	if nilInterface(builder) {
@@ -121,13 +123,6 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 	if len(roles) == 0 {
 		return nil, fmt.Errorf("review run: invalid production candidate roles")
 	}
-	base := roles[0]
-	for _, role := range roles {
-		if role == domain.RoleLogic {
-			base = domain.RoleLogic
-			break
-		}
-	}
 	profiles := make(map[Family]DiscoveredProviderProfile, len(source.profiles))
 	for _, profile := range source.profiles {
 		profiles[profile.Family()] = profile
@@ -138,6 +133,11 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 		if !ok || profileMissingOperationalIdentity(profile) {
 			continue
 		}
+		supportedRoles := intersectCanonicalRoles(roles, template.supportedRoles)
+		if len(supportedRoles) == 0 {
+			continue
+		}
+		base := qualificationBaseRole(supportedRoles)
 		definition, err := template.definition(source.builder, profile)
 		if err != nil {
 			return nil, fmt.Errorf("review run: construct %s production candidate: %w", template.family, err)
@@ -146,7 +146,7 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 			Profile:          cloneDiscoveredProviderProfile(profile),
 			Definition:       definition,
 			SnapshotManifest: workspace.ManifestSHA256(),
-			SupportedRoles:   append([]domain.Role(nil), roles...),
+			SupportedRoles:   supportedRoles,
 			BaseRole:         base,
 			Limits:           template.limits,
 		})
@@ -212,7 +212,7 @@ func productionCandidateTemplates(identities map[Family]string) ([]productionCan
 }
 
 func productionCandidateTemplatesWithAGYPermissionMode(identities map[Family]string, agyPermissionMode string) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithRuntimeSettings(identities, agyPermissionMode, "kimi-code/k3")
+	return productionCandidateTemplatesWithRuntimeSettings(identities, agyPermissionMode, "kimi-code/kimi-for-coding")
 }
 
 func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]string, agyPermissionMode, kimiModel string) ([]productionCandidateTemplate, error) {
@@ -229,15 +229,7 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	if err != nil {
 		return nil, err
 	}
-	kimiKey, err := ports.ParseConcurrencyKey("kimi-default")
-	if err != nil {
-		return nil, err
-	}
-	zcodeKey, err := ports.ParseConcurrencyKey("zcode-default")
-	if err != nil {
-		return nil, err
-	}
-	agyKey, err := ports.ParseConcurrencyKey("agy-default")
+	zcodeLimits, err := review.NewInvocationLimits(productionZCodeTimeout, productionOutputCap, productionOutputCap)
 	if err != nil {
 		return nil, err
 	}
@@ -253,27 +245,70 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	if err != nil {
 		return nil, err
 	}
-	return []productionCandidateTemplate{
-		{family: FamilyKimi, instance: "kimi-default", profileID: "kimi-default", runtimeSafetyPolicyIdentity: identities[FamilyKimi], kimiModel: kimiModel, transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: 4, concurrencyKey: kimiKey, limits: limits},
-		{family: FamilyZCode, instance: "zcode-default", profileID: "zcode-default", runtimeSafetyPolicyIdentity: identities[FamilyZCode], transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: 6, concurrencyKey: zcodeKey, limits: limits},
-		{family: FamilyAGY, instance: "agy-default", profileID: "agy-default", runtimeSafetyPolicyIdentity: identities[FamilyAGY], transportChannel: ports.ProviderPacketChannelArgvLiteral, transportArgvIndex: agyArgvIndex, concurrencyKey: agyKey, limits: limits, lifecycle: &lifecycle, environment: []ports.EnvironmentVariable{agyEnvironment}},
-	}, nil
+	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder()))
+	for _, family := range Families() {
+		for _, role := range domain.FixedRoleOrder() {
+			instance := string(family) + "-" + string(role)
+			key, keyErr := ports.ParseConcurrencyKey(instance)
+			if keyErr != nil {
+				return nil, keyErr
+			}
+			template := productionCandidateTemplate{
+				family: family, instance: instance, profileID: instance,
+				runtimeSafetyPolicyIdentity: identities[family], transportChannel: ports.ProviderPacketChannelArgvLiteral,
+				concurrencyKey: key, limits: limits, supportedRoles: []domain.Role{role},
+			}
+			switch family {
+			case FamilyKimi:
+				template.kimiModel, template.transportArgvIndex = kimiModel, 4
+			case FamilyZCode:
+				template.transportArgvIndex, template.limits = 6, zcodeLimits
+			case FamilyAGY:
+				template.transportArgvIndex, template.lifecycle = agyArgvIndex, &lifecycle
+				template.environment = []ports.EnvironmentVariable{agyEnvironment}
+			}
+			templates = append(templates, template)
+		}
+	}
+	return templates, nil
 }
 
 func validateProductionCandidateTemplates(templates []productionCandidateTemplate) error {
-	if len(templates) != len(Families()) {
+	if len(templates) != len(Families())*len(domain.FixedRoleOrder()) {
 		return fmt.Errorf("template count")
 	}
-	seen := make(map[Family]struct{}, len(templates))
+	seenInstances := make(map[string]struct{}, len(templates))
+	seenKeys := make(map[string]struct{}, len(templates))
+	roleCoverage := make(map[Family]map[domain.Role]int, len(Families()))
 	for _, template := range templates {
+		if len(template.supportedRoles) != 1 {
+			return fmt.Errorf("template role cardinality")
+		}
+		role := template.supportedRoles[0]
+		wantInstance := string(template.family) + "-" + string(role)
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" ||
-			template.transportChannel != ports.ProviderPacketChannelArgvLiteral || template.transportArgvIndex < 0 || template.transportReference != "" {
+			template.transportChannel != ports.ProviderPacketChannelArgvLiteral || template.transportArgvIndex < 0 || template.transportReference != "" ||
+			template.instance != wantInstance || template.profileID != template.instance || !template.concurrencyKey.Valid() ||
+			template.concurrencyKey.String() != template.instance || len(template.supportedRoles) == 0 {
 			return fmt.Errorf("invalid template policy identity")
 		}
-		if _, duplicate := seen[template.family]; duplicate {
-			return fmt.Errorf("duplicate template family %q", template.family)
+		if _, duplicate := seenInstances[template.instance]; duplicate {
+			return fmt.Errorf("duplicate template instance %q", template.instance)
 		}
-		seen[template.family] = struct{}{}
+		seenInstances[template.instance] = struct{}{}
+		if _, duplicate := seenKeys[template.concurrencyKey.String()]; duplicate {
+			return fmt.Errorf("duplicate template concurrency key")
+		}
+		seenKeys[template.concurrencyKey.String()] = struct{}{}
+		if roleCoverage[template.family] == nil {
+			roleCoverage[template.family] = make(map[domain.Role]int)
+		}
+		for _, role := range template.supportedRoles {
+			if !role.Valid() {
+				return fmt.Errorf("invalid template role")
+			}
+			roleCoverage[template.family][role]++
+		}
 		if template.family == FamilyAGY && (template.lifecycle == nil || !template.lifecycle.Valid()) {
 			return fmt.Errorf("invalid agy lifecycle")
 		}
@@ -282,11 +317,39 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		}
 	}
 	for _, family := range Families() {
-		if _, ok := seen[family]; !ok {
-			return fmt.Errorf("missing template family %q", family)
+		for _, role := range domain.FixedRoleOrder() {
+			if roleCoverage[family][role] != 1 {
+				return fmt.Errorf("invalid template role coverage for %q", family)
+			}
 		}
 	}
 	return nil
+}
+
+func intersectCanonicalRoles(left, right []domain.Role) []domain.Role {
+	rightSet := make(map[domain.Role]struct{}, len(right))
+	for _, role := range right {
+		rightSet[role] = struct{}{}
+	}
+	result := make([]domain.Role, 0, len(left))
+	for _, role := range canonicalSelectedRoles(left) {
+		if _, ok := rightSet[role]; ok {
+			result = append(result, role)
+		}
+	}
+	return result
+}
+
+func qualificationBaseRole(roles []domain.Role) domain.Role {
+	for _, role := range roles {
+		if role == domain.RoleLogic {
+			return role
+		}
+	}
+	if len(roles) == 0 {
+		return ""
+	}
+	return roles[0]
 }
 
 func validateProductionPolicyIdentities(identities map[Family]string) error {

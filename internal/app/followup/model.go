@@ -19,13 +19,16 @@ import (
 type TargetKind string
 
 const (
-	TargetDiff  TargetKind = "diff"
-	TargetPatch TargetKind = "patch"
-	TargetStdin TargetKind = "stdin"
+	TargetWorkspace TargetKind = "workspace"
+	TargetStage     TargetKind = "stage"
+	TargetDirty     TargetKind = "dirty"
+	TargetDiff      TargetKind = "diff"
+	TargetPatch     TargetKind = "patch"
+	TargetStdin     TargetKind = "stdin"
 )
 
 func (kind TargetKind) valid() bool {
-	return kind == TargetDiff || kind == TargetPatch || kind == TargetStdin
+	return kind == TargetWorkspace || kind == TargetStage || kind == TargetDirty || kind == TargetDiff || kind == TargetPatch || kind == TargetStdin
 }
 
 // Target is untrusted current-target input. Capture binds it to immutable bytes.
@@ -77,8 +80,9 @@ type VerifiedSource struct {
 
 // CurrentTarget is the freshly captured immutable target and its exact bytes.
 type CurrentTarget struct {
-	Identity domain.TargetIdentity
-	Bytes    []byte
+	Identity        domain.TargetIdentity
+	Bytes           []byte
+	CapturedArchive []byte
 }
 
 // SourceReader reads one validated P2 source and its run-scoped finding.

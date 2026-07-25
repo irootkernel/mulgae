@@ -383,6 +383,63 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 	}
 }
 
+func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t *testing.T) {
+	t.Parallel()
+	selections := [][]string{
+		{"logic", "security"},
+		{"logic", "security", "documentation"},
+		{"logic", "security", "maintainability", "product", "testing"},
+	}
+	for _, selected := range selections {
+		selected := selected
+		t.Run(strings.Join(selected, "-"), func(t *testing.T) {
+			rootPath := t.TempDir()
+			if err := os.Chmod(rootPath, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := ports.NewAnchoredRoot(rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+				ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", RoleIDs: selected,
+				Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
+				Overrides: Overrides{AGYExecutable: "/bin/agy"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(result.ConfiguredRoleIDs, selected) {
+				t.Fatalf("configured roles = %v, want %v", result.ConfiguredRoleIDs, selected)
+			}
+			data, err := os.ReadFile(filepath.Join(rootPath, ".kar", "config.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, err := adapterconfig.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.Resources.MaxActiveLanes != len(selected) || config.Resources.RoleMaxInvocations != 2 || config.Resources.RunMaxInvocations != 2*len(selected) {
+				t.Fatalf("resource defaults = %#v", config.Resources)
+			}
+			selectedSet := make(map[string]bool, len(selected))
+			for _, role := range selected {
+				selectedSet[role] = true
+			}
+			for index, role := range domain.FixedRoleOrder() {
+				if got, want := config.Roles.Ordered()[index].Enabled, selectedSet[string(role)]; got != want {
+					t.Errorf("role %s enabled = %t, want %t", role, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
@@ -837,7 +894,8 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 	base := InitializeProjectResult{
 		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
-		WriteState: "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
+		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
+		WriteState:        "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
 		Discovery: admittedAGYDiscoveryRows(),
 	}
 	if err := service.prevalidateMutationResults(context.Background(), base); err != nil {
@@ -876,7 +934,8 @@ func TestPrevalidatedOutcomeRejectsContradictoryFailureTuple(t *testing.T) {
 	result := InitializeProjectResult{
 		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
-		WriteState: "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,
+		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
+		WriteState:        "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,
 		Discovery: admittedAGYDiscoveryRows(),
 	}
 	contradictory := PrevalidatedOutcome{

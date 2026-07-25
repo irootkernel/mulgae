@@ -554,7 +554,7 @@ func TestServiceExecuteOpensDiagnosticsBeforeQualification(t *testing.T) {
 	assertServiceCalls(t, calls, []string{"capture", "session", "run", "sink", "authority", "plan", "drain", "abort"})
 	want := []domain.RuntimeDiagnosticEventCode{
 		domain.DiagnosticCommandAccepted, domain.DiagnosticRuntimeOpened, domain.DiagnosticSessionCreated, domain.DiagnosticRunCreated,
-		domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationCandidateChecked, domain.DiagnosticQualificationSucceeded,
+		domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationCandidateChecked,
 		domain.DiagnosticNamespaceDrainStarted, domain.DiagnosticNamespaceDrained,
 		domain.DiagnosticWorkspaceCleanupStarted, domain.DiagnosticWorkspaceCleanupCompleted,
 	}

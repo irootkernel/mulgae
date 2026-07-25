@@ -25,9 +25,12 @@ const (
 type TargetKind string
 
 const (
-	TargetDiff  TargetKind = "diff"
-	TargetPatch TargetKind = "patch"
-	TargetStdin TargetKind = "stdin"
+	TargetWorkspace TargetKind = "workspace"
+	TargetStage     TargetKind = "stage"
+	TargetDirty     TargetKind = "dirty"
+	TargetDiff      TargetKind = "diff"
+	TargetPatch     TargetKind = "patch"
+	TargetStdin     TargetKind = "stdin"
 )
 
 // TargetRequest contains only an untrusted selector. Capturers must resolve it
@@ -39,7 +42,7 @@ type TargetRequest struct {
 
 func (request TargetRequest) validate() error {
 	switch request.Kind {
-	case TargetDiff, TargetPatch, TargetStdin:
+	case TargetWorkspace, TargetStage, TargetDirty, TargetDiff, TargetPatch, TargetStdin:
 	default:
 		return fmt.Errorf("delta target: unsupported kind %q", request.Kind)
 	}
@@ -52,19 +55,27 @@ func (request TargetRequest) validate() error {
 // ImmutableTarget preserves the request kind, exact bounded captured bytes, and
 // canonical domain identity. Git metadata is retained only for a diff capture.
 type ImmutableTarget struct {
-	kind        TargetKind
-	value       string
-	bytes       []byte
-	sha256      string
-	identity    domain.TargetIdentity
-	persistedP2 bool
+	kind            TargetKind
+	value           string
+	bytes           []byte
+	sha256          string
+	identity        domain.TargetIdentity
+	persistedP2     bool
+	capturedArchive []byte
 }
 
 // NewGitImmutableTarget materializes a diff request from a resolved Git capture.
 func NewGitImmutableTarget(value string, captured ports.CapturedGitTarget) (ImmutableTarget, error) {
-	request := TargetRequest{Kind: TargetDiff, Value: value}
+	return NewGitImmutableTargetForKind(TargetDiff, value, captured)
+}
+
+func NewGitImmutableTargetForKind(kind TargetKind, value string, captured ports.CapturedGitTarget) (ImmutableTarget, error) {
+	request := TargetRequest{Kind: kind, Value: value}
 	if err := request.validate(); err != nil {
 		return ImmutableTarget{}, err
+	}
+	if kind != TargetStage && kind != TargetDirty && kind != TargetDiff {
+		return ImmutableTarget{}, fmt.Errorf("delta target: Git capture kind must be stage, dirty, or diff")
 	}
 	targetBytes := captured.Bytes()
 	if err := validTargetBytes(targetBytes); err != nil {
@@ -78,6 +89,14 @@ func NewGitImmutableTarget(value string, captured ports.CapturedGitTarget) (Immu
 		Kind: domain.TargetGit, SHA256: hash, RepositoryID: captured.RepositoryID(),
 		BaseObjectID: captured.BaseObjectID().String(), HeadObjectID: captured.HeadObjectID().String(),
 		HeadTreeObjectID: captured.HeadTreeID().String(),
+	}
+	switch kind {
+	case TargetStage:
+		input.GitMode = domain.GitTargetStage
+	case TargetDirty:
+		input.GitMode = domain.GitTargetDirty
+	default:
+		input.GitMode = domain.GitTargetDiff
 	}
 	if index, exists := captured.IndexTreeID(); exists {
 		input.IndexTreeObjectID = index.String()
@@ -96,15 +115,17 @@ func NewByteImmutableTarget(kind TargetKind, value string, targetBytes []byte) (
 	if err := request.validate(); err != nil {
 		return ImmutableTarget{}, err
 	}
-	if kind != TargetPatch && kind != TargetStdin {
-		return ImmutableTarget{}, fmt.Errorf("delta target: byte capture kind must be patch or stdin")
+	if kind != TargetWorkspace && kind != TargetPatch && kind != TargetStdin {
+		return ImmutableTarget{}, fmt.Errorf("delta target: byte capture kind must be workspace, patch, or stdin")
 	}
 	if err := validTargetBytes(targetBytes); err != nil {
 		return ImmutableTarget{}, err
 	}
 	hash := targetDigest(targetBytes)
 	identityKind := domain.TargetPatch
-	if kind == TargetStdin {
+	if kind == TargetWorkspace {
+		identityKind = domain.TargetWorkspace
+	} else if kind == TargetStdin {
 		identityKind = domain.TargetStdin
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: identityKind, SHA256: hash})
@@ -127,7 +148,16 @@ func NewP2ImmutableTarget(identity domain.TargetIdentity, targetBytes []byte) (I
 	kind := TargetPatch
 	switch identity.Kind() {
 	case domain.TargetGit:
-		kind = TargetDiff
+		switch identity.GitMode() {
+		case domain.GitTargetStage:
+			kind = TargetStage
+		case domain.GitTargetDirty:
+			kind = TargetDirty
+		default:
+			kind = TargetDiff
+		}
+	case domain.TargetWorkspace:
+		kind = TargetWorkspace
 	case domain.TargetPatch:
 	case domain.TargetStdin:
 		kind = TargetStdin
@@ -142,8 +172,22 @@ func (target ImmutableTarget) Value() string                   { return target.v
 func (target ImmutableTarget) Bytes() []byte                   { return append([]byte(nil), target.bytes...) }
 func (target ImmutableTarget) SHA256() string                  { return target.sha256 }
 func (target ImmutableTarget) Identity() domain.TargetIdentity { return target.identity }
+func (target ImmutableTarget) CapturedArchive() []byte {
+	return append([]byte(nil), target.capturedArchive...)
+}
+
+// WithCapturedArchive binds the complete capture used to produce this target.
+func (target ImmutableTarget) WithCapturedArchive(archive []byte) (ImmutableTarget, error) {
+	material, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	if err != nil || material.Target().Identity() != target.identity || !strings.EqualFold(material.Target().Identity().SHA256(), target.sha256) {
+		return ImmutableTarget{}, fmt.Errorf("delta target: captured archive does not bind target")
+	}
+	target.capturedArchive = append([]byte(nil), archive...)
+	return target, nil
+}
 func (target ImmutableTarget) clone() ImmutableTarget {
 	target.bytes = append([]byte(nil), target.bytes...)
+	target.capturedArchive = append([]byte(nil), target.capturedArchive...)
 	return target
 }
 
@@ -160,14 +204,24 @@ func (target ImmutableTarget) validate(name string) error {
 	if target.sha256 != targetDigest(target.bytes) {
 		return fmt.Errorf("delta %s target has invalid immutable hash", name)
 	}
+	if len(target.capturedArchive) > 0 {
+		material, err := ports.UnmarshalCapturedReviewMaterial(target.capturedArchive)
+		if err != nil || material.Target().Identity() != target.identity {
+			return fmt.Errorf("delta %s target captured archive is invalid", name)
+		}
+	}
 	identity := target.identity
 	if identity.SHA256() != target.sha256 {
 		return fmt.Errorf("delta %s target identity does not match bytes", name)
 	}
 	switch target.kind {
-	case TargetDiff:
+	case TargetStage, TargetDirty, TargetDiff:
 		if identity.Kind() != domain.TargetGit {
 			return fmt.Errorf("delta %s target diff is not a Git identity", name)
+		}
+	case TargetWorkspace:
+		if identity.Kind() != domain.TargetWorkspace {
+			return fmt.Errorf("delta %s target workspace is not a workspace identity", name)
 		}
 	case TargetPatch:
 		if identity.Kind() != domain.TargetPatch {

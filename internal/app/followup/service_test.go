@@ -379,7 +379,7 @@ func testReviewID(t *testing.T) domain.ReviewID {
 }
 
 func testRequest(sourceRunID domain.RunID) Request {
-	return Request{SourceRunID: sourceRunID, FindingID: "F003", Target: Target{Kind: TargetDiff, Value: "git"}}
+	return Request{SourceRunID: sourceRunID, FindingID: "F003", Target: Target{Kind: TargetDirty, Value: "dirty"}}
 }
 
 func validExecutionResult(source VerifiedSource) ExecutionResult {

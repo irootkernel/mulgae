@@ -12,9 +12,12 @@ import (
 type ReviewTargetSelectorKind string
 
 const (
-	ReviewTargetDiff  ReviewTargetSelectorKind = "diff"
-	ReviewTargetPatch ReviewTargetSelectorKind = "patch"
-	ReviewTargetStdin ReviewTargetSelectorKind = "stdin"
+	ReviewTargetWorkspace ReviewTargetSelectorKind = "workspace"
+	ReviewTargetStage     ReviewTargetSelectorKind = "stage"
+	ReviewTargetDirty     ReviewTargetSelectorKind = "dirty"
+	ReviewTargetDiff      ReviewTargetSelectorKind = "diff"
+	ReviewTargetPatch     ReviewTargetSelectorKind = "patch"
+	ReviewTargetStdin     ReviewTargetSelectorKind = "stdin"
 )
 
 type ReviewTargetSelector struct {
@@ -27,7 +30,7 @@ func NewReviewTargetSelector(kind ReviewTargetSelectorKind, value string) (Revie
 		return ReviewTargetSelector{}, fmt.Errorf("review target selector: invalid value")
 	}
 	switch kind {
-	case ReviewTargetDiff, ReviewTargetPatch, ReviewTargetStdin:
+	case ReviewTargetWorkspace, ReviewTargetStage, ReviewTargetDirty, ReviewTargetDiff, ReviewTargetPatch, ReviewTargetStdin:
 	default:
 		return ReviewTargetSelector{}, fmt.Errorf("review target selector: invalid kind")
 	}
@@ -123,11 +126,16 @@ type CapturedReviewTarget struct {
 	headTree     GitObjectID
 	indexTree    GitObjectID
 	hasIndexTree bool
+	gitMode      domain.GitTargetMode
 }
 
 // NewCapturedReviewGitTarget captures a Git target using the exact canonical
 // diff bytes. Empty diffs are valid and represent a no-change Git review.
 func NewCapturedReviewGitTarget(repositoryID string, baseObjectID, headObjectID, headTreeID GitObjectID, indexTreeID *GitObjectID, bytes []byte) (CapturedReviewTarget, error) {
+	return NewCapturedReviewGitTargetWithMode(domain.GitTargetDiff, repositoryID, baseObjectID, headObjectID, headTreeID, indexTreeID, bytes)
+}
+
+func NewCapturedReviewGitTargetWithMode(mode domain.GitTargetMode, repositoryID string, baseObjectID, headObjectID, headTreeID GitObjectID, indexTreeID *GitObjectID, bytes []byte) (CapturedReviewTarget, error) {
 	if err := validateCapturedReviewBytes(bytes, true); err != nil {
 		return CapturedReviewTarget{}, fmt.Errorf("captured review target: %w", err)
 	}
@@ -143,6 +151,7 @@ func NewCapturedReviewGitTarget(repositoryID string, baseObjectID, headObjectID,
 	identityInput := domain.TargetIdentityInput{
 		Kind: domain.TargetGit, SHA256: strings.TrimPrefix(sha256Identifier(bytes), "sha256:"),
 		RepositoryID: repositoryID, BaseObjectID: baseObjectID.String(), HeadObjectID: headObjectID.String(), HeadTreeObjectID: headTreeID.String(),
+		GitMode: mode,
 	}
 	if indexTreeID != nil {
 		identityInput.IndexTreeObjectID = indexTreeID.String()
@@ -151,7 +160,7 @@ func NewCapturedReviewGitTarget(repositoryID string, baseObjectID, headObjectID,
 	if err != nil {
 		return CapturedReviewTarget{}, fmt.Errorf("captured review target: %w", err)
 	}
-	target := CapturedReviewTarget{kind: domain.TargetGit, identity: identity, bytes: cloneBytes(bytes), repository: repositoryID, base: baseObjectID, head: headObjectID, headTree: headTreeID}
+	target := CapturedReviewTarget{kind: domain.TargetGit, identity: identity, bytes: cloneBytes(bytes), repository: repositoryID, base: baseObjectID, head: headObjectID, headTree: headTreeID, gitMode: mode}
 	if indexTreeID != nil {
 		target.indexTree = *indexTreeID
 		target.hasIndexTree = true
@@ -169,6 +178,13 @@ func NewCapturedReviewStdinTarget(bytes []byte) (CapturedReviewTarget, error) {
 	return newCapturedReviewTarget(domain.TargetStdin, bytes)
 }
 
+// NewCapturedReviewWorkspaceTarget binds a workspace descriptor to its exact
+// immutable snapshot identity. Source files are carried by the accompanying
+// WorkspaceSnapshotRequest rather than duplicated into the prompt payload.
+func NewCapturedReviewWorkspaceTarget(bytes []byte) (CapturedReviewTarget, error) {
+	return newCapturedReviewTarget(domain.TargetWorkspace, bytes)
+}
+
 // NewCapturedReviewTargetFromIdentity reconstructs a trusted immutable target
 // from P2-bound bytes and their complete persisted identity.
 func NewCapturedReviewTargetFromIdentity(identity domain.TargetIdentity, bytes []byte) (CapturedReviewTarget, error) {
@@ -178,6 +194,8 @@ func NewCapturedReviewTargetFromIdentity(identity domain.TargetIdentity, bytes [
 	var target CapturedReviewTarget
 	var err error
 	switch identity.Kind() {
+	case domain.TargetWorkspace:
+		target, err = NewCapturedReviewWorkspaceTarget(bytes)
 	case domain.TargetPatch:
 		target, err = NewCapturedReviewPatchTarget(bytes)
 	case domain.TargetStdin:
@@ -197,7 +215,7 @@ func NewCapturedReviewTargetFromIdentity(identity domain.TargetIdentity, bytes [
 			}
 			index = &parsed
 		}
-		target, err = NewCapturedReviewGitTarget(identity.RepositoryID(), base, head, tree, index, bytes)
+		target, err = NewCapturedReviewGitTargetWithMode(identity.GitMode(), identity.RepositoryID(), base, head, tree, index, bytes)
 	default:
 		return CapturedReviewTarget{}, fmt.Errorf("captured review target: persisted kind is invalid")
 	}
@@ -280,9 +298,9 @@ func (target CapturedReviewTarget) Valid() bool {
 			value := target.indexTree
 			index = &value
 		}
-		rebuilt, err := NewCapturedReviewGitTarget(repository, target.base, target.head, target.headTree, index, target.bytes)
+		rebuilt, err := NewCapturedReviewGitTargetWithMode(target.gitMode, repository, target.base, target.head, target.headTree, index, target.bytes)
 		return err == nil && rebuilt.identity == target.identity
-	case domain.TargetPatch, domain.TargetStdin:
+	case domain.TargetWorkspace, domain.TargetPatch, domain.TargetStdin:
 		if target.repository != "" || target.base.Valid() || target.head.Valid() || target.headTree.Valid() || target.indexTree.Valid() || target.hasIndexTree {
 			return false
 		}
@@ -325,11 +343,12 @@ const (
 	CapturedEvidenceBase     CapturedEvidenceSide = "base"
 	CapturedEvidenceHead     CapturedEvidenceSide = "head"
 	CapturedEvidenceWorktree CapturedEvidenceSide = "worktree"
+	CapturedEvidenceIndex    CapturedEvidenceSide = "index"
 )
 
 func (side CapturedEvidenceSide) Valid() bool {
 	switch side {
-	case CapturedEvidenceBase, CapturedEvidenceHead, CapturedEvidenceWorktree:
+	case CapturedEvidenceBase, CapturedEvidenceHead, CapturedEvidenceWorktree, CapturedEvidenceIndex:
 		return true
 	default:
 		return false

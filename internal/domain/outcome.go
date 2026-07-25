@@ -112,12 +112,6 @@ func computeCoverage(results []RoleResultSummary) (CoverageStatus, error) {
 		}
 		byRole[result.Role] = result
 	}
-	for _, required := range []Role{RoleLogic, RoleSecurity} {
-		result, exists := byRole[required]
-		if !exists || !result.Selected || !result.Valid {
-			return CoverageIncomplete, nil
-		}
-	}
 	degraded := false
 	for _, role := range FixedRoleOrder() {
 		result, exists := byRole[role]

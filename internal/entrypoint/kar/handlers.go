@@ -423,7 +423,7 @@ func (application *Application) handleExport(ctx context.Context, invocation Inv
 func followupTarget(request TargetRequest) (appfollowup.Target, error) {
 	kind := appfollowup.TargetKind(request.Kind())
 	switch kind {
-	case appfollowup.TargetDiff, appfollowup.TargetPatch, appfollowup.TargetStdin:
+	case appfollowup.TargetWorkspace, appfollowup.TargetStage, appfollowup.TargetDirty, appfollowup.TargetDiff, appfollowup.TargetPatch, appfollowup.TargetStdin:
 		if strings.TrimSpace(request.Value()) == "" {
 			return appfollowup.Target{}, errors.New("empty target")
 		}
@@ -436,7 +436,7 @@ func followupTarget(request TargetRequest) (appfollowup.Target, error) {
 func deltaTarget(request TargetRequest) (appdelta.TargetRequest, error) {
 	kind := appdelta.TargetKind(request.Kind())
 	switch kind {
-	case appdelta.TargetDiff, appdelta.TargetPatch, appdelta.TargetStdin:
+	case appdelta.TargetWorkspace, appdelta.TargetStage, appdelta.TargetDirty, appdelta.TargetDiff, appdelta.TargetPatch, appdelta.TargetStdin:
 		if len(request.Value()) == 0 || len(request.Value()) > 4096 || strings.TrimSpace(request.Value()) == "" || strings.ContainsAny(request.Value(), "\x00\r\n") {
 			return appdelta.TargetRequest{}, errors.New("invalid target")
 		}
@@ -720,6 +720,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, NativeHome: nativeHome,
 		NativeHomeAsserted: nativeHomeAsserted,
 		Selection:          selection,
+		RoleIDs:            request.Roles(),
 		Overrides:          appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission},
 	})
 	if err != nil {
@@ -757,6 +758,8 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	output.WriteString(initialized.ConfigURI)
 	output.WriteString("\nproviders: ")
 	output.WriteString(strings.Join(initialized.ConfiguredProviderIDs, ","))
+	output.WriteString("\nroles: ")
+	output.WriteString(strings.Join(initialized.ConfiguredRoleIDs, ","))
 	return execution{human: []byte(output.String()), data: data}
 }
 

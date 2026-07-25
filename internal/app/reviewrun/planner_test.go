@@ -3,14 +3,42 @@ package reviewrun
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
+	adapterruntime "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+type plannerCoordinatorRuntime struct {
+	entered chan review.InvocationJob
+	release chan struct{}
+	mu      sync.Mutex
+	jobs    []review.InvocationJob
+}
+
+func (runtime *plannerCoordinatorRuntime) Invoke(_ context.Context, job review.InvocationJob) review.AttemptOutcome {
+	runtime.mu.Lock()
+	runtime.jobs = append(runtime.jobs, job)
+	runtime.mu.Unlock()
+	runtime.entered <- job
+	<-runtime.release
+	output, err := review.NewValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), nil, "complete", nil)
+	if err != nil {
+		condition := review.AttemptConditionInternalInvariant
+		outcome, _ := review.NewAttemptOutcome(job, nil, &condition)
+		return outcome
+	}
+	outcome, err := review.NewAttemptOutcome(job, &output, nil)
+	if err != nil {
+		return review.AttemptOutcome{}
+	}
+	return outcome
+}
 
 func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 	roles := domain.FixedRoleOrder()
@@ -121,6 +149,122 @@ func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.
 	}
 }
 
+func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
+	roles := domain.FixedRoleOrder()
+	routes := make([]QualifiedRoute, 0, 12)
+	primaryFamilies := []Family{FamilyKimi, FamilyZCode, FamilyZCode, FamilyZCode, FamilyAGY, FamilyZCode}
+	fallbackFamilies := []Family{FamilyZCode, FamilyAGY, FamilyAGY, FamilyAGY, FamilyZCode, FamilyAGY}
+	for index, role := range roles {
+		for _, family := range []Family{primaryFamilies[index], fallbackFamilies[index]} {
+			instance := string(family) + "-" + string(role)
+			routes = append(routes, plannerTestRoute(t, family, instance, instance, []domain.Role{role}))
+		}
+	}
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := plannerTestPlan(t, planner, roles)
+	primary, fallback := plannerTestRouteInstances(plan)
+	if want := []string{"kimi-logic", "zcode-security", "zcode-maintainability", "zcode-product", "agy-documentation", "zcode-testing"}; !reflect.DeepEqual(primary, want) {
+		t.Fatalf("sharded primary matrix = %v, want %v", primary, want)
+	}
+	if want := []string{"zcode-logic", "agy-security", "agy-maintainability", "agy-product", "zcode-documentation", "agy-testing"}; !reflect.DeepEqual(fallback, want) {
+		t.Fatalf("sharded fallback matrix = %v, want %v", fallback, want)
+	}
+	for index, assignment := range plan.Assignments {
+		wantPrimary := primary[index]
+		if got := assignment.PrimaryRoute().ConcurrencyKey().String(); got != wantPrimary {
+			t.Fatalf("primary concurrency key for %q = %q, want %q", assignment.Role(), got, wantPrimary)
+		}
+		fallbackRoute, ok := assignment.FallbackRoute()
+		if !ok {
+			t.Fatalf("fallback route for %q is missing", assignment.Role())
+		}
+		if got, want := fallbackRoute.ConcurrencyKey().String(), fallback[index]; got != want {
+			t.Fatalf("fallback concurrency key for %q = %q, want %q", assignment.Role(), got, want)
+		}
+		if got := plan.Budgets[index].Primary().Route(); got != assignment.PrimaryRoute() {
+			t.Fatalf("primary route for %q changed between assignment and budget", assignment.Role())
+		}
+		budgetFallback, ok := plan.Budgets[index].Fallback()
+		if !ok || budgetFallback.Route() != fallbackRoute {
+			t.Fatalf("fallback route for %q changed between assignment and budget", assignment.Role())
+		}
+	}
+}
+
+func TestIntegrationQualifiedPlannerRoutesReachSixLaneCoordinatorUnchanged(t *testing.T) {
+	roles := domain.FixedRoleOrder()
+	routes := make([]QualifiedRoute, 0, 12)
+	primaryFamilies := []Family{FamilyKimi, FamilyZCode, FamilyZCode, FamilyZCode, FamilyAGY, FamilyZCode}
+	fallbackFamilies := []Family{FamilyZCode, FamilyAGY, FamilyAGY, FamilyAGY, FamilyZCode, FamilyAGY}
+	for index, role := range roles {
+		for _, family := range []Family{primaryFamilies[index], fallbackFamilies[index]} {
+			instance := string(family) + "-" + string(role)
+			routes = append(routes, plannerTestRoute(t, family, instance, instance, []domain.Role{role}))
+		}
+	}
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY})
+	policy.MaxLanes = 6
+	planner, err := NewQualifiedPlanner(routes, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := plannerTestRequest(t, roles)
+	plan, err := planner.Plan(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := review.PreflightRunBudget(plan.Budgets, plan.Ceilings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &plannerCoordinatorRuntime{entered: make(chan review.InvocationJob, 6), release: make(chan struct{})}
+	coordinator, err := review.NewCoordinator(adapterruntime.SystemClock{}, adapterruntime.NewUUIDv7Generator(), runtime, nil, plan.MaxLanes, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type execution struct {
+		result review.CoordinatorResult
+		err    error
+	}
+	done := make(chan execution, 1)
+	go func() {
+		result, executeErr := coordinator.Execute(context.Background(), request.Input().Target().Identity(), plan.Assignments, plan.Threshold, plan.Policy)
+		done <- execution{result: result, err: executeErr}
+	}()
+	want := map[domain.Role]string{
+		domain.RoleLogic: "kimi-logic", domain.RoleSecurity: "zcode-security",
+		domain.RoleMaintainability: "zcode-maintainability", domain.RoleProduct: "zcode-product",
+		domain.RoleDocumentation: "agy-documentation", domain.RoleTesting: "zcode-testing",
+	}
+	seen := make(map[domain.Role]bool, 6)
+	for range roles {
+		select {
+		case job := <-runtime.entered:
+			instance := want[job.Role()]
+			if job.Route().ProviderInstance() != instance || job.Route().ConcurrencyKey().String() != instance {
+				close(runtime.release)
+				t.Fatalf("coordinator job for %q = %q/%q, want %q/%q", job.Role(), job.Route().ProviderInstance(), job.Route().ConcurrencyKey(), instance, instance)
+			}
+			seen[job.Role()] = true
+		case <-time.After(3 * time.Second):
+			close(runtime.release)
+			t.Fatal("planner routes did not reach all six coordinator lanes")
+		}
+	}
+	if len(seen) != 6 {
+		close(runtime.release)
+		t.Fatalf("coordinator received %d roles, want 6", len(seen))
+	}
+	close(runtime.release)
+	executed := <-done
+	if executed.err != nil || executed.result.RunState() != domain.RunCompleted {
+		t.Fatalf("planned coordinator execution = state:%q error:%v", executed.result.RunState(), executed.err)
+	}
+}
+
 func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testing.T) {
 	roles := domain.FixedRoleOrder()
 	routes := []QualifiedRoute{
@@ -199,7 +343,7 @@ func TestQualifiedRouteRejectsInvalidOrMismatchedQualification(t *testing.T) {
 	}
 }
 
-func TestQualifiedPlannerRejectsMissingRequiredRole(t *testing.T) {
+func TestQualifiedPlannerAcceptsRunSubsetWithoutProjectFloor(t *testing.T) {
 	roles := domain.FixedRoleOrder()
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", "lane-kimi", roles)
 	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, plannerTestCanonicalPolicy(t, []Family{FamilyKimi}))
@@ -219,8 +363,8 @@ func TestQualifiedPlannerRejectsMissingRequiredRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := planner.Plan(context.Background(), request); err == nil {
-		t.Fatal("Plan() accepted a role set without the required logic floor")
+	if _, err := planner.Plan(context.Background(), request); err != nil {
+		t.Fatalf("Plan() rejected an explicit subset without logic: %v", err)
 	}
 }
 func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimits(t *testing.T) {
@@ -414,7 +558,8 @@ func plannerTestRoute(t *testing.T, family Family, instance, lane string, roles 
 	if !ok {
 		t.Fatal("invalid test family")
 	}
-	qualified, err := NewQualifiedRoute(qualification, route, limits, roles, domain.RoleLogic, ordinal)
+	base := qualificationBaseRole(roles)
+	qualified, err := NewQualifiedRoute(qualification, route, limits, roles, base, ordinal)
 	if err != nil {
 		t.Fatal(err)
 	}

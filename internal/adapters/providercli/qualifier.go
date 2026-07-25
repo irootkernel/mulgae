@@ -229,36 +229,37 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 			return CurrentProbeResult{}, runErr
 		}
 		if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch: "+evidenceErr.Error(), evidenceErr)
+			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
 		}
 		if !capabilityObservation.Succeeded() {
-			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), fmt.Errorf("capability probe failed"), capabilityObservation.Stderr(), capabilityObservation.Stdout())
+			processErr := qualificationProcessFailure(definition.Family(), capabilityObservation, fmt.Errorf("capability probe failed"))
+			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
 		}
 		output := capabilityObservation.Stdout()
 		if definition.Family() == FamilyKimi {
 			output, runErr = kimiContent(output)
 			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid Kimi stream JSON", runErr)
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid Kimi stream JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyKimi, runErr), runErr))
 			}
 		} else if definition.Family() == FamilyAgy {
 			output, runErr = agyContent(output)
 			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid AGY terminal JSON", runErr)
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid AGY terminal JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyAgy, runErr), runErr))
 			}
 		} else if definition.Family() == FamilyZcode {
 			output, runErr = zcodeContent(output)
 			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid ZCode terminal JSON", runErr)
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid ZCode terminal JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyZcode, runErr), runErr))
 			}
 		}
 		if definition.Family() != FamilyAgy {
 			output, runErr = controlledProbeJSON(output)
 			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid controlled JSON envelope", runErr)
+				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid controlled JSON envelope", newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, runErr))
 			}
 		}
 		if runErr := validateProbeEvidence(output, roleFixture); runErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("capability", "controlled evidence mismatch", runErr)
+			return CurrentProbeResult{}, securityProbeFailure("capability", "controlled evidence mismatch", newProviderOutputFailure(domain.DiagnosticCauseObservationMismatch, runErr))
 		}
 		transport, _ := capabilityObservation.ProviderPacketTransportReceipt()
 		transportIdentity := transport.PacketIdentity()
@@ -292,6 +293,22 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		DirectExecutionAuthority: &receipt,
 	})
 	return CurrentProbeResult{VersionArgv: versionArgv, Version: version, Receipts: receipts}, nil
+}
+
+func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiagnosticCause {
+	switch family {
+	case FamilyKimi:
+		if errors.Is(err, errProviderOutputFrameMissing) {
+			return domain.DiagnosticCauseOutputFrameMissing
+		}
+		return domain.DiagnosticCauseOutputDecodeFailed
+	case FamilyZcode:
+		return domain.DiagnosticCauseOutputEnvelopeInvalid
+	case FamilyAgy:
+		return domain.DiagnosticCauseOutputFrameMissing
+	default:
+		return domain.DiagnosticCauseObservationInvalid
+	}
 }
 
 // runBound makes exactly one descriptor-bound launch. Every return path validates
@@ -362,9 +379,33 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		return observation, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
-		return observation, classifyProbeFailure(ctx, definition.Family(), err, nil)
+		return observation, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), nil)
 	}
 	return observation, nil
+}
+
+func qualificationProcessFailure(family string, observation ports.ProcessObservation, err error) error {
+	if cause, ok := providerDiagnosticCause(err); ok {
+		return newProviderOutputFailure(cause, err)
+	}
+	_, _, cause := classifyProviderFailure(family, observation)
+	return newProviderOutputFailure(cause, err)
+}
+
+func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
+	var process interface {
+		PrimaryCause() domain.RuntimeDiagnosticCause
+	}
+	if errors.As(err, &process) && process.PrimaryCause().Valid() {
+		return process.PrimaryCause(), true
+	}
+	var source interface {
+		Cause() domain.RuntimeDiagnosticCause
+	}
+	if !errors.As(err, &source) || !source.Cause().Valid() {
+		return "", false
+	}
+	return source.Cause(), true
 }
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -517,7 +558,7 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		expectedChannel = ports.ProviderPacketChannelPromptFile
 	}
 	if !ok || !transport.Valid() || transport.Channel() != expectedChannel || transport.PacketIdentity() != packet.Identity() {
-		return fmt.Errorf("missing or mismatched provider packet transport receipt")
+		return probeEvidenceFailure(domain.DiagnosticCauseTransportReceiptMismatch, "missing or mismatched provider packet transport receipt")
 	}
 	lifecyclePolicy, requiresLifecycle := definition.PostOutputLifecycle()
 	if !requiresLifecycle {
@@ -525,52 +566,52 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	}
 	lifecycle, ok := observation.LifecycleReceipt()
 	if !ok || !lifecycle.Valid() || !lifecycle.ProcessGroupAbsent() {
-		return fmt.Errorf("missing post-output lifecycle receipt")
+		return probeEvidenceFailure(domain.DiagnosticCauseLifecycleReceiptInvalid, "missing post-output lifecycle receipt")
 	}
 	frame, frameOK := lifecycle.OutputFrame()
 	if !observation.Succeeded() && !frameOK {
 		if len(lifecycle.SignalRequests()) != 0 {
-			return fmt.Errorf("failed launch carried post-output signal receipts without a frame")
+			return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "failed launch carried post-output signal receipts without a frame")
 		}
 		return nil
 	}
 	if !frameOK || !frame.Valid() {
-		return fmt.Errorf("missing valid post-output frame receipt")
+		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMissing, "missing valid post-output frame receipt")
 	}
 	if frame.Framing() != lifecyclePolicy.Framing() || lifecyclePolicy.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
-		return fmt.Errorf("mismatched post-output frame policy")
+		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMismatch, "mismatched post-output frame policy")
 	}
 	if frame.StabilityGrace() != lifecyclePolicy.StabilityGrace() || lifecyclePolicy.TerminationGrace() <= 0 {
-		return fmt.Errorf("mismatched post-output lifecycle timing")
+		return probeEvidenceFailure(domain.DiagnosticCauseLifecycleReceiptInvalid, "mismatched post-output lifecycle timing")
 	}
 	if frame.ByteLength() != int64(len(observation.Stdout())) {
-		return fmt.Errorf("post-output frame length %d does not match stdout length %d", frame.ByteLength(), len(observation.Stdout()))
+		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMismatch, "post-output frame length does not match stdout length")
 	}
 	sum := sha256.New()
 	_, _ = sum.Write([]byte("KAR-PROCESS-STDOUT-FRAME/1"))
 	_, _ = sum.Write([]byte{0})
 	_, _ = sum.Write(observation.Stdout())
 	if frame.SHA256() != hex.EncodeToString(sum.Sum(nil)) {
-		return fmt.Errorf("trailing or mismatched post-output stdout")
+		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMismatch, "trailing or mismatched post-output stdout")
 	}
 	requests := lifecycle.SignalRequests()
 	if len(requests) == 0 {
 		final := lifecycle.FinalTermination()
 		exitCode, exited := final.ExitCode()
 		if final.Kind() != ports.ProcessFinalTerminationExited || !exited || exitCode != 0 {
-			return fmt.Errorf("invalid natural post-output termination receipt")
+			return probeEvidenceFailure(domain.DiagnosticCauseLifecycleReceiptInvalid, "invalid natural post-output termination receipt")
 		}
 		return nil
 	}
 	if len(requests) > 2 {
-		return fmt.Errorf("invalid post-output signal receipt count")
+		return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "invalid post-output signal receipt count")
 	}
 	validateSignal := func(request ports.ProcessGroupSignalRequestReceipt, reason ports.ProcessGroupSignalRequestReason, number int, name string) error {
 		identity, identityOK := request.PacketIdentity()
 		frameSHA256, frameOK := request.FrameSHA256()
 		if !request.Valid() || request.Reason() != reason || request.Signal().Number() != number || request.Signal().Name() != name ||
 			!identityOK || identity != packet.Identity() || !frameOK || frameSHA256 != frame.SHA256() {
-			return fmt.Errorf("mismatched post-output signal receipt")
+			return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "mismatched post-output signal receipt")
 		}
 		return nil
 	}
@@ -583,6 +624,10 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		}
 	}
 	return nil
+}
+
+func probeEvidenceFailure(cause domain.RuntimeDiagnosticCause, message string) error {
+	return newProviderOutputFailure(cause, errors.New(message))
 }
 func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacket, argv []string, reference string, environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration) (ports.ProcessRequest, error) {
 	channel := ports.ProviderPacketChannelArgvLiteral
