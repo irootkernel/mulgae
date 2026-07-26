@@ -12,7 +12,7 @@ import (
 const commandResultContractURI = "https://kar.local/schemas/kar-command-result.v1.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
-const fixedCommandSpecCount = 17
+const fixedCommandSpecCount = 18
 
 const (
 	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
@@ -57,7 +57,7 @@ func (spec CommandSpec) TypedExits() []app.ExitCode {
 	return cloneExitCodes(spec.typedExits)
 }
 
-// CommandSpecs returns a fresh copy of the canonical, ordered 17-command registry.
+// CommandSpecs returns a fresh copy of the canonical, ordered 18-command registry.
 func CommandSpecs() []CommandSpec {
 	return canonicalCommandSpecs()
 }
@@ -104,6 +104,7 @@ func canonicalCommandSpecs() []CommandSpec {
 		newCommandSpec(app.CommandFindings, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandExcerpt, "internal/app/query", "RenderExcerpt", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandProviders, "internal/app/providers", "ListProviderProfiles", []string{providerContractEvidenceContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandRoles, "internal/app/roles", "ListRoles", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
 		newCommandSpec(app.CommandConfig, "internal/app/config", "ResolveConfiguration", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandPrompt, "internal/app/prompt", "InspectPrompt", []string{promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandSchema, "internal/app/schema", "InspectSchema", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),

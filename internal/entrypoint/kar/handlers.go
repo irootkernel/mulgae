@@ -28,6 +28,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/providers"
 	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
+	approles "github.com/irootkernel/kkachi-agent-review/internal/app/roles"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -66,6 +67,9 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 		},
 		app.CommandProviders: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleProviders(ctx, invocation)
+		},
+		app.CommandRoles: func(application *Application, _ context.Context, invocation Invocation, _ string) execution {
+			return application.handleRoles(invocation)
 		},
 		app.CommandStatus: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleStatus(ctx, invocation, root)
@@ -1292,6 +1296,34 @@ func (application *Application) handleProviders(ctx context.Context, invocation 
 			exit:  app.ExitCodeReadiness,
 		},
 	}
+}
+
+func (application *Application) handleRoles(invocation Invocation) execution {
+	if _, available := invocation.Roles(); !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	roles := approles.ListRoles()
+	data, err := json.Marshal(struct {
+		Kind  string          `json:"kind"`
+		Roles []approles.Role `json:"roles"`
+	}{"roles_listed", roles})
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	var human strings.Builder
+	human.WriteString("Roles:\n")
+	for _, role := range roles {
+		human.WriteString("- ")
+		human.WriteString(role.ID)
+		switch {
+		case role.Mandatory:
+			human.WriteString(" (mandatory)")
+		case role.Availability == approles.AvailabilityUIProjects:
+			human.WriteString(" (UI only)")
+		}
+		human.WriteByte('\n')
+	}
+	return execution{human: []byte(human.String()), data: data}
 }
 
 const maxReportMarkdownBytes int64 = 8 << 20

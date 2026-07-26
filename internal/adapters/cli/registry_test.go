@@ -30,6 +30,7 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		{app.CommandFindings, "internal/app/query", "ListFindings", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/findings", []string{"https://kar.local/schemas/kar-review-artifact.v3.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandExcerpt, "internal/app/query", "RenderExcerpt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/excerpt", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandProviders, "internal/app/providers", "ListProviderProfiles", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/providers", []string{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}},
+		{app.CommandRoles, "internal/app/roles", "ListRoles", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/roles", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}},
 		{app.CommandConfig, "internal/app/config", "ResolveConfiguration", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/config", []string{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandPrompt, "internal/app/prompt", "InspectPrompt", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/prompt", []string{"https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}},
 		{app.CommandSchema, "internal/app/schema", "InspectSchema", "https://kar.local/schemas/kar-command-result.v1.schema.json#/$defs/requests/schema", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
@@ -39,8 +40,8 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 	}
 
 	got := CommandSpecs()
-	if len(got) != 17 {
-		t.Fatalf("CommandSpecs length = %d, want 17", len(got))
+	if len(got) != 18 {
+		t.Fatalf("CommandSpecs length = %d, want 18", len(got))
 	}
 	if len(got) != len(want) {
 		t.Fatalf("CommandSpecs length = %d, want %d", len(got), len(want))

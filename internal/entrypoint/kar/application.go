@@ -1171,6 +1171,11 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			DestinationState      string   `json:"destination_state"`
 			Discovery             []any    `json:"discovery"`
 		}{"initialization_failed", ".kar/config.yaml", "", ids, []string{}, []string{}, []string{}, "not_attempted", false, "not_observed", []any{}})
+	case app.CommandRoles:
+		return json.Marshal(struct {
+			Kind  string `json:"kind"`
+			Roles []any  `json:"roles"`
+		}{"roles_listed", []any{}})
 	case app.CommandReview:
 		return json.Marshal(struct {
 			Kind              string  `json:"kind"`
@@ -1496,6 +1501,7 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandRoles:     {app.ExitCodeUsage: true},
 		app.CommandReview:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandDelta:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
@@ -1519,7 +1525,7 @@ func projectedFailureExit(command app.CommandName, requested app.ExitCode) app.E
 		return app.ExitCodeArtifact
 	case app.CommandConfig:
 		return app.ExitCodeSecurity
-	case app.CommandHelp:
+	case app.CommandHelp, app.CommandRoles:
 		return app.ExitCodeUsage
 	default:
 		return app.ExitCodeInternal

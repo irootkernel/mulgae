@@ -212,7 +212,7 @@ func childRoles(source []domain.RoleTask, requested []domain.Role) ([]domain.Rol
 		}
 		seen[role] = struct{}{}
 	}
-	for _, required := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
+	for _, required := range []domain.Role{domain.RoleLogic} {
 		if _, exists := seen[required]; !exists {
 			return nil, fmt.Errorf("delta roles: required role %q is missing", required)
 		}

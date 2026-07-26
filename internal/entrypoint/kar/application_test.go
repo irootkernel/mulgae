@@ -290,8 +290,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 17 {
-		t.Fatalf("canonical registry has %d commands, want 17", len(specs))
+	if len(specs) != 18 {
+		t.Fatalf("canonical registry has %d commands, want 18", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -394,10 +394,54 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	if malformed.ExitCode() != app.ExitCodeUsage || len(malformed.Stdout()) != 0 || !bytes.Equal(malformed.Stderr(), []byte("kar: invalid command usage\n")) {
 		t.Fatalf("malformed usage result = %#v", malformed)
 	}
+	removedRolesTopic := fixture.application.Run(ctx, []string{"help", "roles"}, root)
+	if removedRolesTopic.ExitCode() != app.ExitCodeUsage || len(removedRolesTopic.Stdout()) != 0 {
+		t.Fatalf("removed help roles result = %#v", removedRolesTopic)
+	}
 
 	unavailable := fixture.application.Run(ctx, []string{"review", "--dirty"}, root)
 	if unavailable.ExitCode() != app.ExitCodeReadiness || len(unavailable.Stdout()) != 0 || len(unavailable.Stderr()) == 0 {
 		t.Fatalf("authority-absent review result = %#v", unavailable)
+	}
+}
+
+func TestApplicationRolesListsStaticInventory(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+
+	human := fixture.application.Run(context.Background(), []string{"roles"}, root)
+	wantHuman := "Roles:\n- logic (mandatory)\n- security\n- maintainability\n- product\n- documentation\n- testing\n- artist (UI only)\n"
+	if human.ExitCode() != app.ExitCodeSuccess || string(human.Stdout()) != wantHuman || len(human.Stderr()) != 0 {
+		t.Fatalf("roles human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+
+	machine := fixture.application.Run(context.Background(), []string{"roles", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
+	var envelope struct {
+		Result struct {
+			Kind  string `json:"kind"`
+			Roles []struct {
+				ID           string `json:"id"`
+				Mandatory    bool   `json:"mandatory"`
+				Availability string `json:"availability"`
+			} `json:"roles"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	wantIDs := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
+	if envelope.Result.Kind != "roles_listed" || len(envelope.Result.Roles) != len(wantIDs) {
+		t.Fatalf("roles JSON result = %#v", envelope.Result)
+	}
+	for index, role := range envelope.Result.Roles {
+		wantAvailability := "all_projects"
+		if role.ID == "artist" {
+			wantAvailability = "ui_projects"
+		}
+		if role.ID != wantIDs[index] || role.Mandatory != (role.ID == "logic") || role.Availability != wantAvailability {
+			t.Fatalf("roles JSON row %d = %#v", index, role)
+		}
 	}
 }
 

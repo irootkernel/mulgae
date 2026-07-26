@@ -48,7 +48,7 @@ The semantic validator runs after schema validation and must reject, at minimum:
 - invalid byte counts, UTF-8/line ranges, domain-separated hashes, content-addressed references, and source/current evidence quotes;
 - cross-document identity, parent/child, role, attempt, provider, target, finding, and manifest-reference mismatches;
 - inconsistent coverage, content, CI, failure, repair, fallback, resolution, summary, and limitation projections;
-- role assignments that violate the logic/security required floor, distinct-lane constraints, intended-provider readiness, or invocation, output, lane-deadline, and run-deadline caps;
+- role assignments that violate the logic required floor, UI-only artist availability, distinct-lane constraints, intended-provider readiness, or invocation, output, lane-deadline, and run-deadline caps;
 - project-local configuration documents that violate code-fixed required-role, provider-family, workspace, execution, or resource bounds;
 - provider/platform probe evidence that is incomplete, stale, unverified, secret-bearing, or inconsistent with the configured profile;
 - publication without one matching immutable manifest, lineage edge, and composite epoch record, or any staged/final/hash/path multiplicity or mismatch;

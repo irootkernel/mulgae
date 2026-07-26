@@ -71,6 +71,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseReport(remaining, requestID)
 	case app.CommandProviders:
 		return parseProviders(remaining, defaultProjectRoot, requestID)
+	case app.CommandRoles:
+		return parseRoles(remaining, requestID)
 	case app.CommandFindings:
 		return parseFindings(remaining, requestID)
 	case app.CommandExcerpt:
@@ -293,6 +295,7 @@ func parseCommand(value string) (app.CommandName, error) {
 		app.CommandFindings,
 		app.CommandExcerpt,
 		app.CommandProviders,
+		app.CommandRoles,
 		app.CommandConfig,
 		app.CommandPrompt,
 		app.CommandSchema,
@@ -378,17 +381,15 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 
 	request := InitRequest{
-		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: coreRoleNames(),
+		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: []string{"logic"},
 	}
-	rolesExplicit := false
 	if rolesValue, present := options["--roles"]; present {
-		rolesExplicit = true
 		request.roleIDs, err = parseCanonicalRolesCSV(rolesValue)
 		if err != nil {
 			return Invocation{}, err
 		}
-		if !containsString(request.roleIDs, "logic") || !containsString(request.roleIDs, "security") {
-			return Invocation{}, usageError("project roles require logic and security")
+		if !containsString(request.roleIDs, "logic") {
+			request.roleIDs = append([]string{"logic"}, request.roleIDs...)
 		}
 	}
 	if value, present := options["--project-kind"]; present {
@@ -412,15 +413,11 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		}
 	}
 	ui := request.hasProjectKind && request.projectKind == "ui"
-	if ui {
-		if rolesExplicit && !containsString(request.roleIDs, "artist") {
-			return Invocation{}, usageError("UI project roles require artist")
-		}
-		if !containsString(request.roleIDs, "artist") {
-			request.roleIDs = append(request.roleIDs, "artist")
-		}
-	} else if containsString(request.roleIDs, "artist") || request.artistBriefPath != "" || len(request.artistDesignGlobs) != 0 {
+	if !ui && (containsString(request.roleIDs, "artist") || request.artistBriefPath != "" || len(request.artistDesignGlobs) != 0) {
 		return Invocation{}, usageError("artist requires an explicitly declared UI project")
+	}
+	if ui && !containsString(request.roleIDs, "artist") && (request.artistBriefPath != "" || len(request.artistDesignGlobs) != 0) {
+		return Invocation{}, usageError("artist inputs require the artist role")
 	}
 	if value, present := options["--context"]; present {
 		if !validRelativePath(value) {
@@ -611,6 +608,33 @@ func parseProviders(arguments []string, defaultProjectRoot, requestID string) (I
 		requestJSON:    requestJSON,
 		hasRequestJSON: true,
 		providers:      &request,
+	}, nil
+}
+
+func parseRoles(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{"--output": true})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("roles accepts no positional arguments")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := RolesRequest{}
+	requestJSON, err := marshalRequest(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandRoles), outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command: app.CommandRoles, availability: AvailabilityFoundation, requestID: requestID,
+		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, roles: &request,
 	}, nil
 }
 
@@ -1774,7 +1798,7 @@ func intendedProvider(value string) bool {
 
 func validHelpTopic(value string) bool {
 	switch value {
-	case "quickstart", "config", "providers", "roles", "lanes", "prompts",
+	case "quickstart", "config", "providers", "lanes", "prompts",
 		"workflows", "artifacts", "validation", "ci", "exit-codes", "security":
 		return true
 	default:

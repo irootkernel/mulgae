@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kar.local/schemas/kar-command-result.v1.schema.json",
   "title": "KAR Command Result v1",
-  "description": "The common command envelope. Application requests are the 17 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
+  "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -34,6 +34,7 @@
         { "$ref": "#/$defs/requests/findings" },
         { "$ref": "#/$defs/requests/excerpt" },
         { "$ref": "#/$defs/requests/providers" },
+        { "$ref": "#/$defs/requests/roles" },
         { "$ref": "#/$defs/requests/config" },
         { "$ref": "#/$defs/requests/prompt" },
         { "$ref": "#/$defs/requests/schema" },
@@ -70,6 +71,7 @@
         { "$ref": "#/$defs/results/findings" },
         { "$ref": "#/$defs/results/excerpt" },
         { "$ref": "#/$defs/results/providers" },
+        { "$ref": "#/$defs/results/roles" },
         { "$ref": "#/$defs/results/config" },
         { "$ref": "#/$defs/results/prompt" },
         { "$ref": "#/$defs/results/schema" },
@@ -251,6 +253,16 @@
           "request": { "$ref": "#/$defs/requests/providers" },
           "result": { "$ref": "#/$defs/results/providers" },
           "exit": { "$ref": "#/$defs/exits/readiness" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "roles" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/roles" },
+          "result": { "$ref": "#/$defs/results/roles" },
+          "exit": { "$ref": "#/$defs/exits/help" }
         }
       }
     },
@@ -497,6 +509,7 @@
         "findings",
         "excerpt",
         "providers",
+        "roles",
         "config",
         "prompt",
         "schema",
@@ -544,12 +557,11 @@
     },
     "canonical_role_ids": {
       "type": "array",
-      "minItems": 2,
+      "minItems": 1,
       "maxItems": 7,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/role" },
-      "contains": { "const": "logic" },
-      "allOf": [{ "contains": { "const": "security" } }]
+      "contains": { "const": "logic" }
     },
     "init_discovery_kimi": {
       "type": "object",
@@ -613,6 +625,34 @@
     "role": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "role_inventory_logic": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "logic" }, "mandatory": { "const": true }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_security": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "security" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_maintainability": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "maintainability" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_product": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "product" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_documentation": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "documentation" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_testing": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "testing" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_artist": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "artist" }, "mandatory": { "const": false }, "availability": { "const": "ui_projects" } }
     },
     "provider_id": {
       "type": "string",
@@ -3144,6 +3184,16 @@
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
+      "roles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "roles" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
       "config": {
         "type": "object",
         "additionalProperties": false,
@@ -3213,7 +3263,7 @@
         "properties": {
           "request_id": { "$ref": "#/$defs/request_id" },
           "command": { "const": "help" },
-          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "roles", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       }
@@ -3494,6 +3544,34 @@
           "ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 1024 }
         }
       },
+      "roles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "roles"],
+        "properties": {
+          "kind": { "const": "roles_listed" },
+          "roles": {
+            "type": "array",
+            "oneOf": [
+              { "maxItems": 0 },
+              {
+                "minItems": 7,
+                "maxItems": 7,
+                "prefixItems": [
+                  { "$ref": "#/$defs/role_inventory_logic" },
+                  { "$ref": "#/$defs/role_inventory_security" },
+                  { "$ref": "#/$defs/role_inventory_maintainability" },
+                  { "$ref": "#/$defs/role_inventory_product" },
+                  { "$ref": "#/$defs/role_inventory_documentation" },
+                  { "$ref": "#/$defs/role_inventory_testing" },
+                  { "$ref": "#/$defs/role_inventory_artist" }
+                ],
+                "items": false
+              }
+            ]
+          }
+        }
+      },
       "config": {
         "type": "object",
         "additionalProperties": false,
@@ -3556,7 +3634,7 @@
         "required": ["kind", "topic", "rendered"],
         "properties": {
           "kind": { "const": "help_rendered" },
-          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "roles", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
           "rendered": { "type": "boolean" }
         }
       }

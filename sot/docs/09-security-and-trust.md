@@ -36,7 +36,7 @@ A lower-trust source cannot weaken a higher-trust restriction.
 
 ### Deterministic Authority Admission
 
-`required_floor={logic,security}` remains code-fixed. `.kar/config.yaml` is admitted as one complete, project-local operator document; there is no global/project reducer, repository-owned proposal, or partial merge. Semantic validation rejects any document that violates code-fixed role, workspace, provider-family, execution, or resource bounds. Run-local CLI selection may narrow an operation but cannot redefine those invariants. A valid finding rejected by the admitted CI policy is exit `1`, not a configuration error.
+`required_floor={logic}` remains code-fixed. `.kar/config.yaml` is admitted as one complete, project-local operator document; there is no global/project reducer, repository-owned proposal, or partial merge. Semantic validation rejects any document that violates code-fixed role, workspace, provider-family, execution, or resource bounds. The document may require additional enabled roles but may not remove logic from either the enabled or required set. Run-local CLI selection may narrow an operation but cannot redefine those invariants. A valid finding rejected by the admitted CI policy is exit `1`, not a configuration error.
 
 ## 3. Provider Execution Boundary
 
@@ -160,7 +160,7 @@ Evidence paths are logical target paths, not direct host filesystem paths.
 
 `timeout`, `auth`, `quota`, and `rate_limit` are operational failures with `repair=none` and `fallback=allowed`. If an eligible configured fallback exists, it may be scheduled; otherwise the role is exhausted. Invalid JSON, AI-owned missing values, and invalid or unverifiable evidence claims may use exactly one bounded repair before eligible fallback. These rules do not make fallback success or publication automatic.
 
-Artifact corruption, schema/hash mismatch, stale clean-plan apply, and publication ambiguity are artifact failures (exit `7`). Cancellation is exit `9`; an internal invariant failure is exit `10`. Required exhaustion preserves valid content and produces `coverage_status=incomplete`; optional exhaustion may produce `coverage_status=degraded`, with trusted CI policy deciding pass or fail for the latter.
+Artifact corruption, schema/hash mismatch, stale clean-plan apply, and publication ambiguity are artifact failures (exit `7`). Cancellation is exit `9`; an internal invariant failure is exit `10`. Exhaustion of any selected lane preserves valid content, fails the run, and produces `coverage_status=incomplete` at exit `4` unless a higher-priority failure applies. Degraded coverage is limited to valid policy-permitted results.
 
 ## 11. Artifact Integrity
 

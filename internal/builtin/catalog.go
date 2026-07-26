@@ -24,7 +24,7 @@ import (
 const (
 	catalogManifestName   = "manifest.json"
 	catalogZipPrefix      = "files/"
-	embeddedArchiveSHA256 = "d9cebd481e207eab5a465f99aaecacf455ecd3692451c779a14e73f026847a28"
+	embeddedArchiveSHA256 = "d2e311906c0459dc55b76f5529d59e70ded48dcd0392680b6336b3d88968de5f"
 )
 
 // embeddedArchive is generated from the authoritative repository SOT by
@@ -481,7 +481,6 @@ var catalogHelpAliases = map[string]string{
 	"help:quickstart": "README.md",
 	"help:config":     "docs/04-configuration.md",
 	"help:providers":  "docs/05-provider-runtime-and-scheduling.md",
-	"help:roles":      "docs/02-domain-and-state-model.md",
 	"help:lanes":      "docs/05-provider-runtime-and-scheduling.md",
 	"help:prompts":    "docs/06-prompt-contract.md",
 	"help:workflows":  "docs/03-cli-workflows.md",

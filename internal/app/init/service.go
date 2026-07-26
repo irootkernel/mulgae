@@ -163,7 +163,7 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if kind == "" {
 		kind = appconfig.ProjectKindNonUI
 	}
-	if kind != appconfig.ProjectKindNonUI && kind != appconfig.ProjectKindUI || (kind == appconfig.ProjectKindUI) != contains(roles, "artist") {
+	if kind != appconfig.ProjectKindNonUI && kind != appconfig.ProjectKindUI || kind != appconfig.ProjectKindUI && contains(roles, "artist") {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, fmt.Errorf("project kind and artist selection disagree"))
 	}
 	source, err := service.sources.OpenConfigSource(request.ProjectRoot, true)
@@ -580,7 +580,7 @@ func candidateConfig(request InitializeProjectRequest, value candidates) appconf
 	if kind == "" {
 		kind = appconfig.ProjectKindNonUI
 	}
-	if kind == appconfig.ProjectKindUI {
+	if kind == appconfig.ProjectKindUI && contains(selectedRoles, "artist") {
 		briefPath := request.ArtistBriefPath
 		if briefPath == "" {
 			briefPath = appconfig.DefaultArtistBriefPath
@@ -591,7 +591,7 @@ func candidateConfig(request InitializeProjectRequest, value candidates) appconf
 		}
 		roles.Artist.Inputs = &appconfig.ArtistInputsConfig{TaskPath: briefPath, DesignSpecGlobs: globs}
 	}
-	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 }
 func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig {
 	count := len(candidateIDs(value))
@@ -606,9 +606,9 @@ func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig
 func validateRoleSelection(roles []string) ([]string, error) {
 	fixed := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	if roles == nil {
-		return []string{"logic", "security", "maintainability", "product", "documentation", "testing"}, nil
+		return []string{"logic"}, nil
 	}
-	if len(roles) < 2 || len(roles) > len(fixed) {
+	if len(roles) < 1 || len(roles) > len(fixed) {
 		return nil, fmt.Errorf("roles")
 	}
 	last := -1
@@ -626,7 +626,7 @@ func validateRoleSelection(roles []string) ([]string, error) {
 		}
 		seen[role], last = true, ordinal
 	}
-	if !seen["logic"] || !seen["security"] {
+	if !seen["logic"] {
 		return nil, fmt.Errorf("role floor")
 	}
 	return append([]string(nil), roles...), nil

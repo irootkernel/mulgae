@@ -19,8 +19,6 @@ const (
 	TopicConfig = "config"
 	// TopicProviders documents provider setup and readiness.
 	TopicProviders = "providers"
-	// TopicRoles documents functional review roles.
-	TopicRoles = "roles"
 	// TopicLanes documents provider concurrency lanes.
 	TopicLanes = "lanes"
 	// TopicPrompts documents prompt contracts.
@@ -177,12 +175,11 @@ func (service *Service) Render(ctx context.Context, topic string) ([]byte, error
 	return result, nil
 }
 
-func requiredHelpTopics() [12]string {
-	return [12]string{
+func requiredHelpTopics() [11]string {
+	return [11]string{
 		TopicQuickstart,
 		TopicConfig,
 		TopicProviders,
-		TopicRoles,
 		TopicLanes,
 		TopicPrompts,
 		TopicWorkflows,

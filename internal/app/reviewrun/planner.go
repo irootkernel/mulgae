@@ -340,7 +340,7 @@ func plannerRoleConfigured(assignments []RoleProviderAssignment, role domain.Rol
 }
 
 func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
-	if len(assignments) < 2 || len(assignments) > len(domain.FixedRoleOrder()) {
+	if len(assignments) < 1 || len(assignments) > len(domain.FixedRoleOrder()) {
 		return fmt.Errorf("review run: planner policy requires the project role set")
 	}
 	lastOrdinal := -1
@@ -352,7 +352,7 @@ func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
 		}
 		seen[assignment.role], lastOrdinal = true, ordinal
 	}
-	if !seen[domain.RoleLogic] || !seen[domain.RoleSecurity] {
+	if !seen[domain.RoleLogic] {
 		return fmt.Errorf("review run: planner policy omits the project role floor")
 	}
 	return nil

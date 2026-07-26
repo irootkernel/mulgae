@@ -144,7 +144,7 @@ func CanonicalRolesConfigForUI(families []string) (RolesConfig, error) {
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
 // every Config v2 role while enabling only the canonical project role set.
-// Logic and security form the project-level floor, not a per-run selection.
+// Logic forms the project-level floor, not a per-run selection.
 func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesConfig, error) {
 	configured := make(map[string]struct{}, len(families))
 	lastOrdinal := -1
@@ -182,8 +182,8 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 		enabled[selected] = true
 		lastRole = ordinal
 	}
-	if !enabled["logic"] || !enabled["security"] {
-		return RolesConfig{}, fmt.Errorf("canonical role assignments: logic and security are required")
+	if !enabled["logic"] {
+		return RolesConfig{}, fmt.Errorf("canonical role assignments: logic is required")
 	}
 	selectRole := func(preferences []string) RoleConfig {
 		selected := make([]string, 0, 2)

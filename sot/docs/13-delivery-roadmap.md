@@ -21,7 +21,7 @@ G010 executes sequentially: SOT freeze; Config v2; configured planning and fallb
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 17 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, 27 schema/example pairs, 20 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009 evidence remains `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G010 completion depends only on its explicit checklist and final `make test`.
+The current SOT oracle remains 18 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, 27 schema/example pairs, 20 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009 evidence remains `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G010 completion depends only on its explicit checklist and final `make test`.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 

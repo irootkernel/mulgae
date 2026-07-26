@@ -367,6 +367,38 @@ func TestQualifiedPlannerAcceptsRunSubsetWithoutProjectFloor(t *testing.T) {
 		t.Fatalf("Plan() rejected an explicit subset without logic: %v", err)
 	}
 }
+
+func TestQualifiedPlannerAcceptsLogicOnlyProjectPolicy(t *testing.T) {
+	assignment, err := NewRoleProviderAssignment(domain.RoleLogic, FamilyKimi, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := DefaultPlannerPolicy()
+	policy.Assignments = []RoleProviderAssignment{assignment}
+	policy.RequiredRoles = []domain.Role{domain.RoleLogic}
+	route := plannerTestRoute(t, FamilyKimi, "kimi-logic", "kimi-logic", []domain.Role{domain.RoleLogic})
+	planner, err := NewQualifiedPlanner([]QualifiedRoute{route}, policy)
+	if err != nil {
+		t.Fatalf("logic-only project policy was rejected: %v", err)
+	}
+	plan := plannerTestPlan(t, planner, []domain.Role{domain.RoleLogic})
+	if len(plan.Assignments) != 1 || plan.Assignments[0].Role() != domain.RoleLogic || !plan.Assignments[0].Required() {
+		t.Fatalf("logic-only plan = %#v", plan.Assignments)
+	}
+}
+
+func TestQualifiedPlannerRejectsProjectPolicyWithoutLogic(t *testing.T) {
+	assignment, err := NewRoleProviderAssignment(domain.RoleSecurity, FamilyZCode, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := DefaultPlannerPolicy()
+	policy.Assignments = []RoleProviderAssignment{assignment}
+	policy.RequiredRoles = []domain.Role{domain.RoleSecurity}
+	if _, err := normalizePlannerPolicy(policy); err == nil {
+		t.Fatal("project policy without logic was accepted")
+	}
+}
 func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimits(t *testing.T) {
 	templates, err := trustedProductionCandidateTemplates(providercli.RuntimeBuilder{})
 	if err != nil {

@@ -460,7 +460,6 @@ var helpAliases = map[string]string{
 	"help:quickstart": "README.md",
 	"help:config":     "docs/04-configuration.md",
 	"help:providers":  "docs/05-provider-runtime-and-scheduling.md",
-	"help:roles":      "docs/02-domain-and-state-model.md",
 	"help:lanes":      "docs/05-provider-runtime-and-scheduling.md",
 	"help:prompts":    "docs/06-prompt-contract.md",
 	"help:workflows":  "docs/03-cli-workflows.md",

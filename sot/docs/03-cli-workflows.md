@@ -31,7 +31,7 @@ This section specifies the intended command contract. Production root `kar revie
 | `followup` | Is a referenced finding resolved? | Yes | Current target plus source finding | Yes |
 | `delta` | What issues exist only in changes since a prior reviewed snapshot? | Yes | Previous immutable snapshot to current snapshot | Yes |
 | `rerun` | Can an attempt be repeated after instability or invalid output? | Yes | Exact or recomposed source scope | Yes |
-## 2.1 Complete 17-command contract
+## 2.1 Complete 18-command contract
 
 The command-result envelope is `https://kar.local/schemas/kar-command-result.v1.schema.json`. Every machine-output request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. The frozen v1 schema has no truthful request variant for `schema list`, so `kar schema list --output json` fails closed as usage rather than fabricating an inspection envelope. Human `kar schema list` remains available; JSON `schema show` and `schema export` return the command-result envelope. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
 G008 implements the frozen request contract and its two-phase boundary: CLI-only selectors are resolved and valueless stdin is captured before the schema-valid request is frozen. The frozen request contains canonical IDs and canonical target values only; it never contains `latest`, a role/provider rerun selector, or uncaptured stdin.
@@ -49,6 +49,7 @@ G008 implements the frozen request contract and its two-phase boundary: CLI-only
 | `findings` | `internal/app/query` / `ListFindings` | review → none | review artifact v2 | 2, 7, 8, 9, 10 |
 | `excerpt` | `internal/app/query` / `RenderExcerpt` | target, review, evidence → none | command result | 2, 4, 7, 8, 9, 10 |
 | `providers` | `internal/app/providers` / `ListProviderProfiles` | config and provider evidence → none | provider-contract evidence v1 | 2, 4, 7, 8 |
+| `roles` | `internal/app/roles` / `ListRoles` | embedded role inventory → none | command result | 2 |
 | `config` | `internal/app/config` / `ResolveConfiguration` | attested project-local `.kar/config.yaml` → resolved policy | command result | 2, 4, 7, 8, 9, 10 |
 | `prompt` | `internal/app/prompt` / `InspectPrompt` | template and untrusted references → guarded stdin metadata | prompt manifest v1 | 2, 7, 8, 10 |
 | `schema` | `internal/app/schema` / `InspectSchema` | embedded schemas → optional export | command result | 2, 7 |
@@ -66,12 +67,13 @@ retains security precedence after the three rows are assembled.
 The exact init selection grammar is
 `--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`,
 plus optional `--roles ROLE[,ROLE...]` and `--project-kind non_ui|ui`.
-Omitting the project kind selects the six core roles. UI init additionally
-enables artist and accepts `--artist-brief PATH` and
-`--artist-design-specs GLOB[,GLOB...]`. The default brief path is
-`ux-ui-info.md`. An explicit project role set is
-canonicalized to fixed order, contains two to seven unique roles, and must
-contain `logic` and `security`; artist is valid only with `project-kind=ui`.
+Omitting `--roles` selects only `logic`; init has no interview mode. An explicit
+role list is canonicalized to fixed order and `logic` is added when omitted.
+UI init may select `artist` and then accepts `--artist-brief PATH` and
+`--artist-design-specs GLOB[,GLOB...]`; UI projects do not select artist
+automatically. The default brief path is `ux-ui-info.md`. The resulting project
+role set contains one to seven unique roles and must contain `logic`; artist is
+valid only with `project-kind=ui`.
 It accepts each of the seven nonempty family subsets and canonicalizes request,
 result, and configuration order to Kimi, ZCode, AGY. Empty tokens, whitespace,
 unknown or duplicate families, and mixing `auto` with a family are usage
@@ -337,7 +339,6 @@ Required help topics:
 kar help quickstart
 kar help config
 kar help providers
-kar help roles
 kar help lanes
 kar help prompts
 kar help workflows
@@ -347,6 +348,9 @@ kar help ci
 kar help exit-codes
 kar help security
 ```
+
+The machine-stable role inventory is a command, not a help topic: use
+`kar roles` or `kar roles --output json`.
 
 Help must explain:
 

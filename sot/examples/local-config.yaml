@@ -22,7 +22,7 @@ roles:
   documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}
   testing: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
 review:
-  required_roles: ["logic", "security"]
+  required_roles: ["logic"]
   request_changes_on: ["high", "critical", "blocker"]
 validation:
   evidence:

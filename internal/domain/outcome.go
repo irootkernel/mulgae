@@ -118,11 +118,14 @@ func computeCoverage(results []RoleResultSummary) (CoverageStatus, error) {
 		if !exists {
 			continue
 		}
-		required := result.Required || role == RoleLogic || role == RoleSecurity
+		required := result.Required || role == RoleLogic
 		if required && (!result.Selected || !result.Valid) {
 			return CoverageIncomplete, nil
 		}
-		if result.Selected && (!result.Valid || result.Degraded) {
+		if result.Selected && !result.Valid {
+			return CoverageIncomplete, nil
+		}
+		if result.Selected && result.Degraded {
 			degraded = true
 		}
 	}

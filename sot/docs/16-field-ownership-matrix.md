@@ -50,11 +50,11 @@ The v2 provider schemas serialize a KAR-normalized result envelope. KAR injects 
 |---|---|---|---|
 | `/assignments/<role>/primary` | Project-local policy plus coordinator | Config v2 selects a configured family; coordinator resolves its qualified provider instance | None |
 | `/assignments/<role>/fallback` | Project-local policy plus coordinator | Config v2 selects a distinct configured family or singleton omission; coordinator resolves its qualified route | None |
-| `/required_floor` | Code-fixed safety floor | Fixed to `logic` and `security` | None |
+| `/required_floor` | Code-fixed safety floor | Fixed to `logic` | None |
 | `/effective_required` | Project-local policy reducer | `required_floor` plus enabled additions from the admitted `.kar/config.yaml` | None |
 | Provider and platform contract evidence | Probe validator | Required tuple and native-cell probe assertions, secure-writer receipt, and evidence index | Provider may supply untrusted probe output only |
 
-The role order is `logic`, `security`, `maintainability`, `product`, `documentation`, `testing`. A provider does not assign a role, select a fallback, choose a concurrency lane, or weaken required coverage. CLI selection is run-local and cannot weaken policy.
+The role order is `logic`, `security`, `maintainability`, `product`, `documentation`, `testing`, `artist`. Artist is available only to UI projects. A provider does not assign a role, select a fallback, choose a concurrency lane, or weaken required coverage. CLI selection is run-local and cannot weaken policy.
 
 ## 5. Provider Review Output (v1 Compatibility)
 

@@ -116,8 +116,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 105 {
-		t.Fatalf("manifest asset count = %d, want 105", len(manifest.Assets))
+	if len(manifest.Assets) != 104 {
+		t.Fatalf("manifest asset count = %d, want 104", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -299,7 +299,6 @@ func TestCatalogHelpAliasesAreExact(t *testing.T) {
 		"help:quickstart": "README.md",
 		"help:config":     "docs/04-configuration.md",
 		"help:providers":  "docs/05-provider-runtime-and-scheduling.md",
-		"help:roles":      "docs/02-domain-and-state-model.md",
 		"help:lanes":      "docs/05-provider-runtime-and-scheduling.md",
 		"help:prompts":    "docs/06-prompt-contract.md",
 		"help:workflows":  "docs/03-cli-workflows.md",
@@ -369,7 +368,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 
 	catalog := NewCatalog()
 	var help strings.Builder
-	for _, topic := range []string{"quickstart", "config", "providers", "roles", "workflows", "exit-codes", "security"} {
+	for _, topic := range []string{"quickstart", "config", "providers", "workflows", "exit-codes", "security"} {
 		_, data, err := catalog.Read(context.Background(), mustAssetID(t, "help:"+topic))
 		if err != nil {
 			t.Fatalf("read help %q: %v", topic, err)

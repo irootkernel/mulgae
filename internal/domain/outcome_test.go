@@ -57,7 +57,7 @@ func TestComputeCoverageRequiredAndOptional(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if axes.CoverageStatus() != CoverageDegraded {
+	if axes.CoverageStatus() != CoverageIncomplete {
 		t.Fatalf("invalid optional result coverage = %q", axes.CoverageStatus())
 	}
 	optionalDegraded := append(validRequiredResults(), RoleResultSummary{Role: RoleDocumentation, Selected: true, Valid: true, Degraded: true})

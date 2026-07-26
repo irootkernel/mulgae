@@ -376,7 +376,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if err != nil || decoded.Version != adapterconfig.ConfigVersion {
 			t.Fatalf("mask %d decode config: version=%d err=%v", mask, decoded.Version, err)
 		}
-		wantRoles, _ := adapterconfig.CanonicalRolesConfig(ids)
+		wantRoles, _ := adapterconfig.CanonicalRolesConfigForSelection(ids, []string{"logic"})
 		if !reflect.DeepEqual(decoded.Roles, wantRoles) {
 			t.Fatalf("mask %d roles=%#v, want %#v", mask, decoded.Roles, wantRoles)
 		}
@@ -386,6 +386,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t *testing.T) {
 	t.Parallel()
 	selections := [][]string{
+		{"logic"},
 		{"logic", "security"},
 		{"logic", "security", "documentation"},
 		{"logic", "security", "maintainability", "product", "testing"},
@@ -450,6 +451,20 @@ func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 	explicit := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles, ArtistBriefPath: "docs/artist-brief.md"}, providers)
 	if explicit.Roles.Artist.Inputs == nil || explicit.Roles.Artist.Inputs.TaskPath != "docs/artist-brief.md" {
 		t.Fatalf("explicit artist brief path = %#v", explicit.Roles.Artist.Inputs)
+	}
+}
+
+func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
+	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
+	configured := candidateConfig(InitializeProjectRequest{
+		ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI,
+		RoleIDs: []string{"logic"},
+	}, providers)
+	if configured.Roles.Artist.Enabled || configured.Roles.Artist.PrimaryProvider != "" || configured.Roles.Artist.FallbackProvider != "" || configured.Roles.Artist.Inputs != nil {
+		t.Fatalf("unselected UI artist role = %#v", configured.Roles.Artist)
+	}
+	if _, err := RenderConfigYAML(adapterconfig.YAMLCodec{}, configured); err != nil {
+		t.Fatalf("render UI config without artist: %v", err)
 	}
 }
 

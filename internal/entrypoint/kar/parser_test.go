@@ -64,7 +64,7 @@ func TestParseInitForms(t *testing.T) {
 	if request.Overwrite() {
 		t.Fatal("init overwrite must remain false")
 	}
-	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
 	invocation := mustParse(t, []string{
 		"init", "--project-root", "/work/other", "--name", "other-project",
@@ -84,7 +84,7 @@ func TestParseInitForms(t *testing.T) {
 	if want := []string{"kimi", "zcode"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("init intended providers = %v, want %v", got, want)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"roles":["logic","security","maintainability","product","documentation","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
 	subset := mustParse(t, []string{"init", "--roles", "testing,security,logic"})
 	subsetRequest, ok := subset.Init()
@@ -93,13 +93,13 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, subset, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
-	ui := mustParse(t, []string{"init", "--project-kind", "ui", "--artist-brief", "docs/ux-ui-info.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
+	ui := mustParse(t, []string{"init", "--project-kind", "ui", "--roles", "artist", "--artist-brief", "docs/ux-ui-info.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
 	uiRequest, ok := ui.Init()
-	if !ok || !reflect.DeepEqual(uiRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}) {
+	if !ok || !reflect.DeepEqual(uiRequest.Roles(), []string{"logic", "artist"}) {
 		t.Fatalf("UI init roles = %#v, %t", uiRequest, ok)
 	}
-	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_brief":"docs/ux-ui-info.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
-	for _, roles := range []string{"logic", "security,testing", "logic,documentation"} {
+	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_brief":"docs/ux-ui-info.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	for _, roles := range []string{"logic,logic", "unknown"} {
 		if _, err := Parse([]string{"init", "--roles", roles}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("init --roles %q error = %v, want usage", roles, err)
 		}
@@ -608,6 +608,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFindings,
 		app.CommandExcerpt,
 		app.CommandProviders,
+		app.CommandRoles,
 		app.CommandConfig,
 		app.CommandPrompt,
 		app.CommandSchema,
@@ -630,6 +631,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFindings:  {"findings", "--run", testRunID, "--severity", "low"},
 		app.CommandExcerpt:   {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
 		app.CommandProviders: {"providers"},
+		app.CommandRoles:     {"roles"},
 		app.CommandConfig:    {"config"},
 		app.CommandSchema:    {"schema", "list"},
 		app.CommandHelp:      {"help"},
@@ -828,6 +830,8 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "excerpt error", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F001"}, wantError: true},
 		{name: "providers success", arguments: []string{"providers"}, command: app.CommandProviders},
 		{name: "providers error", arguments: []string{"providers", "--unknown"}, wantError: true},
+		{name: "roles success", arguments: []string{"roles"}, command: app.CommandRoles},
+		{name: "roles error", arguments: []string{"roles", "logic"}, wantError: true},
 		{name: "config success", arguments: []string{"config"}, command: app.CommandConfig},
 		{name: "config error", arguments: []string{"config", "--mode", "raw"}, wantError: true},
 		{name: "prompt success", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, command: app.CommandPrompt},

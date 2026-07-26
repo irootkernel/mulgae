@@ -33,7 +33,6 @@ func TestTopicsReturnsExactlyRequiredHelpMetadataInAssetIDOrder(t *testing.T) {
 		"help:prompts",
 		"help:providers",
 		"help:quickstart",
-		"help:roles",
 		"help:security",
 		"help:validation",
 		"help:workflows",

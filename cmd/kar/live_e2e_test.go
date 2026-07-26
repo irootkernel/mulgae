@@ -258,7 +258,10 @@ func runLiveFullProductionWorkflows(t *testing.T) {
 }
 
 func liveInitArguments(environment liveE2EEnvironment, providers string) []string {
-	arguments := []string{"init", "--providers", providers}
+	arguments := []string{
+		"init", "--providers", providers,
+		"--roles", "logic,security,maintainability,product,documentation,testing",
+	}
 	if strings.Contains(providers, "kimi") {
 		arguments = append(arguments, "--kimi-executable", environment.kimi, "--kimi-data-home", environment.kimiDataHome)
 	}
@@ -279,6 +282,7 @@ func TestLiveInitArgumentsAuthorizeAgyInIsolatedFixture(t *testing.T) {
 	environment := liveE2EEnvironment{agy: "/private/bin/agy"}
 	want := []string{
 		"init", "--providers", "agy",
+		"--roles", "logic,security,maintainability,product,documentation,testing",
 		"--agy-executable", environment.agy,
 		"--agy-permission-mode", "dangerously-skip-permissions",
 		"--output", "json",

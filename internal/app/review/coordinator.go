@@ -1850,18 +1850,13 @@ func (execution *coordinatorExecution) finishRun() error {
 		return nil
 	}
 	allSucceeded := true
-	requiredFailed := false
-	optionalFailed := false
+	failed := false
 	for _, task := range execution.run.RoleTasks() {
 		if task.State() == domain.RoleTaskSucceeded {
 			continue
 		}
 		allSucceeded = false
-		if task.Required() {
-			requiredFailed = true
-		} else {
-			optionalFailed = true
-		}
+		failed = true
 	}
 	if allSucceeded {
 		if err := execution.run.Transition(domain.RunCompleted); err != nil {
@@ -1869,11 +1864,8 @@ func (execution *coordinatorExecution) finishRun() error {
 		}
 		return nil
 	}
-	if !requiredFailed && optionalFailed {
-		if err := execution.run.Transition(domain.RunDegraded); err != nil {
-			return fmt.Errorf("review coordinator: degrade run: %w", err)
-		}
-		return nil
+	if !failed {
+		return fmt.Errorf("review coordinator: terminal run has no success or failure projection")
 	}
 	if err := execution.run.Transition(domain.RunFailed); err != nil {
 		return fmt.Errorf("review coordinator: fail run: %w", err)

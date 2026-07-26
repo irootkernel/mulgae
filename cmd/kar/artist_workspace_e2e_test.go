@@ -97,7 +97,7 @@ func TestE2EArtistHomepageWorkspaceReview(t *testing.T) {
 	environment = append(environment, "KAR_FAKE_AGY_LOG="+agyLog)
 
 	initialized := runKARBinaryWithEnv(t, binary, project, environment,
-		"init", "--providers", "agy,zcode", "--project-kind", "ui",
+		"init", "--providers", "agy,zcode", "--project-kind", "ui", "--roles", "artist",
 		"--agy-executable", agyExecutable, "--agy-permission-mode", "dangerously-skip-permissions",
 		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher, "--output", "json")
 	if initialized.exitCode != 0 || len(initialized.stderr) != 0 {

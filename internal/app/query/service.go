@@ -1536,7 +1536,7 @@ func buildRolesForRun(values []finalRoleDTO, _ domain.RunType, _ *string) ([]Rol
 		}
 		seen[role] = struct{}{}
 		previous = ordinal
-		if (role == domain.RoleLogic || role == domain.RoleSecurity) && !value.Required {
+		if role == domain.RoleLogic && !value.Required {
 			return nil, nil, fmt.Errorf("required role floor is missing")
 		}
 		switch value.Outcome {
@@ -2005,11 +2005,7 @@ func validateOutcomeProjection(
 	for _, role := range roles {
 		switch role.Outcome() {
 		case "failed", "skipped":
-			if role.Required() {
-				expectedCoverage = domain.CoverageIncomplete
-			} else if expectedCoverage == domain.CoverageComplete {
-				expectedCoverage = domain.CoverageDegraded
-			}
+			expectedCoverage = domain.CoverageIncomplete
 		case "degraded":
 			if expectedCoverage == domain.CoverageComplete {
 				expectedCoverage = domain.CoverageDegraded
@@ -2065,20 +2061,18 @@ func sameRoles(values []string, roles []Role, requiredOnly bool) bool {
 }
 func consistentCommittedRunState(state domain.RunState, roles []Role, coverage domain.CoverageStatus) bool {
 	failedAny := false
-	failedRequired := false
 	for _, role := range roles {
 		if role.Outcome() == "failed" || role.Outcome() == "skipped" {
 			failedAny = true
-			failedRequired = failedRequired || role.Required()
 		}
 	}
 	switch state {
 	case domain.RunCompleted:
 		return !failedAny
 	case domain.RunDegraded:
-		return failedAny && !failedRequired
+		return failedAny && coverage == domain.CoverageDegraded
 	case domain.RunFailed:
-		return failedRequired && coverage == domain.CoverageIncomplete
+		return failedAny && coverage == domain.CoverageIncomplete
 	default:
 		return false
 	}

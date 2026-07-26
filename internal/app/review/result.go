@@ -16,7 +16,7 @@ import (
 )
 
 // Assignment is a trusted, immutable role selection. Required is always true
-// for the logic and security required floor, independent of the supplied flag.
+// for the logic required floor, independent of the supplied flag.
 type Assignment struct {
 	role             domain.Role
 	required         bool

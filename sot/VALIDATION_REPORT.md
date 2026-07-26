@@ -7,7 +7,7 @@
 
 | Baseline property | Declared state |
 |---|---|
-| Product commands | 17 |
+| Product commands | 18 |
 | Canonical probe argv | 4 |
 | Catalog | 85 paths |
 | Checksummed payloads | 84; `CHECKSUMS.sha256` is self-excluded |
@@ -15,7 +15,7 @@
 | Decision Readiness | **READY** |
 | Implementation Status | **IMPLEMENTATION_IN_PROGRESS** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
-The current SOT oracle is 17 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
+The current SOT oracle is 18 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
 
 This SOT 1.11.0 report promotes the runtime-diagnostics contract while retaining the frozen G010 requirements. It requires private run-wide diagnostics before provider spawn, typed closed events and causes, separated bounded raw streams, atomic status projections, and fail-closed secure persistence. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and does not complete G010. Current implementation status is **IMPLEMENTATION_IN_PROGRESS**.
 
@@ -26,7 +26,7 @@ When collected, evidence receipts are stored outside the SOT under `.gjc/_sessio
 | Evidence area | Required G0 assertion | Current state |
 |---|---|---|
 | P0 and schema | Atomic P0 trace and all positive/negative schema cases, including 25 schema/example pairs | **CONTRACT MODEL PASS** — `P0_ATOMIC_OK`, `SCHEMA_OK`; this is not external provider or platform evidence |
-| Trace and marker | 85 catalog paths, 17 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
+| Trace and marker | 85 catalog paths, 18 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
 | Trust and command | Frozen trust reducer and literal request/output/exit contracts | **CONTRACT MODEL PASS** — `TRUST_OK`, `COMMAND_OK`; no product implementation is exercised |
 | Prompt and evidence | Byte-exact framing/replay and separate source/current provenance | **CONTRACT MODEL PASS** — `PROMPT_OK`, `EVIDENCE_OK` |
 | Cleanup and assignment model | Transitive retention, deterministic age/size sets, six-role lexical assignment, and budgets | **CONTRACT MODEL PASS** — `CLEANUP_OK`, `ASSIGNMENT_OK`; a model assignment is not the required live assignment |
@@ -74,7 +74,7 @@ three providers and new/existing root-barrier failure plus retry projections.
 
 Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. It remains historical and does not satisfy any unchecked G010 item.
 
-The retained controlled Kimi receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`. Its append-only ledger receipt remains untouched, and byte-identical repository copies are indexed by `artifacts/historical/g009/manifest.json`: receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. It is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
+The retained historical G009 narrative records the controlled Kimi tuple `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default` and the original receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27` and raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. The append-only external ledger remains the evidence authority; development evidence is not retained in this repository. This is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
 
 The controlled provider attempt history also records two later opt-in retries on 2026-07-18. Each exited after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`. The durable G009 ledger retains both outcomes. They do not replace or erase the earlier exact-tuple PASS, and do not alter current family-and-capability support; they are disclosed as later external liveness failures rather than hidden.
 

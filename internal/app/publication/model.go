@@ -749,7 +749,7 @@ func PrepareNoChangeCandidate(
 			return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: selected roles are invalid")
 		}
 		roles[index] = preparedRole{
-			role: role, required: role == domain.RoleLogic || role == domain.RoleSecurity,
+			role: role, required: role == domain.RoleLogic,
 			state: domain.RoleTaskSucceeded, valid: true, outcome: "not_applicable",
 			limitations: []string{"No Git changes were captured."},
 		}
@@ -1396,7 +1396,7 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 		finalAttempt := preparedAttempts[len(preparedAttempts)-1]
 		roleResult := preparedRole{
 			role:          role,
-			required:      summary.Required() || role == domain.RoleLogic || role == domain.RoleSecurity,
+			required:      summary.Required() || role == domain.RoleLogic,
 			state:         summary.State(),
 			valid:         summary.Valid(),
 			degraded:      summary.Degraded(),
@@ -1693,11 +1693,7 @@ func coverageForSelectedPreparedRoles(roles []preparedRole) domain.CoverageStatu
 	coverage := domain.CoverageComplete
 	for _, role := range roles {
 		if !role.valid {
-			if role.required {
-				return domain.CoverageIncomplete
-			}
-			coverage = domain.CoverageDegraded
-			continue
+			return domain.CoverageIncomplete
 		}
 		if role.degraded {
 			coverage = domain.CoverageDegraded
@@ -1710,14 +1706,12 @@ func validateTerminalRun(state domain.RunState, roles []preparedRole, coverage d
 	if state != domain.RunCompleted && state != domain.RunDegraded && state != domain.RunFailed {
 		return fmt.Errorf("publication candidate: run state %q is not terminal and publishable", state)
 	}
-	failedRequired := false
 	failedAny := false
 	for _, role := range roles {
 		if role.outcome != "failed" {
 			continue
 		}
 		failedAny = true
-		failedRequired = failedRequired || role.required
 		if forbiddenPublicationFailure(role.failureClass) {
 			return fmt.Errorf("publication candidate: non-publishable failure %q", role.failureClass)
 		}
@@ -1728,12 +1722,12 @@ func validateTerminalRun(state domain.RunState, roles []preparedRole, coverage d
 			return fmt.Errorf("publication candidate: completed run has failed role")
 		}
 	case domain.RunDegraded:
-		if failedRequired || !failedAny {
+		if !failedAny {
 			return fmt.Errorf("publication candidate: degraded run has inconsistent failed roles")
 		}
 	case domain.RunFailed:
-		if !failedRequired || coverage != domain.CoverageIncomplete {
-			return fmt.Errorf("publication candidate: failed run does not represent required incomplete coverage")
+		if !failedAny || coverage != domain.CoverageIncomplete {
+			return fmt.Errorf("publication candidate: failed run does not represent incomplete coverage")
 		}
 		for _, role := range roles {
 			if role.outcome == "failed" && !role.failureClass.FallbackAllowed() {
@@ -1772,7 +1766,7 @@ func (candidate PreparedCandidate) validateNoChange() error {
 	}
 	seenRoles := make(map[domain.Role]struct{}, len(candidate.roles))
 	for index, role := range candidate.roles {
-		if !role.role.Valid() || role.required != (role.role == domain.RoleLogic || role.role == domain.RoleSecurity) ||
+		if !role.role.Valid() || role.required != (role.role == domain.RoleLogic) ||
 			role.state != domain.RoleTaskSucceeded || !role.valid || role.degraded || role.repaired ||
 			role.failureClass != "" || role.failureReason != "" || role.outcome != "not_applicable" ||
 			len(role.attempts) != 0 || len(role.validFindingIDs) != 0 ||
@@ -1794,7 +1788,7 @@ func validatePreparedRole(role preparedRole) error {
 	if !role.role.Valid() || !terminalRoleState(role.state) || len(role.attempts) == 0 {
 		return fmt.Errorf("identity, state, or attempts are invalid")
 	}
-	if (role.role == domain.RoleLogic || role.role == domain.RoleSecurity) && !role.required {
+	if role.role == domain.RoleLogic && !role.required {
 		return fmt.Errorf("required role state is inconsistent")
 	}
 	seenAttempts := make(map[string]struct{}, len(role.attempts))
@@ -2749,11 +2743,7 @@ func coverageForSelectedFinalRoles(roles []domain.RoleResultSummary) domain.Cove
 	coverage := domain.CoverageComplete
 	for _, role := range roles {
 		if !role.Valid {
-			if role.Required {
-				return domain.CoverageIncomplete
-			}
-			coverage = domain.CoverageDegraded
-			continue
+			return domain.CoverageIncomplete
 		}
 		if role.Degraded {
 			coverage = domain.CoverageDegraded
@@ -2978,7 +2968,6 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 	}
 
 	required := make([]string, 0, len(final.RoleOutcomes))
-	failedRequired := false
 	failedAny := false
 	expectedFailures := make(map[string]string)
 	for index, outcome := range final.RoleOutcomes {
@@ -2986,7 +2975,7 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			return false, fmt.Errorf("manifest selected role %d does not match final role outcome", index)
 		}
 		role := domain.Role(outcome.Role)
-		if !role.Valid() || (role == domain.RoleLogic || role == domain.RoleSecurity) && !outcome.Required {
+		if !role.Valid() || role == domain.RoleLogic && !outcome.Required {
 			return false, fmt.Errorf("final role outcome %q has invalid required policy", outcome.Role)
 		}
 		expectedLimitations, err := roleLimitationsForOutcome(outcome.Outcome)
@@ -3022,7 +3011,6 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			}
 			expectedFailures[attempt.AttemptID] = *outcome.FailureReason
 			failedAny = true
-			failedRequired = failedRequired || outcome.Required
 		default:
 			return false, fmt.Errorf("unknown role outcome %q", outcome.Outcome)
 		}
@@ -3042,11 +3030,11 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			return false, fmt.Errorf("completed manifest has a failed role outcome")
 		}
 	case string(domain.RunDegraded):
-		if failedRequired || !failedAny {
+		if !failedAny {
 			return false, fmt.Errorf("degraded manifest has inconsistent failed role outcomes")
 		}
 	case string(domain.RunFailed):
-		if !failedRequired || manifest.CoverageStatus != string(domain.CoverageIncomplete) {
+		if !failedAny || manifest.CoverageStatus != string(domain.CoverageIncomplete) {
 			return false, fmt.Errorf("failed manifest has inconsistent failed role outcomes")
 		}
 	}

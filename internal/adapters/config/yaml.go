@@ -411,10 +411,10 @@ func validate(config *Config) error {
 			return fmt.Errorf("role fallback")
 		}
 	}
-	if !config.Roles.Logic.Enabled || !config.Roles.Security.Enabled {
+	if !config.Roles.Logic.Enabled {
 		return fmt.Errorf("role floor")
 	}
-	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic", "security"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
+	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
 		return fmt.Errorf("sets")
 	}
 	for _, required := range config.Review.RequiredRoles {
@@ -454,7 +454,13 @@ func validateArtistRole(config *Config, role RoleConfig) error {
 		}
 		return nil
 	}
-	if !role.Enabled || (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.FallbackProvider == "kimi" || role.Inputs == nil {
+	if !role.Enabled {
+		if role.PrimaryProvider != "" || role.FallbackProvider != "" || role.Inputs != nil {
+			return fmt.Errorf("disabled UI artist role has configuration")
+		}
+		return nil
+	}
+	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.FallbackProvider == "kimi" || role.Inputs == nil {
 		return fmt.Errorf("UI project artist role")
 	}
 	if !safeContext(role.Inputs.TaskPath) || len(role.Inputs.DesignSpecGlobs) == 0 || len(role.Inputs.DesignSpecGlobs) > 16 {

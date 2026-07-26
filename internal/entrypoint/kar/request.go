@@ -71,6 +71,7 @@ type Invocation struct {
 	doctor         *DoctorRequest
 	config         *ConfigRequest
 	providers      *ProvidersRequest
+	roles          *RolesRequest
 	schema         *SchemaRequest
 	status         *StatusRequest
 	report         *ReportRequest
@@ -181,6 +182,14 @@ func (invocation Invocation) Providers() (ProvidersRequest, bool) {
 		return ProvidersRequest{}, false
 	}
 	return *invocation.providers, true
+}
+
+// Roles returns the parsed role-catalog listing fields when this is a roles invocation.
+func (invocation Invocation) Roles() (RolesRequest, bool) {
+	if invocation.roles == nil {
+		return RolesRequest{}, false
+	}
+	return *invocation.roles, true
 }
 
 // Schema returns the parsed schema fields when this is a schema invocation.
@@ -392,6 +401,9 @@ type ProvidersRequest struct {
 	projectRoot       string
 	includeUnverified bool
 }
+
+// RolesRequest identifies the static built-in role inventory request.
+type RolesRequest struct{}
 
 // ProjectRoot returns the canonical project root selected for provider listing.
 func (request ProvidersRequest) ProjectRoot() string { return request.projectRoot }

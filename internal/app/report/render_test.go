@@ -54,7 +54,7 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		"019f596a-d174-7321-b920-c2d312c82cc2",
 		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"request_changes",
-		"degraded",
+		"incomplete",
 		"committed",
 		"fail",
 		"logic-provider",
@@ -67,7 +67,7 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		"optional role did not complete",
 		"repaired_valid",
 		"passed_with_warnings",
-		"request_changes_threshold, degraded_coverage",
+		"request_changes_threshold, required_role_incomplete",
 		"F001",
 		"high",
 		"description",
@@ -921,7 +921,7 @@ func reportCommittedFixtureWithMutations(
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222"},
 		"validation":{"status":"repaired_valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed_with_warnings"},
-		"content_verdict":"request_changes","coverage_status":"degraded","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","degraded_coverage"],
+		"content_verdict":"request_changes","coverage_status":"incomplete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","required_role_incomplete"],
 		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"project_local"},
 		"role_outcomes":[
 			{"role":"logic","required":true,"outcome":"completed","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","provider_instance":"logic-provider","selected_via":"primary","valid_finding_ids":["F001"],"failure_reason":null,"limitations":["logic evidence was restricted to changed files"]},
@@ -944,13 +944,13 @@ func reportCommittedFixtureWithMutations(
 	}
 
 	manifestBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"degraded","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
+		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"failed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security","maintainability"],"required_roles":["logic","security"],"attempts":[{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","role":"security","provider_instance":"security-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-primary","selected_as":"primary","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ae-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-fallback","selected_as":"fallback","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ad-77c2-8b68-0bd73e911b2e/status.json","invocation_count":1}],
-		"content_verdict":"request_changes","coverage_status":"degraded","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","degraded_coverage"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
+		"content_verdict":"request_changes","coverage_status":"incomplete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","required_role_incomplete"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
 		"recovery_journal":{"expected_staged":null,"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q},
 		"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"recovery_action":"reconstruct_completed_status",
-		"final_review":{"review_id":%q,"path":%q,"sha256":%q},"failures":[{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e"},{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e"}],"warnings":[],"exit_code":1
+		"final_review":{"review_id":%q,"path":%q,"sha256":%q},"failures":[{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e"},{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e"}],"warnings":[],"exit_code":4
 	}`, sessionID.String(), runID.String(), edgePath.String(), edge.SHA256(), finalPath.String(), finalIdentity.SHA256(), finalIdentity.SHA256(), manifestPath.String(), edgePath.String(), edge.SHA256(), epochPath.String(), reviewID.String(), finalPath.String(), finalIdentity.SHA256()))
 	if manifestMutate != nil {
 		manifestBytes = []byte(manifestMutate(string(manifestBytes)))
@@ -960,7 +960,7 @@ func reportCommittedFixtureWithMutations(
 	if err != nil {
 		t.Fatal(err)
 	}
-	exit := domain.ExitCommittedCIRejected
+	exit := domain.ExitIncompleteCoverage
 	journalPath := reportPath(t, prefix+"/publication/journal.json")
 	journal, err := ports.NewMissingMutablePublicationDocument(ports.MutablePublicationJournal, journalPath)
 	if err != nil {

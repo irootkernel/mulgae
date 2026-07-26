@@ -206,7 +206,8 @@ kar --help
 kar help quickstart
 kar help config
 kar help providers
-kar help roles
+kar roles
+kar roles --output json
 kar help lanes
 kar help prompts
 kar help workflows

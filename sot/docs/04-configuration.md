@@ -41,12 +41,14 @@ family IDs from the configured nonempty subset. They must differ. Version 1 is
 rejected without migration or compatibility fallback.
 
 `project.kind` is `non_ui` when omitted and may be explicitly set to `ui`.
-The enabled project set contains two to seven roles and must include `logic` and
-`security`. Disabled roles retain deterministic provider assignments so the
+The enabled project set contains one to seven roles and must include `logic`.
+Disabled roles retain deterministic provider assignments so the
 document shape remains fixed, but they are not qualified, scheduled, budgeted,
 or selected by a default review. Every `review.required_roles` member must be
-enabled. Non-UI projects use the six core roles. UI projects additionally
-enable `artist`. Config v2 retains the field names `inputs.task_path` and
+enabled, and the required-role set must include `logic`; other enabled roles may
+also be required. New projects enable only `logic` unless `kar init --roles`
+selects more roles. UI projects may additionally enable `artist`, but do not do
+so automatically. Config v2 retains the field names `inputs.task_path` and
 `inputs.design_spec_globs` as project defaults for one UTF-8 artist brief and
 bounded PNG/JPEG/WebP visual references. The configured filename is not fixed;
 new UI init writes `ux-ui-info.md` unless `--artist-brief` selects a different

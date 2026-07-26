@@ -5,5 +5,7 @@
 .omx
 .codex
 .claude
+/.kar/
+/artifacts/
 /tmp/
 /var/

@@ -321,7 +321,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 	t.Run("authoritative help", func(t *testing.T) {
 		catalog := builtin.NewCatalog()
 		for _, topic := range []string{
-			"quickstart", "config", "providers", "roles", "lanes", "prompts",
+			"quickstart", "config", "providers", "lanes", "prompts",
 			"workflows", "artifacts", "validation", "ci", "exit-codes", "security",
 		} {
 			t.Run(topic, func(t *testing.T) {
@@ -642,6 +642,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 			{"findings", []string{"findings", "--run", runID, "--severity", "low"}, 7},
 			{"excerpt", []string{"excerpt", "--run", runID, "--finding", "F001", "--current-target-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, 7},
 			{"providers", []string{"providers", "--include-unverified"}, 4},
+			{"roles", []string{"roles"}, 0},
 			{"config", []string{"config"}, 2},
 			{"prompt", []string{"prompt", "--run", runID, "--attempt", attemptID, "--output", "json"}, 7},
 			{"schema", []string{"schema", "list"}, 0},
@@ -649,7 +650,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
 			{"help", []string{"help"}, 0},
 		}
-		if got, want := len(cases), 17; got != want {
+		if got, want := len(cases), 18; got != want {
 			t.Fatalf("documented command census = %d, want %d", got, want)
 		}
 		specs := cli.CommandSpecs()
@@ -773,7 +774,7 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	buildFakeKimi(t, root, filepath.Join(providerDirectory, "kimi"), logPath)
 	environment := isolatedKAREnvWith(t, home, providerDirectory)
 	initialized := runKARBinaryWithEnv(t, binary, project, environment,
-		"init", "--providers", "kimi", "--kimi-executable", filepath.Join(providerDirectory, "kimi"), "--kimi-data-home", filepath.Join(home, ".kimi-code"))
+		"init", "--providers", "kimi", "--roles", "security", "--kimi-executable", filepath.Join(providerDirectory, "kimi"), "--kimi-data-home", filepath.Join(home, ".kimi-code"))
 	if initialized.exitCode != 0 {
 		t.Fatalf("initialize Kimi local config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
@@ -854,7 +855,7 @@ func TestIntegrationKARProductionReviewSubprocessAGY(t *testing.T) {
 	environment := isolatedKAREnvWith(t, installedUser.HomeDir, providerDirectory)
 	environment = append(environment, "KAR_FAKE_AGY_LOG="+logPath)
 	initialized := runKARBinaryWithEnv(t, binary, project, environment,
-		"init", "--providers", "agy", "--agy-executable", filepath.Join(providerDirectory, "agy"), "--agy-permission-mode", "dangerously-skip-permissions")
+		"init", "--providers", "agy", "--roles", "security", "--agy-executable", filepath.Join(providerDirectory, "agy"), "--agy-permission-mode", "dangerously-skip-permissions")
 	if initialized.exitCode != 0 {
 		t.Fatalf("initialize AGY local config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
@@ -1173,7 +1174,7 @@ func TestIntegrationKAROfflineDiagnosticFailureWorkflows(t *testing.T) {
 
 func initializeOfflineProviders(t *testing.T, binary, project string, environment []string, providers, zcodeNode, zcodeLauncher, agy string) {
 	t.Helper()
-	arguments := []string{"init", "--providers", providers, "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
+	arguments := []string{"init", "--providers", providers, "--roles", "security", "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
 	if agy != "" {
 		arguments = append(arguments, "--agy-executable", agy, "--agy-permission-mode", "dangerously-skip-permissions")
 	}

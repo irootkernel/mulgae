@@ -282,7 +282,7 @@ Repair must not:
 
 Only invalid JSON and explicitly AI-owned missing or invalid values are eligible for one repair attempt. `timeout`, `auth`, `quota`, and `rate_limit` have `repair=none` and `fallback=allowed`; an eligible configured fallback may then be scheduled. If no fallback is eligible, `fallback_scheduled=false` and the role is exhausted.
 
-Security, source mutation, configuration, artifact, cancellation, internal-invariant, and valid-finding conditions have `fallback=forbidden`. Secret exposure or mutation also forbids repair and publication and returns exit `8`. An exhausted required role preserves valid findings, sets `coverage_status=incomplete`, and returns exit `4` unless a higher-priority failure applies. An exhausted optional role may produce `coverage_status=degraded`; its committed content is retained and trusted CI policy decides exit `0` or `1`.
+Security, source mutation, configuration, artifact, cancellation, internal-invariant, and valid-finding conditions have `fallback=forbidden`. Secret exposure or mutation also forbids repair and publication and returns exit `8`. Any exhausted selected role preserves valid findings, sets `coverage_status=incomplete`, fails the run, and returns exit `4` unless a higher-priority failure applies. `coverage_status=degraded` requires a valid, policy-permitted limited result and cannot represent exhaustion.
 
 ## 10. Stateless Repair Packet
 

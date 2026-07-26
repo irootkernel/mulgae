@@ -114,6 +114,22 @@ func TestConfigV2RoundTripsArtistBriefPath(t *testing.T) {
 	}
 }
 
+func TestConfigV2AllowsUIWithoutArtist(t *testing.T) {
+	config := validConfig()
+	config.Project.Kind = ProjectKindUI
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatalf("encode UI config without artist: %v", err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("decode UI config without artist: %v", err)
+	}
+	if decoded.Roles.Artist.Enabled || decoded.Roles.Artist.PrimaryProvider != "" || decoded.Roles.Artist.FallbackProvider != "" || decoded.Roles.Artist.Inputs != nil {
+		t.Fatalf("disabled UI artist role gained configuration: %#v", decoded.Roles.Artist)
+	}
+}
+
 func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.T) {
 	config := validConfig()
 	roles, err := CanonicalRolesConfigForSelection([]string{"kimi"}, []string{"logic", "security", "documentation"})
@@ -140,8 +156,8 @@ func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.
 		t.Fatal("disabled required role was accepted")
 	}
 	config.Review.RequiredRoles = []string{"logic"}
-	if _, err := EncodeCanonical(config); err == nil {
-		t.Fatal("project configuration without security required floor was accepted")
+	if _, err := EncodeCanonical(config); err != nil {
+		t.Fatalf("logic-only required floor was rejected: %v", err)
 	}
 }
 

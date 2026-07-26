@@ -178,7 +178,7 @@ func (result InitializeProjectResult) Validate() error {
 }
 
 func canonicalRoleIDs(values []string) bool {
-	if len(values) < 2 || len(values) > len(domain.FixedRoleOrder()) {
+	if len(values) < 1 || len(values) > len(domain.FixedRoleOrder()) {
 		return false
 	}
 	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
@@ -197,7 +197,7 @@ func canonicalRoleIDs(values []string) bool {
 		}
 		seen[value], last = true, ordinal
 	}
-	return seen["logic"] && seen["security"]
+	return seen["logic"]
 }
 
 func validDiscoverySources(row DiscoveryRow) bool {

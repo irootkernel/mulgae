@@ -97,7 +97,7 @@ KAR serializes four independent fields. They are never collapsed into a single v
 
 At the trusted default threshold, a `high`, `critical`, or `blocker` finding gives `content_verdict=request_changes`; lower validated findings give `findings_present`; no validated findings give `no_findings`. `content_verdict` is content, not a claim of complete coverage.
 
-`coverage_status=complete` requires all required roles to have valid policy-satisfying results. `degraded` permits an optional or otherwise policy-permitted limited result; `incomplete` means a required role is exhausted or lacks a valid result. A required failure does not delete content: a valid high finding plus required failure is serialized as `request_changes` and `incomplete`.
+`coverage_status=complete` requires every selected role to have a valid policy-satisfying result. `degraded` permits a valid policy-permitted limited result; `incomplete` means any selected role is exhausted or lacks a valid result. A lane failure does not delete content: a valid high finding plus another selected-lane failure is serialized as `request_changes` and `incomplete`.
 
 `publication_status` is derived from `persisted_journal_state` and durable observations, not from file existence. `persisted_journal_state` is exactly `collecting`, `content_validated`, `final_staged`, `final_file_installed`, `manifest_committed`, or `completed`; it is a hint only. `derived_publication_status` determines serialized `publication_status`. Only a valid P2 composite epoch, manifest, lineage edge, canonical final path, and matching final hash yields `committed`. P1 installed and P0 staged are recovery states, not publication. The complete P2 > P1 > P0 classifier is defined in [Artifacts, Lineage, and Storage](08-artifacts-lineage-and-storage.md#13-publication-authority-and-recovery).
 
@@ -119,7 +119,7 @@ ci:
   incomplete_review_fails: true
 ```
 
-An optional exhausted role may yield `coverage_status=degraded`, preserve valid content, and project to `ci_decision=pass` or `fail` under trusted policy. A required exhausted role yields `coverage_status=incomplete`; it preserves content and returns exit `4` rather than being relabeled as an ordinary CI rejection. Source/current evidence remains visible with its exact `verification` state; a source reference is never displayed as current `verified` evidence.
+Any exhausted selected role yields `coverage_status=incomplete`; it preserves valid content, fails the run, and returns exit `4` rather than being relabeled as an ordinary CI rejection. A valid limited result may yield `coverage_status=degraded` and project to `ci_decision=pass` or `fail` under trusted policy. Source/current evidence remains visible with its exact `verification` state; a source reference is never displayed as current `verified` evidence.
 
 CI configuration comes from the admitted project-local `.kar/config.yaml`. Code-fixed safety floors remain invariants and cannot be weakened by configuration or interactive input.
 

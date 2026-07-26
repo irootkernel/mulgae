@@ -23,7 +23,7 @@ func (role Role) Valid() bool {
 	return oneOf(string(role), string(RoleLogic), string(RoleSecurity), string(RoleMaintainability), string(RoleProduct), string(RoleDocumentation), string(RoleTesting), string(RoleArtist))
 }
 
-func (role Role) RequiredFloor() bool { return role == RoleLogic || role == RoleSecurity }
+func (role Role) RequiredFloor() bool { return role == RoleLogic }
 
 func FixedRoleOrder() []Role { return append([]Role(nil), fixedRoleOrder[:]...) }
 
