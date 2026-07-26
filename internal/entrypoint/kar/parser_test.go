@@ -93,12 +93,12 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, subset, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic","security","testing"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
-	ui := mustParse(t, []string{"init", "--project-kind", "ui", "--artist-task", "TASK.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
+	ui := mustParse(t, []string{"init", "--project-kind", "ui", "--artist-brief", "docs/ux-ui-info.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
 	uiRequest, ok := ui.Init()
 	if !ok || !reflect.DeepEqual(uiRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}) {
 		t.Fatalf("UI init roles = %#v, %t", uiRequest, ok)
 	}
-	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_task":"TASK.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_brief":"docs/ux-ui-info.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","security","maintainability","product","documentation","testing","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 	for _, roles := range []string{"logic", "security,testing", "logic,documentation"} {
 		if _, err := Parse([]string{"init", "--roles", roles}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("init --roles %q error = %v, want usage", roles, err)
@@ -324,7 +324,7 @@ func TestParseReviewAndPromptRequests(t *testing.T) {
 	if !ok || !reflect.DeepEqual(defaultRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing"}) {
 		t.Fatalf("default review roles = %#v, %t; want fixed role order", defaultRequest, ok)
 	}
-	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"dirty","value":"dirty"},"objective":null,"roles":["logic","security","maintainability","product","documentation","testing"],"role_selection":"project_default","session_id":null,"output_format":"human"}`)
+	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"dirty","value":"dirty"},"objective":null,"roles":["logic","security","maintainability","product","documentation","testing"],"role_selection":"project_default","artist_brief":null,"artist_design_specs":[],"session_id":null,"output_format":"human"}`)
 	review := mustParse(t, []string{"review", "--patch", "changes.patch", "--objective", "Review changes.", "--roles", "testing,logic", "--session", testSessionID, "--output", "json"})
 	request, ok := review.Review()
 	if !ok {
@@ -341,7 +341,29 @@ func TestParseReviewAndPromptRequests(t *testing.T) {
 	if got, present := request.SessionID(); !present || got != testSessionID {
 		t.Fatalf("review session = %q, %t; want %q, true", got, present, testSessionID)
 	}
-	assertRequestJSON(t, review, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"patch","value":"changes.patch"},"objective":"Review changes.","roles":["logic","testing"],"role_selection":"explicit","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
+	assertRequestJSON(t, review, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"patch","value":"changes.patch"},"objective":"Review changes.","roles":["logic","testing"],"role_selection":"explicit","artist_brief":null,"artist_design_specs":[],"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
+
+	artist := mustParse(t, []string{"review", "--dirty", "--roles", "product,artist", "--artist-brief", "docs/roadmap.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
+	artistRequest, ok := artist.Review()
+	brief, present := artistRequest.ArtistBrief()
+	if !ok || !present || brief != "docs/roadmap.md" || !reflect.DeepEqual(artistRequest.ArtistDesignSpecs(), []string{"design-specs/**/*.png", "design-specs/**/*.webp"}) {
+		t.Fatalf("artist review request = %#v, %t", artistRequest, ok)
+	}
+	assets := artistRequest.ArtistDesignSpecs()
+	assets[0] = "mutated.png"
+	if artistRequest.ArtistDesignSpecs()[0] != "design-specs/**/*.png" {
+		t.Fatal("artist design specs mutated through accessor")
+	}
+	assertRequestJSON(t, artist, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"dirty","value":"dirty"},"objective":null,"roles":["product","artist"],"role_selection":"explicit","artist_brief":"docs/roadmap.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"session_id":null,"output_format":"human"}`)
+	for _, arguments := range [][]string{
+		{"review", "--dirty", "--roles", "logic", "--artist-brief", "brief.md"},
+		{"review", "--dirty", "--roles", "artist", "--artist-brief", "../brief.md"},
+		{"review", "--dirty", "--roles", "artist", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.png"},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
 
 	prompt := mustParse(t, []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes"})
 	promptRequest, ok := prompt.Prompt()
@@ -386,7 +408,7 @@ func TestParseResolvedReviewStdin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseResolved review error = %v", err)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"stdin","value":"stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"objective":null,"roles":["logic","security"],"role_selection":"explicit","session_id":null,"output_format":"human"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"stdin","value":"stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"objective":null,"roles":["logic","security"],"role_selection":"explicit","artist_brief":null,"artist_design_specs":[],"session_id":null,"output_format":"human"}`)
 	if arguments[2] != "--roles" {
 		t.Fatal("ParseResolved mutated review arguments")
 	}

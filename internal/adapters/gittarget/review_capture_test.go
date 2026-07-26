@@ -22,7 +22,7 @@ func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "design-specs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeReviewFile(t, filepath.Join(root, "TASK.md"), "Match the primary action layout.\n")
+	writeReviewFile(t, filepath.Join(root, "ux-ui-info.md"), "Match the primary action layout.\n")
 	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
 	if err != nil {
 		t.Fatal(err)
@@ -34,14 +34,15 @@ func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := NewReviewTargetCapturerWithArtistInputs(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector(), "TASK.md", []string{"design-specs/**/*.png"})
+	adapter, err := NewReviewTargetCapturer(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := adapter.artistMediaType("design-specs/home.png"); got != "image/png" {
-		t.Fatalf("artist glob did not match: %q", got)
+	inputs, err := ports.NewArtistReviewInputs("ux-ui-info.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	material, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"))
+	material, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"), inputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +60,20 @@ func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	restored, err := ports.UnmarshalCapturedReviewMaterial(archive)
 	if err != nil || !restored.Valid() {
 		t.Fatalf("visual archive did not round-trip: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(root, "ux-ui-info.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"), inputs); err == nil || !strings.Contains(err.Error(), "artist brief") {
+		t.Fatalf("missing artist brief error = %v", err)
+	}
+	writeReviewFile(t, filepath.Join(root, "ux-ui-info.md"), "Match the primary action layout.\n")
+	if err := os.Remove(filepath.Join(root, "design-specs", "home.png")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"), inputs); err == nil || !strings.Contains(err.Error(), "visual references") {
+		t.Fatalf("missing artist visuals error = %v", err)
 	}
 }
 

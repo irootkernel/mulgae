@@ -67,8 +67,9 @@ The exact init selection grammar is
 `--providers auto|FAMILY[,FAMILY...]`, where `FAMILY := kimi | zcode | agy`,
 plus optional `--roles ROLE[,ROLE...]` and `--project-kind non_ui|ui`.
 Omitting the project kind selects the six core roles. UI init additionally
-enables artist and accepts `--artist-task PATH` and
-`--artist-design-specs GLOB[,GLOB...]`. An explicit project role set is
+enables artist and accepts `--artist-brief PATH` and
+`--artist-design-specs GLOB[,GLOB...]`. The default brief path is
+`ux-ui-info.md`. An explicit project role set is
 canonicalized to fixed order, contains two to seven unique roles, and must
 contain `logic` and `security`; artist is valid only with `project-kind=ui`.
 It accepts each of the seven nonempty family subsets and canonicalizes request,
@@ -114,6 +115,16 @@ cat change.patch | kar review --stdin \
   --objective "Focus on fallback state transitions."
 ```
 
+An artist review may bind its UX/UI inputs to that review instead of changing
+project configuration:
+
+```bash
+kar review --dirty \
+  --roles artist \
+  --artist-brief docs/roadmap.md \
+  --artist-design-specs "design-specs/**/*.png,design-specs/**/*.webp"
+```
+
 Semantics:
 
 - resolves symbolic Git refs to immutable object IDs at run start;
@@ -123,6 +134,13 @@ Semantics:
 - does not inherit findings from another run;
 - with no `--roles`, selects every role enabled by project configuration;
 - with explicit `--roles`, selects exactly that nonempty enabled subset without automatically adding `logic`, `security`, or `review.required_roles`;
+- resolves `--artist-brief` and `--artist-design-specs` independently over the
+  corresponding Config v2 artist input; an omitted review flag uses its
+  configured fallback;
+- accepts artist input flags only when the review selects artist, and requires
+  both a nonempty UTF-8 brief and at least one matched PNG/JPEG/WebP visual
+  before any provider invocation;
+- never reads or sends artist brief or visual inputs when artist is not selected;
 - publishes at most one final review artifact.
 - preserves immutable captured target bytes; native `@file` transport, when selected, refers only to that captured material and never weakens the no-live-root or no-`HOME` boundary.
 

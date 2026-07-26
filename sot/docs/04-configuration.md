@@ -46,9 +46,12 @@ The enabled project set contains two to seven roles and must include `logic` and
 document shape remains fixed, but they are not qualified, scheduled, budgeted,
 or selected by a default review. Every `review.required_roles` member must be
 enabled. Non-UI projects use the six core roles. UI projects additionally
-enable `artist`, whose `inputs.task_path` and `inputs.design_spec_globs` select
-one UTF-8 task document and bounded PNG/JPEG/WebP design references. Artist is
-assigned only to AGY then ZCode; Kimi is not an artist-capable fallback.
+enable `artist`. Config v2 retains the field names `inputs.task_path` and
+`inputs.design_spec_globs` as project defaults for one UTF-8 artist brief and
+bounded PNG/JPEG/WebP visual references. The configured filename is not fixed;
+new UI init writes `ux-ui-info.md` unless `--artist-brief` selects a different
+project-relative file. Artist is assigned only to AGY then ZCode; Kimi is not
+an artist-capable fallback.
 
 With all three families, init writes `logic=kimi/zcode`,
 `documentation=agy/zcode`, and
@@ -59,8 +62,12 @@ from `kimi,zcode,agy` for logic, `agy,zcode,kimi` for documentation, and
 primary and has no fallback.
 
 Artist activation is declaration-only: filenames and framework detection never
-turn it on. Missing task or visual input is represented as incomplete artist
-input and cannot produce a verified artist finding.
+turn it on. For `kar review`, `--artist-brief` and
+`--artist-design-specs` independently override the corresponding Config v2
+fallback. A selected artist review fails before provider execution when its
+resolved brief is missing, empty, or invalid, or when its resolved globs match
+no supported visual. A review that does not select artist does not resolve,
+capture, or prompt with these inputs.
 
 Parsing is strict: one UTF-8 YAML document, exact keys, no aliases, tags, merges,
 duplicates, nulls, placeholders, controls, or unknown fields. Canonical output

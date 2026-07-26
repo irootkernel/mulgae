@@ -458,3 +458,33 @@ func (material CapturedReviewMaterial) Valid() bool {
 type ReviewTargetCapturer interface {
 	CaptureReviewTarget(context.Context, AnchoredRoot, ReviewTargetSelector) (CapturedReviewMaterial, error)
 }
+
+// ArtistReviewInputs identifies one review-scoped brief and bounded visual
+// reference selection. Paths remain project-relative and are interpreted by
+// the target capturer against the selected immutable snapshot.
+type ArtistReviewInputs struct {
+	briefPath       string
+	designSpecGlobs []string
+}
+
+func NewArtistReviewInputs(briefPath string, designSpecGlobs []string) (ArtistReviewInputs, error) {
+	if briefPath == "" || len(designSpecGlobs) == 0 || len(designSpecGlobs) > 16 {
+		return ArtistReviewInputs{}, fmt.Errorf("artist review inputs: brief and visual references are required")
+	}
+	return ArtistReviewInputs{briefPath: briefPath, designSpecGlobs: append([]string(nil), designSpecGlobs...)}, nil
+}
+
+func (inputs ArtistReviewInputs) BriefPath() string { return inputs.briefPath }
+func (inputs ArtistReviewInputs) DesignSpecGlobs() []string {
+	return append([]string(nil), inputs.designSpecGlobs...)
+}
+func (inputs ArtistReviewInputs) Valid() bool {
+	_, err := NewArtistReviewInputs(inputs.briefPath, inputs.designSpecGlobs)
+	return err == nil
+}
+
+// ArtistReviewTargetCapturer is the optional review-scoped artist extension.
+// Ordinary captures retain the smaller ReviewTargetCapturer contract.
+type ArtistReviewTargetCapturer interface {
+	CaptureReviewTargetWithArtistInputs(context.Context, AnchoredRoot, ReviewTargetSelector, ArtistReviewInputs) (CapturedReviewMaterial, error)
+}

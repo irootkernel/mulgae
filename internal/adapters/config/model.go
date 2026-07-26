@@ -28,7 +28,7 @@ const (
 	MaximumConfigBytes       = appconfig.MaximumConfigBytes
 	ProjectKindNonUI         = appconfig.ProjectKindNonUI
 	ProjectKindUI            = appconfig.ProjectKindUI
-	DefaultArtistTaskPath    = appconfig.DefaultArtistTaskPath
+	DefaultArtistBriefPath   = appconfig.DefaultArtistBriefPath
 )
 
 var DefaultArtistDesignSpecGlobs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)

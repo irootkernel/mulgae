@@ -1681,16 +1681,44 @@ func TestPolicyReviewRunServiceUsesProjectDefaultOrExactExplicitSubset(t *testin
 	}
 }
 
+func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV2Defaults(t *testing.T) {
+	defaults, err := ports.NewArtistReviewInputs("ux-ui-info.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := map[domain.Role]bool{domain.RoleLogic: true, domain.RoleArtist: true}
+	fake := &reviewRunFake{}
+	service := NewPolicyReviewRunServiceWithArtistInputs(fake, nil, enabled, defaults)
+	request := ReviewRequest{
+		roles: []string{"artist"}, rolesExplicit: true,
+		artistBriefPath: "docs/roadmap.md", hasArtistBrief: true,
+	}
+	if _, err := service.StartReviewRun(context.Background(), request, testReviewRunAnchoredRoot(t)); err != nil {
+		t.Fatal(err)
+	}
+	brief, present := fake.request.ArtistBrief()
+	if fake.calls != 1 || !present || brief != "docs/roadmap.md" || !reflect.DeepEqual(fake.request.ArtistDesignSpecs(), []string{"design-specs/**/*.png"}) {
+		t.Fatalf("resolved artist request = %#v", fake.request)
+	}
+
+	missing := NewPolicyReviewRunService(&reviewRunFake{}, nil, enabled)
+	if _, err := missing.StartReviewRun(context.Background(), ReviewRequest{roles: []string{"artist"}, rolesExplicit: true}, testReviewRunAnchoredRoot(t)); err == nil {
+		t.Fatal("artist selection without resolved inputs was accepted")
+	}
+}
+
 func TestReviewRunAdapterCapturesOnceBeforeServiceAndPropagatesRequest(t *testing.T) {
 	root := testReviewRunAnchoredRoot(t)
 	ctx := context.WithValue(context.Background(), "review-run-adapter", "context")
 	request := ReviewRequest{
-		target:       TargetRequest{kind: "diff", value: "HEAD~1"},
-		objective:    "review only the request adapter",
-		hasObjective: true,
-		roles:        []string{"logic"},
-		sessionID:    g006SessionID,
-		hasSessionID: true,
+		target:          TargetRequest{kind: "diff", value: "HEAD~1"},
+		objective:       "review only the request adapter",
+		hasObjective:    true,
+		roles:           []string{"artist"},
+		artistBriefPath: "docs/roadmap.md", hasArtistBrief: true,
+		artistDesignGlobs: []string{"design-specs/**/*.png"},
+		sessionID:         g006SessionID,
+		hasSessionID:      true,
 	}
 	captureErr := errors.New("capture failed")
 	events := []string{}
@@ -1709,8 +1737,10 @@ func TestReviewRunAdapterCapturesOnceBeforeServiceAndPropagatesRequest(t *testin
 		t.Fatalf("call order = %#v, want factory before service capture", events)
 	}
 	capturedObjective, hasObjective := factory.request.Objective()
+	artistInputs, hasArtistInputs := factory.request.ArtistInputs()
 	if factory.ctx != ctx || factory.request.Root() != root || factory.request.Target().Kind() != ports.ReviewTargetDiff ||
-		factory.request.Target().Value() != "HEAD~1" || !hasObjective || string(capturedObjective) != request.objective {
+		factory.request.Target().Value() != "HEAD~1" || !hasObjective || string(capturedObjective) != request.objective ||
+		!hasArtistInputs || artistInputs.BriefPath() != "docs/roadmap.md" || !reflect.DeepEqual(artistInputs.DesignSpecGlobs(), []string{"design-specs/**/*.png"}) {
 		t.Fatalf("factory input = %#v, want exact typed context/request/root", factory.request)
 	}
 }

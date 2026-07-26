@@ -43,7 +43,7 @@ type InitializeProjectRequest struct {
 	ProjectName           string
 	ContextPath           string
 	ProjectKind           string
-	ArtistTaskPath        string
+	ArtistBriefPath       string
 	ArtistDesignSpecGlobs []string
 	NativeHome            string
 	// NativeHomeAsserted records whether --native-home was supplied and verified
@@ -581,15 +581,15 @@ func candidateConfig(request InitializeProjectRequest, value candidates) appconf
 		kind = appconfig.ProjectKindNonUI
 	}
 	if kind == appconfig.ProjectKindUI {
-		taskPath := request.ArtistTaskPath
-		if taskPath == "" {
-			taskPath = appconfig.DefaultArtistTaskPath
+		briefPath := request.ArtistBriefPath
+		if briefPath == "" {
+			briefPath = appconfig.DefaultArtistBriefPath
 		}
 		globs := append([]string(nil), request.ArtistDesignSpecGlobs...)
 		if len(globs) == 0 {
 			globs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)
 		}
-		roles.Artist.Inputs = &appconfig.ArtistInputsConfig{TaskPath: taskPath, DesignSpecGlobs: globs}
+		roles.Artist.Inputs = &appconfig.ArtistInputsConfig{TaskPath: briefPath, DesignSpecGlobs: globs}
 	}
 	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 }

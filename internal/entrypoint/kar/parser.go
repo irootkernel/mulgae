@@ -354,7 +354,7 @@ func parseHelp(arguments []string, requestID string) (Invocation, error) {
 func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true, "--name": true, "--context": true, "--providers": true, "--roles": true,
-		"--project-kind": true, "--artist-task": true, "--artist-design-specs": true,
+		"--project-kind": true, "--artist-brief": true, "--artist-design-specs": true,
 		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
 		"--zcode-node-executable": true, "--zcode-launcher": true,
 		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
@@ -397,21 +397,18 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		}
 		request.projectKind, request.hasProjectKind = value, true
 	}
-	if value, present := options["--artist-task"]; present {
+	artistBrief, hasArtistBrief := options["--artist-brief"]
+	if hasArtistBrief {
+		value := artistBrief
 		if !validRelativePath(value) {
-			return Invocation{}, usageError("artist task path is not safe")
+			return Invocation{}, usageError("artist brief path is not safe")
 		}
-		request.artistTaskPath = value
+		request.artistBriefPath = value
 	}
 	if value, present := options["--artist-design-specs"]; present {
-		request.artistDesignGlobs = strings.Split(value, ",")
-		if len(request.artistDesignGlobs) == 0 || len(request.artistDesignGlobs) > 16 {
-			return Invocation{}, usageError("artist design spec list is invalid")
-		}
-		for _, pattern := range request.artistDesignGlobs {
-			if !validArtistGlob(pattern) {
-				return Invocation{}, usageError("artist design spec glob is not safe")
-			}
+		request.artistDesignGlobs, err = parseArtistGlobsCSV(value)
+		if err != nil {
+			return Invocation{}, err
 		}
 	}
 	ui := request.hasProjectKind && request.projectKind == "ui"
@@ -422,7 +419,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		if !containsString(request.roleIDs, "artist") {
 			request.roleIDs = append(request.roleIDs, "artist")
 		}
-	} else if containsString(request.roleIDs, "artist") || request.artistTaskPath != "" || len(request.artistDesignGlobs) != 0 {
+	} else if containsString(request.roleIDs, "artist") || request.artistBriefPath != "" || len(request.artistDesignGlobs) != 0 {
 		return Invocation{}, usageError("artist requires an explicitly declared UI project")
 	}
 	if value, present := options["--context"]; present {
@@ -498,7 +495,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		ProjectName  string        `json:"project_name"`
 		Context      *string       `json:"context"`
 		ProjectKind  *string       `json:"project_kind,omitempty"`
-		ArtistTask   *string       `json:"artist_task,omitempty"`
+		ArtistBrief  *string       `json:"artist_brief,omitempty"`
 		ArtistDesign []string      `json:"artist_design_specs,omitempty"`
 		Selection    selectionJSON `json:"selection"`
 		Roles        []string      `json:"roles"`
@@ -506,7 +503,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		Overwrite    bool          `json:"overwrite"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistTask: optionalString(request.artistTaskPath, request.artistTaskPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -621,7 +618,8 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--workspace": false, "--stage": false, "--dirty": false,
 		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
-		"--roles": true, "--session": true, "--output": true,
+		"--roles": true, "--artist-brief": true, "--artist-design-specs": true,
+		"--session": true, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -649,6 +647,21 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	} else {
 		request.roles = coreRoleNames()
 	}
+	if artistBrief, present := options["--artist-brief"]; present {
+		if !validRelativePath(artistBrief) {
+			return Invocation{}, usageError("artist brief path is not safe")
+		}
+		request.artistBriefPath, request.hasArtistBrief = artistBrief, true
+	}
+	if value, present := options["--artist-design-specs"]; present {
+		request.artistDesignGlobs, err = parseArtistGlobsCSV(value)
+		if err != nil {
+			return Invocation{}, err
+		}
+	}
+	if request.rolesExplicit && !containsString(request.roles, "artist") && (request.hasArtistBrief || len(request.artistDesignGlobs) != 0) {
+		return Invocation{}, usageError("artist inputs require the artist role")
+	}
 	if sessionID, present := options["--session"]; present {
 		session, parseErr := domain.ParseSessionID(sessionID)
 		if parseErr != nil {
@@ -660,12 +673,19 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
-	var objective, sessionID *string
+	var objective, artistBrief, sessionID *string
 	if request.hasObjective {
 		objective = &request.objective
 	}
+	if request.hasArtistBrief {
+		artistBrief = &request.artistBriefPath
+	}
 	if request.hasSessionID {
 		sessionID = &request.sessionID
+	}
+	artistDesign := cloneStrings(request.artistDesignGlobs)
+	if artistDesign == nil {
+		artistDesign = []string{}
 	}
 	requestJSON, err := marshalRequest(struct {
 		RequestID string `json:"request_id"`
@@ -677,13 +697,15 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		Objective     *string      `json:"objective"`
 		Roles         []string     `json:"roles"`
 		RoleSelection string       `json:"role_selection"`
+		ArtistBrief   *string      `json:"artist_brief"`
+		ArtistDesign  []string     `json:"artist_design_specs"`
 		SessionID     *string      `json:"session_id"`
 		OutputFormat  OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], sessionID, outputFormat,
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1531,6 +1553,24 @@ func validArtistGlob(value string) bool {
 	default:
 		return false
 	}
+}
+
+func parseArtistGlobsCSV(value string) ([]string, error) {
+	globs := strings.Split(value, ",")
+	if len(globs) == 0 || len(globs) > 16 {
+		return nil, usageError("artist design spec list is invalid")
+	}
+	seen := make(map[string]struct{}, len(globs))
+	for _, pattern := range globs {
+		if !validArtistGlob(pattern) {
+			return nil, usageError("artist design spec glob is not safe")
+		}
+		if _, duplicate := seen[pattern]; duplicate {
+			return nil, usageError("artist design spec list contains a duplicate glob")
+		}
+		seen[pattern] = struct{}{}
+	}
+	return globs, nil
 }
 
 func parseCanonicalRolesCSV(value string) ([]string, error) {

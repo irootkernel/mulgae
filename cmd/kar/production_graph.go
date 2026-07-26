@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
@@ -131,13 +130,7 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: workspace materializer: %w", err)
 	}
-	var capturer ports.ReviewTargetCapturer
-	if policy.config.Project.Kind == adapterconfig.ProjectKindUI && policy.config.Roles.Artist.Inputs != nil {
-		inputs := policy.config.Roles.Artist.Inputs
-		capturer, err = gittarget.NewReviewTargetCapturerWithArtistInputs(gittarget.NewExecRunner(), stdin, detector, inputs.TaskPath, inputs.DesignSpecGlobs)
-	} else {
-		capturer, err = gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), stdin, detector)
-	}
+	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), stdin, detector)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: target capturer: %w", err)
 	}

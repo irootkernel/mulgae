@@ -1097,6 +1097,28 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.
 	}
 }
 
+func TestClassifyRunSupportArtifactPathAcceptsCanonicalArtistInputs(t *testing.T) {
+	t.Parallel()
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/inputs/"
+	for _, test := range []struct {
+		path string
+		kind RunSupportArtifactKind
+	}{
+		{prefix + "artist-brief.md", RunSupportArtifactArtistBrief},
+		{prefix + "artist-visual-assets.json", RunSupportArtifactArtistVisuals},
+	} {
+		path, err := NewSafeRelativePath(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if err != nil || kind != test.kind {
+			t.Fatalf("ClassifyRunSupportArtifactPath(%q) = %q, %v", test.path, kind, err)
+		}
+	}
+}
+
 type publicationStoreContractFake struct{}
 
 func (publicationStoreContractFake) IssueReviewID(context.Context, IssueReviewIDRequest) (IssuedReviewID, error) {

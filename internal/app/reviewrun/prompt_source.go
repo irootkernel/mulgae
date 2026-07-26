@@ -136,7 +136,8 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 	sourcePayload := prompt.NewPayload(material.SourceTarget)
 	deltaPayload := prompt.NewPayload(material.Delta)
 	input := prompt.CompileInput{Scope: scope, ProjectContext: &sourcePayload, ReviewTarget: prompt.NewPayload(material.CurrentTarget), PriorReport: &deltaPayload}
-	applyArtistPromptInputs(&input, source.input, job.Role())
+	_, _, artistContext := splitArtistPromptContext(source.input)
+	applyArtistPromptInputs(&input, artistContext, job.Role())
 	if repair != nil {
 		prior := prompt.NewPayload(repair.InitialCandidate())
 		input.PriorProviderOutput = &prior
@@ -185,11 +186,12 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 }
 func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput, role domain.Role) prompt.CompileInput {
 	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(input.Target().Bytes())}
-	if input.HasProjectContext() {
-		project := prompt.NewPayload(input.ProjectContext())
+	projectContext, hasProjectContext, artistContext := splitArtistPromptContext(input)
+	if hasProjectContext {
+		project := prompt.NewPayload(projectContext)
 		compileInput.ProjectContext = &project
 	}
-	applyArtistPromptInputs(&compileInput, input, role)
+	applyArtistPromptInputs(&compileInput, artistContext, role)
 	return compileInput
 }
 
@@ -201,13 +203,29 @@ type artistPromptManifest struct {
 	VisualAssets  json.RawMessage `json:"visual_assets"`
 }
 
-func applyArtistPromptInputs(compileInput *prompt.CompileInput, input ImmutableReviewInput, role domain.Role) {
-	if compileInput == nil || role != domain.RoleArtist || !input.HasProjectContext() {
-		return
+func splitArtistPromptContext(input ImmutableReviewInput) (project []byte, hasProject bool, artist []byte) {
+	if !input.HasProjectContext() {
+		return nil, false, nil
 	}
 	raw := input.ProjectContext()
-	if index := bytes.LastIndexByte(raw, '\n'); index >= 0 {
-		raw = raw[index+1:]
+	index := bytes.LastIndexByte(raw, '\n')
+	candidate := raw
+	if index >= 0 {
+		candidate = raw[index+1:]
+	}
+	var manifest artistPromptManifest
+	if json.Unmarshal(candidate, &manifest) != nil || manifest.SchemaVersion != "kar-artist-inputs.v1" {
+		return raw, true, nil
+	}
+	if index < 0 {
+		return nil, false, candidate
+	}
+	return append([]byte(nil), raw[:index]...), index > 0, append([]byte(nil), candidate...)
+}
+
+func applyArtistPromptInputs(compileInput *prompt.CompileInput, raw []byte, role domain.Role) {
+	if compileInput == nil || role != domain.RoleArtist || len(raw) == 0 {
+		return
 	}
 	var manifest artistPromptManifest
 	if json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != "kar-artist-inputs.v1" {

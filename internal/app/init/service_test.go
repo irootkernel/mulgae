@@ -440,6 +440,19 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 	}
 }
 
+func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
+	selectedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
+	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
+	configured := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles}, providers)
+	if configured.Roles.Artist.Inputs == nil || configured.Roles.Artist.Inputs.TaskPath != "ux-ui-info.md" {
+		t.Fatalf("default artist inputs = %#v", configured.Roles.Artist.Inputs)
+	}
+	explicit := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles, ArtistBriefPath: "docs/artist-brief.md"}, providers)
+	if explicit.Roles.Artist.Inputs == nil || explicit.Roles.Artist.Inputs.TaskPath != "docs/artist-brief.md" {
+		t.Fatalf("explicit artist brief path = %#v", explicit.Roles.Artist.Inputs)
+	}
+}
+
 func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)

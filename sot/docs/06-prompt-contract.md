@@ -116,6 +116,11 @@ The seven guides are authored in root `roles/<role>.yaml`, validated during
 generation, and embedded into the binary. Project files cannot override them.
 Artist findings additionally require a captured visual path/SHA-256/bounding
 box reference whose identity KAR checks against the immutable capture archive.
+The `task_requirements` frame name is retained as wire vocabulary, but its bytes
+come from the review's resolved artist brief (`--artist-brief` or the Config v2
+fallback). The `visual_assets_manifest` frame comes from the same immutable
+review capture. Both frames are compiled only for artist; none of the six core
+roles receives artist brief or visual content.
 
 ## 6. User Objective
 

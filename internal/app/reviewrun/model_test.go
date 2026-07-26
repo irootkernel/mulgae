@@ -258,6 +258,26 @@ func TestPromptCompilerProjectContextFramePresence(t *testing.T) {
 	}
 }
 
+func TestArtistPromptContextIsIsolatedFromOtherRoles(t *testing.T) {
+	target := reviewRunPatchTarget(t)
+	context := []byte("shared project context\n" + `{"schema_version":"kar-artist-inputs.v1","status":"ready","task_path":"docs/roadmap.md","task":"Check visual hierarchy.","visual_assets":[{"path":"design-specs/current.png","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"image/png"}]}`)
+	input, err := NewImmutableReviewInput(target, nil, false, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleArtist)
+	if artist.ProjectContext == nil || string(artist.ProjectContext.Bytes()) != "shared project context" || artist.TaskRequirements == nil || string(artist.TaskRequirements.Bytes()) != "Check visual hierarchy." || artist.VisualAssetsManifest == nil {
+		t.Fatalf("artist compile input = %#v", artist)
+	}
+	logic := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleLogic)
+	if logic.ProjectContext == nil || string(logic.ProjectContext.Bytes()) != "shared project context" || logic.TaskRequirements != nil || logic.VisualAssetsManifest != nil {
+		t.Fatalf("logic received artist-only inputs: %#v", logic)
+	}
+	if strings.Contains(string(logic.ProjectContext.Bytes()), "Check visual hierarchy") {
+		t.Fatal("logic project context exposed artist brief")
+	}
+}
+
 type reviewRunPromptIssuer struct{}
 
 func (reviewRunPromptIssuer) NewSourceInvocationID() (prompt.SourceInvocationID, error) {

@@ -48,8 +48,12 @@
       request.json
       resolved-config.yaml
       config-sources.json
+      inputs/
+        artist-brief.md
+        artist-visual-assets.json
       target/
         target-manifest.json
+        captured-review.json
         review-target.patch
         untracked-manifest.json
       prompts/

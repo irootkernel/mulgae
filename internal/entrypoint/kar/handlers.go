@@ -605,7 +605,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	}
 	contextPath, _ := request.ContextPath()
 	projectKind, _ := request.ProjectKind()
-	artistTaskPath, artistDesignGlobs := request.ArtistInputs()
+	artistBriefPath, artistDesignGlobs := request.ArtistInputs()
 	installer, ok := application.writer.(ports.ConfigInstaller)
 	if !ok {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_installer_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
@@ -725,7 +725,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The installed native home changed during admission.", false)
 	}
 	initialized, err := service.InitializeProject(ctx, appinit.InitializeProjectRequest{
-		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, ProjectKind: projectKind, ArtistTaskPath: artistTaskPath, ArtistDesignSpecGlobs: artistDesignGlobs, NativeHome: nativeHome,
+		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, ProjectKind: projectKind, ArtistBriefPath: artistBriefPath, ArtistDesignSpecGlobs: artistDesignGlobs, NativeHome: nativeHome,
 		NativeHomeAsserted: nativeHomeAsserted,
 		Selection:          selection,
 		RoleIDs:            request.Roles(),

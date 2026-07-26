@@ -16,6 +16,17 @@ type captureFake struct {
 	calls    *[]string
 }
 
+type artistCaptureFake struct {
+	captureFake
+	inputs ports.ArtistReviewInputs
+}
+
+func (fake *artistCaptureFake) CaptureReviewTargetWithArtistInputs(_ context.Context, _ ports.AnchoredRoot, _ ports.ReviewTargetSelector, inputs ports.ArtistReviewInputs) (ports.CapturedReviewMaterial, error) {
+	*fake.calls = append(*fake.calls, "artist-capture")
+	fake.inputs = inputs
+	return fake.material, fake.err
+}
+
 func (fake captureFake) CaptureReviewTarget(_ context.Context, _ ports.AnchoredRoot, _ ports.ReviewTargetSelector) (ports.CapturedReviewMaterial, error) {
 	*fake.calls = append(*fake.calls, "capture")
 	return fake.material, fake.err
@@ -139,6 +150,46 @@ func TestImmutableInputSourceCapturePreservesProjectContextPresence(t *testing.T
 				t.Fatal("absent project context acquired bytes")
 			}
 		})
+	}
+}
+
+func TestImmutableInputSourceUsesReviewScopedArtistCapture(t *testing.T) {
+	calls := []string{}
+	capturer := &artistCaptureFake{captureFake: captureFake{material: testMaterial(t), calls: &calls}}
+	detector := &detectorFake{calls: &calls}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ports.NewReviewTargetSelector(ports.ReviewTargetPatch, "patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistInputs, err := ports.NewArtistReviewInputs("docs/roadmap.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := reviewrun.NewInputCaptureRequestWithArtistInputs(root, target, nil, false, artistInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewImmutableInputSourceFactory(capturer, detector, materializer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := factory.NewImmutableInputSource(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(calls, ","); got != "artist-capture,materialize" {
+		t.Fatalf("artist capture order = %q", got)
+	}
+	if capturer.inputs.BriefPath() != "docs/roadmap.md" || len(capturer.inputs.DesignSpecGlobs()) != 1 {
+		t.Fatalf("artist inputs = %#v", capturer.inputs)
 	}
 }
 

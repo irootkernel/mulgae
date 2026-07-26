@@ -32,8 +32,12 @@ There is no intermediate `runs/` directory in the canonical path.
       request.json
       resolved-config.yaml
       config-sources.json
+      inputs/
+        artist-brief.md
+        artist-visual-assets.json
       target/
         target-manifest.json
+        captured-review.json
         review-target.patch
         untracked-manifest.json
       prompt-summary.json
@@ -95,6 +99,15 @@ There is no intermediate `runs/` directory in the canonical path.
 ```
 
 See [artifact-tree.txt](../examples/artifact-tree.txt) for a complete example.
+
+The `inputs/` members exist only for a run that selects artist. KAR copies the
+resolved brief bytes to `inputs/artist-brief.md` and emits the canonical visual
+identity list at `inputs/artist-visual-assets.json`. The target manifest and
+run support index bind both paths and SHA-256 identities to
+`target/captured-review.json`, so rerun consumes the same captured bytes even if
+the project files later change. These files are generated run evidence beneath
+`.kar/`; users provide the source brief at any safe project-relative path such
+as `docs/roadmap.md` and do not author files inside `.kar/`.
 
 ## 3. Directory Identity
 

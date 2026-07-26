@@ -264,7 +264,7 @@ type InitRequest struct {
 	hasContextPath      bool
 	projectKind         string
 	hasProjectKind      bool
-	artistTaskPath      string
+	artistBriefPath     string
 	artistDesignGlobs   []string
 	selectionMode       string
 	providerIDs         []string
@@ -296,7 +296,7 @@ func (request InitRequest) ProjectKind() (string, bool) {
 }
 
 func (request InitRequest) ArtistInputs() (string, []string) {
-	return request.artistTaskPath, cloneStrings(request.artistDesignGlobs)
+	return request.artistBriefPath, cloneStrings(request.artistDesignGlobs)
 }
 
 func (request InitRequest) Selection() (string, []string) {
@@ -451,13 +451,16 @@ func (request TargetRequest) Value() string { return request.value }
 
 // ReviewRequest contains the immutable independent-review fields.
 type ReviewRequest struct {
-	target        TargetRequest
-	objective     string
-	hasObjective  bool
-	roles         []string
-	rolesExplicit bool
-	sessionID     string
-	hasSessionID  bool
+	target            TargetRequest
+	objective         string
+	hasObjective      bool
+	roles             []string
+	rolesExplicit     bool
+	artistBriefPath   string
+	hasArtistBrief    bool
+	artistDesignGlobs []string
+	sessionID         string
+	hasSessionID      bool
 }
 
 // Target returns the literal target request.
@@ -473,6 +476,17 @@ func (request ReviewRequest) Roles() []string { return cloneStrings(request.role
 
 // RolesExplicit reports whether --roles was supplied by the caller.
 func (request ReviewRequest) RolesExplicit() bool { return request.rolesExplicit }
+
+// ArtistBrief returns the optional review-scoped artist brief path.
+func (request ReviewRequest) ArtistBrief() (string, bool) {
+	return request.artistBriefPath, request.hasArtistBrief
+}
+
+// ArtistDesignSpecs returns a caller-owned copy of the optional review-scoped
+// visual asset globs.
+func (request ReviewRequest) ArtistDesignSpecs() []string {
+	return cloneStrings(request.artistDesignGlobs)
+}
 
 // SessionID returns the optional imported workflow session ID.
 func (request ReviewRequest) SessionID() (string, bool) {

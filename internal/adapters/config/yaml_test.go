@@ -89,6 +89,31 @@ func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
 	}
 }
 
+func TestConfigV2RoundTripsArtistBriefPath(t *testing.T) {
+	config := validConfig()
+	config.Project.Kind = ProjectKindUI
+	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}}
+	roles, err := CanonicalRolesConfigForUI(config.Providers.Families())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles.Artist.Inputs.TaskPath = "docs/artist-brief.md"
+	config.Roles = roles
+	config.Resources.MaxActiveLanes = 7
+	config.Resources.RunMaxInvocations = 14
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Roles.Artist.Inputs == nil || decoded.Roles.Artist.Inputs.TaskPath != "docs/artist-brief.md" || !bytes.Contains(encoded, []byte(`task_path: "docs/artist-brief.md"`)) {
+		t.Fatalf("artist brief path did not round-trip:\n%s", encoded)
+	}
+}
+
 func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.T) {
 	config := validConfig()
 	roles, err := CanonicalRolesConfigForSelection([]string{"kimi"}, []string{"logic", "security", "documentation"})

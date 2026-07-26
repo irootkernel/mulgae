@@ -543,6 +543,8 @@ const (
 	RunSupportArtifactTargetBytes       RunSupportArtifactKind = "target_bytes"
 	RunSupportArtifactTargetManifest    RunSupportArtifactKind = "target_manifest"
 	RunSupportArtifactCapturedArchive   RunSupportArtifactKind = "captured_archive"
+	RunSupportArtifactArtistBrief       RunSupportArtifactKind = "artist_brief"
+	RunSupportArtifactArtistVisuals     RunSupportArtifactKind = "artist_visual_assets"
 	RunSupportArtifactPromptStdin       RunSupportArtifactKind = "prompt_stdin"
 	RunSupportArtifactPromptManifest    RunSupportArtifactKind = "prompt_manifest"
 	RunSupportArtifactSupportIndex      RunSupportArtifactKind = "support_index"
@@ -555,7 +557,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactInitialCandidate, RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
-		RunSupportArtifactCapturedArchive,
+		RunSupportArtifactCapturedArchive, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex:
 		return true
@@ -809,6 +811,12 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	}
 	if relative == "target/captured-review.json" {
 		return RunSupportArtifactCapturedArchive, nil
+	}
+	if relative == "inputs/artist-brief.md" {
+		return RunSupportArtifactArtistBrief, nil
+	}
+	if relative == "inputs/artist-visual-assets.json" {
+		return RunSupportArtifactArtistVisuals, nil
 	}
 	if relative == "support/index.json" {
 		return RunSupportArtifactSupportIndex, nil

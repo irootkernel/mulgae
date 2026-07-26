@@ -14,25 +14,42 @@ import (
 )
 
 type InputCaptureRequest struct {
-	root         ports.AnchoredRoot
-	target       ports.ReviewTargetSelector
-	objective    []byte
-	hasObjective bool
+	root            ports.AnchoredRoot
+	target          ports.ReviewTargetSelector
+	objective       []byte
+	hasObjective    bool
+	artistInputs    ports.ArtistReviewInputs
+	hasArtistInputs bool
 }
 
 func NewInputCaptureRequest(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool) (InputCaptureRequest, error) {
-	if !root.Valid() || !target.Valid() || !hasObjective && len(objective) != 0 {
+	return newInputCaptureRequest(root, target, objective, hasObjective, ports.ArtistReviewInputs{}, false)
+}
+
+func NewInputCaptureRequestWithArtistInputs(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs) (InputCaptureRequest, error) {
+	return newInputCaptureRequest(root, target, objective, hasObjective, artistInputs, true)
+}
+
+func newInputCaptureRequest(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) (InputCaptureRequest, error) {
+	if !root.Valid() || !target.Valid() || !hasObjective && len(objective) != 0 || hasArtistInputs != artistInputs.Valid() {
 		return InputCaptureRequest{}, fmt.Errorf("review run: invalid input capture request")
 	}
-	return InputCaptureRequest{root: root, target: target, objective: append([]byte(nil), objective...), hasObjective: hasObjective}, nil
+	return InputCaptureRequest{root: root, target: target, objective: append([]byte(nil), objective...), hasObjective: hasObjective, artistInputs: artistInputs, hasArtistInputs: hasArtistInputs}, nil
 }
 func (request InputCaptureRequest) Root() ports.AnchoredRoot           { return request.root }
 func (request InputCaptureRequest) Target() ports.ReviewTargetSelector { return request.target }
 func (request InputCaptureRequest) Objective() ([]byte, bool) {
 	return append([]byte(nil), request.objective...), request.hasObjective
 }
+func (request InputCaptureRequest) ArtistInputs() (ports.ArtistReviewInputs, bool) {
+	if !request.hasArtistInputs {
+		return ports.ArtistReviewInputs{}, false
+	}
+	inputs, _ := ports.NewArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
+	return inputs, true
+}
 func (request InputCaptureRequest) Valid() bool {
-	_, err := NewInputCaptureRequest(request.root, request.target, request.objective, request.hasObjective)
+	_, err := newInputCaptureRequest(request.root, request.target, request.objective, request.hasObjective, request.artistInputs, request.hasArtistInputs)
 	return err == nil
 }
 

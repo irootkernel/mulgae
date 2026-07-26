@@ -404,6 +404,8 @@ type runtimeTargetManifestWire struct {
 	SchemaVersion         string                     `json:"schema_version"`
 	Target                artifactIdentityWire       `json:"target"`
 	CapturedArchive       *artifactIdentityWire      `json:"captured_archive,omitempty"`
+	ArtistBrief           *artifactIdentityWire      `json:"artist_brief,omitempty"`
+	ArtistVisualAssets    *artifactIdentityWire      `json:"artist_visual_assets,omitempty"`
 	TargetKind            string                     `json:"target_kind"`
 	RepositoryID          string                     `json:"repository_id"`
 	BaseObjectID          string                     `json:"base_object_id"`
@@ -413,6 +415,26 @@ type runtimeTargetManifestWire struct {
 	GitMode               string                     `json:"git_mode"`
 	Prompts               []artifactIdentityWire     `json:"prompts"`
 	SelectedReplayPrompts []selectedReplayPromptWire `json:"selected_replay_prompts"`
+}
+
+type capturedArtistInputWire struct {
+	SchemaVersion string                     `json:"schema_version"`
+	Status        string                     `json:"status"`
+	TaskPath      string                     `json:"task_path"`
+	Task          string                     `json:"task"`
+	VisualAssets  []capturedArtistVisualWire `json:"visual_assets"`
+}
+
+type capturedArtistVisualWire struct {
+	Path      string `json:"path"`
+	SHA256    string `json:"sha256"`
+	MediaType string `json:"media_type"`
+}
+
+type publishedArtistVisualsWire struct {
+	SchemaVersion string                     `json:"schema_version"`
+	BriefPath     string                     `json:"brief_path"`
+	VisualAssets  []capturedArtistVisualWire `json:"visual_assets"`
 }
 type selectedReplayPromptWire struct {
 	AttemptID string               `json:"attempt_id"`
@@ -526,6 +548,8 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		return artifacts, nil
 	}
 	var capturedArchiveIdentity *artifactIdentityWire
+	var artistBriefIdentity *artifactIdentityWire
+	var artistVisualsIdentity *artifactIdentityWire
 	if len(capturedArchive) > 0 {
 		archivePath, pathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/captured-review.json", candidate.sessionID, candidate.runID))
 		if pathErr != nil {
@@ -538,6 +562,12 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		artifacts = append(artifacts, archiveArtifact)
 		value := artifactIdentityWire{Path: archiveArtifact.Path().String(), SHA256: archiveArtifact.SHA256()}
 		capturedArchiveIdentity = &value
+		artistArtifacts, briefIdentity, visualsIdentity, artistErr := candidate.buildArtistInputArtifacts(capturedArchive)
+		if artistErr != nil {
+			return nil, artistErr
+		}
+		artifacts = append(artifacts, artistArtifacts...)
+		artistBriefIdentity, artistVisualsIdentity = briefIdentity, visualsIdentity
 	}
 	targetManifestArtifactPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
 		"%s/%s/%s", candidate.sessionID, candidate.runID, targetManifestPath,
@@ -551,8 +581,8 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 			Path:   fmt.Sprintf("%s/%s/target/target.bytes", candidate.sessionID, candidate.runID),
 			SHA256: sha256Identifier(target),
 		},
-		CapturedArchive: capturedArchiveIdentity,
-		TargetKind:      string(identity.targetKind), RepositoryID: identity.targetRepository,
+		CapturedArchive: capturedArchiveIdentity, ArtistBrief: artistBriefIdentity, ArtistVisualAssets: artistVisualsIdentity,
+		TargetKind: string(identity.targetKind), RepositoryID: identity.targetRepository,
 		BaseObjectID: identity.targetBaseOID, HeadObjectID: identity.targetHeadOID,
 		HeadTreeObjectID: identity.targetHeadTreeOID, IndexTreeObjectID: identity.targetIndexTreeOID,
 		GitMode: string(identity.targetGitMode),
@@ -566,6 +596,58 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		return nil, fmt.Errorf("publication build: runtime target manifest artifact: %w", err)
 	}
 	return append(artifacts, targetManifest), nil
+}
+
+func (candidate PreparedCandidate) buildArtistInputArtifacts(capturedArchive []byte) ([]ports.ImmutablePublicationArtifact, *artifactIdentityWire, *artifactIdentityWire, error) {
+	material, err := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
+	if err != nil || !material.HasProjectContext() {
+		return nil, nil, nil, nil
+	}
+	raw := material.ProjectContext()
+	if index := bytes.LastIndexByte(raw, '\n'); index >= 0 {
+		raw = raw[index+1:]
+	}
+	var inputs capturedArtistInputWire
+	if json.Unmarshal(raw, &inputs) != nil || inputs.SchemaVersion != "kar-artist-inputs.v1" {
+		return nil, nil, nil, nil
+	}
+	if inputs.Status != "ready" || inputs.TaskPath == "" || inputs.Task == "" || len(inputs.VisualAssets) == 0 {
+		return nil, nil, nil, fmt.Errorf("publication build: captured artist inputs are incomplete")
+	}
+	files := make(map[string]ports.WorkspaceSnapshotFile, len(material.Snapshot().Files()))
+	for _, file := range material.Snapshot().Files() {
+		files[file.Path().String()] = file
+	}
+	for _, visual := range inputs.VisualAssets {
+		file, ok := files[visual.Path]
+		if !ok || file.IsText() || file.SHA256() != visual.SHA256 || file.MediaType() != visual.MediaType {
+			return nil, nil, nil, fmt.Errorf("publication build: captured artist visual identity mismatch")
+		}
+	}
+	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/inputs/"
+	briefPath, err := ports.NewSafeRelativePath(prefix + "artist-brief.md")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist brief path: %w", err)
+	}
+	briefArtifact, err := immutableArtifact(briefPath, []byte(inputs.Task))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist brief: %w", err)
+	}
+	visualBytes, err := marshalCanonical(publishedArtistVisualsWire{SchemaVersion: "kar-artist-visual-assets.v1", BriefPath: inputs.TaskPath, VisualAssets: inputs.VisualAssets})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest: %w", err)
+	}
+	visualPath, err := ports.NewSafeRelativePath(prefix + "artist-visual-assets.json")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest path: %w", err)
+	}
+	visualArtifact, err := immutableArtifact(visualPath, visualBytes)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest artifact: %w", err)
+	}
+	briefIdentity := &artifactIdentityWire{Path: briefArtifact.Path().String(), SHA256: briefArtifact.SHA256()}
+	visualIdentity := &artifactIdentityWire{Path: visualArtifact.Path().String(), SHA256: visualArtifact.SHA256()}
+	return []ports.ImmutablePublicationArtifact{briefArtifact, visualArtifact}, briefIdentity, visualIdentity, nil
 }
 
 func (candidate PreparedCandidate) buildFinalBytes(

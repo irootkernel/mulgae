@@ -46,7 +46,7 @@ func TestE2EArtistHomepageWorkspaceReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := filepath.Join(repository, "internal", "app", "review", "testdata", "artist-homepage")
-	mustCopyArtistFixture(t, filepath.Join(fixture, "TASK.md"), filepath.Join(project, "TASK.md"))
+	mustCopyArtistFixture(t, filepath.Join(fixture, "ux-ui-info.md"), filepath.Join(project, "ux-ui-info.md"))
 	mustCopyArtistFixture(t, filepath.Join(fixture, "before.html"), filepath.Join(project, "index.html"))
 
 	designDirectory := filepath.Join(project, "design-specs")
@@ -98,7 +98,6 @@ func TestE2EArtistHomepageWorkspaceReview(t *testing.T) {
 
 	initialized := runKARBinaryWithEnv(t, binary, project, environment,
 		"init", "--providers", "agy,zcode", "--project-kind", "ui",
-		"--artist-task", "TASK.md", "--artist-design-specs", "design-specs/**/*.png",
 		"--agy-executable", agyExecutable, "--agy-permission-mode", "dangerously-skip-permissions",
 		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher, "--output", "json")
 	if initialized.exitCode != 0 || len(initialized.stderr) != 0 {
@@ -114,7 +113,9 @@ func TestE2EArtistHomepageWorkspaceReview(t *testing.T) {
 	}
 
 	reviewResult := runKARBinaryWithEnv(t, binary, project, environment,
-		"review", "--workspace", "--roles", "artist", "--output", "json")
+		"review", "--workspace", "--roles", "artist",
+		"--artist-brief", "ux-ui-info.md", "--artist-design-specs", "design-specs/**/*.png",
+		"--output", "json")
 	if reviewResult.exitCode != 1 || len(reviewResult.stderr) != 0 {
 		t.Fatalf("artist workspace review: exit=%d stdout=%s stderr=%s", reviewResult.exitCode, reviewResult.stdout, reviewResult.stderr)
 	}
@@ -322,6 +323,14 @@ func assertArtistCapturedArchive(t *testing.T, project, sessionID, runID, refere
 	}
 	if len(want) != 0 || !bytes.Contains(material.ProjectContext(), []byte(`"status":"ready"`)) {
 		t.Fatalf("captured artist archive is incomplete: missing=%v context=%s", want, material.ProjectContext())
+	}
+	brief, err := os.ReadFile(filepath.Join(project, ".kar", sessionID, runID, "inputs", "artist-brief.md"))
+	if err != nil || !bytes.Contains(brief, []byte("Homepage visual review")) {
+		t.Fatalf("published artist brief = %q, %v", brief, err)
+	}
+	visuals, err := os.ReadFile(filepath.Join(project, ".kar", sessionID, runID, "inputs", "artist-visual-assets.json"))
+	if err != nil || !bytes.Contains(visuals, []byte(referenceSHA)) || !bytes.Contains(visuals, []byte(currentSHA)) {
+		t.Fatalf("published artist visual manifest = %q, %v", visuals, err)
 	}
 }
 

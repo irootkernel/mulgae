@@ -2981,7 +2981,7 @@
           "project_name": { "type": "string", "minLength": 1, "maxLength": 128 },
           "context": { "type": ["string", "null"] },
           "project_kind": { "const": "ui" },
-          "artist_task": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$" },
+          "artist_brief": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$" },
           "artist_design_specs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
           "selection": {
             "oneOf": [
@@ -3029,7 +3029,7 @@
       "review": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["request_id", "command", "target", "objective", "roles", "role_selection", "session_id", "output_format"],
+        "required": ["request_id", "command", "target", "objective", "roles", "role_selection", "artist_brief", "artist_design_specs", "session_id", "output_format"],
         "properties": {
           "request_id": { "$ref": "#/$defs/request_id" },
           "command": { "const": "review" },
@@ -3037,6 +3037,8 @@
           "objective": { "type": ["string", "null"], "maxLength": 12000, "pattern": "^[^\\u0000\\r\\n]+$", "description": "Semantic validation enforces at most 12000 UTF-8 bytes; maxLength is only a conservative code-point bound.", "x-kar-maxUtf8Bytes": 12000 },
           "roles": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": { "$ref": "#/$defs/role" } },
           "role_selection": { "enum": ["project_default", "explicit"] },
+          "artist_brief": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$" },
+          "artist_design_specs": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
           "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
           "output_format": { "$ref": "#/$defs/output_format" }
         }

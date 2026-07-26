@@ -28,28 +28,26 @@ import (
 // immutable reference snapshot. It deliberately has no authority to write the
 // source repository.
 type ReviewTargetAdapter struct {
-	runner         Runner
-	stdin          ports.CapturedStdinStore
-	detector       ports.ReviewInputContentDetector
-	detectorPolicy string
-	artistTaskPath string
-	artistGlobs    []*regexp.Regexp
+	runner          Runner
+	stdin           ports.CapturedStdinStore
+	detector        ports.ReviewInputContentDetector
+	detectorPolicy  string
+	artistBriefPath string
+	artistGlobs     []*regexp.Regexp
 }
 
 var _ ports.ReviewTargetCapturer = (*ReviewTargetAdapter)(nil)
 
 // NewReviewTargetCapturer constructs the production review-input capturer.
 func NewReviewTargetCapturer(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector) (*ReviewTargetAdapter, error) {
-	return newReviewTargetCapturer(runner, stdin, detector, "", nil)
+	identity, ok := detector.(ports.ReviewInputContentDetectorIdentity)
+	if runner == nil || stdin == nil || detector == nil || !ok || !validPolicyIdentity(identity.ReviewInputDetectorIdentity()) {
+		return nil, fmt.Errorf("review target capturer: runner, stdin store, and identified detector are required")
+	}
+	return &ReviewTargetAdapter{runner: runner, stdin: stdin, detector: detector, detectorPolicy: identity.ReviewInputDetectorIdentity()}, nil
 }
 
-// NewReviewTargetCapturerWithArtistInputs enables bounded raster capture for
-// a project explicitly declared as UI. Patterns use slash-separated glob
-// syntax with * and ** wildcards.
-func NewReviewTargetCapturerWithArtistInputs(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector, taskPath string, designSpecGlobs []string) (*ReviewTargetAdapter, error) {
-	if taskPath == "" || len(designSpecGlobs) == 0 {
-		return nil, fmt.Errorf("review target capturer: artist inputs are required")
-	}
+func compileArtistGlobs(designSpecGlobs []string) ([]*regexp.Regexp, error) {
 	patterns := make([]*regexp.Regexp, len(designSpecGlobs))
 	for index, pattern := range designSpecGlobs {
 		compiled, err := compileArtistGlob(pattern)
@@ -58,15 +56,7 @@ func NewReviewTargetCapturerWithArtistInputs(runner Runner, stdin ports.Captured
 		}
 		patterns[index] = compiled
 	}
-	return newReviewTargetCapturer(runner, stdin, detector, taskPath, patterns)
-}
-
-func newReviewTargetCapturer(runner Runner, stdin ports.CapturedStdinStore, detector ports.ReviewInputContentDetector, taskPath string, patterns []*regexp.Regexp) (*ReviewTargetAdapter, error) {
-	identity, ok := detector.(ports.ReviewInputContentDetectorIdentity)
-	if runner == nil || stdin == nil || detector == nil || !ok || !validPolicyIdentity(identity.ReviewInputDetectorIdentity()) {
-		return nil, fmt.Errorf("review target capturer: runner, stdin store, and identified detector are required")
-	}
-	return &ReviewTargetAdapter{runner: runner, stdin: stdin, detector: detector, detectorPolicy: identity.ReviewInputDetectorIdentity(), artistTaskPath: taskPath, artistGlobs: patterns}, nil
+	return patterns, nil
 }
 
 func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, root ports.AnchoredRoot, selector ports.ReviewTargetSelector) (ports.CapturedReviewMaterial, error) {
@@ -106,6 +96,20 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, roo
 	return adapter.withArtistContext(material)
 }
 
+func (adapter *ReviewTargetAdapter) CaptureReviewTargetWithArtistInputs(ctx context.Context, root ports.AnchoredRoot, selector ports.ReviewTargetSelector, inputs ports.ArtistReviewInputs) (ports.CapturedReviewMaterial, error) {
+	if adapter == nil || !inputs.Valid() {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: invalid artist inputs")
+	}
+	patterns, err := compileArtistGlobs(inputs.DesignSpecGlobs())
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	scoped := *adapter
+	scoped.artistBriefPath = inputs.BriefPath()
+	scoped.artistGlobs = patterns
+	return scoped.CaptureReviewTarget(ctx, root, selector)
+}
+
 type artistAssetManifest struct {
 	Path      string `json:"path"`
 	SHA256    string `json:"sha256"`
@@ -121,12 +125,12 @@ type artistInputManifest struct {
 }
 
 func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedReviewMaterial) (ports.CapturedReviewMaterial, error) {
-	if adapter.artistTaskPath == "" {
+	if adapter.artistBriefPath == "" {
 		return material, nil
 	}
-	manifest := artistInputManifest{SchemaVersion: "kar-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistTaskPath, VisualAssets: []artistAssetManifest{}}
+	manifest := artistInputManifest{SchemaVersion: "kar-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistBriefPath, VisualAssets: []artistAssetManifest{}}
 	for _, file := range material.Snapshot().Files() {
-		if file.Path().String() == adapter.artistTaskPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
+		if file.Path().String() == adapter.artistBriefPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
 			manifest.Task = string(file.Bytes())
 		}
 		if !file.IsText() && adapter.artistMediaType(file.Path().String()) != "" {
@@ -137,6 +141,12 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 		manifest.Status = "ready"
 	} else if manifest.Task != "" || len(manifest.VisualAssets) > 0 {
 		manifest.Status = "incomplete"
+	}
+	if manifest.Task == "" {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: artist brief %q is missing or empty", adapter.artistBriefPath)
+	}
+	if len(manifest.VisualAssets) == 0 {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: artist visual references are missing")
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {

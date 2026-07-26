@@ -353,19 +353,34 @@ func (service unavailableReviewRunService) StartReviewRun(
 // command boundary. An omitted --roles selects every enabled project role;
 // an explicit --roles selects exactly that enabled non-empty subset.
 func NewPolicyReviewRunService(service ReviewRunService, _ []domain.Role, enabled map[domain.Role]bool) ReviewRunService {
+	return newPolicyReviewRunService(service, enabled, ports.ArtistReviewInputs{}, false)
+}
+
+// NewPolicyReviewRunServiceWithArtistInputs binds Config v2 artist inputs as
+// review defaults. Request-scoped values are resolved after role selection.
+func NewPolicyReviewRunServiceWithArtistInputs(service ReviewRunService, _ []domain.Role, enabled map[domain.Role]bool, artistInputs ports.ArtistReviewInputs) ReviewRunService {
+	return newPolicyReviewRunService(service, enabled, artistInputs, true)
+}
+
+func newPolicyReviewRunService(service ReviewRunService, enabled map[domain.Role]bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) ReviewRunService {
 	if nilApplicationDependency(service) {
 		return nil
+	}
+	if hasArtistInputs && !artistInputs.Valid() {
+		return NewUnavailableReviewRunService(errors.New("production artist defaults are invalid"))
 	}
 	enabledCopy := make(map[domain.Role]bool, len(enabled))
 	for role, allowed := range enabled {
 		enabledCopy[role] = allowed
 	}
-	return policyReviewRunService{service: service, enabled: enabledCopy}
+	return policyReviewRunService{service: service, enabled: enabledCopy, artistInputs: artistInputs, hasArtistInputs: hasArtistInputs}
 }
 
 type policyReviewRunService struct {
-	service ReviewRunService
-	enabled map[domain.Role]bool
+	service         ReviewRunService
+	enabled         map[domain.Role]bool
+	artistInputs    ports.ArtistReviewInputs
+	hasArtistInputs bool
 }
 
 func (service policyReviewRunService) StartReviewRun(
@@ -396,6 +411,30 @@ func (service policyReviewRunService) StartReviewRun(
 			request.roles = append(request.roles, string(role))
 		}
 	}
+	if selected[domain.RoleArtist] {
+		briefPath := ""
+		var designGlobs []string
+		if service.hasArtistInputs {
+			briefPath = service.artistInputs.BriefPath()
+			designGlobs = service.artistInputs.DesignSpecGlobs()
+		}
+		if request.hasArtistBrief {
+			briefPath = request.artistBriefPath
+		}
+		if len(request.artistDesignGlobs) != 0 {
+			designGlobs = cloneStrings(request.artistDesignGlobs)
+		}
+		resolved, err := ports.NewArtistReviewInputs(briefPath, designGlobs)
+		if err != nil {
+			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "artist review inputs are required", err)
+			return ReviewRunResult{}, failure
+		}
+		request.artistBriefPath, request.hasArtistBrief = resolved.BriefPath(), true
+		request.artistDesignGlobs = resolved.DesignSpecGlobs()
+	} else if request.hasArtistBrief || len(request.artistDesignGlobs) != 0 {
+		failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "artist inputs require the artist role", nil)
+		return ReviewRunResult{}, failure
+	}
 	request.rolesExplicit = true
 	return service.service.StartReviewRun(ctx, request, root)
 }
@@ -425,7 +464,16 @@ func (adapter reviewRunAdapter) StartReviewRun(
 		return ReviewRunResult{}, err
 	}
 	objective, hasObjective := request.Objective()
-	captureRequest, err := reviewrun.NewInputCaptureRequest(root, targetSelector, []byte(objective), hasObjective)
+	var captureRequest reviewrun.InputCaptureRequest
+	if containsString(request.roles, string(domain.RoleArtist)) {
+		artistInputs, artistErr := ports.NewArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
+		if artistErr != nil {
+			return ReviewRunResult{}, artistErr
+		}
+		captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
+	} else {
+		captureRequest, err = reviewrun.NewInputCaptureRequest(root, targetSelector, []byte(objective), hasObjective)
+	}
 	if err != nil {
 		return ReviewRunResult{}, err
 	}
@@ -471,6 +519,25 @@ func validReviewRunRequest(request ReviewRequest) bool {
 		return false
 	}
 	if !validTargetValue(request.target.value) || request.hasObjective && !validObjective(request.objective) || len(request.roles) == 0 {
+		return false
+	}
+	if request.hasArtistBrief != (request.artistBriefPath != "") || request.hasArtistBrief && !validRelativePath(request.artistBriefPath) {
+		return false
+	}
+	seenArtistGlobs := make(map[string]struct{}, len(request.artistDesignGlobs))
+	for _, pattern := range request.artistDesignGlobs {
+		if !validArtistGlob(pattern) {
+			return false
+		}
+		if _, duplicate := seenArtistGlobs[pattern]; duplicate {
+			return false
+		}
+		seenArtistGlobs[pattern] = struct{}{}
+	}
+	if len(request.artistDesignGlobs) > 16 {
+		return false
+	}
+	if (request.hasArtistBrief || len(request.artistDesignGlobs) != 0) && !containsString(request.roles, "artist") {
 		return false
 	}
 	for _, role := range request.roles {

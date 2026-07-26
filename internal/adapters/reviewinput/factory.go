@@ -119,7 +119,17 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 	source.captured = true
 	source.mu.Unlock()
 
-	material, err := source.factory.capturer.CaptureReviewTarget(ctx, source.request.Root(), source.request.Target())
+	var material ports.CapturedReviewMaterial
+	var err error
+	if artistInputs, present := source.request.ArtistInputs(); present {
+		artistCapturer, ok := source.factory.capturer.(ports.ArtistReviewTargetCapturer)
+		if !ok {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: artist capture unavailable")
+		}
+		material, err = artistCapturer.CaptureReviewTargetWithArtistInputs(ctx, source.request.Root(), source.request.Target(), artistInputs)
+	} else {
+		material, err = source.factory.capturer.CaptureReviewTarget(ctx, source.request.Root(), source.request.Target())
+	}
 	if err != nil || !material.Valid() {
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: target capture failed")
 	}

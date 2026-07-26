@@ -103,7 +103,17 @@ func composeReviewRuns(
 		graph.cleanupRoots()
 		return nil, fmt.Errorf("review composition: service: %w", err)
 	}
-	reviewService := kar.NewPolicyReviewRunService(kar.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles)
+	var reviewService kar.ReviewRunService
+	if inputs := graph.policy.config.Roles.Artist.Inputs; graph.policy.config.Project.Kind == appconfig.ProjectKindUI && inputs != nil {
+		artistInputs, inputErr := ports.NewArtistReviewInputs(inputs.TaskPath, inputs.DesignSpecGlobs)
+		if inputErr != nil {
+			graph.cleanupRoots()
+			return nil, fmt.Errorf("review composition: artist inputs: %w", inputErr)
+		}
+		reviewService = kar.NewPolicyReviewRunServiceWithArtistInputs(kar.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles, artistInputs)
+	} else {
+		reviewService = kar.NewPolicyReviewRunService(kar.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles)
+	}
 	return &rootCleaningReviewRunService{inner: reviewService, graph: graph}, nil
 }
 

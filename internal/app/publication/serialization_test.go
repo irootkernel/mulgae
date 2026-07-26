@@ -3,6 +3,7 @@ package publication
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -349,6 +350,101 @@ func TestRuntimeArtifactsPersistCapturedReviewArchive(t *testing.T) {
 	}
 	if !foundArchive || manifest.CapturedArchive == nil || manifest.CapturedArchive.Path == "" || manifest.CapturedArchive.SHA256 == "" {
 		t.Fatal("captured review archive was not persisted and manifest-bound")
+	}
+}
+
+func TestRuntimeArtifactsPersistAndBindArtistInputs(t *testing.T) {
+	t.Parallel()
+	candidate := publicationRuntimeCandidate(t)
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("reviewed line\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefPath, _ := ports.NewSafeRelativePath("docs/roadmap.md")
+	briefBytes := []byte("Check visual hierarchy.\n")
+	brief, err := ports.NewWorkspaceSnapshotFile(briefPath, briefBytes, sha256Identifier(briefBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	visualBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visualPath, _ := ports.NewSafeRelativePath("design-specs/current.png")
+	visual, err := ports.NewWorkspaceVisualAsset(visualPath, visualBytes, sha256Identifier(visualBytes), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []ports.WorkspaceSnapshotFile{visual, brief}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "artist-publication-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistContext, err := json.Marshal(capturedArtistInputWire{
+		SchemaVersion: "kar-artist-inputs.v1", Status: "ready", TaskPath: "docs/roadmap.md", Task: string(briefBytes),
+		VisualAssets: []capturedArtistVisualWire{{Path: visual.Path().String(), SHA256: visual.SHA256(), MediaType: visual.MediaType()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, artistContext, true, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for roleIndex := range candidate.roles {
+		for attemptIndex := range candidate.roles[roleIndex].attempts {
+			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+				candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime.capturedArchive = append([]byte(nil), archive...)
+			}
+		}
+	}
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/"
+	var manifest runtimeTargetManifestWire
+	var index runSupportIndexWire
+	foundBrief, foundVisuals := false, false
+	indexed := map[string]bool{}
+	for _, artifact := range bundle.Excerpts() {
+		switch artifact.Path().String() {
+		case prefix + "inputs/artist-brief.md":
+			foundBrief = bytes.Equal(artifact.Bytes(), briefBytes)
+		case prefix + "inputs/artist-visual-assets.json":
+			foundVisuals = bytes.Contains(artifact.Bytes(), []byte(visual.SHA256()))
+		case prefix + "target/target-manifest.json":
+			if err := json.Unmarshal(artifact.Bytes(), &manifest); err != nil {
+				t.Fatal(err)
+			}
+		case prefix + "support/index.json":
+			if err := json.Unmarshal(artifact.Bytes(), &index); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, identity := range index.Artifacts {
+		indexed[identity.Path] = true
+	}
+	if !foundBrief || !foundVisuals || manifest.ArtistBrief == nil || manifest.ArtistVisualAssets == nil ||
+		!indexed[prefix+"inputs/artist-brief.md"] || !indexed[prefix+"inputs/artist-visual-assets.json"] {
+		t.Fatalf("artist artifacts are not fully bound: brief=%t visuals=%t manifest=%#v index=%#v", foundBrief, foundVisuals, manifest, index)
+	}
+	restored, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	var restoredInputs capturedArtistInputWire
+	if err == nil {
+		err = json.Unmarshal(restored.ProjectContext(), &restoredInputs)
+	}
+	if err != nil || restoredInputs.Task != string(briefBytes) {
+		t.Fatalf("captured archive lost exact artist input: %v", err)
 	}
 }
 

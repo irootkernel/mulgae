@@ -106,7 +106,7 @@ const (
 	MaximumConfigBytes       = 1 << 20
 	ProjectKindNonUI         = "non_ui"
 	ProjectKindUI            = "ui"
-	DefaultArtistTaskPath    = "TASK.md"
+	DefaultArtistBriefPath   = "ux-ui-info.md"
 )
 
 var DefaultArtistDesignSpecGlobs = []string{
@@ -237,7 +237,7 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy or zcode")
 		}
 		artist.Enabled = true
-		artist.Inputs = &ArtistInputsConfig{TaskPath: DefaultArtistTaskPath, DesignSpecGlobs: append([]string(nil), DefaultArtistDesignSpecGlobs...)}
+		artist.Inputs = &ArtistInputsConfig{TaskPath: DefaultArtistBriefPath, DesignSpecGlobs: append([]string(nil), DefaultArtistDesignSpecGlobs...)}
 	}
 	return RolesConfig{Logic: logic, Security: security, Maintainability: maintainability, Product: product, Documentation: documentation, Testing: testing, Artist: artist}, nil
 }
