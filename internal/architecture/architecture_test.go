@@ -187,6 +187,14 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
+	specVersion, err := os.ReadFile(filepath.Join(repositoryRoot(t), "sot", "SPEC_VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBuildVersion := "main.buildVersion=v" + strings.TrimSpace(string(specVersion))
+	if !strings.Contains(text, wantBuildVersion) {
+		t.Fatalf("test-e2e release candidate metadata does not match SOT: want %q", wantBuildVersion)
+	}
 	for _, required := range []string{
 		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,

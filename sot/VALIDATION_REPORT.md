@@ -13,8 +13,8 @@
 | Checksummed payloads | 85; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 28 |
 | Decision Readiness | **READY** |
-| Implementation Status | **IMPLEMENTATION_IN_PROGRESS** |
-| External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
+| Implementation Status | **RELEASE_READY** |
+| External Contract Readiness | **G0 PLATFORM EVIDENCE AND G011 LIVE CAPABILITIES VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
 The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs.
 
 This SOT 1.13.0 report preserves G010's prior gate pass as historical evidence and opens G011. Current release readiness requires deterministic acceptance plus one fail-closed live capability certification for Kimi, ZCode, and AGY, all reached through the sole `make test` gate. The former fixed role matrix, planted finding, line citation, process overlap, retry count, full child-workflow live run, and runtime-event cardinality are not current release predicates.
@@ -55,7 +55,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
-| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **IMPLEMENTATION_IN_PROGRESS** | `g011` |
+| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 
 ## Current Project-local Contract Coverage
 
@@ -81,7 +81,7 @@ The controlled provider attempt history also records two later opt-in retries on
 
 ## Readiness and Publication Boundary
 
-The recorded G001–G010 evidence is historical. G011 is not release-ready until the corrected exact final-tree `make test` passes on the supported `darwin-arm64` platform. Future platforms remain unsupported and release-ineligible.
+The recorded G001–G010 evidence is historical. G011 is release-ready after the corrected exact final-tree `make test` passed on the supported `darwin-arm64` platform. Future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 

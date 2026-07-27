@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records SOT 1.13.0. Decision Readiness remains **READY**; G001–G010 retain historical evidence, runtime diagnostics are implemented, and G011 is `IMPLEMENTATION_IN_PROGRESS` until the corrected exact final-tree `make test` gate passes.
+This roadmap records SOT 1.13.0. Decision Readiness remains **READY**; G001–G010 retain historical evidence, runtime diagnostics are implemented, and G011 is `RELEASE_READY` after the corrected exact final-tree `make test` gate passed.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -16,7 +16,7 @@ This roadmap records SOT 1.13.0. Decision Readiness remains **READY**; G001–G0
 | G008 | G5 lineage, cleanup, export | **COMPLETE** |
 | G009 | Production review verification | `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` |
 | G010 | Historical config-driven multi-provider production release gate | **COMPLETE** |
-| G011 | Corrected deterministic acceptance and live family certification | `IMPLEMENTATION_IN_PROGRESS` |
+| G011 | Corrected deterministic acceptance and live family certification | `RELEASE_READY` |
 
 G011 executes sequentially: contract correction; security and failure-path repairs; deterministic product acceptance; Kimi/ZCode/AGY live family certification; exact final-tree closeout.
 

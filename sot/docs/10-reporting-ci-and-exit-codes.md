@@ -12,7 +12,7 @@ KAR exposes four related outputs:
 | `report.md` | Human-readable review | Derived |
 
 Raw provider output is execution provenance, not verified review evidence. `consensus.json` is not used in the default primary/fallback strategy.
-Current implementation status is `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`: production `kar review` composition is present, but production verification and final closure are not. Full current authority gates and three family-distinct normal P2 receipts remain pending. Prior integrated-gate evidence is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Release CI, asset creation, and publication remain separately approved actions.
+Current implementation status is `RELEASE_READY`: production `kar review` and its child workflows passed the corrected G011 deterministic acceptance and live family-capability gate on the exact committed tree. Prior integrated-gate evidence is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; it is not the current acceptance predicate. Release CI, asset creation, and publication remain separately approved actions.
 
 ## 2. Final Review Contents
 

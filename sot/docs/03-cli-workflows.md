@@ -23,7 +23,7 @@ kar help
 ```
 
 ## 2. Run-Creation Semantics
-This section specifies the intended command contract. Production root `kar review` is currently reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; composition is present, but production verification and closure are not. Full current authority gates and three family-distinct normal P2 receipts remain pending. The rows, examples, and semantics below do not assert a current production review result.
+This section specifies the production command contract. Production root `kar review` is implemented and release-ready under G011. Deterministic integration tests own product semantics, while one fail-closed live capability certification for each of Kimi, ZCode, and AGY verifies the native provider boundary through the sole `make test` gate.
 
 | Command | Main question | Prior run required | Target basis | Creates a new run |
 |---|---|---:|---|---:|
@@ -100,7 +100,7 @@ No command, including `init`, `doctor`, or `schema`, authorizes product implemen
 
 ## 3. `kar review`
 
-Specifies the composed independent review operation. Production verification and closure remain pending under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` until all current authority gates and three family-distinct normal P2 receipts succeed.
+Specifies the composed independent review operation. G011 production verification is complete; current qualification, execution, validation, cleanup, and P2 publication still fail closed per invocation when their runtime authority is unavailable.
 
 ```bash
 kar review --diff origin/main...HEAD \

@@ -17,7 +17,7 @@ Primary threats:
 - concurrent provider state corruption;
 - artifact tampering;
 - CI using an incomplete review as if it were complete.
-Production root `kar review` is currently reopened under `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`; composition is present, but this normative security policy does not claim production verification or closure. Full current authority gates and three family-distinct normal P2 receipts remain pending.
+Production root `kar review` is release-ready under G011. Its production verification combines deterministic security and workflow acceptance with one fail-closed native capability certification for each supported provider family; every ordinary invocation must still re-establish current authority.
 
 ## 2. Trust Hierarchy
 

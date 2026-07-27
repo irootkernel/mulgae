@@ -23,8 +23,8 @@ The `plan/` subtree is repository planning authority, not runtime product SOT. I
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |
-| Implementation | **IMPLEMENTATION_IN_PROGRESS** |
-| External contract | **G0 EVIDENCE VERIFIED; G007 ADAPTERS SUPPORT `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
+| Implementation | **RELEASE_READY** |
+| External contract | **G0 PLATFORM EVIDENCE AND G011 LIVE CAPABILITIES VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
 
 The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. Historical G008 evidence retained implementation, verification, cleanup, QA, and architecture-review records. Historical G009 integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** with zero recorded P0 blockers. No release assets were authorized or created, and release publication remains subject to separate approval.
 
@@ -205,7 +205,7 @@ kar followup --run latest --finding F001 --dirty \
 
 ## Recorded Implementation Progress
 
-The repository records historical G001–G010 evidence. G010's full-workflow live pass remains historical rather than a current acceptance predicate. G011 is **IMPLEMENTATION_IN_PROGRESS** until deterministic product acceptance and the Kimi, ZCode, and AGY live capability certifications pass together through `make test` on the exact final committed tree.
+The repository records historical G001–G010 evidence. G010's full-workflow live pass remains historical rather than a current acceptance predicate. G011 is **RELEASE_READY** because deterministic product acceptance and the Kimi, ZCode, and AGY live capability certifications pass together through `make test` on the exact final committed tree.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|
@@ -219,7 +219,7 @@ The repository records historical G001–G010 evidence. G010's full-workflow liv
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
-| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **IMPLEMENTATION_IN_PROGRESS** | `g011` |
+| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 
 The controlled Kimi qualification receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with a retained ledger receipt and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`. Offline standard tests cover the adapter surface. This historical PASS qualifies the recorded run; it neither restricts current family/capability support to that tuple nor requires PASS evidence for every configured tuple.
 
