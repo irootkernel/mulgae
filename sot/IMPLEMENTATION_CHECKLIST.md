@@ -189,7 +189,7 @@ The checked requirements in this section describe the 2026-07-26 and 2026-07-27 
 - [x] Preserve `make test` as the sole technical release gate, executing `test-prepare`, `test-unit`, `test-int`, and `test-e2e` in order.
 - [x] Assign deterministic controlled-process tests authority over Config v2, supported roles and provider subsets, committed and dirty targets, qualification planning, scheduling, repair/fallback, root and child workflows, schemas, evidence, diagnostics, publication, recovery, cleanup, and CLI exit projection.
 - [x] Limit live E2E authority to one production-boundary capability certification for each supported family: Kimi, ZCode, and AGY. Missing binaries, native authentication, service access, or valid output must fail rather than skip.
-- [ ] Enforce known-vulnerability scanning and a vulnerability-free dependency graph in `test-prepare`.
+- [x] Enforce known-vulnerability scanning and a vulnerability-free dependency graph in `test-prepare`. Evidence: upgrade reachable `golang.org/x/text` from vulnerable v0.34.0 to v0.39.0 or newer, pin `govulncheck` as a Go tool, and require `go tool govulncheck ./...` before lint and vet.
 - [ ] Correct child-workflow provider failure exit projection, root-review repair prompt versioning, and terminal cleanup error handling.
 - [ ] Complete deterministic acceptance coverage, including both committed and dirty targets and the required Playwright-backed artist scenario without prerequisite skipping.
 - [ ] Replace the historical full-workflow live test with the three fail-closed family capability certifications.
