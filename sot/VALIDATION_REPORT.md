@@ -1,7 +1,7 @@
 # Package Validation Report
 
-**Specification version:** 1.12.0
-**Status date:** 2026-07-27
+**Specification version:** 1.13.0
+**Status date:** 2026-07-28
 
 ## G0 Contract and Implementation Baseline
 
@@ -13,13 +13,11 @@
 | Checksummed payloads | 85; `CHECKSUMS.sha256` is self-excluded |
 | Schema/example pairs | 28 |
 | Decision Readiness | **READY** |
-| Implementation Status | **RELEASE_READY** |
+| Implementation Status | **IMPLEMENTATION_IN_PROGRESS** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs.
 
-This SOT 1.12.0 report retains the runtime-diagnostics contract and revises the G010 release oracle so direct qualification health cannot be hidden by fallback while a correctly recovered product P2 is accepted. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION**; G010 is **RELEASE_READY** after the exact final-tree `make test` passed on 2026-07-26.
-
-The 2026-07-27 maintenance verification added bounded same-provider followup repair, typed child failures, and mandatory child diagnostic lifecycles without changing CLI, Config v2, or P2 schemas. `test-prepare`, the complete `test-unit -race`, the complete `test-int -race`, and the actual-provider `test-e2e` all passed; the full workflow E2E completed on its first root attempt in 1027.71 seconds.
+This SOT 1.13.0 report preserves G010's prior gate pass as historical evidence and opens G011. Current release readiness requires deterministic acceptance plus one fail-closed live capability certification for Kimi, ZCode, and AGY, all reached through the sole `make test` gate. The former fixed role matrix, planted finding, line citation, process overlap, retry count, full child-workflow live run, and runtime-event cardinality are not current release predicates.
 
 ## G0 Evidence Status
 
@@ -56,7 +54,8 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **RELEASE_READY** | `g010` |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
+| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **IMPLEMENTATION_IN_PROGRESS** | `g011` |
 
 ## Current Project-local Contract Coverage
 
@@ -82,8 +81,8 @@ The controlled provider attempt history also records two later opt-in retries on
 
 ## Readiness and Publication Boundary
 
-The recorded G001–G009 evidence is historical. G010 is **RELEASE_READY** on the supported `darwin-arm64` platform after direct 12-route qualification health, recovery-aware full workflow E2E, and the exact final-tree `make test` passed on 2026-07-26. Future platforms remain unsupported and release-ineligible.
+The recorded G001–G010 evidence is historical. G011 is not release-ready until the corrected exact final-tree `make test` passes on the supported `darwin-arm64` platform. Future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.11.0 reports remain historical baselines. SOT 1.12.0 separates direct provider-health evidence from recovery-aware workflow acceptance without changing CLI, Config v2, or P2 schemas; current checksums and the implementation checklist are authoritative for this revision.
+The 1.0.0 through 1.12.0 reports remain historical baselines. SOT 1.13.0 changes no CLI, Config v2, or P2 schema; it corrects the release acceptance boundary. Current checksums and the implementation checklist are authoritative for this revision.

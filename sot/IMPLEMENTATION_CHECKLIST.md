@@ -1,8 +1,8 @@
 # KAR Implementation Status Checklist
 
-**Status date:** 2026-07-26
+**Status date:** 2026-07-28
 
-SOT 1.12.0 preserves historical G001–G009 evidence and the runtime-diagnostics contract, separates direct provider-health proof from recovery-aware product-workflow acceptance, and closes G010 as **RELEASE_READY** after the exact final-tree `make test` succeeded on 2026-07-26. Historical evidence and `.gjc/` remain append-only.
+SOT 1.13.0 preserves historical G001–G010 evidence and the runtime-diagnostics contract. G011 replaces the historical G010 live-workflow oracle with deterministic product acceptance plus one live capability certification per supported provider family, all under the sole `make test` gate. G011 is **IMPLEMENTATION_IN_PROGRESS**. Historical evidence and `.gjc/` remain append-only.
 
 ## Goal Completion Snapshot
 
@@ -17,9 +17,10 @@ SOT 1.12.0 preserves historical G001–G009 evidence and the runtime-diagnostics
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **RELEASE_READY** | `g010` |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
+| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **IMPLEMENTATION_IN_PROGRESS** | `g011` |
 
-The checked historical items below preserve G001–G009 evidence and do not establish G010 completion. The dedicated G010 section is the current completion authority; all of its requirements are checked with current evidence, so G010 is `RELEASE_READY`.
+The checked items through G010 are historical evidence and do not establish current release readiness. The dedicated G011 section is the current completion authority.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -129,7 +130,9 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Keep G0 provider-family evidence for `kimi`, `zcode`, and `agy` separate from current support. Support those families by runtime capability contract without version, executable path, SHA, or profile allowlisting; retain those fields as diagnostic provenance, produce actionable typed capability diagnostics, explicitly block known incompatibilities only, reject unlisted families, and do not automatically substitute providers. Keep `darwin-arm64` as the sole supported platform.
 - [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. Production `kar review` composition is wired, but the current status remains **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** until full current qualification/security/P2 provenance and three family-distinct non-SKIP normal P2 receipts are verified. No release assets were authorized or created, and release publication remains subject to separate approval.
 
-## G010 Config-driven Multi-provider Production Gate
+## Historical G010 Config-driven Multi-provider Production Gate
+
+The checked requirements in this section describe the 2026-07-26 and 2026-07-27 gate runs. They are retained for provenance. SOT 1.13.0 does not require their fixed role matrix, planted finding, exact line citation, twelve-route qualification cardinality, six-process overlap, whole-review retry policy, or complete child-workflow live execution.
 
 ### Contract and configuration
 
@@ -180,6 +183,18 @@ The checked historical items below preserve G001–G009 evidence and do not esta
 - [x] Make `make test` execute exactly `test-prepare`, `test-unit`, `test-int`, and `test-e2e` in order; define no separate offline, race, release, or retained-receipt gate. Evidence: the Makefile target graph and absence of alternate test gate targets.
 - [x] Preserve the 86-path/85-payload catalog, 28 schema/example pairs, checksum grammar, and generated embedded catalog after every SOT update. Evidence: both required generators and `test-prepare` passed on the exact updated SOT tree.
 - [x] Run `make test` on the exact final SOT tree and record `RELEASE_READY` only after it succeeds. Evidence: exact final-tree `make test` PASS on 2026-07-26.
+
+## G011 Corrected Release Gate
+
+- [x] Preserve `make test` as the sole technical release gate, executing `test-prepare`, `test-unit`, `test-int`, and `test-e2e` in order.
+- [x] Assign deterministic controlled-process tests authority over Config v2, supported roles and provider subsets, committed and dirty targets, qualification planning, scheduling, repair/fallback, root and child workflows, schemas, evidence, diagnostics, publication, recovery, cleanup, and CLI exit projection.
+- [x] Limit live E2E authority to one production-boundary capability certification for each supported family: Kimi, ZCode, and AGY. Missing binaries, native authentication, service access, or valid output must fail rather than skip.
+- [ ] Enforce known-vulnerability scanning and a vulnerability-free dependency graph in `test-prepare`.
+- [ ] Correct child-workflow provider failure exit projection, root-review repair prompt versioning, and terminal cleanup error handling.
+- [ ] Complete deterministic acceptance coverage, including both committed and dirty targets and the required Playwright-backed artist scenario without prerequisite skipping.
+- [ ] Replace the historical full-workflow live test with the three fail-closed family capability certifications.
+- [ ] Align SOT, build version, generated assets, help/examples, and supported-platform documentation.
+- [ ] Run `make test` on the exact final committed tree, confirm a clean working tree, and only then record G011 as `RELEASE_READY`.
 
 ## Diagnostics D-E01 — Contract, Model, and Secure Storage
 

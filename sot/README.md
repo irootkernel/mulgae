@@ -1,7 +1,7 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.12.0**
-**Date:** 2026-07-26
+**Development Specification v1.13.0**
+**Date:** 2026-07-28
 **Primary binary:** `kar`
 **Implementation target:** Go
 
@@ -14,16 +14,16 @@ KAR roles are functional review lenses.
 They are not people, teams, or organizational authorities.
 KAR reports findings and recommendations only.
 
-## SOT 1.12.0 Contract and Implementation Baseline
+## SOT 1.13.0 Contract and Implementation Baseline
 
-This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.12.0 retains the private runtime-diagnostics contract and separates direct provider-health proof from recovery-aware product-workflow acceptance for the G010 release gate.
+This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.13.0 preserves G010 as history and defines G011: deterministic product acceptance plus one fail-closed live capability certification for each supported provider family, all reached through the sole `make test` gate.
 
 The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 86-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
 | Readiness axis | Status |
 |---|---|
 | Decision | **READY** |
-| Implementation | **RELEASE_READY** |
+| Implementation | **IMPLEMENTATION_IN_PROGRESS** |
 | External contract | **G0 EVIDENCE VERIFIED; G007 ADAPTERS SUPPORT `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
 
 The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. Historical G008 evidence retained implementation, verification, cleanup, QA, and architecture-review records. Historical G009 integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** with zero recorded P0 blockers. No release assets were authorized or created, and release publication remains subject to separate approval.
@@ -115,7 +115,7 @@ flowchart LR
 | [Glossary](docs/15-glossary.md) | Canonical terminology used throughout the specification |
 | [Mandatory Field and Ownership Matrix](docs/16-field-ownership-matrix.md) | Field-by-field ownership, required-value, repair, and publication rules |
 | [Superseded Authority Ledger](docs/17-superseded-authority-ledger.md) | Historical configuration and readiness language that is no longer runtime authority |
-| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Historical G001–G009 evidence and the current G010 implementation ledger |
+| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Historical G001–G010 evidence and the current G011 implementation ledger |
 
 ## Machine-Readable Contracts
 
@@ -205,7 +205,7 @@ kar followup --run latest --finding F001 --dirty \
 
 ## Recorded Implementation Progress
 
-The repository records historical G001–G009 evidence and the completed G010 implementation ledger. Historical integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION**. G010 is **RELEASE_READY** after Config v2, configured fallback, production child workflows, direct 12-route provider health, and the exact real-provider `make test` gate passed on the final tree on 2026-07-26.
+The repository records historical G001–G010 evidence. G010's full-workflow live pass remains historical rather than a current acceptance predicate. G011 is **IMPLEMENTATION_IN_PROGRESS** until deterministic product acceptance and the Kimi, ZCode, and AGY live capability certifications pass together through `make test` on the exact final committed tree.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|
@@ -218,7 +218,8 @@ The repository records historical G001–G009 evidence and the completed G010 im
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, runtime-capability diagnostics, provenance capture, unlisted-family rejection, and provider CLI reporting | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **RELEASE_READY** | `g010` |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
+| G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **IMPLEMENTATION_IN_PROGRESS** | `g011` |
 
 The controlled Kimi qualification receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with a retained ledger receipt and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`. Offline standard tests cover the adapter surface. This historical PASS qualifies the recorded run; it neither restricts current family/capability support to that tuple nor requires PASS evidence for every configured tuple.
 

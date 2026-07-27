@@ -15,8 +15,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - classifying execution failure; and
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
-It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator.
-G010 is `RELEASE_READY`. Production closure was established by the exact Config v2 assignment and real-provider gate retained by SOT 1.12.0 on 2026-07-26.
+It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator. G010's production pass is historical. G011 release readiness is pending the corrected deterministic acceptance and live family-certification gate defined by SOT 1.13.0.
 
 ## 2. Driver, Instance, and Lane
 

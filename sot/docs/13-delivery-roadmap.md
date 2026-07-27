@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records SOT 1.12.0. Decision Readiness remains **READY**; G001–G009 retain historical evidence, runtime diagnostics are implemented, and G010 is `RELEASE_READY` after the direct provider-health, recovery-aware product-workflow, and exact final-tree `make test` gates passed on 2026-07-26.
+This roadmap records SOT 1.13.0. Decision Readiness remains **READY**; G001–G010 retain historical evidence, runtime diagnostics are implemented, and G011 is `IMPLEMENTATION_IN_PROGRESS` until the corrected exact final-tree `make test` gate passes.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -15,13 +15,14 @@ This roadmap records SOT 1.12.0. Decision Readiness remains **READY**; G001–G0
 | G007 | G4 opt-in provider adapters | **COMPLETE** |
 | G008 | G5 lineage, cleanup, export | **COMPLETE** |
 | G009 | Production review verification | `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` |
-| G010 | Config-driven multi-provider production release gate | `RELEASE_READY` |
+| G010 | Historical config-driven multi-provider production release gate | **COMPLETE** |
+| G011 | Corrected deterministic acceptance and live family certification | `IMPLEMENTATION_IN_PROGRESS` |
 
-G010 executes sequentially: SOT freeze; Config v2; configured planning and fallback; production child-workflow composition; real-provider E2E and Makefile gate; final-tree closeout.
+G011 executes sequentially: contract correction; security and failure-path repairs; deterministic product acceptance; Kimi/ZCode/AGY live family certification; exact final-tree closeout.
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, 28 schema/example pairs, 21 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009 evidence remains `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G010 completion depends only on its explicit checklist and final `make test`.
+The current SOT oracle remains 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, 28 schema/example pairs, 21 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009 and G010 evidence is historical; G011 completion depends only on its explicit checklist and final `make test`.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -138,4 +139,4 @@ The following block release or promotion:
 - mutable completed artifacts, non-atomic final writes, stale cleanup application, or CAS retry with altered expected state;
 - absent source/current evidence identity, unversioned machine output, or secret persistence.
 - failure of `G0_EXTERNAL_JOIN_ORACLE`; intended-future cells do not block G0 and remain release-ineligible.
-- failure of the exact final-tree G010 `make test`; tagging or publishing remains an explicit operator action after technical release readiness.
+- failure of the exact final committed-tree G011 `make test`, including any skipped or failed Kimi, ZCode, AGY, or required Playwright prerequisite; tagging or publishing remains an explicit operator action after technical release readiness.

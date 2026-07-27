@@ -347,7 +347,7 @@ The domain defines immutable diagnostic events and closed codes. Ports define `R
 
 The dependency direction is `domain -> ports -> application -> adapters -> entrypoint`. Domain and application packages never import filesystem, CLI, or entrypoint packages; filesystem diagnostics never import publication policy or manufacture P2 authority. Provider adapters normalize native observations, while the application retains repair and fallback policy.
 
-The following version strings remain fixed by SOT 1.12.0:
+The following version strings remain fixed by SOT 1.13.0:
 
 ```text
 kar-runtime-log.v1
