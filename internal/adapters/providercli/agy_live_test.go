@@ -58,7 +58,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	}
 	authBeforeSetup, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatal("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR setup")
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR setup: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
@@ -124,7 +124,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	}
 	authAfterSetup, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatal("INCONCLUSIVE: capture installed AGY filesystem auth/settings after KAR setup")
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings after KAR setup: %v", err)
 	}
 	if !reflect.DeepEqual(authBeforeSetup, authAfterSetup) {
 		t.Fatal("FAIL: KAR setup changed installed AGY filesystem auth/settings surfaces")
@@ -213,7 +213,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	if !bound || !binding.Valid() ||
 		binding.Channel() != ports.ProviderPacketChannelPromptFile ||
 		binding.PromptFileReference() != nativeReference ||
-		binding.ArgvIndex() != 11 ||
+		binding.ArgvIndex() != 12 ||
 		binding.SnapshotCWD() != workspaceIdentity.SnapshotPath() {
 		t.Fatal("FAIL: AGY capability launch omitted the native prompt-file packet binding")
 	}
@@ -238,10 +238,17 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 		Link string `json:"link"`
 		Role string `json:"role"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(capability.Stdout()))
+	capabilityFrame, err := ports.ExtractProcessOutputJSONFrame(
+		ports.ProcessOutputFramingTerminalJSONObject,
+		capability.Stdout(),
+	)
+	if err != nil {
+		t.Fatal("FAIL: AGY capability output omitted its terminal JSON frame")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(capabilityFrame))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&evidence); err != nil {
-		t.Fatal("FAIL: AGY capability output is not strict JSON")
+		t.Fatal("FAIL: AGY capability terminal frame is not strict JSON")
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF ||
 		evidence.Root != fixture.Nonce() || evidence.Link != fixture.Link() ||
@@ -254,7 +261,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	liveAgyRequireExactReceipts(t, result.Receipts)
 	authBeforeDrain, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatal("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR drain")
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR drain: %v", err)
 	}
 
 	workspaceReceipt, err := fixture.DrainTerminal(ctx)
@@ -273,7 +280,7 @@ func TestLiveAgyCurrentBehavior(t *testing.T) {
 	// failures this native-HOME contract exists to avoid.
 	authAfterDrain, snapshotErr := liveAgyAuthSettingsManifest(runtimeHome)
 	if snapshotErr != nil {
-		t.Fatal("INCONCLUSIVE: capture installed AGY filesystem auth/settings after drain")
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings after drain: %v", snapshotErr)
 	}
 	if !reflect.DeepEqual(authBeforeDrain, authAfterDrain) {
 		t.Fatal("FAIL: KAR changed installed AGY filesystem auth/settings surfaces")
@@ -411,26 +418,28 @@ type liveAgyAuthSettingsEntry struct {
 }
 
 func liveAgyAuthSettingsManifest(home string) ([]liveAgyAuthSettingsEntry, error) {
-	surface := filepath.Join(home, ".gemini", "antigravity-cli")
-	entries := make([]liveAgyAuthSettingsEntry, 0)
-	err := filepath.Walk(surface, func(path string, info os.FileInfo, walkErr error) error {
-		if os.IsNotExist(walkErr) && path == surface {
-			entries = append(entries, liveAgyAuthSettingsEntry{relative: ".gemini/antigravity-cli"})
-			return nil
+	relatives := []string{
+		".gemini/antigravity-cli/antigravity-oauth-token",
+		".gemini/antigravity-cli/installation_id",
+		".gemini/antigravity-cli/settings.json",
+	}
+	entries := make([]liveAgyAuthSettingsEntry, 0, len(relatives))
+	for _, relative := range relatives {
+		path := filepath.Join(home, filepath.FromSlash(relative))
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			entries = append(entries, liveAgyAuthSettingsEntry{relative: relative})
+			continue
 		}
-		if walkErr != nil {
-			return walkErr
+		if err != nil {
+			return nil, fmt.Errorf("inspect %s: %w", relative, err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("inspect %s: symlink", path)
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("inspect %s: auth/settings path is not a regular file", relative)
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok {
-			return fmt.Errorf("inspect %s: unsupported file identity", path)
-		}
-		relative, err := filepath.Rel(home, path)
-		if err != nil {
-			return fmt.Errorf("inspect %s: relative path: %w", path, err)
+			return nil, fmt.Errorf("inspect %s: unsupported file identity", relative)
 		}
 		entry := liveAgyAuthSettingsEntry{
 			relative: relative,
@@ -440,20 +449,12 @@ func liveAgyAuthSettingsManifest(home string) ([]liveAgyAuthSettingsEntry, error
 			device:   stat.Dev,
 			inode:    stat.Ino,
 		}
-		if info.Mode().IsRegular() {
-			digest, err := liveAgyFileSHA256(path)
-			if err != nil {
-				return fmt.Errorf("hash %s: %w", relative, err)
-			}
-			entry.sha256 = digest
-		} else if !info.IsDir() {
-			return fmt.Errorf("inspect %s: unsupported filesystem entry", relative)
+		digest, err := liveAgyFileSHA256(path)
+		if err != nil {
+			return nil, fmt.Errorf("hash %s: %w", relative, err)
 		}
+		entry.sha256 = digest
 		entries = append(entries, entry)
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	return entries, nil
 }
@@ -540,7 +541,13 @@ func liveAgyRequirePostOutputLifecycle(t *testing.T, observation ports.ProcessOb
 		t.Fatal("FAIL: AGY capability launch omitted a strict-JSON output-frame receipt")
 	}
 	requests := receipt.SignalRequests()
-	if len(requests) < 1 || len(requests) > 2 {
+	if len(requests) == 0 {
+		if code, exited := receipt.FinalTermination().ExitCode(); !exited || code != 0 {
+			t.Fatal("FAIL: AGY natural completion omitted a successful terminal receipt")
+		}
+		return
+	}
+	if len(requests) > 2 {
 		t.Fatalf("FAIL: AGY post-output signal receipt count = %d, want SIGTERM with optional escalation", len(requests))
 	}
 	first := requests[0]

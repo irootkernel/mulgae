@@ -27,6 +27,10 @@ type FollowupCandidateInput struct {
 	Output              validation.ValidatedFollowup
 	Observation         ports.ProviderExecutionObservation
 	Runtime             FollowupRuntimeArtifactInput
+	Observations        []ports.ProviderExecutionObservation
+	Runtimes            []FollowupRuntimeArtifactInput
+	Repaired            bool
+	InitialCandidate    []byte
 	SeverityThreshold   domain.Severity
 	KARVersion          string
 	KARCommit           string
@@ -36,7 +40,13 @@ type FollowupCandidateInput struct {
 // specialized single-role followup execution. It reduces only normalized
 // provider findings with verifier-owned current-evidence receipts.
 func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, error) {
-	if input.Run.Type() != domain.RunTypeFollowup || !input.Observation.Succeeded() || input.Observation.Validate() != nil {
+	observations, runtimes, err := followupInvocationInventory(input)
+	if err != nil {
+		return PreparedCandidate{}, err
+	}
+	terminalObservation := observations[len(observations)-1]
+	terminalRuntime := runtimes[len(runtimes)-1]
+	if input.Run.Type() != domain.RunTypeFollowup || !terminalObservation.Succeeded() || terminalObservation.Validate() != nil {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: successful followup observation is required")
 	}
 	parent, hasParent := input.Run.ParentRunID()
@@ -48,7 +58,7 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 		!validSHA256(input.SourceTargetSHA256) || !validSHA256(input.SourceExcerptSHA256) {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: immutable source authority is invalid")
 	}
-	invocation := input.Observation.Invocation()
+	invocation := terminalObservation.Invocation()
 	if invocation.AttemptID() != input.AttemptID || invocation.Role() != input.Output.Role() || invocation.ProviderInstance() != input.Provider {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: observation identity differs from followup output")
 	}
@@ -63,14 +73,25 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 	if !threshold.Valid() {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: invalid severity threshold")
 	}
-	if err := validateFollowupRuntimeCaptures(input.Runtime.Captures(), input.Output.NormalizedRaw(), input.Observation.Stdout(), input.Observation.Stderr()); err != nil {
-		return PreparedCandidate{}, err
+	for index := range observations {
+		candidate := input.Output.NormalizedRaw()
+		if input.Repaired && index == 0 {
+			candidate = input.InitialCandidate
+		}
+		if err := validateFollowupRuntimeCaptures(runtimes[index].Captures(), candidate, observations[index].Stdout(), observations[index].Stderr(), index == 1); err != nil {
+			return PreparedCandidate{}, err
+		}
 	}
+	input.Observation, input.Runtime = terminalObservation, terminalRuntime
 	findings, followup, err := prepareFollowupFindings(input, "sha256:"+input.Run.Target().SHA256())
 	if err != nil {
 		return PreparedCandidate{}, err
 	}
-	role := preparedRole{role: input.Output.Role(), required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed", limitations: []string{}, attempts: []preparedAttempt{{id: input.AttemptID, kind: "primary", provider: input.Provider, state: domain.AttemptSucceeded, invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}}}}}
+	preparedInvocations := make([]preparedInvocation, len(observations))
+	for index, observation := range observations {
+		preparedInvocations[index] = preparedInvocation{sequence: uint64(index + 1), purpose: domain.InvocationPurpose(observation.Invocation().Purpose()), state: domain.InvocationSucceeded}
+	}
+	role := preparedRole{role: input.Output.Role(), required: true, state: domain.RoleTaskSucceeded, valid: true, repaired: input.Repaired, outcome: "completed", limitations: []string{}, attempts: []preparedAttempt{{id: input.AttemptID, kind: "primary", provider: input.Provider, state: domain.AttemptSucceeded, invocations: preparedInvocations}}}
 	for _, finding := range findings {
 		role.validFindingIDs = append(role.validFindingIDs, finding.id)
 	}
@@ -84,13 +105,42 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 		threshold: threshold, kar: preparedKAR{version: input.KARVersion, commit: input.KARCommit}, axes: axes,
 		roles: []preparedRole{role}, findings: findings, failures: []preparedFailure{}, limits: limits, reasons: reasons, exitCode: exitCode, lineage: context.immutableLineage(), followup: &followup,
 	}
-	if err := candidate.bindRuntimeArtifactInventories([]runtimeArtifactInventory{input.Runtime}); err != nil {
+	inventories := make([]runtimeArtifactInventory, len(runtimes))
+	for index := range runtimes {
+		inventories[index] = runtimes[index]
+	}
+	if err := candidate.bindRuntimeArtifactInventories(inventories); err != nil {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: runtime inventory: %w", err)
 	}
 	if err := candidate.validate(); err != nil {
 		return PreparedCandidate{}, err
 	}
 	return candidate, nil
+}
+
+func followupInvocationInventory(input FollowupCandidateInput) ([]ports.ProviderExecutionObservation, []FollowupRuntimeArtifactInput, error) {
+	observations := append([]ports.ProviderExecutionObservation(nil), input.Observations...)
+	runtimes := append([]FollowupRuntimeArtifactInput(nil), input.Runtimes...)
+	if len(observations) == 0 {
+		observations = []ports.ProviderExecutionObservation{input.Observation}
+	}
+	if len(runtimes) == 0 {
+		runtimes = []FollowupRuntimeArtifactInput{input.Runtime}
+	}
+	if len(observations) != len(runtimes) || len(observations) < 1 || len(observations) > 2 || input.Repaired != (len(observations) == 2) || input.Repaired && len(input.InitialCandidate) == 0 {
+		return nil, nil, fmt.Errorf("followup publication: invalid bounded invocation inventory")
+	}
+	for index := range observations {
+		invocation := observations[index].Invocation()
+		wantPurpose := ports.ProviderInvocationInitial
+		if index == 1 {
+			wantPurpose = ports.ProviderInvocationRepair
+		}
+		if !observations[index].Succeeded() || observations[index].Validate() != nil || invocation.AttemptID() != input.AttemptID || invocation.ProviderInstance() != input.Provider || invocation.Purpose() != wantPurpose || runtimes[index].Sequence() != uint64(index+1) || runtimes[index].Purpose() != domain.InvocationPurpose(wantPurpose) {
+			return nil, nil, fmt.Errorf("followup publication: invocation inventory identity mismatch")
+		}
+	}
+	return observations, runtimes, nil
 }
 
 type followupOutputWire struct {
@@ -137,7 +187,10 @@ func prepareFollowupFindings(input FollowupCandidateInput, currentTargetSHA256 s
 	if output.Resolution != input.Output.Resolution() || !output.Resolution.Valid() {
 		return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: output resolution is invalid or tampered")
 	}
-	reader := followupCurrentTargetReader{targetSHA256: currentTargetSHA256, bytes: input.Runtime.Target()}
+	reader, err := newFollowupCurrentTargetReader(currentTargetSHA256, input.Runtime.Target(), input.Runtime.CapturedArchive())
+	if err != nil {
+		return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: current evidence reader: %w", err)
+	}
 	verifier, err := evidence.NewVerifier(reader)
 	if err != nil {
 		return nil, preparedFollowupOutcome{}, fmt.Errorf("followup publication: current evidence verifier: %w", err)
@@ -155,7 +208,7 @@ func prepareFollowupFindings(input FollowupCandidateInput, currentTargetSHA256 s
 		}
 		receipt, err := verifier.VerifyCurrent(context.Background(), claim)
 		if err != nil || receipt.Status() != evidence.ReceiptVerified || receipt.ReasonCode() != evidence.ReasonVerified {
-			return preparedEvidence{}, fmt.Errorf("followup publication: current evidence is not verified")
+			return preparedEvidence{}, fmt.Errorf("followup publication: current evidence is not verified: path=%s lines=%d-%d side=%s status=%s reason=%s verifier=%v", claim.Path().String(), claim.LineStart(), claim.LineEnd(), claim.Side(), receipt.Status(), receipt.ReasonCode(), err)
 		}
 		return preparedEvidence{targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(), lineEnd: claim.LineEnd(), quote: claim.Quote(), currentExcerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(receipt.Excerpt()), sourceSessionID: item.Source.SessionID, sourceRunID: item.Source.RunID, sourceReviewID: item.Source.ReviewID, sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256, sourceExcerptSHA256: item.Source.SourceExcerptSHA256}, nil
 	}
@@ -224,20 +277,72 @@ func reduceFollowupAxes(findings []preparedFinding, resolution domain.FollowupRe
 type followupCurrentTargetReader struct {
 	targetSHA256 string
 	bytes        []byte
+	files        map[evidence.Side]map[ports.SafeRelativePath][]byte
 }
 
-func (reader followupCurrentTargetReader) ReadImmutableTarget(_ context.Context, targetSHA256 string, _ evidence.Side, _ ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
+func newFollowupCurrentTargetReader(targetSHA256 string, target, archive []byte) (followupCurrentTargetReader, error) {
+	reader := followupCurrentTargetReader{targetSHA256: targetSHA256, bytes: append([]byte(nil), target...)}
+	if len(archive) == 0 {
+		return reader, nil
+	}
+	material, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	if err != nil {
+		return followupCurrentTargetReader{}, err
+	}
+	if "sha256:"+material.Target().Identity().SHA256() != targetSHA256 || string(material.Target().Bytes()) != string(target) {
+		return followupCurrentTargetReader{}, fmt.Errorf("captured review archive target identity mismatch")
+	}
+	reader.files = make(map[evidence.Side]map[ports.SafeRelativePath][]byte)
+	for capturedSide, side := range map[ports.CapturedEvidenceSide]evidence.Side{
+		ports.CapturedEvidenceBase:     evidence.SideBase,
+		ports.CapturedEvidenceHead:     evidence.SideHead,
+		ports.CapturedEvidenceWorktree: evidence.SideWorktree,
+		ports.CapturedEvidenceIndex:    evidence.SideIndex,
+	} {
+		files, ok := material.Evidence().Files(capturedSide)
+		if !ok {
+			continue
+		}
+		reader.files[side] = make(map[ports.SafeRelativePath][]byte, len(files))
+		for _, file := range files {
+			if file.IsText() {
+				reader.files[side][file.Path()] = file.Bytes()
+			}
+		}
+	}
+	if len(reader.files) == 0 {
+		return followupCurrentTargetReader{}, fmt.Errorf("captured review archive has no immutable evidence")
+	}
+	return reader, nil
+}
+
+func (reader followupCurrentTargetReader) ReadImmutableTarget(_ context.Context, targetSHA256 string, side evidence.Side, path ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
 	if targetSHA256 != reader.targetSHA256 || len(reader.bytes) == 0 {
 		return evidence.ImmutableTargetUnavailable, nil, nil
+	}
+	if reader.files != nil {
+		files, ok := reader.files[side]
+		if !ok {
+			return evidence.ImmutableTargetUnavailable, nil, nil
+		}
+		bytes, ok := files[path]
+		if !ok {
+			return evidence.ImmutableTargetUnavailable, nil, nil
+		}
+		return evidence.ImmutableTargetAvailable, append([]byte(nil), bytes...), nil
 	}
 	return evidence.ImmutableTargetAvailable, append([]byte(nil), reader.bytes...), nil
 }
 
-func validateFollowupRuntimeCaptures(captures []ports.CapturedAttemptArtifact, candidate, stdout, stderr []byte) error {
+func validateFollowupRuntimeCaptures(captures []ports.CapturedAttemptArtifact, candidate, stdout, stderr []byte, repair ...bool) error {
+	candidateKind := ports.AttemptArtifactInitialCandidate
+	if len(repair) != 0 && repair[0] {
+		candidateKind = ports.AttemptArtifactRepairedCandidate
+	}
 	expected := map[ports.AttemptArtifactKind][]byte{
-		ports.AttemptArtifactInitialCandidate: candidate,
-		ports.AttemptArtifactStdout:           stdout,
-		ports.AttemptArtifactStderr:           stderr,
+		candidateKind:               candidate,
+		ports.AttemptArtifactStdout: stdout,
+		ports.AttemptArtifactStderr: stderr,
 	}
 	seen := make(map[ports.AttemptArtifactKind]struct{}, len(captures))
 	for _, capture := range captures {

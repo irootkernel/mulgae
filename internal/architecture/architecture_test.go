@@ -174,8 +174,48 @@ func TestMakefileContract(t *testing.T) {
 			t.Fatalf("Makefile test order is not sequential: %v", positions)
 		}
 	}
+	unitStart := strings.Index(text, "\ntest-unit:")
+	unitEnd := strings.Index(text, "\ntest-int:")
+	if unitStart < 0 || unitEnd <= unitStart || !strings.Contains(text[unitStart:unitEnd], "test -p 1 ") {
+		t.Fatal("test-unit does not serialize race-instrumented package execution")
+	}
+	integrationStart := unitEnd
+	integrationEnd := strings.Index(text, "\ntest-e2e:")
+	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
+		t.Fatal("test-int does not serialize race-instrumented package execution")
+	}
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
+	}
+	for _, required := range []string{
+		"agy_bin=", `test -n "$$agy_bin"`, "KAR_LIVE_AGY=1", "-run '^TestLiveAgy'", "-tags=live_e2e",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("test-e2e missing fail-closed AGY/full-workflow token %q", required)
+		}
+	}
+	if agy := strings.Index(text, "-run '^TestLiveAgy'"); agy < 0 || agy >= strings.Index(text, "-tags=live_e2e") {
+		t.Fatal("test-e2e does not run the non-skipping AGY native-auth gate before the product workflow")
+	}
+}
+
+func TestE2ELiveFullWorkflowAndNoSkipContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "cmd", "kar", "live_e2e_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"func TestE2EActualProvidersSixConcurrentPrimaryLanes", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
+		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "qualification_candidate_checked", "qualification_succeeded",
+		"KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("live E2E contract missing %q", required)
+		}
+	}
+	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
+		t.Fatal("actual-provider product E2E may not skip unavailable prerequisites")
 	}
 }
 

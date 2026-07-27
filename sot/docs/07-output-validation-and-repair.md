@@ -162,6 +162,8 @@ Examples:
 
 Semantic contradiction is not treated as a missing-value repair by default. It requires an exact rerun or fallback after classification.
 
+For source-bound followup, fallback remains forbidden. KAR may issue one repair to the same provider under the same attempt only when the initial output is not one JSON object or the KAR-normalized document fails the provider-owned JSON Schema. The repair returns a complete replacement followup object and is recorded as invocation sequence 2 with purpose `repair`. Trust-boundary violations, semantic contradictions, invalid evidence, and operational provider failures bypass repair and terminate with their original typed class.
+
 ## 6. Source and Current Evidence Reducers
 
 Provider evidence is a claim. KAR preserves source identity and current verification as separate objects; source evidence can never be presented as current verified evidence.

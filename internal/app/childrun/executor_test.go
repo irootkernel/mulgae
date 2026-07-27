@@ -7,8 +7,65 @@ import (
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/delta"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
+
+func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T) {
+	sessionID := childrunSessionID(t, "s_019f596a-cf70-7c67-b265-f37053d51ccf")
+	sourceRunID := childrunRunID(t, "r_019f596a-cf71-7c67-b265-f37053d51ccf")
+	childRunID := childrunRunID(t, "r_019f596a-cf72-7c67-b265-f37053d51ccf")
+	task, err := domain.NewRoleTask(domain.RoleLogic, true, "source-fallback", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := domain.NewChildRunFromImmutableSource(childRunID, domain.RunTypeDelta, sessionID, sourceRunID, sourceRunID, childrunTarget(t), []domain.RoleTask{task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryKey, _ := ports.ParseConcurrencyKey("primary-lane")
+	fallbackKey, _ := ports.ParseConcurrencyKey("fallback-lane")
+	primary, err := ports.NewProviderRoute("primary", primaryKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := ports.NewProviderRoute("fallback", fallbackKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := review.NewScheduledAssignment(domain.RoleLogic, true, primary, &fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured, err := deltaRunWithConfiguredAssignments(run, []review.Assignment{assignment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := configured.RoleTasks()
+	gotFallback, ok := roles[0].FallbackProvider()
+	if len(roles) != 1 || roles[0].PrimaryProvider() != "primary" || !ok || gotFallback != "fallback" {
+		t.Fatalf("configured delta roles = %#v, fallback = %q/%t", roles, gotFallback, ok)
+	}
+}
+
+func TestTerminalReplayInventoryIndexSelectsRepairInvocation(t *testing.T) {
+	attemptID, err := domain.ParseAttemptID("a_019f596a-cf73-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []replayInventoryCandidate{
+		{role: domain.RoleLogic, attemptID: attemptID, sequence: 1, purpose: domain.InvocationInitial},
+		{role: domain.RoleLogic, attemptID: attemptID, sequence: 2, purpose: domain.InvocationRepair},
+	}
+	index, err := terminalReplayInventoryIndex(candidates, domain.RoleLogic, attemptID, 2, domain.InvocationRepair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index != 1 {
+		t.Fatalf("terminalReplayInventoryIndex() = %d, want repair inventory index 1", index)
+	}
+}
 
 func TestExecuteDeltaRejectsInvalidSourceLineageBeforeExecution(t *testing.T) {
 	t.Parallel()

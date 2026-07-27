@@ -269,26 +269,14 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: execute: %w", err)
 	}
-	if providers := coordinatorLoginRequiredProviders(coordinatorResult); len(providers) != 0 {
-		failure, failureErr := domain.NewFailure(
-			"reviewrun.execute",
-			domain.FailureAuthentication,
-			"provider login required",
-			ports.ErrProviderLoginRequired,
-		)
-		if failureErr != nil {
-			return Result{}, failureErr
-		}
-		return Result{}, newProviderLoginRequiredError(providers, failure)
-	}
-	if failure := coordinatorNonPublishableFailure(coordinatorResult); failure != nil {
+	if failure := CoordinatorExecutionFailure(coordinatorResult); failure != nil {
 		return Result{}, failure
 	}
 	inventory = drainRuntimeInventory()
 	if err := cleanup.observe(ctx, domain.DiagnosticNamespaceDrainStarted, "provider_namespace", "drain"); err != nil {
 		return Result{}, err
 	}
-	typedTerminal, drainErr := drainQualifiedTerminal(ctx, qualified)
+	typedTerminal, drainErr := DrainRunAuthorityTerminal(ctx, qualified)
 	if drainErr != nil {
 		return Result{}, drainErr
 	}
@@ -345,6 +333,27 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
 	return newResult(coordinatorResult.SessionID(), coordinatorResult.RunID(), coordinatorResult, final, snapshot, exit)
+}
+
+// CoordinatorExecutionFailure applies the shared pre-publication terminal
+// policy to root and child coordinator results. Operational provider failures
+// remain publishable as incomplete coverage; authentication and closed fatal
+// classes retain their typed execution authority instead of being flattened by
+// a later publication validation error.
+func CoordinatorExecutionFailure(result review.CoordinatorResult) error {
+	if providers := coordinatorLoginRequiredProviders(result); len(providers) != 0 {
+		failure, err := domain.NewFailure(
+			"reviewrun.execute",
+			domain.FailureAuthentication,
+			"provider login required",
+			ports.ErrProviderLoginRequired,
+		)
+		if err != nil {
+			return err
+		}
+		return newProviderLoginRequiredError(providers, failure)
+	}
+	return coordinatorNonPublishableFailure(result)
 }
 
 func coordinatorNonPublishableFailure(result review.CoordinatorResult) error {
@@ -633,7 +642,7 @@ func (cleanup *ReviewRunCleanup) DrainAndAbort(ctx context.Context, reason ports
 		if nilInterface(cleanup.provider) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("review run: terminal drain: qualified run is unavailable"))
 		} else {
-			terminal, err := drainQualifiedTerminal(ctx, cleanup.provider)
+			terminal, err := DrainRunAuthorityTerminal(ctx, cleanup.provider)
 			if err != nil {
 				partial, ok := PartialProviderRunTerminalReceiptFromError(err)
 				if ok {
@@ -710,7 +719,10 @@ func CleanupStateFromError(err error) (*ReviewRunCleanup, bool) {
 	return retained.CleanupState(), true
 }
 
-func drainQualifiedTerminal(parent context.Context, qualified RunAuthority) (QualifiedRunTerminalReceipt, error) {
+// DrainRunAuthorityTerminal retries one partial or failed terminal drain with a
+// fresh bounded context. Root and child workflows must use the same cleanup
+// proof policy so a transient first drain cannot change command semantics.
+func DrainRunAuthorityTerminal(parent context.Context, qualified RunAuthority) (QualifiedRunTerminalReceipt, error) {
 	var (
 		lastErr  error
 		terminal QualifiedRunTerminalReceipt

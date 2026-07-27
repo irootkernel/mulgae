@@ -93,6 +93,19 @@ func NewCoordinatorWithRuntimeDiagnostics(
 	return coordinator, nil
 }
 
+// BindRuntimeDiagnostics installs an already-opened child-run sink before the
+// coordinator starts. Root runs continue to bind through the constructor.
+func (coordinator *Coordinator) BindRuntimeDiagnostics(sink ports.RuntimeDiagnosticSink) error {
+	if coordinator == nil || nilInterface(sink) {
+		return fmt.Errorf("review coordinator: invalid runtime diagnostics")
+	}
+	if !nilInterface(coordinator.diagnostics) {
+		return fmt.Errorf("review coordinator: runtime diagnostics already bound")
+	}
+	coordinator.diagnostics = sink
+	return nil
+}
+
 // NewCoordinatorWithEvidencePolicy constructs a deterministic in-memory review
 // coordinator with an immutable authoritative evidence policy.
 func NewCoordinatorWithEvidencePolicy(
@@ -209,11 +222,13 @@ func (summary CoordinatorInvocationSummary) State() domain.InvocationState { ret
 // CoordinatorAttemptSummary is the immutable terminal projection of one
 // primary or fallback provider attempt.
 type CoordinatorAttemptSummary struct {
-	id          domain.AttemptID
-	kind        AttemptKind
-	route       ports.ProviderRoute
-	state       domain.AttemptState
-	invocations []CoordinatorInvocationSummary
+	id           domain.AttemptID
+	kind         AttemptKind
+	route        ports.ProviderRoute
+	state        domain.AttemptState
+	failureClass domain.FailureClass
+	reasonCode   string
+	invocations  []CoordinatorInvocationSummary
 }
 
 // ID returns the coordinator-issued attempt ID.
@@ -227,6 +242,14 @@ func (summary CoordinatorAttemptSummary) Route() ports.ProviderRoute { return su
 
 // State returns the attempt's terminal state.
 func (summary CoordinatorAttemptSummary) State() domain.AttemptState { return summary.state }
+
+// FailureClass returns the terminal failure class, or empty on success.
+func (summary CoordinatorAttemptSummary) FailureClass() domain.FailureClass {
+	return summary.failureClass
+}
+
+// ReasonCode returns the stable terminal policy reason, or empty on success.
+func (summary CoordinatorAttemptSummary) ReasonCode() string { return summary.reasonCode }
 
 // Invocations returns caller-owned immutable invocation summaries.
 func (summary CoordinatorAttemptSummary) Invocations() []CoordinatorInvocationSummary {
@@ -444,10 +467,12 @@ func (issuer *coordinatorIssuer) reserve(rawUUID string) error {
 }
 
 type coordinatorAttempt struct {
-	kind       AttemptKind
-	route      ports.ProviderRoute
-	attempt    domain.Attempt
-	repairUsed bool
+	kind         AttemptKind
+	route        ports.ProviderRoute
+	attempt      domain.Attempt
+	repairUsed   bool
+	failureClass domain.FailureClass
+	reasonCode   string
 }
 
 type coordinatorRole struct {
@@ -1505,6 +1530,8 @@ func (execution *coordinatorExecution) commitOutcome(
 		if err := terminalizeAttempt(&attempt.attempt, condition); err != nil {
 			return nil, err
 		}
+		attempt.failureClass = decision.TerminalClass()
+		attempt.reasonCode = decision.ReasonCode()
 		fallback, ok := state.assignment.FallbackRoute()
 		if !ok {
 			return nil, fmt.Errorf("review coordinator: policy scheduled missing fallback route")
@@ -1525,6 +1552,10 @@ func (execution *coordinatorExecution) commitOutcome(
 
 	if err := terminalizeAttempt(&attempt.attempt, decision.Condition()); err != nil {
 		return nil, err
+	}
+	if attempt.attempt.State() != domain.AttemptSucceeded {
+		attempt.failureClass = decision.TerminalClass()
+		attempt.reasonCode = decision.ReasonCode()
 	}
 	switch decision.TerminalProjection() {
 	case TerminalProjectionSucceeded:
@@ -1749,6 +1780,8 @@ func (execution *coordinatorExecution) cancelAll(scheduler *laneScheduler, condi
 			if err := stopCoordinatorAttempt(&attempt.attempt, roleCondition); err != nil {
 				return err
 			}
+			attempt.failureClass = conditionFailureClass(roleCondition)
+			attempt.reasonCode = string(roleCondition)
 		}
 		if roleCondition == AttemptConditionCancelled {
 			if err := execution.run.TransitionRole(role, domain.RoleTaskCancelled); err != nil {
@@ -2046,11 +2079,13 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 	for index, attempt := range attempts {
 		invocations := attempt.attempt.Invocations()
 		snapshots[index] = CoordinatorAttemptSummary{
-			id:          attempt.attempt.ID(),
-			kind:        attempt.kind,
-			route:       attempt.route,
-			state:       attempt.attempt.State(),
-			invocations: make([]CoordinatorInvocationSummary, len(invocations)),
+			id:           attempt.attempt.ID(),
+			kind:         attempt.kind,
+			route:        attempt.route,
+			state:        attempt.attempt.State(),
+			failureClass: attempt.failureClass,
+			reasonCode:   attempt.reasonCode,
+			invocations:  make([]CoordinatorInvocationSummary, len(invocations)),
 		}
 		for invocationIndex, invocation := range invocations {
 			snapshots[index].invocations[invocationIndex] = CoordinatorInvocationSummary{

@@ -55,12 +55,13 @@
 | D-048 | Configured fallback is failure-only, not comparison or consensus | Accepted | Valid primary output, including findings, terminates the role without result shopping |
 | D-049 | Followup and exact rerun remain source-provider bound | Accepted | Source finding and exact replay identity take precedence over current configured fallback; review, delta, and recomposed rerun use current assignments |
 | D-050 | `make test` is the sole technical release-ready gate | Accepted | Race unit/integration plus non-skipping real-provider E2E replace separate offline, race, release, or retained-receipt gates |
+| D-057 | Judge direct provider health independently from recovery-aware product success | Accepted | All configured routes must qualify directly, while a bounded repair or exact configured fallback may satisfy a role outcome without weakening fallback eligibility or fail-closed policy |
 
 ## 1.1 Current Decision and Implementation Status
 
-D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. G010 remains `IMPLEMENTATION_IN_PROGRESS` until its final-tree `make test` passes.
+D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050 and D-057 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. D-051 through D-056 retain the runtime-diagnostics contract used as direct provider-health evidence. G010 is `RELEASE_READY` after its final-tree `make test` passed on 2026-07-26.
 
-The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Historical evidence remains qualification provenance, not current closure. The current SOT oracle is 18 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, and 27 schema/example pairs. Production closure remains incomplete pending separately required current evidence. Only `darwin-arm64` is supported; future platforms remain unsupported and release-ineligible.
+The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. Historical evidence remains qualification provenance and did not establish current closure. The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs. G010 supplied the separately required current evidence and reached technical production closure on 2026-07-26. Only `darwin-arm64` is supported; future platforms remain unsupported and release-ineligible.
 
 
 ## 2. Superseded Draft Decisions

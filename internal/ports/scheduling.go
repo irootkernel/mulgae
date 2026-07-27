@@ -1530,17 +1530,15 @@ func (observation ProcessObservation) Succeeded() bool {
 		if !ok || !hasFrame {
 			return false
 		}
-		var last ProcessSignal
-		accepted := false
+		matchedFinalSignal := false
 		for _, request := range lifecycle.SignalRequests() {
 			if request.Reason() != ProcessGroupSignalRequestPostOutput &&
 				request.Reason() != ProcessGroupSignalRequestPostOutputEscalation {
 				return false
 			}
-			last = request.Signal()
-			accepted = true
+			matchedFinalSignal = matchedFinalSignal || request.Signal() == signal
 		}
-		return accepted && last.Valid() && last == signal
+		return matchedFinalSignal
 	default:
 		return false
 	}

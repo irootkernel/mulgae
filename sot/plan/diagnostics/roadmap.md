@@ -1,6 +1,6 @@
 # KAR Runtime Diagnostics Roadmap
 
-This is the execution entrypoint for the four sequential diagnostics goals. Read [sot.md](./sot.md), [spec.md](./spec.md), and [architecture.md](./architecture.md) before starting an epic.
+This was the execution entrypoint for the four sequential diagnostics goals. All four diagnostics epics and the subsequent G010 handoff are complete. Read [sot.md](./sot.md), [spec.md](./spec.md), and [architecture.md](./architecture.md) for the historical planning boundary.
 
 ## 1. Status and Evidence Rules
 
@@ -9,7 +9,7 @@ This is the execution entrypoint for the four sequential diagnostics goals. Read
 - Record concrete test names, commands, artifact paths, or receipts beside completed boxes.
 - Complete one epic before replacing the active `/goal` with the next epic.
 - Do not modify or delete append-only `.gjc/` history.
-- Do not mark G010-T05, G010-T06, or `RELEASE_READY` from this roadmap.
+- During the diagnostics epics this roadmap could not mark G010-T05, G010-T06, or `RELEASE_READY`; the completed handoff below now mirrors the later normative G010 evidence without granting it authority.
 - During these epics, `make test-e2e` and therefore `make test` are non-gating. Never report their failure as PASS or convert it to SKIP.
 
 | Epic | Deliverable | Depends on | Status |
@@ -228,7 +228,7 @@ tombstone retained for inspection.
 - [x] Do not remove, skip, relax, retry away, or report PASS for failing actual-provider assertions. Evidence: the live test remains enabled with its three-attempt bound unchanged and the observed login-required failure was reported as failure immediately.
 - [x] Do not remove `test-e2e` from the Makefile target graph. Evidence: `test` still invokes `test-e2e`; only failure-artifact lifetime changed in `d63b3ca`.
 - [x] Do not print raw provider output, credentials, prompts, source bytes, or free-form internal errors. Evidence: CLI reasons remain closed safe projections, the live harness logs only URI/status/count metadata, and the handoff note contains no raw payload.
-- [x] Do not mark G010-T05/T06 or `RELEASE_READY` complete. Evidence: all three remain incomplete after D-E04 documentation.
+- [x] Do not mark G010-T05/T06 or `RELEASE_READY` complete within D-E04. Evidence: all three were still incomplete when D-E04 documentation closed; the later G010 handoff completion is recorded separately in section 6.
 - [x] Do not fix the discovered actual-provider cause within this epic; hand its evidence to G010-T05. Evidence: native authentication behavior is unchanged and [the evidence note](./g010-t05-evidence.md) scopes the follow-up.
 
 ### Work method
@@ -268,6 +268,6 @@ Completion evidence:
 After all four epic status rows are COMPLETE:
 
 - [x] Create a G010-T05 evidence note containing the failing command, exit status, session/run identity, diagnostic URI, terminal cause, relevant raw artifact references, and rejected root-cause hypotheses. Evidence: [G010-T05 actual-provider evidence](./g010-t05-evidence.md); no raw stream exists because qualification stopped before invocation.
-- [ ] Start G010-T05 to diagnose and fix the actual-provider failure; require `make test-e2e` PASS there.
-- [ ] Restore and run the full-workflow actual-provider E2E required by the normative SOT.
-- [ ] Start G010-T06 only after T05 passes; require exact final-tree `make test` before `RELEASE_READY`.
+- [x] Complete G010-T05 by diagnosing and fixing the actual-provider workflow failures and requiring `make test-e2e` PASS. Evidence: the non-skipping actual-provider workflow passed in 842.993 seconds on 2026-07-26.
+- [x] Restore and run the full-workflow actual-provider E2E required by the normative SOT. Evidence: Config v2 init/config/doctor, six-role review, followup, three-family delta, exact rerun, and recomposed rerun all passed with P2, lineage, assignment, exit, and artifact assertions.
+- [x] Complete G010-T06 only after T05 passed and require exact final-tree `make test` before `RELEASE_READY`. Evidence: exact final-tree `make test` passed on 2026-07-26, including its 761.839-second live E2E package run; the normative checklist records `RELEASE_READY`.

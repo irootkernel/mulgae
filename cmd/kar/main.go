@@ -23,6 +23,7 @@ import (
 	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
+	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/entrypoint/kar"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -105,13 +106,18 @@ func main() {
 		os.Exit(10)
 	}
 	build, buildErr := executableBuildIdentity()
-	childSources, err := kar.NewG008Sources(root, requestResolver, queryService)
+	childArtifactRoot, err := childPublicationRoot(root)
+	if err != nil {
+		fmt.Fprint(os.Stderr, "kar: child workflow artifact root is unavailable\n")
+		os.Exit(10)
+	}
+	childSources, err := kar.NewG008Sources(childArtifactRoot, productionChildRunResolver{queries: queryService}, queryService)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "kar: child workflow sources are unavailable\n")
 		os.Exit(10)
 	}
 	childComposer := productionChildComposer{
-		build: build, root: root, catalog: catalog, validator: validator, projectReader: gitAdapter,
+		build: build, root: root, artifactRoot: childArtifactRoot, catalog: catalog, validator: validator, projectReader: gitAdapter,
 		clock: clock, ids: ids, writer: writer, publicationStore: publicationStore, stdin: requestResolver, sources: childSources,
 	}
 	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
@@ -150,6 +156,22 @@ func main() {
 
 	result := application.Run(ctx, os.Args[1:], root.String())
 	os.Exit(deliverResult(os.Stdout, os.Stderr, result, os.Args[1:]))
+}
+
+type productionChildRunResolver struct{ queries *appquery.Service }
+
+func (resolver productionChildRunResolver) ResolvePublicationRun(ctx context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
+	if resolver.queries == nil {
+		return ports.PublicationRun{}, fmt.Errorf("production child run resolver: query service is required")
+	}
+	return resolver.queries.ResolveRun(ctx, root, runID)
+}
+
+func childPublicationRoot(projectRoot ports.AnchoredRoot) (ports.AnchoredRoot, error) {
+	if !projectRoot.Valid() {
+		return ports.AnchoredRoot{}, fmt.Errorf("child publication root: invalid project root")
+	}
+	return ports.NewAnchoredRoot(filepath.Join(projectRoot.String(), ".kar"))
 }
 
 func deliverResult(stdout, stderr io.Writer, result kar.Result, argv []string) int {

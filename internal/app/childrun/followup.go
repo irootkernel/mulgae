@@ -3,11 +3,14 @@ package childrun
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -26,14 +29,21 @@ type FollowupPromptSource interface {
 	BuildFollowupInvocation(context.Context, appfollowup.Execution, domain.Run, domain.AttemptID) (ports.ProviderInvocation, error)
 }
 
+// FollowupRepairPromptSource is the optional bounded repair authority. The
+// production prompt source implements it; legacy injected fixtures that do not
+// explicitly grant repair remain single-invocation and fail closed.
+type FollowupRepairPromptSource interface {
+	BuildFollowupRepairInvocation(context.Context, appfollowup.Execution, domain.Run, domain.AttemptID, []byte) (ports.ProviderInvocation, error)
+}
+
 // FollowupRuntimeInventorySource supplies the immutable target and prompt
 // manifest metadata required to publish a specialized followup invocation.
 type FollowupRuntimeInventorySource interface {
 	BuildFollowupRuntimeArtifact(context.Context, appfollowup.Execution, domain.Run, ports.ProviderInvocation) (publication.FollowupRuntimeArtifactInput, error)
 }
 
-// FollowupExecutor performs the intentionally non-coordinator, exactly-one
-// specialized provider invocation for one selected source finding.
+// FollowupExecutor performs one source-bound followup invocation and, only for
+// structurally repairable output, one same-provider repair invocation.
 type FollowupExecutor struct {
 	clock             ports.Clock
 	ids               FollowupIDIssuer
@@ -46,6 +56,7 @@ type FollowupExecutor struct {
 	severityThreshold domain.Severity
 	karVersion        string
 	karCommit         string
+	diagnostics       ports.RuntimeDiagnosticSinkFactory
 }
 
 type FollowupExecutorConfig struct {
@@ -53,6 +64,7 @@ type FollowupExecutorConfig struct {
 	SeverityThreshold domain.Severity
 	KARVersion        string
 	KARCommit         string
+	Diagnostics       ports.RuntimeDiagnosticSinkFactory
 }
 
 func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports.ObservedReviewProvider, prompts FollowupPromptSource, validator *validation.FollowupValidator, publisher *publication.Service, artifactRoot ports.AnchoredRoot, config FollowupExecutorConfig) (*FollowupExecutor, error) {
@@ -71,12 +83,12 @@ func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports
 	if !config.SeverityThreshold.Valid() {
 		return nil, fmt.Errorf("followup executor: severity threshold is invalid")
 	}
-	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, severityThreshold: config.SeverityThreshold, karVersion: config.KARVersion, karCommit: config.KARCommit}, nil
+	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, severityThreshold: config.SeverityThreshold, karVersion: config.KARVersion, karCommit: config.KARCommit, diagnostics: config.Diagnostics}, nil
 }
 
-// ExecuteFollowup observes exactly one provider call and publishes only its
-// schema-valid, trusted-scope normalized result.
-func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution appfollowup.Execution) (appfollowup.ExecutionResult, error) {
+// ExecuteFollowup publishes only a schema-valid, trusted-scope normalized
+// result. Repair never changes provider, attempt, role, target, or lineage.
+func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution appfollowup.Execution) (_ appfollowup.ExecutionResult, retErr error) {
 	if executor == nil || ctx == nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: executor and context are required")
 	}
@@ -106,6 +118,16 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if err != nil {
 		return appfollowup.ExecutionResult{}, err
 	}
+	lifecycle, err := openChildDiagnostics(ctx, executor.diagnostics, executor.artifactRoot, executor.clock, run)
+	if err != nil {
+		return appfollowup.ExecutionResult{}, err
+	}
+	var diagnosticP2 ports.SafeRelativePath
+	defer func() {
+		if finishErr := lifecycle.finish(ctx, retErr, diagnosticP2); finishErr != nil {
+			retErr = finishErr
+		}
+	}()
 	invocation, err := executor.prompts.BuildFollowupInvocation(ctx, execution, run, attemptID)
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: build trusted prompt: %w", err)
@@ -134,39 +156,100 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	}
 	observation, err := executor.provider.Observe(ctx, invocation)
 	if err != nil {
-		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: observe provider: %w", err)
+		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionProviderUnavailable, domain.FailureProviderUnavailable, err)
 	}
-	if err := observation.Validate(); err != nil || !observation.Succeeded() || observation.Invocation().ExecutionInvocationID() != invocation.ExecutionInvocationID() {
-		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: provider execution was not a matching success")
+	if err := lifecycle.persistObservation(ctx, observation, 1); err != nil {
+		return appfollowup.ExecutionResult{}, err
+	}
+	if err := validateFollowupObservation(observation, invocation); err != nil {
+		return appfollowup.ExecutionResult{}, followupObservationFailure(executor.providerInstance, role, observation, err)
 	}
 	result, ok := observation.Result()
 	if !ok || result.CompleteStdinSHA256() != invocation.CompleteStdinSHA256() {
-		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: provider result identity mismatch")
+		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionInvalidProviderOutput, domain.FailureInvalidOutput, fmt.Errorf("provider result identity mismatch"))
 	}
-	validated, err := executor.validator.Validate(ctx, result.Stdout(), validation.FollowupValidationScope{SessionID: execution.SessionID, SourceRunID: execution.Source.RunID, ReviewID: execution.Source.ReviewID, FindingID: execution.Source.Finding.ID, SourceTargetSHA256: execution.Source.Target.SHA256(), SourceExcerptSHA256: execution.Source.Receipt.ExcerptSHA256, CurrentTargetSHA256: execution.Current.Identity.SHA256(), Role: role, ProviderInstance: executor.providerInstance})
+	scope := validation.FollowupValidationScope{SessionID: execution.SessionID, SourceRunID: execution.Source.RunID, ReviewID: execution.Source.ReviewID, FindingID: execution.Source.Finding.ID, SourceTargetSHA256: execution.Source.Target.SHA256(), SourceExcerptSHA256: execution.Source.Receipt.ExcerptSHA256, CurrentTargetSHA256: execution.Current.Identity.SHA256(), Role: role, ProviderInstance: executor.providerInstance}
+	initialRaw := result.Stdout()
+	validated, repairable, validationErr := executor.validator.ValidateWithRepairAuthority(ctx, initialRaw, scope)
+	observations := []ports.ProviderExecutionObservation{observation}
+	runtimes := []publication.FollowupRuntimeArtifactInput{runtime}
+	repaired := false
+	if validationErr != nil && repairable {
+		repairPrompts, repairAuthorized := executor.prompts.(FollowupRepairPromptSource)
+		if !repairAuthorized {
+			return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionInvalidProviderOutput, domain.FailureInvalidOutput, validationErr)
+		}
+		repairInvocation, buildErr := repairPrompts.BuildFollowupRepairInvocation(ctx, execution, run, attemptID, initialRaw)
+		if buildErr != nil {
+			return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: build trusted repair prompt: %w", buildErr)
+		}
+		if repairInvocation.AttemptID() != attemptID || repairInvocation.Role() != role || repairInvocation.ProviderInstance() != executor.providerInstance || repairInvocation.Purpose() != ports.ProviderInvocationRepair {
+			return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: repair prompt invocation identity mismatch")
+		}
+		repairRuntime, runtimeErr := runtimeSource.BuildFollowupRuntimeArtifact(ctx, execution, run, repairInvocation)
+		if runtimeErr != nil {
+			return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: build repair runtime inventory: %w", runtimeErr)
+		}
+		repairObservation, observeErr := executor.provider.Observe(ctx, repairInvocation)
+		if observeErr != nil {
+			return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionProviderUnavailable, domain.FailureProviderUnavailable, observeErr)
+		}
+		if persistErr := lifecycle.persistObservation(ctx, repairObservation, 2); persistErr != nil {
+			return appfollowup.ExecutionResult{}, persistErr
+		}
+		if observeErr = validateFollowupObservation(repairObservation, repairInvocation); observeErr != nil {
+			return appfollowup.ExecutionResult{}, followupObservationFailure(executor.providerInstance, role, repairObservation, observeErr)
+		}
+		repairResult, present := repairObservation.Result()
+		if !present || repairResult.CompleteStdinSHA256() != repairInvocation.CompleteStdinSHA256() {
+			return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionInvalidProviderOutput, domain.FailureInvalidOutput, fmt.Errorf("repair result identity mismatch"))
+		}
+		validated, _, validationErr = executor.validator.ValidateWithRepairAuthority(ctx, repairResult.Stdout(), scope)
+		observations = append(observations, repairObservation)
+		runtimes = append(runtimes, repairRuntime)
+		repaired = true
+	}
+	if validationErr != nil {
+		condition := review.AttemptConditionUnrepairableProviderOutput
+		if repaired {
+			condition = review.AttemptConditionInvalidProviderOutput
+		}
+		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, condition, domain.FailureInvalidOutput, validationErr)
+	}
+	for index := range runtimes {
+		candidate := validated.NormalizedRaw()
+		candidateKind := ports.AttemptArtifactInitialCandidate
+		if repaired && index == 0 {
+			candidate = initialRaw
+		}
+		if index == 1 {
+			candidateKind = ports.AttemptArtifactRepairedCandidate
+		}
+		captures := make([]ports.CapturedAttemptArtifact, 0, 3)
+		for _, capture := range []struct {
+			kind  ports.AttemptArtifactKind
+			bytes []byte
+		}{
+			{candidateKind, candidate},
+			{ports.AttemptArtifactStdout, observations[index].Stdout()},
+			{ports.AttemptArtifactStderr, observations[index].Stderr()},
+		} {
+			if len(capture.bytes) == 0 {
+				continue
+			}
+			artifact, artifactErr := ports.NewCapturedAttemptArtifact(capture.kind, capture.bytes, false)
+			if artifactErr != nil {
+				return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: capture %s: %w", capture.kind, artifactErr)
+			}
+			captures = append(captures, artifact)
+		}
+		runtimes[index].RuntimeCaptures = captures
+	}
+	candidate, err := publication.PrepareFollowupCandidate(publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observations[len(observations)-1], Runtime: runtimes[len(runtimes)-1], Observations: observations, Runtimes: runtimes, Repaired: repaired, InitialCandidate: initialRaw, SeverityThreshold: executor.severityThreshold, KARVersion: executor.karVersion, KARCommit: executor.karCommit})
 	if err != nil {
-		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: validate provider output: %w", err)
+		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionInvalidEvidenceClaim, domain.FailureInvalidOutput, err)
 	}
-	captures := make([]ports.CapturedAttemptArtifact, 0, 3)
-	for _, capture := range []struct {
-		kind  ports.AttemptArtifactKind
-		bytes []byte
-	}{
-		{ports.AttemptArtifactInitialCandidate, validated.NormalizedRaw()},
-		{ports.AttemptArtifactStdout, observation.Stdout()},
-		{ports.AttemptArtifactStderr, observation.Stderr()},
-	} {
-		if len(capture.bytes) == 0 {
-			continue
-		}
-		artifact, artifactErr := ports.NewCapturedAttemptArtifact(capture.kind, capture.bytes, false)
-		if artifactErr != nil {
-			return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: capture %s: %w", capture.kind, artifactErr)
-		}
-		captures = append(captures, artifact)
-	}
-	runtime.RuntimeCaptures = captures
-	published, err := executor.publisher.PublishFollowupNext(ctx, executor.artifactRoot, publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observation, Runtime: runtime, SeverityThreshold: executor.severityThreshold, KARVersion: executor.karVersion, KARCommit: executor.karCommit})
+	published, err := executor.publisher.PublishNext(ctx, executor.artifactRoot, candidate)
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publish: %w", err)
 	}
@@ -174,6 +257,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if !ok || !final.Valid() {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publication has no P2 final receipt")
 	}
+	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
 	terminalExit, err := committedTerminalExit(published)
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publication terminal exit: %w", err)
@@ -183,6 +267,57 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		return appfollowup.ExecutionResult{}, err
 	}
 	return executionResult, nil
+}
+
+func validateFollowupObservation(observation ports.ProviderExecutionObservation, invocation ports.ProviderInvocation) error {
+	if err := observation.Validate(); err != nil {
+		return err
+	}
+	if !observation.Succeeded() || observation.Invocation().ExecutionInvocationID() != invocation.ExecutionInvocationID() {
+		return fmt.Errorf("provider execution was not a matching success")
+	}
+	return nil
+}
+
+func followupObservationFailure(provider string, role domain.Role, observation ports.ProviderExecutionObservation, cause error) error {
+	class := observation.FailureClass()
+	condition := review.AttemptConditionProviderUnavailable
+	switch class {
+	case domain.FailureTimeout:
+		condition = review.AttemptConditionTimeout
+	case domain.FailureAuthentication:
+		condition = review.AttemptConditionAuthentication
+	case domain.FailureQuota:
+		condition = review.AttemptConditionQuota
+	case domain.FailureRateLimit:
+		condition = review.AttemptConditionRateLimit
+	case domain.FailureSecurityPolicy:
+		condition = review.AttemptConditionSecurityViolation
+	case domain.FailureCancelled:
+		condition = review.AttemptConditionCancelled
+	case domain.FailureConfiguration:
+		condition = review.AttemptConditionConfigurationViolation
+	case domain.FailureArtifact:
+		condition = review.AttemptConditionArtifactFailure
+	}
+	if !class.Valid() {
+		class = domain.FailureInternal
+		condition = review.AttemptConditionInternalInvariant
+	}
+	return followupExecutionFailure(provider, role, condition, class, cause)
+}
+
+func followupExecutionFailure(provider string, role domain.Role, condition review.AttemptCondition, class domain.FailureClass, cause error) error {
+	fact, err := reviewrun.NewProviderExecutionFailure(provider, role, string(condition), class)
+	if err != nil {
+		return fmt.Errorf("followup executor: construct provider failure: %w", errors.Join(err, cause))
+	}
+	aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
+	failure, err := domain.NewFailure("childrun.followup", class, "source provider followup failed", errors.Join(aggregate, cause))
+	if err != nil {
+		return fmt.Errorf("followup executor: construct typed failure: %w", errors.Join(err, cause))
+	}
+	return failure
 }
 
 var _ appfollowup.ChildExecutor = (*FollowupExecutor)(nil)

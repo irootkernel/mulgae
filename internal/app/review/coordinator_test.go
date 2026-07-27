@@ -120,6 +120,15 @@ func TestCoordinatorScenarios(t *testing.T) {
 		if !logic.FallbackScheduled() || len(logic.Attempts()) != 2 || len(logic.Attempts()[0].Invocations()) != 2 {
 			t.Fatalf("logic summary did not repair before fallback: %#v", logic)
 		}
+		primary := logic.Attempts()[0]
+		if primary.FailureClass() != domain.FailureInvalidOutput ||
+			primary.ReasonCode() != string(AttemptConditionInvalidProviderOutput) {
+			t.Fatalf("failed primary lost terminal failure facts: %#v", primary)
+		}
+		fallback := logic.Attempts()[1]
+		if fallback.FailureClass() != "" || fallback.ReasonCode() != "" {
+			t.Fatalf("successful fallback retained failure facts: %#v", fallback)
+		}
 		sequenceMu.Lock()
 		gotSequence := append([]string(nil), sequence...)
 		sequenceMu.Unlock()

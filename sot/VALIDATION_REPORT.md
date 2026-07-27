@@ -1,7 +1,7 @@
 # Package Validation Report
 
-**Specification version:** 1.11.0
-**Status date:** 2026-07-22
+**Specification version:** 1.12.0
+**Status date:** 2026-07-27
 
 ## G0 Contract and Implementation Baseline
 
@@ -9,15 +9,17 @@
 |---|---|
 | Product commands | 18 |
 | Canonical probe argv | 4 |
-| Catalog | 85 paths |
-| Checksummed payloads | 84; `CHECKSUMS.sha256` is self-excluded |
-| Schema/example pairs | 25 |
+| Catalog | 86 paths |
+| Checksummed payloads | 85; `CHECKSUMS.sha256` is self-excluded |
+| Schema/example pairs | 28 |
 | Decision Readiness | **READY** |
-| Implementation Status | **IMPLEMENTATION_IN_PROGRESS** |
+| Implementation Status | **RELEASE_READY** |
 | External Contract Readiness | **G0 EVIDENCE VERIFIED; G007 SUPPORTS `kimi`, `zcode`, AND `agy` BY FAMILY AND RUNTIME CAPABILITY** |
-The current SOT oracle is 18 product commands, 4 canonical probe argv, 85 catalog paths, 84 checksummed payloads, and 25 schema/example pairs.
+The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs.
 
-This SOT 1.11.0 report promotes the runtime-diagnostics contract while retaining the frozen G010 requirements. It requires private run-wide diagnostics before provider spawn, typed closed events and causes, separated bounded raw streams, atomic status projections, and fail-closed secure persistence. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** and does not complete G010. Current implementation status is **IMPLEMENTATION_IN_PROGRESS**.
+This SOT 1.12.0 report retains the runtime-diagnostics contract and revises the G010 release oracle so direct qualification health cannot be hidden by fallback while a correctly recovered product P2 is accepted. Historical G009 evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION**; G010 is **RELEASE_READY** after the exact final-tree `make test` passed on 2026-07-26.
+
+The 2026-07-27 maintenance verification added bounded same-provider followup repair, typed child failures, and mandatory child diagnostic lifecycles without changing CLI, Config v2, or P2 schemas. `test-prepare`, the complete `test-unit -race`, the complete `test-int -race`, and the actual-provider `test-e2e` all passed; the full workflow E2E completed on its first root attempt in 1027.71 seconds.
 
 ## G0 Evidence Status
 
@@ -25,14 +27,14 @@ When collected, evidence receipts are stored outside the SOT under `.gjc/_sessio
 
 | Evidence area | Required G0 assertion | Current state |
 |---|---|---|
-| P0 and schema | Atomic P0 trace and all positive/negative schema cases, including 25 schema/example pairs | **CONTRACT MODEL PASS** — `P0_ATOMIC_OK`, `SCHEMA_OK`; this is not external provider or platform evidence |
-| Trace and marker | 85 catalog paths, 18 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
+| P0 and schema | Atomic P0 trace and all positive/negative schema cases, including 28 schema/example pairs | **CONTRACT MODEL PASS** — `P0_ATOMIC_OK`, `SCHEMA_OK`; this is not external provider or platform evidence |
+| Trace and marker | 86 catalog paths, 18 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
 | Trust and command | Frozen trust reducer and literal request/output/exit contracts | **CONTRACT MODEL PASS** — `TRUST_OK`, `COMMAND_OK`; no product implementation is exercised |
 | Prompt and evidence | Byte-exact framing/replay and separate source/current provenance | **CONTRACT MODEL PASS** — `PROMPT_OK`, `EVIDENCE_OK` |
 | Cleanup and assignment model | Transitive retention, deterministic age/size sets, six-role lexical assignment, and budgets | **CONTRACT MODEL PASS** — `CLEANUP_OK`, `ASSIGNMENT_OK`; a model assignment is not the required live assignment |
 | Publication | Total classifier with `unmapped=0`, `ambiguous=0`, ten cross-boundary cases, and three P2 exit variants | **PASS** — the contract model remains valid and G006 now implements product publication, recovery, reporting, and committed query surfaces |
 | Canonical argv and failure | Four byte-exact canonical probe argv arrays and corrected repair/fallback rows | **CONTRACT MODEL PASS** — `CANONICAL_ARGV_OK`, `FAILURE_MATRIX_OK` |
-| Integrity | 85-path catalog, 84 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=84` |
+| Integrity | 86-path catalog, 85 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=85` |
 | Provider probes | All 48 probes for the required `kimi`, `zcode`, and `agy` runtime-contract tuples, three secure-writer indexes, and live six-role assignment | **PASS** — completed by G001; this readiness evidence does not itself support a product tuple |
 | Required platform probes | All 11 `darwin-arm64` predicates on a native local POSIX filesystem | **PASS** — completed by G001; `darwin-arm64` is the sole G0 supported platform |
 | Intended-future platform inventory | `linux-amd64`, `linux-arm64`, and `darwin-amd64` | **UNSUPPORTED** — fixed intended-future, non-blocking, and release-ineligible |
@@ -54,7 +56,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **IMPLEMENTATION_IN_PROGRESS** | `g010` |
+| G010 | Config v2 assignments, configured fallback, production child workflows, and real-provider release gate | **RELEASE_READY** | `g010` |
 
 ## Current Project-local Contract Coverage
 
@@ -72,7 +74,7 @@ three providers and new/existing root-barrier failure plus retry projections.
 
 ## Historical G009 Integrated v0.1 Gate Evidence
 
-Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. It remains historical and does not satisfy any unchecked G010 item.
+Historical integrated-gate evidence is **HISTORICAL_GATE_PASS_NON_PRODUCTION**. It retains the exact 17 load-bearing command registry/binary golden, truthful schema-list v1 rejection, all 25 schema/example pairs and assets, fake/offline canonical lineage evidence, subprocess crash proof, and the full domain, security, publication, cancellation, and fallback suites. It remains historical and did not by itself satisfy G010; the completed G010 items rely on the current evidence recorded in the normative implementation checklist.
 
 The retained historical G009 narrative records the controlled Kimi tuple `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default` and the original receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27` and raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. The append-only external ledger remains the evidence authority; development evidence is not retained in this repository. This is historical qualification evidence for the recorded G009 run, not a current product-support boundary. G0 provider-family evidence for `kimi`, `zcode`, and `agy` remains separate. `darwin-arm64` remains the sole supported platform; all intended-future platforms remain unsupported and release-ineligible.
 
@@ -80,8 +82,8 @@ The controlled provider attempt history also records two later opt-in retries on
 
 ## Readiness and Publication Boundary
 
-The recorded G001–G009 evidence is historical. G010 is **IMPLEMENTATION_IN_PROGRESS** and this report does not claim release readiness. Future platforms remain unsupported and release-ineligible.
+The recorded G001–G009 evidence is historical. G010 is **RELEASE_READY** on the supported `darwin-arm64` platform after direct 12-route qualification health, recovery-aware full workflow E2E, and the exact final-tree `make test` passed on 2026-07-26. Future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.10.0 reports remain historical baselines. SOT 1.11.0 promotes runtime diagnostics without closing G010; current checksums and the implementation checklist are authoritative for this revision.
+The 1.0.0 through 1.11.0 reports remain historical baselines. SOT 1.12.0 separates direct provider-health evidence from recovery-aware workflow acceptance without changing CLI, Config v2, or P2 schemas; current checksums and the implementation checklist are authoritative for this revision.

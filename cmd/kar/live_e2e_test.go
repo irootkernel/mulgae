@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -45,13 +46,15 @@ type liveCommandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind              string          `json:"kind"`
-		SessionID         *string         `json:"session_id"`
-		RunID             *string         `json:"run_id"`
-		RunManifestURI    *string         `json:"run_manifest_uri"`
-		ReviewArtifactURI *string         `json:"review_artifact_uri"`
-		Policy            json.RawMessage `json:"policy"`
-		Doctor            json.RawMessage `json:"doctor"`
+		Kind                string          `json:"kind"`
+		SessionID           *string         `json:"session_id"`
+		RunID               *string         `json:"run_id"`
+		RunManifestURI      *string         `json:"run_manifest_uri"`
+		ReviewArtifactURI   *string         `json:"review_artifact_uri"`
+		FollowupArtifactURI *string         `json:"followup_artifact_uri"`
+		PromptManifestURI   *string         `json:"prompt_manifest_uri"`
+		Policy              json.RawMessage `json:"policy"`
+		Doctor              json.RawMessage `json:"doctor"`
 	} `json:"result"`
 	Reasons []liveReason `json:"reasons"`
 }
@@ -89,6 +92,7 @@ type liveFailure struct {
 }
 
 type liveManifest struct {
+	SessionID            string        `json:"session_id"`
 	RunID                string        `json:"run_id"`
 	RunType              string        `json:"run_type"`
 	State                string        `json:"state"`
@@ -100,6 +104,9 @@ type liveManifest struct {
 	PublicationStatus    string        `json:"publication_status"`
 	PublicationAuthority string        `json:"publication_authority"`
 	ExitCode             int           `json:"exit_code"`
+	FinalReview          struct {
+		Path string `json:"path"`
+	} `json:"final_review"`
 }
 
 type liveRoleOutcome struct {
@@ -136,6 +143,12 @@ type liveInvocationStatus struct {
 	ProcessState string `json:"process_state"`
 	StartedAt    string `json:"started_at"`
 	CompletedAt  string `json:"completed_at"`
+}
+
+type liveRuntimeEvent struct {
+	Event    string `json:"event"`
+	Provider string `json:"provider"`
+	Outcome  string `json:"outcome"`
 }
 
 type liveE2ELogScope struct {
@@ -175,54 +188,34 @@ func TestE2EActualProvidersSixConcurrentPrimaryLanes(t *testing.T) {
 	doctorResult := runLiveKAR(t, validator, environment, project, 4, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
-	expected := map[string]string{
-		"logic": "kimi-logic", "security": "zcode-security", "maintainability": "zcode-maintainability",
-		"product": "zcode-product", "documentation": "agy-documentation", "testing": "zcode-testing",
+	expected := map[string][2]string{
+		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"},
+		"maintainability": {"zcode-maintainability", "agy-maintainability"}, "product": {"zcode-product", "agy-product"},
+		"documentation": {"agy-documentation", "zcode-documentation"}, "testing": {"zcode-testing", "agy-testing"},
 	}
-	run := runLiveFocusedPrimaryWorkflow(t, validator, environment, project, expected,
+	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
 		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the KAR contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one kar-provider-review-output.v3 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
-	assertLivePrimaryAssignments(t, run, expected)
-	assertLiveRoleFinding(t, run, "security", "zcode-security")
+	assertLiveRecoverableAssignments(t, run, expected)
+	securityProvider := requireLiveSelectedProvider(t, run, "security")
+	assertLiveRoleFinding(t, run, "security", securityProvider)
+	runLiveChildProductionWorkflows(t, validator, environment, project, run)
 	scenario.status = "passed"
 }
 
-// runLiveFullProductionWorkflows retains the full G010 workflow scenario while
-// T05 stabilizes the focused six-instance lane gate. It is deliberately not
-// a Test function and therefore cannot enter test-e2e until explicitly restored.
-func runLiveFullProductionWorkflows(t *testing.T) {
+func runLiveChildProductionWorkflows(
+	t *testing.T,
+	validator *jsonschema.Validator,
+	environment liveE2EEnvironment,
+	project string,
+	root livePublishedRun,
+) {
 	t.Helper()
-	environment := requireLiveE2EEnvironment(t)
-	validator := newLiveE2EValidator(t)
-	project := initializeLiveE2ERepository(t)
-
-	initResult := runLiveKAR(t, validator, environment, project, 0, liveInitArguments(environment, "kimi,zcode,agy")...)
-	if initResult.Result.Kind != "initialized" {
-		t.Fatalf("init result kind = %q", initResult.Result.Kind)
-	}
-
-	configResult := runLiveKAR(t, validator, environment, project, 0, "config", "--output", "json")
-	assertLiveConfigMatrix(t, configResult.Result.Policy)
-	doctorResult := runLiveKAR(t, validator, environment, project, 4, "doctor", "--output", "json")
-	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
-
-	root := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
-		"review", "--dirty",
-		"--objective", "Review the deliberate directory traversal in report.go. The security role must report the unvalidated user-controlled path as a verified finding; every role must return a schema-valid result.",
-		"--roles", "logic,security,maintainability,product,documentation,testing",
-		"--output", "json",
-	)
-	assertLiveAssignments(t, root, map[string][2]string{
-		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"}, "maintainability": {"zcode-maintainability", "agy-maintainability"},
-		"product": {"zcode-product", "agy-product"}, "documentation": {"agy-documentation", "zcode-documentation"}, "testing": {"zcode-testing", "agy-testing"},
-	})
-	if len(root.review.Findings) == 0 {
-		t.Fatal("six-role review produced no source finding for the deliberate directory traversal")
-	}
-	sourceFinding := root.review.Findings[0]
-	sourceAttempt := requireLiveSelectedAttempt(t, root, "logic")
+	securityProvider := requireLiveSelectedProvider(t, root, "security")
+	sourceFinding := requireLiveFinding(t, root, "security", securityProvider)
+	sourceAttempt := requireLiveSelectedAttempt(t, root, "documentation")
 
 	writeLiveFixedReportPath(t, project)
 	followup := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
@@ -254,7 +247,7 @@ func runLiveFullProductionWorkflows(t *testing.T) {
 		"--replay", "recompose", "--output", "json",
 	)
 	assertLiveSourceLineage(t, recompose, root, "", "recompose")
-	assertLiveAssignments(t, recompose, map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}})
+	assertLiveAssignments(t, recompose, map[string][2]string{"documentation": {"agy-documentation", "zcode-documentation"}})
 }
 
 func liveInitArguments(environment liveE2EEnvironment, providers string) []string {
@@ -307,29 +300,66 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 		agyDefault = found
 	}
 	agy := requireLiveExecutable(t, "KAR_E2E_AGY_EXECUTABLE", agyDefault)
-	kimiDataHome := envOrDefault("KAR_E2E_KIMI_DATA_HOME", filepath.Join(installed.HomeDir, ".kimi-code"))
-	if info, statErr := os.Stat(kimiDataHome); statErr != nil || !info.IsDir() {
-		t.Fatalf("Kimi native data home is unavailable: %q: %v", kimiDataHome, statErr)
-	}
+	kimiDataHome := requireLiveDirectory(t, "KAR_E2E_KIMI_DATA_HOME", filepath.Join(installed.HomeDir, ".kimi-code"))
 	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, kimi: kimi, kimiDataHome: kimiDataHome, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, agy: agy}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
 	t.Helper()
+	path, err := resolveLiveExecutable(environmentName, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func resolveLiveExecutable(environmentName, fallback string) (string, error) {
 	path := envOrDefault(environmentName, fallback)
 	if !filepath.IsAbs(path) {
 		resolved, err := filepath.Abs(path)
 		if err != nil {
-			t.Fatalf("%s is not resolvable: %q: %v", environmentName, path, err)
+			return "", fmt.Errorf("%s is not resolvable: %q: %w", environmentName, path, err)
 		}
 		path = resolved
 	}
 	path = filepath.Clean(path)
 	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-		t.Fatalf("%s is not an executable file: %q: %v", environmentName, path, err)
+	if err != nil {
+		return "", fmt.Errorf("%s is not an executable file: %q: %w", environmentName, path, err)
+	}
+	if info.IsDir() || info.Mode()&0o111 == 0 {
+		return "", fmt.Errorf("%s is not an executable file: %q", environmentName, path)
+	}
+	return path, nil
+}
+
+func requireLiveDirectory(t *testing.T, environmentName, fallback string) string {
+	t.Helper()
+	path, err := resolveLiveDirectory(environmentName, fallback)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return path
+}
+
+func resolveLiveDirectory(environmentName, fallback string) (string, error) {
+	path := envOrDefault(environmentName, fallback)
+	if !filepath.IsAbs(path) {
+		resolved, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("%s is not resolvable: %q: %w", environmentName, path, err)
+		}
+		path = resolved
+	}
+	path = filepath.Clean(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("%s is not a directory: %q: %w", environmentName, path, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory: %q", environmentName, path)
+	}
+	return path, nil
 }
 
 func lookupLiveExecutable(t *testing.T, name string) string {
@@ -482,22 +512,22 @@ func runLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, env
 	return loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
 }
 
-func runLiveFocusedPrimaryWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, arguments ...string) livePublishedRun {
+func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string][2]string, arguments ...string) livePublishedRun {
 	t.Helper()
 	const maxAttempts = 3
 	var last string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		run, status, reason := runLiveFocusedPrimaryAttempt(t, validator, environment, project, expected, attempt, maxAttempts, arguments...)
+		run, status, reason := runLiveRecoverableAttempt(t, validator, environment, project, expected, attempt, maxAttempts, arguments...)
 		if status == "passed" {
 			return run
 		}
 		last = reason
 	}
-	t.Fatalf("focused live provider gate did not produce one primary-only run after %d attempts: %s", maxAttempts, last)
+	t.Fatalf("live provider gate did not produce one recoverable full-workflow root after %d attempts: %s", maxAttempts, last)
 	return livePublishedRun{}
 }
 
-func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
+func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string][2]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
 	t.Helper()
 	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=six-concurrent-primary-lanes attempt=%d/%d", attempt, maxAttempts))
 	defer scope.end()
@@ -507,13 +537,7 @@ func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator,
 		t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
 	}
 	if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
-		boundedMissingFrameRetry := liveMissingFrameQualificationRetryAuthority(envelope, diagnosticCauses)
-		retryableProviderResult := liveReasonPresent(envelope, "provider_execution_failed") ||
-			liveReasonPresent(envelope, "readiness_unverified") ||
-			liveRetryableReasonPresent(envelope, "provider_qualification_failed") || boundedMissingFrameRetry
-		allowedRetryExit := envelope.Exit.Kind == "internal" || envelope.Exit.Kind == "readiness" ||
-			boundedMissingFrameRetry && envelope.Exit.Kind == "security"
-		if !retryableProviderResult || !allowedRetryExit {
+		if !liveFocusedAttemptRetryable(envelope, diagnosticCauses) {
 			t.Fatalf("focused live attempt %d stopped without retry authority: exit=%#v reasons=%#v result=%#v", attempt, envelope.Exit, envelope.Reasons, envelope.Result)
 		}
 		reason = fmt.Sprintf("non-P2 %s: %#v", envelope.Exit.Kind, envelope.Reasons)
@@ -525,23 +549,29 @@ func runLiveFocusedPrimaryAttempt(t *testing.T, validator *jsonschema.Validator,
 		return livePublishedRun{}, scope.status, reason
 	}
 	run = loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
-	if err := validateLivePrimaryLaunchesAndOutcomes(run, expected); err != nil {
+	if err := validateLiveProviderQualificationHealth(project, run, expected); err != nil {
+		t.Fatalf("focused live attempt %d has invalid provider-health evidence: %v", attempt, err)
+	}
+	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
 		reason = err.Error()
-	} else if !liveRoleFindingPresent(run, "security", "zcode-security") {
-		reason = "successful primaries did not publish the required ZCode security finding"
-	} else if overlap, overlapErr := validateLivePrimaryProcessOverlap(project, run, expected); overlapErr != nil {
+	} else if provider, providerErr := liveSelectedProvider(run, "security"); providerErr != nil {
+		reason = providerErr.Error()
+	} else if !liveRoleFindingPresent(run, "security", provider) {
+		reason = fmt.Sprintf("selected security provider %s did not publish the required finding", provider)
+	} else if overlap, overlapErr := validateLivePrimaryProcessOverlap(project, run, livePrimaryAssignments(expected)); overlapErr != nil {
 		t.Fatalf("focused live attempt %d has invalid process diagnostics: %v", attempt, overlapErr)
 	} else if overlap {
+		logLiveRecoverySelections(t, run)
 		scope.status = "passed"
 		return run, scope.status, ""
 	} else {
-		reason = "six successful primary process intervals had no common overlap"
+		reason = "six initial primary process intervals had no common overlap"
 	}
 	scope.status = "retry_gate"
 	if attempt == maxAttempts {
 		scope.status = "failed"
 	}
-	t.Logf("focused live attempt %d/%d did not satisfy the six-lane primary gate; retrying the whole review: %s", attempt, maxAttempts, reason)
+	t.Logf("focused live attempt %d/%d did not satisfy the recoverable six-lane gate; retrying the whole review: %s", attempt, maxAttempts, reason)
 	return livePublishedRun{}, scope.status, reason
 }
 
@@ -626,6 +656,16 @@ func liveRetryableReasonPresent(envelope liveCommandEnvelope, code string) bool 
 	return false
 }
 
+func liveFocusedAttemptRetryable(envelope liveCommandEnvelope, diagnosticCauses []string) bool {
+	boundedMissingFrameRetry := liveMissingFrameQualificationRetryAuthority(envelope, diagnosticCauses)
+	retryableProviderResult := liveReasonPresent(envelope, "provider_execution_failed") ||
+		liveReasonPresent(envelope, "readiness_unverified") ||
+		liveRetryableReasonPresent(envelope, "provider_qualification_failed") || boundedMissingFrameRetry
+	allowedRetryExit := envelope.Exit.Kind == "internal" || envelope.Exit.Kind == "readiness" ||
+		boundedMissingFrameRetry && envelope.Exit.Kind == "security"
+	return retryableProviderResult && allowedRetryExit
+}
+
 func TestLiveRetryableReasonRequiresMatchingCodeAndAuthority(t *testing.T) {
 	t.Parallel()
 	envelope := liveCommandEnvelope{}
@@ -674,20 +714,177 @@ func TestLiveMissingFrameQualificationRetryAuthorityIsNarrow(t *testing.T) {
 	}
 }
 
+func TestLivePrerequisitePathsFailClosed(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "provider")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nonExecutable := filepath.Join(root, "not-executable")
+	if err := os.WriteFile(nonExecutable, []byte("provider\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		path  string
+		valid bool
+	}{
+		{name: "executable", path: executable, valid: true},
+		{name: "missing", path: filepath.Join(root, "missing")},
+		{name: "directory", path: root},
+		{name: "non-executable", path: nonExecutable},
+	} {
+		t.Run("executable/"+test.name, func(t *testing.T) {
+			t.Setenv("KAR_E2E_TEST_EXECUTABLE", test.path)
+			_, err := resolveLiveExecutable("KAR_E2E_TEST_EXECUTABLE", "")
+			if (err == nil) != test.valid {
+				t.Fatalf("resolveLiveExecutable(%q) error = %v, valid=%t", test.path, err, test.valid)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name  string
+		path  string
+		valid bool
+	}{
+		{name: "directory", path: root, valid: true},
+		{name: "missing", path: filepath.Join(root, "missing")},
+		{name: "file", path: executable},
+	} {
+		t.Run("directory/"+test.name, func(t *testing.T) {
+			t.Setenv("KAR_E2E_TEST_DIRECTORY", test.path)
+			_, err := resolveLiveDirectory("KAR_E2E_TEST_DIRECTORY", "")
+			if (err == nil) != test.valid {
+				t.Fatalf("resolveLiveDirectory(%q) error = %v, valid=%t", test.path, err, test.valid)
+			}
+		})
+	}
+}
+
+func TestLiveUnavailableWorkflowStagesDoNotGainRetryAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		exitKind string
+		reason   liveReason
+		causes   []string
+		retry    bool
+	}{
+		{name: "provider execution transient", exitKind: "internal", reason: liveReason{Code: "provider_execution_failed"}, retry: true},
+		{name: "readiness transient", exitKind: "readiness", reason: liveReason{Code: "readiness_unverified"}, retry: true},
+		{name: "qualified transient", exitKind: "readiness", reason: liveReason{Code: "provider_qualification_failed", Retryable: true}, retry: true},
+		{name: "login required", exitKind: "readiness", reason: liveReason{Code: "provider_login_required"}},
+		{name: "configuration unavailable", exitKind: "configuration", reason: liveReason{Code: "configuration_invalid"}},
+		{name: "artifact unavailable", exitKind: "artifact", reason: liveReason{Code: "artifact_unavailable"}},
+		{name: "security rejected", exitKind: "security", reason: liveReason{Category: "security", Code: "security_rejected"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			envelope := liveCommandEnvelope{Reasons: []liveReason{test.reason}}
+			envelope.Exit.Kind = test.exitKind
+			if got := liveFocusedAttemptRetryable(envelope, test.causes); got != test.retry {
+				t.Fatalf("liveFocusedAttemptRetryable() = %t, want %t for %#v", got, test.retry, envelope)
+			}
+		})
+	}
+}
+
+func TestLiveChildWorkflowRequiresCommittedIdentity(t *testing.T) {
+	sessionID := "s_019f5a09-5eec-7001-8001-000000000001"
+	runID := "r_019f5a09-5eec-7001-8001-000000000001"
+	complete := liveCommandEnvelope{}
+	complete.Result.SessionID = &sessionID
+	complete.Result.RunID = &runID
+	if err := validateLivePublishedEnvelope(complete); err != nil {
+		t.Fatalf("complete child identity rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*liveCommandEnvelope)
+	}{
+		{name: "missing session", mutate: func(value *liveCommandEnvelope) { value.Result.SessionID = nil }},
+		{name: "missing run", mutate: func(value *liveCommandEnvelope) { value.Result.RunID = nil }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := complete
+			test.mutate(&candidate)
+			if err := validateLivePublishedEnvelope(candidate); err == nil {
+				t.Fatal("incomplete child workflow envelope was accepted")
+			}
+		})
+	}
+}
+
+func TestLiveArtifactURINormalizationIsProjectBound(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	artifact := filepath.Join(project, ".kar", "session", "manifest.json")
+	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifact, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		".kar/session/manifest.json",
+		(&url.URL{Scheme: "file", Path: artifact}).String(),
+	} {
+		got, err := normalizeLiveArtifactURI(project, value)
+		if err != nil || got != ".kar/session/manifest.json" {
+			t.Fatalf("normalizeLiveArtifactURI(%q) = %q, %v", value, got, err)
+		}
+	}
+	for _, value := range []string{
+		"../manifest.json",
+		"file://remote.example/private/manifest.json",
+		(&url.URL{Scheme: "file", Path: filepath.Join(filepath.Dir(project), "outside.json")}).String(),
+	} {
+		if _, err := normalizeLiveArtifactURI(project, value); err == nil {
+			t.Fatalf("unsafe artifact URI %q was accepted", value)
+		}
+	}
+}
+
 func loadLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, project string, envelope liveCommandEnvelope, command string) livePublishedRun {
 	t.Helper()
-	if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
-		t.Fatalf("kar %s did not return committed P2 URIs: exit=%#v reasons=%#v result=%#v", command, envelope.Exit, envelope.Reasons, envelope.Result)
+	if err := validateLivePublishedEnvelope(envelope); err != nil {
+		t.Fatalf("kar %s did not return a committed child identity: %v; exit=%#v reasons=%#v result=%#v", command, err, envelope.Exit, envelope.Reasons, envelope.Result)
 	}
-	manifestBytes := readLiveArtifact(t, project, *envelope.Result.RunManifestURI)
-	reviewBytes := readLiveArtifact(t, project, *envelope.Result.ReviewArtifactURI)
+	manifestURI := fmt.Sprintf(".kar/%s/%s/manifest.json", *envelope.Result.SessionID, *envelope.Result.RunID)
+	if envelope.Result.RunManifestURI != nil && *envelope.Result.RunManifestURI != manifestURI {
+		t.Fatalf("kar %s returned non-canonical manifest URI %q, want %q", command, *envelope.Result.RunManifestURI, manifestURI)
+	}
+	manifestBytes := readLiveArtifact(t, project, manifestURI)
 	validateLiveJSON(t, validator, liveManifestSchema, manifestBytes, command+" run manifest")
-	validateLiveJSON(t, validator, liveReviewSchema, reviewBytes, command+" review artifact")
 	var manifest liveManifest
-	var review liveReview
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatalf("decode %s manifest: %v", command, err)
 	}
+	if manifest.SessionID != *envelope.Result.SessionID || manifest.RunID != *envelope.Result.RunID || manifest.FinalReview.Path == "" {
+		t.Fatalf("%s manifest identity/final review is incomplete: %#v", command, manifest)
+	}
+	reviewURI := ".kar/" + manifest.FinalReview.Path
+	suppliedReviewURI := envelope.Result.ReviewArtifactURI
+	if command == "followup" {
+		suppliedReviewURI = envelope.Result.FollowupArtifactURI
+	}
+	if suppliedReviewURI != nil {
+		normalized, err := normalizeLiveArtifactURI(project, *suppliedReviewURI)
+		if err != nil || normalized != reviewURI {
+			t.Fatalf("kar %s returned final review URI %q, want %q: %v", command, *suppliedReviewURI, reviewURI, err)
+		}
+	}
+	if (command == "review" || command == "delta" || command == "followup") && suppliedReviewURI == nil {
+		t.Fatalf("kar %s omitted its contract-defined final review URI", command)
+	}
+	if command == "rerun" {
+		if envelope.Result.PromptManifestURI == nil {
+			t.Fatal("kar rerun omitted its contract-defined prompt manifest URI")
+		}
+		_ = readLiveArtifact(t, project, *envelope.Result.PromptManifestURI)
+	}
+	reviewBytes := readLiveArtifact(t, project, reviewURI)
+	validateLiveJSON(t, validator, liveReviewSchema, reviewBytes, command+" review artifact")
+	var review liveReview
 	if err := json.Unmarshal(reviewBytes, &review); err != nil {
 		t.Fatalf("decode %s review: %v", command, err)
 	}
@@ -700,16 +897,51 @@ func loadLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, pr
 	return livePublishedRun{envelope: envelope, manifest: manifest, review: review}
 }
 
+func validateLivePublishedEnvelope(envelope liveCommandEnvelope) error {
+	if envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
+		return fmt.Errorf("committed P2 session or run identity is absent")
+	}
+	return nil
+}
+
 func readLiveArtifact(t *testing.T, project, uri string) []byte {
 	t.Helper()
-	if filepath.IsAbs(uri) || filepath.Clean(uri) != uri || !strings.HasPrefix(uri, ".kar/") {
-		t.Fatalf("unsafe live artifact URI %q", uri)
+	normalized, err := normalizeLiveArtifactURI(project, uri)
+	if err != nil {
+		t.Fatalf("unsafe live artifact URI %q: %v", uri, err)
 	}
-	value, err := os.ReadFile(filepath.Join(project, uri))
+	value, err := os.ReadFile(filepath.Join(project, normalized))
 	if err != nil {
 		t.Fatalf("read live artifact %q: %v", uri, err)
 	}
 	return value
+}
+
+func normalizeLiveArtifactURI(project, uri string) (string, error) {
+	if !filepath.IsAbs(uri) && filepath.Clean(uri) == uri && strings.HasPrefix(uri, ".kar/") {
+		return filepath.ToSlash(uri), nil
+	}
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != "file" || parsed.Host != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !filepath.IsAbs(parsed.Path) {
+		return "", fmt.Errorf("URI is not a local artifact path")
+	}
+	projectPath, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		return "", fmt.Errorf("resolve project: %w", err)
+	}
+	artifactPath, err := filepath.EvalSymlinks(parsed.Path)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact: %w", err)
+	}
+	relative, err := filepath.Rel(projectPath, artifactPath)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("artifact is outside the live project")
+	}
+	relative = filepath.ToSlash(relative)
+	if !strings.HasPrefix(relative, ".kar/") {
+		return "", fmt.Errorf("artifact is outside the private publication root")
+	}
+	return relative, nil
 }
 
 func validateLiveJSON(t *testing.T, validator *jsonschema.Validator, schema string, value []byte, label string) {
@@ -775,6 +1007,82 @@ func assertLiveSixLaneConfig(t *testing.T, project string) {
 	}
 }
 
+func validateLiveProviderQualificationHealth(project string, run livePublishedRun, expected map[string][2]string) error {
+	if run.envelope.Result.SessionID == nil || run.envelope.Result.RunID == nil {
+		return fmt.Errorf("run has no diagnostic identity")
+	}
+	path := filepath.Join(project, ".kar", "diagnostics", *run.envelope.Result.SessionID, *run.envelope.Result.RunID, "kar-runtime.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read runtime diagnostic log: %w", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	events := make([]liveRuntimeEvent, 0, len(lines))
+	for index, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var event liveRuntimeEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			return fmt.Errorf("decode runtime diagnostic event %d: %w", index+1, err)
+		}
+		events = append(events, event)
+	}
+	return validateLiveQualificationEvents(events, expected)
+}
+
+func validateLiveQualificationEvents(events []liveRuntimeEvent, expected map[string][2]string) error {
+	candidates := make(map[string]struct{}, len(expected)*2)
+	for role, providers := range expected {
+		for _, provider := range providers {
+			if provider == "" {
+				return fmt.Errorf("%s has an empty qualification candidate", role)
+			}
+			if _, duplicate := candidates[provider]; duplicate {
+				return fmt.Errorf("qualification candidate %s is assigned more than once", provider)
+			}
+			candidates[provider] = struct{}{}
+		}
+	}
+	lastOutcome := make(map[string]string, len(candidates))
+	qualified := make(map[string]bool, len(candidates))
+	qualificationSucceeded := 0
+	for _, event := range events {
+		switch event.Event {
+		case "qualification_candidate_checked":
+			if _, ok := candidates[event.Provider]; !ok {
+				return fmt.Errorf("unexpected qualification candidate %q", event.Provider)
+			}
+			if event.Outcome != "qualified" && event.Outcome != "rejected" {
+				return fmt.Errorf("qualification candidate %s has invalid outcome %q", event.Provider, event.Outcome)
+			}
+			lastOutcome[event.Provider] = event.Outcome
+			if event.Outcome == "qualified" {
+				qualified[event.Provider] = true
+			}
+		case "qualification_succeeded":
+			qualificationSucceeded++
+		}
+	}
+	if qualificationSucceeded != 1 {
+		return fmt.Errorf("qualification_succeeded cardinality = %d, want 1", qualificationSucceeded)
+	}
+	for provider := range candidates {
+		if !qualified[provider] || lastOutcome[provider] != "qualified" {
+			return fmt.Errorf("qualification candidate %s did not finish qualified: last=%q", provider, lastOutcome[provider])
+		}
+	}
+	return nil
+}
+
+func livePrimaryAssignments(expected map[string][2]string) map[string]string {
+	primaries := make(map[string]string, len(expected))
+	for role, providers := range expected {
+		primaries[role] = providers[0]
+	}
+	return primaries
+}
+
 func validateLivePrimaryProcessOverlap(project string, run livePublishedRun, expected map[string]string) (bool, error) {
 	if run.envelope.Result.SessionID == nil || run.envelope.Result.RunID == nil {
 		return false, fmt.Errorf("run has no diagnostic identity")
@@ -813,12 +1121,12 @@ func validateLivePrimaryProcessOverlap(project string, run livePublishedRun, exp
 }
 
 func liveTerminalProcessState(state string) bool {
-	return state == "succeeded" || state == "failed"
+	return state == "succeeded" || state == "failed" || state == "timed_out"
 }
 
 func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"succeeded", "failed"} {
+	for _, state := range []string{"succeeded", "failed", "timed_out"} {
 		if !liveTerminalProcessState(state) {
 			t.Fatalf("terminal process state %q was rejected", state)
 		}
@@ -877,8 +1185,8 @@ func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[stri
 				break
 			}
 		}
-		if outcome == nil || outcome.Outcome != "completed" || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
-			t.Fatalf("%s role outcome is not completed: %#v", role, outcome)
+		if outcome == nil || !liveSuccessfulRoleOutcome(outcome.Outcome) || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
+			t.Fatalf("%s role outcome is not a successful product outcome: %#v", role, outcome)
 		}
 		if len(attempts) == 0 || attempts[0].ProviderInstance != providers[0] || attempts[0].SelectedAs != "primary" {
 			t.Fatalf("%s primary attempt does not bind %s: %#v", role, providers[0], attempts)
@@ -899,58 +1207,194 @@ func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[stri
 	}
 }
 
-func assertLivePrimaryAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
+func assertLiveRecoverableAssignments(t *testing.T, run livePublishedRun, expected map[string][2]string) {
 	t.Helper()
-	if err := validateLivePrimaryLaunchesAndOutcomes(run, expected); err != nil {
+	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// validateLivePrimaryLaunchesAndOutcomes verifies the concurrency contract:
-// every configured primary was launched exactly once and every role reached a
-// selected successful terminal attempt. Provider-output repair and fallback
-// are valid runtime behavior and do not negate primary process concurrency.
-func validateLivePrimaryLaunchesAndOutcomes(run livePublishedRun, expected map[string]string) error {
+// validateLiveRecoverableAssignments keeps direct primary launch mandatory but
+// accepts bounded repair or the exact configured fallback as the selected P2
+// outcome. Eligibility for fallback remains a deterministic coordinator policy
+// tested below the live-provider boundary.
+func validateLiveRecoverableAssignments(run livePublishedRun, expected map[string][2]string) error {
 	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
 		return fmt.Errorf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
 	}
-	providers := make(map[string]struct{}, len(expected))
-	for role, provider := range expected {
+	selectedRoles := make(map[string]bool, len(run.manifest.SelectedRoles))
+	for _, role := range run.manifest.SelectedRoles {
+		if selectedRoles[role] {
+			return fmt.Errorf("selected role %s is duplicated", role)
+		}
+		selectedRoles[role] = true
+	}
+	for role, providers := range expected {
+		if !selectedRoles[role] {
+			return fmt.Errorf("selected role %s is absent", role)
+		}
 		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
-		primary, ok := livePrimaryAttempt(attempts, provider)
-		if !ok || primary.InvocationCount < 1 || primary.InvocationCount > 2 {
-			return fmt.Errorf("%s primary launch mismatch: %#v, want one %s primary with one initial and at most one repair invocation", role, attempts, provider)
+		if len(attempts) < 1 || len(attempts) > 2 {
+			return fmt.Errorf("%s attempt cardinality = %d, want primary and at most one fallback: %#v", role, len(attempts), attempts)
 		}
-		if _, duplicate := providers[provider]; duplicate {
-			return fmt.Errorf("provider %s was assigned more than one focused primary role", provider)
+		primary := attempts[0]
+		if primary.ProviderInstance != providers[0] || primary.SelectedAs != "primary" || primary.InvocationCount < 1 || primary.InvocationCount > 2 {
+			return fmt.Errorf("%s primary launch mismatch: %#v, want one bounded attempt from %s", role, primary, providers[0])
 		}
-		providers[provider] = struct{}{}
 
 		var outcome *liveRoleOutcome
 		for index := range run.review.RoleOutcomes {
 			if run.review.RoleOutcomes[index].Role == role {
+				if outcome != nil {
+					return fmt.Errorf("%s role outcome is duplicated", role)
+				}
 				outcome = &run.review.RoleOutcomes[index]
-				break
 			}
 		}
 		if outcome == nil || outcome.Outcome != "completed" && outcome.Outcome != "degraded" || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
 			return fmt.Errorf("%s role has no successful terminal outcome: primary=%#v outcome=%#v", role, primary, outcome)
 		}
-		selected := false
-		for _, attempt := range attempts {
-			if attempt.AttemptID == *outcome.AttemptID && attempt.ProviderInstance == *outcome.ProviderInstance && attempt.State == "succeeded" && attempt.SelectedAs == *outcome.SelectedVia {
-				selected = true
-				break
+		switch *outcome.SelectedVia {
+		case "primary":
+			if len(attempts) != 1 || primary.State != "succeeded" || *outcome.AttemptID != primary.AttemptID || *outcome.ProviderInstance != providers[0] {
+				return fmt.Errorf("%s selected primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
 			}
+		case "fallback":
+			if len(attempts) != 2 || !liveFallbackEligibleTerminalState(primary.State) {
+				return fmt.Errorf("%s fallback did not follow one terminal primary failure: attempts=%#v outcome=%#v", role, attempts, outcome)
+			}
+			fallback := attempts[1]
+			if fallback.ProviderInstance != providers[1] || fallback.SelectedAs != "fallback" || fallback.State != "succeeded" ||
+				fallback.InvocationCount < 1 || fallback.InvocationCount > 2 || *outcome.AttemptID != fallback.AttemptID || *outcome.ProviderInstance != providers[1] {
+				return fmt.Errorf("%s selected fallback outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
+			}
+		default:
+			return fmt.Errorf("%s selected_via = %q", role, *outcome.SelectedVia)
 		}
-		if !selected {
-			return fmt.Errorf("%s selected outcome does not bind a successful primary or fallback: attempts=%#v outcome=%#v", role, attempts, outcome)
-		}
-	}
-	if len(providers) != len(expected) {
-		return fmt.Errorf("focused run used %d independent providers, want %d: %v", len(providers), len(expected), providers)
 	}
 	return nil
+}
+
+func liveFallbackEligibleTerminalState(state string) bool {
+	return state == "failed" || state == "timed_out" || state == "blocked"
+}
+
+func liveSelectedProvider(run livePublishedRun, role string) (string, error) {
+	for _, outcome := range run.review.RoleOutcomes {
+		if outcome.Role == role && outcome.ProviderInstance != nil && outcome.AttemptID != nil && outcome.SelectedVia != nil &&
+			(outcome.Outcome == "completed" || outcome.Outcome == "degraded") {
+			return *outcome.ProviderInstance, nil
+		}
+	}
+	return "", fmt.Errorf("role %s has no selected successful provider", role)
+}
+
+func requireLiveSelectedProvider(t *testing.T, run livePublishedRun, role string) string {
+	t.Helper()
+	provider, err := liveSelectedProvider(run, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return provider
+}
+
+func logLiveRecoverySelections(t *testing.T, run livePublishedRun) {
+	t.Helper()
+	for _, outcome := range run.review.RoleOutcomes {
+		if outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
+			continue
+		}
+		t.Logf("[test-e2e] role=%s provider=%s selected_via=%s outcome=%s", outcome.Role, *outcome.ProviderInstance, *outcome.SelectedVia, outcome.Outcome)
+	}
+}
+
+func TestLiveRecoverableAssignmentGate(t *testing.T) {
+	t.Parallel()
+	expected := map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}}
+	primaryRun := func(invocations int) livePublishedRun {
+		attemptID, provider, selectedVia := "a_primary", "kimi-logic", "primary"
+		return livePublishedRun{
+			manifest: liveManifest{SelectedRoles: []string{"logic"}, Attempts: []liveAttempt{{
+				AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "primary", State: "succeeded", InvocationCount: invocations,
+			}}},
+			review: liveReview{RoleOutcomes: []liveRoleOutcome{{
+				Role: "logic", Outcome: "completed", AttemptID: &attemptID, ProviderInstance: &provider, SelectedVia: &selectedVia,
+			}}},
+		}
+	}
+	fallbackRun := func(primaryState, fallbackProvider string, fallbackInvocations int) livePublishedRun {
+		attemptID, provider, selectedVia := "a_fallback", fallbackProvider, "fallback"
+		return livePublishedRun{
+			manifest: liveManifest{SelectedRoles: []string{"logic"}, Attempts: []liveAttempt{
+				{AttemptID: "a_primary", Role: "logic", ProviderInstance: "kimi-logic", SelectedAs: "primary", State: primaryState, InvocationCount: 2},
+				{AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "fallback", State: "succeeded", InvocationCount: fallbackInvocations},
+			}},
+			review: liveReview{RoleOutcomes: []liveRoleOutcome{{
+				Role: "logic", Outcome: "degraded", AttemptID: &attemptID, ProviderInstance: &provider, SelectedVia: &selectedVia,
+			}}},
+		}
+	}
+	for _, test := range []struct {
+		name string
+		run  livePublishedRun
+		want bool
+	}{
+		{name: "initial primary", run: primaryRun(1), want: true},
+		{name: "primary repair", run: primaryRun(2), want: true},
+		{name: "configured fallback", run: fallbackRun("failed", "zcode-logic", 1), want: true},
+		{name: "fallback repair", run: fallbackRun("timed_out", "zcode-logic", 2), want: true},
+		{name: "wrong fallback", run: fallbackRun("failed", "agy-logic", 1)},
+		{name: "fallback after successful primary", run: fallbackRun("succeeded", "zcode-logic", 1)},
+		{name: "fallback invocation overflow", run: fallbackRun("failed", "zcode-logic", 3)},
+		{name: "primary invocation overflow", run: primaryRun(3)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateLiveRecoverableAssignments(test.run, expected); (err == nil) != test.want {
+				t.Fatalf("validateLiveRecoverableAssignments() error = %v, want success=%t", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLiveQualificationHealthGate(t *testing.T) {
+	t.Parallel()
+	expected := map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}}
+	qualified := func(provider string) liveRuntimeEvent {
+		return liveRuntimeEvent{Event: "qualification_candidate_checked", Provider: provider, Outcome: "qualified"}
+	}
+	rejected := func(provider string) liveRuntimeEvent {
+		return liveRuntimeEvent{Event: "qualification_candidate_checked", Provider: provider, Outcome: "rejected"}
+	}
+	succeeded := liveRuntimeEvent{Event: "qualification_succeeded"}
+	for _, test := range []struct {
+		name   string
+		events []liveRuntimeEvent
+		want   bool
+	}{
+		{name: "all qualified", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), succeeded}, want: true},
+		{name: "retry then qualified", events: []liveRuntimeEvent{rejected("kimi-logic"), qualified("kimi-logic"), qualified("zcode-logic"), succeeded}, want: true},
+		{name: "candidate missing", events: []liveRuntimeEvent{qualified("kimi-logic"), succeeded}},
+		{name: "terminal rejection", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), rejected("zcode-logic"), succeeded}},
+		{name: "unexpected candidate", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), qualified("agy-logic"), succeeded}},
+		{name: "overall success missing", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateLiveQualificationEvents(test.events, expected); (err == nil) != test.want {
+				t.Fatalf("validateLiveQualificationEvents() error = %v, want success=%t", err, test.want)
+			}
+		})
+	}
+}
+
+func requireLiveFinding(t *testing.T, run livePublishedRun, role, provider string) liveFinding {
+	t.Helper()
+	for _, finding := range run.review.Findings {
+		if finding.Role == role && finding.ProviderInstance == provider {
+			return finding
+		}
+	}
+	t.Fatalf("focused run has no %s finding from %s: %#v", role, provider, run.review.Findings)
+	return liveFinding{}
 }
 
 func livePrimaryAttempt(attempts []liveAttempt, provider string) (liveAttempt, bool) {
@@ -991,12 +1435,16 @@ func assertLiveSourceBoundAssignment(t *testing.T, run livePublishedRun, role, p
 	if attempt.ProviderInstance != provider || attempt.SelectedAs != "primary" || attempt.State != "succeeded" {
 		t.Fatalf("source-bound %s attempt = %#v, want successful %s", role, attempt, provider)
 	}
-	if len(run.review.RoleOutcomes) != 1 || run.review.RoleOutcomes[0].Role != role || run.review.RoleOutcomes[0].Outcome != "completed" ||
+	if len(run.review.RoleOutcomes) != 1 || run.review.RoleOutcomes[0].Role != role || !liveSuccessfulRoleOutcome(run.review.RoleOutcomes[0].Outcome) ||
 		run.review.RoleOutcomes[0].AttemptID == nil || *run.review.RoleOutcomes[0].AttemptID != attempt.AttemptID ||
 		run.review.RoleOutcomes[0].ProviderInstance == nil || *run.review.RoleOutcomes[0].ProviderInstance != provider ||
 		run.review.RoleOutcomes[0].SelectedVia == nil || *run.review.RoleOutcomes[0].SelectedVia != "primary" {
 		t.Fatalf("source-bound %s outcome mismatch: %#v", role, run.review.RoleOutcomes)
 	}
+}
+
+func liveSuccessfulRoleOutcome(outcome string) bool {
+	return outcome == "completed" || outcome == "degraded"
 }
 
 func liveAttemptsForRole(attempts []liveAttempt, role string) []liveAttempt {

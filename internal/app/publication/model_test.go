@@ -190,6 +190,51 @@ func TestPreparedCandidateRejectsMalformedAndUnvalidatedBuild(t *testing.T) {
 		t.Fatal("Build accepted malformed candidate")
 	}
 }
+
+func TestRecoveredFallbackManifestRetainsFailedPrimary(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	fallbackID, err := domain.ParseAttemptID("a_019f596a-d049-79e7-b2b7-59822f012273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := &candidate.roles[0].attempts[0]
+	primary.state = domain.AttemptFailed
+	primary.invocations[0].state = domain.InvocationFailed
+	fallback := *primary
+	fallback.id = fallbackID
+	fallback.kind = review.AttemptKindFallback
+	fallback.provider = "zcode-logic"
+	fallback.state = domain.AttemptSucceeded
+	fallback.invocations = []preparedInvocation{{
+		sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded,
+	}}
+	candidate.roles[0].attempts = append(candidate.roles[0].attempts, fallback)
+	candidate.failures = []preparedFailure{{
+		class: domain.FailureInvalidOutput, stage: "review",
+		reason: string(review.AttemptConditionInvalidProviderOutput), attemptID: &primary.id,
+	}}
+
+	if err := candidate.validate(); err != nil {
+		t.Fatalf("recovered fallback candidate is invalid: %v", err)
+	}
+	bundle, err := candidate.Build(
+		context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest runManifestWire
+	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Failures) != 1 || manifest.Failures[0].AttemptID == nil ||
+		*manifest.Failures[0].AttemptID != primary.id.String() ||
+		manifest.Failures[0].ReasonCode != string(review.AttemptConditionInvalidProviderOutput) {
+		t.Fatalf("recovered fallback manifest lost failed primary: %#v", manifest.Failures)
+	}
+}
 func TestRunSupportArtifactIdentityRecognizesOnlyCanonicalPromptManifests(t *testing.T) {
 	t.Parallel()
 

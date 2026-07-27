@@ -76,42 +76,50 @@ func NewFollowupValidator(schemaValidator SchemaValidator, schemaID ports.AssetI
 }
 
 func (validator *FollowupValidator) Validate(ctx context.Context, raw []byte, scope FollowupValidationScope) (ValidatedFollowup, error) {
+	validated, _, err := validator.ValidateWithRepairAuthority(ctx, raw, scope)
+	return validated, err
+}
+
+// ValidateWithRepairAuthority reports whether one full-document reformat or
+// schema repair is allowed. Semantic, trust-boundary, and evidence failures
+// are deliberately terminal and never gain repair authority.
+func (validator *FollowupValidator) ValidateWithRepairAuthority(ctx context.Context, raw []byte, scope FollowupValidationScope) (ValidatedFollowup, bool, error) {
 	if validator == nil {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: nil validator")
+		return ValidatedFollowup{}, false, fmt.Errorf("followup validation: nil validator")
 	}
 	if ctx == nil {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: nil context")
+		return ValidatedFollowup{}, false, fmt.Errorf("followup validation: nil context")
 	}
 	if err := ctx.Err(); err != nil {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: context: %w", err)
+		return ValidatedFollowup{}, false, fmt.Errorf("followup validation: context: %w", err)
 	}
 	if nilFollowupSchemaValidator(validator.schemaValidator) || !validator.schemaID.Valid() || validator.schemaID.String() != ProviderFollowupSchemaID {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: invalid validator configuration")
+		return ValidatedFollowup{}, false, fmt.Errorf("followup validation: invalid validator configuration")
 	}
 	trusted, err := validateFollowupScope(scope)
 	if err != nil {
-		return ValidatedFollowup{}, err
+		return ValidatedFollowup{}, false, err
 	}
 	provider, err := decodeFollowupJSONObject(raw)
 	if err != nil {
-		return ValidatedFollowup{}, err
+		return ValidatedFollowup{}, true, err
 	}
 	if err := guardFollowupProvider(provider); err != nil {
-		return ValidatedFollowup{}, err
+		return ValidatedFollowup{}, false, err
 	}
 	candidate, err := injectFollowupTrust(provider, trusted)
 	if err != nil {
-		return ValidatedFollowup{}, err
+		return ValidatedFollowup{}, false, err
 	}
 	normalized, err := json.Marshal(candidate)
 	if err != nil {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: marshal normalized output: %w", err)
+		return ValidatedFollowup{}, false, fmt.Errorf("followup validation: marshal normalized output: %w", err)
 	}
 	if err := validator.schemaValidator.Validate(ctx, validator.schemaID, normalized); err != nil {
-		return ValidatedFollowup{}, fmt.Errorf("followup validation: schema: %w", err)
+		return ValidatedFollowup{}, true, fmt.Errorf("followup validation: schema: %w", err)
 	}
 	if err := validateFollowupSemantics(candidate); err != nil {
-		return ValidatedFollowup{}, err
+		return ValidatedFollowup{}, false, err
 	}
 	resolution, _ := candidate["resolution"].(string)
 	sum := sha256.Sum256(raw)
@@ -119,7 +127,7 @@ func (validator *FollowupValidator) Validate(ctx context.Context, raw []byte, sc
 		resolution: domain.FollowupResolution(resolution), role: scope.Role,
 		providerInstance: scope.ProviderInstance, providerRaw: append([]byte(nil), raw...),
 		normalizedRaw: append([]byte(nil), normalized...), providerSHA256: hex.EncodeToString(sum[:]),
-	}, nil
+	}, false, nil
 }
 
 type trustedFollowupScope struct {

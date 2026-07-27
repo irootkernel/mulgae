@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -17,6 +18,50 @@ type followupProjectionSchemaValidator struct{}
 
 func (followupProjectionSchemaValidator) Validate(context.Context, ports.AssetID, []byte) error {
 	return nil
+}
+
+func TestFollowupCurrentTargetReaderUsesCapturedEvidenceBySideAndPath(t *testing.T) {
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch bytes\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _ := ports.NewSafeRelativePath("report.go")
+	fileBytes := []byte("package report\n")
+	file, err := ports.NewWorkspaceSnapshotFile(path, fileBytes, sha256Identifier(fileBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest([]ports.WorkspaceSnapshotFile{file}, "followup-reader-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedEvidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
+		ports.CapturedEvidenceWorktree: {file},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, capturedEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetSHA256 := "sha256:" + target.Identity().SHA256()
+	reader, err := newFollowupCurrentTargetReader(targetSHA256, target.Bytes(), archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	availability, got, err := reader.ReadImmutableTarget(context.Background(), targetSHA256, evidence.SideWorktree, path)
+	if err != nil || availability != evidence.ImmutableTargetAvailable || string(got) != string(fileBytes) {
+		t.Fatalf("captured worktree evidence = %s %q, %v", availability, got, err)
+	}
+	availability, _, err = reader.ReadImmutableTarget(context.Background(), targetSHA256, evidence.SideHead, path)
+	if err != nil || availability != evidence.ImmutableTargetUnavailable {
+		t.Fatalf("absent head evidence = %s, %v", availability, err)
+	}
 }
 
 func TestPrepareFollowupFindingsRetainsValidatedFindingAndVerifiedEvidence(t *testing.T) {

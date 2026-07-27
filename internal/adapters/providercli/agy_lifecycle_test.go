@@ -23,7 +23,12 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-const agyLifecycleFixtureTimeout = time.Minute
+// The offline fixture re-executes the race-instrumented test binary through the
+// production native-home trampoline. Package and workspace test jobs can put
+// that child under severe startup pressure before TestMain reaches the shell
+// fixture, so successful fixture paths need test-only scheduling headroom. The
+// explicit timeout case below retains its 250ms behavioral deadline.
+const agyLifecycleFixtureTimeout = 5 * time.Minute
 
 func TestMain(m *testing.M) {
 	handled, err := processadapter.ExecInheritedDirectory(os.Args)

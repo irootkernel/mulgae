@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
@@ -226,6 +229,141 @@ func TestReplayAndDeltaInputsDefensivelyBindBytesAndParameters(t *testing.T) {
 	}
 	if sameAdapterParameters(replayCopy.AdapterParameters, replay.AdapterParameters) {
 		t.Fatal("adapter tuple mismatch was accepted")
+	}
+}
+
+type explicitRuntimeTestIssuer struct {
+	source    prompt.SourceInvocationID
+	execution prompt.ExecutionInvocationID
+}
+
+func (issuer explicitRuntimeTestIssuer) NewSourceInvocationID() (prompt.SourceInvocationID, error) {
+	return issuer.source, nil
+}
+
+func (issuer explicitRuntimeTestIssuer) NewExecutionInvocationID() (prompt.ExecutionInvocationID, error) {
+	return issuer.execution, nil
+}
+
+type concurrentExplicitRuntimeProvider struct {
+	entered chan<- domain.Role
+	release <-chan struct{}
+}
+
+func (provider concurrentExplicitRuntimeProvider) Invoke(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderResult, error) {
+	select {
+	case provider.entered <- invocation.Role():
+	case <-ctx.Done():
+		return ports.ProviderResult{}, ctx.Err()
+	}
+	select {
+	case <-provider.release:
+		return ports.ProviderResult{}, errors.New("test provider stopped")
+	case <-ctx.Done():
+		return ports.ProviderResult{}, ctx.Err()
+	}
+}
+
+func TestExplicitRuntimeInvocationsDoNotSerializeDistinctLanes(t *testing.T) {
+	targetBytes := []byte("immutable target")
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetStdin, SHA256: strings.TrimPrefix(sha256Identifier(targetBytes), "sha256:"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := []domain.Role{domain.RoleLogic, domain.RoleDocumentation}
+	jobs := make([]InvocationJob, len(roles))
+	materials := make([]RuntimePrompt, len(roles))
+	for index, role := range roles {
+		attemptID := coordinatorTypesAttemptID(t, index+1)
+		jobs[index], err = newCoordinatorInvocationJob(
+			sessionID, runID, role, AttemptKindPrimary,
+			coordinatorTypesRoute(t, "fake."+string(role), string(role)+"-lane"), target,
+			coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, uint64(index+1),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		layer, layerErr := prompt.NewTrustedLayer("explicit-runtime-"+string(role), "v1", []byte("Return JSON only."))
+		if layerErr != nil {
+			t.Fatal(layerErr)
+		}
+		template, templateErr := prompt.ComposeTrustedTemplate("explicit-runtime-"+string(role), "v1", layer)
+		if templateErr != nil {
+			t.Fatal(templateErr)
+		}
+		roleTaskID, parseErr := prompt.ParseRoleTaskID(fmt.Sprintf("rt_019f5a09-5eec-7001-8001-%012d", index+20))
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		coordinates, coordinateErr := prompt.NewScopeCoordinates(sessionID, runID, roleTaskID, attemptID)
+		if coordinateErr != nil {
+			t.Fatal(coordinateErr)
+		}
+		sourceID, parseErr := prompt.ParseSourceInvocationID(fmt.Sprintf("i_019f5a09-5eec-7001-8001-%012d", index+30))
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		executionID, parseErr := prompt.ParseExecutionInvocationID(fmt.Sprintf("019f5a09-5eec-7001-8001-%012d", index+40))
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		compiler, compilerErr := prompt.NewCompiler(template, explicitRuntimeTestIssuer{source: sourceID, execution: executionID})
+		if compilerErr != nil {
+			t.Fatal(compilerErr)
+		}
+		compiled, compileErr := compiler.Compile(prompt.CompileInput{Scope: coordinates, ReviewTarget: prompt.NewPayload(targetBytes)})
+		if compileErr != nil {
+			t.Fatal(compileErr)
+		}
+		materials[index] = RuntimePrompt{Prompt: compiled, Target: targetBytes, AdapterProfile: "test-profile"}
+	}
+
+	entered := make(chan domain.Role, len(roles))
+	release := make(chan struct{})
+	verifier, err := evidence.NewVerifier(&reviewTestEvidenceReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{
+		provider:  concurrentExplicitRuntimeProvider{entered: entered, release: release},
+		validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
+		pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory),
+	}
+	done := make(chan struct{}, len(roles))
+	for index := range roles {
+		go func(index int) {
+			_ = runtime.invokeExplicitMaterial(context.Background(), jobs[index], materials[index], false)
+			done <- struct{}{}
+		}(index)
+	}
+	for range roles {
+		select {
+		case <-entered:
+		case <-time.After(500 * time.Millisecond):
+			close(release)
+			t.Fatal("distinct explicit runtime lane was serialized behind another provider invocation")
+		}
+	}
+	close(release)
+	for range roles {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("explicit runtime invocation did not stop")
+		}
+	}
+	if inventories := runtime.DrainRuntimeArtifactsForRun(runID); len(inventories) != len(roles) {
+		t.Fatalf("runtime inventories = %d, want %d", len(inventories), len(roles))
 	}
 }
 

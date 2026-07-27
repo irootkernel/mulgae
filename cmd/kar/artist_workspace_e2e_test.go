@@ -1,4 +1,4 @@
-//go:build darwin && arm64 && live_e2e
+//go:build darwin && arm64
 
 package main
 
@@ -39,7 +39,7 @@ type artistE2EVisual struct {
 	Verification string        `json:"verification"`
 }
 
-func TestE2EArtistHomepageWorkspaceReview(t *testing.T) {
+func TestIntegrationArtistHomepageWorkspaceReview(t *testing.T) {
 	repository := repositoryRoot(t)
 	project := canonicalTestTempDir(t)
 	if err := os.Chmod(project, 0o700); err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
@@ -25,6 +26,8 @@ type ExecutorConfig struct {
 	Policy            *domain.CIPolicy
 	KARVersion        string
 	KARCommit         string
+	Diagnostics       ports.RuntimeDiagnosticSinkFactory
+	Clock             ports.Clock
 }
 
 // Executor is the production delta child executor. It deliberately accepts a
@@ -35,6 +38,7 @@ type Executor struct {
 	publisher    *publication.Service
 	artifactRoot ports.AnchoredRoot
 	config       ExecutorConfig
+	diagnostics  *childDiagnosticRegistry
 }
 
 // NewExecutor constructs a child executor with all execution and publication
@@ -67,18 +71,42 @@ func NewExecutor(
 	if config.KARVersion == "" || config.KARCommit == "" {
 		return nil, fmt.Errorf("child executor: publication identity is incomplete")
 	}
+	registry := &childDiagnosticRegistry{}
+	if config.Diagnostics != nil {
+		if config.Clock == nil {
+			return nil, fmt.Errorf("child executor: diagnostic clock is required")
+		}
+		if err := runtime.BindRuntimeDiagnostics(registry); err != nil {
+			return nil, err
+		}
+	}
 	return &Executor{
 		coordinator: coordinator, runtime: runtime, publisher: publisher, artifactRoot: artifactRoot,
+		diagnostics: registry,
 		config: ExecutorConfig{
 			Assignments: append([]review.Assignment(nil), config.Assignments...), SeverityThreshold: config.SeverityThreshold,
-			Policy: config.Policy, KARVersion: config.KARVersion, KARCommit: config.KARCommit,
+			Policy: config.Policy, KARVersion: config.KARVersion, KARCommit: config.KARCommit, Diagnostics: config.Diagnostics, Clock: config.Clock,
 		},
 	}, nil
 }
 
+func (executor *Executor) openDiagnostics(ctx context.Context, run domain.Run) (*childDiagnosticLifecycle, error) {
+	lifecycle, err := openChildDiagnostics(ctx, executor.config.Diagnostics, executor.artifactRoot, executor.config.Clock, run)
+	if err != nil || lifecycle == nil {
+		return lifecycle, err
+	}
+	if err := executor.diagnostics.bind(run.ID(), lifecycle.sink); err != nil {
+		return nil, err
+	}
+	if err := executor.coordinator.BindRuntimeDiagnostics(lifecycle.sink); err != nil {
+		return nil, err
+	}
+	return lifecycle, nil
+}
+
 // ExecuteDelta executes exactly request.Run, binds only that run's runtime
 // inventory, and returns a URI derived from the P2 publication receipt.
-func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildRequest) (delta.ExecutionResult, error) {
+func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildRequest) (_ delta.ExecutionResult, retErr error) {
 	if executor == nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: nil executor")
 	}
@@ -95,6 +123,16 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if run.Target() != request.CurrentTarget.Identity() {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta run target differs from supplied current target")
 	}
+	lifecycle, err := executor.openDiagnostics(ctx, run)
+	if err != nil {
+		return delta.ExecutionResult{}, err
+	}
+	var diagnosticP2 ports.SafeRelativePath
+	defer func() {
+		if finishErr := lifecycle.finish(ctx, retErr, diagnosticP2); finishErr != nil {
+			retErr = finishErr
+		}
+	}()
 	parent, hasParent := run.ParentRunID()
 	source, hasSource := run.SourceRunID()
 	if !hasParent || !hasSource || parent != source || request.SourceReviewID.String() == "" {
@@ -102,6 +140,10 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	}
 
 	assignments, err := assignmentsForRun(run, executor.config.Assignments)
+	if err != nil {
+		return delta.ExecutionResult{}, err
+	}
+	run, err = deltaRunWithConfiguredAssignments(run, assignments)
 	if err != nil {
 		return delta.ExecutionResult{}, err
 	}
@@ -117,6 +159,9 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: execute delta run: %w", err)
 	}
 	inventory := executor.runtime.DrainRuntimeArtifactsForRun(run.ID())
+	if failure := reviewrun.CoordinatorExecutionFailure(result); failure != nil {
+		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta run did not reach publication authority: %w", failure)
+	}
 	publicationContext, err := publication.NewChildPublicationContext(domain.RunTypeDelta, parent, source, request.SourceReviewID, nil, nil)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication lineage: %w", err)
@@ -133,6 +178,7 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if !ok || !final.Valid() {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: publication did not return a P2 final receipt")
 	}
+	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
 	terminalExit, err := committedTerminalExit(published)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication terminal exit: %w", err)
@@ -144,9 +190,46 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	return execution, nil
 }
 
+func deltaRunWithConfiguredAssignments(run domain.Run, assignments []review.Assignment) (domain.Run, error) {
+	parent, hasParent := run.ParentRunID()
+	source, hasSource := run.SourceRunID()
+	if run.Type() != domain.RunTypeDelta || !hasParent || !hasSource {
+		return domain.Run{}, fmt.Errorf("child executor: delta run lineage is incomplete")
+	}
+	byRole := make(map[domain.Role]review.Assignment, len(assignments))
+	for _, assignment := range assignments {
+		if _, duplicate := byRole[assignment.Role()]; duplicate {
+			return domain.Run{}, fmt.Errorf("child executor: delta role assignment is ambiguous")
+		}
+		byRole[assignment.Role()] = assignment
+	}
+	tasks := make([]domain.RoleTask, 0, len(run.RoleTasks()))
+	for _, sourceTask := range run.RoleTasks() {
+		assignment, ok := byRole[sourceTask.Role()]
+		if !ok || assignment.Required() != sourceTask.Required() {
+			return domain.Run{}, fmt.Errorf("child executor: delta assignment differs from source-selected role policy")
+		}
+		var fallback *string
+		if route, ok := assignment.FallbackRoute(); ok {
+			value := route.ProviderInstance()
+			fallback = &value
+		}
+		task, err := domain.NewRoleTask(sourceTask.Role(), sourceTask.Required(), assignment.ProviderInstance(), fallback)
+		if err != nil {
+			return domain.Run{}, fmt.Errorf("child executor: configure delta role %q: %w", sourceTask.Role(), err)
+		}
+		tasks = append(tasks, task)
+	}
+	configured, err := domain.NewChildRunFromImmutableSource(run.ID(), domain.RunTypeDelta, run.SessionID(), parent, source, run.Target(), tasks)
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("child executor: configure delta run: %w", err)
+	}
+	return configured, nil
+}
+
 // ExecuteChildReplay executes the already-authorized fresh rerun without
 // replacing any identity or lineage supplied by rerun.Service.
-func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.ChildReplay) (rerun.ChildReplayResult, error) {
+func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.ChildReplay) (_ rerun.ChildReplayResult, retErr error) {
 	if executor == nil || ctx == nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun executor and context are required")
 	}
@@ -169,6 +252,16 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if !child.Mode.Valid() {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: replay mode is invalid")
 	}
+	lifecycle, err := executor.openDiagnostics(ctx, run)
+	if err != nil {
+		return rerun.ChildReplayResult{}, err
+	}
+	var diagnosticP2 ports.SafeRelativePath
+	defer func() {
+		if finishErr := lifecycle.finish(ctx, retErr, diagnosticP2); finishErr != nil {
+			retErr = finishErr
+		}
+	}()
 	if child.Mode == rerun.ExactReplay && (child.Exact == nil ||
 		child.Exact.SourceManifestURI != child.Publication.SourceManifestURI ||
 		child.Exact.SourceManifestSHA256 != child.Publication.SourceManifestSHA256 ||
@@ -186,6 +279,9 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: execute rerun run: %w", err)
 	}
 	inventory := executor.runtime.DrainRuntimeArtifactsForRun(run.ID())
+	if failure := reviewrun.CoordinatorExecutionFailure(result); failure != nil {
+		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun did not reach publication authority: %w", failure)
+	}
 	mode := publication.ReplayMode(child.Mode)
 	publicationContext, err := publication.NewChildPublicationContext(
 		domain.RunTypeRerun, parent, source, child.SourceReviewID, nil, &mode,
@@ -208,10 +304,11 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if !ok || !final.Valid() {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: publication did not return a P2 final receipt")
 	}
-	if len(inventory) != 1 || inventory[0].Role() != domain.Role(child.Role) {
-		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun runtime inventory is incomplete")
+	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
+	selectedInventory, err := terminalReplayInventory(result, inventory, domain.Role(child.Role), child.Mode)
+	if err != nil {
+		return rerun.ChildReplayResult{}, err
 	}
-	selectedInventory := inventory[0]
 	executionID := selectedInventory.ExecutionInvocationID()
 	if executionID == "" {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun execution identity is absent")
@@ -235,6 +332,72 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	}
 	return execution, nil
 }
+
+func terminalReplayInventory(
+	result review.CoordinatorResult,
+	inventory []review.RuntimeArtifactInventory,
+	role domain.Role,
+	mode rerun.ReplayMode,
+) (review.RuntimeArtifactInventory, error) {
+	roles := result.RoleSummaries()
+	if len(roles) != 1 || roles[0].Role() != role {
+		return review.RuntimeArtifactInventory{}, fmt.Errorf("child executor: rerun coordinator result is incomplete")
+	}
+	attempts := roles[0].Attempts()
+	if len(attempts) == 0 {
+		return review.RuntimeArtifactInventory{}, fmt.Errorf("child executor: rerun coordinator attempt is absent")
+	}
+	terminalAttempt := attempts[len(attempts)-1]
+	invocations := terminalAttempt.Invocations()
+	if len(invocations) == 0 {
+		return review.RuntimeArtifactInventory{}, fmt.Errorf("child executor: rerun coordinator invocation is absent")
+	}
+	if mode == rerun.ExactReplay && (len(inventory) != 1 || len(attempts) != 1 || len(invocations) != 1 || invocations[0].Purpose() != domain.InvocationInitial) {
+		return review.RuntimeArtifactInventory{}, fmt.Errorf("child executor: exact rerun scheduled more than one invocation")
+	}
+	terminalInvocation := invocations[len(invocations)-1]
+	candidates := make([]replayInventoryCandidate, len(inventory))
+	for index, candidate := range inventory {
+		candidates[index] = replayInventoryCandidate{
+			role: candidate.Role(), attemptID: candidate.AttemptID(), sequence: candidate.Sequence(), purpose: candidate.Purpose(),
+		}
+	}
+	selectedIndex, err := terminalReplayInventoryIndex(candidates, role, terminalAttempt.ID(), terminalInvocation.Sequence(), terminalInvocation.Purpose())
+	if err != nil {
+		return review.RuntimeArtifactInventory{}, err
+	}
+	return inventory[selectedIndex], nil
+}
+
+type replayInventoryCandidate struct {
+	role      domain.Role
+	attemptID domain.AttemptID
+	sequence  uint64
+	purpose   domain.InvocationPurpose
+}
+
+func terminalReplayInventoryIndex(candidates []replayInventoryCandidate, role domain.Role, attemptID domain.AttemptID, sequence uint64, purpose domain.InvocationPurpose) (int, error) {
+	selected := -1
+	for index, candidate := range candidates {
+		if candidate.role != role {
+			return -1, fmt.Errorf("child executor: rerun runtime inventory contains another role")
+		}
+		if candidate.attemptID == attemptID && candidate.sequence == sequence && candidate.purpose == purpose {
+			if selected >= 0 {
+				return -1, fmt.Errorf("child executor: terminal rerun runtime inventory is ambiguous")
+			}
+			selected = index
+		}
+	}
+	if selected < 0 {
+		return -1, fmt.Errorf(
+			"child executor: terminal rerun runtime inventory is incomplete for role=%s attempt=%s sequence=%d purpose=%s",
+			role, attemptID, sequence, purpose,
+		)
+	}
+	return selected, nil
+}
+
 func receiptURI(root ports.AnchoredRoot, final ports.FinalReviewIdentity) string {
 	return (&url.URL{Scheme: "file", Path: filepath.Join(root.String(), final.Path().String())}).String()
 }

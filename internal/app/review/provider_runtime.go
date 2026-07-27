@@ -132,6 +132,21 @@ type RuntimeDiagnosticSinkResolver interface {
 	RuntimeDiagnosticSink(domain.RunID) (ports.RuntimeDiagnosticSink, bool)
 }
 
+// BindRuntimeDiagnostics installs the child-run sink resolver before the
+// runtime executes its first invocation. It is intentionally one-shot.
+func (runtime *ProviderInvocationRuntime) BindRuntimeDiagnostics(resolver RuntimeDiagnosticSinkResolver) error {
+	if runtime == nil || nilInterface(resolver) {
+		return fmt.Errorf("provider invocation runtime: invalid diagnostic resolver")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if !nilInterface(runtime.diagnostics) || len(runtime.inventory) != 0 || len(runtime.captures) != 0 {
+		return fmt.Errorf("provider invocation runtime: diagnostics must be bound before execution")
+	}
+	runtime.diagnostics = resolver
+	return nil
+}
+
 // DeltaInvocationMaterial is the immutable A-to-B input for one delta
 // invocation. Source and current bytes are independently bound to their
 // identities; Delta is comparator-owned material and is never recomputed here.
@@ -206,10 +221,11 @@ type ProviderInvocationRuntime struct {
 	allowSourceScope  bool
 	diagnostics       RuntimeDiagnosticSinkResolver
 
-	mu        sync.Mutex
-	pending   map[domain.AttemptID]InvocationRepairInput
-	captures  map[captureKey]AttemptCapture
-	inventory map[captureKey]RuntimeArtifactInventory
+	mu             sync.Mutex
+	pending        map[domain.AttemptID]InvocationRepairInput
+	captures       map[captureKey]AttemptCapture
+	inventory      map[captureKey]RuntimeArtifactInventory
+	activeExplicit map[captureKey]struct{}
 }
 
 type captureKey struct {
@@ -232,7 +248,7 @@ func NewProviderInvocationRuntime(provider ports.ReviewProvider, source Invocati
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
+	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
 }
 
 // NewObservedProviderInvocationRuntime constructs a runtime directly from the
@@ -251,7 +267,7 @@ func NewObservedProviderInvocationRuntime(provider ports.ObservedReviewProvider,
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
+	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
 }
 
 // NewObservedProviderInvocationRuntimeWithDiagnostics constructs an observed
@@ -720,12 +736,18 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	if ctx == nil {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
+	key := captureKey{job.AttemptID(), invocationSequence(job.Purpose())}
 	runtime.mu.Lock()
-	defer runtime.mu.Unlock()
-	_, inventoryExists := runtime.inventory[captureKey{job.AttemptID(), invocationSequence(job.Purpose())}]
-	if inventoryExists {
+	_, inventoryExists := runtime.inventory[key]
+	_, invocationActive := runtime.activeExplicit[key]
+	if inventoryExists || invocationActive {
+		runtime.mu.Unlock()
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
+	if runtime.activeExplicit == nil {
+		runtime.activeExplicit = make(map[captureKey]struct{})
+	}
+	runtime.activeExplicit[key] = struct{}{}
 	clonePending := make(map[domain.AttemptID]InvocationRepairInput)
 	if pending, ok := runtime.pending[job.AttemptID()]; ok {
 		clonePending[job.AttemptID()] = InvocationRepairInput{
@@ -733,6 +755,7 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 			plan:    pending.plan,
 		}
 	}
+	runtime.mu.Unlock()
 	clone := &ProviderInvocationRuntime{
 		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
 		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
@@ -747,6 +770,9 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	inventory := clone.inventory
 	pending, pendingExists := clone.pending[job.AttemptID()]
 	clone.mu.Unlock()
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	delete(runtime.activeExplicit, key)
 	for key := range inventory {
 		if _, exists := runtime.inventory[key]; exists {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)

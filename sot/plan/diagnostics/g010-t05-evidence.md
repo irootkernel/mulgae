@@ -44,3 +44,27 @@ The evidence rejects these hypotheses without attempting the G010-T05 fix:
 G010-T05 should diagnose and restore the native `kimi-default` authentication
 state, then require `make test-e2e` to pass. D-E04 intentionally does not change
 native authentication or claim G010-T05 completion.
+
+## Subsequent G010 closure
+
+Recorded on 2026-07-26 after the D-E04 handoff. The 2026-07-24 login-required
+observation above remains truthful historical failure evidence; it is not the
+final G010 result. In the closure runs all 12 configured primary/fallback
+provider instances ended direct qualification as `qualified`, including the
+previously unavailable Kimi route.
+
+The later full-workflow investigation also found defects beyond the initial
+qualification failure: publication omitted a failed primary attempt before a
+successful fallback, followup prompt evidence-side binding was ambiguous,
+delta replay compared a fallback-selected source against the current primary
+instead of the current assignment, and the live harness assumed root-only CLI
+artifact fields for child workflows. Those causes were corrected without
+turning a missing prerequisite into a skip or allowing fallback to hide direct
+provider-health failure.
+
+- G010-T05 gate: the non-skipping `make test-e2e` full workflow passed in
+  842.993 seconds on 2026-07-26.
+- G010-T06 gate: exact final-tree `make test` passed on 2026-07-26, including
+  the 761.839-second live E2E package run.
+- Normative outcome: G010 is `RELEASE_READY`; tag creation and publication
+  remain separate operator actions.

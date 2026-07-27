@@ -33,7 +33,7 @@ All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 
 | `kar-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` | KAR validator | G0 receipts, diagnostics, and tests |
 | `kar-validation-result.v2` | `../examples/validation-result.v2.valid.json` | KAR validator | Artifacts, diagnostics, and tests |
 
-The eighteen G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain frozen and immutable; `kar-platform-contract-evidence.v1` and `kar-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `kar-platform-contract-evidence.v2` and `kar-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
+The twenty-one G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain frozen and immutable; `kar-platform-contract-evidence.v1` and `kar-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `kar-platform-contract-evidence.v2` and `kar-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
 
 The initial v2 examples are schema-valid UNVERIFIED fixtures, not PASS evidence: the required `darwin-arm64` platform row is all `NOT_RUN`, and the examples themselves grant no support, readiness, or implementation authority. G001 completion is established by executed receipts and the authority chain, never by these example bytes.
 

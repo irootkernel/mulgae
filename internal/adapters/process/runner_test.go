@@ -702,6 +702,7 @@ func TestRunnerBoundedPostOutputUsesSingleTerminalDeadlineWithEscapedPipeDescend
 	const (
 		stabilityGrace   = 50 * time.Millisecond
 		terminationGrace = 250 * time.Millisecond
+		executionTimeout = 2 * processTestExecutionTimeout
 	)
 	processGroupPath := filepath.Join(t.TempDir(), "process-group")
 	escapedPIDPath := filepath.Join(t.TempDir(), "escaped-pid")
@@ -710,7 +711,7 @@ func TestRunnerBoundedPostOutputUsesSingleTerminalDeadlineWithEscapedPipeDescend
 		t.TempDir(),
 		"post-output-escaped-pipe",
 		[]string{processGroupPath, escapedPIDPath},
-		processTestExecutionTimeout,
+		executionTimeout,
 		16<<20,
 		stabilityGrace,
 		terminationGrace,
@@ -729,7 +730,20 @@ func TestRunnerBoundedPostOutputUsesSingleTerminalDeadlineWithEscapedPipeDescend
 	t.Cleanup(func() {
 		signalProcessGroup = originalSignalProcessGroup
 	})
-	done := runRunnerAsync(newTestRunner(t), context.Background(), request)
+	runnerContext, cancelRunner := context.WithCancel(context.Background())
+	done := runRunnerAsync(newTestRunner(t), runnerContext, request)
+	runnerResultConsumed := false
+	t.Cleanup(func() {
+		cancelRunner()
+		if runnerResultConsumed {
+			return
+		}
+		select {
+		case <-done:
+		case <-time.After(executionTimeout + processGroupTeardownTimeout):
+			t.Error("cancelled escaped-pipe runner did not return during cleanup")
+		}
+	})
 	processGroupID := readHelperPID(t, processGroupPath)
 	escapedPID := readHelperPID(t, escapedPIDPath)
 	escapedGroupID := processGroupForPID(t, escapedPID)
@@ -771,7 +785,12 @@ func TestRunnerBoundedPostOutputUsesSingleTerminalDeadlineWithEscapedPipeDescend
 		t.Fatalf("escaped helper remained in captured process group %d", processGroupID)
 	}
 
-	observation := waitForRunnerResult(t, done).observation
+	result := waitForRunnerResultAllowError(t, done)
+	runnerResultConsumed = true
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	observation := result.observation
 	var terminalStarted time.Time
 	select {
 	case terminalStarted = <-sigtermAt:
@@ -2243,7 +2262,7 @@ func TestRunnerHelperProcess(t *testing.T) {
 		if err := child.Start(); err != nil {
 			os.Exit(2)
 		}
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(processTestExecutionTimeout)
 		for {
 			if _, err := os.Stat(arguments[2]); err == nil {
 				break

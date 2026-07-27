@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/app/childrun"
 	appdelta "github.com/irootkernel/kkachi-agent-review/internal/app/delta"
@@ -30,6 +29,7 @@ import (
 type productionChildComposer struct {
 	build            reviewrun.BuildIdentity
 	root             ports.AnchoredRoot
+	artifactRoot     ports.AnchoredRoot
 	catalog          *builtin.Catalog
 	validator        validation.SchemaValidator
 	projectReader    ports.TrustedProjectReader
@@ -60,7 +60,7 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 		return kar.StartedRun{}, err
 	}
 	role := source.Finding.Role
-	captured, selection, err := graph.capture(ctx, followupSelector(request.Target), []domain.Role{role})
+	captured, selection, err := graph.capture(ctx, service.composer.artifactRoot, followupSelector(request.Target), []domain.Role{role})
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -93,8 +93,8 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
-	executor, err := childrun.NewFollowupExecutor(graph.clock, graph.ids, newChildPacketScreeningProvider(authority.Provider(), graph.detector), prompts, followupValidator, graph.publisher, graph.root, childrun.FollowupExecutorConfig{
-		ProviderInstance: sourceProviderForFinding(source), SeverityThreshold: graph.policy.planner.Threshold, KARVersion: graph.build.Version, KARCommit: graph.build.Commit,
+	executor, err := childrun.NewFollowupExecutor(graph.clock, graph.ids, newChildPacketScreeningProvider(authority.Provider(), graph.detector), prompts, followupValidator, graph.publisher, service.composer.artifactRoot, childrun.FollowupExecutorConfig{
+		ProviderInstance: sourceProviderForFinding(source), SeverityThreshold: graph.policy.planner.Threshold, KARVersion: graph.build.Version, KARCommit: graph.build.Commit, Diagnostics: graph.diagnostics,
 	})
 	if err != nil {
 		return kar.StartedRun{}, err
@@ -128,7 +128,7 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 			roles = append(roles, task.Role())
 		}
 	}
-	captured, selection, err := graph.capture(ctx, deltaSelector(request.Target), roles)
+	captured, selection, err := graph.capture(ctx, service.composer.artifactRoot, deltaSelector(request.Target), roles)
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -144,7 +144,7 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 			err = errors.Join(err, cleanupErr)
 		}
 	}()
-	executor, assignments, err := graph.childExecutor(ctx, captured, selection, authority, service.composer.sources)
+	executor, assignments, err := graph.childExecutor(ctx, service.composer.artifactRoot, captured, selection, authority, service.composer.sources)
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -184,7 +184,7 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 		var selector ports.ReviewTargetSelector
 		selector, err = replaySelector(source)
 		if err == nil {
-			captured, selection, err = graph.capture(ctx, selector, []domain.Role{role})
+			captured, selection, err = graph.capture(ctx, service.composer.artifactRoot, selector, []domain.Role{role})
 		}
 	}
 	if err != nil {
@@ -209,7 +209,7 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 			err = errors.Join(err, cleanupErr)
 		}
 	}()
-	executor, assignments, err := graph.childExecutor(ctx, captured, selection, authority, service.composer.sources)
+	executor, assignments, err := graph.childExecutor(ctx, service.composer.artifactRoot, captured, selection, authority, service.composer.sources)
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
@@ -234,7 +234,7 @@ func (graph *productionRuntimeGraph) captureArchive(ctx context.Context, archive
 	return captured, selection, err
 }
 
-func (graph *productionRuntimeGraph) capture(ctx context.Context, selector ports.ReviewTargetSelector, roles []domain.Role) (reviewrun.CapturedRunInput, reviewrun.RunSelection, error) {
+func (graph *productionRuntimeGraph) capture(ctx context.Context, artifactRoot ports.AnchoredRoot, selector ports.ReviewTargetSelector, roles []domain.Role) (reviewrun.CapturedRunInput, reviewrun.RunSelection, error) {
 	selection, err := reviewrun.NewRunSelection(roles, nil)
 	if err != nil {
 		return reviewrun.CapturedRunInput{}, reviewrun.RunSelection{}, err
@@ -247,11 +247,11 @@ func (graph *productionRuntimeGraph) capture(ctx context.Context, selector ports
 	if err != nil {
 		return reviewrun.CapturedRunInput{}, reviewrun.RunSelection{}, err
 	}
-	captured, err := source.Capture(ctx, reviewrun.Request{InputSource: source, ProjectRoot: graph.root, ArtifactRoot: graph.root, Selection: selection})
+	captured, err := source.Capture(ctx, reviewrun.Request{InputSource: source, ProjectRoot: graph.root, ArtifactRoot: artifactRoot, Selection: selection})
 	return captured, selection, err
 }
 
-func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, captured reviewrun.CapturedRunInput, selection reviewrun.RunSelection, authority reviewrun.RunAuthority, sources *kar.G008Sources) (*childrun.Executor, []review.Assignment, error) {
+func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifactRoot ports.AnchoredRoot, captured reviewrun.CapturedRunInput, selection reviewrun.RunSelection, authority reviewrun.RunAuthority, sources *kar.G008Sources) (*childrun.Executor, []review.Assignment, error) {
 	planning, err := reviewrun.NewPlanningRequest(captured.Input(), selection.Roles())
 	if err != nil {
 		return nil, nil, err
@@ -286,7 +286,7 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, captured
 	if err != nil {
 		return nil, nil, err
 	}
-	executor, err := childrun.NewExecutor(coordinator, runtime, graph.publisher, graph.root, childrun.ExecutorConfig{Assignments: plan.Assignments, SeverityThreshold: plan.Threshold, Policy: plan.Policy, KARVersion: graph.build.Version, KARCommit: graph.build.Commit})
+	executor, err := childrun.NewExecutor(coordinator, runtime, graph.publisher, artifactRoot, childrun.ExecutorConfig{Assignments: plan.Assignments, SeverityThreshold: plan.Threshold, Policy: plan.Policy, KARVersion: graph.build.Version, KARCommit: graph.build.Commit, Diagnostics: graph.diagnostics, Clock: graph.clock})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -469,9 +469,7 @@ func sourceProviderForFinding(source appfollowup.VerifiedSource) string {
 }
 
 func finishChildAuthority(ctx context.Context, captured reviewrun.CapturedRunInput, authority reviewrun.RunAuthority, runID string, completed bool) error {
-	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-	defer cancel()
-	terminal, err := authority.DrainTerminal(cleanupContext)
+	terminal, err := reviewrun.DrainRunAuthorityTerminal(ctx, authority)
 	if err != nil {
 		return err
 	}

@@ -951,8 +951,13 @@ func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runt
 	for roleIndex := range candidate.roles {
 		for attemptIndex := range candidate.roles[roleIndex].attempts {
 			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
-				if candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime == nil {
-					return fmt.Errorf("publication candidate: runtime artifact inventory is incomplete")
+				attempt := candidate.roles[roleIndex].attempts[attemptIndex]
+				invocation := attempt.invocations[invocationIndex]
+				if invocation.runtime == nil {
+					return fmt.Errorf(
+						"publication candidate: runtime artifact inventory is incomplete for role=%s attempt=%s sequence=%d purpose=%s",
+						candidate.roles[roleIndex].role, attempt.id, invocation.sequence, invocation.purpose,
+					)
 				}
 			}
 		}
@@ -1391,6 +1396,21 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 			preparedAttempts[attemptIndex] = preparedAttempt{
 				id: attempt.ID(), kind: attempt.Kind(), provider: attempt.Route().ProviderInstance(), state: attempt.State(), invocations: preparedInvocations,
 			}
+			if attempt.State() == domain.AttemptSucceeded {
+				if attempt.FailureClass() != "" || attempt.ReasonCode() != "" {
+					return nil, nil, fmt.Errorf("publication candidate: successful role %q attempt %q has failure facts", role, attempt.ID())
+				}
+				continue
+			}
+			if !attempt.FailureClass().Valid() || forbiddenPublicationFailure(attempt.FailureClass()) ||
+				!validReasonCode(attempt.ReasonCode()) ||
+				(attempt.State() == domain.AttemptTimedOut) != (attempt.FailureClass() == domain.FailureTimeout) {
+				return nil, nil, fmt.Errorf("publication candidate: role %q attempt %q has invalid failure facts", role, attempt.ID())
+			}
+			attemptID := attempt.ID()
+			failures = append(failures, preparedFailure{
+				class: attempt.FailureClass(), stage: "review", reason: attempt.ReasonCode(), attemptID: &attemptID,
+			})
 		}
 
 		finalAttempt := preparedAttempts[len(preparedAttempts)-1]
@@ -1427,10 +1447,10 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 			}
 			roleResult.outcome = "failed"
 			roleResult.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
-			attemptID := finalAttempt.id
-			failures = append(failures, preparedFailure{
-				class: summary.FailureClass(), stage: "review", reason: summary.ReasonCode(), attemptID: &attemptID,
-			})
+			if summary.FailureClass() != attempts[len(attempts)-1].FailureClass() ||
+				summary.ReasonCode() != attempts[len(attempts)-1].ReasonCode() {
+				return nil, nil, fmt.Errorf("publication candidate: failed role %q does not match its final attempt failure", role)
+			}
 		}
 		roles = append(roles, roleResult)
 	}
@@ -1966,14 +1986,16 @@ func validatePreparedEvidence(items []preparedEvidence, targetSHA256 string) err
 	return nil
 }
 func validatePreparedFailures(failures []preparedFailure, roles []preparedRole) error {
-	failedRoles := 0
+	failedAttempts := make([]preparedAttempt, 0)
 	for _, role := range roles {
-		if role.outcome == "failed" {
-			failedRoles++
+		for _, attempt := range role.attempts {
+			if attempt.state != domain.AttemptSucceeded {
+				failedAttempts = append(failedAttempts, attempt)
+			}
 		}
 	}
-	if len(failures) != failedRoles {
-		return fmt.Errorf("failure projection count does not match failed roles")
+	if len(failures) != len(failedAttempts) {
+		return fmt.Errorf("failure projection count does not match failed terminal attempts")
 	}
 	for index, failure := range failures {
 		if !failure.class.Valid() || forbiddenPublicationFailure(failure.class) || !safeText(failure.stage, 128, true) ||
@@ -1982,6 +2004,12 @@ func validatePreparedFailures(failures []preparedFailure, roles []preparedRole) 
 		}
 		if _, err := domain.ParseAttemptID(failure.attemptID.String()); err != nil {
 			return fmt.Errorf("failure %d has invalid attempt ID", index)
+		}
+		if *failure.attemptID != failedAttempts[index].id {
+			return fmt.Errorf("failures are not in canonical failed-attempt order")
+		}
+		if (failedAttempts[index].state == domain.AttemptTimedOut) != (failure.class == domain.FailureTimeout) {
+			return fmt.Errorf("failure %d class does not match attempt state", index)
 		}
 	}
 	return nil
@@ -2969,7 +2997,6 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 
 	required := make([]string, 0, len(final.RoleOutcomes))
 	failedAny := false
-	expectedFailures := make(map[string]string)
 	for index, outcome := range final.RoleOutcomes {
 		if manifest.SelectedRoles[index] != outcome.Role {
 			return false, fmt.Errorf("manifest selected role %d does not match final role outcome", index)
@@ -3009,7 +3036,6 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 				!validReasonCode(*outcome.FailureReason) {
 				return false, fmt.Errorf("failed role outcome %q has inconsistent manifest attempt", outcome.Role)
 			}
-			expectedFailures[attempt.AttemptID] = *outcome.FailureReason
 			failedAny = true
 		default:
 			return false, fmt.Errorf("unknown role outcome %q", outcome.Outcome)
@@ -3018,7 +3044,7 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 	if !reflect.DeepEqual(manifest.RequiredRoles, required) {
 		return false, fmt.Errorf("manifest required roles do not match final role outcomes")
 	}
-	if err := validateManifestFailures(manifest, expectedFailures); err != nil {
+	if err := validateManifestFailures(manifest, final.RoleOutcomes); err != nil {
 		return false, err
 	}
 	if len(manifest.Warnings) != 0 {
@@ -3041,12 +3067,27 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 	return repaired, nil
 }
 
-func validateManifestFailures(manifest runManifestWire, expected map[string]string) error {
-	if len(manifest.Failures) != len(expected) {
-		return fmt.Errorf("manifest failures do not match failed role outcomes")
+func validateManifestFailures(manifest runManifestWire, outcomes []roleOutcomeWire) error {
+	failedAttemptIDs := make([]string, 0, len(manifest.Attempts))
+	failedAttemptStates := make(map[string]domain.AttemptState, len(manifest.Attempts))
+	for _, attempt := range manifest.Attempts {
+		state := domain.AttemptState(attempt.State)
+		if state != domain.AttemptSucceeded {
+			failedAttemptIDs = append(failedAttemptIDs, attempt.AttemptID)
+			failedAttemptStates[attempt.AttemptID] = state
+		}
+	}
+	if len(manifest.Failures) != len(failedAttemptIDs) {
+		return fmt.Errorf("manifest failures do not match failed terminal attempts")
+	}
+	failedRoleReasons := make(map[string]string)
+	for _, outcome := range outcomes {
+		if outcome.Outcome == "failed" && outcome.AttemptID != nil && outcome.FailureReason != nil {
+			failedRoleReasons[*outcome.AttemptID] = *outcome.FailureReason
+		}
 	}
 	seen := make(map[string]struct{}, len(manifest.Failures))
-	for _, failure := range manifest.Failures {
+	for index, failure := range manifest.Failures {
 		if !domain.FailureClass(failure.Class).Valid() ||
 			forbiddenPublicationFailure(domain.FailureClass(failure.Class)) ||
 			failure.Stage != "review" ||
@@ -3057,8 +3098,18 @@ func validateManifestFailures(manifest runManifestWire, expected map[string]stri
 		if _, err := domain.ParseAttemptID(*failure.AttemptID); err != nil {
 			return fmt.Errorf("manifest failure attempt ID: %w", err)
 		}
-		expectedReason, ok := expected[*failure.AttemptID]
-		if !ok || expectedReason != failure.ReasonCode {
+		if *failure.AttemptID != failedAttemptIDs[index] {
+			return fmt.Errorf("manifest failures are not in canonical failed-attempt order")
+		}
+		state, ok := failedAttemptStates[*failure.AttemptID]
+		if !ok {
+			return fmt.Errorf("manifest failure does not bind a failed terminal attempt")
+		}
+		class := domain.FailureClass(failure.Class)
+		if (state == domain.AttemptTimedOut) != (class == domain.FailureTimeout) {
+			return fmt.Errorf("manifest failure class does not match attempt state")
+		}
+		if failedRoleReason, ok := failedRoleReasons[*failure.AttemptID]; ok && failedRoleReason != failure.ReasonCode {
 			return fmt.Errorf("manifest failure does not match failed role outcome")
 		}
 		if _, duplicate := seen[*failure.AttemptID]; duplicate {

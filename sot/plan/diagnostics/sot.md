@@ -1,9 +1,9 @@
 # KAR Runtime Diagnostics Plan Authority
 
-**Planning status:** APPROVED FOR SEQUENTIAL IMPLEMENTATION  
-**Planning date:** 2026-07-23  
-**Current product SOT:** 1.10.0  
-**Target diagnostics product SOT:** 1.11.0  
+**Planning status:** COMPLETED; HISTORICAL PLANNING AUTHORITY
+**Planning date:** 2026-07-23
+**Planning baseline product SOT:** 1.10.0
+**Delivered diagnostics product SOT:** 1.11.0; current normative product SOT is 1.12.0
 
 ## 1. Authority Boundary
 
@@ -41,7 +41,7 @@ Provider stdout, provider stderr, and KAR runtime events remain separate artifac
 - Diagnostics never authorize review publication, CI success, approval, release, or cleanup of unrelated runs.
 - Existing P2 paths and publication authority remain unchanged.
 - Native login remains user-owned. KAR never logs in, retries it automatically, repairs it, or falls back from it.
-- G010-T05 and G010-T06 remain incomplete until all four diagnostics epics are complete.
+- G010-T05 and G010-T06 were required to remain incomplete until all four diagnostics epics completed; both subsequently passed their own gates on 2026-07-26.
 
 ## 5. Scope
 
@@ -83,6 +83,8 @@ After Diagnostics Epic 4:
 1. G010-T05 uses the new diagnostics to identify and fix the actual E2E cause, then restores `make test-e2e` to PASS.
 2. G010-T06 runs exact final-tree `make test` and may close `RELEASE_READY` only after it passes.
 
+Both handoff steps completed on 2026-07-26. The non-skipping full-workflow `make test-e2e` passed before the exact final-tree `make test`, and the normative checklist then recorded G010 as `RELEASE_READY`.
+
 ## 7. Fixed Decisions
 
 - [x] Use four sequential diagnostics epics.
@@ -91,4 +93,3 @@ After Diagnostics Epic 4:
 - [x] Promote the product diagnostics contract as SOT 1.11.0 in Epic 1.
 - [x] Keep G010-T05/T06 unchanged until diagnostics completes.
 - [x] Ignore current `make test-e2e` failure only as a diagnostics-epic completion gate, never as a truthful test result.
-

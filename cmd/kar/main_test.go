@@ -31,6 +31,21 @@ import (
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
+func TestChildPublicationRootUsesPrivateKARNamespace(t *testing.T) {
+	projectPath := filepath.Join(t.TempDir(), "project")
+	project, err := ports.NewAnchoredRoot(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := childPublicationRoot(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(projectPath, ".kar"); root.String() != want {
+		t.Fatalf("child publication root = %q, want %q", root.String(), want)
+	}
+}
+
 func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T) {
 	config, err := adapterconfig.CanonicalRolesConfig([]string{"kimi", "zcode", "agy"})
 	if err != nil {
@@ -825,12 +840,20 @@ func TestIntegrationKARProductionReviewSubprocessKimiSecurityNonAdmission(t *tes
 	if len(observations) == 0 || len(observations) > 2 {
 		t.Fatalf("Kimi qualification launch count = %d, want 1..2: %#v", len(observations), observations)
 	}
+	lastRoleOrdinal := -1
 	for index, observation := range observations {
-		role := []string{"logic", "security"}[index]
+		roleOrdinal := -1
+		for ordinal, role := range []string{"logic", "security"} {
+			if strings.Contains(observation.Prompt, "role must be "+role+".") {
+				roleOrdinal = ordinal
+				break
+			}
+		}
 		if !strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") ||
-			!strings.Contains(observation.Prompt, "role must be "+role+".") {
+			roleOrdinal <= lastRoleOrdinal {
 			t.Fatalf("Kimi executed outside ordered qualification at launch %d: %#v", index+1, observations)
 		}
+		lastRoleOrdinal = roleOrdinal
 	}
 }
 

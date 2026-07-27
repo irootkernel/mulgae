@@ -689,6 +689,58 @@ func TestNewProcessObservationDistinguishesExitedAndNonExitedFacts(t *testing.T)
 	}
 }
 
+func TestProcessObservationPostOutputEscalationAcceptsLeaderTerminatedByEarlierSignal(t *testing.T) {
+	stdout := []byte(`{"status":"ok"}`)
+	frame, err := NewProcessOutputFrameReceipt(ProcessOutputFramingTerminalJSONObject, stdout, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := NewProviderPacketFromBytes([]byte("packet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	term, err := NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kill, err := NewProcessSignal(9, "SIGKILL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	termRequest, err := NewAcceptedPostOutputProcessGroupSignalRequestReceipt(term, packet.Identity(), frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	killRequest, err := NewAcceptedPostOutputEscalationProcessGroupSignalRequestReceipt(kill, packet.Identity(), frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := NewSignaledProcessFinalTermination(term)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := NewProcessLifecycleReceipt(final, true, []ProcessGroupSignalRequestReceipt{termRequest, killRequest}, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Date(2026, time.July, 27, 1, 0, 0, 0, time.UTC)
+	observation, err := NewStartedProcessObservation(
+		stdout,
+		nil,
+		ProcessTerminationSignaled,
+		schedulingStdinReceipt(t, 0, 0),
+		lifecycle,
+		startedAt,
+		startedAt.Add(time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.Succeeded() {
+		t.Fatal("leader terminated by accepted SIGTERM was rejected after descendant SIGKILL escalation")
+	}
+}
+
 func TestNewProcessObservationRejectsIncoherentFacts(t *testing.T) {
 	startedAt := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
 	endedAt := startedAt.Add(time.Second)

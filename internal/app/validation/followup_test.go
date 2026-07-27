@@ -71,6 +71,42 @@ func TestFollowupValidatorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestFollowupValidatorRepairAuthorityIsStructuralOnly(t *testing.T) {
+	valid := followupTestDocument("resolved", "The issue was removed by the current change.")
+	schema := followupSchemaFunc(func(_ context.Context, _ ports.AssetID, raw []byte) error {
+		var document map[string]any
+		if err := json.Unmarshal(raw, &document); err != nil {
+			return err
+		}
+		if _, ok := document["summary"]; !ok {
+			return errors.New("summary is required")
+		}
+		return nil
+	})
+	validator := followupTestValidator(t, schema)
+
+	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), []byte("not json"), followupTestScope(t)); err == nil || !repairable {
+		t.Fatalf("invalid JSON repairable=%t err=%v", repairable, err)
+	}
+	missing := followupTestDocument("resolved", "The issue was removed by the current change.")
+	delete(missing, "summary")
+	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, missing), followupTestScope(t)); err == nil || !repairable {
+		t.Fatalf("missing provider field repairable=%t err=%v", repairable, err)
+	}
+	forbidden := followupTestDocument("resolved", "The issue was removed by the current change.")
+	forbidden["session_id"] = "provider-owned"
+	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, forbidden), followupTestScope(t)); err == nil || repairable {
+		t.Fatalf("trust violation repairable=%t err=%v", repairable, err)
+	}
+	contradiction := followupTestDocument("resolved", "The issue remains in the current target.")
+	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, contradiction), followupTestScope(t)); err == nil || repairable {
+		t.Fatalf("semantic contradiction repairable=%t err=%v", repairable, err)
+	}
+	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, valid), followupTestScope(t)); err != nil || repairable {
+		t.Fatalf("valid document repairable=%t err=%v", repairable, err)
+	}
+}
+
 func TestFollowupValidatorRejectsMeaninglessProviderText(t *testing.T) {
 	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
 	cases := []struct {

@@ -23,11 +23,11 @@ test-prepare:
 	@printf '%s\n' '[test-prepare] completed'
 
 test-unit:
-	$(GO) test -timeout $(TEST_TIMEOUT) -race -count=1 -skip '^TestIntegration' $(UNIT_PACKAGES)
+	$(GO) test -p 1 -timeout $(TEST_TIMEOUT) -race -count=1 -skip '^TestIntegration' $(UNIT_PACKAGES)
 	@printf '%s\n' '[test-unit] completed'
 
 test-int:
-	$(GO) test -timeout $(TEST_TIMEOUT) -race -count=1 -run '^TestIntegration' ./...
+	$(GO) test -p 1 -timeout $(TEST_TIMEOUT) -race -count=1 -run '^TestIntegration' ./...
 	@printf '%s\n' '[test-int] completed'
 
 test-e2e:
@@ -39,8 +39,11 @@ test-e2e:
 	chmod 700 "$$e2e_project"; \
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
 	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.11.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
-	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" KAR_REQUIRE_ARTIST_E2E=1 PLAYWRIGHT_CHANNEL="$${PLAYWRIGHT_CHANNEL:-chrome}" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^Test(E2E|Live)' ./cmd/kar; then \
+	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.12.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
+	agy_bin="$${KAR_E2E_AGY_EXECUTABLE:-$$(command -v agy)}"; \
+	test -n "$$agy_bin" || { echo "test-e2e requires the AGY executable" >&2; exit 1; }; \
+	KAR_LIVE_AGY=1 KAR_LIVE_AGY_BIN="$$agy_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 -run '^TestLiveAgy' ./internal/adapters/providercli || exit $$?; \
+	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 -run '^Test(E2E|Live)' ./cmd/kar; then \
 		rm -rf "$$e2e_project"; \
 	else \
 		status=$$?; \

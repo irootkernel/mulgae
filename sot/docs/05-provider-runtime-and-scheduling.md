@@ -16,7 +16,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
 It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator.
-G010 is `IMPLEMENTATION_IN_PROGRESS`. Production closure requires the exact Config v2 assignment and real-provider gate retained by SOT 1.11.0.
+G010 is `RELEASE_READY`. Production closure was established by the exact Config v2 assignment and real-provider gate retained by SOT 1.12.0 on 2026-07-26.
 
 ## 2. Driver, Instance, and Lane
 
@@ -197,7 +197,7 @@ On macOS, AGY authentication is bound to the installed user's native `HOME` and 
 
 The authentication `HOME` is distinct from the descriptor-bound immutable review CWD, which remains the captured snapshot. KAR owns AGY's XDG, cache, temporary, and scratch namespaces; they do not relocate or authorize mutation of the installed user's AGY state. Kimi and ZCode retain isolated `HOME` directories plus credential projection.
 
-KAR does not install an AGY `settings.json` policy. Its enforceable AGY controls are direct argv with `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. A provider that handles KAR's accepted post-output `SIGTERM` and exits nonzero does not invalidate the exact stable JSON frame that preceded and authorized that signal; a nonzero natural exit without that bound signal remains a failure. G010 does not claim this boundary complete until the non-skipping actual-AGY E2E and final `make test` succeed.
+KAR does not install an AGY `settings.json` policy. Its enforceable AGY controls are direct argv with `--sandbox`, the exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time and output, and post-output process-group `SIGTERM` followed by `SIGKILL` when required. A provider that handles KAR's accepted post-output `SIGTERM` and exits nonzero does not invalidate the exact stable JSON frame that preceded and authorized that signal; a nonzero natural exit without that bound signal remains a failure. G010 did not claim this boundary complete until the non-skipping actual-AGY E2E and final `make test` both succeeded on 2026-07-26.
 
 If a provider prints non-result logs to stdout, its adapter must deterministically isolate the result. Generic heuristic extraction is not a default supported contract.
 
@@ -339,7 +339,7 @@ Each invocation `command.json` contains resolved binary, argv, working directory
 
 ## 13. Run-wide Operational Diagnostics
 
-After session/run identity allocation and before the first provider spawn, the review runtime opens one mandatory diagnostic sink. The sink owns the run start clock, UTC timestamps, monotonic elapsed time, and one serialized run-wide sequence across concurrent lanes. The coordinator retains scheduling and fallback authority; diagnostic sequence records operational chronology and never changes coordinator policy.
+After session/run identity allocation and before the first provider spawn, every production root or child review workflow opens one mandatory diagnostic sink. The sink owns the run start clock, UTC timestamps, monotonic elapsed time, and one serialized run-wide sequence across concurrent lanes. Delta and rerun bind the child sink to both coordinator and provider runtime; specialized followup persists its bounded stdout and stderr directly while retaining the same source provider across its optional single repair. The coordinator retains scheduling and fallback authority; diagnostic sequence records operational chronology and never changes coordinator policy.
 
 Each invocation uses a run-wide positive ordinal and a closed purpose in the path `<ordinal>-<purpose>`; this ordinal is distinct from the invocation identity. Provider stdout and stderr remain separate byte-preserving streams with their already-approved invocation capture caps. They are never merged, timestamped, newline-normalized, or copied into `kar-runtime.jsonl`. Process/provider boundaries must eventually preserve the best valid observation with a typed cause, but diagnostics do not change provider assignment, fallback eligibility, native authentication, or repair policy.
 
