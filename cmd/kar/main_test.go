@@ -268,12 +268,61 @@ func TestReviewCompositionConstructorFailureCleansTemporaryRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanupReviewCompositionRoots(true, namespace, workspace)
+	if err := cleanupReviewCompositionRoots(true, namespace, workspace); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, root := range []ports.AnchoredRoot{workspace, namespace} {
 		if _, err := os.Lstat(root.String()); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("constructor failure retained temporary root %q: %v", root.String(), err)
 		}
+	}
+}
+
+type failingReviewRunService struct{ err error }
+
+func (service failingReviewRunService) StartReviewRun(context.Context, karentry.ReviewRequest, ports.AnchoredRoot) (karentry.ReviewRunResult, error) {
+	return karentry.ReviewRunResult{}, service.err
+}
+
+func TestReviewCompositionCleanupFailureIsArtifactFailureAndPreservesPrimaryError(t *testing.T) {
+	lockedParent := t.TempDir()
+	lockedPath := filepath.Join(lockedParent, "namespace")
+	if err := os.Mkdir(lockedPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lockedRoot, err := ports.NewAnchoredRoot(lockedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removablePath := canonicalTestTempDir(t)
+	removableRoot, err := ports.NewAnchoredRoot(removablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lockedParent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockedParent, 0o700) })
+
+	primary := errors.New("injected review failure")
+	service := &rootCleaningReviewRunService{
+		inner: failingReviewRunService{err: primary},
+		graph: &productionRuntimeGraph{namespaceRoot: lockedRoot, workspaceRoot: removableRoot},
+	}
+	_, err = service.StartReviewRun(context.Background(), karentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if !errors.Is(err, primary) {
+		t.Fatalf("cleanup error lost primary failure: %v", err)
+	}
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("cleanup error = %#v, want joined artifact failure", err)
+	}
+	if _, statErr := os.Lstat(removablePath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("cleanup stopped after first root failure; second root status: %v", statErr)
+	}
+	if _, statErr := os.Lstat(lockedPath); statErr != nil {
+		t.Fatalf("injected failing root unexpectedly removed: %v", statErr)
 	}
 }
 

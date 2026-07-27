@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -47,11 +48,14 @@ type productionRuntimeGraph struct {
 	ids             review.IdentityGenerator
 }
 
-func (graph *productionRuntimeGraph) cleanupRoots() {
+func (graph *productionRuntimeGraph) cleanupRoots() error {
 	if graph == nil {
-		return
+		return nil
 	}
-	cleanupReviewCompositionRoots(true, graph.namespaceRoot, graph.workspaceRoot)
+	if err := cleanupReviewCompositionRoots(true, graph.namespaceRoot, graph.workspaceRoot); err != nil {
+		return reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", err)
+	}
+	return nil
 }
 
 func composeProductionRuntimeGraph(
@@ -95,13 +99,16 @@ func composeProductionRuntimeGraph(
 	}
 	namespaceRoot, err := privateReviewRoot(tempRoot, reviewNamespacePrefix)
 	if err != nil {
-		_ = os.RemoveAll(workspaceRoot.String())
-		return nil, err
+		cleanupErr := cleanupReviewCompositionRoots(true, ports.AnchoredRoot{}, workspaceRoot)
+		if cleanupErr != nil {
+			cleanupErr = reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", cleanupErr)
+		}
+		return nil, errors.Join(err, cleanupErr)
 	}
 	graph := &productionRuntimeGraph{build: build, root: root, policy: policy, workspaceRoot: workspaceRoot, namespaceRoot: namespaceRoot, clock: clock, ids: ids}
 	defer func() {
 		if err != nil {
-			graph.cleanupRoots()
+			err = errors.Join(err, graph.cleanupRoots())
 		}
 	}()
 

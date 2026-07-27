@@ -54,7 +54,7 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
-	defer graph.cleanupRoots()
+	defer func() { err = errors.Join(err, graph.cleanupRoots()) }()
 	source, err := service.composer.sources.ReadFollowupSource(ctx, request.SourceRunID, request.FindingID)
 	if err != nil {
 		return kar.StartedRun{}, err
@@ -117,7 +117,7 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
-	defer graph.cleanupRoots()
+	defer func() { err = errors.Join(err, graph.cleanupRoots()) }()
 	roles := append([]domain.Role(nil), request.Roles...)
 	if len(roles) == 0 {
 		source, sourceErr := service.composer.sources.ReadSource(ctx, request.SourceRunID)
@@ -170,7 +170,7 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 	if err != nil {
 		return kar.StartedRun{}, err
 	}
-	defer graph.cleanupRoots()
+	defer func() { err = errors.Join(err, graph.cleanupRoots()) }()
 	source, err := service.composer.sources.ReadRerunSource(ctx, request.SourceRunID, request.SourceAttemptID)
 	if err != nil {
 		return kar.StartedRun{}, err

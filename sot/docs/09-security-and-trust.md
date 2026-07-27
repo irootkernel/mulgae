@@ -162,6 +162,8 @@ Evidence paths are logical target paths, not direct host filesystem paths.
 
 Artifact corruption, schema/hash mismatch, stale clean-plan apply, and publication ambiguity are artifact failures (exit `7`). Cancellation is exit `9`; an internal invariant failure is exit `10`. Exhaustion of any selected lane preserves valid content, fails the run, and produces `coverage_status=incomplete` at exit `4` unless a higher-priority failure applies. Degraded coverage is limited to valid policy-permitted results.
 
+Terminal cleanup never discards an initiating failure. Provider namespace drain and workspace release or abort retain their bounded terminal evidence and retry rules. The production composition then attempts deletion of both KAR-owned private namespace and workspace roots even when one deletion fails. A deletion failure is joined with any initiating error, classified as `artifact_failure`, and projects exit `7`; it cannot be reported as a successful root or child workflow.
+
 ## 11. Artifact Integrity
 
 Protection mechanisms:

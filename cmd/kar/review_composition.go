@@ -100,15 +100,13 @@ func composeReviewRuns(
 		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Locker: graph.locker, Publication: graph.publisher, Templates: graph.templates, Diagnostics: graph.diagnostics,
 	})
 	if err != nil {
-		graph.cleanupRoots()
-		return nil, fmt.Errorf("review composition: service: %w", err)
+		return nil, errors.Join(fmt.Errorf("review composition: service: %w", err), graph.cleanupRoots())
 	}
 	var reviewService kar.ReviewRunService
 	if inputs := graph.policy.config.Roles.Artist.Inputs; graph.policy.config.Project.Kind == appconfig.ProjectKindUI && inputs != nil {
 		artistInputs, inputErr := ports.NewArtistReviewInputs(inputs.TaskPath, inputs.DesignSpecGlobs)
 		if inputErr != nil {
-			graph.cleanupRoots()
-			return nil, fmt.Errorf("review composition: artist inputs: %w", inputErr)
+			return nil, errors.Join(fmt.Errorf("review composition: artist inputs: %w", inputErr), graph.cleanupRoots())
 		}
 		reviewService = kar.NewPolicyReviewRunServiceWithArtistInputs(kar.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles, artistInputs)
 	} else {
@@ -122,19 +120,27 @@ type rootCleaningReviewRunService struct {
 	graph *productionRuntimeGraph
 }
 
-func (service *rootCleaningReviewRunService) StartReviewRun(ctx context.Context, request kar.ReviewRequest, root ports.AnchoredRoot) (kar.ReviewRunResult, error) {
+func (service *rootCleaningReviewRunService) StartReviewRun(ctx context.Context, request kar.ReviewRequest, root ports.AnchoredRoot) (result kar.ReviewRunResult, err error) {
 	if service == nil || service.inner == nil || service.graph == nil {
 		return kar.ReviewRunResult{}, fmt.Errorf("review composition: unavailable composed service")
 	}
-	defer service.graph.cleanupRoots()
+	defer func() { err = errors.Join(err, service.graph.cleanupRoots()) }()
 	return service.inner.StartReviewRun(ctx, request, root)
 }
-func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot ports.AnchoredRoot) {
+func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot ports.AnchoredRoot) error {
 	if !cleanup {
-		return
+		return nil
 	}
-	_ = os.RemoveAll(namespaceRoot.String())
-	_ = os.RemoveAll(workspaceRoot.String())
+	var cleanupErr error
+	for _, root := range []ports.AnchoredRoot{namespaceRoot, workspaceRoot} {
+		if !root.Valid() {
+			continue
+		}
+		if err := os.RemoveAll(root.String()); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private root: %w", err))
+		}
+	}
+	return cleanupErr
 }
 
 type productionRunPolicy struct {
