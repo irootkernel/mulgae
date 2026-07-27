@@ -41,10 +41,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestLiveAgyCurrentBehavior(t *testing.T) {
-	if os.Getenv("KAR_LIVE_AGY") != "1" {
-		t.Skip("SKIP/unavailable: set KAR_LIVE_AGY=1 to opt into the installed AGY qualification gate")
-	}
+func TestLiveAgyCapability(t *testing.T) {
 	binaryPath := liveAgyConfiguredPath(t, "KAR_LIVE_AGY_BIN")
 	runtimeHome, err := liveAgyInstalledHome(user.Current, os.Geteuid(), os.Getenv("KAR_LIVE_AGY_HOME"))
 	if err != nil {

@@ -188,34 +188,44 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal("test-e2e does not build the production binary")
 	}
 	for _, required := range []string{
-		"agy_bin=", `test -n "$$agy_bin"`, "KAR_LIVE_AGY=1", "-run '^TestLiveAgy'", "-tags=live_e2e",
+		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,
+		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,
+		"KAR_LIVE_KIMI_BIN", "KAR_LIVE_ZCODE_NODE_BIN", "KAR_LIVE_ZCODE_LAUNCHER", "KAR_LIVE_AGY_BIN",
+		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'",
 	} {
 		if !strings.Contains(text, required) {
-			t.Errorf("test-e2e missing fail-closed AGY/full-workflow token %q", required)
+			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	if agy := strings.Index(text, "-run '^TestLiveAgy'"); agy < 0 || agy >= strings.Index(text, "-tags=live_e2e") {
-		t.Fatal("test-e2e does not run the non-skipping AGY native-auth gate before the product workflow")
+	if strings.Contains(text, "-tags=live_e2e") || strings.Contains(text, "KAR_E2E_PROJECT_ROOT") {
+		t.Fatal("test-e2e still executes the historical stochastic full-workflow gate")
 	}
 }
 
-func TestE2ELiveFullWorkflowAndNoSkipContract(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "cmd", "kar", "live_e2e_test.go"))
-	if err != nil {
-		t.Fatal(err)
+func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
+	root := repositoryRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "cmd", "kar", "live_e2e_test.go")); !os.IsNotExist(err) {
+		t.Fatalf("historical full-workflow live test remains executable: %v", err)
 	}
-	text := string(data)
-	for _, required := range []string{
-		"func TestE2EActualProvidersSixConcurrentPrimaryLanes", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
-		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "qualification_candidate_checked", "qualification_succeeded",
-		"KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+	var combined strings.Builder
+	for _, path := range []string{
+		filepath.Join(root, "internal", "adapters", "providercli", "registry_live_test.go"),
+		filepath.Join(root, "internal", "adapters", "providercli", "agy_live_test.go"),
 	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined.Write(data)
+	}
+	text := combined.String()
+	for _, required := range []string{"func TestLiveKimiCapability", "func TestLiveZCodeCapability", "func TestLiveAgyCapability", "QualifyCurrent", "protected native credential/settings state", "auth/settings after drain"} {
 		if !strings.Contains(text, required) {
-			t.Errorf("live E2E contract missing %q", required)
+			t.Errorf("live family capability contract missing %q", required)
 		}
 	}
 	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
-		t.Fatal("actual-provider product E2E may not skip unavailable prerequisites")
+		t.Fatal("required live family capability certification may not skip prerequisites")
 	}
 }
 

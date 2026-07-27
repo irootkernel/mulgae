@@ -1,155 +1,347 @@
-//go:build liveprovider
+//go:build liveprovider && darwin && arm64
 
-package providercli
+package providercli_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	environmentadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
+	filesystemadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
+	workspaceadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
 	"github.com/irootkernel/kkachi-agent-review/internal/domain"
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-func TestLiveKimiCapabilityProfile(t *testing.T) {
-	binaryPath := os.Getenv("KAR_LIVE_KIMI_BIN")
-	if binaryPath == "" {
-		t.Skip("KAR_LIVE_KIMI_BIN is not configured")
-	}
-	if !filepath.IsAbs(binaryPath) || filepath.Clean(binaryPath) != binaryPath {
-		t.Fatal("live Kimi executable must be a canonical absolute path")
-	}
-	version := os.Getenv("KAR_LIVE_KIMI_VERSION")
+type liveCapabilityConfig struct {
+	family         string
+	credential     providercli.CredentialSourceFamily
+	instance       string
+	role           domain.Role
+	executableEnv  string
+	launcherEnv    string
+	dataHomeEnv    string
+	transportIndex int
+	minimumVersion [3]int
+	kimiModel      string
+	protectedPaths func(string, string) []string
+}
 
-	key, err := ports.ParseConcurrencyKey("kimi-default")
+func TestLiveKimiCapability(t *testing.T) {
+	certifyLiveCapability(t, liveCapabilityConfig{
+		family: providercli.FamilyKimi, credential: providercli.CredentialSourceKimi, instance: "kimi-logic", role: domain.RoleLogic,
+		executableEnv: "KAR_LIVE_KIMI_BIN", dataHomeEnv: "KAR_LIVE_KIMI_DATA_HOME", transportIndex: 4,
+		minimumVersion: [3]int{0, 23, 6}, kimiModel: "kimi-code/kimi-for-coding",
+		protectedPaths: func(_ string, dataHome string) []string {
+			return []string{filepath.Join(dataHome, "config.toml"), filepath.Join(dataHome, "credentials", "kimi-code.json")}
+		},
+	})
+}
+
+func TestLiveZCodeCapability(t *testing.T) {
+	certifyLiveCapability(t, liveCapabilityConfig{
+		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
+		executableEnv: "KAR_LIVE_ZCODE_NODE_BIN", launcherEnv: "KAR_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
+		minimumVersion: [3]int{0, 15, 2},
+		protectedPaths: func(home, _ string) []string {
+			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
+		},
+	})
+}
+
+func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
+	t.Helper()
+	installed, err := user.Current()
+	if err != nil || installed == nil {
+		t.Fatalf("%s installed-user identity is unavailable: %v", config.family, err)
+	}
+	runtimeHome := liveCapabilityDirectory(t, "installed user home", installed.HomeDir)
+	executable := liveCapabilityFile(t, config.executableEnv, true)
+	launcher := ""
+	if config.launcherEnv != "" {
+		launcher = liveCapabilityFile(t, config.launcherEnv, false)
+	}
+	dataHome := ""
+	if config.dataHomeEnv != "" {
+		dataHome = liveCapabilityDirectory(t, config.dataHomeEnv, os.Getenv(config.dataHomeEnv))
+	}
+	protectedBefore := liveCapabilityManifest(t, config.protectedPaths(runtimeHome, dataHome))
+
+	workspaceRoot := liveCapabilityTempDir(t)
+	anchoredWorkspace, err := ports.NewAnchoredRoot(workspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment := liveKimiEnvironment(t)
-	profile, err := NewRuntimeDefinition(
-		FamilyKimi,
-		"local-default",
-		version,
-		binaryPath,
-		"",
-		key,
-		"kimi-default",
-		[]string{binaryPath},
-		environment,
-		t.TempDir(),
-		30*time.Second,
-		1<<20,
-		1<<20,
+	materializer, err := workspaceadapter.NewMaterializer(anchoredWorkspace, filesystemadapter.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures, err := providercli.NewProbeFixtureLeaseFactory(materializer, providercli.SecureProbeNonceGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	fixture, err := fixtures.Acquire(ctx, config.role)
+	if err != nil {
+		t.Fatalf("%s immutable capability fixture: %v", config.family, err)
+	}
+	workspaceDrained := false
+	t.Cleanup(func() {
+		if workspaceDrained {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = fixture.DrainTerminal(cleanupCtx)
+	})
+
+	policy, err := providercli.RuntimeSafetyPolicyForFamily(config.credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespaceRoot := liveCapabilityTempDir(t)
+	baseNamespaces, err := providercli.NewNamespaceFactory(namespaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	families := map[string]providercli.CredentialSourceFamily{config.instance: config.credential}
+	policies := map[string]providercli.RuntimeSafetyPolicy{config.instance: policy}
+	sourceRoots := map[string]string{}
+	if config.credential == providercli.CredentialSourceKimi {
+		sourceRoots[config.instance] = dataHome
+	}
+	projectedNamespaces, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
+		baseNamespaces, runtimeHome, families, policies, nil, sourceRoots,
 	)
 	if err != nil {
+		t.Fatalf("%s credential namespace: %v", config.family, err)
+	}
+
+	executableSHA := liveCapabilitySHA256(t, executable)
+	launcherSHA := executableSHA
+	baseArgv := []string{executable}
+	if launcher != "" {
+		launcherSHA = liveCapabilitySHA256(t, launcher)
+		baseArgv = append(baseArgv, launcher)
+	} else {
+		launcher = executable
+	}
+	key, err := ports.ParseConcurrencyKey(config.instance)
+	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-	defer cancel()
+	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
+		Launcher: launcher, LauncherSHA256: launcherSHA, ConcurrencyKey: key, ProfileID: config.instance,
+		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
+		BaseArgv: baseArgv, TransportChannel: ports.ProviderPacketChannelArgvLiteral, TransportArgvIndex: config.transportIndex,
+		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second, MaxStdoutBytes: 64 << 10, MaxStderrBytes: 64 << 10,
+	})
+	if err != nil {
+		t.Fatalf("%s production runtime definition: %v", config.family, err)
+	}
+	definition, ok := definitionPort.(providercli.RuntimeDefinition)
+	if !ok {
+		t.Fatalf("%s runtime builder returned an unexpected definition", config.family)
+	}
+
 	runner, err := processadapter.NewRunner(runtimeadapter.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := NewRegistry(runner, profile)
+	recording := &liveCapabilityRecordingRunner{runner: runner}
+	verifier := environmentadapter.NewSpawnVerifier()
+	registry, err := providercli.NewProductionRegistry(recording, projectedNamespaces, verifier, definition)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s production registry: %v", config.family, err)
 	}
-
-	const marker = "kar-live-kimi-capability-v1"
-	prompt := []byte(`Return exactly this JSON object and no markdown or explanation: {"marker":"` + marker + `"}`)
-	invocation := liveKimiInvocation(t, prompt)
-	observation, err := registry.Observe(ctx, invocation)
-	if err != nil {
-		t.Fatalf("observe live Kimi: %v", err)
-	}
-	if !observation.Succeeded() {
-		t.Fatalf("live Kimi did not succeed: status=%q termination=%q diagnostic=%q", observation.Status(), observation.Termination(), observation.DiagnosticCode())
-	}
-	result, ok := observation.Result()
+	registryDrained := false
+	t.Cleanup(func() {
+		if registryDrained {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = registry.Close(cleanupCtx)
+	})
+	namespace, ok := registry.QualificationNamespace(config.instance)
 	if !ok {
-		t.Fatal("successful live Kimi observation has no result")
+		t.Fatalf("%s qualification namespace is unavailable", config.family)
 	}
-	var document struct {
-		Marker string `json:"marker"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(result.Stdout()))
-	if err := decoder.Decode(&document); err != nil {
-		t.Fatalf("live Kimi result is not JSON: %v", err)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err != io.EOF {
-		t.Fatal("live Kimi result contains more than one JSON document")
-	}
-	if document.Marker != marker {
-		t.Fatal("live Kimi result marker did not match")
-	}
-	receipt := observation.StdinWriteReceipt()
-	if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 || !receipt.Complete() ||
-		receipt.SHA256() != liveKimiDigest(nil) {
-		t.Fatalf("live Kimi stdin receipt is not a complete zero-byte fact: %#v", receipt)
-	}
-	transport, ok := observation.ProcessObservation().ProviderPacketTransportReceipt()
-	if !ok || transport.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-		transport.PacketIdentity() != invocation.InputIdentity() {
-		t.Fatalf("live Kimi transport receipt = %#v, present=%t", transport, ok)
-	}
-	if result.InputIdentity() != invocation.InputIdentity() {
-		t.Fatal("live Kimi result input identity did not match invocation")
-	}
-}
-
-func liveKimiEnvironment(t *testing.T) []ports.EnvironmentVariable {
-	t.Helper()
-	var environment []ports.EnvironmentVariable
-	for _, name := range []string{"HOME", "PATH"} {
-		value, ok := os.LookupEnv(name)
-		if !ok {
-			continue
-		}
-		variable, err := ports.NewEnvironmentVariable(name, value)
-		if err != nil {
-			t.Fatalf("construct live Kimi %s environment: %v", name, err)
-		}
-		environment = append(environment, variable)
-	}
-	return environment
-}
-
-func liveKimiInvocation(t *testing.T, prompt []byte) ports.ProviderInvocation {
-	t.Helper()
-	attempt, err := domain.ParseAttemptID("a_019f596a-cf80-7c67-b265-f37053d51ccf")
+	probe, err := providercli.NewCurrentProbe(recording, verifier)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := liveKimiDigest(prompt)
-	invocation, err := ports.NewProviderInvocation(
-		domain.RoleSecurity,
-		"local-default",
-		attempt,
-		ports.ProviderInvocationInitial,
-		prompt,
-		"i_019f596a-cf80-7c67-b265-f37053d51ccd",
-		"019f596a-cf80-7c67-b265-f37053d51cce",
-		digest,
-	)
+	result, err := probe.QualifyCurrent(ctx, providercli.CurrentProbeRequest{
+		Definition: definition, Namespace: namespace, Fixture: fixture, Invocation: providercli.NativeProbeInvocation{},
+		Now: time.Now().UTC(), TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("%s live capability certification failed: %v", config.family, err)
+	}
+	if !providercli.VersionAtLeast(result.Version, config.minimumVersion[0], config.minimumVersion[1], config.minimumVersion[2]) {
+		t.Fatalf("%s version %q is below the supported minimum", config.family, result.Version)
+	}
+	if len(recording.requests) != 2 || len(recording.observations) != 2 {
+		t.Fatalf("%s launches = requests:%d observations:%d, want one version and one capability", config.family, len(recording.requests), len(recording.observations))
+	}
+	for _, request := range recording.requests {
+		if request.WorkingDirectory() != fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
+			t.Fatalf("%s launch escaped the immutable capability fixture", config.family)
+		}
+	}
+	transport, ok := recording.observations[1].ProviderPacketTransportReceipt()
+	if !ok || !transport.Valid() || transport.Channel() != ports.ProviderPacketChannelArgvLiteral {
+		t.Fatalf("%s capability transport receipt is invalid", config.family)
+	}
+	liveCapabilityRequireReceipts(t, config.family, result.Receipts)
+
+	workspaceReceipt, err := fixture.DrainTerminal(ctx)
+	if err != nil || !workspaceReceipt.Valid() {
+		t.Fatalf("%s capability workspace did not drain: %v", config.family, err)
+	}
+	runReceipt, err := registry.Close(ctx)
+	if err != nil || !runReceipt.Valid() {
+		t.Fatalf("%s capability namespace did not drain: %v", config.family, err)
+	}
+	for _, receipt := range runReceipt.NamespaceReceipts() {
+		if !receipt.Drained() || !receipt.Unlinked() || !receipt.TornDown() {
+			t.Fatalf("%s namespace terminal receipt is incomplete", config.family)
+		}
+	}
+	protectedAfter := liveCapabilityManifest(t, config.protectedPaths(runtimeHome, dataHome))
+	if !reflect.DeepEqual(protectedBefore, protectedAfter) {
+		t.Fatalf("%s certification changed protected native credential/settings state", config.family)
+	}
+	workspaceDrained = true
+	registryDrained = true
+	t.Logf("PASS: %s %s completed one production-boundary capability certification", config.family, result.Version)
+}
+
+func liveCapabilityRequireReceipts(t *testing.T, family string, receipts []providercli.CurrentProbeReceipt) {
+	t.Helper()
+	want := map[string]bool{
+		"workspace": true, "manifest": true, "namespace": true, "environment": true, "transport": true,
+		"native-reference": true, "version": true, "capability": true, "base-role": true, "assignment": true,
+		"direct-execution-authority": true,
+	}
+	if len(receipts) != len(want) {
+		t.Fatalf("%s capability receipt count = %d, want %d", family, len(receipts), len(want))
+	}
+	for _, receipt := range receipts {
+		if !want[receipt.Kind] || receipt.EvidenceID == "" || receipt.ExpiresAt.IsZero() {
+			t.Fatalf("%s capability receipt is invalid: %#v", family, receipt)
+		}
+		delete(want, receipt.Kind)
+	}
+	if len(want) != 0 {
+		t.Fatalf("%s capability receipts are incomplete: %v", family, want)
+	}
+}
+
+type liveCapabilityRecordingRunner struct {
+	runner       ports.ProcessRunner
+	requests     []ports.ProcessRequest
+	observations []ports.ProcessObservation
+}
+
+func (runner *liveCapabilityRecordingRunner) Run(ctx context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
+	runner.requests = append(runner.requests, request)
+	observation, err := runner.runner.Run(ctx, request)
+	runner.observations = append(runner.observations, observation)
+	return observation, err
+}
+
+type liveCapabilityFileState struct {
+	path     string
+	mode     os.FileMode
+	size     int64
+	modified int64
+	sha256   string
+}
+
+func liveCapabilityManifest(t *testing.T, paths []string) []liveCapabilityFileState {
+	t.Helper()
+	states := make([]liveCapabilityFileState, 0, len(paths))
+	for _, path := range paths {
+		canonical := liveCapabilityFilePath(t, path, false)
+		info, err := os.Lstat(canonical)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("protected live capability file is unavailable: %v", err)
+		}
+		states = append(states, liveCapabilityFileState{
+			path: canonical, mode: info.Mode(), size: info.Size(), modified: info.ModTime().UnixNano(), sha256: liveCapabilitySHA256(t, canonical),
+		})
+	}
+	return states
+}
+
+func liveCapabilityFile(t *testing.T, environmentName string, executable bool) string {
+	t.Helper()
+	value := os.Getenv(environmentName)
+	if value == "" {
+		t.Fatalf("%s is required", environmentName)
+	}
+	return liveCapabilityFilePath(t, value, executable)
+}
+
+func liveCapabilityFilePath(t *testing.T, value string, executable bool) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != resolved {
+		t.Fatalf("live capability file %q is not canonical: %v", value, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() || executable && info.Mode()&0o111 == 0 {
+		t.Fatalf("live capability file %q is unavailable or has the wrong mode: %v", resolved, err)
+	}
+	return resolved
+}
+
+func liveCapabilityDirectory(t *testing.T, label, value string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != resolved {
+		t.Fatalf("%s is not a canonical directory: %v", label, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("%s is unavailable: %v", label, err)
+	}
+	return resolved
+}
+
+func liveCapabilitySHA256(t *testing.T, path string) string {
+	t.Helper()
+	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return invocation
-}
-func liveKimiDigest(value []byte) string {
+	defer file.Close()
 	digest := sha256.New()
-	_, _ = digest.Write([]byte("KAR-PROVIDER-STDIN/1"))
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write(value)
-	return hex.EncodeToString(digest.Sum(nil))
+	if _, err := io.Copy(digest, file); err != nil {
+		t.Fatal(err)
+	}
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
+}
+
+func liveCapabilityTempDir(t *testing.T) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
