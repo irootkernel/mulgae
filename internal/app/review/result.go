@@ -226,7 +226,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	paths := plan.AllowedPaths()
 	sort.Strings(paths)
 	lines := []string{
-		"KAR ROOT REVIEW REPAIR PLAN/2",
+		"KAR ROOT REVIEW REPAIR PLAN/3",
 		"original_output_sha256:" + plan.OriginalSHA256(),
 		"mode:" + string(plan.Mode()),
 		"allowed_paths_count:" + strconv.Itoa(len(paths)),
@@ -234,7 +234,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	for _, path := range paths {
 		lines = append(lines, "allowed_path:"+path)
 	}
-	planLayer, err := prompt.NewTrustedLayer("review:repair-plan", "2", []byte(strings.Join(lines, "\n")))
+	planLayer, err := prompt.NewTrustedLayer("review:repair-plan", "3", []byte(strings.Join(lines, "\n")))
 	if err != nil {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: repair plan: %w", err)
 	}
@@ -245,7 +245,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	layers := append(baseLayers, templates.Repair(), planLayer)
 	return prompt.ComposeTrustedTemplate(
 		"builtin:template/root-review/"+role+"/repair",
-		"2",
+		"3",
 		layers...,
 	)
 }

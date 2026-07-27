@@ -198,9 +198,9 @@ Silent truncation is prohibited. A future chunking strategy must preserve file b
 
 ## 11. Root-Review Output and Repair Contracts
 
-Initial root review provider stdout is the provider-owned [review wire v2 projection](../schemas/kar-provider-review-wire.v2.schema.json). Its `schema_version` is exactly `kar-provider-review-output.v2`, but it is not the normalized envelope. The wire object contains only provider-owned top-level content, findings, and `evidence[].current.path`, `line_start`, `line_end`, `side`, and `quote`.
+Initial root review provider stdout is the provider-owned [review wire v3 projection](../schemas/kar-provider-review-wire.v3.schema.json). Its `schema_version` is exactly `kar-provider-review-output.v3`, but it is not the normalized envelope. The wire object contains only provider-owned top-level content, findings, `evidence[].current.path`, `line_start`, `line_end`, `side`, and `quote`, plus the optional artist-only visual claim.
 
-KAR strictly decodes one JSON object, rejects unknown and KAR-owned fields, validates the wire projection, injects trusted `current.target_sha256` and `current.verification="claimed"`, then validates the resulting [normalized provider review output v2 envelope](../schemas/kar-provider-review-output.v2.schema.json). KAR normalizes trusted role/provider identity, assigns finding IDs and order, and independently verifies evidence. A provider must not emit target or source identity, verification, session/run/attempt/review/finding IDs, role/provider identity, lifecycle/evidence state, hashes, outcomes, verdicts, coverage, CI, or publication state. Only KAR can transition a claim to `verified`, `stale`, `invalid`, or `unverifiable`.
+KAR strictly decodes one JSON object, rejects unknown and KAR-owned fields, validates the wire projection, injects trusted `current.target_sha256` and `current.verification="claimed"`, then validates the resulting [normalized provider review output v3 envelope](../schemas/kar-provider-review-output.v3.schema.json). KAR normalizes trusted role/provider identity, assigns finding IDs and order, and independently verifies textual and optional visual evidence. A provider must not emit target or source identity, verification, session/run/attempt/review/finding IDs, role/provider identity, lifecycle/evidence state, outcomes, verdicts, coverage, CI, or publication state. Only KAR can transition a claim to `verified`, `stale`, `invalid`, or `unverifiable`.
 
 V1 provider-output schemas are read compatibility only. Production execution rejects v1 provider output; it never normalizes or repairs v1 into an executable result. Followup attempts use the separate [provider followup output v2 schema](../schemas/kar-provider-followup-output.v2.schema.json).
 
@@ -216,14 +216,14 @@ Do not include Markdown, commentary, prefixes, suffixes, code fences, or a secon
 `prior_provider_output` remains an untrusted frame. A root-review repair reuses the original trusted template byte-for-byte, appends the KAR trusted repair contract, and then appends the trusted dynamic plan. The plan binds the original bytes by SHA-256 and is ordered exactly as:
 
 ```text
-KAR ROOT REVIEW REPAIR PLAN/2
+KAR ROOT REVIEW REPAIR PLAN/3
 original_output_sha256:<64 lowercase hex>
 mode:<reformat_only|fill_missing_fields|exact_evidence>
 allowed_paths_count:<canonical decimal>
 allowed_path:<sorted JSON Pointer>
 ```
 
-`reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v2 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all KAR-owned fields.
+`reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v3 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all KAR-owned fields.
 
 `fill_missing_fields` returns exactly `{"schema_version":"kar-repair-patch.v1","repairs":[{"path":...,"value":...}]}`. It contains 1..100 unique repairs, each path is in the sorted allowed set, and every required missing or invalid path is repaired exactly once. It preserves every unrelated value, finding count/order, severity, evidence identity, role/provider/target, and system field. Both repair forms are JSON-only; neither candidate nor plan grants evidence or execution authority. KAR's repair applicator remains authoritative and rejects original-hash mismatch, wrong form, unallowed paths, meaningful overwrites, finding-count changes, severity downgrades, and invalid reconstructed output.
 

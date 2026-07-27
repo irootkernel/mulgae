@@ -668,7 +668,7 @@
       "exclusion_reason": null
     },
     {
-      "path": "sot/prompts/root-review/repair-provider-review.v2.txt",
+      "path": "sot/prompts/root-review/repair-provider-review.v3.txt",
       "disposition": "ADDED",
       "media_type": "text/plain",
       "schema_id": null,
