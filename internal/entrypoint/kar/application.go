@@ -1405,6 +1405,7 @@ func appendDiagnosticURI(message []byte, uri string) []byte {
 func qualificationFailureRetryable(class domain.FailureClass) bool {
 	switch class {
 	case domain.FailureProviderUnavailable,
+		domain.FailureInvalidOutput,
 		domain.FailureTimeout,
 		domain.FailureAuthentication,
 		domain.FailureQuota,
@@ -1485,7 +1486,7 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 		return app.ExitCodeSecurity
 	case domain.FailureCancelled:
 		return app.ExitCodeCancellation
-	case domain.FailureProviderUnavailable, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
+	case domain.FailureProviderUnavailable, domain.FailureInvalidOutput, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
 		return app.ExitCodeReadiness
 	default:
 		return app.ExitCodeInternal

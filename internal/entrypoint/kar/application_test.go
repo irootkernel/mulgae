@@ -33,6 +33,7 @@ import (
 	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
 	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
 	appreplay "github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
+	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
 	appschema "github.com/irootkernel/kkachi-agent-review/internal/app/schema"
 	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
@@ -3440,6 +3441,84 @@ func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
 		})
 	}
 }
+
+func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
+	tests := []struct {
+		name      string
+		argv      []string
+		class     domain.FailureClass
+		condition review.AttemptCondition
+		set       func(g008WorkflowFakes, error)
+	}{
+		{
+			name:      "followup provider unavailable",
+			argv:      []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
+			class:     domain.FailureProviderUnavailable,
+			condition: review.AttemptConditionProviderUnavailable,
+			set:       func(fakes g008WorkflowFakes, err error) { fakes.followup.err = err },
+		},
+		{
+			name:      "delta invalid output",
+			argv:      []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
+			class:     domain.FailureInvalidOutput,
+			condition: review.AttemptConditionInvalidProviderOutput,
+			set:       func(fakes g008WorkflowFakes, err error) { fakes.delta.err = err },
+		},
+		{
+			name:      "rerun exact timeout",
+			argv:      []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
+			class:     domain.FailureTimeout,
+			condition: review.AttemptConditionTimeout,
+			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
+		},
+		{
+			name:      "rerun recomposed authentication",
+			argv:      []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
+			class:     domain.FailureAuthentication,
+			condition: review.AttemptConditionAuthentication,
+			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fact, err := reviewrun.NewProviderExecutionFailure("zcode-security", domain.RoleSecurity, string(test.condition), test.class)
+			if err != nil {
+				t.Fatal(err)
+			}
+			aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
+			failure, err := domain.NewFailure("childrun.execute", test.class, "provider execution failed", aggregate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakes := newG008WorkflowFakes(t)
+			test.set(fakes, failure)
+			fixture := newG008Fixture(t, fakes)
+			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
+			var envelope struct {
+				OK      bool `json:"ok"`
+				Reasons []struct {
+					Code      string `json:"code"`
+					Retryable bool   `json:"retryable"`
+				} `json:"reasons"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.OK || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_execution_failed" || envelope.Reasons[0].Retryable {
+				t.Fatalf("provider execution envelope = %#v", envelope)
+			}
+			if test.name == "rerun exact timeout" {
+				if len(fakes.rerun.requests) != 1 || fakes.rerun.requests[0].ReplayMode != appreplay.ExactReplay {
+					t.Fatalf("exact rerun requests = %#v", fakes.rerun.requests)
+				}
+			} else {
+				assertG008FakeRequest(t, test.name, fakes)
+			}
+		})
+	}
+}
+
 func TestApplicationG008ExportSecurityFailureRedactsSuccessFields(t *testing.T) {
 	fakes := newG008WorkflowFakes(t)
 	fakes.export.err = mustG006Failure(t, domain.FailureSecurityPolicy)

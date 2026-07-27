@@ -160,6 +160,8 @@ A coordinator security-policy, configuration, artifact, internal, or cancellatio
 
 For a non-publishable provider execution stop, machine output uses reason code `provider_execution_failed`, preserves the highest-precedence typed exit, sets `retryable=false`, and names every unsuccessful lane's affected provider instance with only its closed attempt-condition code. Operational predecessor, lower-precedence, and peer-cancellation facts remain visible so fallback exhaustion or process termination cannot hide the initiating stop. Human output names the same provider facts. Raw provider output, paths, credentials, and free-form diagnostics are never projected.
 
+Provider unavailability, exhausted invalid output, timeout, authentication, quota, and rate-limit execution failures are readiness failures at exit `4` when no higher-precedence failure is present. This projection applies equally to root review, followup, delta, exact rerun, and recomposed rerun.
+
 Final exit precedence is:
 
 ```text
