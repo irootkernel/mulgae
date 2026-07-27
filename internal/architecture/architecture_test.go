@@ -219,6 +219,22 @@ func TestE2ELiveFullWorkflowAndNoSkipContract(t *testing.T) {
 	}
 }
 
+func TestRequiredArtistPrerequisitesFailClosed(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "cmd", "kar", "artist_workspace_e2e_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") || strings.Contains(text, "KAR_REQUIRE_ARTIST_E2E") {
+		t.Fatal("required Artist/Playwright integration may not skip unavailable prerequisites")
+	}
+	for _, required := range []string{"func TestIntegrationArtistHomepageWorkspaceReview", "npx", "--offline", "playwright", "t.Fatalf(format, arguments...)"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("Artist integration fail-closed contract missing %q", required)
+		}
+	}
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))

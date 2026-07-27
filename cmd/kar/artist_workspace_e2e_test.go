@@ -195,10 +195,7 @@ func captureArtistHomepage(t *testing.T, htmlPath, screenshotPath string) {
 
 func artistE2EUnavailable(t *testing.T, format string, arguments ...any) {
 	t.Helper()
-	if os.Getenv("KAR_REQUIRE_ARTIST_E2E") == "1" {
-		t.Fatalf(format, arguments...)
-	}
-	t.Skipf(format, arguments...)
+	t.Fatalf(format, arguments...)
 }
 
 func mustCopyArtistFixture(t *testing.T, source, destination string) {
