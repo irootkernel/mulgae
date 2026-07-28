@@ -253,6 +253,9 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
 		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")
 	}
+	if !strings.Contains(workflowText, `\nclean := filepath.Clean(name)`) || strings.Contains(workflowText, `\n\tclean := filepath.Clean(name)`) {
+		t.Fatal("exact-binary followup fixture does not keep candidate evidence at an exact column-one boundary")
+	}
 	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
 		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")
 	}

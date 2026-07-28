@@ -428,7 +428,9 @@ func initializeLiveE2ERepository(t *testing.T) string {
 
 func writeLiveFixedReportPath(t *testing.T, project string) {
 	t.Helper()
-	fixed := "package report\n\nimport (\n\t\"errors\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n)\n\nfunc ReadReport(base, name string) ([]byte, error) {\n\tclean := filepath.Clean(name)\n\tif clean == \".\" || filepath.IsAbs(clean) || clean == \"..\" || strings.HasPrefix(clean, \"..\"+string(os.PathSeparator)) {\n\t\treturn nil, errors.New(\"invalid report path\")\n\t}\n\treturn os.ReadFile(filepath.Join(base, clean))\n}\n"
+	// Go does not require indentation. Keeping candidate evidence at column one
+	// prevents a provider's first-line code-fence trim from changing exact bytes.
+	fixed := "package report\n\nimport (\n\t\"errors\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n)\n\nfunc ReadReport(base, name string) ([]byte, error) {\nclean := filepath.Clean(name)\nif clean == \".\" || filepath.IsAbs(clean) || clean == \"..\" || strings.HasPrefix(clean, \"..\"+string(os.PathSeparator)) {\nreturn nil, errors.New(\"invalid report path\")\n}\nreturn os.ReadFile(filepath.Join(base, clean))\n}\n"
 	if err := os.WriteFile(filepath.Join(project, "report.go"), []byte(fixed), 0o600); err != nil {
 		t.Fatal(err)
 	}
