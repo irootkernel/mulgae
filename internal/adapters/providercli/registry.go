@@ -1338,9 +1338,37 @@ func zcodeContent(stdout []byte) ([]byte, error) {
 	}
 	result, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, []byte(response))
 	if err != nil {
-		return nil, errInvalidZcodeEnvelope
+		result, err = extractUniqueFencedJSONObject([]byte(response))
+		if err != nil {
+			return nil, errInvalidZcodeEnvelope
+		}
 	}
 	return result, nil
+}
+
+func extractUniqueFencedJSONObject(output []byte) ([]byte, error) {
+	const (
+		fenceStart = "```json\n"
+		fenceEnd   = "\n```"
+	)
+	start := bytes.Index(output, []byte(fenceStart))
+	if start < 0 || start > 0 && output[start-1] != '\n' {
+		return nil, errProviderOutputFrameMissing
+	}
+	contentStart := start + len(fenceStart)
+	if bytes.Contains(output[contentStart:], []byte(fenceStart)) {
+		return nil, errProviderOutputFrameMissing
+	}
+	endOffset := bytes.Index(output[contentStart:], []byte(fenceEnd))
+	if endOffset < 0 {
+		return nil, errProviderOutputFrameMissing
+	}
+	candidate := output[contentStart : contentStart+endOffset]
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(candidate, &object); err != nil || object == nil {
+		return nil, errProviderOutputFrameMissing
+	}
+	return append([]byte(nil), candidate...), nil
 }
 
 func kimiContent(stdout []byte) ([]byte, error) {

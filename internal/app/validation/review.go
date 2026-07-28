@@ -1248,9 +1248,39 @@ func materialScopeUnreadable(limitation string) bool {
 		if (word == "unreadable" || word == "inaccessible") && nearbyWordIndex(scopeIndexes, index, relationWindow) {
 			return true
 		}
+		// In phrases such as "the review target does not include callers",
+		// review is a noun modifier rather than an access verb. Only treat the
+		// bare form as a verb when the negation precedes it; inflected forms
+		// (reviewed/reviewing) remain covered by reviewAccessVerb below.
+		if word == "review" && !followedByScopeNoun(words, index) &&
+			nearbyWordIndex(scopeIndexes, index, relationWindow) &&
+			nearbyPrecedingWordIndex(negationIndexes, index, relationWindow) {
+			return true
+		}
 		if reviewAccessVerb(word) &&
 			nearbyWordIndex(scopeIndexes, index, relationWindow) &&
 			nearbyWordIndex(negationIndexes, index, relationWindow) {
+			return true
+		}
+	}
+	return false
+}
+
+func followedByScopeNoun(words []string, index int) bool {
+	if index+1 >= len(words) {
+		return false
+	}
+	switch words[index+1] {
+	case "material", "scope", "target", "file", "files":
+		return true
+	default:
+		return false
+	}
+}
+
+func nearbyPrecedingWordIndex(indexes []int, target, maximumDistance int) bool {
+	for _, index := range indexes {
+		if index < target && target-index <= maximumDistance {
 			return true
 		}
 	}
@@ -1274,7 +1304,7 @@ func reviewAccessVerb(word string) bool {
 	return strings.HasPrefix(word, "read") ||
 		strings.HasPrefix(word, "access") ||
 		strings.HasPrefix(word, "inspect") ||
-		strings.HasPrefix(word, "review") ||
+		(word != "review" && strings.HasPrefix(word, "review")) ||
 		strings.HasPrefix(word, "load")
 }
 

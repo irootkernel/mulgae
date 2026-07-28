@@ -560,27 +560,79 @@ func TestPromptConstructionFailureDoesNotAuthorizeProviderOutputRepair(t *testin
 }
 
 func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
+	for _, severity := range []domain.Severity{domain.SeverityHigh, domain.SeverityMedium, domain.SeverityLow} {
+		t.Run(string(severity), func(t *testing.T) {
+			job := coordinatorTypesJob(t, domain.RoleLogic, "fake.logic", 1)
+			finding := bridgeFindingJSON("Quote mismatch", []bridgeClaimSpec{{
+				path: "src/file.go", side: evidence.SideHead, lineStart: 1, lineEnd: 1, quote: "line",
+			}})
+			finding = strings.Replace(finding, `"severity":"high"`, fmt.Sprintf(`"severity":%q`, severity), 1)
+			validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{finding})
+			reader := &bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+				bridgeReaderKey(evidence.SideHead, "src/file.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("line\n")},
+			}}
+			verifier, err := evidence.NewVerifier(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+			outcome := runtime.accept(context.Background(), job, validated)
+			if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
+				t.Fatalf("quote mismatch outcome = %#v", outcome)
+			}
+			pending, ok := runtime.pending[job.AttemptID()]
+			wantPath := "/findings/0/evidence/0/current/quote"
+			if !ok || pending.Plan().Mode() != validation.RepairModeExactEvidence || !reflect.DeepEqual(pending.Plan().AllowedPaths(), []string{wantPath}) ||
+				!bytes.Equal(pending.InitialCandidate(), validated.OriginalRaw()) {
+				t.Fatalf("retained exact evidence repair = %#v, present=%t", pending, ok)
+			}
+		})
+	}
+}
+
+func TestRepairQuoteMismatchIsUnrepairableForOptionalSeverity(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "fake.logic", 1)
-	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{bridgeFindingJSON("Quote mismatch", []bridgeClaimSpec{{
+	job.purpose = domain.InvocationRepair
+	finding := bridgeFindingJSON("Quote mismatch", []bridgeClaimSpec{{
 		path: "src/file.go", side: evidence.SideHead, lineStart: 1, lineEnd: 1, quote: "line",
-	}})})
-	reader := &bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+	}})
+	finding = strings.Replace(finding, `"severity":"high"`, `"severity":"low"`, 1)
+	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{finding})
+	verifier, err := evidence.NewVerifier(&bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
 		bridgeReaderKey(evidence.SideHead, "src/file.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("line\n")},
-	}}
-	verifier, err := evidence.NewVerifier(reader)
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
 	outcome := runtime.accept(context.Background(), job, validated)
-	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
-		t.Fatalf("quote mismatch outcome = %#v", outcome)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionUnrepairableEvidence || len(runtime.pending) != 0 {
+		t.Fatalf("repair quote mismatch outcome = %#v, pending=%#v", outcome, runtime.pending)
 	}
-	pending, ok := runtime.pending[job.AttemptID()]
-	wantPath := "/findings/0/evidence/0/current/quote"
-	if !ok || pending.Plan().Mode() != validation.RepairModeExactEvidence || !reflect.DeepEqual(pending.Plan().AllowedPaths(), []string{wantPath}) ||
-		!bytes.Equal(pending.InitialCandidate(), validated.OriginalRaw()) {
-		t.Fatalf("retained exact evidence repair = %#v, present=%t", pending, ok)
+}
+
+func TestRepairCorrectedOptionalQuoteMismatchSucceeds(t *testing.T) {
+	job := coordinatorTypesJob(t, domain.RoleSecurity, "fake.security", 1)
+	job.purpose = domain.InvocationRepair
+	finding := bridgeFindingJSON("Corrected quote", []bridgeClaimSpec{{
+		path: "src/file.go", side: evidence.SideHead, lineStart: 1, lineEnd: 1, quote: "line\n",
+	}})
+	finding = strings.Replace(finding, `"severity":"high"`, `"severity":"low"`, 1)
+	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{finding})
+	verifier, err := evidence.NewVerifier(&bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+		bridgeReaderKey(evidence.SideHead, "src/file.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("line\n")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+	outcome := runtime.accept(context.Background(), job, validated)
+	if !outcome.Succeeded() || len(runtime.pending) != 0 {
+		t.Fatalf("corrected repair outcome = %#v, pending=%#v", outcome, runtime.pending)
+	}
+	output, ok := outcome.Output()
+	if !ok || len(output.Findings()) != 1 || output.Findings()[0].EvidenceState() != domain.EvidenceVerified {
+		t.Fatalf("corrected repair output = %#v, present=%t", output, ok)
 	}
 }
 

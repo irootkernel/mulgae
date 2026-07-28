@@ -107,6 +107,15 @@ func TestProviderResultStrictness(t *testing.T) {
 	if err != nil || !isolated || !bytes.Equal(got, want) {
 		t.Fatalf("ZCode narrated envelope result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
+	zcodeTrailingNarrationEnvelope := []byte(`{"sessionId":"session","response":"Analysis before the result.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe requested review is complete." + `","usage":{"inputTokens":1}}`)
+	got, isolated, err = providerResult(FamilyZcode, zcodeTrailingNarrationEnvelope)
+	if err != nil || !isolated || !bytes.Equal(got, want) {
+		t.Fatalf("ZCode trailing narration envelope result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	zcodeAmbiguousEnvelope := []byte(`{"sessionId":"session","response":"` + "```json\\n{\\\"findings\\\":[]}\\n```\\n```json\\n{\\\"findings\\\":[]}\\n```\\ntrailing" + `","usage":{"inputTokens":1}}`)
+	if _, _, err := providerResult(FamilyZcode, zcodeAmbiguousEnvelope); err == nil {
+		t.Fatal("ZCode accepted multiple nonterminal JSON fences")
+	}
 	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":""}`)); err == nil {
 		t.Fatal("ZCode accepted an empty headless response")
 	}
@@ -571,7 +580,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 		},
 		{
 			family:       FamilyZcode,
-			stdout:       []byte("I inspected the snapshot.\n{\"findings\":[]}\n"),
+			stdout:       []byte(`{"sessionId":"session","response":"I inspected the snapshot.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe review is complete.\\n\\n```go\\nfunc checked() {}\\n```" + `","usage":{"inputTokens":1}}`),
 			wantResult:   []byte("{\"findings\":[]}"),
 			wantIsolated: true,
 			wantArgv:     []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"},

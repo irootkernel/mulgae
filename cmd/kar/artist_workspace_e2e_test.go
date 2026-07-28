@@ -129,6 +129,7 @@ func TestIntegrationArtistHomepageWorkspaceReview(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(project, ".git")); !os.IsNotExist(err) {
 		t.Fatalf("workspace review created Git metadata: %v", err)
 	}
+	assertNoProjectLaneLocks(t, project)
 
 	artifactBytes, err := os.ReadFile(filepath.Join(project, *envelope.Result.ReviewArtifactURI))
 	if err != nil {

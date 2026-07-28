@@ -48,6 +48,56 @@ type productionRuntimeGraph struct {
 	ids             review.IdentityGenerator
 }
 
+func productionLaneLockRoot(writer ports.SecureFileWriter, installedUID uint64) (ports.AnchoredRoot, error) {
+	if writer == nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: secure writer is required")
+	}
+
+	basePath := os.Getenv("XDG_RUNTIME_DIR")
+	directoryName := "kar"
+	if basePath == "" {
+		basePath = os.Getenv("TMPDIR")
+		directoryName = "kar-" + strconv.FormatUint(installedUID, 10)
+	}
+	if basePath == "" {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime directory is unavailable")
+	}
+
+	cleanBase := filepath.Clean(basePath)
+	if !filepath.IsAbs(cleanBase) {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime directory is not absolute")
+	}
+	resolvedBase, err := filepath.EvalSymlinks(cleanBase)
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: resolve runtime directory: %w", err)
+	}
+	base, err := ports.NewAnchoredRoot(filepath.Clean(resolvedBase))
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: anchor runtime directory: %w", err)
+	}
+	relative, err := ports.NewSafeRelativePath(directoryName)
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime namespace: %w", err)
+	}
+	if err := writer.EnsurePrivateDir(base, relative); err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: create runtime namespace: %w", err)
+	}
+
+	rootPath := filepath.Join(base.String(), relative.String())
+	resolvedRoot, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: resolve runtime namespace: %w", err)
+	}
+	if filepath.Clean(resolvedRoot) != rootPath {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime namespace changed")
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: anchor runtime namespace: %w", err)
+	}
+	return root, nil
+}
+
 func (graph *productionRuntimeGraph) cleanupRoots() error {
 	if graph == nil {
 		return nil
@@ -247,7 +297,11 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: diagnostics: %w", err)
 	}
-	locker, err := lanelock.New(root, writer)
+	laneLockRoot, err := productionLaneLockRoot(writer, installedUID)
+	if err != nil {
+		return nil, fmt.Errorf("production graph: lane lock root: %w", err)
+	}
+	locker, err := lanelock.New(laneLockRoot, writer)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: lane locker: %w", err)
 	}

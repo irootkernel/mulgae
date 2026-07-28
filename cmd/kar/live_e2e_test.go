@@ -199,9 +199,11 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
+	assertNoProjectLaneLocks(t, project)
 	securityProvider := requireLiveSelectedProvider(t, run, "security")
 	assertLiveRoleFinding(t, run, "security", securityProvider)
 	runLiveChildProductionWorkflows(t, validator, environment, project, run)
+	assertNoProjectLaneLocks(t, project)
 	scenario.status = "passed"
 }
 

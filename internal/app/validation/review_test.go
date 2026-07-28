@@ -139,6 +139,8 @@ func TestValidateReviewCompleteness(t *testing.T) {
 	}{
 		{name: "complete informational limitation", completeness: "complete", limitations: []string{"Generated fixtures were outside the requested review scope."}},
 		{name: "complete missing caller context", completeness: "complete", limitations: []string{"The review target is the captured diff only; caller context for ReadReport and the deployment trust boundary that determine whether name is attacker-controlled are not present, so exploitability depends on those assumptions even though the validation regression is present in the code."}},
+		{name: "complete review target excludes callers", completeness: "complete", limitations: []string{"The review target does not include callers, so the degree of attacker control cannot be confirmed from the target alone."}},
+		{name: "complete review target caller context unavailable", completeness: "complete", limitations: []string{"Callers of the exported function are not present in the review target, so exploitability cannot be confirmed from the target alone."}},
 		{name: "complete unavailable test execution", completeness: "complete", limitations: []string{"Could not execute the Go toolchain or any test suite: the review workspace forbids command execution, and the snapshot contains no test files to invoke."}},
 		{name: "incomplete meaningful limitation", completeness: "incomplete", limitations: []string{"Generated fixtures were outside the requested review scope."}},
 	}
@@ -159,6 +161,7 @@ func TestReviewValidatorRejectsCompleteMaterialAccessLimitations(t *testing.T) {
 		"The target scope could not be inspected.",
 		"Material files could not be reviewed.",
 		"Material files were not reviewed.",
+		"The provider could not review the target files.",
 		"Material files could not be loaded.",
 	} {
 		t.Run(limitation, func(t *testing.T) {

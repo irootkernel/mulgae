@@ -22,6 +22,7 @@ import (
 
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
+	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
 	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
 	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
@@ -187,6 +188,103 @@ func TestStartupTempRootCanonicalizesDarwinEnvironmentValue(t *testing.T) {
 		t.Fatalf("empty startup temp root = %q", got)
 	}
 }
+
+func TestProductionLaneLockRootUsesStableRuntimeNamespace(t *testing.T) {
+	writer := filesystem.NewSecureWriter()
+	uid := uint64(os.Geteuid())
+
+	t.Run("xdg runtime directory", func(t *testing.T) {
+		xdg := canonicalTestTempDir(t)
+		fallback := canonicalTestTempDir(t)
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		t.Setenv("TMPDIR", fallback)
+
+		first, err := productionLaneLockRoot(writer, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := productionLaneLockRoot(writer, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(xdg, "kar")
+		if first.String() != want || second != first {
+			t.Fatalf("production lane lock roots = %q/%q, want stable %q", first.String(), second.String(), want)
+		}
+		assertPrivateRuntimeDirectory(t, want)
+		if _, err := os.Lstat(filepath.Join(fallback, "kar-"+strconv.FormatUint(uid, 10))); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("TMPDIR fallback used while XDG_RUNTIME_DIR was available: %v", err)
+		}
+	})
+
+	t.Run("TMPDIR fallback", func(t *testing.T) {
+		temp := canonicalTestTempDir(t)
+		t.Setenv("XDG_RUNTIME_DIR", "")
+		t.Setenv("TMPDIR", temp)
+
+		root, err := productionLaneLockRoot(writer, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(temp, "kar-"+strconv.FormatUint(uid, 10))
+		if root.String() != want {
+			t.Fatalf("production lane lock root = %q, want %q", root.String(), want)
+		}
+		assertPrivateRuntimeDirectory(t, want)
+	})
+}
+
+func TestProductionLaneLockRootFailsClosedWithoutSafeRuntimeBase(t *testing.T) {
+	writer := filesystem.NewSecureWriter()
+	uid := uint64(os.Geteuid())
+
+	for _, test := range []struct {
+		name string
+		xdg  string
+		temp string
+	}{
+		{name: "missing", xdg: "", temp: ""},
+		{name: "relative XDG", xdg: "relative/runtime", temp: canonicalTestTempDir(t)},
+		{name: "unavailable XDG", xdg: filepath.Join(canonicalTestTempDir(t), "missing"), temp: canonicalTestTempDir(t)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_RUNTIME_DIR", test.xdg)
+			t.Setenv("TMPDIR", test.temp)
+			if root, err := productionLaneLockRoot(writer, uid); err == nil || root.Valid() {
+				t.Fatalf("unsafe runtime base produced root %#v, error %v", root, err)
+			}
+		})
+	}
+
+	t.Run("world writable XDG", func(t *testing.T) {
+		xdg := canonicalTestTempDir(t)
+		if err := os.Chmod(xdg, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(xdg, 0o700) })
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		t.Setenv("TMPDIR", canonicalTestTempDir(t))
+		if root, err := productionLaneLockRoot(writer, uid); err == nil || root.Valid() {
+			t.Fatalf("world-writable runtime base produced root %#v, error %v", root, err)
+		}
+	})
+}
+
+func assertPrivateRuntimeDirectory(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		t.Fatalf("private runtime directory %q = %#v, %v", path, info, err)
+	}
+}
+
+func assertNoProjectLaneLocks(t *testing.T, project string) {
+	t.Helper()
+	if _, err := os.Lstat(filepath.Join(project, "locks")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("KAR created a lane-lock namespace in the review target: %v", err)
+	}
+}
+
 func TestReviewCompositionPolicyReadFailuresFailClosed(t *testing.T) {
 	root, err := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	if err != nil {

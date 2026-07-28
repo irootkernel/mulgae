@@ -844,19 +844,20 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 	if err != nil {
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
-	if _, err = ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy); err != nil {
-		if job.Purpose() == domain.InvocationInitial {
-			if paths, ok := exactEvidenceRepairPaths(verified); ok {
-				plan, planErr := validation.NewExactEvidenceRepairPlan(validated.OriginalRaw(), paths)
-				if planErr != nil {
-					return runtimeCondition(job, AttemptConditionInternalInvariant)
-				}
-				runtime.mu.Lock()
-				runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: validated.OriginalRaw(), plan: *plan}
-				runtime.mu.Unlock()
-				return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
-			}
+	if paths, ok := exactEvidenceRepairPaths(verified); ok {
+		if job.Purpose() != domain.InvocationInitial {
+			return runtimeCondition(job, AttemptConditionUnrepairableEvidence)
 		}
+		plan, planErr := validation.NewExactEvidenceRepairPlan(validated.OriginalRaw(), paths)
+		if planErr != nil {
+			return runtimeCondition(job, AttemptConditionInternalInvariant)
+		}
+		runtime.mu.Lock()
+		runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: validated.OriginalRaw(), plan: *plan}
+		runtime.mu.Unlock()
+		return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
+	}
+	if _, err = ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy); err != nil {
 		return runtimeCondition(job, AttemptConditionUnrepairableEvidence)
 	}
 	output, err := NewEvidenceValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), validated.Findings(), validated.Completeness(), validated.Limitations(), verified)

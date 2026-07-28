@@ -758,7 +758,7 @@ func bridgeValidatedReview(t *testing.T, targetSHA256 string, findings []string)
 	review, repair, err := validator.Validate(context.Background(), []byte(raw), validation.ReviewValidationScope{
 		TargetSHA256:     targetSHA256,
 		Role:             domain.RoleSecurity,
-		ProviderInstance: "fake/security",
+		ProviderInstance: "fake.security",
 	})
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
