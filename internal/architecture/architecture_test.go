@@ -199,22 +199,23 @@ func TestMakefileContract(t *testing.T) {
 		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,
 		"KAR_LIVE_KIMI_BIN", "KAR_LIVE_ZCODE_NODE_BIN", "KAR_LIVE_ZCODE_LAUNCHER", "KAR_LIVE_AGY_BIN",
-		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'",
+		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'", "KAR_E2E_BINARY", "KAR_E2E_PROJECT_ROOT",
+		"KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	if strings.Contains(text, "-tags=live_e2e") || strings.Contains(text, "KAR_E2E_PROJECT_ROOT") {
-		t.Fatal("test-e2e still executes the historical stochastic full-workflow gate")
+	capability := strings.Index(text, "-tags=liveprovider")
+	workflow := strings.Index(text, "-tags=live_e2e")
+	if capability < 0 || workflow <= capability {
+		t.Fatal("test-e2e does not run family capability certification before the exact-binary production workflow")
 	}
 }
 
 func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	root := repositoryRoot(t)
-	if _, err := os.Stat(filepath.Join(root, "cmd", "kar", "live_e2e_test.go")); !os.IsNotExist(err) {
-		t.Fatalf("historical full-workflow live test remains executable: %v", err)
-	}
 	var combined strings.Builder
 	for _, path := range []string{
 		filepath.Join(root, "internal", "adapters", "providercli", "registry_live_test.go"),
@@ -234,6 +235,26 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
 		t.Fatal("required live family capability certification may not skip prerequisites")
+	}
+	workflowData, err := os.ReadFile(filepath.Join(root, "cmd", "kar", "live_e2e_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflowData)
+	for _, required := range []string{
+		"func TestE2EActualProvidersProductionWorkflow", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
+		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
+		"KAR_E2E_BINARY", "KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Errorf("exact-binary live workflow contract missing %q", required)
+		}
+	}
+	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
+		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")
+	}
+	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
+		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")
 	}
 	negativeData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "agy_boundary_darwin_test.go"))
 	if err != nil {
