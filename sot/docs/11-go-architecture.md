@@ -2,7 +2,7 @@
 
 ## 0. G0 Contract Boundary
 
-This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G007 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and authority-gated provider-adapter boundaries. G008 completes the lineage, retention, and export application boundary using fake/composed offline verification. G009's prior integrated evidence remains classified `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G011 independently production-verifies and closes the current implementation through deterministic acceptance and three live family-capability certifications.
+This document describes the post-authorization product architecture. G001 completed `g0_complete` and the separate implementation approval; G002–G007 implement the domain/ports, trusted foundation, fake-review, coordinator/runtime/evidence, publication/recovery, reporting, and authority-gated provider-adapter boundaries. G008 completes the lineage, retention, and export application boundary using fake/composed offline verification. G009's prior integrated evidence remains classified `HISTORICAL_GATE_PASS_NON_PRODUCTION`; G012 reopens production closure until deterministic acceptance, three live family certifications, and exact release-binary actual-provider workflow execution all pass.
 
 No coordinator, publisher, provider adapter, lineage service, product tool, actual product/release CI job, or release asset may be implemented before both the authoritative SOT post-verification records `g0_complete` and a separate session-bound implementation approval is granted. Gate A, candidate review, promotion authorization, and the authority-ref compare-and-swap are distinct prerequisites; cached approval data is not authority.
 
@@ -21,7 +21,7 @@ The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and
 
 ## 0.1 Post-G0 architectural milestones
 
-G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds live provider adapters for the allowlisted families using runtime capability contracts while retaining identity only as diagnostic provenance. G008 completes followup, delta, rerun, cleanup, and export; deterministic fake/composed verification exercises all four workflows. G011 closes production verification with the sole exact-tree `make test` gate. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
+G1 establishes domain, configuration, target, artifact, command-envelope, and doctor surfaces. G2 adds the fake-provider review slice and prompt compilation. G3 adds coordinator scheduling, validation, repair, evidence, and publication. G4 adds live provider adapters for the allowlisted families using runtime capability contracts while retaining identity only as diagnostic provenance. G008 completes followup, delta, rerun, cleanup, and export; deterministic fake/composed verification exercises all four workflows. G012 closes production verification only after the sole exact-tree `make test` executes both capability and exact release-binary workflow layers. G6 may expand to a future Linux or Intel cell only after a new scope decision, native evidence, candidate refreeze, promotion, and separate implementation approval. These milestones are product work, not G0 evidence.
 
 ## 0.2 Authority and persistence boundaries
 
@@ -347,7 +347,7 @@ The domain defines immutable diagnostic events and closed codes. Ports define `R
 
 The dependency direction is `domain -> ports -> application -> adapters -> entrypoint`. Domain and application packages never import filesystem, CLI, or entrypoint packages; filesystem diagnostics never import publication policy or manufacture P2 authority. Provider adapters normalize native observations, while the application retains repair and fallback policy.
 
-The following version strings remain fixed by SOT 1.13.0:
+The following version strings remain fixed by SOT 1.14.0:
 
 ```text
 kar-runtime-log.v1

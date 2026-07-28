@@ -17,7 +17,7 @@ Primary threats:
 - concurrent provider state corruption;
 - artifact tampering;
 - CI using an incomplete review as if it were complete.
-Production root `kar review` is release-ready under G011. Its production verification combines deterministic security and workflow acceptance with one fail-closed native capability certification for each supported provider family; every ordinary invocation must still re-establish current authority.
+Production root `kar review` is release-blocked under G012 until its exact release binary completes the actual-provider root/child workflow. Production verification combines deterministic security and workflow acceptance, one fail-closed native capability certification for each supported family, and the executable composition gate; every ordinary invocation must still re-establish current authority.
 
 ## 2. Trust Hierarchy
 

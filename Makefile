@@ -37,7 +37,7 @@ test-e2e:
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
 	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
 	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.13.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
+	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.14.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
 	kimi_bin="$${KAR_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
 	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-e2e requires the Kimi executable" >&2; exit 1; }; \
 	case "$$kimi_bin" in /*) ;; *) echo "test-e2e requires an absolute Kimi executable" >&2; exit 1;; esac; \

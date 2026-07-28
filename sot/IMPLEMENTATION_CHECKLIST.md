@@ -2,7 +2,7 @@
 
 **Status date:** 2026-07-28
 
-SOT 1.13.0 preserves historical G001–G010 evidence and the runtime-diagnostics contract. G011 replaces the historical G010 live-workflow oracle with deterministic product acceptance plus one live capability certification per supported provider family, all under the sole `make test` gate. G011 is **RELEASE_READY**. Historical evidence and `.gjc/` remain append-only.
+SOT 1.14.0 preserves historical G001–G011 evidence and the runtime-diagnostics contract. G012 restores the exact release-binary actual-provider root/child workflow that G011 removed while retaining deterministic acceptance and all three live family capability certifications under the sole `make test` gate. G012 is **IN PROGRESS — RELEASE BLOCKED**. Historical evidence and `.gjc/` remain append-only.
 
 ## Goal Completion Snapshot
 
@@ -19,8 +19,9 @@ SOT 1.13.0 preserves historical G001–G010 evidence and the runtime-diagnostics
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
+| G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **IN PROGRESS — RELEASE BLOCKED** | `g012` |
 
-The checked items through G010 are historical evidence and do not establish current release readiness. The dedicated G011 section is the current completion authority.
+The checked items through G011 are historical evidence and do not establish current release readiness. The dedicated G012 section is the current completion authority.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -128,7 +129,7 @@ The checked items through G010 are historical evidence and do not establish curr
 - [x] Retain the controlled Kimi historical qualification narrative for the recorded G009 run: `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, its append-only external ledger receipt, receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`, and raw-output SHA-256 `435639659d6ec453a8271d9a82787e11d4aa1be0450b981b0aab040966172141`. Development evidence is excluded from Git; this is not a current support boundary.
 - [x] Preserve the append-only provider attempt history: two later 2026-07-18 retries each ended after approximately 30.15 seconds with `status=timeout`, `termination=timed_out`, and `diagnostic=process_timeout`; retain those ledger events without replacing the earlier PASS.
 - [x] Keep G0 provider-family evidence for `kimi`, `zcode`, and `agy` separate from current support. Support those families by runtime capability contract without version, executable path, SHA, or profile allowlisting; retain those fields as diagnostic provenance, produce actionable typed capability diagnostics, explicitly block known incompatibilities only, reject unlisted families, and do not automatically substitute providers. Keep `darwin-arm64` as the sole supported platform.
-- [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. At G009 closure, production `kar review` composition was wired but remained **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** pending later verification. G011 now supplies the current production acceptance; this historical row grants no release-publication authority.
+- [x] Historical integrated-gate classification: **HISTORICAL_GATE_PASS_NON_PRODUCTION**. At G009 closure, production `kar review` composition was wired but remained **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** pending later verification. G011 later supplied capability-only acceptance but is now historical under G012; this row grants no release-publication authority.
 
 ## Historical G010 Config-driven Multi-provider Production Gate
 
@@ -197,6 +198,14 @@ The checked requirements in this section describe the 2026-07-26 and 2026-07-27 
 - [x] Replace the historical full-workflow live test with the three fail-closed family capability certifications. `make test-e2e` resolves and validates every executable/launcher/data-home prerequisite before running `TestLiveKimiCapability`, `TestLiveZCodeCapability`, and `TestLiveAgyCapability`; each test uses the production runtime definition, credential/native-home namespace, immutable fixture CWD, native prompt transport, bounded lifecycle/output parser, direct-execution receipts, terminal drain, and protected-state checks. The former `cmd/kar/live_e2e_test.go` is no longer executable release authority.
 - [x] Align SOT 1.13.0, release-candidate build version, generated assets, help/examples, schemas, and supported-platform documentation. `TestMakefileContract` binds the linked candidate version to `sot/SPEC_VERSION`.
 - [x] Run `make test` on the exact final committed tree, confirm a clean working tree, and only then record G011 as `RELEASE_READY`. Evidence: the unmodified sole gate passes with `test-prepare`, `test-unit`, `test-int`, and all three `test-e2e` family certifications on the exact committed tree.
+
+## G012 Executable Release Coverage Restoration
+
+- [x] Reopen release readiness after confirming that G011 built but never executed the release KAR binary and excluded retained live negative tests. SOT 1.14.0 and D-060 make the gap release-blocking.
+- [ ] Retain the Kimi, ZCode, and AGY live capability certifications and restore every omitted AGY native-home/settings negative test to an always-executed gate.
+- [ ] Execute the exact release KAR binary against actual Kimi, ZCode, and AGY through Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun.
+- [ ] Restore fail-closed prerequisite, retry-authority, assignment, qualification-health, artifact-URI, terminal-process, and child-identity harness coverage removed with `cmd/kar/live_e2e_test.go`.
+- [ ] Require one exact final committed-tree `make test` PASS with no skips, no weakened prerequisites, and a clean working tree before changing G012 or implementation readiness to `RELEASE_READY`.
 
 ## Diagnostics D-E01 — Contract, Model, and Secure Storage
 

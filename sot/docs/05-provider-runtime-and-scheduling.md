@@ -15,7 +15,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - classifying execution failure; and
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
-It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator. G010's production pass is historical. G011 is release-ready after the corrected deterministic acceptance and live family-certification gate defined by SOT 1.13.0 passed on the exact committed tree.
+It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator. G010 and G011 are historical. G012 is release-blocked until the deterministic, live family-certification, and exact release-binary workflow gate defined by SOT 1.14.0 passes on the exact committed tree.
 
 ## 2. Driver, Instance, and Lane
 
@@ -268,7 +268,7 @@ The platform inventory and G0 execution scope are:
 
 | Cell | `contract_scope` | Blocking for external readiness | Current support/release state |
 |---|---|---:|---|
-| `darwin-arm64` | `required` | Yes | Sole supported release platform; G001 native/local-POSIX evidence and the current G011 exact-tree gate pass establish its required boundary. Prior G009 integrated receipts remain `HISTORICAL_GATE_PASS_NON_PRODUCTION` |
+| `darwin-arm64` | `required` | Yes | Sole supported release platform; G001 native/local-POSIX evidence remains valid, while current G012 release readiness awaits the exact-tree executable gate. Prior G009 integrated receipts remain `HISTORICAL_GATE_PASS_NON_PRODUCTION` |
 | `linux-amd64` | `intended_future` | No | Unsupported and release-ineligible |
 | `linux-arm64` | `intended_future` | No | Unsupported and release-ineligible |
 | `darwin-amd64` | `intended_future` | No | Unsupported and release-ineligible |
@@ -283,7 +283,7 @@ PL-DIR-FSYNC, PL-RECOVERY
 
 Each future row is fixed as `native_execution=false`, `observed_os=null`, `observed_arch=null`, `filesystem_class=unknown`, and all 11 probes `NOT_RUN` with `reason=not_run` and null references. Future inventory rows are non-blocking and must not be executed, promoted to support, or made release-eligible by this G0 contract.
 
-`external_contract_readiness` is verified only while the required `darwin-arm64` platform evidence and complete provider readiness conjunction PASS. G001's historical evidence satisfied the platform inputs; G011 independently verified the current production boundary. Configuration intent, partial evidence, a future row, or a non-native result still cannot promote readiness.
+`external_contract_readiness` is verified only while the required `darwin-arm64` platform evidence and complete provider readiness conjunction PASS. G001's historical evidence satisfied the platform inputs; G012 must independently verify the current capability and exact-binary production boundaries. Configuration intent, partial evidence, a future row, or a non-native result still cannot promote readiness.
 
 ### 11.1 Canonical G0 probe argv
 
