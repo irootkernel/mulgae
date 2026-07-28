@@ -23,7 +23,7 @@ kar help
 ```
 
 ## 2. Run-Creation Semantics
-This section specifies the production command contract. Production root `kar review` is implemented and release-ready under G012 after the exact release binary completed actual-provider root and child workflows. Deterministic integration tests own product semantics, while fail-closed live capability certifications and executable workflow coverage verify the native and composition boundaries through the sole `make test` gate.
+This section specifies the production command contract. Production root `kar review` is implemented and release-ready under G013 after the exact release binary completed actual-provider root and child workflows before the fail-closed family capability suite. Deterministic integration tests own product semantics, while executable workflow and live capability coverage verify the composition and native boundaries through the sole `make test` gate.
 
 | Command | Main question | Prior run required | Target basis | Creates a new run |
 |---|---|---:|---|---:|
@@ -100,7 +100,7 @@ No command, including `init`, `doctor`, or `schema`, authorizes product implemen
 
 ## 3. `kar review`
 
-Specifies the composed independent review operation. G012 production verification is complete after the exact-binary live workflow passed; current qualification, execution, validation, cleanup, and P2 publication still fail closed per invocation when their runtime authority is unavailable.
+Specifies the composed independent review operation. G013 production verification is complete after the login-recovering exact-binary live workflow and subsequent family capability suite passed; current qualification, execution, validation, cleanup, and P2 publication still fail closed per invocation when their runtime authority is unavailable.
 
 ```bash
 kar review --diff origin/main...HEAD \

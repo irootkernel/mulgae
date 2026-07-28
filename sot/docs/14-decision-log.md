@@ -57,13 +57,14 @@
 | D-057 | Judge direct provider health independently from recovery-aware product success | Superseded by D-059 | Retained as the historical G010 twelve-route/full-workflow release predicate |
 | D-058 | Provider-native state is projected from configured roots and AGY privilege is explicit | Accepted | Kimi and ZCode use configured descriptor-bound sources. AGY uses the installed-user home and explicit permission mode with no probing or automatic escalation |
 | D-059 | `make test` remains the sole release gate, with deterministic product acceptance and one live capability certification per supported provider family | Superseded by D-060 | Capability-only live coverage failed to execute the built release KAR binary and did not verify actual-provider production composition |
-| D-060 | `make test` requires deterministic acceptance, three live family certifications, and an exact release-binary actual-provider root/child workflow | Accepted | The executable workflow restores production composition, publication, diagnostics, cleanup, and lineage coverage without reinstating exact line/quote or process-overlap predicates |
+| D-060 | `make test` requires deterministic acceptance, three live family certifications, and an exact release-binary actual-provider root/child workflow | Superseded by D-061 | It restored both layers but ordered standalone capability certification before KAR's production login recovery path |
+| D-061 | The exact release-binary workflow precedes the mandatory three-family capability suite in `test-e2e` | Accepted | An expired Kimi session must reach KAR's bounded native login and fresh qualification before independent capability certification; both layers remain fail-closed and mandatory |
 
 ## 1.1 Current Decision and Implementation Status
 
-D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050, D-058, and D-060 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. D-051 through D-056 retain the runtime-diagnostics contract; D-057 and D-059 are historical. G010 and G011 are historical. G012 is `RELEASE_READY` after its exact final committed-tree gate passed.
+D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050, D-058, and D-061 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. D-051 through D-056 retain the runtime-diagnostics contract; D-057, D-059, and D-060 are historical. G010 through G012 are historical. G013 is `RELEASE_READY` after its exact final committed-tree gate passed.
 
-The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. G010 and G011 record historical gate passes and do not establish G012 closure. Only `darwin-arm64` on a native local POSIX filesystem is supported; `linux-amd64`, `linux-arm64`, `darwin-amd64`, Windows, and network filesystems remain unsupported and release-ineligible.
+The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. G010 through G012 record historical gate passes and do not establish G013 closure. Only `darwin-arm64` on a native local POSIX filesystem is supported; `linux-amd64`, `linux-arm64`, `darwin-amd64`, Windows, and network filesystems remain unsupported and release-ineligible.
 
 
 ## 2. Superseded Draft Decisions

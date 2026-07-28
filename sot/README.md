@@ -1,6 +1,6 @@
 # KAR Standalone Review CLI
 
-**Development Specification v1.14.0**
+**Development Specification v1.15.0**
 **Date:** 2026-07-28
 **Primary binary:** `kar`
 **Implementation target:** Go
@@ -14,9 +14,9 @@ KAR roles are functional review lenses.
 They are not people, teams, or organizational authorities.
 KAR reports findings and recommendations only.
 
-## SOT 1.14.0 Contract and Implementation Baseline
+## SOT 1.15.0 Contract and Implementation Baseline
 
-This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.14.0 preserves G001–G011 as history and opens G012 to restore the executable production-workflow coverage removed by G011. The sole `make test` gate must contain deterministic acceptance, one fail-closed live capability certification per supported family, and an actual-provider root/child workflow executed through the exact release KAR binary.
+This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.15.0 preserves G001–G012 as history and closes G013 by ordering the exact release-binary workflow before live family certification. That order exercises KAR's bounded Kimi login recovery before the independent capability gate while retaining both layers as mandatory, fail-closed release evidence.
 
 The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 86-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
@@ -24,11 +24,11 @@ The `plan/` subtree is repository planning authority, not runtime product SOT. I
 |---|---|
 | Decision | **READY** |
 | Implementation | **RELEASE_READY** |
-| External contract | **G0 PLATFORM EVIDENCE AND G012 EXACT-BINARY LIVE WORKFLOW VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
+| External contract | **G0 PLATFORM EVIDENCE AND G013 LOGIN-RECOVERING EXACT-BINARY GATE VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
 
 The authority promotion, post-verification `g0_complete`, and separate implementation approval prerequisites were satisfied before product implementation. Historical G008 evidence retained implementation, verification, cleanup, QA, and architecture-review records. Historical G009 integrated-gate evidence remains **HISTORICAL_GATE_PASS_NON_PRODUCTION** with zero recorded P0 blockers. No release assets were authorized or created, and release publication remains subject to separate approval.
 
-Revision 14 keeps `darwin-arm64` as the sole G0 `required`/blocking native platform. G001 completed the G0 support derivation for that platform. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain `intended_future`, unsupported, and release-ineligible.
+Revision 15 keeps `darwin-arm64` as the sole G0 `required`/blocking native platform. G001 completed the G0 support derivation for that platform. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain `intended_future`, unsupported, and release-ineligible.
 
 Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for exactly `kimi`, `zcode`, and `agy`; that G0 family qualification evidence remains separate from current runtime support. G007 provides adapters for those families with direct noninteractive profiles, strict output isolation, process bounds and cancellation, runtime-capability validation, strict rejection of unlisted families, and provider CLI reporting. A configured `kimi`, `zcode`, or `agy` instance is supported when its family and runtime capability contract are satisfied; user version pins, executable paths, SHA allowlists, and profiles are diagnostic provenance for issue reports and reproducibility, never general runtime authorization. Unknown or new versions are not denied solely for identity. Capability failures produce actionable typed diagnostics, and known incompatibilities may be explicitly blocked. No automatic provider substitution occurs. Historical G008 evidence covers fake/offline root/followup/delta/rerun lineage and P2 publication proof, raw and repaired attempt artifacts, runtime target and prompt inventories, retention/tombstone cleanup, and redacted secure export; it is not production root-review proof. The retained controlled Kimi tuple receipt is historical qualification evidence, not a current support boundary.
 
@@ -115,7 +115,7 @@ flowchart LR
 | [Glossary](docs/15-glossary.md) | Canonical terminology used throughout the specification |
 | [Mandatory Field and Ownership Matrix](docs/16-field-ownership-matrix.md) | Field-by-field ownership, required-value, repair, and publication rules |
 | [Superseded Authority Ledger](docs/17-superseded-authority-ledger.md) | Historical configuration and readiness language that is no longer runtime authority |
-| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Historical G001–G011 evidence and the current G012 implementation ledger |
+| [Implementation Checklist](IMPLEMENTATION_CHECKLIST.md) | Historical G001–G012 evidence and the current G013 implementation ledger |
 
 ## Machine-Readable Contracts
 
@@ -205,7 +205,7 @@ kar followup --run latest --finding F001 --dirty \
 
 ## Recorded Implementation Progress
 
-The repository records historical G001–G011 evidence. G011's capability-only gate exposed a release-blocking composition gap because the built release KAR binary was not executed against actual providers. G012 is **RELEASE_READY** after restoring that exact-binary root/child workflow and passing it together with all retained family capability certifications through `make test` on the exact final committed tree.
+The repository records historical G001–G012 evidence. G013 is **RELEASE_READY** after correcting the release-blocking order that let an expired Kimi session stop the gate before KAR's own login recovery could run. The sole gate now executes the exact-binary root/child workflow first and then requires all retained family capability certifications on the same invocation.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|
@@ -221,6 +221,7 @@ The repository records historical G001–G011 evidence. G011's capability-only g
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 | G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **RELEASE_READY** | `g012` |
+| G013 | Exercise production Kimi login recovery before fail-closed family capability certification | **RELEASE_READY** | `g013` |
 
 The controlled Kimi qualification receipt records `kimi/local-default/0.23.6/50c3582a1beeba081271193b74efc39c51b3a0a16b4bf32b754b9482a86a314a/kimi-default`, with a retained ledger receipt and local receipt SHA-256 `1227711091fc94aff32dfed18d34f009da7404862b1eb63d99a2313a30c2be27`. Offline standard tests cover the adapter surface. This historical PASS qualifies the recorded run; it neither restricts current family/capability support to that tuple nor requires PASS evidence for every configured tuple.
 

@@ -209,8 +209,8 @@ func TestMakefileContract(t *testing.T) {
 	}
 	capability := strings.Index(text, "-tags=liveprovider")
 	workflow := strings.Index(text, "-tags=live_e2e")
-	if capability < 0 || workflow <= capability {
-		t.Fatal("test-e2e does not run family capability certification before the exact-binary production workflow")
+	if workflow < 0 || capability <= workflow {
+		t.Fatal("test-e2e does not run the login-recovering exact-binary production workflow before family capability certification")
 	}
 }
 

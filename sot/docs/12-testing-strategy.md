@@ -12,7 +12,7 @@
 | Provider contract tests | Family and runtime-capability compatibility | Optional controlled environment |
 | Live capability certification | Production boundary for each supported family | Required actual Kimi, ZCode, and AGY |
 
-Unit and integration tests do not require provider credentials or network access. The final G012 `make test` release gate deliberately requires the installed actual providers, their native authentication, available provider service access, and the exact release KAR binary.
+Unit and integration tests do not require provider credentials or network access. The final G013 `make test` release gate deliberately requires the installed actual providers, their native authentication, available provider service access, and the exact release KAR binary.
 
 ID and safe-path properties use fixed-seed standard-library generators so
 failures are reproducible: `internal/domain/identifiers_test.go::TestIdentifierParsingSeededCanonicalityProperty`
@@ -20,7 +20,7 @@ and `internal/ports/foundation_test.go::TestSafeRelativePathSeededTraversalPrope
 
 ## 1.1 G0 Contract-Freeze Validation
 
-G0 contract validators and G001–G011 evidence remain historical. G012 supersedes their use as a current production closure mechanism: only the complete preparation, race unit/integration, non-skipping family capability, and exact-binary real-provider workflow suites reached through `make test` can establish current release readiness. The G0 validator set remains exact and complete:
+G0 contract validators and G001–G012 evidence remain historical. G013 supersedes their use as a current production closure mechanism: only the complete preparation, race unit/integration, login-recovering exact-binary real-provider workflow, and subsequent non-skipping family capability suites reached through `make test` can establish current release readiness. The G0 validator set remains exact and complete:
 
 | Operation | Required fixture or input | Required success assertion | Receipt |
 |---|---|---|---|
@@ -268,7 +268,7 @@ The release gate requires:
 
 Fake-provider and controlled-process workflow tests are integration tests. They are the authority for product semantics: Config v2, every supported role and provider subset, committed and dirty target capture, qualification planning, scheduling and same-CWD concurrency, repair/fallback policy, root and child workflows, schemas, evidence validation, diagnostics, publication, recovery, cleanup, and CLI exit projection. These suites run with the race detector and may not depend on stochastic provider findings.
 
-`test-e2e` builds the current KAR candidate, performs one live capability certification for each supported family, and then executes that exact binary through the actual-provider production workflow. The workflow covers Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun. Each family certification retains its production argv and environment boundary, immutable fixture CWD, prompt transport, bounded process lifecycle, output-frame recovery, runtime capability contract, and non-mutation checks. Missing binaries, launcher state, native authentication, service access, or a valid live response fail rather than skip.
+`test-e2e` builds the current KAR candidate and executes that exact binary through the actual-provider production workflow before performing one live capability certification for each supported family. This order is mandatory: an explicit Kimi login-required qualification must reach KAR's bounded native login, fresh credential namespace reconstruction, and one fresh qualification instead of being intercepted by the standalone capability probe. The workflow covers Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun. Each later family certification retains its production argv and environment boundary, immutable fixture CWD, prompt transport, bounded process lifecycle, output-frame recovery, runtime capability contract, and non-mutation checks. Missing binaries, launcher state, unresolved native authentication, service access, or a valid live response fail rather than skip.
 
 Live release verification does not require a predetermined exact line or quote, role consensus, or a fixed process-time intersection. The root fixture does require one schema-valid security finding so the actual followup command has a trusted source. Scheduling and repair/fallback policy remain exhaustively deterministic below the live boundary; the executable workflow proves their production composition rather than duplicating timing predicates.
 
@@ -276,4 +276,4 @@ Live release verification does not require a predetermined exact line or quote, 
 
 ## 14. Runtime Diagnostic Verification
 
-Diagnostic model and port tests reject invalid identifiers, unknown codes, unsafe values, non-UTC timestamps, decreasing elapsed time, non-monotonic sequence, aliased mutable input, and inconsistent status identity. Filesystem tests cover anchored-root creation, `0700`/`0600` modes, symlink/path escape, permissions, secret detection, overflow/drop metadata, JSONL cap and mandatory tail reserve, partial append recovery, crash and fsync failures, atomic status replacement, concurrent append under the race detector, writer failure classification, and exactly-once finalize. G012 retains these deterministic requirements and restores the exact-binary fail-closed actual-provider boundary under the single `make test` gate.
+Diagnostic model and port tests reject invalid identifiers, unknown codes, unsafe values, non-UTC timestamps, decreasing elapsed time, non-monotonic sequence, aliased mutable input, and inconsistent status identity. Filesystem tests cover anchored-root creation, `0700`/`0600` modes, symlink/path escape, permissions, secret detection, overflow/drop metadata, JSONL cap and mandatory tail reserve, partial append recovery, crash and fsync failures, atomic status replacement, concurrent append under the race detector, writer failure classification, and exactly-once finalize. G013 retains these deterministic requirements and the exact-binary fail-closed actual-provider boundary under the single `make test` gate.

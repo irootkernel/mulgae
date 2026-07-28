@@ -2,7 +2,7 @@
 
 **Status date:** 2026-07-28
 
-SOT 1.14.0 preserves historical G001–G011 evidence and the runtime-diagnostics contract. G012 restores the exact release-binary actual-provider root/child workflow that G011 removed while retaining deterministic acceptance and all three live family capability certifications under the sole `make test` gate. G012 is **RELEASE_READY** after the exact final-tree gate passed. Historical evidence and `.gjc/` remain append-only.
+SOT 1.15.0 preserves historical G001–G012 evidence and the runtime-diagnostics contract. G013 corrects the release-gate order so the exact KAR workflow can exercise bounded Kimi login recovery before all three fail-closed family capability certifications. G013 is **RELEASE_READY** after the exact final-tree gate passed. Historical evidence and `.gjc/` remain append-only.
 
 ## Goal Completion Snapshot
 
@@ -20,8 +20,9 @@ SOT 1.14.0 preserves historical G001–G011 evidence and the runtime-diagnostics
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 | G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **RELEASE_READY** | `g012` |
+| G013 | Exercise production Kimi login recovery before fail-closed family capability certification | **RELEASE_READY** | `g013` |
 
-The checked items through G011 are historical evidence and do not establish current release readiness. The dedicated G012 section is the current completion authority.
+The checked items through G012 are historical evidence and do not establish current release readiness. The dedicated G013 section is the current completion authority.
 
 ## G0 Contract-Freeze Preconditions
 
@@ -206,6 +207,15 @@ The checked requirements in this section describe the 2026-07-26 and 2026-07-27 
 - [x] Execute the exact release KAR binary against actual Kimi, ZCode, and AGY through Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun. Evidence: `TestE2EActualProvidersProductionWorkflow` passed through the Makefile-built v1.14 candidate in 1042.036 seconds with all six initial primary assignments and all four child workflows.
 - [x] Restore fail-closed prerequisite, retry-authority, assignment, qualification-health, artifact-URI, terminal-process, and child-identity harness coverage removed with `cmd/kar/live_e2e_test.go`. Evidence: every `TestLive*` harness case passed in the same non-skipping `make test-e2e`; architecture checks require the file, exact binary environment, child commands, bounded two-attempt policy, and absence of the obsolete process-overlap predicate.
 - [x] Require one exact final committed-tree `make test` PASS with no skips, no weakened prerequisites, and a clean working tree before changing G012 or implementation readiness to `RELEASE_READY`. Evidence: the final G012 closeout commit is followed by the unmodified sole gate with test-prepare, race unit, race integration, three live capabilities, exact-binary root/child production workflow, and clean-tree verification.
+
+## G013 Login-Recovering Release Gate Order
+
+- [x] Reproduce an expired Kimi session as `TestLiveKimiCapability` failing with typed `provider login required` before any exact-binary workflow test starts.
+- [x] Run the exact release KAR root/child workflow before the standalone family capability suite so production qualification can perform its one bounded Kimi-native login, reconstruct a fresh credential namespace, and retry qualification once.
+- [x] Retain all three capability certifications as mandatory after the workflow; do not ignore, skip, or downgrade a remaining authentication or capability failure. Preserve the private E2E project on either workflow or capability failure.
+- [x] Bind the order in `TestMakefileContract` and retain the existing unit tests that prohibit non-Kimi login, bound recovery to one attempt, and require the first namespace to drain before login.
+- [x] Verify the original expired-session condition end to end: the exact workflow passes with Kimi selected as a completed primary, all restored `TestLive*` workflow harness cases run, and the subsequent Kimi, ZCode, and AGY capability certifications pass in the same `make test-e2e` invocation.
+- [x] Require one exact final committed-tree `make test` PASS and a clean working tree before recording G013 as `RELEASE_READY`.
 
 ## Diagnostics D-E01 — Contract, Model, and Secure Storage
 

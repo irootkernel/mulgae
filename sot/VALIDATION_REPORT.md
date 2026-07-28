@@ -1,6 +1,6 @@
 # Package Validation Report
 
-**Specification version:** 1.14.0
+**Specification version:** 1.15.0
 **Status date:** 2026-07-28
 
 ## G0 Contract and Implementation Baseline
@@ -14,10 +14,10 @@
 | Schema/example pairs | 28 |
 | Decision Readiness | **READY** |
 | Implementation Status | **RELEASE_READY** |
-| External Contract Readiness | **G0 PLATFORM EVIDENCE AND G012 EXACT-BINARY LIVE WORKFLOW VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
+| External Contract Readiness | **G0 PLATFORM EVIDENCE AND G013 LOGIN-RECOVERING EXACT-BINARY GATE VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
 The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs.
 
-This SOT 1.14.0 report preserves G001–G011 as historical evidence and opens G012. Current release readiness requires deterministic acceptance, one fail-closed live capability certification for Kimi, ZCode, and AGY, and an actual-provider root/child production workflow executed through the exact release KAR binary, all reached through the sole `make test` gate. Fixed line/quote claims and process-timing overlap remain non-predicates.
+This SOT 1.15.0 report preserves G001–G012 as historical evidence and closes G013. Current release readiness requires deterministic acceptance, an exact-binary actual-provider root/child workflow that exercises bounded Kimi login recovery, and subsequent fail-closed live capability certification for Kimi, ZCode, and AGY, all reached through the sole `make test` gate. Fixed line/quote claims and process-timing overlap remain non-predicates.
 
 ## G0 Evidence Status
 
@@ -57,6 +57,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 | G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **RELEASE_READY** | `g012` |
+| G013 | Exercise production Kimi login recovery before fail-closed family capability certification | **RELEASE_READY** | `g013` |
 
 ## Current Project-local Contract Coverage
 
@@ -82,8 +83,8 @@ The controlled provider attempt history also records two later opt-in retries on
 
 ## Readiness and Publication Boundary
 
-The recorded G001–G011 evidence is historical. G012 is release-ready after the exact final-tree `make test`, including the restored release-binary workflow, passed on the supported `darwin-arm64` platform. Future platforms remain unsupported and release-ineligible.
+The recorded G001–G012 evidence is historical. G013 is release-ready after the exact final-tree `make test` ran the login-recovering release-binary workflow before all three capability certifications on the supported `darwin-arm64` platform. Future platforms remain unsupported and release-ineligible.
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.13.0 reports remain historical baselines. SOT 1.14.0 changes no CLI, Config v2, or P2 schema; it restores the executable release acceptance boundary. Current checksums and the implementation checklist are authoritative for this revision.
+The 1.0.0 through 1.14.0 reports remain historical baselines. SOT 1.15.0 changes no CLI, Config v2, or P2 schema; it corrects the executable release-gate order so production login recovery is reachable. Current checksums and the implementation checklist are authoritative for this revision.

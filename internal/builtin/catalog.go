@@ -24,7 +24,7 @@ import (
 const (
 	catalogManifestName   = "manifest.json"
 	catalogZipPrefix      = "files/"
-	embeddedArchiveSHA256 = "86ca89ec2bb251fcd9d9b56645dbfa64d0c146dd6fb2504e38a31beab95a21ab"
+	embeddedArchiveSHA256 = "4039ea440e112a06b6b6e09a5a66f3f2f4b9e9a850a1fdd12b57bc884243cc71"
 )
 
 // embeddedArchive is generated from the authoritative repository SOT by
