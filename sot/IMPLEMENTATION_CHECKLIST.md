@@ -202,7 +202,7 @@ The checked requirements in this section describe the 2026-07-26 and 2026-07-27 
 ## G012 Executable Release Coverage Restoration
 
 - [x] Reopen release readiness after confirming that G011 built but never executed the release KAR binary and excluded retained live negative tests. SOT 1.14.0 and D-060 make the gap release-blocking.
-- [ ] Retain the Kimi, ZCode, and AGY live capability certifications and restore every omitted AGY native-home/settings negative test to an always-executed gate.
+- [x] Retain the Kimi, ZCode, and AGY live capability certifications and restore every omitted AGY native-home/settings negative test to an always-executed Darwin race gate. Evidence: `TestAgyInstalledHomeRejectsOverrideMismatch`, `TestAgyNamespaceRejectsCopiedNativeSettings`, and `TestAgyAuthSettingsManifestDetectsMutation` no longer require the `liveprovider` tag; architecture checks prevent regression.
 - [ ] Execute the exact release KAR binary against actual Kimi, ZCode, and AGY through Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun.
 - [ ] Restore fail-closed prerequisite, retry-authority, assignment, qualification-health, artifact-URI, terminal-process, and child-identity harness coverage removed with `cmd/kar/live_e2e_test.go`.
 - [ ] Require one exact final committed-tree `make test` PASS with no skips, no weakened prerequisites, and a clean working tree before changing G012 or implementation readiness to `RELEASE_READY`.

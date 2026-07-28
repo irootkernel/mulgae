@@ -235,6 +235,19 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
 		t.Fatal("required live family capability certification may not skip prerequisites")
 	}
+	negativeData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "agy_boundary_darwin_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	negative := string(negativeData)
+	for _, required := range []string{"//go:build darwin && arm64", "func TestAgyInstalledHomeRejectsOverrideMismatch", "func TestAgyNamespaceRejectsCopiedNativeSettings", "func TestAgyAuthSettingsManifestDetectsMutation"} {
+		if !strings.Contains(negative, required) {
+			t.Errorf("always-executed AGY boundary coverage missing %q", required)
+		}
+	}
+	if strings.Contains(negative, "liveprovider") || strings.Contains(negative, ".Skip(") || strings.Contains(negative, ".Skipf(") {
+		t.Fatal("AGY boundary negative coverage may not require live opt-in or skip")
+	}
 }
 
 func TestRequiredArtistPrerequisitesFailClosed(t *testing.T) {
