@@ -2,7 +2,7 @@
 
 ## 1. Status and Authority Boundary
 
-This roadmap records SOT 1.14.0. Decision Readiness remains **READY**; G001–G011 retain historical evidence, runtime diagnostics are implemented, and G012 is `RELEASE_BLOCKED` until exact release-binary actual-provider workflow coverage is restored and the final-tree `make test` passes.
+This roadmap records SOT 1.14.0. Decision Readiness remains **READY**; G001–G011 retain historical evidence, runtime diagnostics are implemented, and G012 is `RELEASE_READY` after exact release-binary actual-provider workflow coverage was restored and the final-tree `make test` passed.
 
 | Ultragoal | Roadmap phase | Status |
 |---|---|---|
@@ -17,7 +17,7 @@ This roadmap records SOT 1.14.0. Decision Readiness remains **READY**; G001–G0
 | G009 | Production review verification | `REOPENED_PRODUCTION_REVIEW_INCOMPLETE` |
 | G010 | Historical config-driven multi-provider production release gate | **COMPLETE** |
 | G011 | Corrected deterministic acceptance and live family certification | `RELEASE_READY` |
-| G012 | Restore exact release-binary actual-provider root/child workflow coverage | `IN PROGRESS — RELEASE BLOCKED` |
+| G012 | Restore exact release-binary actual-provider root/child workflow coverage | `RELEASE_READY` |
 
 G012 executes sequentially: contract correction; live negative-boundary restoration; exact-binary root/child workflow restoration; exact final-tree closeout.
 

@@ -15,7 +15,7 @@ The provider runtime converts a validated role task into bounded child-process a
 - classifying execution failure; and
 - preserving immutable attempt artifacts through the shared scan-before-write path.
 
-It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator. G010 and G011 are historical. G012 is release-blocked until the deterministic, live family-certification, and exact release-binary workflow gate defined by SOT 1.14.0 passes on the exact committed tree.
+It does not decide content, coverage, publication, or CI outcomes; it reports immutable typed attempt results to the central coordinator. G010 and G011 are historical. G012 is release-ready after the deterministic, live family-certification, and exact release-binary workflow gate defined by SOT 1.14.0 passed on the exact committed tree.
 
 ## 2. Driver, Instance, and Lane
 
@@ -268,7 +268,7 @@ The platform inventory and G0 execution scope are:
 
 | Cell | `contract_scope` | Blocking for external readiness | Current support/release state |
 |---|---|---:|---|
-| `darwin-arm64` | `required` | Yes | Sole supported release platform; G001 native/local-POSIX evidence remains valid, while current G012 release readiness awaits the exact-tree executable gate. Prior G009 integrated receipts remain `HISTORICAL_GATE_PASS_NON_PRODUCTION` |
+| `darwin-arm64` | `required` | Yes | Sole supported release platform; G001 native/local-POSIX evidence and the current G012 exact-tree executable gate establish its required boundary. Prior G009 integrated receipts remain `HISTORICAL_GATE_PASS_NON_PRODUCTION` |
 | `linux-amd64` | `intended_future` | No | Unsupported and release-ineligible |
 | `linux-arm64` | `intended_future` | No | Unsupported and release-ineligible |
 | `darwin-amd64` | `intended_future` | No | Unsupported and release-ineligible |

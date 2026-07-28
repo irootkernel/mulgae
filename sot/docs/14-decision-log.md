@@ -61,7 +61,7 @@
 
 ## 1.1 Current Decision and Implementation Status
 
-D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050, D-058, and D-060 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. D-051 through D-056 retain the runtime-diagnostics contract; D-057 and D-059 are historical. G010 and G011 are historical. G012 is release-blocked until its exact final committed-tree gate passes.
+D-030 through D-042 remain historical and active except where explicitly superseded. D-043 through D-050, D-058, and D-060 define the current project-local authority, explicit assignment, fallback, workflow, and release-gate contracts. D-051 through D-056 retain the runtime-diagnostics contract; D-057 and D-059 are historical. G010 and G011 are historical. G012 is `RELEASE_READY` after its exact final committed-tree gate passed.
 
 The prior G002 through G009 implementation and integrated-gate record is `HISTORICAL_GATE_PASS_NON_PRODUCTION`. G010 and G011 record historical gate passes and do not establish G012 closure. Only `darwin-arm64` on a native local POSIX filesystem is supported; `linux-amd64`, `linux-arm64`, `darwin-amd64`, Windows, and network filesystems remain unsupported and release-ineligible.
 

@@ -8,7 +8,7 @@ The product is designed for local development, CI, pre-merge checks, remediation
 
 ## 1.1 SOT 1.14.0 Contract and Implementation Status
 
-This document preserves the historical G0–G011 record and defines the current G012 release contract. Decision readiness is `READY`; implementation is `RELEASE_BLOCKED` until the exact final committed tree passes the sole `make test` gate with both live family certification and the exact release-binary actual-provider root/child workflow. Ordinary provider support is limited to the allowlisted `kimi`, `zcode`, and `agy` families and requires current runtime capability and security admission. AGY's minimum version is 1.1.4. Executable path, SHA-256, and adapter profile are diagnostic provenance only; they do not pin authorization to one historical executable.
+This document preserves the historical G0–G011 record and defines the current G012 release contract. Decision readiness is `READY`; implementation is `RELEASE_READY` after the exact final committed tree passed the sole `make test` gate with both live family certification and the exact release-binary actual-provider root/child workflow. Ordinary provider support is limited to the allowlisted `kimi`, `zcode`, and `agy` families and requires current runtime capability and security admission. AGY's minimum version is 1.1.4. Executable path, SHA-256, and adapter profile are diagnostic provenance only; they do not pin authorization to one historical executable.
 
 The current decisions keep `darwin-arm64` as the sole supported native platform, preserve six core roles plus the UI-only artist role, keep outcomes independent, and require deterministic retention, fail-closed trust and assignment, and byte- and identity-bound prompt/evidence provenance.
 
