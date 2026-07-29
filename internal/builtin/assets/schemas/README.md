@@ -12,7 +12,7 @@ Draft 2020-12 and a canonical
 | `mulgae-command-result.v1` | `../examples/command-result.v1.valid.json` |
 | `mulgae-doctor-result.v1` | `../examples/doctor-result.v1.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
-| `mulgae-g0-file-catalog.v1` | `../examples/g0-file-catalog.v1.valid.json` |
+| `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |
 | `mulgae-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` |
 | `mulgae-provider-contract-evidence.v1` | `../examples/provider-contract-evidence.v1.valid.json` |
 | `mulgae-provider-followup-output.v1` | `../examples/provider-followup-output.v1.valid.json` |

@@ -4,7 +4,7 @@
   "title": "Mulgae Repair Request v1",
   "description": "Historical read-compatibility packet. It is not an executable repair request, trusted prompt layer, or authority to select a repair mode, modify provider output, or verify evidence.",
   "deprecated": true,
-  "$comment": "Current root-review repair execution uses the bound repair plan and mode-specific response contracts documented in sot/docs/06-prompt-contract.md.",
+  "$comment": "Root-review repair uses a bound plan and mode-specific response contracts enforced by the validation application service.",
   "type": "object",
   "additionalProperties": false,
   "required": [

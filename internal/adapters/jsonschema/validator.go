@@ -22,7 +22,7 @@ import (
 
 const (
 	draft2020URI           = "https://json-schema.org/draft/2020-12/schema"
-	g0FileCatalogExampleID = "example:g0-file-catalog.v1.valid.json"
+	fileCatalogExampleID   = "example:file-catalog.v1.valid.json"
 	authoritativePairCount = 16
 	regexpMatchTimeout     = 100 * time.Millisecond
 	maxJSONDepth           = 256
@@ -210,7 +210,7 @@ func New(ctx context.Context, catalog ports.ContractCatalog) (*Validator, error)
 	}
 	pairs, err := buildPairs(validator.examples, schemaSources)
 	if err != nil {
-		return nil, diagnostic(StageCatalog, "examples/g0-file-catalog.v1.valid.json", ports.AssetID{}, err)
+		return nil, diagnostic(StageCatalog, "examples/file-catalog.v1.valid.json", ports.AssetID{}, err)
 	}
 	validator.pairs = pairs
 
@@ -275,7 +275,7 @@ func (validator *Validator) Validate(ctx context.Context, schemaID ports.AssetID
 }
 
 // ValidatePair validates the one catalog example paired with schemaID by the
-// authoritative G0 file catalog. Both IDs must name the compiled schema and
+// embedded file catalog. Both IDs must name the compiled schema and
 // copied JSON example captured when the validator was constructed.
 func (validator *Validator) ValidatePair(ctx context.Context, schemaID, exampleID ports.AssetID) error {
 	if err := contextError(ctx); err != nil {
@@ -439,21 +439,21 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 		return nil, errors.New("catalog does not contain the authoritative JSON example count")
 	}
 
-	g0, exists := examples[g0FileCatalogExampleID]
+	fileCatalog, exists := examples[fileCatalogExampleID]
 	if !exists {
-		return nil, errors.New("catalog has no G0 file catalog example")
+		return nil, errors.New("catalog has no file catalog example")
 	}
-	document, err := decodeJSON(g0.raw)
+	document, err := decodeJSON(fileCatalog.raw)
 	if err != nil {
-		return nil, errors.New("G0 file catalog is not valid JSON")
+		return nil, errors.New("file catalog is not valid JSON")
 	}
 	root, ok := document.(map[string]any)
 	if !ok {
-		return nil, errors.New("G0 file catalog is not a JSON object")
+		return nil, errors.New("file catalog is not a JSON object")
 	}
 	files, ok := root["files"].([]any)
 	if !ok {
-		return nil, errors.New("G0 file catalog has no files array")
+		return nil, errors.New("file catalog has no files array")
 	}
 
 	examplesBySource := make(map[string]string, len(examples))
@@ -482,11 +482,11 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 	for _, value := range files {
 		file, ok := value.(map[string]any)
 		if !ok {
-			return nil, errors.New("G0 file catalog has a non-object file record")
+			return nil, errors.New("file catalog has a non-object file record")
 		}
 		source, ok := file["path"].(string)
 		if !ok {
-			return nil, errors.New("G0 file catalog file record has no path")
+			return nil, errors.New("file catalog file record has no path")
 		}
 		schemaID, schemaOK := file["schema_id"].(string)
 		pairSource, pairOK := file["pair"].(string)
@@ -495,7 +495,7 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 		case strings.HasPrefix(source, "sot/examples/"):
 			if !schemaOK && !pairOK {
 				if _, known := examplesBySource[strings.TrimPrefix(source, "sot/")]; known {
-					return nil, errors.New("G0 file catalog leaves a JSON example unpaired")
+					return nil, errors.New("file catalog leaves a JSON example unpaired")
 				}
 				continue
 			}
@@ -503,26 +503,26 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 				return nil, errors.New("G0 example record has an invalid schema pair")
 			}
 			if _, duplicate := exampleSources[source]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates an example source")
+				return nil, errors.New("file catalog duplicates an example source")
 			}
 			exampleSources[source] = struct{}{}
 
 			expectedSchemaSource, exists := schemaSources[schemaID]
 			if !exists {
-				return nil, errors.New("G0 file catalog references an unknown schema")
+				return nil, errors.New("file catalog references an unknown schema")
 			}
 			if pairSource != "sot/"+expectedSchemaSource {
-				return nil, errors.New("G0 file catalog pair path does not match schema ID")
+				return nil, errors.New("file catalog pair path does not match schema ID")
 			}
 			exampleID, exists := examplesBySource[strings.TrimPrefix(source, "sot/")]
 			if !exists {
-				return nil, errors.New("G0 file catalog references an unknown example")
+				return nil, errors.New("file catalog references an unknown example")
 			}
 			if _, duplicate := pairs[schemaID]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates a schema pair")
+				return nil, errors.New("file catalog duplicates a schema pair")
 			}
 			if _, duplicate := exampleTargets[exampleID]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates an example target")
+				return nil, errors.New("file catalog duplicates an example target")
 			}
 			pairs[schemaID] = exampleID
 			exampleTargets[exampleID] = schemaID
@@ -530,7 +530,7 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 		case strings.HasPrefix(source, "sot/schemas/"):
 			if !schemaOK && !pairOK {
 				if _, known := schemasBySource[strings.TrimPrefix(source, "sot/")]; known {
-					return nil, errors.New("G0 file catalog leaves a schema unpaired")
+					return nil, errors.New("file catalog leaves a schema unpaired")
 				}
 				continue
 			}
@@ -538,7 +538,7 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 				return nil, errors.New("G0 schema record has an invalid example pair")
 			}
 			if _, duplicate := schemaRecordSources[source]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates a schema source")
+				return nil, errors.New("file catalog duplicates a schema source")
 			}
 			schemaRecordSources[source] = struct{}{}
 
@@ -551,31 +551,31 @@ func buildPairs(examples map[string]catalogExample, schemaSources map[string]str
 				return nil, errors.New("G0 schema record references an unknown example")
 			}
 			if _, duplicate := reversePairs[schemaID]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates a reverse schema pair")
+				return nil, errors.New("file catalog duplicates a reverse schema pair")
 			}
 			if _, duplicate := reverseExampleTargets[exampleID]; duplicate {
-				return nil, errors.New("G0 file catalog duplicates a reverse example target")
+				return nil, errors.New("file catalog duplicates a reverse example target")
 			}
 			reversePairs[schemaID] = exampleID
 			reverseExampleTargets[exampleID] = schemaID
 		}
 	}
 	if len(pairs) != authoritativePairCount || len(exampleTargets) != authoritativePairCount {
-		return nil, errors.New("G0 file catalog does not exactly pair every schema")
+		return nil, errors.New("file catalog does not exactly pair every schema")
 	}
 	if len(reversePairs) != authoritativePairCount || len(reverseExampleTargets) != authoritativePairCount {
-		return nil, errors.New("G0 file catalog does not exactly reverse-pair every schema")
+		return nil, errors.New("file catalog does not exactly reverse-pair every schema")
 	}
 	if len(exampleSources) != authoritativePairCount || len(schemaRecordSources) != authoritativePairCount {
-		return nil, errors.New("G0 file catalog does not contain exactly one record per pair direction")
+		return nil, errors.New("file catalog does not contain exactly one record per pair direction")
 	}
 	for schemaID, exampleID := range pairs {
 		if reversePairs[schemaID] != exampleID {
-			return nil, errors.New("G0 file catalog pair directions disagree")
+			return nil, errors.New("file catalog pair directions disagree")
 		}
 	}
 	if len(examplesBySource) != len(pairs) {
-		return nil, errors.New("G0 file catalog leaves JSON examples unpaired")
+		return nil, errors.New("file catalog leaves JSON examples unpaired")
 	}
 	return pairs, nil
 }

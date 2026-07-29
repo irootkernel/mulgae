@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-g0-file-catalog.v1",
+  "schema_version": "mulgae-file-catalog.v1",
   "files": [
     {
       "path": "sot/CHECKSUMS.sha256",
@@ -12,18 +12,6 @@
       ],
       "checksum_inclusion": false,
       "exclusion_reason": "self_excluded_checksum"
-    },
-    {
-      "path": "sot/IMPLEMENTATION_CHECKLIST.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "implementation-planning"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
     },
     {
       "path": "sot/README.md",
@@ -45,222 +33,6 @@
       "pair": null,
       "consumers": [
         "release-metadata"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/VALIDATION_REPORT.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "validation-reporting"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/01-product-contract.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "product-contract"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/02-domain-and-state-model.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "domain-model"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/03-cli-workflows.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "cli-workflows"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/04-configuration.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "configuration"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/05-provider-runtime-and-scheduling.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "provider-runtime"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/06-prompt-contract.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "prompt-contract"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/07-output-validation-and-repair.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "output-validation"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/08-artifacts-lineage-and-storage.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "artifact-storage"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/09-security-and-trust.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "security-and-trust"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/10-reporting-ci-and-exit-codes.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "reporting-and-ci"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/11-go-architecture.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "go-architecture"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/12-testing-strategy.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "testing-strategy"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/13-delivery-roadmap.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "delivery-roadmap"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/14-decision-log.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "decision-log"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/15-glossary.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "glossary"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/16-field-ownership-matrix.md",
-      "disposition": "CHANGED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "field-ownership"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/docs/17-superseded-authority-ledger.md",
-      "disposition": "ADDED",
-      "media_type": "text/markdown",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "authority-audit"
       ],
       "checksum_inclusion": true,
       "exclusion_reason": null
@@ -326,11 +98,11 @@
       "exclusion_reason": null
     },
     {
-      "path": "sot/examples/g0-file-catalog.v1.valid.json",
+      "path": "sot/examples/file-catalog.v1.valid.json",
       "disposition": "ADDED",
       "media_type": "application/json",
-      "schema_id": "https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json",
-      "pair": "sot/schemas/mulgae-g0-file-catalog.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json",
+      "pair": "sot/schemas/mulgae-file-catalog.v1.schema.json",
       "consumers": [
         "checksum-generator",
         "integrity-validator",
@@ -486,6 +258,114 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/help/artifacts.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/automation.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/config.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/prompts.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/providers.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/quickstart.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/security.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/validation.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/help/workflows.md",
+      "disposition": "ADDED",
+      "media_type": "text/markdown",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "cli-help"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/prompts/root-review/common.v1.txt",
       "disposition": "ADDED",
       "media_type": "text/plain",
@@ -594,11 +474,11 @@
       "exclusion_reason": null
     },
     {
-      "path": "sot/schemas/mulgae-g0-file-catalog.v1.schema.json",
+      "path": "sot/schemas/mulgae-file-catalog.v1.schema.json",
       "disposition": "ADDED",
       "media_type": "application/schema+json",
-      "schema_id": "https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json",
-      "pair": "sot/examples/g0-file-catalog.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json",
+      "pair": "sot/examples/file-catalog.v1.valid.json",
       "consumers": [
         "checksum-generator",
         "integrity-validator",

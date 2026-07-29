@@ -1,0 +1,66 @@
+# Architecture
+
+## Dependency direction
+
+Mulgae follows a domain-first, ports-and-adapters design:
+
+```text
+main
+  -> internal/entrypoint/mulgae
+      -> internal/app/*
+          -> internal/domain
+          -> internal/ports
+      -> internal/adapters/*
+      -> internal/builtin
+```
+
+The domain and application packages do not depend on CLI parsing, provider
+process details, or concrete storage. Adapters implement ports; the root
+composition wires concrete implementations into the application. Architecture
+tests enforce this direction.
+
+## Package map
+
+| Area | Responsibility |
+|---|---|
+| `main.go`, `*_composition.go` | Darwin/arm64 entrypoint and production graph |
+| `internal/entrypoint/mulgae` | CLI grammar, dispatch, output, selector resolution |
+| `internal/app/reviewrun` | Target capture, planning, qualification, prompts, orchestration |
+| `internal/app/review` | Assignments, coordination, aggregation, results |
+| `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
+| `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
+| `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |
+| `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
+| `internal/domain` | IDs, findings, failures, states, roles, immutable values |
+| `internal/ports` | Interfaces and safe values crossing application boundaries |
+| `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation |
+| `internal/adapters/workspace` | Isolated snapshots and descriptor-bound workspaces |
+| `internal/adapters/filesystem` | Secure project-local storage and publication |
+| `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
+| `internal/builtin` | Embedded schemas, prompts, roles, examples, and help |
+
+## Review flow
+
+1. The entrypoint parses one canonical command request.
+2. Project-local configuration is admitted against platform and locality rules.
+3. The requested target is captured immutably.
+4. The planner selects roles and configured primary/fallback providers.
+5. Mulgae composes trusted prompt layers and an isolated provider workspace.
+6. Provider executions run through bounded, serialized lanes.
+7. Provider JSON is validated and normalized with Mulgae-owned identity/state.
+8. Repair and fallback occur only when an explicit transition authorizes them.
+9. Evidence is checked against the captured target.
+10. Publication atomically commits the manifest and at most one final review.
+
+## Concurrency, cancellation, and storage
+
+Provider instances have concurrency keys, so commands sharing credentials or a
+session cannot race. The coordinator enforces per-role and per-run invocation
+ceilings. Cancellation propagates to subprocesses and terminal publication.
+
+`.mulgae/` contains configuration and durable review state. Temporary provider
+workspaces and namespaces live outside the project and are removed after use.
+
+Runtime assets are ordinary files under `internal/builtin/assets`, included with
+`go:embed`. `CHECKSUMS.sha256` is generated from those files and validated
+before the catalog serves any asset.

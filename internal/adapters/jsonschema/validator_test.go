@@ -321,7 +321,7 @@ func TestNewRejectsAmbiguousCatalogJSON(t *testing.T) {
 		},
 		{
 			name: "G0 lone surrogate",
-			id:   mustAssetID(t, g0FileCatalogExampleID),
+			id:   mustAssetID(t, fileCatalogExampleID),
 			raw: func(raw []byte) []byte {
 				return bytes.Replace(raw, []byte(`"schema_version"`), []byte(`"\uD800"`), 1)
 			},

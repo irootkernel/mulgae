@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json",
-  "title": "Mulgae G0 File Catalog v1",
+  "$id": "https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json",
+  "title": "Mulgae File Catalog v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,12 +10,12 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-g0-file-catalog.v1"
+      "const": "mulgae-file-catalog.v1"
     },
     "files": {
       "type": "array",
-      "minItems": 61,
-      "maxItems": 61,
+      "minItems": 51,
+      "maxItems": 51,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/file"

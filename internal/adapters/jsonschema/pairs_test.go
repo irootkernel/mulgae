@@ -79,7 +79,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json", "example:command-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "example:doctor-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
-	{"https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json", "example:g0-file-catalog.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "example:file-catalog.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", "example:provider-contract-evidence.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "example:provider-followup-output.v1.valid.json"},
@@ -161,7 +161,7 @@ func TestBuildPairsRejectsPairPathThatDisagreesWithSchemaID(t *testing.T) {
 			examples[asset.ID().String()] = catalogExample{metadata: asset, raw: raw}
 		}
 	}
-	g0 := examples[g0FileCatalogExampleID]
+	g0 := examples[fileCatalogExampleID]
 	mutated := bytes.Replace(
 		g0.raw,
 		[]byte(`"pair": "sot/schemas/mulgae-clean-plan.v1.schema.json"`),
@@ -172,7 +172,7 @@ func TestBuildPairsRejectsPairPathThatDisagreesWithSchemaID(t *testing.T) {
 		t.Fatal("test mutation did not change the G0 catalog")
 	}
 	g0.raw = mutated
-	examples[g0FileCatalogExampleID] = g0
+	examples[fileCatalogExampleID] = g0
 
 	if _, err := buildPairs(examples, schemaSources); err == nil {
 		t.Fatal("buildPairs accepted a pair path that disagrees with schema_id")
@@ -202,7 +202,7 @@ func TestBuildPairsRejectsDuplicateExampleTarget(t *testing.T) {
 			examples[asset.ID().String()] = catalogExample{metadata: asset, raw: raw}
 		}
 	}
-	g0 := examples[g0FileCatalogExampleID]
+	g0 := examples[fileCatalogExampleID]
 	mutated := bytes.Replace(
 		g0.raw,
 		[]byte(`"path": "sot/examples/command-result.v1.valid.json"`),
@@ -213,7 +213,7 @@ func TestBuildPairsRejectsDuplicateExampleTarget(t *testing.T) {
 		t.Fatal("test mutation did not change the G0 catalog")
 	}
 	g0.raw = mutated
-	examples[g0FileCatalogExampleID] = g0
+	examples[fileCatalogExampleID] = g0
 
 	if _, err := buildPairs(examples, schemaSources); err == nil {
 		t.Fatal("buildPairs accepted a duplicate example target")
@@ -243,7 +243,7 @@ func TestBuildPairsRejectsReverseAndCardinalityViolations(t *testing.T) {
 		{
 			name: "pair directions disagree",
 			mutate: func(examples map[string]catalogExample, _ map[string]string) {
-				g0 := examples[g0FileCatalogExampleID]
+				g0 := examples[fileCatalogExampleID]
 				temporary := []byte(`"pair": "sot/examples/__pair-swap__.json"`)
 				mutated := bytes.Replace(g0.raw, cleanPair, temporary, 1)
 				mutated = bytes.Replace(mutated, commandPair, cleanPair, 1)
@@ -252,7 +252,7 @@ func TestBuildPairsRejectsReverseAndCardinalityViolations(t *testing.T) {
 					t.Fatal("pair-direction mutation did not change the G0 catalog")
 				}
 				g0.raw = mutated
-				examples[g0FileCatalogExampleID] = g0
+				examples[fileCatalogExampleID] = g0
 			},
 		},
 		{
@@ -323,13 +323,13 @@ func builtinPairInputs(t *testing.T) (map[string]catalogExample, map[string]stri
 
 func mutateG0Raw(t *testing.T, examples map[string]catalogExample, old, replacement []byte) {
 	t.Helper()
-	g0 := examples[g0FileCatalogExampleID]
+	g0 := examples[fileCatalogExampleID]
 	mutated := bytes.Replace(g0.raw, old, replacement, 1)
 	if bytes.Equal(mutated, g0.raw) {
 		t.Fatal("test mutation did not change the G0 catalog")
 	}
 	g0.raw = mutated
-	examples[g0FileCatalogExampleID] = g0
+	examples[fileCatalogExampleID] = g0
 }
 
 func cloneCatalogExamples(examples map[string]catalogExample) map[string]catalogExample {

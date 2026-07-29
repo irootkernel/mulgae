@@ -18,7 +18,6 @@ import (
 )
 
 const testSOTRoot = "assets"
-const testPlanRoot = "../../sot/plan"
 
 type embeddedManifest struct {
 	Version int
@@ -180,8 +179,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 79 {
-		t.Fatalf("manifest asset count = %d, want 79", len(manifest.Assets))
+	if len(manifest.Assets) != 69 {
+		t.Fatalf("manifest asset count = %d, want 69", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -252,8 +251,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 68 {
-		t.Fatalf("authoritative runtime source count = %d, want 68", len(authoritativeSources))
+	if len(authoritativeSources) != 58 {
+		t.Fatalf("authoritative runtime source count = %d, want 58", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -309,55 +308,21 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	}
 }
 
-func TestProductionCatalogExcludesPlanningOnlySOT(t *testing.T) {
-	t.Parallel()
-
-	entries, err := os.ReadDir(filepath.Join(testPlanRoot, "diagnostics"))
-	if err != nil {
-		t.Fatalf("read diagnostics plan: %v", err)
-	}
-	wantPlanningFiles := map[string]bool{
-		"architecture.md":      true,
-		"g010-t05-evidence.md": true,
-		"roadmap.md":           true,
-		"sot.md":               true,
-		"spec.md":              true,
-	}
-	if len(entries) != len(wantPlanningFiles) {
-		t.Fatalf("diagnostics plan file count = %d, want %d", len(entries), len(wantPlanningFiles))
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !wantPlanningFiles[entry.Name()] {
-			t.Fatalf("unexpected diagnostics planning entry %q", entry.Name())
-		}
-	}
-
-	assets, err := NewCatalog().List(context.Background())
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	for _, asset := range assets {
-		if strings.HasPrefix(asset.Source().String(), "plan/") {
-			t.Fatalf("production catalog contains planning-only source %q", asset.Source())
-		}
-	}
-}
-
 func TestCatalogHelpAliasesAreExact(t *testing.T) {
 	t.Parallel()
 
 	expected := map[string]string{
-		"help:quickstart": "README.md",
-		"help:config":     "docs/04-configuration.md",
-		"help:providers":  "docs/05-provider-runtime-and-scheduling.md",
-		"help:lanes":      "docs/05-provider-runtime-and-scheduling.md",
-		"help:prompts":    "docs/06-prompt-contract.md",
-		"help:workflows":  "docs/03-cli-workflows.md",
-		"help:artifacts":  "docs/08-artifacts-lineage-and-storage.md",
-		"help:validation": "docs/07-output-validation-and-repair.md",
-		"help:ci":         "docs/10-reporting-ci-and-exit-codes.md",
-		"help:exit-codes": "docs/10-reporting-ci-and-exit-codes.md",
-		"help:security":   "docs/09-security-and-trust.md",
+		"help:quickstart": "help/quickstart.md",
+		"help:config":     "help/config.md",
+		"help:providers":  "help/providers.md",
+		"help:lanes":      "help/providers.md",
+		"help:prompts":    "help/prompts.md",
+		"help:workflows":  "help/workflows.md",
+		"help:artifacts":  "help/artifacts.md",
+		"help:validation": "help/validation.md",
+		"help:ci":         "help/automation.md",
+		"help:exit-codes": "help/automation.md",
+		"help:security":   "help/security.md",
 	}
 	manifest := testManifest(t)
 	byID := make(map[string]embeddedAssetInfo, len(manifest.Assets))
@@ -429,14 +394,14 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 	content := help.String()
 	for _, required := range []string{
-		"one configuration authority: `<canonical-project-root>/.mulgae/config.yaml`",
-		"`--providers auto|FAMILY[,FAMILY...]`",
+		"one configuration authority:\n`<canonical-project-root>/.mulgae/config.yaml`",
+		"--providers auto|FAMILY[,FAMILY...]",
 		"`FAMILY := kimi | zcode | agy`",
 		"`execution.workspace_access` is required",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
-		"an explicit\n`safe` or `dangerously-skip-permissions` mode",
-		"unconditional project-root durability barrier",
-		"output delivery failure never rolls back a\ncommitted config",
+		"an explicit `safe` or `dangerously-skip-permissions` mode",
+		"unconditional project-root\ndurability barrier",
+		"output delivery failure never rolls back a committed\nconfiguration",
 		"There is no migration or compatibility path",
 	} {
 		if !strings.Contains(content, required) {
@@ -475,7 +440,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json", "schemas/mulgae-command-result.v1.schema.json", "examples/command-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "schemas/mulgae-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json", "schemas/mulgae-g0-file-catalog.v1.schema.json", "examples/g0-file-catalog.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "schemas/mulgae-file-catalog.v1.schema.json", "examples/file-catalog.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "schemas/mulgae-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", "schemas/mulgae-provider-contract-evidence.v1.schema.json", "examples/provider-contract-evidence.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "schemas/mulgae-provider-followup-output.v1.schema.json", "examples/provider-followup-output.v1.valid.json"},
@@ -493,11 +458,11 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {
-		t.Fatalf("authoritative G0 pair count = %d, want %d", len(authoritative), len(expected))
+		t.Fatalf("authoritative pair count = %d, want %d", len(authoritative), len(expected))
 	}
 	for _, pair := range expected {
 		if !containsExactPair(authoritative, pair) {
-			t.Fatalf("expected pair %+v is absent from the authoritative G0 catalog", pair)
+			t.Fatalf("expected pair %+v is absent from the embedded file catalog", pair)
 		}
 	}
 
@@ -672,9 +637,9 @@ func containsExampleSource(pairs []schemaExamplePair, source string) bool {
 func authoritativeSchemaExamplePairs(t *testing.T) []schemaExamplePair {
 	t.Helper()
 
-	contents, err := os.ReadFile(filepath.Join(testSOTRoot, "examples", "g0-file-catalog.v1.valid.json"))
+	contents, err := os.ReadFile(filepath.Join(testSOTRoot, "examples", "file-catalog.v1.valid.json"))
 	if err != nil {
-		t.Fatalf("read authoritative G0 file catalog: %v", err)
+		t.Fatalf("read embedded file catalog: %v", err)
 	}
 	var fileCatalog struct {
 		Files []struct {
@@ -684,7 +649,7 @@ func authoritativeSchemaExamplePairs(t *testing.T) []schemaExamplePair {
 		} `json:"files"`
 	}
 	if err := json.Unmarshal(contents, &fileCatalog); err != nil {
-		t.Fatalf("decode authoritative G0 file catalog: %v", err)
+		t.Fatalf("decode embedded file catalog: %v", err)
 	}
 
 	pairs := make([]schemaExamplePair, 0, 24)

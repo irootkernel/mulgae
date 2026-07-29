@@ -17,11 +17,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const (
-	docStart = "<!-- BEGIN GENERATED INIT MUTATION OUTCOMES -->"
-	docEnd   = "<!-- END GENERATED INIT MUTATION OUTCOMES -->"
-)
-
 func main() {
 	if err := generate(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -57,7 +52,7 @@ func generate() error {
 	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v1.schema.json"), discoverySpecs); err != nil {
 		return err
 	}
-	return replaceMarkedBlock(filepath.Join(assets, "docs", "10-reporting-ci-and-exit-codes.md"), renderDocumentation(specs, discoverySpecs))
+	return nil
 }
 
 func repositoryRoot() (string, error) {
@@ -260,34 +255,6 @@ func jsonStrings(values []string) string {
 	return string(data)
 }
 
-func renderDocumentation(specs []appinit.MutationOutcomeSpec, discoverySpecs []appinit.DiscoverySourceSpec) string {
-	var output strings.Builder
-	output.WriteString(docStart + "\n")
-	output.WriteString("### Init discovery source contract\n\n")
-	output.WriteString("Discovery is empty before completion and otherwise contains the fixed Kimi, ZCode, and AGY rows. Unselected families are not observed. Auto discovery retains ordinary unavailable rows when another family is a valid candidate; security failures still dominate after all three rows are assembled. Each row uses only its family-specific source fields:\n\n")
-	for _, spec := range discoverySpecs {
-		fields := make([]string, 0, len(spec.Fields))
-		for _, field := range spec.Fields {
-			fields = append(fields, fmt.Sprintf("`%s=%s`", field.JSONName, strings.Join(field.Values, "|")))
-		}
-		fmt.Fprintf(&output, "- `%s`: %s\n", spec.Family, strings.Join(fields, ", "))
-	}
-	output.WriteString("\nThere is no generic `auxiliary_source`.\n\n")
-	output.WriteString("### Init post-mutation outcome matrix\n\n")
-	output.WriteString("This table is generated from `internal/app/init.MutationOutcomeSpecs`; manual edits are overwritten. Provider IDs are the admitted candidate/configured set and discovery contains the fixed three rows.\n\n")
-	output.WriteString("| Write state | Destination | Category / code | Message | Retryable | Exit |\n")
-	output.WriteString("|---|---|---|---|---:|---:|\n")
-	for _, spec := range specs {
-		category, code, message, retryable, exit := "none", "none", "none", "false", 0
-		if spec.Code != "" {
-			category, code, message, retryable, exit = categoryForClass(spec.Class), "`"+spec.Code+"`", spec.Message, fmt.Sprint(spec.Retryable), exitForClass(spec.Class)
-		}
-		fmt.Fprintf(&output, "| `%s` | `%s` | %s / %s | %s | %s | %d |\n", spec.WriteState, spec.Destination, category, code, message, retryable, exit)
-	}
-	output.WriteString(docEnd + "\n")
-	return output.String()
-}
-
 func replaceSchemaDiscoveryContract(filename string, specs []appinit.DiscoverySourceSpec) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -386,24 +353,6 @@ func exitForClass(class domain.FailureClass) int {
 	default:
 		return 0
 	}
-}
-
-func replaceMarkedBlock(filename, replacement string) error {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return err
-	}
-	start := bytes.Index(data, []byte(docStart))
-	endStart := bytes.Index(data, []byte(docEnd))
-	if start < 0 || endStart < start || bytes.Index(data[start+1:], []byte(docStart)) >= 0 || bytes.Index(data[endStart+1:], []byte(docEnd)) >= 0 {
-		return fmt.Errorf("init contract generator: documentation anchors are missing or ambiguous")
-	}
-	end := endStart + len(docEnd)
-	if end < len(data) && data[end] == '\n' {
-		end++
-	}
-	updated := append(append(append([]byte(nil), data[:start]...), []byte(replacement)...), data[end:]...)
-	return writeIfChanged(filename, updated)
 }
 
 func writeIfChanged(filename string, data []byte) error {

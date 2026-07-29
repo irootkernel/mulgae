@@ -398,15 +398,15 @@ func isLowerSHA256(value string) bool {
 var catalogDefaultAliases = map[string]string{}
 
 var catalogHelpAliases = map[string]string{
-	"help:quickstart": "README.md",
-	"help:config":     "docs/04-configuration.md",
-	"help:providers":  "docs/05-provider-runtime-and-scheduling.md",
-	"help:lanes":      "docs/05-provider-runtime-and-scheduling.md",
-	"help:prompts":    "docs/06-prompt-contract.md",
-	"help:workflows":  "docs/03-cli-workflows.md",
-	"help:artifacts":  "docs/08-artifacts-lineage-and-storage.md",
-	"help:validation": "docs/07-output-validation-and-repair.md",
-	"help:ci":         "docs/10-reporting-ci-and-exit-codes.md",
-	"help:exit-codes": "docs/10-reporting-ci-and-exit-codes.md",
-	"help:security":   "docs/09-security-and-trust.md",
+	"help:quickstart": "help/quickstart.md",
+	"help:config":     "help/config.md",
+	"help:providers":  "help/providers.md",
+	"help:lanes":      "help/providers.md",
+	"help:prompts":    "help/prompts.md",
+	"help:workflows":  "help/workflows.md",
+	"help:artifacts":  "help/artifacts.md",
+	"help:validation": "help/validation.md",
+	"help:ci":         "help/automation.md",
+	"help:exit-codes": "help/automation.md",
+	"help:security":   "help/security.md",
 }
