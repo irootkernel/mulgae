@@ -163,12 +163,18 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-e2e:"} {
+	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
 	}
-	positions := []int{strings.Index(text, "$(MAKE) test-prepare"), strings.Index(text, "$(MAKE) test-unit"), strings.Index(text, "$(MAKE) test-int"), strings.Index(text, "$(MAKE) test-e2e")}
+	positions := []int{
+		strings.Index(text, "$(MAKE) test-prepare"),
+		strings.Index(text, "$(MAKE) test-unit"),
+		strings.Index(text, "$(MAKE) test-int"),
+		strings.Index(text, "$(MAKE) test-release"),
+		strings.Index(text, "$(MAKE) test-e2e"),
+	}
 	for index, position := range positions {
 		if position < 0 || index > 0 && position <= positions[index-1] {
 			t.Fatalf("Makefile test order is not sequential: %v", positions)
@@ -180,20 +186,33 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal("test-unit does not serialize race-instrumented package execution")
 	}
 	integrationStart := unitEnd
-	integrationEnd := strings.Index(text, "\ntest-e2e:")
+	integrationEnd := strings.Index(text, "\ntest-release:")
 	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
 		t.Fatal("test-int does not serialize race-instrumented package execution")
+	}
+	if !strings.Contains(text, "RELEASE_VERSION := v0.1.0") {
+		t.Fatal("Makefile does not declare the v0.1.0 release version")
+	}
+	releaseStart := integrationEnd
+	releaseEnd := strings.Index(text, "\ntest-e2e:")
+	if releaseEnd <= releaseStart {
+		t.Fatal("Makefile test-release target is not before test-e2e")
+	}
+	releaseTarget := text[releaseStart:releaseEnd]
+	for _, required := range []string{
+		"GOBIN=", "$(GO) install", "-trimpath", "main.buildVersion=$(RELEASE_VERSION)",
+		"main.buildRevision=", "-tags=releasecheck", "MULGAE_RELEASE_BINARY",
+		"MULGAE_RELEASE_GOBIN", "MULGAE_RELEASE_VERSION", "MULGAE_RELEASE_REVISION",
+	} {
+		if !strings.Contains(releaseTarget, required) {
+			t.Errorf("test-release missing installation-contract token %q", required)
+		}
 	}
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	specVersion, err := os.ReadFile(filepath.Join(repositoryRoot(t), "internal", "builtin", "assets", "SPEC_VERSION"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantBuildVersion := "main.buildVersion=v" + strings.TrimSpace(string(specVersion))
-	if !strings.Contains(text, wantBuildVersion) {
-		t.Fatalf("test-e2e release candidate metadata does not match SOT: want %q", wantBuildVersion)
+	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 2 {
+		t.Fatal("release and E2E binaries do not share RELEASE_VERSION")
 	}
 	for _, required := range []string{
 		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,

@@ -1,13 +1,15 @@
 GO ?= go
 TEST_TIMEOUT ?= 90m
+RELEASE_VERSION := v0.1.0
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-e2e
+.PHONY: test test-prepare test-unit test-int test-release test-e2e
 
 test:
 	@$(MAKE) test-prepare
 	@$(MAKE) test-unit
 	@$(MAKE) test-int
+	@$(MAKE) test-release
 	@$(MAKE) test-e2e
 	@printf '%s\n' '[test] completed'
 
@@ -31,6 +33,22 @@ test-int:
 	$(GO) test -p 1 -timeout $(TEST_TIMEOUT) -race -count=1 -run '^TestIntegration' ./...
 	@printf '%s\n' '[test-int] completed'
 
+test-release:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-release requires darwin/arm64" >&2; exit 1; }
+	@release_tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$release_tmp"' EXIT; \
+	release_gobin="$$release_tmp/bin"; \
+	mkdir -p "$$release_gobin"; \
+	release_commit="$$(git rev-parse HEAD)"; \
+	GOBIN="$$release_gobin" $(GO) install -trimpath \
+		-ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$release_commit" .; \
+	MULGAE_RELEASE_BINARY="$$release_gobin/mulgae" \
+		MULGAE_RELEASE_GOBIN="$$release_gobin" \
+		MULGAE_RELEASE_VERSION="$(RELEASE_VERSION)" \
+		MULGAE_RELEASE_REVISION="$$release_commit" \
+		$(GO) test -tags=releasecheck -count=1 ./internal/releasecheck
+	@printf '%s\n' '[test-release] completed'
+
 test-e2e:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e requires darwin/arm64" >&2; exit 1; }
 	@e2e_tmp="$$(mktemp -d)"; \
@@ -40,7 +58,7 @@ test-e2e:
 	chmod 700 "$$e2e_project"; \
 	MULGAE_E2E_BINARY="$$e2e_tmp/mulgae"; \
 	MULGAE_E2E_COMMIT="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=v1.15.0 -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
 	kimi_bin="$${MULGAE_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
 	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-e2e requires the Kimi executable" >&2; exit 1; }; \
 	case "$$kimi_bin" in /*) ;; *) echo "test-e2e requires an absolute Kimi executable" >&2; exit 1;; esac; \

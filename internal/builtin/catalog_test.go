@@ -179,8 +179,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 69 {
-		t.Fatalf("manifest asset count = %d, want 69", len(manifest.Assets))
+	if len(manifest.Assets) != 68 {
+		t.Fatalf("manifest asset count = %d, want 68", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -251,8 +251,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 58 {
-		t.Fatalf("authoritative runtime source count = %d, want 58", len(authoritativeSources))
+	if len(authoritativeSources) != 57 {
+		t.Fatalf("authoritative runtime source count = %d, want 57", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))

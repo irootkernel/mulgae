@@ -26,18 +26,6 @@
       "exclusion_reason": null
     },
     {
-      "path": "sot/SPEC_VERSION",
-      "disposition": "CHANGED",
-      "media_type": "text/plain",
-      "schema_id": null,
-      "pair": null,
-      "consumers": [
-        "release-metadata"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
       "path": "sot/examples/artifact-tree.txt",
       "disposition": "CHANGED",
       "media_type": "text/plain",
