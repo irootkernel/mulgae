@@ -58,6 +58,23 @@ mulgae init --providers zcode \
   --zcode-launcher "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
 ```
 
+#### Set ZCode reasoning effort to max
+
+Mulgae's ZCode adapter does not set reasoning effort for each invocation.
+Headless reviews inherit ZCode's per-user reasoning preference, so set it to
+`max` before using ZCode with Mulgae. In the ZCode app, select `max` for
+**Thought Level**, or enter these slash commands in a ZCode conversation:
+
+```text
+/effort max
+/effort
+```
+
+The second command should report `Current reasoning effort: max.` ZCode
+persists this as a user-level preference. Mulgae does not currently enforce or
+verify the value, so check it again after reinstalling or updating ZCode, or
+after changing the reasoning setting in another ZCode session.
+
 ## Install
 
 Mulgae requires Go 1.26 or newer.
