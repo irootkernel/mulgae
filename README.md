@@ -22,6 +22,42 @@ project. Mulgae records provider identity and capabilities at runtime and fails
 closed when a required capability is unavailable. Other operating systems,
 architectures, and provider families are not supported by the initial release.
 
+### Use ZCode from Mulgae
+
+ZCode is distributed as a macOS app rather than as a `zcode` executable on
+`PATH`. Mulgae runs the app's bundled launcher with Node.js, so no wrapper or
+symlink is required. Install Node.js and ZCode, sign in through the ZCode app,
+then verify the two components:
+
+```bash
+zcode_node="$(command -v node)"
+zcode_launcher="/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
+
+test -n "$zcode_node"
+test -x "$zcode_node"
+test -r "$zcode_launcher"
+"$zcode_node" "$zcode_launcher" --version
+"$zcode_node" "$zcode_launcher" doctor
+```
+
+The bundled launcher uses ZCode's shared login state. With the standard app
+location, `mulgae init` discovers the Node.js executable from its startup
+`PATH` and the launcher automatically:
+
+```bash
+mulgae init --providers zcode
+mulgae providers --include-unverified
+```
+
+Use explicit absolute paths when Node.js or the ZCode app is installed
+elsewhere:
+
+```bash
+mulgae init --providers zcode \
+  --zcode-node-executable "$(command -v node)" \
+  --zcode-launcher "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
+```
+
 ## Install
 
 Mulgae requires Go 1.26 or newer.
