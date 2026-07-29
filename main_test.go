@@ -195,14 +195,8 @@ func TestVersionOutputDoesNotRequireProjectOrReleaseMetadata(t *testing.T) {
 	if !handled || exitCode != 0 {
 		t.Fatalf("JSON version result = handled:%t exit:%d stderr:%q", handled, exitCode, stderr.String())
 	}
-	var got versionInfo
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.SchemaVersion != "mulgae-version.v1" || got.Product != productName ||
-		got.Version != "(devel)" || got.Module != modulePath ||
-		got.ModuleSum != nil || got.VCSRevision != nil {
-		t.Fatalf("JSON version = %#v", got)
+	if stdout.String() != "{\"name\":\"mulgae\",\"version\":\"(devel)\"}\n" {
+		t.Fatalf("JSON version = %q", stdout.String())
 	}
 
 	stdout.Reset()
@@ -539,13 +533,11 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		if machine.exitCode != 0 || len(machine.stderr) != 0 {
 			t.Fatalf("JSON version = exit %d stdout %q stderr %q", machine.exitCode, machine.stdout, machine.stderr)
 		}
-		var version versionInfo
+		var version versionOutput
 		if err := json.Unmarshal(machine.stdout, &version); err != nil {
 			t.Fatal(err)
 		}
-		if version.Product != productName || version.Version != "v1.4.2" || version.Module != modulePath ||
-			version.ModuleSum != nil || version.VCSRevision == nil ||
-			*version.VCSRevision != "0123456789abcdef0123456789abcdef01234567" {
+		if version.Name != productName || version.Version != "v1.4.2" {
 			t.Fatalf("JSON version = %#v", version)
 		}
 	})

@@ -15,12 +15,16 @@ const (
 )
 
 type versionInfo struct {
-	SchemaVersion string  `json:"schema_version"`
-	Product       string  `json:"product"`
-	Version       string  `json:"version"`
-	Module        string  `json:"module"`
-	ModuleSum     *string `json:"module_sum"`
-	VCSRevision   *string `json:"vcs_revision"`
+	Product     string
+	Version     string
+	Module      string
+	ModuleSum   *string
+	VCSRevision *string
+}
+
+type versionOutput struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 func handleVersion(
@@ -46,7 +50,7 @@ func handleVersion(
 	if jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(version); err != nil {
+		if err := encoder.Encode(versionOutput{Name: version.Product, Version: version.Version}); err != nil {
 			_, _ = io.WriteString(stderr, "mulgae: version output failed\n")
 			return true, 10
 		}
@@ -61,10 +65,9 @@ func handleVersion(
 
 func versionInfoFrom(info *debug.BuildInfo, versionOverride, revisionOverride string) versionInfo {
 	result := versionInfo{
-		SchemaVersion: "mulgae-version.v1",
-		Product:       productName,
-		Version:       "(devel)",
-		Module:        modulePath,
+		Product: productName,
+		Version: "(devel)",
+		Module:  modulePath,
 	}
 	if info != nil {
 		if info.Main.Version != "" {

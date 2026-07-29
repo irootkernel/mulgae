@@ -68,7 +68,7 @@ Every review command requires exactly one target:
 --stdin                  a patch read from standard input
 ```
 
-Use `mulgae version --json` for machine-readable build identity. Workflow
+Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
 
 ## Review results

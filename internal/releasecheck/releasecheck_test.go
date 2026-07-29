@@ -18,7 +18,6 @@ import (
 
 const (
 	modulePath            = "github.com/irootkernel/mulgae"
-	versionSchema         = "mulgae-version.v1"
 	releaseBinaryEnv      = "MULGAE_RELEASE_BINARY"
 	releaseGOBINEnv       = "MULGAE_RELEASE_GOBIN"
 	releaseVersionEnv     = "MULGAE_RELEASE_VERSION"
@@ -29,12 +28,8 @@ const (
 )
 
 type versionDocument struct {
-	SchemaVersion string  `json:"schema_version"`
-	Product       string  `json:"product"`
-	Version       string  `json:"version"`
-	Module        string  `json:"module"`
-	ModuleSum     *string `json:"module_sum"`
-	VCSRevision   *string `json:"vcs_revision"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 func TestInstalledRootModuleContract(t *testing.T) {
@@ -67,13 +62,7 @@ func TestInstalledRootModuleContract(t *testing.T) {
 	if err := requireJSONEOF(decoder); err != nil {
 		t.Fatalf("JSON version trailing data: %v", err)
 	}
-	if document.SchemaVersion != versionSchema ||
-		document.Product != expectedProduct ||
-		document.Version != version ||
-		document.Module != modulePath ||
-		document.ModuleSum != nil ||
-		document.VCSRevision == nil ||
-		*document.VCSRevision != revision {
+	if document.Name != expectedProduct || document.Version != version {
 		t.Fatalf("JSON version document = %#v", document)
 	}
 
