@@ -191,7 +191,7 @@ func TestVersionOutputDoesNotRequireProjectOrReleaseMetadata(t *testing.T) {
 	}
 
 	stdout.Reset()
-	handled, exitCode = handleVersion([]string{"version", "--output", "json"}, &stdout, &stderr, info)
+	handled, exitCode = handleVersion([]string{"version", "--json"}, &stdout, &stderr, info)
 	if !handled || exitCode != 0 {
 		t.Fatalf("JSON version result = handled:%t exit:%d stderr:%q", handled, exitCode, stderr.String())
 	}
@@ -203,6 +203,14 @@ func TestVersionOutputDoesNotRequireProjectOrReleaseMetadata(t *testing.T) {
 		got.Version != "(devel)" || got.Module != modulePath ||
 		got.ModuleSum != nil || got.VCSRevision != nil {
 		t.Fatalf("JSON version = %#v", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	handled, exitCode = handleVersion([]string{"version", "--output", "json"}, &stdout, &stderr, info)
+	if !handled || exitCode != 2 || stdout.Len() != 0 ||
+		stderr.String() != "mulgae: usage: mulgae version [--json]\n" {
+		t.Fatalf("legacy JSON version result = handled:%t exit:%d stdout:%q stderr:%q", handled, exitCode, stdout.String(), stderr.String())
 	}
 }
 func TestStartupTempRootCanonicalizesDarwinEnvironmentValue(t *testing.T) {
@@ -527,7 +535,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		if human.exitCode != 0 || string(human.stdout) != "mulgae v1.4.2\n" || len(human.stderr) != 0 {
 			t.Fatalf("human version = exit %d stdout %q stderr %q", human.exitCode, human.stdout, human.stderr)
 		}
-		machine := runMulgaeBinary(t, binary, directory, "version", "--output", "json")
+		machine := runMulgaeBinary(t, binary, directory, "version", "--json")
 		if machine.exitCode != 0 || len(machine.stderr) != 0 {
 			t.Fatalf("JSON version = exit %d stdout %q stderr %q", machine.exitCode, machine.stdout, machine.stderr)
 		}

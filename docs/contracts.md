@@ -77,7 +77,9 @@ a selected attempt.
 
 ## Output and exits
 
-`--output json` returns a `mulgae-command-result.v1` envelope. Process exits:
+`mulgae version --json` returns a `mulgae-version.v1` document. Workflow
+commands use `--output json` and return a `mulgae-command-result.v1` envelope.
+Process exits:
 
 | Exit | Meaning |
 |---:|---|

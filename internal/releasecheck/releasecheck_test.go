@@ -54,7 +54,7 @@ func TestInstalledRootModuleContract(t *testing.T) {
 		}
 	}
 
-	stdout, stderr := runInstalled(t, binary, "version", "--output", "json")
+	stdout, stderr := runInstalled(t, binary, "version", "--json")
 	if stderr != "" {
 		t.Fatalf("JSON version stderr = %q, want empty", stderr)
 	}

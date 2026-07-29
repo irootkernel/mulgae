@@ -34,6 +34,7 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH`, then verify the installation
 
 ```bash
 mulgae version
+mulgae version --json
 mulgae --help
 ```
 
@@ -67,7 +68,8 @@ Every review command requires exactly one target:
 --stdin                  a patch read from standard input
 ```
 
-Use `--output json` on commands when integrating Mulgae with another tool.
+Use `mulgae version --json` for machine-readable build identity. Workflow
+commands use `--output json` when integrating Mulgae with another tool.
 
 ## Review results
 

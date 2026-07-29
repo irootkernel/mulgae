@@ -33,10 +33,10 @@ func handleVersion(
 	switch {
 	case len(arguments) == 1 && arguments[0] == "--version":
 	case len(arguments) == 1 && arguments[0] == "version":
-	case len(arguments) == 3 && arguments[0] == "version" && arguments[1] == "--output" && arguments[2] == "json":
+	case len(arguments) == 2 && arguments[0] == "version" && arguments[1] == "--json":
 		jsonOutput = true
 	case len(arguments) > 0 && (arguments[0] == "version" || arguments[0] == "--version"):
-		_, _ = io.WriteString(stderr, "mulgae: usage: mulgae version [--output json]\n")
+		_, _ = io.WriteString(stderr, "mulgae: usage: mulgae version [--json]\n")
 		return true, 2
 	default:
 		return false, 0
