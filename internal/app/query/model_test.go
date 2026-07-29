@@ -10,7 +10,7 @@ import (
 func TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 	t.Parallel()
 	for name, raw := range map[string]string{
-		"duplicate": `{"schema_version":"mulgae-review-artifact.v3","schema_version":"mulgae-review-artifact.v3"}`,
+		"duplicate": `{"schema_version":"mulgae-review-artifact.v1","schema_version":"mulgae-review-artifact.v1"}`,
 		"unknown":   `{"unexpected":true}`,
 		"trailing":  `{} {}`,
 	} {

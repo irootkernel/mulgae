@@ -117,7 +117,7 @@ generation, and embedded into the binary. Project files cannot override them.
 Artist findings additionally require a captured visual path/SHA-256/bounding
 box reference whose identity Mulgae checks against the immutable capture archive.
 The `task_requirements` frame name is retained as wire vocabulary, but its bytes
-come from the review's resolved artist brief (`--artist-brief` or the Config v2
+come from the review's resolved artist brief (`--artist-brief` or the Config v1
 fallback). The `visual_assets_manifest` frame comes from the same immutable
 review capture. Both frames are compiled only for artist; none of the six core
 roles receives artist brief or visual content.
@@ -198,11 +198,11 @@ Silent truncation is prohibited. A future chunking strategy must preserve file b
 
 ## 11. Root-Review Output and Repair Contracts
 
-Initial root review provider stdout is the provider-owned [review wire v3 projection](../schemas/mulgae-provider-review-wire.v3.schema.json). Its `schema_version` is exactly `mulgae-provider-review-output.v3`, but it is not the normalized envelope. The wire object contains only provider-owned top-level content, findings, `evidence[].current.path`, `line_start`, `line_end`, `side`, and `quote`, plus the optional artist-only visual claim.
+Initial root review provider stdout is the provider-owned [review wire v1 projection](../schemas/mulgae-provider-review-wire.v1.schema.json). Its `schema_version` is exactly `mulgae-provider-review-output.v1`, but it is not the normalized envelope. The wire object contains only provider-owned top-level content, findings, `evidence[].current.path`, `line_start`, `line_end`, `side`, and `quote`, plus the optional artist-only visual claim.
 
-Mulgae strictly decodes one JSON object, rejects unknown and Mulgae-owned fields, validates the wire projection, injects trusted `current.target_sha256` and `current.verification="claimed"`, then validates the resulting [normalized provider review output v3 envelope](../schemas/mulgae-provider-review-output.v3.schema.json). Mulgae normalizes trusted role/provider identity, assigns finding IDs and order, and independently verifies textual and optional visual evidence. A provider must not emit target or source identity, verification, session/run/attempt/review/finding IDs, role/provider identity, lifecycle/evidence state, outcomes, verdicts, coverage, CI, or publication state. Only Mulgae can transition a claim to `verified`, `stale`, `invalid`, or `unverifiable`.
+Mulgae strictly decodes one JSON object, rejects unknown and Mulgae-owned fields, validates the wire projection, injects trusted `current.target_sha256` and `current.verification="claimed"`, then validates the resulting [normalized provider review output v3 envelope](../schemas/mulgae-provider-review-output.v1.schema.json). Mulgae normalizes trusted role/provider identity, assigns finding IDs and order, and independently verifies textual and optional visual evidence. A provider must not emit target or source identity, verification, session/run/attempt/review/finding IDs, role/provider identity, lifecycle/evidence state, outcomes, verdicts, coverage, CI, or publication state. Only Mulgae can transition a claim to `verified`, `stale`, `invalid`, or `unverifiable`.
 
-V1 provider-output schemas are read compatibility only. Production execution rejects v1 provider output; it never normalizes or repairs v1 into an executable result. Followup attempts use the separate [provider followup output v2 schema](../schemas/mulgae-provider-followup-output.v2.schema.json).
+V1 provider-output schemas are read compatibility only. Production execution rejects v1 provider output; it never normalizes or repairs v1 into an executable result. Followup attempts use the separate [provider followup output v2 schema](../schemas/mulgae-provider-followup-output.v1.schema.json).
 
 The output instruction is exact:
 
@@ -216,14 +216,14 @@ Do not include Markdown, commentary, prefixes, suffixes, code fences, or a secon
 `prior_provider_output` remains an untrusted frame. A root-review repair reuses the original trusted template byte-for-byte, appends the Mulgae trusted repair contract, and then appends the trusted dynamic plan. The plan binds the original bytes by SHA-256 and is ordered exactly as:
 
 ```text
-Mulgae ROOT REVIEW REPAIR PLAN/3
+Mulgae ROOT REVIEW REPAIR PLAN/1
 original_output_sha256:<64 lowercase hex>
 mode:<reformat_only|fill_missing_fields|exact_evidence>
 allowed_paths_count:<canonical decimal>
 allowed_path:<sorted JSON Pointer>
 ```
 
-`reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v3 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all Mulgae-owned fields.
+`reformat_only` has `allowed_paths_count:0` and returns one complete provider-review wire v1 object. It may correct formatting, fence, or JSON syntax defects only; it preserves review content, finding count/order/severity, and evidence identity, and omits all Mulgae-owned fields.
 
 `fill_missing_fields` returns exactly `{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":...,"value":...}]}`. It contains 1..100 unique repairs, each path is in the sorted allowed set, and every required missing or invalid path is repaired exactly once. It preserves every unrelated value, finding count/order, severity, evidence identity, role/provider/target, and system field. Both repair forms are JSON-only; neither candidate nor plan grants evidence or execution authority. Mulgae's repair applicator remains authoritative and rejects original-hash mismatch, wrong form, unallowed paths, meaningful overwrites, finding-count changes, severity downgrades, and invalid reconstructed output.
 

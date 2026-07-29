@@ -23,7 +23,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const artistReviewSchema = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+const artistReviewSchema = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 
 type artistE2EBBox struct {
 	X      int `json:"x"`
@@ -244,7 +244,7 @@ func artistEvidenceLine(t *testing.T, contents []byte, exact string) int {
 func artistProviderOutput(t *testing.T, line int, quote, screenshotSHA string, bbox artistE2EBBox) []byte {
 	t.Helper()
 	document := map[string]any{
-		"schema_version": "mulgae-provider-review-output.v3",
+		"schema_version": "mulgae-provider-review-output.v1",
 		"summary":        "The primary homepage action has a material sizing and placement regression.",
 		"completeness":   "complete",
 		"limitations":    []string{},
@@ -286,7 +286,7 @@ func assertArtistFinalArtifact(t *testing.T, contents []byte, screenshotSHA stri
 	if err := json.Unmarshal(contents, &artifact); err != nil {
 		t.Fatal(err)
 	}
-	if artifact.SchemaVersion != "mulgae-review-artifact.v3" || len(artifact.Findings) != 1 ||
+	if artifact.SchemaVersion != "mulgae-review-artifact.v1" || len(artifact.Findings) != 1 ||
 		artifact.Findings[0].Role != "artist" || artifact.Findings[0].ProviderInstance != "agy-artist" ||
 		len(artifact.Findings[0].Evidence) != 1 {
 		t.Fatalf("unexpected artist artifact: %#v", artifact)

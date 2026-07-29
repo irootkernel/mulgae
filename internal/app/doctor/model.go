@@ -599,7 +599,6 @@ func validProviderUnverifiedReasonCodes(codes []string) bool {
 	}
 	switch codes[0] {
 	case "provider_evidence_unavailable",
-		"provider_evidence_v1_not_authoritative",
 		"provider_evidence_unsupported_schema",
 		"provider_evidence_invalid",
 		"provider_evidence_not_run":
@@ -616,7 +615,6 @@ func validPlatformUnverifiedReasonCodes(codes []string) bool {
 	switch codes[0] {
 	case "host_platform_not_supported",
 		"platform_evidence_unavailable",
-		"platform_evidence_v1_not_authoritative",
 		"platform_evidence_unsupported_schema",
 		"platform_evidence_invalid",
 		"platform_evidence_not_run":

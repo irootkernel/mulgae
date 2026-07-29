@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "mulgae-doctor-result.v2"
+const LocalSchemaVersion = "mulgae-doctor-result.v1"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -55,7 +55,7 @@ type LocalDiagnostic struct {
 	Redacted bool   `json:"redacted"`
 }
 
-// LocalDoctorResult is the project-local doctor v2 artifact. Field order is
+// LocalDoctorResult is the project-local doctor v1 artifact. Field order is
 // part of the machine contract.
 type LocalDoctorResult struct {
 	SchemaVersion         string                      `json:"schema_version"`

@@ -535,7 +535,7 @@ func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
 	if got := initialValidationFailureCondition(nil); got != AttemptConditionUnrepairableProviderOutput {
 		t.Fatalf("planless validation failure condition = %q", got)
 	}
-	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"mulgae-provider-review-output.v3"}`), []string{"/findings/0/evidence/0/current/quote"})
+	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"mulgae-provider-review-output.v1"}`), []string{"/findings/0/evidence/0/current/quote"})
 	if err != nil {
 		t.Fatal(err)
 	}

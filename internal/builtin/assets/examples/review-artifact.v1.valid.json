@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-review-artifact.v2",
+  "schema_version": "mulgae-review-artifact.v1",
   "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
   "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
   "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
@@ -97,6 +97,17 @@
             "line_start": 120,
             "line_end": 128,
             "quote": "if result.RequestChanges {\n    queueFallback(task)\n}",
+            "verification": "verified"
+          },
+          "visual": {
+            "path": "design-specs/home.png",
+            "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "bbox": {
+              "x": 24,
+              "y": 120,
+              "width": 320,
+              "height": 48
+            },
             "verification": "verified"
           }
         }

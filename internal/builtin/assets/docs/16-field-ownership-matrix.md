@@ -48,8 +48,8 @@ The v2 provider schemas serialize a Mulgae-normalized result envelope. Mulgae in
 
 | Field group | Owner | Source and validation | Provider authority |
 |---|---|---|---|
-| `/assignments/<role>/primary` | Project-local policy plus coordinator | Config v2 selects a configured family; coordinator resolves its qualified provider instance | None |
-| `/assignments/<role>/fallback` | Project-local policy plus coordinator | Config v2 selects a distinct configured family or singleton omission; coordinator resolves its qualified route | None |
+| `/assignments/<role>/primary` | Project-local policy plus coordinator | Config v1 selects a configured family; coordinator resolves its qualified provider instance | None |
+| `/assignments/<role>/fallback` | Project-local policy plus coordinator | Config v1 selects a distinct configured family or singleton omission; coordinator resolves its qualified route | None |
 | `/required_floor` | Code-fixed safety floor | Fixed to `logic` | None |
 | `/effective_required` | Project-local policy reducer | `required_floor` plus enabled additions from the admitted `.mulgae/config.yaml` | None |
 | Provider and platform contract evidence | Probe validator | Required tuple and native-cell probe assertions, secure-writer receipt, and evidence index | Provider may supply untrusted probe output only |

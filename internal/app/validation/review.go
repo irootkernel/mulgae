@@ -25,13 +25,13 @@ import (
 )
 
 const (
-	// ProviderReviewWireSchemaID validates the provider-owned v3 projection
+	// ProviderReviewWireSchemaID validates the provider-owned v1 projection
 	// before Mulgae injects target identity and verification state.
-	ProviderReviewWireSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-wire.v3.schema.json"
-	// ProviderReviewSchemaID validates the normalized v3 envelope after trusted
+	ProviderReviewWireSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-wire.v1.schema.json"
+	// ProviderReviewSchemaID validates the normalized v1 envelope after trusted
 	// target identity and claimed verification have been injected.
-	ProviderReviewSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-output.v3.schema.json"
-	repairPatchSchemaID    = "urn:mulgae:schema:repair-patch:v1"
+	ProviderReviewSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json"
+	repairPatchSchemaID    = "https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json"
 	maxRepairOperations    = 100
 )
 
@@ -209,7 +209,7 @@ func (review ValidatedReview) EvidenceClaims() []FindingEvidenceClaims {
 func (review ValidatedReview) Repaired() bool { return review.repairedRaw != nil }
 
 // ReviewValidator validates provider-only JSON against the provider-wire schema,
-// injects trusted current target identity, then validates the normalized v2
+// injects trusted current target identity, then validates the normalized v1
 // envelope.
 type ReviewValidator struct {
 	schemaValidator SchemaValidator
@@ -217,7 +217,7 @@ type ReviewValidator struct {
 	wireSchemaID    ports.AssetID
 }
 
-// NewReviewValidator creates a validator for the normalized v2 review schema.
+// NewReviewValidator creates a validator for the normalized v1 review schema.
 // The provider wire schema is fixed separately so callers cannot weaken the
 // ownership boundary by choosing a different pre-injection schema.
 func NewReviewValidator(schemaValidator SchemaValidator, schemaID ports.AssetID) (*ReviewValidator, error) {
@@ -748,7 +748,7 @@ func (inspection reviewInspection) error() error {
 // repaired without replacing meaningful data.
 func inspectReview(provider map[string]any, trustedTargetSHA256 string) reviewInspection {
 	inspection := reviewInspection{}
-	requiredConstant(provider, "schema_version", "/schema_version", "mulgae-provider-review-output.v3", &inspection)
+	requiredConstant(provider, "schema_version", "/schema_version", "mulgae-provider-review-output.v1", &inspection)
 	inspection.review.summary = requiredText(provider, "summary", "/summary", 4000, &inspection)
 	inspection.review.completeness = requiredEnum(provider, "completeness", "/completeness", []string{"complete", "incomplete"}, &inspection)
 	limitations, repairableLimitations := requiredLimitations(provider, &inspection)

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mulgae:schema:repair-patch:v1",
+  "$id": "https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json",
   "title": "Mulgae Repair Patch v1",
   "type": "object",
   "additionalProperties": false,

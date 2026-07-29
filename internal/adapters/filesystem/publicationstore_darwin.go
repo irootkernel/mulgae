@@ -4375,7 +4375,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-review-artifact.v3" {
+	if err != nil || schema != "mulgae-review-artifact.v1" {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4408,7 +4408,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-run-manifest.v2" {
+	if err != nil || schema != "mulgae-run-manifest.v1" {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")

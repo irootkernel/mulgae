@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mulgae:schema:repair-request:v1",
+  "$id": "https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json",
   "title": "Mulgae Repair Request v1",
   "description": "Historical read-compatibility packet. It is not an executable repair request, trusted prompt layer, or authority to select a repair mode, modify provider output, or verify evidence.",
   "deprecated": true,

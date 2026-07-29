@@ -577,7 +577,7 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 	stagedPath := prefix + "/publication/staged/review_" + review + ".json.tmp"
 	edge := map[string]any{"schema_version": "mulgae-lineage-edge.v1", "edge_id": "edge-1", "child": map[string]any{"session_id": session, "run_id": child, "review_id": review}, "parent_run_id": parent}
 	edgeBytes := cleanupJSON(t, edge)
-	final := map[string]any{"schema_version": "mulgae-review-artifact.v3", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
+	final := map[string]any{"schema_version": "mulgae-review-artifact.v1", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
 	finalBytes := cleanupJSON(t, final)
 	exitCode := 0
 	switch state {
@@ -587,7 +587,7 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 		exitCode = 1
 	}
 	manifest := map[string]any{
-		"schema_version": "mulgae-run-manifest.v2", "session_id": session, "run_id": child, "run_type": "review", "state": state, "sealed": true,
+		"schema_version": "mulgae-run-manifest.v1", "session_id": session, "run_id": child, "run_type": "review", "state": state, "sealed": true,
 		"created_at": completedAt, "started_at": completedAt, "completed_at": completedAt, "mulgae_version": "0.1.0",
 		"immutable_lineage": map[string]any{"parent_run_id": parent, "source_run_id": nil, "source_review_id": nil, "source_finding_ref": nil, "replay_mode": nil, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))},
 		"target":            map[string]any{"manifest_path": "target/target-manifest.json", "content_sha256": cleanupTestHash("target")},

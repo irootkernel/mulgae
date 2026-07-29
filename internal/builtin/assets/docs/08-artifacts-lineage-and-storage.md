@@ -170,8 +170,8 @@ For G008 child runs, lineage edges are immutable, content-addressed child-to-par
 
 Schemas:
 
-- [Run manifest v2 schema](../schemas/mulgae-run-manifest.v2.schema.json)
-- [Final review artifact v3 schema](../schemas/mulgae-review-artifact.v3.schema.json)
+- [Run manifest v2 schema](../schemas/mulgae-run-manifest.v1.schema.json)
+- [Final review artifact v3 schema](../schemas/mulgae-review-artifact.v1.schema.json)
 
 ## 7. Final Review Artifact
 A completed successful or policy-valid degraded run has at most one canonical final review file:

@@ -21,10 +21,10 @@ type templateDescriptor struct {
 }
 
 var rootReviewTemplateDescriptors = [...]templateDescriptor{
-	{id: "sot:prompts/root-review/common.v2.txt", source: "prompts/root-review/common.v2.txt", layer: "builtin:review/common", version: "2"},
-	{id: "sot:prompts/root-review/run-review.v2.txt", source: "prompts/root-review/run-review.v2.txt", layer: "builtin:run/review", version: "2"},
-	{id: "sot:prompts/root-review/output-provider-review-wire.v3.txt", source: "prompts/root-review/output-provider-review-wire.v3.txt", layer: "builtin:output/provider-review-wire", version: "3"},
-	{id: "sot:prompts/root-review/repair-provider-review.v3.txt", source: "prompts/root-review/repair-provider-review.v3.txt", layer: "builtin:repair/provider-review", version: "3"},
+	{id: "sot:prompts/root-review/common.v1.txt", source: "prompts/root-review/common.v1.txt", layer: "builtin:review/common", version: "1"},
+	{id: "sot:prompts/root-review/run-review.v1.txt", source: "prompts/root-review/run-review.v1.txt", layer: "builtin:run/review", version: "1"},
+	{id: "sot:prompts/root-review/output-provider-review-wire.v1.txt", source: "prompts/root-review/output-provider-review-wire.v1.txt", layer: "builtin:output/provider-review-wire", version: "1"},
+	{id: "sot:prompts/root-review/repair-provider-review.v1.txt", source: "prompts/root-review/repair-provider-review.v1.txt", layer: "builtin:repair/provider-review", version: "1"},
 }
 
 // LoadDefaultTemplateSet loads the fixed root-review prompt contract from the
@@ -94,7 +94,7 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 			return review.TemplateSet{}, fmt.Errorf("review templates: invalid role document %q: %w", role, err)
 		}
 		definitions = append(definitions, definition)
-		layer, err := prompt.NewTrustedLayer("builtin:roles/"+string(role), "3", []byte(definition.SystemPrompt))
+		layer, err := prompt.NewTrustedLayer("builtin:roles/"+string(role), "1", []byte(definition.SystemPrompt))
 		if err != nil {
 			return review.TemplateSet{}, fmt.Errorf("review templates: role layer %q: %w", role, err)
 		}

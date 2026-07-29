@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
-	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
+	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 )
 
 // PublicationSchemaValidator validates the two consumer-owned publication

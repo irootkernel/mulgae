@@ -16,7 +16,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1"}`)
 	final := publicationTestFinal(t, finalBytes)
 	issued := publicationTestIssued(t, final)
 	binding, err := NewIssuedFinalBinding(issued, final)
@@ -99,7 +99,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 	); err == nil {
 		t.Error("undersized staged adoption cap accepted")
 	}
-	otherFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2","different":true}`)
+	otherFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1","different":true}`)
 	otherFinalIdentity, err := NewFinalReviewIdentity(
 		final.ReviewID(),
 		final.Path(),
@@ -306,7 +306,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 		t.Error("mutable replacement result accepted a receipt for different bytes")
 	}
 
-	manifestBytes := []byte(`{"schema_version":"mulgae-run-manifest.v2"}`)
+	manifestBytes := []byte(`{"schema_version":"mulgae-run-manifest.v1"}`)
 	lineageBytes := []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`)
 	epochBytes := []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`)
 	manifestPath := publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/manifest.json")
@@ -370,7 +370,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalBytes[0] = '!'
-	if got := string(finalArtifact.Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2"}` {
+	if got := string(finalArtifact.Bytes()); got != `{"schema_version":"mulgae-review-artifact.v1"}` {
 		t.Fatalf("final artifact retained caller bytes %q", got)
 	}
 	snapshot, err := NewCommittedPublicationSnapshot(finalArtifact, manifest, lineage, epoch)
@@ -531,7 +531,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	t.Parallel()
 
 	run := publicationTestRun(t)
-	final := publicationTestFinal(t, []byte(`{"schema_version":"mulgae-review-artifact.v2"}`))
+	final := publicationTestFinal(t, []byte(`{"schema_version":"mulgae-review-artifact.v1"}`))
 	issued := publicationTestIssued(t, final)
 	binding, err := NewIssuedFinalBinding(issued, final)
 	if err != nil {
@@ -570,7 +570,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	manifest := publicationTestArtifact(
 		t,
 		publicationTestPath(t, "wrong-manifest.json"),
-		[]byte(`{"schema_version":"mulgae-run-manifest.v2"}`),
+		[]byte(`{"schema_version":"mulgae-run-manifest.v1"}`),
 	)
 	lineage := publicationTestArtifact(
 		t,
@@ -611,7 +611,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	t.Parallel()
 
-	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2","state":"final"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1","state":"final"}`)
 	final := publicationTestFinal(t, finalBytes)
 	finalArtifact, err := NewFinalReviewArtifact(final, finalBytes)
 	if err != nil {
@@ -759,7 +759,7 @@ func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	finalBytes[0] = '!'
 	journalBytes[0] = '!'
 	statusBytes[0] = '!'
-	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2","state":"final"}` {
+	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v1","state":"final"}` {
 		t.Fatalf("recovery material retained final bytes %q", got)
 	}
 	if got := string(restageMaterial.Journal().Bytes()); got != `{"persisted_journal_state":"content_validated"}` {
@@ -784,7 +784,7 @@ func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	finalCopy[0] = '!'
 	journalCopy[0] = '!'
 	statusCopy[0] = '!'
-	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2","state":"final"}` {
+	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v1","state":"final"}` {
 		t.Fatalf("recovery material leaked final bytes %q", got)
 	}
 	if got := string(restageMaterial.Journal().Bytes()); got != `{"persisted_journal_state":"content_validated"}` {
@@ -976,7 +976,7 @@ func TestPreparedPublicationPortContracts(t *testing.T) {
 	t.Parallel()
 
 	run := publicationTestRun(t)
-	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1"}`)
 	final := publicationTestFinal(t, finalBytes)
 	finalArtifact, err := NewFinalReviewArtifact(final, finalBytes)
 	if err != nil {

@@ -14,8 +14,8 @@
     },
     "files": {
       "type": "array",
-      "minItems": 84,
-      "maxItems": 84,
+      "minItems": 61,
+      "maxItems": 61,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/file"

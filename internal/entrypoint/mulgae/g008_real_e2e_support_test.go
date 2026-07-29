@@ -223,7 +223,7 @@ func (source g008RealE2EFollowupPromptSource) BuildFollowupInvocation(_ context.
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(stdin)
 	source.provider.mu.Lock()
-	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[],"limitations":[]}`)
+	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[],"limitations":[]}`)
 	source.provider.mu.Unlock()
 	return ports.NewProviderInvocation(execution.Source.Finding.Role, "g008.logic", attemptID, ports.ProviderInvocationInitial, stdin, "i_019f5a09-5eed-7001-8001-000000000001", "019f5a09-5eed-7002-8002-000000000002", hex.EncodeToString(hash.Sum(nil)))
 }
@@ -272,15 +272,15 @@ func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports
 		stdout = append([]byte(nil), provider.followup...)
 		provider.followup = nil
 	case provider.logicNoFindings && invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"F001: one high finding.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"F001","description":"Fallback must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Preserve the valid result.","confidence":"high"}]}`)
+		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"F001: one high finding.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"F001","description":"Fallback must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Preserve the valid result.","confidence":"high"}]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationRepair:
 		stdout = []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/summary","value":"F001: one high finding."}]}`)
 	case invocation.Role() == domain.RoleSecurity && invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No security findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No security findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	case invocation.Purpose() == ports.ProviderInvocationInitial:
-		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
+		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	default:
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("unexpected scripted provider call %s/%s", invocation.Role(), invocation.Purpose())
 	}

@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-validation-result.v2",
+  "schema_version": "mulgae-validation-result.v1",
   "status": "repaired_valid",
   "failure_condition": "ai_owned_invalid",
   "typed_exit": {
@@ -12,7 +12,7 @@
   "schema_validation": {
     "state": "passed",
     "schema_ids": [
-      "https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json"
+      "https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json"
     ],
     "assertion_count": 42,
     "failure_count": 0,

@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-provider-review-output.v2",
+  "schema_version": "mulgae-provider-review-output.v1",
   "summary": "One high-severity coordinator issue was identified with a current-target location claim that Mulgae must verify.",
   "completeness": "complete",
   "limitations": [],
@@ -7,17 +7,15 @@
     {
       "severity": "high",
       "title": "Fallback is triggered after a valid negative review",
-      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping. Mulgae must verify the current target excerpt before accepting the finding.",
+      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping.",
       "evidence": [
         {
           "current": {
-            "target_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "path": "internal/app/coordinator.go",
             "line_start": 120,
             "line_end": 128,
             "side": "head",
-            "quote": "if result.RequestChanges {\n    queueFallback(task)\n}",
-            "verification": "claimed"
+            "quote": "if result.RequestChanges {\n    queueFallback(task)\n}"
           }
         }
       ],

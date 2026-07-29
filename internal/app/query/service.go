@@ -25,8 +25,8 @@ const (
 	renderExcerptStage     = "query.render_excerpt"
 	readRuntimeTargetStage = "query.read_runtime_target"
 
-	finalReviewSchemaURI = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
-	runManifestSchemaURI = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
+	finalReviewSchemaURI = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	runManifestSchemaURI = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 )
 
 var (
@@ -1118,7 +1118,7 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	if final.SchemaVersion != "mulgae-review-artifact.v3" || manifest.SchemaVersion != "mulgae-run-manifest.v2" {
+	if final.SchemaVersion != "mulgae-review-artifact.v1" || manifest.SchemaVersion != "mulgae-run-manifest.v1" {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)

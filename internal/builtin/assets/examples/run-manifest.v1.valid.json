@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-run-manifest.v2",
+  "schema_version": "mulgae-run-manifest.v1",
   "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
   "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
   "run_type": "review",

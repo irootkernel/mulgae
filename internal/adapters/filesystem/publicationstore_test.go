@@ -322,7 +322,7 @@ func TestPublicationStoreRejectsStagedFinalIdentitySubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`,
+	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v1","session_id":%q,"run_id":%q,"review_id":%q}`,
 		fixture.run.SessionID().String(), fixture.run.RunID().String(), otherReviewID.String()))
 	substitutedFinal, err := ports.NewFinalReviewIdentity(
 		fixture.final.Identity().ReviewID(),
@@ -1767,7 +1767,7 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 	}
 	prefix := session.String() + "/" + runID.String()
 	finalPath := mustRelativePath(t, prefix+"/review_"+reviewID.String()+".json")
-	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
+	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v1","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
 	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, publicationSHA256(finalBytes))
 	if err != nil {
 		t.Fatal(err)
@@ -1784,7 +1784,7 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 	}
 	manifestPath := publicationManifestPath(run)
 	epochPath := mustRelativePath(t, "store/epochs/epoch_00000000000000000007.json")
-	manifestBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-run-manifest.v2","session_id":%q,"run_id":%q,"publication_status":"committed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2","final_review":{"review_id":%q,"path":%q,"sha256":%q},"immutable_lineage":{"lineage_edge_path":%q,"lineage_edge_sha256":%q},"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"exit_code":0}`,
+	manifestBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-run-manifest.v1","session_id":%q,"run_id":%q,"publication_status":"committed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2","final_review":{"review_id":%q,"path":%q,"sha256":%q},"immutable_lineage":{"lineage_edge_path":%q,"lineage_edge_sha256":%q},"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"exit_code":0}`,
 		session.String(), runID.String(), reviewID.String(), finalPath.String(), finalIdentity.SHA256(), lineagePath.String(), lineage.SHA256(), manifestPath.String(), lineagePath.String(), lineage.SHA256(), epochPath.String()))
 	manifest, err := ports.NewImmutablePublicationArtifact(manifestPath, publicationSHA256(manifestBytes), manifestBytes)
 	if err != nil {

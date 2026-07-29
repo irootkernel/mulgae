@@ -297,7 +297,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "mulgae-review-artifact.v3" ||
+	if final.SchemaVersion != "mulgae-review-artifact.v1" ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||

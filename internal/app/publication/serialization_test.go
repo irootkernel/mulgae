@@ -194,7 +194,7 @@ func TestFinalArtifactV3SerializesVerifiedVisualEvidence(t *testing.T) {
 	if err := unmarshalExact(bundle.Final().Bytes(), &final); err != nil {
 		t.Fatal(err)
 	}
-	if final.SchemaVersion != "mulgae-review-artifact.v3" {
+	if final.SchemaVersion != "mulgae-review-artifact.v1" {
 		t.Fatalf("schema version = %q", final.SchemaVersion)
 	}
 	visual := final.Findings[0].Evidence[0].Visual

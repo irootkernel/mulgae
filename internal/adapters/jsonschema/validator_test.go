@@ -44,15 +44,14 @@ func TestValidatorRejectsInvalidJSONInputsAndUnknownIDs(t *testing.T) {
 	requireDiagnosticStage(t, validator.Validate(context.Background(), mustAssetID(t, authoritativePairs[0].exampleID), []byte("{}")), StageSchema)
 }
 
-func TestValidatorReadinessAuthorityIsV2Only(t *testing.T) {
+func TestValidatorReadinessAuthorityIsV1Only(t *testing.T) {
 	for _, test := range []struct {
 		id   string
 		want bool
 	}{
-		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", false},
-		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", false},
-		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", true},
-		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", false},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", false},
 	} {
 		if got := ReadinessAuthority(mustAssetID(t, test.id)); got != test.want {

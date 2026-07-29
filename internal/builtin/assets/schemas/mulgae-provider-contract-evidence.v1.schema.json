@@ -6,36 +6,31 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "external_contract_readiness",
-    "providers"
+    "candidate_oid",
+    "gate_a2",
+    "runtime_contract",
+    "provider",
+    "generated_at"
   ],
   "properties": {
     "schema_version": {
       "const": "mulgae-provider-contract-evidence.v1"
     },
-    "external_contract_readiness": {
-      "type": "string",
-      "enum": [
-        "UNVERIFIED",
-        "VERIFIED"
-      ]
+    "candidate_oid": {
+      "$ref": "#/$defs/oid"
     },
-    "providers": {
-      "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
-      "prefixItems": [
-        {
-          "$ref": "#/$defs/kimi_provider"
-        },
-        {
-          "$ref": "#/$defs/zcode_provider"
-        },
-        {
-          "$ref": "#/$defs/agy_provider"
-        }
-      ],
-      "items": false
+    "gate_a2": {
+      "$ref": "#/$defs/gate_a2"
+    },
+    "runtime_contract": {
+      "$ref": "#/$defs/runtime_contract"
+    },
+    "provider": {
+      "$ref": "#/$defs/provider"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "$defs": {
@@ -50,9 +45,12 @@
       ],
       "pattern": "^[0-9a-f]{64}$"
     },
-    "artifact_uri": {
+    "oid": {
       "type": "string",
-      "format": "uri",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nonempty_text": {
+      "type": "string",
       "minLength": 1,
       "maxLength": 4096,
       "pattern": "^[^\\u0000\\r\\n]+$"
@@ -67,103 +65,55 @@
       "maxLength": 4096,
       "pattern": "^[^\\u0000\\r\\n]+$"
     },
-    "argument": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096,
-      "pattern": "^[^\\u0000\\r\\n]+$"
-    },
-    "tool_lock": {
+    "gate_a2": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "state",
-        "lock_uri",
-        "lock_sha256",
-        "python_executable_path",
-        "python_executable_sha256",
-        "python_version",
-        "probe_script_sha256",
-        "probe_manifest_sha256"
+        "schema_version",
+        "path",
+        "file_sha256",
+        "candidate_oid",
+        "nonce"
       ],
       "properties": {
-        "state": {
+        "schema_version": {
+          "const": "mulgae-gate-a2.v1"
+        },
+        "path": {
           "type": "string",
-          "enum": [
-            "NOT_CAPTURED",
-            "LOCKED"
-          ]
+          "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/gates/gate-a2\\.json$"
         },
-        "lock_uri": {
-          "$ref": "#/$defs/nullable_artifact_uri"
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
         },
-        "lock_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
+        "candidate_oid": {
+          "$ref": "#/$defs/oid"
         },
-        "python_executable_path": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 4096,
-          "pattern": "^[^\\u0000\\r\\n]+$"
-        },
-        "python_executable_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
-        },
-        "python_version": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
-        },
-        "probe_script_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
-        },
-        "probe_manifest_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
+        "nonce": {
+          "$ref": "#/$defs/nonempty_text"
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "NOT_CAPTURED"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "lock_uri": {
-                "const": null
-              },
-              "lock_sha256": {
-                "const": null
-              },
-              "python_executable_path": {
-                "const": null
-              },
-              "python_executable_sha256": {
-                "const": null
-              },
-              "python_version": {
-                "const": null
-              },
-              "probe_script_sha256": {
-                "const": null
-              },
-              "probe_manifest_sha256": {
-                "const": null
-              }
-            }
-          }
+      }
+    },
+    "runtime_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "path",
+        "file_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "mulgae-provider-runtime-contract.v1"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/g0/fixtures/provider-runtime-contract\\.v1\\.json$"
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
         }
-      ]
+      }
     },
     "probe_runner": {
       "type": "object",
@@ -171,8 +121,7 @@
       "required": [
         "argv",
         "argv_sha256",
-        "cwd",
-        "tool_lock"
+        "cwd"
       ],
       "properties": {
         "argv": {
@@ -212,61 +161,76 @@
               "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/g0/fixtures/provider-probes\\.json$"
             },
             {
-              "const": "--evidence-root"
+              "const": "--runtime-contract"
             },
             {
               "type": "string",
-              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/providers/(?:kimi|zcode|agy)$"
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/g0/fixtures/provider-runtime-contract\\.v1\\.json$"
             },
             {
-              "const": "--index"
+              "const": "--gate-receipt"
             },
             {
               "type": "string",
-              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/evidence-index\\.json$"
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/gates/gate-a2\\.json$"
             }
           ],
           "items": false
         },
         "argv_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
+          "$ref": "#/$defs/sha256"
         },
         "cwd": {
           "const": "REPOSITORY_ROOT"
-        },
-        "tool_lock": {
-          "$ref": "#/$defs/tool_lock"
         }
       }
     },
-    "isolated_cwd": {
+    "secure_writer_index": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "required",
-        "observed_path",
-        "observed"
+        "contract",
+        "path",
+        "file_sha256",
+        "root_sha256"
       ],
       "properties": {
-        "required": {
-          "const": true
+        "contract": {
+          "const": "mulgae-secure-writer/v1"
         },
-        "observed_path": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 4096,
-          "pattern": "^[^\\u0000\\r\\n]+$"
+        "path": {
+          "type": "string",
+          "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/(?:kimi|zcode|agy)/secure-writer-index\\.json$"
         },
-        "observed": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+        "file_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "root_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "file_sha256": {
+              "const": null
+            },
+            "root_sha256": {
+              "const": null
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "root_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      ]
     },
     "probe": {
       "type": "object",
@@ -307,7 +271,8 @@
           "enum": [
             "PASS",
             "FAIL",
-            "INCONCLUSIVE"
+            "INCONCLUSIVE",
+            "NOT_RUN"
           ]
         },
         "reason": {
@@ -315,17 +280,8 @@
             "string",
             "null"
           ],
-          "enum": [
-            "not_executed",
-            "environment_unavailable",
-            "harness_ceiling",
-            "unsupported_observable",
-            "assertion_failed",
-            "security_violation",
-            "mutation_detected",
-            "timeout_unexpected",
-            null
-          ]
+          "maxLength": 1024,
+          "pattern": "^[^\\u0000\\r\\n]+$"
         },
         "raw_evidence_uri": {
           "$ref": "#/$defs/nullable_artifact_uri"
@@ -339,42 +295,127 @@
         "secure_writer_receipt_sha256": {
           "$ref": "#/$defs/nullable_sha256"
         }
-      }
-    },
-    "base_probe": {
+      },
       "allOf": [
         {
-          "$ref": "#/$defs/probe"
-        },
-        {
-          "properties": {
-            "probe_id": {
-              "enum": [
-                "PV-VERSION",
-                "PV-NONINTERACTIVE",
-                "PV-PROMPT-TRANSPORT",
-                "PV-JSON-ONLY",
-                "PV-STDOUT-STDERR",
-                "PV-CANCELLATION",
-                "PV-OUTPUT-CAP",
-                "PV-AUTH-CACHE-CONCURRENCY",
-                "PV-EXIT-CLASSIFICATION",
-                "PV-CWD-ISOLATION"
-              ]
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "const": null
+              },
+              "raw_evidence_uri": {
+                "type": "string"
+              },
+              "raw_evidence_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "secure_writer_receipt_uri": {
+                "type": "string"
+              },
+              "secure_writer_receipt_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
             }
           }
-        }
-      ]
-    },
-    "role_fit_probe": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/probe"
         },
         {
-          "properties": {
-            "probe_id": {
-              "pattern": "^PV-ROLE-FIT-(?:logic|security|maintainability|product|documentation|testing)$"
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "FAIL",
+                  "INCONCLUSIVE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "NOT_RUN"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "const": "not_run"
+              },
+              "raw_evidence_uri": {
+                "const": null
+              },
+              "raw_evidence_sha256": {
+                "const": null
+              },
+              "secure_writer_receipt_uri": {
+                "const": null
+              },
+              "secure_writer_receipt_sha256": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "raw_evidence_uri": {
+                "const": null
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "raw_evidence_sha256": {
+                "const": null
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "raw_evidence_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "secure_writer_receipt_uri": {
+                "const": null
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "secure_writer_receipt_sha256": {
+                "const": null
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "secure_writer_receipt_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
             }
           }
         }
@@ -383,7 +424,7 @@
     "pv_version": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -397,7 +438,7 @@
     "pv_noninteractive": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -411,7 +452,7 @@
     "pv_prompt_transport": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -425,7 +466,7 @@
     "pv_json_only": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -439,7 +480,7 @@
     "pv_stdio_separation": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -450,10 +491,10 @@
         }
       ]
     },
-    "pv_cancel_group": {
+    "pv_cancellation": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -467,7 +508,7 @@
     "pv_output_cap": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -478,10 +519,10 @@
         }
       ]
     },
-    "pv_auth_quota_rate": {
+    "pv_auth_cache_concurrency": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -495,7 +536,7 @@
     "pv_exit_classification": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -509,7 +550,7 @@
     "pv_cwd_isolation": {
       "allOf": [
         {
-          "$ref": "#/$defs/base_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -523,7 +564,7 @@
     "pv_role_fit_logic": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -537,7 +578,7 @@
     "pv_role_fit_security": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -551,7 +592,7 @@
     "pv_role_fit_maintainability": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -565,7 +606,7 @@
     "pv_role_fit_product": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -579,7 +620,7 @@
     "pv_role_fit_documentation": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -593,7 +634,7 @@
     "pv_role_fit_testing": {
       "allOf": [
         {
-          "$ref": "#/$defs/role_fit_probe"
+          "$ref": "#/$defs/probe"
         },
         {
           "properties": {
@@ -604,30 +645,140 @@
         }
       ]
     },
-    "provider": {
+    "probes": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/pv_version"
+        },
+        {
+          "$ref": "#/$defs/pv_noninteractive"
+        },
+        {
+          "$ref": "#/$defs/pv_prompt_transport"
+        },
+        {
+          "$ref": "#/$defs/pv_json_only"
+        },
+        {
+          "$ref": "#/$defs/pv_stdio_separation"
+        },
+        {
+          "$ref": "#/$defs/pv_cancellation"
+        },
+        {
+          "$ref": "#/$defs/pv_output_cap"
+        },
+        {
+          "$ref": "#/$defs/pv_auth_cache_concurrency"
+        },
+        {
+          "$ref": "#/$defs/pv_exit_classification"
+        },
+        {
+          "$ref": "#/$defs/pv_cwd_isolation"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_logic"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_security"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_maintainability"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_product"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_documentation"
+        },
+        {
+          "$ref": "#/$defs/pv_role_fit_testing"
+        }
+      ],
+      "items": false
+    },
+    "kimi_tuple_key": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {
+          "const": "kimi"
+        },
+        {
+          "const": "local-default"
+        },
+        {
+          "$ref": "#/$defs/nonempty_text"
+        },
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "const": "kimi-default"
+        }
+      ],
+      "items": false
+    },
+    "zcode_tuple_key": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {
+          "const": "zcode"
+        },
+        {
+          "const": "local-default"
+        },
+        {
+          "$ref": "#/$defs/nonempty_text"
+        },
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "const": "zcode-default"
+        }
+      ],
+      "items": false
+    },
+    "agy_tuple_key": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {
+          "const": "agy"
+        },
+        {
+          "const": "local-default"
+        },
+        {
+          "$ref": "#/$defs/nonempty_text"
+        },
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "const": "agy-default"
+        }
+      ],
+      "items": false
+    },
+    "provider_base": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "family",
-        "intended",
-        "automatic_substitution",
-        "substitute_family",
-        "support_status",
-        "execution_state",
-        "probe_status",
-        "unverified_reason",
-        "binary_path",
-        "binary_sha256",
-        "version",
-        "environment_identity_sha256",
-        "concurrency_key",
-        "normalized_concurrency_key",
-        "tuple_sha256",
+        "tuple_key",
+        "wrapper_argv_sha256",
         "probe_runner",
-        "isolated_cwd",
-        "redaction_status",
-        "evidence_uri",
-        "evidence_sha256",
+        "secure_writer_index",
         "probes"
       ],
       "properties": {
@@ -639,288 +790,83 @@
             "agy"
           ]
         },
-        "intended": {
-          "const": true
+        "tuple_key": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          }
         },
-        "automatic_substitution": {
-          "const": false
-        },
-        "substitute_family": {
-          "const": null
-        },
-        "support_status": {
-          "type": "string",
-          "enum": [
-            "SUPPORTED",
-            "UNSUPPORTED",
-            "UNVERIFIED"
-          ]
-        },
-        "execution_state": {
-          "type": "string",
-          "enum": [
-            "NOT_EXECUTED",
-            "EXECUTED"
-          ]
-        },
-        "probe_status": {
-          "type": "string",
-          "enum": [
-            "PASS",
-            "FAIL",
-            "INCONCLUSIVE"
-          ]
-        },
-        "unverified_reason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 1024,
-          "pattern": "^[^\\u0000\\r\\n]+$"
-        },
-        "binary_path": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 4096,
-          "pattern": "^[^\\u0000\\r\\n]+$"
-        },
-        "binary_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
-        },
-        "version": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[^\\u0000\\r\\n]+$"
-        },
-        "environment_identity_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
-        },
-        "concurrency_key": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[^\\u0000\\r\\n]+$"
-        },
-        "normalized_concurrency_key": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
-        },
-        "tuple_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
+        "wrapper_argv_sha256": {
+          "$ref": "#/$defs/sha256"
         },
         "probe_runner": {
           "$ref": "#/$defs/probe_runner"
         },
-        "isolated_cwd": {
-          "$ref": "#/$defs/isolated_cwd"
-        },
-        "redaction_status": {
-          "type": "string",
-          "enum": [
-            "NOT_CAPTURED",
-            "CLEAN",
-            "REDACTED",
-            "BLOCKED_SECRET"
-          ]
-        },
-        "evidence_uri": {
-          "$ref": "#/$defs/nullable_artifact_uri"
-        },
-        "evidence_sha256": {
-          "$ref": "#/$defs/nullable_sha256"
+        "secure_writer_index": {
+          "$ref": "#/$defs/secure_writer_index"
         },
         "probes": {
-          "type": "array",
-          "minItems": 16,
-          "maxItems": 16,
-          "prefixItems": [
-            {
-              "$ref": "#/$defs/pv_version"
-            },
-            {
-              "$ref": "#/$defs/pv_noninteractive"
-            },
-            {
-              "$ref": "#/$defs/pv_prompt_transport"
-            },
-            {
-              "$ref": "#/$defs/pv_json_only"
-            },
-            {
-              "$ref": "#/$defs/pv_stdio_separation"
-            },
-            {
-              "$ref": "#/$defs/pv_cancel_group"
-            },
-            {
-              "$ref": "#/$defs/pv_output_cap"
-            },
-            {
-              "$ref": "#/$defs/pv_auth_quota_rate"
-            },
-            {
-              "$ref": "#/$defs/pv_exit_classification"
-            },
-            {
-              "$ref": "#/$defs/pv_cwd_isolation"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_logic"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_security"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_maintainability"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_product"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_documentation"
-            },
-            {
-              "$ref": "#/$defs/pv_role_fit_testing"
-            }
-          ],
-          "items": false
+          "$ref": "#/$defs/probes"
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "execution_state": {
-                "const": "NOT_EXECUTED"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "support_status": {
-                "const": "UNVERIFIED"
-              },
-              "probe_status": {
-                "const": "INCONCLUSIVE"
-              },
-              "unverified_reason": {
-                "type": "string",
-                "minLength": 1
-              },
-              "binary_path": {
-                "const": null
-              },
-              "binary_sha256": {
-                "const": null
-              },
-              "version": {
-                "const": null
-              },
-              "environment_identity_sha256": {
-                "const": null
-              },
-              "concurrency_key": {
-                "const": null
-              },
-              "normalized_concurrency_key": {
-                "const": null
-              },
-              "tuple_sha256": {
-                "const": null
-              },
-              "isolated_cwd": {
-                "properties": {
-                  "observed_path": {
-                    "const": null
-                  },
-                  "observed": {
-                    "const": null
-                  }
-                }
-              },
-              "redaction_status": {
-                "const": "NOT_CAPTURED"
-              },
-              "evidence_uri": {
-                "const": null
-              },
-              "evidence_sha256": {
-                "const": null
-              },
-              "probes": {
-                "items": {
-                  "properties": {
-                    "status": {
-                      "const": "INCONCLUSIVE"
-                    },
-                    "reason": {
-                      "const": "not_executed"
-                    },
-                    "raw_evidence_uri": {
-                      "const": null
-                    },
-                    "raw_evidence_sha256": {
-                      "const": null
-                    },
-                    "secure_writer_receipt_uri": {
-                      "const": null
-                    },
-                    "secure_writer_receipt_sha256": {
-                      "const": null
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
+      }
     },
     "kimi_provider": {
       "allOf": [
         {
-          "$ref": "#/$defs/provider"
+          "$ref": "#/$defs/provider_base"
         },
         {
           "properties": {
             "family": {
               "const": "kimi"
             },
+            "tuple_key": {
+              "$ref": "#/$defs/kimi_tuple_key"
+            },
+            "wrapper_argv_sha256": {
+              "const": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129"
+            },
             "probe_runner": {
-              "properties": {
-                "argv": {
-                  "prefixItems": [
-                    true,
-                    true,
-                    true,
-                    true,
-                    true,
-                    {
-                      "const": "kimi"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/probe_runner"
+                },
+                {
+                  "properties": {
+                    "argv": {
+                      "prefixItems": [
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        {
+                          "const": "kimi"
+                        }
+                      ]
                     },
-                    true,
-                    true,
-                    true,
-                    {
-                      "pattern": "/providers/kimi$"
+                    "argv_sha256": {
+                      "const": "c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129"
                     }
-                  ]
+                  }
                 }
-              }
+              ]
+            },
+            "secure_writer_index": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/secure_writer_index"
+                },
+                {
+                  "properties": {
+                    "path": {
+                      "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/kimi/secure-writer-index\\.json$"
+                    }
+                  }
+                }
+              ]
             }
           }
         }
@@ -929,34 +875,58 @@
     "zcode_provider": {
       "allOf": [
         {
-          "$ref": "#/$defs/provider"
+          "$ref": "#/$defs/provider_base"
         },
         {
           "properties": {
             "family": {
               "const": "zcode"
             },
+            "tuple_key": {
+              "$ref": "#/$defs/zcode_tuple_key"
+            },
+            "wrapper_argv_sha256": {
+              "const": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e"
+            },
             "probe_runner": {
-              "properties": {
-                "argv": {
-                  "prefixItems": [
-                    true,
-                    true,
-                    true,
-                    true,
-                    true,
-                    {
-                      "const": "zcode"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/probe_runner"
+                },
+                {
+                  "properties": {
+                    "argv": {
+                      "prefixItems": [
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        {
+                          "const": "zcode"
+                        }
+                      ]
                     },
-                    true,
-                    true,
-                    true,
-                    {
-                      "pattern": "/providers/zcode$"
+                    "argv_sha256": {
+                      "const": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e"
                     }
-                  ]
+                  }
                 }
-              }
+              ]
+            },
+            "secure_writer_index": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/secure_writer_index"
+                },
+                {
+                  "properties": {
+                    "path": {
+                      "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/zcode/secure-writer-index\\.json$"
+                    }
+                  }
+                }
+              ]
             }
           }
         }
@@ -965,36 +935,73 @@
     "agy_provider": {
       "allOf": [
         {
-          "$ref": "#/$defs/provider"
+          "$ref": "#/$defs/provider_base"
         },
         {
           "properties": {
             "family": {
               "const": "agy"
             },
+            "tuple_key": {
+              "$ref": "#/$defs/agy_tuple_key"
+            },
+            "wrapper_argv_sha256": {
+              "const": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520"
+            },
             "probe_runner": {
-              "properties": {
-                "argv": {
-                  "prefixItems": [
-                    true,
-                    true,
-                    true,
-                    true,
-                    true,
-                    {
-                      "const": "agy"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/probe_runner"
+                },
+                {
+                  "properties": {
+                    "argv": {
+                      "prefixItems": [
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        {
+                          "const": "agy"
+                        }
+                      ]
                     },
-                    true,
-                    true,
-                    true,
-                    {
-                      "pattern": "/providers/agy$"
+                    "argv_sha256": {
+                      "const": "bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520"
                     }
-                  ]
+                  }
                 }
-              }
+              ]
+            },
+            "secure_writer_index": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/secure_writer_index"
+                },
+                {
+                  "properties": {
+                    "path": {
+                      "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/agy/secure-writer-index\\.json$"
+                    }
+                  }
+                }
+              ]
             }
           }
+        }
+      ]
+    },
+    "provider": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/kimi_provider"
+        },
+        {
+          "$ref": "#/$defs/zcode_provider"
+        },
+        {
+          "$ref": "#/$defs/agy_provider"
         }
       ]
     }

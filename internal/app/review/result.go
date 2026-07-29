@@ -213,7 +213,7 @@ func (templates TemplateSet) ComposeRootReview(role domain.Role, objective *prom
 		layers = append(layers, layer)
 	}
 	layers = append(layers, templates.JSONOutput())
-	return prompt.ComposeTrustedTemplate("builtin:template/root-review/"+string(role), "2", layers...)
+	return prompt.ComposeTrustedTemplate("builtin:template/root-review/"+string(role), "1", layers...)
 }
 
 // ComposeRootReviewRepair appends the frozen repair contract and canonical plan
@@ -226,7 +226,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	paths := plan.AllowedPaths()
 	sort.Strings(paths)
 	lines := []string{
-		"Mulgae ROOT REVIEW REPAIR PLAN/3",
+		"Mulgae ROOT REVIEW REPAIR PLAN/1",
 		"original_output_sha256:" + plan.OriginalSHA256(),
 		"mode:" + string(plan.Mode()),
 		"allowed_paths_count:" + strconv.Itoa(len(paths)),
@@ -234,7 +234,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	for _, path := range paths {
 		lines = append(lines, "allowed_path:"+path)
 	}
-	planLayer, err := prompt.NewTrustedLayer("review:repair-plan", "3", []byte(strings.Join(lines, "\n")))
+	planLayer, err := prompt.NewTrustedLayer("review:repair-plan", "1", []byte(strings.Join(lines, "\n")))
 	if err != nil {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: repair plan: %w", err)
 	}
@@ -245,7 +245,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	layers := append(baseLayers, templates.Repair(), planLayer)
 	return prompt.ComposeTrustedTemplate(
 		"builtin:template/root-review/"+role+"/repair",
-		"3",
+		"1",
 		layers...,
 	)
 }
@@ -253,7 +253,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 func trustedLayersForRepair(original prompt.TrustedTemplate) ([]prompt.TrustedLayer, error) {
 	manifest := original.TrustedLayerManifest()
 	if len(manifest) == 0 {
-		layer, err := prompt.NewTrustedLayer("review:original-template", "2", original.Bytes())
+		layer, err := prompt.NewTrustedLayer("review:original-template", "1", original.Bytes())
 		if err != nil {
 			return nil, err
 		}

@@ -13,16 +13,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const (
-	privateRootPath            = ".mulgae"
-	providerEvidenceV1SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
-	platformEvidenceV1SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
-)
+const privateRootPath = ".mulgae"
 
 var requiredCatalogSchemaIDs = []string{
 	"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json",
-	providerEvidenceV2SchemaID,
-	platformEvidenceV2SchemaID,
+	providerEvidenceSchemaID,
+	platformEvidenceSchemaID,
 }
 
 // Service observes doctor readiness through injected inward ports. It never
@@ -204,11 +200,7 @@ func (service *Service) providerEvidence(ctx context.Context, providerID string)
 	if err != nil || record.SchemaID == "" {
 		return unverified("provider_evidence_unavailable")
 	}
-	switch record.SchemaID {
-	case providerEvidenceV1SchemaID:
-		return unverified("provider_evidence_v1_not_authoritative")
-	case providerEvidenceV2SchemaID:
-	default:
+	if record.SchemaID != providerEvidenceSchemaID {
 		return unverified("provider_evidence_unsupported_schema")
 	}
 	if err := validateProviderRecord(record, providerID); err != nil {
@@ -272,11 +264,7 @@ func (service *Service) darwinEvidence(ctx context.Context, hostIsDarwinARM64 bo
 	if err != nil || record.SchemaID == "" {
 		return unverified("platform_evidence_unavailable")
 	}
-	switch record.SchemaID {
-	case platformEvidenceV1SchemaID:
-		return unverified("platform_evidence_v1_not_authoritative")
-	case platformEvidenceV2SchemaID:
-	default:
+	if record.SchemaID != platformEvidenceSchemaID {
 		return unverified("platform_evidence_unsupported_schema")
 	}
 	if err := validatePlatformRecord(record); err != nil {
@@ -422,7 +410,7 @@ func validateIntendedProviderIDs() bool {
 	return true
 }
 
-func validateProviderRecord(record ProviderV2Evidence, providerID string) error {
+func validateProviderRecord(record ProviderEvidenceRecord, providerID string) error {
 	if record.ProviderID != providerID || !safeEvidenceURI(record.URI) || !validRawSHA256(record.SHA256) {
 		return fmt.Errorf("identity, URI, or SHA-256 is invalid")
 	}
@@ -432,7 +420,7 @@ func validateProviderRecord(record ProviderV2Evidence, providerID string) error 
 	return nil
 }
 
-func validatePlatformRecord(record PlatformV2Evidence) error {
+func validatePlatformRecord(record PlatformEvidenceRecord) error {
 	if record.Cell != PlatformDarwinARM64 || !record.Native || !safeEvidenceURI(record.URI) || !validRawSHA256(record.SHA256) {
 		return fmt.Errorf("identity, native state, URI, or SHA-256 is invalid")
 	}
@@ -539,10 +527,8 @@ func diagnosticMessage(reason string) string {
 		return "The private project root does not have the required read, write, and execute permissions."
 	case "host_platform_not_supported":
 		return "The observed host is not the required darwin-arm64 platform."
-	case "provider_evidence_v1_not_authoritative", "platform_evidence_v1_not_authoritative":
-		return "Version 1 evidence is compatibility-only and cannot establish readiness."
 	case "provider_evidence_unsupported_schema", "platform_evidence_unsupported_schema":
-		return "Only version 2 evidence can establish readiness; the observed schema is unsupported."
+		return "Only the version 1 evidence contract can establish readiness; the observed schema is unsupported."
 	case "tools_lock_missing", "tools_lock_unavailable":
 		return "A complete tools lock observation is required for readiness."
 	default:

@@ -295,18 +295,18 @@ func allAssignments(t *testing.T) []Assignment {
 }
 
 func validNoFindingReview() []byte {
-	return []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
+	return []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
 }
 
 func validHighFindingReview() []byte {
-	return []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"One high finding was identified.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"One high finding was identified.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 func validIncompleteHighFindingReview() []byte {
-	return []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"One incomplete high finding was identified.","completeness":"incomplete","limitations":["The provider could not inspect generated fixtures."],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"One incomplete high finding was identified.","completeness":"incomplete","limitations":["The provider could not inspect generated fixtures."],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 
 func repairableHighFindingReview() []byte {
-	return []byte(`{"schema_version":"mulgae-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	return []byte(`{"schema_version":"mulgae-provider-review-output.v1","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 }
 
 func repairSummaryPatch() []byte {

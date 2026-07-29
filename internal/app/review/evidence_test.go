@@ -752,7 +752,7 @@ func bridgeValidatedReview(t *testing.T, targetSHA256 string, findings []string)
 		t.Fatal(err)
 	}
 	raw := fmt.Sprintf(
-		`{"schema_version":"mulgae-provider-review-output.v3","summary":"Bridge evidence test.","completeness":"complete","limitations":[],"findings":[%s]}`,
+		`{"schema_version":"mulgae-provider-review-output.v1","summary":"Bridge evidence test.","completeness":"complete","limitations":[],"findings":[%s]}`,
 		strings.Join(findings, ","),
 	)
 	review, repair, err := validator.Validate(context.Background(), []byte(raw), validation.ReviewValidationScope{

@@ -1,8 +1,8 @@
-Mulgae ROOT REVIEW OUTPUT CONTRACT/3
+Mulgae ROOT REVIEW OUTPUT CONTRACT/1
 Return one UTF-8 RFC 8259 JSON object only. No Markdown, code fence, commentary, prefix, suffix, or second JSON value.
 This is an instance of the provider-owned root-review wire contract, not a schema document.
 Top level: exactly schema_version, summary, completeness, limitations, findings.
-schema_version: exactly "mulgae-provider-review-output.v3".
+schema_version: exactly "mulgae-provider-review-output.v1".
 summary: meaningful string, 1..4000 Unicode scalar values; it must agree with findings and completeness.
 completeness: exactly "complete" or "incomplete".
 limitations: array of 0..20 unique meaningful strings, each at most 2000 scalar values. incomplete requires at least one material limitation. complete must not claim material target scope was unreadable.

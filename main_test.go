@@ -1529,7 +1529,7 @@ func main() {
 	if err := log.Close(); err != nil {
 		panic(err)
 	}
-	content := "{\"schema_version\":\"mulgae-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+	content := "{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
 	if prompt == "@roadmap.md" {
 		roadmap, err := os.ReadFile("roadmap.md")
 		if err != nil {
@@ -1627,7 +1627,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "provider execution failed")
 		os.Exit(1)
 	}
-	fmt.Print("{\"schema_version\":\"mulgae-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+	fmt.Print("{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
 }
 `
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
@@ -1712,7 +1712,7 @@ func main() {
 	}
 	content := __FAKE_AGY_REVIEW_OUTPUT__
 	if content == "" {
-		content = "{\"schema_version\":\"mulgae-provider-review-output.v3\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+		content = "{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
 	}
 	fmt.Print(content)
 	_ = os.Stdout.Close()

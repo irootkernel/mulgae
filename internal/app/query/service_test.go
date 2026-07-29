@@ -788,7 +788,7 @@ func TestReadCommittedRejectsArtifactAndSchemaCorruption(t *testing.T) {
 			validator.err = errors.New("schema rejected")
 		},
 		"semantic final mismatch": func(store *queryStore, _ *queryValidator) {
-			badFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v3"}`)
+			badFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1"}`)
 			identity := snapshot.Final().Identity()
 			badIdentity, err := ports.NewFinalReviewIdentity(identity.ReviewID(), identity.Path(), querySHA(badFinalBytes))
 			if err != nil {
@@ -2472,7 +2472,7 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		t.Fatal(err)
 	}
 	finalBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"schema_version":"mulgae-review-artifact.v1","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
 		"mulgae":{"version":"0.1.0","commit":null},
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},
@@ -2495,7 +2495,7 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		t.Fatal(err)
 	}
 	manifestBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"mulgae-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"completed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","mulgae_version":"0.1.0",
+		"schema_version":"mulgae-run-manifest.v1","session_id":%q,"run_id":%q,"run_type":"review","state":"completed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","mulgae_version":"0.1.0",
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security"],"required_roles":["logic","security"],"attempts":[
 			{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},

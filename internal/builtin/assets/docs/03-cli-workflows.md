@@ -81,14 +81,14 @@ Mulgae emits the rejected request
 with `init_selection_invalid` at exit `2`; it does not fabricate accepted
 selection or path fields.
 
-The literal non-command output URIs are `https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json`, `https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json`, `https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json`, `https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json`, `https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json`, `https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json`, and `https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+The literal non-command output URIs are `https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json`, `https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json`, `https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json`, `https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json`, `https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json`, `https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json`, and `https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
 `help` is intentionally repository-independent. It renders only embedded documentation, reads no project configuration, and remains available in non-Git and unborn directories without locality attestation.
 For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.mulgae`, `.git`, `.gjc`, and Mulgae-owned root configuration names before any publication lookup.
 
 ## 2.2 Gate and readiness semantics
 
 `init` records all configured intended provider IDs with `status=unverified` when evidence is unavailable. It must neither silently disable nor substitute them; `doctor` is required before review readiness can be claimed. `doctor`, `providers`, and `status` expose `PASS`, `FAIL`, or `INCONCLUSIVE` evidence without promoting it. `INCONCLUSIVE` is not PASS.
-`doctor` emits `mulgae-doctor-result.v2` inline and never persists diagnostics. It reports the fixed Kimi/ZCode/AGY inventory, project-local config admission, assignment resilience, and readiness. Singleton eligibility is `degraded` at exit `0`; missing or unavailable primaries are `unverified` at exit `4`; locality or identity violations are `unsafe` at exit `8`. Human and JSON output are ANSI-free.
+`doctor` emits `mulgae-doctor-result.v1` inline and never persists diagnostics. It reports the fixed Kimi/ZCode/AGY inventory, project-local config admission, assignment resilience, and readiness. Singleton eligibility is `degraded` at exit `0`; missing or unavailable primaries are `unverified` at exit `4`; locality or identity violations are `unsafe` at exit `8`. Human and JSON output are ANSI-free.
 A pure native-home observation cancellation aborts `init`, `config`, or `doctor`
 at exit `9` with `request_cancelled`. Init does not mutate, config exposes no
 accepted digest, and doctor emits no partial doctor artifact. A separately
@@ -135,7 +135,7 @@ Semantics:
 - with no `--roles`, selects every role enabled by project configuration;
 - with explicit `--roles`, selects exactly that nonempty enabled subset without automatically adding `logic`, `security`, or `review.required_roles`;
 - resolves `--artist-brief` and `--artist-design-specs` independently over the
-  corresponding Config v2 artist input; an omitted review flag uses its
+  corresponding Config v1 artist input; an omitted review flag uses its
   configured fallback;
 - accepts artist input flags only when the review selects artist, and requires
   both a nonempty UTF-8 brief and at least one matched PNG/JPEG/WebP visual

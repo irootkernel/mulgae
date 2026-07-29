@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-provider-review-wire.v2.schema.json",
-  "title": "Mulgae Provider Review Wire v2",
-  "description": "Provider-owned root-review wire projection. Mulgae injects current target identity and verification before validating the normalized v2 envelope.",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-review-wire.v1.schema.json",
+  "title": "Mulgae Provider Review Wire v1",
+  "description": "Provider-owned root-review wire projection. Mulgae injects current target identity and verification before validating the normalized v1 envelope.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-provider-review-output.v2"
+      "const": "mulgae-provider-review-output.v1"
     },
     "summary": {
       "type": "string",
@@ -91,6 +91,28 @@
         }
       }
     },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "visual": {
+      "description": "Provider claim against one captured design-spec raster.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bbox"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "bbox": {"$ref": "#/$defs/bbox"}
+      }
+    },
     "evidence": {
       "type": "object",
       "additionalProperties": false,
@@ -100,6 +122,9 @@
       "properties": {
         "current": {
           "$ref": "#/$defs/current"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
         }
       }
     },

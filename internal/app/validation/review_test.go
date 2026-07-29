@@ -67,7 +67,7 @@ func testScope() ReviewValidationScope {
 
 func validProviderReview() []byte {
 	return []byte(`{
-		"schema_version":"mulgae-provider-review-output.v3",
+		"schema_version":"mulgae-provider-review-output.v1",
 		"summary":"A high severity issue was found.",
 		"completeness":"complete",
 		"limitations":[],

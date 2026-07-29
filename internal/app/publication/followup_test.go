@@ -224,7 +224,7 @@ func followupProjectionOutput(t *testing.T, resolution domain.FollowupResolution
 	if withFinding {
 		findings = `[{"severity":"high","title":"Retained finding","description":"The issue remains.","evidence":[{"current":{"path":"src/a.go","line_start":1,"line_end":1,"side":"head","quote":"` + quote + `"}}],"recommendation":"Fix it.","confidence":"high"}]`
 	}
-	raw := []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"followup","resolution":"` + string(resolution) + `","rationale":"verified finding","evidence":[{"current":{"path":"src/a.go","line_start":1,"line_end":1,"side":"head","quote":"` + quote + `"}}],"new_findings":` + findings + `,"limitations":[]}`)
+	raw := []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"followup","resolution":"` + string(resolution) + `","rationale":"verified finding","evidence":[{"current":{"path":"src/a.go","line_start":1,"line_end":1,"side":"head","quote":"` + quote + `"}}],"new_findings":` + findings + `,"limitations":[]}`)
 	output, err := validator.Validate(context.Background(), raw, validation.FollowupValidationScope{SessionID: sessionID, SourceRunID: runID, ReviewID: reviewID, FindingID: "F001", SourceTargetSHA256: "sha256:" + strings.Repeat("a", 64), SourceExcerptSHA256: sha256Identifier([]byte("source excerpt")), CurrentTargetSHA256: "sha256:" + strings.Repeat("b", 64), Role: domain.RoleLogic, ProviderInstance: "provider"})
 	if err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func followupProjectionOutputWithEvidence(t *testing.T, resolution domain.Follow
 		}
 	}
 	raw, err := json.Marshal(map[string]any{
-		"schema_version": "mulgae-provider-followup-output.v2", "summary": "followup", "resolution": resolution,
+		"schema_version": "mulgae-provider-followup-output.v1", "summary": "followup", "resolution": resolution,
 		"rationale": "verified finding", "evidence": toWire(outcome), "new_findings": newFindings, "limitations": []string{},
 	})
 	if err != nil {

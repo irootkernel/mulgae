@@ -27,7 +27,7 @@ An exact `.mulgae/config.yaml` target reports `target_private_config_forbidden`;
 
 ## Canonical YAML v2
 
-The document has `version: 2` and the sections `project`, `native_user`,
+The document has `version: 1` and the sections `project`, `native_user`,
 `providers`, `execution`, `roles`, `review`, `validation`, `resources`, and
 `ci`. `providers` contains any nonempty subset of `kimi`, `zcode`, and `agy`.
 Provider commands are family-specific fields; generic argv, environment, shell,
@@ -48,7 +48,7 @@ or selected by a default review. Every `review.required_roles` member must be
 enabled, and the required-role set must include `logic`; other enabled roles may
 also be required. New projects enable only `logic` unless `mulgae init --roles`
 selects more roles. UI projects may additionally enable `artist`, but do not do
-so automatically. Config v2 retains the field names `inputs.task_path` and
+so automatically. Config v1 retains the field names `inputs.task_path` and
 `inputs.design_spec_globs` as project defaults for one UTF-8 artist brief and
 bounded PNG/JPEG/WebP visual references. The configured filename is not fixed;
 new UI init writes `ux-ui-info.md` unless `--artist-brief` selects a different
@@ -65,7 +65,7 @@ primary and has no fallback.
 
 Artist activation is declaration-only: filenames and framework detection never
 turn it on. For `mulgae review`, `--artist-brief` and
-`--artist-design-specs` independently override the corresponding Config v2
+`--artist-design-specs` independently override the corresponding Config v1
 fallback. A selected artist review fails before provider execution when its
 resolved brief is missing, empty, or invalid, or when its resolved globs match
 no supported visual. A review that does not select artist does not resolve,

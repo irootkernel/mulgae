@@ -1,137 +1,29 @@
 {
   "schema_version": "mulgae-doctor-result.v1",
-  "checked_at": "2026-07-13T03:11:00.000Z",
-  "project_root": ".",
-  "intended_provider_ids": [
-    "kimi",
-    "zcode",
-    "agy"
-  ],
-  "unverified_provider_ids": [
-    "kimi",
-    "zcode",
-    "agy"
-  ],
-  "provider_evidence": [
-    {
-      "provider_id": "kimi",
-      "intended": true,
-      "assignment_state": "intended_but_unverified",
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "provider_probe_not_run"
-      ]
-    },
-    {
-      "provider_id": "zcode",
-      "intended": true,
-      "assignment_state": "intended_but_unverified",
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "provider_probe_not_run"
-      ]
-    },
-    {
-      "provider_id": "agy",
-      "intended": true,
-      "assignment_state": "intended_but_unverified",
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "provider_probe_not_run"
-      ]
-    }
-  ],
-  "platform_evidence": [
-    {
-      "cell": "linux-amd64",
-      "native": false,
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "platform_probe_not_run"
-      ]
-    },
-    {
-      "cell": "linux-arm64",
-      "native": false,
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "platform_probe_not_run"
-      ]
-    },
-    {
-      "cell": "darwin-amd64",
-      "native": false,
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "platform_probe_not_run"
-      ]
-    },
-    {
-      "cell": "darwin-arm64",
-      "native": false,
-      "evidence_state": "unverified",
-      "evidence_uri": null,
-      "evidence_sha256": null,
-      "reason_codes": [
-        "platform_probe_not_run"
-      ]
-    }
-  ],
-  "tools_lock": {
-    "state": "locked",
-    "uri": ".gjc/session/evidence/g0/tools.lock.json",
+  "checked_at": "2026-07-20T00:00:00Z",
+  "project_root_uri": ".",
+  "config": {
+    "status": "ready",
+    "uri": ".mulgae/config.yaml",
     "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "tools": [
-      {
-        "name": "python3",
-        "resolved_path": "/usr/bin/python3",
-        "version": "Python 3.12.0",
-        "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      },
-      {
-        "name": "git",
-        "resolved_path": "/usr/bin/git",
-        "version": "git version 2.45.0",
-        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-      }
-    ]
+    "authority": "project_local",
+    "locality": "verified",
+    "checkout_head_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "index_entries_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "target_commit_oids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "native_home_identity": "verified",
+    "provenance_state": "accepted",
+    "reason_codes": []
   },
-  "readiness": {
-    "state": "unverified",
-    "exit_code": 4,
-    "reason_codes": [
-      "provider_probe_not_run",
-      "platform_probe_not_run"
-    ]
-  },
-  "diagnostics": [
-    {
-      "code": "provider_probe_not_run",
-      "category": "readiness",
-      "message": "Intended providers are unverified; run doctor after recording provider evidence.",
-      "redacted": true,
-      "credential_bytes_persisted": false,
-      "artifact_uri": ".gjc/session/diagnostics/doctor.json"
-    },
-    {
-      "code": "platform_probe_not_run",
-      "category": "readiness",
-      "message": "No complete native platform evidence is recorded for the required cells.",
-      "redacted": true,
-      "credential_bytes_persisted": false,
-      "artifact_uri": ".gjc/session/diagnostics/doctor.json"
-    }
-  ]
+  "configured_provider_ids": ["kimi"],
+  "provider_inventory": [
+    {"family": "kimi", "state": "eligible", "reason": "identity_admitted"},
+    {"family": "zcode", "state": "not_configured", "reason": "not_configured"},
+    {"family": "agy", "state": "not_configured", "reason": "not_configured"}
+  ],
+  "assignment": {"state": "degraded_resilience", "resilience": "degraded"},
+  "platform_evidence": [{"cell": "darwin-arm64", "native": true}],
+  "tools_lock": {"state": "not_observed"},
+  "readiness": {"state": "degraded", "exit_code": 0, "reason_codes": ["provider_resilience_degraded"]},
+  "diagnostics": [{"code": "provider_resilience_degraded", "category": "readiness", "message": "All roles have a primary provider but no fallback provider.", "redacted": true}]
 }

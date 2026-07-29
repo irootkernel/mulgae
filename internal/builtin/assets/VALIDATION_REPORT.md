@@ -54,7 +54,7 @@ The G0 external join and authority prerequisites are complete. Current G007 supp
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy` | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
+| G010 | Config v1 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 | G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **RELEASE_READY** | `g012` |
 | G013 | Exercise production Kimi login recovery before fail-closed family capability certification | **RELEASE_READY** | `g013` |
@@ -87,4 +87,4 @@ The recorded G001–G012 evidence is historical. G013 is release-ready after the
 
 ## Historical Documentation Validation
 
-The 1.0.0 through 1.14.0 reports remain historical baselines. SOT 1.15.0 changes no CLI, Config v2, or P2 schema; it corrects the executable release-gate order so production login recovery is reachable. Current checksums and the implementation checklist are authoritative for this revision.
+The 1.0.0 through 1.14.0 reports remain historical baselines. SOT 1.15.0 changes no CLI, Config v1, or P2 schema; it corrects the executable release-gate order so production login recovery is reachable. Current checksums and the implementation checklist are authoritative for this revision.

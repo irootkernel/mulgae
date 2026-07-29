@@ -1,30 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mulgae:schema:validation-result:v1",
+  "$id": "https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json",
   "title": "Mulgae Validation Result v1",
+  "description": "The final validation projection. The four outcome axes are independently serialized; semantic validation verifies their reducers, source/current evidence, artifact identities, and publication authority.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "stage",
     "status",
-    "repair_count",
-    "errors",
-    "warnings"
+    "failure_condition",
+    "typed_exit",
+    "schema_validation",
+    "semantic_validation",
+    "evidence_validation",
+    "source_verification",
+    "current_verification",
+    "trust_validation",
+    "publication_validation",
+    "repair",
+    "fallback",
+    "publication_eligibility",
+    "content_verdict",
+    "coverage_status",
+    "publication_status",
+    "ci_decision",
+    "ci_reason_codes",
+    "artifact_refs"
   ],
   "properties": {
     "schema_version": {
       "const": "mulgae-validation-result.v1"
-    },
-    "stage": {
-      "type": "string",
-      "enum": [
-        "parse",
-        "schema",
-        "semantic",
-        "evidence",
-        "final"
-      ]
     },
     "status": {
       "type": "string",
@@ -33,102 +38,1785 @@
         "repaired_valid",
         "invalid",
         "repair_exhausted",
+        "security_violation",
+        "artifact_error",
+        "cancelled",
         "internal_error"
       ]
     },
-    "repair_count": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 20
+    "failure_condition": {
+      "$ref": "#/$defs/failure_condition"
     },
-    "errors": {
+    "typed_exit": {
+      "$ref": "#/$defs/typed_exit"
+    },
+    "schema_validation": {
+      "$ref": "#/$defs/schema_validation"
+    },
+    "semantic_validation": {
+      "$ref": "#/$defs/check_result"
+    },
+    "evidence_validation": {
+      "$ref": "#/$defs/check_result"
+    },
+    "source_verification": {
+      "$ref": "#/$defs/source_verification"
+    },
+    "current_verification": {
+      "$ref": "#/$defs/current_verification"
+    },
+    "trust_validation": {
+      "$ref": "#/$defs/trust_validation"
+    },
+    "publication_validation": {
+      "$ref": "#/$defs/publication_validation"
+    },
+    "repair": {
+      "$ref": "#/$defs/repair"
+    },
+    "fallback": {
+      "$ref": "#/$defs/fallback"
+    },
+    "publication_eligibility": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "forbidden"
+      ]
+    },
+    "content_verdict": {
+      "type": "string",
+      "enum": [
+        "no_findings",
+        "findings_present",
+        "request_changes"
+      ]
+    },
+    "coverage_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "degraded",
+        "incomplete"
+      ]
+    },
+    "publication_status": {
+      "type": "string",
+      "enum": [
+        "not_published",
+        "staged",
+        "installed",
+        "committed",
+        "corrupt"
+      ]
+    },
+    "ci_decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "ci_reason_codes": {
       "type": "array",
-      "maxItems": 500,
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "code",
-          "message",
-          "repairable"
-        ],
+        "$ref": "#/$defs/reason_code"
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/artifact_ref"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
         "properties": {
-          "path": {
-            "type": "string",
-            "maxLength": 4096
+          "failure_condition": {
+            "enum": [
+              "secret",
+              "mutation"
+            ]
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "security_violation"
           },
-          "code": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
+          "typed_exit": {
+            "$ref": "#/$defs/security_exit"
           },
-          "message": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
           },
-          "repairable": {
-            "type": "boolean"
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "forbidden"
+          },
+          "publication_status": {
+            "const": "not_published"
           }
         }
       }
     },
-    "warnings": {
-      "type": "array",
-      "maxItems": 500,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "code",
-          "message"
-        ],
+    {
+      "if": {
         "properties": {
-          "path": {
-            "type": "string",
-            "maxLength": 4096
+          "failure_condition": {
+            "const": "artifact_mismatch"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "artifact_error"
           },
-          "code": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
+          "typed_exit": {
+            "$ref": "#/$defs/artifact_exit"
           },
-          "message": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "forbidden"
+          },
+          "publication_status": {
+            "enum": [
+              "not_published",
+              "corrupt"
+            ]
           }
         }
       }
     },
-    "evidence_summary": {
-      "type": [
-        "object",
-        "null"
-      ],
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "enum": [
+              "timeout",
+              "auth",
+              "quota",
+              "rate_limit"
+            ]
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "properties": {
+              "eligibility": {
+                "const": "allowed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "enum": [
+              "invalid_json",
+              "ai_owned_invalid",
+              "evidence_claim_invalid"
+            ]
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "properties": {
+              "eligibility": {
+                "const": "allowed"
+              },
+              "max_attempts": {
+                "const": 1
+              }
+            }
+          },
+          "fallback": {
+            "properties": {
+              "eligibility": {
+                "const": "allowed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "none"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "allowed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "required_role_exhausted"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "repair_exhausted"
+          },
+          "typed_exit": {
+            "$ref": "#/$defs/coverage_exit"
+          },
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "allowed"
+          },
+          "coverage_status": {
+            "const": "incomplete"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "optional_role_exhausted"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "allowed"
+          },
+          "coverage_status": {
+            "const": "degraded"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "valid_finding"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "allowed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "cancellation"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "cancelled"
+          },
+          "typed_exit": {
+            "$ref": "#/$defs/cancellation_exit"
+          },
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "forbidden"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure_condition": {
+            "const": "internal_invariant"
+          }
+        },
+        "required": [
+          "failure_condition"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "internal_error"
+          },
+          "typed_exit": {
+            "$ref": "#/$defs/internal_exit"
+          },
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "forbidden"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage_status": {
+            "const": "incomplete"
+          }
+        },
+        "required": [
+          "coverage_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "typed_exit": {
+            "$ref": "#/$defs/incomplete_exit"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_status": {
+            "const": "corrupt"
+          }
+        },
+        "required": [
+          "publication_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "artifact_error"
+          },
+          "typed_exit": {
+            "$ref": "#/$defs/artifact_exit"
+          },
+          "repair": {
+            "$ref": "#/$defs/forbidden_repair"
+          },
+          "fallback": {
+            "$ref": "#/$defs/forbidden_fallback"
+          },
+          "publication_eligibility": {
+            "const": "forbidden"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "valid",
+              "repaired_valid"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "typed_exit": {
+            "$ref": "#/$defs/outcome_exit"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_validation": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P2_COMMITTED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          }
+        },
+        "required": [
+          "publication_validation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "committed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_validation": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P1_INSTALLED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          }
+        },
+        "required": [
+          "publication_validation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "installed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_validation": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P0_STAGED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          }
+        },
+        "required": [
+          "publication_validation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "staged"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_validation": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P0_NONE"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          }
+        },
+        "required": [
+          "publication_validation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "not_published"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publication_validation": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "AMBIGUOUS_OR_MISMATCH"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          }
+        },
+        "required": [
+          "publication_validation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publication_status": {
+            "const": "corrupt"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$"
+    },
+    "check_state": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "not_run"
+      ]
+    },
+    "failure_condition": {
+      "type": "string",
+      "enum": [
+        "none",
+        "invalid_json",
+        "ai_owned_invalid",
+        "evidence_claim_invalid",
+        "timeout",
+        "auth",
+        "quota",
+        "rate_limit",
+        "secret",
+        "mutation",
+        "artifact_mismatch",
+        "required_role_exhausted",
+        "optional_role_exhausted",
+        "valid_finding",
+        "cancellation",
+        "internal_invariant"
+      ]
+    },
+    "typed_exit": {
+      "type": "object",
       "additionalProperties": false,
       "required": [
-        "verified",
-        "partially_verified",
-        "unverified",
-        "invalid"
+        "code",
+        "kind",
+        "reason_codes"
       ],
       "properties": {
+        "code": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            4,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "success",
+            "policy",
+            "coverage",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "code": {
+              "const": 0
+            },
+            "kind": {
+              "const": "success"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 1
+            },
+            "kind": {
+              "const": "policy"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 4
+            },
+            "kind": {
+              "const": "coverage"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 7
+            },
+            "kind": {
+              "const": "artifact"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 8
+            },
+            "kind": {
+              "const": "security"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 9
+            },
+            "kind": {
+              "const": "cancellation"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code": {
+              "const": 10
+            },
+            "kind": {
+              "const": "internal"
+            }
+          }
+        }
+      ]
+    },
+    "outcome_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            4
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "success",
+            "policy",
+            "coverage"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/typed_exit"
+        }
+      ]
+    },
+    "coverage_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "const": 4
+        },
+        "kind": {
+          "const": "coverage"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "incomplete_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "enum": [
+            4,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "coverage",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/typed_exit"
+        }
+      ]
+    },
+    "artifact_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "const": 7
+        },
+        "kind": {
+          "const": "artifact"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "security_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "const": 8
+        },
+        "kind": {
+          "const": "security"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "cancellation_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "const": 9
+        },
+        "kind": {
+          "const": "cancellation"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "internal_exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "kind",
+        "reason_codes"
+      ],
+      "properties": {
+        "code": {
+          "const": 10
+        },
+        "kind": {
+          "const": "internal"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "check_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "assertion_count",
+        "failure_count",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/check_state"
+        },
+        "assertion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "schema_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "schema_ids",
+        "assertion_count",
+        "failure_count",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/check_state"
+        },
+        "schema_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "assertion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "checked",
+        "verified",
+        "invalid",
+        "unverifiable",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "invalid",
+            "unverifiable",
+            "not_applicable"
+          ]
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
         "verified": {
           "type": "integer",
           "minimum": 0
         },
-        "partially_verified": {
+        "invalid": {
           "type": "integer",
           "minimum": 0
         },
-        "unverified": {
+        "unverifiable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "current_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "checked",
+        "claimed",
+        "verified",
+        "stale",
+        "invalid",
+        "unverifiable",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "claimed",
+            "verified",
+            "stale",
+            "invalid",
+            "unverifiable",
+            "not_applicable"
+          ]
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claimed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
           "type": "integer",
           "minimum": 0
         },
         "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverifiable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "trust_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "assertion_count",
+        "failure_count",
+        "requested_effective_consistent",
+        "tainted",
+        "ci_proof_eligible",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/check_state"
+        },
+        "assertion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requested_effective_consistent": {
+          "type": "boolean"
+        },
+        "tainted": {
+          "type": "boolean"
+        },
+        "ci_proof_eligible": {
+          "type": "boolean"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "const": 0
+              },
+              "requested_effective_consistent": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure_count": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "publication_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "persisted_journal_state",
+        "durable_observation_class",
+        "derived_publication_status",
+        "authority",
+        "reason_codes"
+      ],
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/check_state"
+        },
+        "persisted_journal_state": {
+          "type": "string",
+          "enum": [
+            "collecting",
+            "content_validated",
+            "final_staged",
+            "final_file_installed",
+            "manifest_committed",
+            "completed"
+          ]
+        },
+        "durable_observation_class": {
+          "type": "string",
+          "enum": [
+            "P2_COMMITTED",
+            "P1_INSTALLED",
+            "P0_STAGED",
+            "P0_NONE",
+            "AMBIGUOUS_OR_MISMATCH"
+          ]
+        },
+        "derived_publication_status": {
+          "type": "string",
+          "enum": [
+            "not_published",
+            "staged",
+            "installed",
+            "committed",
+            "corrupt"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "enum": [
+            "none",
+            "P0",
+            "P1",
+            "P2"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P2_COMMITTED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "derived_publication_status": {
+                "const": "committed"
+              },
+              "authority": {
+                "const": "P2"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P1_INSTALLED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "derived_publication_status": {
+                "const": "installed"
+              },
+              "authority": {
+                "const": "P1"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P0_STAGED"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "derived_publication_status": {
+                "const": "staged"
+              },
+              "authority": {
+                "const": "P0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "P0_NONE"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "derived_publication_status": {
+                "const": "not_published"
+              },
+              "authority": {
+                "const": "P0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "durable_observation_class": {
+                "const": "AMBIGUOUS_OR_MISMATCH"
+              }
+            },
+            "required": [
+              "durable_observation_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              },
+              "derived_publication_status": {
+                "const": "corrupt"
+              },
+              "authority": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility",
+        "max_attempts",
+        "attempted",
+        "attempts_used",
+        "reason_codes"
+      ],
+      "properties": {
+        "eligibility": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "forbidden"
+          ]
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "attempted": {
+          "type": "boolean"
+        },
+        "attempts_used": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "eligibility": {
+                "const": "forbidden"
+              }
+            },
+            "required": [
+              "eligibility"
+            ]
+          },
+          "then": {
+            "properties": {
+              "max_attempts": {
+                "const": 0
+              },
+              "attempted": {
+                "const": false
+              },
+              "attempts_used": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "attempted": {
+                "const": true
+              }
+            },
+            "required": [
+              "attempted"
+            ]
+          },
+          "then": {
+            "properties": {
+              "eligibility": {
+                "const": "allowed"
+              },
+              "attempts_used": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "forbidden_repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility",
+        "max_attempts",
+        "attempted",
+        "attempts_used",
+        "reason_codes"
+      ],
+      "properties": {
+        "eligibility": {
+          "const": "forbidden"
+        },
+        "max_attempts": {
+          "const": 0
+        },
+        "attempted": {
+          "const": false
+        },
+        "attempts_used": {
+          "const": 0
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility",
+        "scheduled",
+        "reason_codes"
+      ],
+      "properties": {
+        "eligibility": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "forbidden"
+          ]
+        },
+        "scheduled": {
+          "type": "boolean"
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "eligibility": {
+                "const": "forbidden"
+              }
+            },
+            "required": [
+              "eligibility"
+            ]
+          },
+          "then": {
+            "properties": {
+              "scheduled": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scheduled": {
+                "const": true
+              }
+            },
+            "required": [
+              "scheduled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "eligibility": {
+                "const": "allowed"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "forbidden_fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility",
+        "scheduled",
+        "reason_codes"
+      ],
+      "properties": {
+        "eligibility": {
+          "const": "forbidden"
+        },
+        "scheduled": {
+          "const": false
+        },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reason_code"
+          }
+        }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "sha256",
+        "byte_length"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "provider_output",
+            "repair_request",
+            "repair_response",
+            "normalized_output",
+            "validation_result",
+            "diagnostic",
+            "evidence",
+            "manifest",
+            "journal"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
           "type": "integer",
           "minimum": 0
         }

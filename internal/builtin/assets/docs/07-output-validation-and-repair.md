@@ -123,8 +123,8 @@ JSON Schema validates:
 
 Provider schemas:
 
-- [Review output v2](../schemas/mulgae-provider-review-output.v2.schema.json)
-- [Followup output v2](../schemas/mulgae-provider-followup-output.v2.schema.json)
+- [Review output v2](../schemas/mulgae-provider-review-output.v1.schema.json)
+- [Followup output v2](../schemas/mulgae-provider-followup-output.v1.schema.json)
 
 These schemas validate Mulgae-normalized envelopes: Mulgae always injects current target identity and injects immutable source identity only for source-bearing followup, delta, rerun, or equivalent review modes; root review omits `source`. Provider-owned evidence remains a path/range/quote claim with `verification=claimed`. A provider cannot emit a trusted verification state.
 
@@ -322,7 +322,7 @@ validation/final-validation.json
 
 Example machine contract:
 
-- [Validation result schema](../schemas/mulgae-validation-result.v2.schema.json)
+- [Validation result schema](../schemas/mulgae-validation-result.v1.schema.json)
 
 ## 12. Outcome Axes and Finalization
 

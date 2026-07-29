@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-provider-followup-output.v2",
+  "schema_version": "mulgae-provider-followup-output.v1",
   "summary": "The followup identifies a changed current-target location that Mulgae must verify against the immutable source finding.",
   "resolution": "still_open",
   "rationale": "The source finding remains a valid immutable reference. The provider supplies only a current location and excerpt claim; Mulgae owns the later stale, verified, invalid, or unverifiable result.",

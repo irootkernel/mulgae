@@ -364,7 +364,7 @@ func meaningfulRepairTarget(pointer string, value any) bool {
 		return ok && meaningfulText(text)
 	case "schema_version":
 		text, ok := value.(string)
-		return ok && text == "mulgae-provider-review-output.v3"
+		return ok && text == "mulgae-provider-review-output.v1"
 	case "completeness":
 		text, ok := value.(string)
 		return ok && (text == "complete" || text == "incomplete")

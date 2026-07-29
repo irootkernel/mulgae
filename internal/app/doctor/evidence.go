@@ -3,8 +3,8 @@ package doctor
 import "context"
 
 const (
-	providerEvidenceV2SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
-	platformEvidenceV2SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json"
+	providerEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	platformEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 )
 
 var (
@@ -47,8 +47,8 @@ var (
 // evidence. It only returns observations; doctor never executes probes,
 // substitutes executables, or reads a hidden evidence/session directory.
 type EvidenceReader interface {
-	ProviderEvidence(context.Context, string) (ProviderV2Evidence, error)
-	PlatformEvidence(context.Context, PlatformCell) (PlatformV2Evidence, error)
+	ProviderEvidence(context.Context, string) (ProviderEvidenceRecord, error)
+	PlatformEvidence(context.Context, PlatformCell) (PlatformEvidenceRecord, error)
 	ToolsLock(context.Context) (ToolsLockObservation, error)
 }
 
@@ -69,9 +69,9 @@ type ProbeObservation struct {
 	Status EvidenceStatus
 }
 
-// ProviderV2Evidence is a provider-contract-evidence.v2 observation. SHA256
-// is the unprefixed document digest used by v2; doctor emits sha256:<digest>.
-type ProviderV2Evidence struct {
+// ProviderEvidenceRecord is a provider-contract-evidence.v1 observation.
+// SHA256 is the unprefixed document digest; doctor emits sha256:<digest>.
+type ProviderEvidenceRecord struct {
 	SchemaID                string
 	ProviderID              string
 	URI                     string
@@ -81,10 +81,10 @@ type ProviderV2Evidence struct {
 	AssignmentStatus        EvidenceStatus
 }
 
-// PlatformV2Evidence is one darwin-arm64 row observed from a
-// platform-contract-evidence.v2 record. Future inventory cells are never read
+// PlatformEvidenceRecord is one darwin-arm64 row observed from a
+// platform-contract-evidence.v1 record. Future inventory cells are never read
 // because they cannot become current support evidence.
-type PlatformV2Evidence struct {
+type PlatformEvidenceRecord struct {
 	SchemaID string
 	Cell     PlatformCell
 	URI      string

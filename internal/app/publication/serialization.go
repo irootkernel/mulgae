@@ -666,7 +666,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: "mulgae-review-artifact.v3",
+		SchemaVersion: "mulgae-review-artifact.v1",
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
@@ -712,7 +712,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	supportIndex ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:            "mulgae-run-manifest.v2",
+		SchemaVersion:            "mulgae-run-manifest.v1",
 		SessionID:                candidate.sessionID.String(),
 		RunID:                    candidate.runID.String(),
 		RunType:                  string(candidate.publicationLineage().runType),

@@ -395,7 +395,7 @@ func validExecutionResultWithExit(source VerifiedSource, code domain.Operational
 	if err != nil {
 		panic(err)
 	}
-	output, err := validator.Validate(context.Background(), []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"resolved","resolution":"resolved","rationale":"verified","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`), validation.FollowupValidationScope{
+	output, err := validator.Validate(context.Background(), []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"resolved","resolution":"resolved","rationale":"verified","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`), validation.FollowupValidationScope{
 		SessionID: source.SessionID, SourceRunID: source.RunID, ReviewID: source.ReviewID,
 		FindingID: source.Finding.ID, SourceTargetSHA256: source.Target.SHA256(),
 		SourceExcerptSHA256: source.Receipt.ExcerptSHA256, CurrentTargetSHA256: source.Target.SHA256(),

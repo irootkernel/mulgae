@@ -32,9 +32,9 @@ A reader treats `review_{uuidv7}.json` as a final machine contract only when the
 
 Schemas:
 
-- [mulgae-review-artifact.v3.schema.json](../schemas/mulgae-review-artifact.v3.schema.json)
-- [mulgae-run-manifest.v2.schema.json](../schemas/mulgae-run-manifest.v2.schema.json)
-- [mulgae-validation-result.v2.schema.json](../schemas/mulgae-validation-result.v2.schema.json)
+- [mulgae-review-artifact.v1.schema.json](../schemas/mulgae-review-artifact.v1.schema.json)
+- [mulgae-run-manifest.v1.schema.json](../schemas/mulgae-run-manifest.v1.schema.json)
+- [mulgae-validation-result.v1.schema.json](../schemas/mulgae-validation-result.v1.schema.json)
 
 ## 3. Human Report Structure
 

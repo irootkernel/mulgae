@@ -94,7 +94,7 @@ func TestDiagnoseEnvironmentAbsentOrErroredExecutablesBlockReady(t *testing.T) {
 }
 func TestDiagnoseEnvironmentAllAbsentProviderEvidenceIsUnverified(t *testing.T) {
 	evidence := readyEvidence()
-	evidence.providers = make(map[string]ProviderV2Evidence)
+	evidence.providers = make(map[string]ProviderEvidenceRecord)
 	service, _, _ := readyFixture(t, evidence)
 	result := diagnose(t, service)
 	for _, providerID := range intendedProviderIDs {
@@ -171,25 +171,6 @@ func TestDiagnoseEnvironmentErrorsAndNotRunEvidenceRemainUnverified(t *testing.T
 	}
 }
 
-func TestDiagnoseEnvironmentV1EvidenceIsNotAuthoritative(t *testing.T) {
-	evidence := readyEvidence()
-	for _, providerID := range intendedProviderIDs {
-		record := evidence.providers[providerID]
-		record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
-		evidence.providers[providerID] = record
-	}
-	evidence.platform.SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
-	service, _, _ := readyFixture(t, evidence)
-	result := diagnose(t, service)
-	for _, row := range result.ProviderEvidence {
-		if row.EvidenceState != EvidenceStateUnverified || !contains(row.ReasonCodes, "provider_evidence_v1_not_authoritative") {
-			t.Fatalf("v1 provider evidence = %#v", row)
-		}
-	}
-	if row := platformRow(t, result, PlatformDarwinARM64); row.EvidenceState != EvidenceStateUnverified || !contains(row.ReasonCodes, "platform_evidence_v1_not_authoritative") {
-		t.Fatalf("v1 platform evidence = %#v", row)
-	}
-}
 func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -234,7 +215,7 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 	}
 }
 
-func TestDiagnoseEnvironmentAllV2EvidenceReady(t *testing.T) {
+func TestDiagnoseEnvironmentAllV1EvidenceReady(t *testing.T) {
 	service, _, _ := readyFixture(t, readyEvidence())
 	result := diagnose(t, service)
 	if result.Readiness.State != ReadinessReady || result.Readiness.ExitCode != 0 || len(result.Readiness.ReasonCodes) != 0 {
@@ -512,23 +493,23 @@ func (inspector *fakeInspector) ObservePermission(context.Context, ports.Anchore
 }
 
 type fakeEvidence struct {
-	providers    map[string]ProviderV2Evidence
+	providers    map[string]ProviderEvidenceRecord
 	providerErr  map[string]error
-	platform     PlatformV2Evidence
+	platform     PlatformEvidenceRecord
 	platformErr  error
 	tools        ToolsLockObservation
 	toolsErr     error
 	platformRead int
 }
 
-func (evidence *fakeEvidence) ProviderEvidence(_ context.Context, providerID string) (ProviderV2Evidence, error) {
+func (evidence *fakeEvidence) ProviderEvidence(_ context.Context, providerID string) (ProviderEvidenceRecord, error) {
 	if err := evidence.providerErr[providerID]; err != nil {
-		return ProviderV2Evidence{}, err
+		return ProviderEvidenceRecord{}, err
 	}
 	return evidence.providers[providerID], nil
 }
 
-func (evidence *fakeEvidence) PlatformEvidence(_ context.Context, _ PlatformCell) (PlatformV2Evidence, error) {
+func (evidence *fakeEvidence) PlatformEvidence(_ context.Context, _ PlatformCell) (PlatformEvidenceRecord, error) {
 	evidence.platformRead++
 	return evidence.platform, evidence.platformErr
 }
@@ -561,10 +542,10 @@ func readyFixture(t *testing.T, evidence *fakeEvidence) (*Service, *fakeInspecto
 }
 
 func readyEvidence() *fakeEvidence {
-	providers := make(map[string]ProviderV2Evidence, len(intendedProviderIDs))
+	providers := make(map[string]ProviderEvidenceRecord, len(intendedProviderIDs))
 	for _, providerID := range intendedProviderIDs {
-		providers[providerID] = ProviderV2Evidence{
-			SchemaID:                providerEvidenceV2SchemaID,
+		providers[providerID] = ProviderEvidenceRecord{
+			SchemaID:                providerEvidenceSchemaID,
 			ProviderID:              providerID,
 			URI:                     "https://evidence.example/providers/" + providerID,
 			SHA256:                  rawDigest("a"),
@@ -576,8 +557,8 @@ func readyEvidence() *fakeEvidence {
 	return &fakeEvidence{
 		providers:   providers,
 		providerErr: make(map[string]error),
-		platform: PlatformV2Evidence{
-			SchemaID: platformEvidenceV2SchemaID,
+		platform: PlatformEvidenceRecord{
+			SchemaID: platformEvidenceSchemaID,
 			Cell:     PlatformDarwinARM64,
 			URI:      "https://evidence.example/platforms/darwin-arm64",
 			SHA256:   rawDigest("b"),

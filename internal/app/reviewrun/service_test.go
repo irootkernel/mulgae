@@ -107,11 +107,11 @@ func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
 	}
 	for _, role := range domain.FixedRoleOrder() {
 		layer, ok := templates.RoleTemplate(role)
-		if !ok || layer.ID() != "builtin:roles/"+string(role) || layer.Version() != "3" {
+		if !ok || layer.ID() != "builtin:roles/"+string(role) || layer.Version() != "1" {
 			t.Fatalf("template for %s = %#v, present=%t", role, layer, ok)
 		}
 	}
-	if templates.Common().Version() != "2" || templates.ReviewRun().Version() != "2" || templates.JSONOutput().Version() != "3" || templates.Repair().Version() != "3" {
+	if templates.Common().Version() != "1" || templates.ReviewRun().Version() != "1" || templates.JSONOutput().Version() != "1" || templates.Repair().Version() != "1" {
 		t.Fatal("default template versions are not explicit")
 	}
 }
@@ -138,9 +138,9 @@ func TestRootReviewLayerProvenanceOrderAndRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertLayerIDs(t, repaired, append(wantBase, "builtin:repair/provider-review", "review:repair-plan"))
-	if repaired.Version() != "3" || !bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR CONTRACT/3")) ||
-		!bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR PLAN/3")) ||
-		!bytes.Contains(repaired.Bytes(), []byte("provider-review wire v3")) ||
+	if repaired.Version() != "1" || !bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR CONTRACT/1")) ||
+		!bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR PLAN/1")) ||
+		!bytes.Contains(repaired.Bytes(), []byte("provider-review wire v1")) ||
 		bytes.Contains(repaired.Bytes(), []byte("provider-review wire v2")) {
 		t.Fatalf("repair template retained a stale contract: version=%q", repaired.Version())
 	}

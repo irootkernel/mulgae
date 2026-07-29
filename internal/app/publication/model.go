@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
-	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
+	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 
 	targetManifestPath   = "target/target-manifest.json"
 	aggregationPath      = "aggregation.json"
@@ -2476,7 +2476,7 @@ func validatePublicationCompositeSemantics(
 	if err != nil {
 		return 0, err
 	}
-	if finalWire.SchemaVersion != "mulgae-review-artifact.v3" ||
+	if finalWire.SchemaVersion != "mulgae-review-artifact.v1" ||
 		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
@@ -2534,7 +2534,7 @@ func validatePublicationCompositeSemantics(
 		return 0, err
 	}
 
-	if manifest.SchemaVersion != "mulgae-run-manifest.v2" ||
+	if manifest.SchemaVersion != "mulgae-run-manifest.v1" ||
 		manifest.SessionID != finalWire.SessionID ||
 		manifest.RunID != finalWire.RunID ||
 		manifest.RunType != finalWire.RunType ||

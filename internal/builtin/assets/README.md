@@ -119,35 +119,28 @@ flowchart LR
 
 ## Machine-Readable Contracts
 
-All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts remain frozen. Project-local doctor output uses `mulgae-doctor-result.v2`; provider/platform v1 evidence is compatibility-only and cannot enter readiness.
+All schemas use JSON Schema Draft 2020-12. Mulgae embeds one v1 contract
+for each supported document and does not carry superseded compatibility
+schemas.
 
 | Contract | File |
 |---|---|
-| Provider review output v1 | [mulgae-provider-review-output.v1.schema.json](schemas/mulgae-provider-review-output.v1.schema.json) |
-| Provider review output v2 | [mulgae-provider-review-output.v2.schema.json](schemas/mulgae-provider-review-output.v2.schema.json) |
-| Provider review wire v2 | [mulgae-provider-review-wire.v2.schema.json](schemas/mulgae-provider-review-wire.v2.schema.json) |
-| Provider followup output v1 | [mulgae-provider-followup-output.v1.schema.json](schemas/mulgae-provider-followup-output.v1.schema.json) |
-| Provider followup output v2 | [mulgae-provider-followup-output.v2.schema.json](schemas/mulgae-provider-followup-output.v2.schema.json) |
-| Final review artifact v1 | [mulgae-review-artifact.v1.schema.json](schemas/mulgae-review-artifact.v1.schema.json) |
-| Final review artifact v2 | [mulgae-review-artifact.v2.schema.json](schemas/mulgae-review-artifact.v2.schema.json) |
-| Final review artifact v3 | [mulgae-review-artifact.v3.schema.json](schemas/mulgae-review-artifact.v3.schema.json) |
-| Run manifest v1 | [mulgae-run-manifest.v1.schema.json](schemas/mulgae-run-manifest.v1.schema.json) |
-| Run manifest v2 | [mulgae-run-manifest.v2.schema.json](schemas/mulgae-run-manifest.v2.schema.json) |
-| Validation result v1 | [mulgae-validation-result.v1.schema.json](schemas/mulgae-validation-result.v1.schema.json) |
-| Validation result v2 | [mulgae-validation-result.v2.schema.json](schemas/mulgae-validation-result.v2.schema.json) |
+| Provider review output | [mulgae-provider-review-output.v1.schema.json](schemas/mulgae-provider-review-output.v1.schema.json) |
+| Provider review wire | [mulgae-provider-review-wire.v1.schema.json](schemas/mulgae-provider-review-wire.v1.schema.json) |
+| Provider followup output | [mulgae-provider-followup-output.v1.schema.json](schemas/mulgae-provider-followup-output.v1.schema.json) |
+| Final review artifact | [mulgae-review-artifact.v1.schema.json](schemas/mulgae-review-artifact.v1.schema.json) |
+| Run manifest | [mulgae-run-manifest.v1.schema.json](schemas/mulgae-run-manifest.v1.schema.json) |
+| Validation result | [mulgae-validation-result.v1.schema.json](schemas/mulgae-validation-result.v1.schema.json) |
 | Validation receipt | [mulgae-validation-receipt.v1.schema.json](schemas/mulgae-validation-receipt.v1.schema.json) |
 | Repair request | [mulgae-repair-request.v1.schema.json](schemas/mulgae-repair-request.v1.schema.json) |
 | Repair patch | [mulgae-repair-patch.v1.schema.json](schemas/mulgae-repair-patch.v1.schema.json) |
 | Command result envelope | [mulgae-command-result.v1.schema.json](schemas/mulgae-command-result.v1.schema.json) |
-| Doctor result v1 (compatibility) | [mulgae-doctor-result.v1.schema.json](schemas/mulgae-doctor-result.v1.schema.json) |
-| Project-local doctor result v2 | [mulgae-doctor-result.v2.schema.json](schemas/mulgae-doctor-result.v2.schema.json) |
+| Project-local doctor result | [mulgae-doctor-result.v1.schema.json](schemas/mulgae-doctor-result.v1.schema.json) |
 | Clean plan | [mulgae-clean-plan.v1.schema.json](schemas/mulgae-clean-plan.v1.schema.json) |
 | Export manifest | [mulgae-export-manifest.v1.schema.json](schemas/mulgae-export-manifest.v1.schema.json) |
 | G0 file catalog | [mulgae-g0-file-catalog.v1.schema.json](schemas/mulgae-g0-file-catalog.v1.schema.json) |
-| Provider contract evidence v1 (compatibility only) | [mulgae-provider-contract-evidence.v1.schema.json](schemas/mulgae-provider-contract-evidence.v1.schema.json) |
-| Provider contract evidence v2 (readiness authority) | [mulgae-provider-contract-evidence.v2.schema.json](schemas/mulgae-provider-contract-evidence.v2.schema.json) |
-| Platform contract evidence v1 (compatibility only) | [mulgae-platform-contract-evidence.v1.schema.json](schemas/mulgae-platform-contract-evidence.v1.schema.json) |
-| Platform contract evidence v2 (readiness authority) | [mulgae-platform-contract-evidence.v2.schema.json](schemas/mulgae-platform-contract-evidence.v2.schema.json) |
+| Provider contract evidence | [mulgae-provider-contract-evidence.v1.schema.json](schemas/mulgae-provider-contract-evidence.v1.schema.json) |
+| Platform contract evidence | [mulgae-platform-contract-evidence.v1.schema.json](schemas/mulgae-platform-contract-evidence.v1.schema.json) |
 See [schemas/README.md](schemas/README.md) for validation responsibilities and the distinction between JSON Schema checks and semantic checks.
 
 ## Examples
@@ -155,30 +148,22 @@ See [schemas/README.md](schemas/README.md) for validation responsibilities and t
 | Example | File |
 |---|---|
 | Project-local operator configuration | [local-config.yaml](examples/local-config.yaml) |
-| Valid provider review output v1 | [provider-review-output.valid.json](examples/provider-review-output.valid.json) |
-| Valid provider review output v2 | [provider-review-output.v2.valid.json](examples/provider-review-output.v2.valid.json) |
-| Valid provider review wire v2 | [provider-review-wire.v2.valid.json](examples/provider-review-wire.v2.valid.json) |
-| Valid provider followup output v1 | [provider-followup-output.valid.json](examples/provider-followup-output.valid.json) |
-| Valid provider followup output v2 | [provider-followup-output.v2.valid.json](examples/provider-followup-output.v2.valid.json) |
+| Valid provider review output | [provider-review-output.v1.valid.json](examples/provider-review-output.v1.valid.json) |
+| Valid provider review wire | [provider-review-wire.v1.valid.json](examples/provider-review-wire.v1.valid.json) |
+| Valid provider followup output | [provider-followup-output.v1.valid.json](examples/provider-followup-output.v1.valid.json) |
 | Repair request | [repair-request.json](examples/repair-request.json) |
 | Repair patch | [repair-patch.json](examples/repair-patch.json) |
-| Valid final artifact v1 | [review-artifact.valid.json](examples/review-artifact.valid.json) |
-| Valid final artifact v2 | [review-artifact.v2.valid.json](examples/review-artifact.v2.valid.json) |
-| Valid run manifest v1 | [run-manifest.valid.json](examples/run-manifest.valid.json) |
-| Valid run manifest v2 | [run-manifest.v2.valid.json](examples/run-manifest.v2.valid.json) |
-| Valid validation result v1 | [validation-result.valid.json](examples/validation-result.valid.json) |
-| Valid validation result v2 | [validation-result.v2.valid.json](examples/validation-result.v2.valid.json) |
+| Valid final artifact | [review-artifact.v1.valid.json](examples/review-artifact.v1.valid.json) |
+| Valid run manifest | [run-manifest.v1.valid.json](examples/run-manifest.v1.valid.json) |
+| Valid validation result | [validation-result.v1.valid.json](examples/validation-result.v1.valid.json) |
 | Validation receipt | [validation-receipt.v1.valid.json](examples/validation-receipt.v1.valid.json) |
 | Command result envelope | [command-result.v1.valid.json](examples/command-result.v1.valid.json) |
-| Doctor result v1 (compatibility) | [doctor-result.v1.valid.json](examples/doctor-result.v1.valid.json) |
-| Project-local doctor result v2 | [doctor-result.v2.valid.json](examples/doctor-result.v2.valid.json) |
+| Project-local doctor result | [doctor-result.v1.valid.json](examples/doctor-result.v1.valid.json) |
 | Clean plan | [clean-plan.v1.valid.json](examples/clean-plan.v1.valid.json) |
 | Export manifest | [export-manifest.v1.valid.json](examples/export-manifest.v1.valid.json) |
 | G0 file catalog | [g0-file-catalog.v1.valid.json](examples/g0-file-catalog.v1.valid.json) |
-| Provider contract evidence v1 (compatibility only) | [provider-contract-evidence.v1.valid.json](examples/provider-contract-evidence.v1.valid.json) |
-| Provider contract evidence v2 | [provider-contract-evidence.v2.valid.json](examples/provider-contract-evidence.v2.valid.json) |
-| Platform contract evidence v1 (compatibility only) | [platform-contract-evidence.v1.valid.json](examples/platform-contract-evidence.v1.valid.json) |
-| Platform contract evidence v2 | [platform-contract-evidence.v2.valid.json](examples/platform-contract-evidence.v2.valid.json) |
+| Provider contract evidence | [provider-contract-evidence.v1.valid.json](examples/provider-contract-evidence.v1.valid.json) |
+| Platform contract evidence | [platform-contract-evidence.v1.valid.json](examples/platform-contract-evidence.v1.valid.json) |
 | Canonical artifact tree | [artifact-tree.txt](examples/artifact-tree.txt) |
 
 ## Minimal User Workflow
@@ -216,7 +201,7 @@ The repository records historical G001–G012 evidence. G013 is **RELEASE_READY*
 | G007 | Provider adapters for supported families `kimi`, `zcode`, and `agy`; direct noninteractive profiles, isolated output, bounded/cancellable processes, runtime-capability diagnostics, provenance capture, unlisted-family rejection, and provider CLI reporting | **HISTORICAL — COMPLETE** | `feat(g007)` |
 | G008 | Fake/offline root/followup/delta/rerun lineage and P2 publication proof; not production root review | **HISTORICAL — COMPLETE** | `feat(g008)` |
 | G009 | Historical integrated v0.1 gate; no release publication | **REOPENED_PRODUCTION_REVIEW_INCOMPLETE** | **HISTORICAL_GATE_PASS_NON_PRODUCTION** |
-| G010 | Config v2 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
+| G010 | Config v1 assignments, configured fallback, production child workflows, and historical real-provider full-workflow gate | **HISTORICAL — COMPLETE** | `g010` |
 | G011 | Corrected deterministic acceptance and live provider-family certification under the sole `make test` gate | **RELEASE_READY** | `g011` |
 | G012 | Restore exact release-binary actual-provider root/child workflow coverage while retaining family capability certification | **RELEASE_READY** | `g012` |
 | G013 | Exercise production Kimi login recovery before fail-closed family capability certification | **RELEASE_READY** | `g013` |

@@ -3393,7 +3393,7 @@ func coordinatorVerifiedEvidenceFixture(
 		return validation.ValidatedReview{}, nil, err
 	}
 	raw := fmt.Sprintf(
-		`{"schema_version":"mulgae-provider-review-output.v3","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
+		`{"schema_version":"mulgae-provider-review-output.v1","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
 		string(input.severity),
 		input.title,
 		input.path,

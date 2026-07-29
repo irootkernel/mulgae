@@ -159,7 +159,7 @@ type foundationEvidenceReader struct {
 	toolsCalls           int
 }
 
-func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, providerID string) (doctor.ProviderV2Evidence, error) {
+func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, providerID string) (doctor.ProviderEvidenceRecord, error) {
 	reader.providerCalls = append(reader.providerCalls, providerID)
 	probes := []doctor.ProbeObservation{
 		{ID: "PV-VERSION", Status: doctor.EvidenceStatusPass},
@@ -183,8 +183,8 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 	if configuredURI, configured := reader.providerEvidenceURIs[providerID]; configured {
 		uri = configuredURI
 	}
-	return doctor.ProviderV2Evidence{
-		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json",
+	return doctor.ProviderEvidenceRecord{
+		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json",
 		ProviderID:              providerID,
 		URI:                     uri,
 		SHA256:                  strings.Repeat("a", 64),
@@ -194,9 +194,9 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 	}, nil
 }
 
-func (reader *foundationEvidenceReader) PlatformEvidence(_ context.Context, cell doctor.PlatformCell) (doctor.PlatformV2Evidence, error) {
+func (reader *foundationEvidenceReader) PlatformEvidence(_ context.Context, cell doctor.PlatformCell) (doctor.PlatformEvidenceRecord, error) {
 	reader.platformCalls = append(reader.platformCalls, cell)
-	return doctor.PlatformV2Evidence{}, errors.New("platform evidence was not injected")
+	return doctor.PlatformEvidenceRecord{}, errors.New("platform evidence was not injected")
 }
 
 func (reader *foundationEvidenceReader) ToolsLock(context.Context) (doctor.ToolsLockObservation, error) {
@@ -206,12 +206,12 @@ func (reader *foundationEvidenceReader) ToolsLock(context.Context) (doctor.Tools
 
 type typedNilFoundationEvidenceReader struct{}
 
-func (*typedNilFoundationEvidenceReader) ProviderEvidence(context.Context, string) (doctor.ProviderV2Evidence, error) {
-	return doctor.ProviderV2Evidence{}, nil
+func (*typedNilFoundationEvidenceReader) ProviderEvidence(context.Context, string) (doctor.ProviderEvidenceRecord, error) {
+	return doctor.ProviderEvidenceRecord{}, nil
 }
 
-func (*typedNilFoundationEvidenceReader) PlatformEvidence(context.Context, doctor.PlatformCell) (doctor.PlatformV2Evidence, error) {
-	return doctor.PlatformV2Evidence{}, nil
+func (*typedNilFoundationEvidenceReader) PlatformEvidence(context.Context, doctor.PlatformCell) (doctor.PlatformEvidenceRecord, error) {
+	return doctor.PlatformEvidenceRecord{}, nil
 }
 
 func (*typedNilFoundationEvidenceReader) ToolsLock(context.Context) (doctor.ToolsLockObservation, error) {
@@ -1726,7 +1726,7 @@ func TestPolicyReviewRunServiceUsesProjectDefaultOrExactExplicitSubset(t *testin
 	}
 }
 
-func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV2Defaults(t *testing.T) {
+func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t *testing.T) {
 	defaults, err := ports.NewArtistReviewInputs("ux-ui-info.md", []string{"design-specs/**/*.png"})
 	if err != nil {
 		t.Fatal(err)

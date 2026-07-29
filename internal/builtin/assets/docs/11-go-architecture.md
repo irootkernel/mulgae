@@ -302,9 +302,9 @@ Embed the generated SOT archive using `go:embed`. Canonical SOT assets retain
 their source-derived IDs, schema `$id` URLs, or help aliases, for example:
 
 ```text
-sot:prompts/root-review/common.v2.txt
+sot:prompts/root-review/common.v1.txt
 roles/security.yaml
-https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json
+https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json
 help:security
 ```
 
@@ -333,14 +333,14 @@ mulgae-provider-review-output.v1           compatibility reader only
 mulgae-provider-followup-output.v1         compatibility reader only
 mulgae-review-artifact.v1                  compatibility reader only
 mulgae-run-manifest.v1                     compatibility reader only
-mulgae-provider-review-output.v2           G0 execution contract
-mulgae-provider-followup-output.v2         G0 execution contract
-mulgae-review-artifact.v3                  G0 publication contract
-mulgae-run-manifest.v2                     G0 publication contract
+mulgae-provider-review-output.v1           G0 execution contract
+mulgae-provider-followup-output.v1         G0 execution contract
+mulgae-review-artifact.v1                  G0 publication contract
+mulgae-run-manifest.v1                     G0 publication contract
 mulgae-provider-contract-evidence.v1       compatibility-only; never readiness authority
 mulgae-platform-contract-evidence.v1       compatibility-only; never readiness authority
-mulgae-provider-contract-evidence.v2       family evidence readiness authority
-mulgae-platform-contract-evidence.v2       platform evidence readiness authority
+mulgae-provider-contract-evidence.v1       family evidence readiness authority
+mulgae-platform-contract-evidence.v1       platform evidence readiness authority
 ```
 
 Within a major schema version, additions require careful `additionalProperties` policy and backward-compatible readers. Breaking field or semantic changes require a new schema version and migration/read compatibility plan.

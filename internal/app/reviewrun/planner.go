@@ -106,7 +106,7 @@ type RoleProviderAssignment struct {
 	fallback Family
 }
 
-// NewRoleProviderAssignment validates one explicit Config v2 assignment.
+// NewRoleProviderAssignment validates one explicit Config v1 assignment.
 func NewRoleProviderAssignment(role domain.Role, primary, fallback Family) (RoleProviderAssignment, error) {
 	if !role.Valid() || !primary.Valid() || (fallback != "" && (!fallback.Valid() || fallback == primary)) {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
@@ -123,7 +123,7 @@ func (assignment RoleProviderAssignment) Fallback() (Family, bool) {
 	return assignment.fallback, assignment.fallback != ""
 }
 
-// PlannerPolicy supplies trusted execution limits, explicit Config v2
+// PlannerPolicy supplies trusted execution limits, explicit Config v1
 // provider assignments, and outcome policy. Zero threshold, ceilings, and lane
 // count select the closed defaults; assignments never default.
 type PlannerPolicy struct {

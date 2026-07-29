@@ -15,10 +15,10 @@ const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests
 const fixedCommandSpecCount = 17
 
 const (
-	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
-	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
-	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
-	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json"
+	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json"
+	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
 	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
 	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
 	exportManifestContractURI           = "https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json"

@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	doctorResultSchema = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
+	doctorResultSchema = "https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json"
 )
 
 type applicationCommandHandler func(*Application, context.Context, Invocation, string) execution
@@ -1180,8 +1180,8 @@ func configLocalityFailureCode(err error, fallback string) string {
 	return fallback
 }
 
-func localProviderAdmission(evidence doctor.ProviderV2Evidence, family string) (admitted, unsafe bool) {
-	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
+func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {
+	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
 		return false, false
 	}
 	if _, err := hex.DecodeString(evidence.SHA256); err != nil || evidence.SecureWriterIndexStatus != doctor.EvidenceStatusPass || evidence.AssignmentStatus != doctor.EvidenceStatusPass {

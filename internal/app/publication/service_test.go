@@ -173,7 +173,7 @@ func TestRepairedCandidateAndPatchStdoutHaveDistinctCanonicalArtifacts(t *testin
 	attempt.invocations = append(attempt.invocations, preparedInvocation{
 		sequence: 2, purpose: domain.InvocationRepair, state: domain.InvocationSucceeded,
 	})
-	reconstructed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","findings":[]}`)
+	reconstructed := []byte(`{"schema_version":"mulgae-provider-review-output.v1","findings":[]}`)
 	patch := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[]}`)
 	repaired, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactRepairedCandidate, reconstructed, false)
 	if err != nil {

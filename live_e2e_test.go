@@ -25,8 +25,8 @@ import (
 
 const (
 	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
-	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
-	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
 
 type liveE2EEnvironment struct {
@@ -195,7 +195,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	}
 	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one mulgae-provider-review-output.v3 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one mulgae-provider-review-output.v1 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)

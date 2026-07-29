@@ -99,7 +99,7 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion            = 2
+	ConfigVersion            = 1
 	DefaultKimiModel         = "kimi-code/kimi-for-coding"
 	DefaultAGYPermissionMode = "safe"
 	ConfigRelativePath       = ".mulgae/config.yaml"
@@ -143,7 +143,7 @@ func CanonicalRolesConfigForUI(families []string) (RolesConfig, error) {
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
-// every Config v2 role while enabling only the canonical project role set.
+// every Config v1 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
 func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesConfig, error) {
 	configured := make(map[string]struct{}, len(families))

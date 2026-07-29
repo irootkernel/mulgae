@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mulgae:schema:review-artifact:v1",
+  "$id": "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json",
   "title": "Mulgae Final Review Artifact v1",
   "type": "object",
   "additionalProperties": false,
@@ -12,14 +12,17 @@
     "run_type",
     "created_at",
     "mulgae",
-    "lineage",
+    "immutable_lineage",
     "target",
     "validation",
-    "coverage",
-    "assessment",
-    "role_results",
+    "content_verdict",
+    "coverage_status",
+    "publication_status",
+    "ci_decision",
+    "ci_reason_codes",
+    "severity_threshold",
+    "role_outcomes",
     "findings",
-    "followup",
     "limitations",
     "provenance"
   ],
@@ -28,25 +31,16 @@
       "const": "mulgae-review-artifact.v1"
     },
     "session_id": {
-      "type": "string",
-      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "$ref": "#/$defs/session_id"
     },
     "run_id": {
-      "type": "string",
-      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "$ref": "#/$defs/run_id"
     },
     "review_id": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "$ref": "#/$defs/review_id"
     },
     "run_type": {
-      "type": "string",
-      "enum": [
-        "review",
-        "followup",
-        "delta",
-        "rerun"
-      ]
+      "$ref": "#/$defs/run_type"
     },
     "created_at": {
       "type": "string",
@@ -74,14 +68,180 @@
         }
       }
     },
-    "lineage": {
+    "immutable_lineage": {
+      "$ref": "#/$defs/immutable_lineage"
+    },
+    "followup_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/followup_outcome"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "validation": {
+      "$ref": "#/$defs/validation"
+    },
+    "content_verdict": {
+      "$ref": "#/$defs/content_verdict"
+    },
+    "coverage_status": {
+      "$ref": "#/$defs/coverage_status"
+    },
+    "publication_status": {
+      "$ref": "#/$defs/publication_status"
+    },
+    "ci_decision": {
+      "$ref": "#/$defs/ci_decision"
+    },
+    "ci_reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason_code"
+      }
+    },
+    "severity_threshold": {
+      "$ref": "#/$defs/severity_threshold"
+    },
+    "role_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/role_outcome"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9:-]+:[0-9a-f]{64}$",
+      "maxLength": 256
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "review",
+        "followup",
+        "delta",
+        "rerun"
+      ]
+    },
+    "content_verdict": {
+      "type": "string",
+      "enum": [
+        "no_findings",
+        "findings_present",
+        "request_changes"
+      ]
+    },
+    "coverage_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "degraded",
+        "incomplete"
+      ]
+    },
+    "publication_status": {
+      "type": "string",
+      "enum": [
+        "not_published",
+        "staged",
+        "installed",
+        "committed",
+        "corrupt"
+      ]
+    },
+    "ci_decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "blocker"
+      ]
+    },
+    "immutable_lineage": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "parent_run_id",
         "source_run_id",
+        "source_review_id",
         "source_finding_ref",
-        "replay_mode"
+        "replay_mode",
+        "lineage_edge_path",
+        "lineage_edge_sha256"
       ],
       "properties": {
         "parent_run_id": {
@@ -90,8 +250,7 @@
               "type": "null"
             },
             {
-              "type": "string",
-              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              "$ref": "#/$defs/run_id"
             }
           ]
         },
@@ -101,8 +260,17 @@
               "type": "null"
             },
             {
-              "type": "string",
-              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              "$ref": "#/$defs/run_id"
+            }
+          ]
+        },
+        "source_review_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/review_id"
             }
           ]
         },
@@ -111,7 +279,7 @@
             "string",
             "null"
           ],
-          "maxLength": 256
+          "pattern": "^F[0-9]{3,}$"
         },
         "replay_mode": {
           "type": [
@@ -123,6 +291,12 @@
             "recompose",
             null
           ]
+        },
+        "lineage_edge_path": {
+          "$ref": "#/$defs/path"
+        },
+        "lineage_edge_sha256": {
+          "$ref": "#/$defs/sha256"
         }
       }
     },
@@ -130,91 +304,31 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "kind",
         "content_sha256",
-        "previous_content_sha256",
+        "manifest_path",
         "base_oid",
-        "head_oid",
-        "head_tree_oid",
-        "index_tree_oid",
-        "include_untracked",
-        "manifest_path"
+        "head_oid"
       ],
       "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "git_snapshot",
-            "patch",
-            "stdin_patch"
-          ]
-        },
         "content_sha256": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "previous_content_sha256": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          ]
-        },
-        "base_oid": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
-            }
-          ]
-        },
-        "head_oid": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
-            }
-          ]
-        },
-        "head_tree_oid": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
-            }
-          ]
-        },
-        "index_tree_oid": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
-            }
-          ]
-        },
-        "include_untracked": {
-          "type": "boolean"
+          "$ref": "#/$defs/sha256"
         },
         "manifest_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "$ref": "#/$defs/path"
+        },
+        "base_oid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head_oid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         }
       }
     },
@@ -223,7 +337,6 @@
       "additionalProperties": false,
       "required": [
         "status",
-        "repair_count",
         "schema_validation",
         "semantic_validation",
         "evidence_validation"
@@ -235,11 +348,6 @@
             "valid",
             "repaired_valid"
           ]
-        },
-        "repair_count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 20
         },
         "schema_validation": {
           "const": "passed"
@@ -256,250 +364,108 @@
         }
       }
     },
-    "coverage": {
+    "severity_threshold": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "selected_roles",
-        "required_roles",
-        "completed_roles",
-        "degraded_roles",
-        "missing_roles"
+        "request_changes_at_or_above",
+        "policy_source"
       ],
       "properties": {
-        "selected_roles": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
-          }
+        "request_changes_at_or_above": {
+          "$ref": "#/$defs/severity"
         },
-        "required_roles": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
-          }
-        },
-        "completed_roles": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
-          }
-        },
-        "degraded_roles": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
-          }
-        },
-        "missing_roles": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
-          }
+        "policy_source": {
+          "const": "project_local"
         }
       }
     },
-    "assessment": {
+    "role_outcome": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "verdict",
-        "summary"
+        "role",
+        "required",
+        "outcome",
+        "attempt_id",
+        "provider_instance",
+        "selected_via",
+        "valid_finding_ids",
+        "failure_reason",
+        "limitations"
       ],
       "properties": {
-        "verdict": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "outcome": {
           "type": "string",
           "enum": [
-            "no_findings",
-            "findings_present",
-            "request_changes",
-            "incomplete"
+            "completed",
+            "degraded",
+            "failed",
+            "not_applicable",
+            "skipped"
           ]
         },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8000
-        }
-      }
-    },
-    "role_results": {
-      "type": "array",
-      "maxItems": 200,
-      "items": {
-        "$ref": "#/$defs/role_result"
-      }
-    },
-    "findings": {
-      "type": "array",
-      "maxItems": 1000,
-      "items": {
-        "$ref": "#/$defs/final_finding"
-      }
-    },
-    "followup": {
-      "oneOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "source_finding_ref",
-            "resolution",
-            "rationale",
-            "evidence",
-            "new_finding_ids"
-          ],
-          "properties": {
-            "source_finding_ref": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
+        "attempt_id": {
+          "oneOf": [
+            {
+              "type": "null"
             },
-            "resolution": {
-              "type": "string",
-              "enum": [
-                "resolved",
-                "partially_resolved",
-                "still_open",
-                "unclear"
-              ]
-            },
-            "rationale": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 12000
-            },
-            "evidence": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 20,
-              "items": {
-                "$ref": "#/$defs/final_evidence"
-              }
-            },
-            "new_finding_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^F[0-9]{3,}$"
-              }
+            {
+              "$ref": "#/$defs/attempt_id"
             }
-          }
-        }
-      ]
-    },
-    "limitations": {
-      "type": "array",
-      "maxItems": 100,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 2000
-      }
-    },
-    "provenance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "target_sha256",
-        "aggregation_path",
-        "final_validation_path"
-      ],
-      "properties": {
-        "target_sha256": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "aggregation_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "final_validation_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        }
-      }
-    }
-  },
-  "$defs": {
-    "final_evidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "path",
-        "side",
-        "line_start",
-        "line_end",
-        "quote",
-        "verification",
-        "excerpt_ref"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "side": {
-          "type": "string",
-          "enum": [
-            "old",
-            "new",
-            "context",
-            "unknown"
           ]
         },
-        "line_start": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "line_end": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "quote": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8000
-        },
-        "verification": {
-          "type": "string",
-          "enum": [
-            "verified",
-            "partially_verified",
-            "unverified",
-            "invalid_path",
-            "invalid_line",
-            "quote_mismatch",
-            "outside_review_scope"
-          ]
-        },
-        "excerpt_ref": {
+        "provider_instance": {
           "type": [
             "string",
             "null"
           ],
-          "maxLength": 4096
+          "maxLength": 128
+        },
+        "selected_via": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "primary",
+            "fallback",
+            null
+          ]
+        },
+        "valid_finding_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^F[0-9]{3,}$"
+          }
+        },
+        "failure_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
         }
       }
     },
-    "final_finding": {
+    "finding": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -521,12 +487,10 @@
           "pattern": "^F[0-9]{3,}$"
         },
         "fingerprint": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "$ref": "#/$defs/sha256"
         },
         "role": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          "$ref": "#/$defs/role"
         },
         "provider_instance": {
           "type": "string",
@@ -534,15 +498,7 @@
           "maxLength": 128
         },
         "severity": {
-          "type": "string",
-          "enum": [
-            "info",
-            "low",
-            "medium",
-            "high",
-            "critical",
-            "blocker"
-          ]
+          "$ref": "#/$defs/severity"
         },
         "title": {
           "type": "string",
@@ -559,7 +515,7 @@
           "minItems": 1,
           "maxItems": 20,
           "items": {
-            "$ref": "#/$defs/final_evidence"
+            "$ref": "#/$defs/evidence"
           }
         },
         "recommendation": {
@@ -586,103 +542,383 @@
         }
       }
     },
-    "role_result": {
+    "evidence": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "role",
-        "provider_instance",
-        "attempt_id",
-        "selected_via",
-        "summary",
-        "completeness",
-        "limitations",
-        "validation_status",
-        "finding_ids"
+        "source",
+        "current"
       ],
       "properties": {
-        "role": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        "source": {
+          "$ref": "#/$defs/source_evidence"
         },
-        "provider_instance": {
+        "current": {
+          "$ref": "#/$defs/current_evidence"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual_evidence"
+        }
+      }
+    },
+	"visual_evidence": {
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": ["path", "sha256", "bbox", "verification"],
+	  "properties": {
+	    "path": {"$ref": "#/$defs/path"},
+	    "sha256": {"$ref": "#/$defs/sha256"},
+	    "bbox": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": ["x", "y", "width", "height"],
+	      "properties": {
+	        "x": {"type": "integer", "minimum": 0},
+	        "y": {"type": "integer", "minimum": 0},
+	        "width": {"type": "integer", "minimum": 1},
+	        "height": {"type": "integer", "minimum": 1}
+	      }
+	    },
+	    "verification": {"const": "verified"}
+	  }
+	},
+    "source_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "run_id",
+        "review_id",
+        "finding_id",
+        "source_target_sha256",
+        "source_excerpt_sha256"
+      ],
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/session_id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "finding_id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}$"
+        },
+        "source_target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_excerpt_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "current_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_sha256",
+        "current_excerpt_sha256",
+        "side",
+        "path",
+        "line_start",
+        "line_end",
+        "quote",
+        "verification"
+      ],
+      "properties": {
+        "target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "current_excerpt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "base",
+            "head",
+            "worktree",
+            "index"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "claimed",
+            "verified",
+            "stale",
+            "invalid",
+            "unverifiable"
+          ]
+        }
+      }
+    },
+    "followup_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution",
+        "rationale",
+        "evidence"
+      ],
+      "properties": {
+        "resolution": {
+          "enum": [
+            "resolved",
+            "partially_resolved",
+            "still_open",
+            "unclear"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "production_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "build_product",
+        "build_version",
+        "build_commit",
+        "objective_sha256",
+        "objective_present",
+        "snapshot_manifest_sha256",
+        "workspace_terminal_receipt",
+        "providers"
+      ],
+      "properties": {
+        "build_product": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128
         },
-        "attempt_id": {
-          "type": "string",
-          "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-        },
-        "selected_via": {
-          "type": "string",
-          "enum": [
-            "primary",
-            "fallback"
-          ]
-        },
-        "summary": {
+        "build_version": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 4000
+          "maxLength": 128
         },
-        "completeness": {
+        "build_commit": {
           "type": "string",
-          "enum": [
-            "complete",
-            "incomplete"
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "objective_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "limitations": {
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          }
+        "objective_present": {
+          "type": "boolean"
         },
-        "validation_status": {
-          "type": "string",
-          "enum": [
-            "valid",
-            "repaired_valid"
-          ]
+        "snapshot_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
         },
-        "finding_ids": {
+        "workspace_terminal_receipt": {
+          "$ref": "#/$defs/receipt_id"
+        },
+        "providers": {
           "type": "array",
-          "uniqueItems": true,
+          "minItems": 1,
           "items": {
-            "type": "string",
-            "pattern": "^F[0-9]{3,}$"
-          }
-        }
-      }
-    }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "run_type": {
-            "const": "followup"
+            "$ref": "#/$defs/production_provider"
           }
         }
       },
-      "then": {
-        "properties": {
-          "followup": {
-            "type": "object"
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_present": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "objective_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "objective_sha256": {
+                "type": "null"
+              }
+            }
           }
         }
-      },
-      "else": {
-        "properties": {
-          "followup": {
-            "type": "null"
+      ]
+    },
+    "production_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "instance",
+        "version",
+        "executable",
+        "executable_sha256",
+        "launcher",
+        "launcher_sha256",
+        "profile_generation",
+        "adapter_profile",
+        "qualification_receipt_ids",
+        "packet_transport_receipt_ids",
+        "namespace_terminal_receipt"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "launcher": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "launcher_sha256": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        },
+        "profile_generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "adapter_profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "qualification_receipt_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/receipt_id"
           }
+        },
+        "packet_transport_receipt_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/receipt_id"
+          }
+        },
+        "namespace_terminal_receipt": {
+          "$ref": "#/$defs/receipt_id"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "launcher": {
+                "const": ""
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "launcher_sha256": {
+                "const": ""
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "launcher": {
+                "minLength": 1
+              },
+              "launcher_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aggregation_path",
+        "final_validation_path",
+        "manifest_path"
+      ],
+      "properties": {
+        "aggregation_path": {
+          "$ref": "#/$defs/path"
+        },
+        "final_validation_path": {
+          "$ref": "#/$defs/path"
+        },
+        "manifest_path": {
+          "$ref": "#/$defs/path"
+        },
+        "production": {
+          "$ref": "#/$defs/production_provenance"
         }
       }
     }
-  ]
+  }
 }

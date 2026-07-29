@@ -356,7 +356,7 @@ func NewPolicyReviewRunService(service ReviewRunService, _ []domain.Role, enable
 	return newPolicyReviewRunService(service, enabled, ports.ArtistReviewInputs{}, false)
 }
 
-// NewPolicyReviewRunServiceWithArtistInputs binds Config v2 artist inputs as
+// NewPolicyReviewRunServiceWithArtistInputs binds Config v1 artist inputs as
 // review defaults. Request-scoped values are resolved after role selection.
 func NewPolicyReviewRunServiceWithArtistInputs(service ReviewRunService, _ []domain.Role, enabled map[domain.Role]bool, artistInputs ports.ArtistReviewInputs) ReviewRunService {
 	return newPolicyReviewRunService(service, enabled, artistInputs, true)

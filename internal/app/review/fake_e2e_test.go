@@ -238,9 +238,9 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	initialRaw := []byte(`{"schema_version":"mulgae-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	initialRaw := []byte(`{"schema_version":"mulgae-provider-review-output.v1","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 	repairRaw := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
-	validNoFindings := []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
+	validNoFindings := []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
 
 	sessionID := parseE2ESession(t, 1)
 	runID := parseE2ERun(t, 2)

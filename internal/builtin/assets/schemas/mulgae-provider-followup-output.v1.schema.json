@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mulgae:schema:provider-followup-output:v1",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json",
   "title": "Mulgae Provider Followup Output v1",
+  "description": "Provider-owned followup output, not a Mulgae command request. Evidence source identity and current verification identity are distinct; only current.verification may be verified.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -63,30 +64,85 @@
     }
   },
   "$defs": {
-    "evidence": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^F[0-9]{3,}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*//)(?!.*\\/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$"
+    },
+    "source": {
+      "description": "Mulgae-injected immutable source review/finding identity for the normalized provider result; the provider does not generate these fields and source has no current verification state.",
+      "readOnly": true,
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "path",
-        "side",
-        "line_start",
-        "line_end",
-        "quote"
+        "session_id",
+        "run_id",
+        "review_id",
+        "finding_id",
+        "source_target_sha256",
+        "source_excerpt_sha256"
       ],
       "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+        "session_id": {
+          "$ref": "#/$defs/session_id"
         },
-        "side": {
-          "type": "string",
-          "enum": [
-            "old",
-            "new",
-            "context",
-            "unknown"
-          ]
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "finding_id": {
+          "$ref": "#/$defs/finding_id"
+        },
+        "source_target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_excerpt_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "current": {
+      "description": "Provider location claim against the current target. Mulgae owns every post-validation state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_sha256",
+        "path",
+        "line_start",
+        "line_end",
+        "side",
+        "quote",
+        "verification"
+      ],
+      "properties": {
+        "target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
         },
         "line_start": {
           "type": "integer",
@@ -96,10 +152,38 @@
           "type": "integer",
           "minimum": 1
         },
+        "side": {
+          "type": "string",
+          "enum": [
+            "base",
+            "head",
+            "worktree",
+            "index"
+          ]
+        },
         "quote": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 8000
+          "minLength": 1
+        },
+        "verification": {
+          "const": "claimed",
+          "description": "Provider output may only claim a location. Mulgae computes verified, stale, invalid, or unverifiable in validation/final artifacts."
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "current"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "current": {
+          "$ref": "#/$defs/current"
         }
       }
     },

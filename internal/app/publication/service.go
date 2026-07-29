@@ -1162,7 +1162,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if manifest.SchemaVersion != "mulgae-run-manifest.v2" ||
+	if manifest.SchemaVersion != "mulgae-run-manifest.v1" ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||

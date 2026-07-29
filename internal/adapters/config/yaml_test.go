@@ -58,7 +58,7 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 	}
 }
 
-func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
+func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	config := validConfig()
 	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
 	config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
@@ -78,9 +78,9 @@ func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
 		}
 	}
-	v1 := strings.Replace(string(encoded), "version: 2", "version: 1", 1)
-	if _, err := Decode([]byte(v1)); err == nil {
-		t.Fatal("Config v1 was accepted")
+	future := strings.Replace(string(encoded), "version: 1", "version: 2", 1)
+	if _, err := Decode([]byte(future)); err == nil {
+		t.Fatal("future config version was accepted")
 	}
 	invalid := config
 	invalid.Roles.Logic.FallbackProvider = "kimi"
@@ -89,7 +89,7 @@ func TestConfigV2RoleAssignmentsAndV1Rejection(t *testing.T) {
 	}
 }
 
-func TestConfigV2RoundTripsArtistBriefPath(t *testing.T) {
+func TestConfigV1RoundTripsArtistBriefPath(t *testing.T) {
 	config := validConfig()
 	config.Project.Kind = ProjectKindUI
 	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}}
@@ -114,7 +114,7 @@ func TestConfigV2RoundTripsArtistBriefPath(t *testing.T) {
 	}
 }
 
-func TestConfigV2AllowsUIWithoutArtist(t *testing.T) {
+func TestConfigV1AllowsUIWithoutArtist(t *testing.T) {
 	config := validConfig()
 	config.Project.Kind = ProjectKindUI
 	encoded, err := EncodeCanonical(config)
