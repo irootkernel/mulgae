@@ -12,7 +12,7 @@ import (
 const commandResultContractURI = "https://kar.local/schemas/kar-command-result.v1.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
-const fixedCommandSpecCount = 18
+const fixedCommandSpecCount = 17
 
 const (
 	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
@@ -20,7 +20,6 @@ const (
 	reviewArtifactContractURI           = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
 	providerFollowupOutputContractURI   = "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json"
 	providerContractEvidenceContractURI = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
-	promptManifestContractURI           = "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json"
 	cleanPlanContractURI                = "https://kar.local/schemas/kar-clean-plan.v1.schema.json"
 	exportManifestContractURI           = "https://kar.local/schemas/kar-export-manifest.v1.schema.json"
 )
@@ -57,7 +56,7 @@ func (spec CommandSpec) TypedExits() []app.ExitCode {
 	return cloneExitCodes(spec.typedExits)
 }
 
-// CommandSpecs returns a fresh copy of the canonical, ordered 18-command registry.
+// CommandSpecs returns a fresh copy of the canonical, ordered 17-command registry.
 func CommandSpecs() []CommandSpec {
 	return canonicalCommandSpecs()
 }
@@ -98,7 +97,7 @@ func canonicalCommandSpecs() []CommandSpec {
 		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandFollowup, "internal/app/followup", "StartFollowupRun", []string{providerFollowupOutputContractURI, runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandDelta, "internal/app/delta", "StartDeltaRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandStatus, "internal/app/query", "ReadRunStatus", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandReport, "internal/app/report", "RenderReport", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandFindings, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
@@ -106,7 +105,6 @@ func canonicalCommandSpecs() []CommandSpec {
 		newCommandSpec(app.CommandProviders, "internal/app/providers", "ListProviderProfiles", []string{providerContractEvidenceContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandRoles, "internal/app/roles", "ListRoles", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
 		newCommandSpec(app.CommandConfig, "internal/app/config", "ResolveConfiguration", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandPrompt, "internal/app/prompt", "InspectPrompt", []string{promptManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandSchema, "internal/app/schema", "InspectSchema", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),
 		newCommandSpec(app.CommandClean, "internal/app/clean", "PlanAndApplyRetention", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandExport, "internal/app/export", "ExportRedactedRun", []string{exportManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),

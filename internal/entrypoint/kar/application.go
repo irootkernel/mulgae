@@ -1202,13 +1202,6 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			ConfigURI    string     `json:"config_uri"`
 			ConfigSHA256 string     `json:"config_sha256"`
 		}{"configuration_failed", request.Mode(), ".kar/config.yaml", ""})
-	case app.CommandPrompt:
-		return json.Marshal(struct {
-			Kind                 string  `json:"kind"`
-			PromptManifestURI    *string `json:"prompt_manifest_uri"`
-			CompleteStdinSHA256  *string `json:"complete_stdin_sha256"`
-			GuardedBytesIncluded bool    `json:"guarded_bytes_included"`
-		}{"prompt_inspected", nil, nil, false})
 	case app.CommandSchema:
 		request, available := invocation.Schema()
 		if !available {
@@ -1510,7 +1503,6 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandClean:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandExport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandPrompt:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeInternal: true},
 	}
 	return allowed[command][requested]
 }

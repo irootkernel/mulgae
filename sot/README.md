@@ -16,9 +16,9 @@ KAR reports findings and recommendations only.
 
 ## SOT 1.15.0 Contract and Implementation Baseline
 
-This package defines an 86-path/85-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.15.0 preserves G001–G012 as history and closes G013 by ordering the exact release-binary workflow before live family certification. That order exercises KAR's bounded Kimi login recovery before the independent capability gate while retaining both layers as mandatory, fail-closed release evidence.
+This package defines an 84-path/83-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.15.0 preserves G001–G012 as history and closes G013 by ordering the exact release-binary workflow before live family certification. That order exercises KAR's bounded Kimi login recovery before the independent capability gate while retaining both layers as mandatory, fail-closed release evidence.
 
-The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 86-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
+The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 84-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
 | Readiness axis | Status |
 |---|---|
@@ -32,7 +32,7 @@ Revision 15 keeps `darwin-arm64` as the sole G0 `required`/blocking native platf
 
 Provider and platform evidence v1 remains byte-identical compatibility-only input. G001 completed the required v2 G0 readiness conjunction for exactly `kimi`, `zcode`, and `agy`; that G0 family qualification evidence remains separate from current runtime support. G007 provides adapters for those families with direct noninteractive profiles, strict output isolation, process bounds and cancellation, runtime-capability validation, strict rejection of unlisted families, and provider CLI reporting. A configured `kimi`, `zcode`, or `agy` instance is supported when its family and runtime capability contract are satisfied; user version pins, executable paths, SHA allowlists, and profiles are diagnostic provenance for issue reports and reproducibility, never general runtime authorization. Unknown or new versions are not denied solely for identity. Capability failures produce actionable typed diagnostics, and known incompatibilities may be explicitly blocked. No automatic provider substitution occurs. Historical G008 evidence covers fake/offline root/followup/delta/rerun lineage and P2 publication proof, raw and repaired attempt artifacts, runtime target and prompt inventories, retention/tombstone cleanup, and redacted secure export; it is not production root-review proof. The retained controlled Kimi tuple receipt is historical qualification evidence, not a current support boundary.
 
-Current independent oracles are: product commands **18**; canonical probe argv **4**; SOT catalog/checksummed payload **86/85**; and schema/example relationships **28**.
+Current independent oracles are: product commands **17**; canonical probe argv **4**; SOT catalog/checksummed payload **84/83**; and schema/example relationships **27**.
 
 
 ## Canonical Artifact Contract
@@ -138,7 +138,6 @@ All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts r
 | Validation receipt | [kar-validation-receipt.v1.schema.json](schemas/kar-validation-receipt.v1.schema.json) |
 | Repair request | [kar-repair-request.v1.schema.json](schemas/kar-repair-request.v1.schema.json) |
 | Repair patch | [kar-repair-patch.v1.schema.json](schemas/kar-repair-patch.v1.schema.json) |
-| Prompt manifest | [kar-prompt-manifest.v1.schema.json](schemas/kar-prompt-manifest.v1.schema.json) |
 | Command result envelope | [kar-command-result.v1.schema.json](schemas/kar-command-result.v1.schema.json) |
 | Doctor result v1 (compatibility) | [kar-doctor-result.v1.schema.json](schemas/kar-doctor-result.v1.schema.json) |
 | Project-local doctor result v2 | [kar-doctor-result.v2.schema.json](schemas/kar-doctor-result.v2.schema.json) |
@@ -170,7 +169,6 @@ See [schemas/README.md](schemas/README.md) for validation responsibilities and t
 | Valid validation result v1 | [validation-result.valid.json](examples/validation-result.valid.json) |
 | Valid validation result v2 | [validation-result.v2.valid.json](examples/validation-result.v2.valid.json) |
 | Validation receipt | [validation-receipt.v1.valid.json](examples/validation-receipt.v1.valid.json) |
-| Prompt manifest | [prompt-manifest.v1.valid.json](examples/prompt-manifest.v1.valid.json) |
 | Command result envelope | [command-result.v1.valid.json](examples/command-result.v1.valid.json) |
 | Doctor result v1 (compatibility) | [doctor-result.v1.valid.json](examples/doctor-result.v1.valid.json) |
 | Project-local doctor result v2 | [doctor-result.v2.valid.json](examples/doctor-result.v2.valid.json) |

@@ -36,7 +36,6 @@
         { "$ref": "#/$defs/requests/providers" },
         { "$ref": "#/$defs/requests/roles" },
         { "$ref": "#/$defs/requests/config" },
-        { "$ref": "#/$defs/requests/prompt" },
         { "$ref": "#/$defs/requests/schema" },
         { "$ref": "#/$defs/requests/clean" },
         { "$ref": "#/$defs/requests/export" },
@@ -73,7 +72,6 @@
         { "$ref": "#/$defs/results/providers" },
         { "$ref": "#/$defs/results/roles" },
         { "$ref": "#/$defs/results/config" },
-        { "$ref": "#/$defs/results/prompt" },
         { "$ref": "#/$defs/results/schema" },
         { "$ref": "#/$defs/results/clean" },
         { "$ref": "#/$defs/results/export" },
@@ -273,16 +271,6 @@
           "request": { "$ref": "#/$defs/requests/config" },
           "result": { "$ref": "#/$defs/results/config" },
           "exit": { "$ref": "#/$defs/exits/config" }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "command": { "const": "prompt" } }, "required": ["command"] },
-      "then": {
-        "properties": {
-          "request": { "$ref": "#/$defs/requests/prompt" },
-          "result": { "$ref": "#/$defs/results/prompt" },
-          "exit": { "$ref": "#/$defs/exits/prompt" }
         }
       }
     },
@@ -511,7 +499,6 @@
         "providers",
         "roles",
         "config",
-        "prompt",
         "schema",
         "clean",
         "export",
@@ -762,7 +749,6 @@
       "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
       "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
-      "prompt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 10] } } }] },
       "maintenance": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8] } } }] },
       "help": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2] } } }] }
     },
@@ -3206,19 +3192,6 @@
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
-      "prompt": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["request_id", "command", "run_id", "attempt_id", "include_guarded_bytes", "output_format"],
-        "properties": {
-          "request_id": { "$ref": "#/$defs/request_id" },
-          "command": { "const": "prompt" },
-          "run_id": { "$ref": "#/$defs/run_id" },
-          "attempt_id": { "$ref": "#/$defs/attempt_id" },
-          "include_guarded_bytes": { "type": "boolean" },
-          "output_format": { "$ref": "#/$defs/output_format" }
-        }
-      },
       "schema": {
         "type": "object",
         "additionalProperties": false,
@@ -3583,17 +3556,6 @@
           "config_sha256": { "oneOf": [{ "const": "" }, { "$ref": "#/$defs/sha256" }] },
           "policy": { "type": "object" },
           "provenance": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["field", "source", "disposition", "value_class"], "properties": { "field": { "type": "string" }, "source": { "type": "string" }, "disposition": { "type": "string" }, "value_class": { "type": "string" } } } }
-        }
-      },
-      "prompt": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "prompt_manifest_uri", "complete_stdin_sha256", "guarded_bytes_included"],
-        "properties": {
-          "kind": { "const": "prompt_inspected" },
-          "prompt_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "complete_stdin_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
-          "guarded_bytes_included": { "type": "boolean" }
         }
       },
       "schema": {

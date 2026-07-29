@@ -9,13 +9,13 @@
 |---|---|
 | Product commands | 18 |
 | Canonical probe argv | 4 |
-| Catalog | 86 paths |
-| Checksummed payloads | 85; `CHECKSUMS.sha256` is self-excluded |
-| Schema/example pairs | 28 |
+| Catalog | 84 paths |
+| Checksummed payloads | 83; `CHECKSUMS.sha256` is self-excluded |
+| Schema/example pairs | 27 |
 | Decision Readiness | **READY** |
 | Implementation Status | **RELEASE_READY** |
 | External Contract Readiness | **G0 PLATFORM EVIDENCE AND G013 LOGIN-RECOVERING EXACT-BINARY GATE VERIFIED FOR `kimi`, `zcode`, AND `agy`** |
-The current SOT oracle is 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, and 28 schema/example pairs.
+The current SOT oracle is 17 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, and 27 schema/example pairs.
 
 This SOT 1.15.0 report preserves G001–G012 as historical evidence and closes G013. Current release readiness requires deterministic acceptance, an exact-binary actual-provider root/child workflow that exercises bounded Kimi login recovery, and subsequent fail-closed live capability certification for Kimi, ZCode, and AGY, all reached through the sole `make test` gate. Fixed line/quote claims and process-timing overlap remain non-predicates.
 
@@ -25,14 +25,14 @@ When collected, evidence receipts are stored outside the SOT under `.gjc/_sessio
 
 | Evidence area | Required G0 assertion | Current state |
 |---|---|---|
-| P0 and schema | Atomic P0 trace and all positive/negative schema cases, including 28 schema/example pairs | **CONTRACT MODEL PASS** — `P0_ATOMIC_OK`, `SCHEMA_OK`; this is not external provider or platform evidence |
-| Trace and marker | 86 catalog paths, 18 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
+| P0 and schema | Atomic P0 trace and all positive/negative schema cases, including 27 schema/example pairs | **CONTRACT MODEL PASS** — `P0_ATOMIC_OK`, `SCHEMA_OK`; this is not external provider or platform evidence |
+| Trace and marker | 84 catalog paths, 17 commands, no orphan, and no forbidden non-normative marker leakage | **CONTRACT MODEL PASS** — `TRACE_OK`, `MARKER_OK` |
 | Trust and command | Frozen trust reducer and literal request/output/exit contracts | **CONTRACT MODEL PASS** — `TRUST_OK`, `COMMAND_OK`; no product implementation is exercised |
 | Prompt and evidence | Byte-exact framing/replay and separate source/current provenance | **CONTRACT MODEL PASS** — `PROMPT_OK`, `EVIDENCE_OK` |
 | Cleanup and assignment model | Transitive retention, deterministic age/size sets, six-role lexical assignment, and budgets | **CONTRACT MODEL PASS** — `CLEANUP_OK`, `ASSIGNMENT_OK`; a model assignment is not the required live assignment |
 | Publication | Total classifier with `unmapped=0`, `ambiguous=0`, ten cross-boundary cases, and three P2 exit variants | **PASS** — the contract model remains valid and G006 now implements product publication, recovery, reporting, and committed query surfaces |
 | Canonical argv and failure | Four byte-exact canonical probe argv arrays and corrected repair/fallback rows | **CONTRACT MODEL PASS** — `CANONICAL_ARGV_OK`, `FAILURE_MATRIX_OK` |
-| Integrity | 86-path catalog, 85 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=85` |
+| Integrity | 84-path catalog, 83 checksummed payload records, raw32 payload-root grammar, and checksum verification contract | **CONTRACT MODEL PASS** — `INTEGRITY_OK`, `CHECKSUMS_OK count=83` |
 | Provider probes | All 48 probes for the required `kimi`, `zcode`, and `agy` runtime-contract tuples, three secure-writer indexes, and live six-role assignment | **PASS** — completed by G001; this readiness evidence does not itself support a product tuple |
 | Required platform probes | All 11 `darwin-arm64` predicates on a native local POSIX filesystem | **PASS** — completed by G001; `darwin-arm64` is the sole G0 supported platform |
 | Intended-future platform inventory | `linux-amd64`, `linux-arm64`, and `darwin-amd64` | **UNSUPPORTED** — fixed intended-future, non-blocking, and release-ineligible |

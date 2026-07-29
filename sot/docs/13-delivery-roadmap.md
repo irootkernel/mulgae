@@ -24,7 +24,7 @@ G013 executes sequentially: reproduce expired-session interception; correct the 
 
 G0 keeps one required native platform: `darwin-arm64`. G001 completed the required G0 provider/platform evidence, authority promotion, post-verification, and support derivation. `linux-amd64`, `linux-arm64`, and `darwin-amd64` remain intended-future, non-blocking, unsupported, and release-ineligible.
 
-The current SOT oracle remains 18 product commands, 4 canonical probe argv, 86 catalog paths, 85 checksummed payloads, 28 schema/example pairs, 21 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009–G012 evidence is historical; G013 completion depends only on its explicit checklist and final `make test`.
+The current SOT oracle remains 17 product commands, 4 canonical probe argv, 84 catalog paths, 83 checksummed payloads, 27 schema/example pairs, 20 additive G0-required pairs, and 7 frozen-v1 pairs. Prior G009–G012 evidence is historical; G013 completion depends only on its explicit checklist and final `make test`.
 
 ## 2. G0: Contract Freeze and Authority Promotion
 
@@ -35,13 +35,13 @@ G0 produces the SOT baseline, fixtures, evidence contracts, and authority record
 | G0-1A | Validator, fixture, tool-lock, secure-writer, prompt/evidence/publication/cleanup/authority evidence contracts | Gate A1; exact payload scope only |
 | G0-1B | Non-normative candidate skeleton | G0-1A; cannot leak into normative bytes |
 | G0-2 | Integrated SOT documentation and decisions | G0-1B |
-| G0-3 | Strict schemas, examples, command/doctor/export envelopes, 4 canonical probe argv, and the 86-path/85-payload catalog | G0-2; 28 schema/example pairs, 21 additive G0-required plus 7 frozen-v1 pairs |
+| G0-3 | Strict schemas, examples, command/doctor/export envelopes, 4 canonical probe argv, and the 84-path/83-payload catalog | G0-2; 27 schema/example pairs, 20 additive G0-required plus 7 frozen-v1 pairs |
 | G0-4 | Freeze candidate bytes, checksums, subtree/root/commit identity, and integrity receipt | G0-3; no authority-eligible probe, assignment, Architect, or Critic evidence exists before this freeze |
 | G0-5 | Issue the candidate-bound evidence Gate, then execute all required provider and `darwin-arm64` platform probes | G0-4; future cells remain non-blocking, unsupported, release-ineligible, and fixed NOT_RUN |
 | G0-6 | Produce the deterministic live six-role assignment, exact 27-entry receipt index, readiness receipt, and `G0_EXTERNAL_JOIN_ORACLE` result | G0-5; no score-based selection and no candidate refreeze after evidence |
 | G0-7 | The single authoritative Architect/Critic review, promotion authorization, authority-ref CAS, and post-verification | G0-6 and a passing `G0_EXTERNAL_JOIN_ORACLE` |
 
-The exact G0 validator set is `p0`, `schema`, `trace`, `marker`, `trust`, `command`, `canonical-argv`, `failure`, `publication`, `prompt`, `evidence`, `cleanup`, `assignment`, `integrity`, `authority`, `checksums-generate`, and `checksums-verify`. Publication validation must prove one total classifier result per case, including `total=true`, `unmapped=0`, `ambiguous=0`, ten named cross-boundary cases, and all P2 outcome exits `0`, `1`, and `4`. Integrity validates the 86-path catalog and 85 checksummed payloads using the raw32 payload-root grammar.
+The exact G0 validator set is `p0`, `schema`, `trace`, `marker`, `trust`, `command`, `canonical-argv`, `failure`, `publication`, `prompt`, `evidence`, `cleanup`, `assignment`, `integrity`, `authority`, `checksums-generate`, and `checksums-verify`. Publication validation must prove one total classifier result per case, including `total=true`, `unmapped=0`, `ambiguous=0`, ten named cross-boundary cases, and all P2 outcome exits `0`, `1`, and `4`. Integrity validates the 84-path catalog and 83 checksummed payloads using the raw32 payload-root grammar.
 Promotion is acyclic: the G0-4 candidate bytes and identity precede candidate-bound G0-5/G0-6 evidence and the single authoritative G0-7 Architect `CLEAR|APPROVE` and Critic `OKAY` review; that review precedes runtime promotion authorization; authorization precedes authority-ref CAS; CAS precedes post-verification and `g0_complete`. A failed or missing predicate stops promotion. No authority-eligible evidence survives a candidate refreeze. Rollback to an absent initial authority uses delete-ref CAS, not a fabricated zero target. `g0_complete` does not itself authorize product work.
 Gate A1/A2 canonical paths are current pointers. Their forward-only issuance and archive verification use the fail-closed protocol in [Artifacts, Lineage, and Storage](08-artifacts-lineage-and-storage.md#15-g0-gate-archive-resolution). Promotion authorization must also bind a fresh candidate-specific authority-ref read whose wire value is exact `ABSENT` or a lowercase 40-hex OID; diagnostic state with `authoritative=false` or a zero-OID sentinel is not promotion evidence.
 

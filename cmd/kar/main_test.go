@@ -806,13 +806,12 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 			{"providers", []string{"providers", "--include-unverified"}, 4},
 			{"roles", []string{"roles"}, 0},
 			{"config", []string{"config"}, 2},
-			{"prompt", []string{"prompt", "--run", runID, "--attempt", attemptID, "--output", "json"}, 7},
 			{"schema", []string{"schema", "list"}, 0},
 			{"clean", []string{"clean"}, 7},
 			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
 			{"help", []string{"help"}, 0},
 		}
-		if got, want := len(cases), 18; got != want {
+		if got, want := len(cases), 17; got != want {
 			t.Fatalf("documented command census = %d, want %d", got, want)
 		}
 		specs := cli.CommandSpecs()
@@ -842,6 +841,7 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 	t.Run("usage streams", func(t *testing.T) {
 		for _, argv := range [][]string{
 			{"not-a-command"},
+			{"prompt", "--run", "r_019f596a-cf80-7c67-b265-f37053d51ccf", "--attempt", "a_019f596a-cf80-7c67-b265-f37053d51ccf"},
 			{"review", "--diff"},
 			{"review", "--dirty", "--ci"},
 		} {
@@ -864,8 +864,6 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 	})
 
 	t.Run("authority absent envelopes", func(t *testing.T) {
-		const runID = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
-		const attemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
 		cases := []struct {
 			name       string
 			argv       []string
@@ -884,19 +882,6 @@ func TestIntegrationKARBinaryBoundary(t *testing.T) {
 						envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
 						envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" {
 						t.Fatalf("review authority-absent envelope = %#v", envelope)
-					}
-				},
-			},
-			{
-				name:       "prompt",
-				argv:       []string{"prompt", "--run", runID, "--attempt", attemptID, "--output", "json"},
-				exit:       7,
-				nullFields: []string{"prompt_manifest_uri", "complete_stdin_sha256"},
-				check: func(t *testing.T, envelope commandEnvelope) {
-					if envelope.Command != "prompt" || envelope.Result.Kind != "prompt_inspected" ||
-						envelope.Result.PromptManifestURI != nil || envelope.Result.CompleteStdinSHA256 != nil ||
-						envelope.Exit.Code != 7 || envelope.Exit.Kind != "artifact" {
-						t.Fatalf("prompt authority-absent envelope = %#v", envelope)
 					}
 				},
 			},
@@ -1385,13 +1370,12 @@ type commandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind                string  `json:"kind"`
-		SessionID           *string `json:"session_id"`
-		RunID               *string `json:"run_id"`
-		RunManifestURI      *string `json:"run_manifest_uri"`
-		ReviewArtifactURI   *string `json:"review_artifact_uri"`
-		PromptManifestURI   *string `json:"prompt_manifest_uri"`
-		CompleteStdinSHA256 *string `json:"complete_stdin_sha256"`
+		Kind              string  `json:"kind"`
+		SessionID         *string `json:"session_id"`
+		RunID             *string `json:"run_id"`
+		RunManifestURI    *string `json:"run_manifest_uri"`
+		ReviewArtifactURI *string `json:"review_artifact_uri"`
+		PromptManifestURI *string `json:"prompt_manifest_uri"`
 	} `json:"result"`
 	Reasons []struct {
 		Category    string  `json:"category"`

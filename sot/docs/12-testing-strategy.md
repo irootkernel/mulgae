@@ -26,7 +26,7 @@ G0 contract validators and G001–G012 evidence remain historical. G013 supersed
 |---|---|---|---|
 | `p0` | Recovered P0 snapshot and `p0-cases.json` | `P0_ATOMIC_OK` | `E/p0/receipt.json` |
 | `schema` | `schema-cases.json`, SOT root | `SCHEMA_OK` | `E/schema/receipt.json` |
-| `trace` | `trace-ledger.json`, 86-path catalog | `TRACE_OK`, 18 product commands, no orphan | `E/trace/receipt.json` |
+| `trace` | `trace-ledger.json`, 84-path catalog | `TRACE_OK`, 17 product commands, no orphan | `E/trace/receipt.json` |
 | `marker` | `marker-cases.json`, SOT root | `MARKER_OK`, no forbidden non-normative marker leakage | `E/marker/receipt.json` |
 | `trust` | `trust-cases.json` | `TRUST_OK` | `E/trust/receipt.json` |
 | `command` | `command-cases.json`, trace ledger | `COMMAND_OK` | `E/command/receipt.json` |
@@ -37,10 +37,10 @@ G0 contract validators and G001–G012 evidence remain historical. G013 supersed
 | `evidence` | `evidence-cases.json` | `EVIDENCE_OK` | `E/evidence/receipt.json` |
 | `cleanup` | `cleanup-cases.json` | `CLEANUP_OK` | `E/cleanup/receipt.json` |
 | `assignment` | `assignment-cases.json` | `ASSIGNMENT_OK` | `E/assignment/receipt.json` |
-| `integrity` | `integrity-cases.json`, catalog, checksums | `INTEGRITY_OK`, 85 payload files, raw32 reducer | `E/integrity/receipt.json` |
+| `integrity` | `integrity-cases.json`, catalog, checksums | `INTEGRITY_OK`, 83 payload files, raw32 reducer | `E/integrity/receipt.json` |
 | `authority` | `authority-cases.json`, runtime state receipt | `AUTHORITY_OK` | `E/authority/receipt.json` |
-| `checksums-generate` | catalog and SOT payload | `CHECKSUMS_OK`, 85 payload files | `E/checksums-generate/receipt.json` |
-| `checksums-verify` | checksums and SOT payload | `CHECKSUMS_OK`, 85 payload files | `E/checksums-verify/receipt.json` |
+| `checksums-generate` | catalog and SOT payload | `CHECKSUMS_OK`, 83 payload files | `E/checksums-generate/receipt.json` |
+| `checksums-verify` | checksums and SOT payload | `CHECKSUMS_OK`, 83 payload files | `E/checksums-verify/receipt.json` |
 
 Every row uses the locked `g0_validate.py` argv and fixture hashes defined by the G0 evidence contract. Shell parsing, alternate arguments, unrecorded reserialization, and a partial operation set are invalid substitutes. Typed non-success results remain readiness `4`, artifact/hash/schema/CAS/stale `7`, security `8`, and internal invariant `10`.
 The canonical-argv fixture fixes the label order `provider:kimi`, `provider:zcode`, `provider:agy`, and `platform:darwin-arm64`. Each compact one-line UTF-8 JSON array is hashed as `SHA-256("KAR-G0-ARGV/1" || 0x00 || argv_json_bytes)` without a trailing LF; the fixed-order raw32 bundle uses `KAR-G0-ARGV-BUNDLE/1\n`. The exact supplied hashes are `kimi=c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129`, `zcode=724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e`, `agy=bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520`, `darwin-arm64=b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b`, and `bundle=c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7`. Provider v2 requires `--runtime-contract` and the fixed `--gate-receipt`; legacy `--evidence-root` and `--index` are rejected. The historical `failure` fixture requires `timeout`, generic `auth`, `quota`, and `rate_limit` to have `repair=none` and `fallback=allowed`; no configured eligible fallback means exhaustion, not a changed rule. G010 tests additionally require explicit `login_required` to fail closed without repair or fallback and to retain provider attribution.
@@ -49,7 +49,7 @@ The provider/probe branch contains exactly the three runtime-order families `kim
 
 Cross-axis fixtures must preserve a valid high finding with required-role exhaustion as `content_verdict=request_changes` and `coverage_status=incomplete`, then calculate publication and CI separately. Locality fixtures exercise checkout, full-index, applicable-commit, config-descriptor, target-byte, and spawn-time drift rejection. Assignment fixtures cover singleton null fallbacks and degraded resilience, distinct required-role fallbacks when multiple families are eligible, and the 24-invocation ceiling.
 
-Prompt fixtures exercise canonical frames, declared length, section and stdin hashes, malformed/truncated input, fresh execution identity, and exact replay. Evidence fixtures cover source/current identity separation, stale evidence, path traversal, range errors, spoofing, hash mismatch, and missing immutable bytes. Publication fixtures cover all persisted states, P0/P1/P2 recovery, the ten named cross-boundary observations, and immutable `corrupt` diagnostics. Cleanup fixtures cover retained seeds, transitive ancestors, corrupt graph protection, separate age and size sets, fixed epoch, plan hash, tombstone restart, and stale-plan rejection. Integrity fixtures cover the 86-path catalog, 85-file checksum payload, `KAR-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise sorting, NUL plus raw32 digest records, and the empty-set vector. Authority fixtures cover runtime-only approvals, candidate reviews, forward CAS, delete-ref rollback CAS, post-verification, and the independent implementation approval boundary.
+Prompt fixtures exercise canonical frames, declared length, section and stdin hashes, malformed/truncated input, fresh execution identity, and exact replay. Evidence fixtures cover source/current identity separation, stale evidence, path traversal, range errors, spoofing, hash mismatch, and missing immutable bytes. Publication fixtures cover all persisted states, P0/P1/P2 recovery, the ten named cross-boundary observations, and immutable `corrupt` diagnostics. Cleanup fixtures cover retained seeds, transitive ancestors, corrupt graph protection, separate age and size sets, fixed epoch, plan hash, tombstone restart, and stale-plan rejection. Integrity fixtures cover the 84-path catalog, 83-file checksum payload, `KAR-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise sorting, NUL plus raw32 digest records, and the empty-set vector. Authority fixtures cover runtime-only approvals, candidate reviews, forward CAS, delete-ref rollback CAS, post-verification, and the independent implementation approval boundary.
 The publication fixture includes each exact cross-boundary ID once: `pub-cross-content-validated-staged-temp`, `pub-cross-final-staged-installed-final`, `pub-cross-final-installed-composite-commit`, `pub-cross-manifest-committed-completed-side-effect`, `pub-cross-hint-low-valid-p2`, `pub-cross-staged-and-installed-conflict`, `pub-cross-p2-manifest-edge-mismatch`, `pub-cross-completed-missing-final`, `pub-cross-final-installed-no-journal`, and `pub-cross-p0-none-impossible-high-hint`.
 
 
@@ -249,7 +249,7 @@ Doctor tests cover the exact v2 projection, fixed Kimi/ZCode/AGY inventory, inli
 
 CI validates every JSON example against its declared schema. Semantic examples additionally run through KAR's semantic validator fixture.
 
-The authoritative current pair list is the 28 schema/example relationships in `examples/g0-file-catalog.v1.valid.json`. Validation must compile every schema as Draft 2020-12 where applicable and validate each paired example. Released v1 pairs remain compatibility cases; v2 provider/platform evidence is the only readiness authority. Negative cases remove or corrupt required fields and must fail.
+The authoritative current pair list is the 27 schema/example relationships in `examples/g0-file-catalog.v1.valid.json`. Validation must compile every schema as Draft 2020-12 where applicable and validate each paired example. Released v1 pairs remain compatibility cases; v2 provider/platform evidence is the only readiness authority. Negative cases remove or corrupt required fields and must fail.
 
 ## 12. v0.1 Acceptance Suite
 

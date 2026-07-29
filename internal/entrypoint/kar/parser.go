@@ -79,8 +79,6 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseExcerpt(remaining, requestID)
 	case app.CommandConfig:
 		return parseConfig(remaining, defaultProjectRoot, requestID)
-	case app.CommandPrompt:
-		return parsePrompt(remaining, requestID)
 	case app.CommandSchema:
 		return parseSchema(remaining, defaultProjectRoot, requestID)
 	case app.CommandFollowup:
@@ -297,7 +295,6 @@ func parseCommand(value string) (app.CommandName, error) {
 		app.CommandProviders,
 		app.CommandRoles,
 		app.CommandConfig,
-		app.CommandPrompt,
 		app.CommandSchema,
 		app.CommandClean,
 		app.CommandExport,
@@ -740,66 +737,6 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	}, nil
 }
 
-func parsePrompt(arguments []string, requestID string) (Invocation, error) {
-	options := make(map[string]string, 3)
-	includeGuardedBytes := false
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		switch argument {
-		case "--include-guarded-bytes":
-			if includeGuardedBytes {
-				return Invocation{}, usageError("duplicate flag")
-			}
-			if index+1 < len(arguments) && !strings.HasPrefix(arguments[index+1], "--") {
-				return Invocation{}, usageError("boolean flag does not accept a value")
-			}
-			includeGuardedBytes = true
-		case "--run", "--attempt", "--output":
-			if _, duplicate := options[argument]; duplicate {
-				return Invocation{}, usageError("duplicate flag")
-			}
-			if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
-				return Invocation{}, usageError("flag value is missing")
-			}
-			options[argument] = arguments[index+1]
-			index++
-		default:
-			return Invocation{}, usageError("prompt accepts no positional arguments or unknown flags")
-		}
-	}
-	runID, err := optionRunID(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	attemptValue, present := options["--attempt"]
-	if !present {
-		return Invocation{}, usageError("prompt requires --attempt")
-	}
-	attemptID, err := domain.ParseAttemptID(attemptValue)
-	if err != nil {
-		return Invocation{}, usageError("attempt ID is not a canonical UUIDv7")
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := PromptRequest{runID: runID, attemptID: attemptID.String(), includeGuardedBytes: includeGuardedBytes}
-	requestJSON, err := marshalRequest(struct {
-		RequestID           string       `json:"request_id"`
-		Command             string       `json:"command"`
-		RunID               string       `json:"run_id"`
-		AttemptID           string       `json:"attempt_id"`
-		IncludeGuardedBytes bool         `json:"include_guarded_bytes"`
-		OutputFormat        OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandPrompt), request.runID, request.attemptID, request.includeGuardedBytes, outputFormat})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{
-		command: app.CommandPrompt, availability: AvailabilityFoundation, requestID: requestID,
-		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, prompt: &request,
-	}, nil
-}
 func parseDoctor(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true,

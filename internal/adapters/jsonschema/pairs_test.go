@@ -83,7 +83,6 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "example:g0-file-catalog.v1.valid.json"},
 	{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
 	{"https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json", "example:platform-contract-evidence.v2.valid.json"},
-	{"https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", "example:prompt-manifest.v1.valid.json"},
 	{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", "example:provider-contract-evidence.v1.valid.json"},
 	{"https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json", "example:provider-contract-evidence.v2.valid.json"},
 	{"urn:kar:schema:provider-followup-output:v1", "example:provider-followup-output.valid.json"},

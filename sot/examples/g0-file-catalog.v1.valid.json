@@ -390,18 +390,6 @@
       "exclusion_reason": null
     },
     {
-      "path": "sot/examples/prompt-manifest.v1.valid.json",
-      "disposition": "ADDED",
-      "media_type": "application/json",
-      "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
-      "pair": "sot/schemas/kar-prompt-manifest.v1.schema.json",
-      "consumers": [
-        "prompt-manifest-validator"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
       "path": "sot/examples/provider-contract-evidence.v1.valid.json",
       "disposition": "ADDED",
       "media_type": "application/json",
@@ -799,18 +787,6 @@
       "consumers": [
         "platform-evidence-validator",
         "doctor"
-      ],
-      "checksum_inclusion": true,
-      "exclusion_reason": null
-    },
-    {
-      "path": "sot/schemas/kar-prompt-manifest.v1.schema.json",
-      "disposition": "ADDED",
-      "media_type": "application/schema+json",
-      "schema_id": "https://kar.local/schemas/kar-prompt-manifest.v1.schema.json",
-      "pair": "sot/examples/prompt-manifest.v1.valid.json",
-      "consumers": [
-        "prompt-manifest-validator"
       ],
       "checksum_inclusion": true,
       "exclusion_reason": null

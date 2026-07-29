@@ -82,7 +82,6 @@ type Invocation struct {
 	delta          *DeltaRequest
 	rerun          *RerunRequest
 	clean          *CleanRequest
-	prompt         *PromptRequest
 	export         *ExportRequest
 }
 
@@ -238,14 +237,6 @@ func (invocation Invocation) Clean() (CleanRequest, bool) {
 		return CleanRequest{}, false
 	}
 	return *invocation.clean, true
-}
-
-// Prompt returns the parsed prompt fields when this is a prompt invocation.
-func (invocation Invocation) Prompt() (PromptRequest, bool) {
-	if invocation.prompt == nil {
-		return PromptRequest{}, false
-	}
-	return *invocation.prompt, true
 }
 
 // Export returns the parsed export fields when this is an export invocation.
@@ -504,22 +495,6 @@ func (request ReviewRequest) ArtistDesignSpecs() []string {
 func (request ReviewRequest) SessionID() (string, bool) {
 	return request.sessionID, request.hasSessionID
 }
-
-// PromptRequest contains the immutable prompt-rendering fields.
-type PromptRequest struct {
-	runID               string
-	attemptID           string
-	includeGuardedBytes bool
-}
-
-// RunID returns the selected canonical review-run ID.
-func (request PromptRequest) RunID() string { return request.runID }
-
-// AttemptID returns the selected canonical attempt ID.
-func (request PromptRequest) AttemptID() string { return request.attemptID }
-
-// IncludeGuardedBytes reports whether guarded bytes are included.
-func (request PromptRequest) IncludeGuardedBytes() bool { return request.includeGuardedBytes }
 
 // FollowupRequest contains the immutable source finding and target fields.
 type FollowupRequest struct {

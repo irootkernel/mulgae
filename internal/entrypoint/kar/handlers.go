@@ -86,9 +86,6 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 		app.CommandReview: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleReview(ctx, invocation, root)
 		},
-		app.CommandPrompt: func(application *Application, _ context.Context, invocation Invocation, _ string) execution {
-			return application.handlePrompt(invocation)
-		},
 		app.CommandFollowup: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleFollowup(ctx, invocation)
 		},
@@ -193,12 +190,6 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 	}
 }
 
-func (application *Application) handlePrompt(invocation Invocation) execution {
-	if _, available := invocation.Prompt(); !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	return execution{failure: executionFailureFor(invocation.Command(), errors.New("prompt artifact authority unavailable"), domain.FailureArtifact)}
-}
 func (application *Application) handleFollowup(ctx context.Context, invocation Invocation) execution {
 	request, available := invocation.Followup()
 	if !available {

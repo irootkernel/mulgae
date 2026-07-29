@@ -21,7 +21,6 @@ All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 
 | `kar-g0-file-catalog.v1` | `../examples/g0-file-catalog.v1.valid.json` | G0 catalog generator | Integrity and promotion validation |
 | `kar-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` | Platform probe | Doctor and G0 readiness validation |
 | `kar-platform-contract-evidence.v2` | `../examples/platform-contract-evidence.v2.valid.json` | Platform probe | G0 readiness ingress authority |
-| `kar-prompt-manifest.v1` | `../examples/prompt-manifest.v1.valid.json` | Prompt composer | Replay, audit, and invocation validation |
 | `kar-provider-contract-evidence.v1` | `../examples/provider-contract-evidence.v1.valid.json` | Provider probe | Doctor and G0 readiness validation |
 | `kar-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` | Provider probe | G0 readiness ingress authority |
 | `kar-provider-followup-output.v2` | `../examples/provider-followup-output.v2.valid.json` | KAR-normalized followup provider result | KAR validation pipeline |

@@ -15,7 +15,6 @@ kar findings
 kar excerpt
 kar providers
 kar config
-kar prompt
 kar schema
 kar clean
 kar export
@@ -31,7 +30,7 @@ This section specifies the production command contract. Production root `kar rev
 | `followup` | Is a referenced finding resolved? | Yes | Current target plus source finding | Yes |
 | `delta` | What issues exist only in changes since a prior reviewed snapshot? | Yes | Previous immutable snapshot to current snapshot | Yes |
 | `rerun` | Can an attempt be repeated after instability or invalid output? | Yes | Exact or recomposed source scope | Yes |
-## 2.1 Complete 18-command contract
+## 2.1 Complete 17-command contract
 
 The command-result envelope is `https://kar.local/schemas/kar-command-result.v1.schema.json`. Every machine-output request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. The frozen v1 schema has no truthful request variant for `schema list`, so `kar schema list --output json` fails closed as usage rather than fabricating an inspection envelope. Human `kar schema list` remains available; JSON `schema show` and `schema export` return the command-result envelope. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
 G008 implements the frozen request contract and its two-phase boundary: CLI-only selectors are resolved and valueless stdin is captured before the schema-valid request is frozen. The frozen request contains canonical IDs and canonical target values only; it never contains `latest`, a role/provider rerun selector, or uncaptured stdin.
@@ -43,7 +42,7 @@ G008 implements the frozen request contract and its two-phase boundary: CLI-only
 | `review` | `internal/app/review` / `StartReviewRun` | target, resolved policy → run, prompts, attempts, final, epoch | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `followup` | `internal/app/followup` / `StartFollowupRun` | source run/review/finding and target → child run and final | provider followup output v2, run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `delta` | `internal/app/delta` / `StartDeltaRun` | source and current targets/runs → child artifacts | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
-| `rerun` | `internal/app/rerun` / `StartRerun` | source run and prompt → exact or recomposed child artifacts | run manifest v2, review artifact v2, prompt manifest v1 | 1, 2, 4, 7, 8, 9, 10 |
+| `rerun` | `internal/app/rerun` / `StartRerun` | source run and prompt → exact or recomposed child artifacts | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `status` | `internal/app/query` / `ReadRunStatus` | manifest, epoch, diagnostics → none | run manifest v2 | 2, 7, 8, 9, 10 |
 | `report` | `internal/app/report` / `RenderReport` | committed review and evidence → `report.md` | command result | 2, 7, 8, 9, 10 |
 | `findings` | `internal/app/query` / `ListFindings` | review → none | review artifact v2 | 2, 7, 8, 9, 10 |
@@ -51,7 +50,6 @@ G008 implements the frozen request contract and its two-phase boundary: CLI-only
 | `providers` | `internal/app/providers` / `ListProviderProfiles` | config and provider evidence → none | provider-contract evidence v1 | 2, 4, 7, 8 |
 | `roles` | `internal/app/roles` / `ListRoles` | embedded role inventory → none | command result | 2 |
 | `config` | `internal/app/config` / `ResolveConfiguration` | attested project-local `.kar/config.yaml` → resolved policy | command result | 2, 4, 7, 8, 9, 10 |
-| `prompt` | `internal/app/prompt` / `InspectPrompt` | template and untrusted references → guarded stdin metadata | prompt manifest v1 | 2, 7, 8, 10 |
 | `schema` | `internal/app/schema` / `InspectSchema` | embedded schemas → optional export | command result | 2, 7 |
 | `clean` | `internal/app/clean` / `PlanAndApplyRetention` | manifests, edges, epoch → plan, tombstone, deletion receipt | clean plan v1 | 2, 7, 8 |
 | `export` | `internal/app/export` / `ExportRedactedRun` | immutable run and review → secure bundle and manifest | export manifest v1 | 2, 7, 8 |
@@ -83,7 +81,7 @@ KAR emits the rejected request
 with `init_selection_invalid` at exit `2`; it does not fabricate accepted
 selection or path fields.
 
-The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v3.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-prompt-manifest.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v3.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
 `help` is intentionally repository-independent. It renders only embedded documentation, reads no project configuration, and remains available in non-Git and unborn directories without locality attestation.
 For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.kar`, `.git`, `.gjc`, and KAR-owned root configuration names before any publication lookup.
 

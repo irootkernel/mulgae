@@ -291,8 +291,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 18 {
-		t.Fatalf("canonical registry has %d commands, want 18", len(specs))
+	if len(specs) != 17 {
+		t.Fatalf("canonical registry has %d commands, want 17", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -1586,7 +1586,7 @@ func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.
 	}
 }
 
-func TestApplicationReviewAndPromptFailClosedWithoutAuthority(t *testing.T) {
+func TestApplicationReviewFailsClosedAndPromptIsNotACommand(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	tests := []struct {
@@ -1595,7 +1595,7 @@ func TestApplicationReviewAndPromptFailClosedWithoutAuthority(t *testing.T) {
 		exit app.ExitCode
 	}{
 		{name: "review", argv: []string{"review", "--dirty"}, exit: app.ExitCodeReadiness},
-		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, exit: app.ExitCodeArtifact},
+		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, exit: app.ExitCodeUsage},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -3726,7 +3726,6 @@ func TestIntegrationProductionKARCompositionFailsClosedAtLiveBoundaries(t *testi
 		exit app.ExitCode
 	}{
 		{name: "review", argv: []string{"review", "--dirty", "--output", "json"}, exit: app.ExitCodeUsage},
-		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"}, exit: app.ExitCodeArtifact},
 	} {
 		if stdout, stderr, exit := run(test.argv...); exit != test.exit || len(stdout) == 0 || len(stderr) != 0 {
 			t.Fatalf("production fail-closed command %s = exit %d stdout %q stderr %q", test.name, exit, stdout, stderr)
@@ -3736,6 +3735,9 @@ func TestIntegrationProductionKARCompositionFailsClosedAtLiveBoundaries(t *testi
 				t.Fatalf("production fail-closed envelope %s is invalid: %v", test.name, err)
 			}
 		}
+	}
+	if stdout, stderr, exit := run("prompt", "--run", testRunID, "--attempt", testAttemptID); exit != app.ExitCodeUsage || len(stdout) != 0 || !bytes.Equal(stderr, []byte("kar: invalid command usage\n")) {
+		t.Fatalf("removed production prompt command = exit %d stdout %q stderr %q", exit, stdout, stderr)
 	}
 	for _, argv := range [][]string{
 		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--output", "json"},

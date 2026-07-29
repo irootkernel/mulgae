@@ -116,8 +116,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 104 {
-		t.Fatalf("manifest asset count = %d, want 104", len(manifest.Assets))
+	if len(manifest.Assets) != 102 {
+		t.Fatalf("manifest asset count = %d, want 102", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -188,8 +188,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 86 {
-		t.Fatalf("authoritative SOT source count = %d, want 86", len(authoritativeSources))
+	if len(authoritativeSources) != 84 {
+		t.Fatalf("authoritative SOT source count = %d, want 84", len(authoritativeSources))
 	}
 	roleEntries, err := os.ReadDir(testRolesRoot)
 	if err != nil {
@@ -428,7 +428,6 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "schemas/kar-g0-file-catalog.v1.schema.json", "examples/g0-file-catalog.v1.valid.json"},
 		{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "schemas/kar-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
 		{"https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json", "schemas/kar-platform-contract-evidence.v2.schema.json", "examples/platform-contract-evidence.v2.valid.json"},
-		{"https://kar.local/schemas/kar-prompt-manifest.v1.schema.json", "schemas/kar-prompt-manifest.v1.schema.json", "examples/prompt-manifest.v1.valid.json"},
 		{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", "schemas/kar-provider-contract-evidence.v1.schema.json", "examples/provider-contract-evidence.v1.valid.json"},
 		{"https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json", "schemas/kar-provider-contract-evidence.v2.schema.json", "examples/provider-contract-evidence.v2.valid.json"},
 		{"urn:kar:schema:provider-followup-output:v1", "schemas/kar-provider-followup-output.v1.schema.json", "examples/provider-followup-output.valid.json"},
@@ -449,8 +448,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"urn:kar:schema:validation-result:v1", "schemas/kar-validation-result.v1.schema.json", "examples/validation-result.valid.json"},
 		{"https://kar.local/schemas/kar-validation-result.v2.schema.json", "schemas/kar-validation-result.v2.schema.json", "examples/validation-result.v2.valid.json"},
 	}
-	if len(expected) != 28 {
-		t.Fatalf("test pair inventory contains %d pairs, want 28", len(expected))
+	if len(expected) != 27 {
+		t.Fatalf("test pair inventory contains %d pairs, want 27", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

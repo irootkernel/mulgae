@@ -83,7 +83,7 @@ KAR reports findings and recommendations only.
 
 The v0.1 product includes:
 
-1. `kar init`, `doctor`, `review`, `followup`, `delta`, `rerun`, `status`, `report`, `findings`, `excerpt`, `providers`, `config`, `prompt`, `schema`, `clean`, `export`, and `help`, with the command contracts in [CLI Workflows](03-cli-workflows.md).
+1. `kar init`, `doctor`, `review`, `followup`, `delta`, `rerun`, `status`, `report`, `findings`, `excerpt`, `providers`, `config`, `schema`, `clean`, `export`, and `help`, with the command contracts in [CLI Workflows](03-cli-workflows.md).
 2. Exactly these built-in functional roles: `logic`, `security`, `maintainability`, `product`, `documentation`, and `testing`.
 3. G0 contract probes for provider families `kimi`, `zcode`, and `agy` only; an intended but unprobed provider is `unverified`, not silently disabled or substituted.
 4. One active attempt per normalized concurrency key, with parallelism across independent keys.

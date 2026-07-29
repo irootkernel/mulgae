@@ -318,7 +318,7 @@ func TestParseResolvedFreezesCanonicalG008Requests(t *testing.T) {
 	}
 	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
 }
-func TestParseReviewAndPromptRequests(t *testing.T) {
+func TestParseReviewRequests(t *testing.T) {
 	defaults := mustParse(t, []string{"review", "--dirty"})
 	defaultRequest, ok := defaults.Review()
 	if !ok || !reflect.DeepEqual(defaultRequest.Roles(), []string{"logic", "security", "maintainability", "product", "documentation", "testing"}) {
@@ -365,12 +365,6 @@ func TestParseReviewAndPromptRequests(t *testing.T) {
 		}
 	}
 
-	prompt := mustParse(t, []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes"})
-	promptRequest, ok := prompt.Prompt()
-	if !ok || !promptRequest.IncludeGuardedBytes() || promptRequest.RunID() != testRunID || promptRequest.AttemptID() != testAttemptID {
-		t.Fatalf("prompt request = %#v, %t; want guarded canonical request", promptRequest, ok)
-	}
-	assertRequestJSON(t, prompt, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"prompt","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","include_guarded_bytes":true,"output_format":"human"}`)
 }
 
 func TestParseReviewProjectTargetModes(t *testing.T) {
@@ -610,7 +604,6 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandProviders,
 		app.CommandRoles,
 		app.CommandConfig,
-		app.CommandPrompt,
 		app.CommandSchema,
 		app.CommandClean,
 		app.CommandExport,
@@ -623,7 +616,6 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFollowup:  {"followup", "--run", testRunID, "--finding", "F001", "--dirty"},
 		app.CommandDelta:     {"delta", "--since-run", testRunID, "--dirty", "--roles", "logic"},
 		app.CommandRerun:     {"rerun", "--run", testRunID, "--attempt", testAttemptID},
-		app.CommandPrompt:    {"prompt", "--run", testRunID, "--attempt", testAttemptID},
 		app.CommandClean:     {"clean"},
 		app.CommandExport:    {"export", "--run", testRunID, "--output-path", "exports/review.zip"},
 		app.CommandStatus:    {"status", "--run", testRunID},
@@ -666,10 +658,7 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 		{name: "review duplicate target", arguments: []string{"review", "--dirty", "--patch", "changes.patch"}},
 		{name: "review duplicate roles", arguments: []string{"review", "--dirty", "--roles", "logic,logic"}},
 		{name: "review invalid session", arguments: []string{"review", "--dirty", "--session", "s_invalid"}},
-		{name: "prompt missing run", arguments: []string{"prompt", "--attempt", testAttemptID}},
-		{name: "prompt missing attempt", arguments: []string{"prompt", "--run", testRunID}},
-		{name: "prompt boolean value", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes", "true"}},
-		{name: "prompt duplicate guarded bytes", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID, "--include-guarded-bytes", "--include-guarded-bytes"}},
+		{name: "removed prompt command", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}},
 		{name: "providers positional", arguments: []string{"providers", "extra"}},
 		{name: "providers duplicate project root", arguments: []string{"providers", "--project-root", testProjectRoot, "--project-root", testProjectRoot}},
 		{name: "providers duplicate include unverified", arguments: []string{"providers", "--include-unverified", "--include-unverified"}},
@@ -834,8 +823,7 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "roles error", arguments: []string{"roles", "logic"}, wantError: true},
 		{name: "config success", arguments: []string{"config"}, command: app.CommandConfig},
 		{name: "config error", arguments: []string{"config", "--mode", "raw"}, wantError: true},
-		{name: "prompt success", arguments: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, command: app.CommandPrompt},
-		{name: "prompt error", arguments: []string{"prompt", "extra"}, wantError: true},
+		{name: "removed prompt command", arguments: []string{"prompt", "extra"}, wantError: true},
 		{name: "schema success", arguments: []string{"schema", "list"}, command: app.CommandSchema},
 		{name: "schema error", arguments: []string{"schema"}, wantError: true},
 		{name: "clean success", arguments: []string{"clean", "--mode", "plan"}, command: app.CommandClean},
