@@ -3,15 +3,13 @@ package builtin
 //go:generate go run generate.go
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/fs"
 	"path"
 	"sort"
 	"strings"
@@ -19,25 +17,21 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
 )
 
-const (
-	catalogManifestName   = "manifest.json"
-	catalogZipPrefix      = "files/"
-	embeddedArchiveSHA256 = "56fc3a394270fb5d1c78270933ef64c9e5d0d800c5b10c6695ac2141e68cf72b"
-)
+const catalogChecksumSource = "CHECKSUMS.sha256"
 
-// embeddedArchive is generated from the authoritative repository SOT by
-// generate.go. It contains no hand-maintained copies of SOT assets.
+// embeddedAssets contains the authoritative runtime catalog as ordinary files.
+// No generated archive or extraction step is involved.
 //
-//go:embed assets.zip
-var embeddedArchive []byte
+//go:embed assets
+var embeddedAssets embed.FS
 
-// Catalog implements ports.ContractCatalog over the generated embedded SOT
-// archive. Its manifest is validated once before any asset is made available.
+// Catalog implements ports.ContractCatalog over an immutable filesystem. The
+// checksum inventory and every asset are validated once before reads succeed.
 type Catalog struct {
-	archive        []byte
-	expectedSHA256 string
+	filesystem fs.FS
 
 	once  sync.Once
 	state catalogState
@@ -54,26 +48,15 @@ type catalogAsset struct {
 	bytes    []byte
 }
 
-type embeddedManifest struct {
-	Version int                 `json:"version"`
-	Assets  []embeddedAssetInfo `json:"assets"`
-}
-
-type embeddedAssetInfo struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Source    string `json:"source"`
-	MediaType string `json:"mediaType"`
-	Size      int64  `json:"size"`
-	SHA256    string `json:"sha256"`
-	ZipPath   string `json:"zipPath"`
-}
-
 var _ ports.ContractCatalog = (*Catalog)(nil)
 
-// NewCatalog returns a catalog backed by the exact promoted SOT archive.
+// NewCatalog returns a catalog backed by the directly embedded runtime assets.
 func NewCatalog() *Catalog {
-	return &Catalog{archive: embeddedArchive, expectedSHA256: embeddedArchiveSHA256}
+	assets, err := fs.Sub(embeddedAssets, "assets")
+	if err != nil {
+		return &Catalog{state: failedCatalogState(fmt.Errorf("open embedded assets: %w", err))}
+	}
+	return &Catalog{filesystem: assets}
 }
 
 // Read returns validated metadata and a newly allocated caller-owned copy of
@@ -116,244 +99,178 @@ func (catalog *Catalog) List(ctx context.Context) ([]ports.AssetMetadata, error)
 
 func (catalog *Catalog) initialize() catalogState {
 	catalog.once.Do(func() {
-		catalog.state = loadCatalog(catalog.archive, catalog.expectedSHA256)
+		if catalog.state.err == nil {
+			catalog.state = loadCatalog(catalog.filesystem)
+		}
 	})
 	return catalog.state
 }
 
-func loadCatalog(archive []byte, expectedSHA256 string) catalogState {
-	if !isLowerSHA256(expectedSHA256) {
-		return failedCatalogState(fmt.Errorf("assets archive has no authoritative digest"))
+func loadCatalog(filesystem fs.FS) catalogState {
+	if filesystem == nil {
+		return failedCatalogState(fmt.Errorf("asset filesystem is unavailable"))
 	}
-	sum := sha256.Sum256(archive)
-	if hex.EncodeToString(sum[:]) != expectedSHA256 {
-		return failedCatalogState(fmt.Errorf("assets archive does not match the authoritative digest"))
-	}
-	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
-	if err != nil {
-		return failedCatalogState(fmt.Errorf("read assets archive: %w", err))
-	}
-	if reader.Comment != "" {
-		return failedCatalogState(fmt.Errorf("assets archive has a comment"))
-	}
-
-	files := make(map[string]*zip.File, len(reader.File))
-	for _, file := range reader.File {
-		if err := validateZipFile(file); err != nil {
-			return failedCatalogState(err)
-		}
-		if _, duplicate := files[file.Name]; duplicate {
-			return failedCatalogState(fmt.Errorf("duplicate zip entry %q", file.Name))
-		}
-		files[file.Name] = file
-	}
-	manifestFile, exists := files[catalogManifestName]
-	if !exists {
-		return failedCatalogState(fmt.Errorf("assets archive has no %s", catalogManifestName))
-	}
-	manifestBytes, err := readZipFile(manifestFile)
-	if err != nil {
-		return failedCatalogState(fmt.Errorf("read manifest: %w", err))
-	}
-	manifest, err := parseManifest(manifestBytes)
+	files, err := readCatalogFiles(filesystem)
 	if err != nil {
 		return failedCatalogState(err)
 	}
-	return validateCatalogManifest(manifest, files)
+	checksumBytes, exists := files[catalogChecksumSource]
+	if !exists {
+		return failedCatalogState(fmt.Errorf("catalog has no %s", catalogChecksumSource))
+	}
+	checksums, err := parseChecksums(checksumBytes)
+	if err != nil {
+		return failedCatalogState(err)
+	}
+	if err := validateChecksums(files, checksums); err != nil {
+		return failedCatalogState(err)
+	}
+	if err := validateRoleAssets(files); err != nil {
+		return failedCatalogState(err)
+	}
+	return buildCatalog(files)
 }
 
 func failedCatalogState(err error) catalogState {
 	return catalogState{err: err}
 }
 
-func validateZipFile(file *zip.File) error {
-	if file.NonUTF8 || !utf8.ValidString(file.Name) {
-		return fmt.Errorf("zip entry %q has a non-UTF-8 name", file.Name)
-	}
-	if file.Comment != "" {
-		return fmt.Errorf("zip entry %q has a comment", file.Name)
-	}
-	if file.Method != zip.Store {
-		return fmt.Errorf("zip entry %q is not stored", file.Name)
-	}
-	if strings.HasSuffix(file.Name, "/") {
-		return fmt.Errorf("zip entry %q is a directory", file.Name)
-	}
-	if file.Name == catalogManifestName {
+func readCatalogFiles(filesystem fs.FS) (map[string][]byte, error) {
+	files := make(map[string][]byte)
+	err := fs.WalkDir(filesystem, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == "." || entry.IsDir() {
+			return nil
+		}
+		source, err := validateEmbeddedSource(name)
+		if err != nil {
+			return fmt.Errorf("invalid embedded source %q: %w", name, err)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat embedded source %q: %w", source, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("embedded source %q is not a regular file", source)
+		}
+		contents, err := fs.ReadFile(filesystem, name)
+		if err != nil {
+			return fmt.Errorf("read embedded source %q: %w", source, err)
+		}
+		files[source] = contents
 		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk embedded assets: %w", err)
 	}
-	if !strings.HasPrefix(file.Name, catalogZipPrefix) {
-		return fmt.Errorf("zip entry %q is outside %s", file.Name, catalogZipPrefix)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("catalog contains no assets")
 	}
-	if _, err := validateEmbeddedSource(strings.TrimPrefix(file.Name, catalogZipPrefix)); err != nil {
-		return fmt.Errorf("zip entry %q has an invalid path: %w", file.Name, err)
+	return files, nil
+}
+
+func parseChecksums(contents []byte) (map[string]string, error) {
+	if len(contents) == 0 || !utf8.Valid(contents) || contents[len(contents)-1] != '\n' {
+		return nil, fmt.Errorf("checksum inventory is not canonical UTF-8")
+	}
+	checksums := make(map[string]string)
+	var previous string
+	for index, line := range strings.Split(strings.TrimSuffix(string(contents), "\n"), "\n") {
+		if len(line) < sha256.Size*2+3 || line[sha256.Size*2:sha256.Size*2+2] != "  " {
+			return nil, fmt.Errorf("checksum inventory line %d is malformed", index+1)
+		}
+		digest := line[:sha256.Size*2]
+		source, err := validateEmbeddedSource(line[sha256.Size*2+2:])
+		if err != nil || source == catalogChecksumSource || !isLowerSHA256(digest) {
+			return nil, fmt.Errorf("checksum inventory line %d is invalid", index+1)
+		}
+		if previous != "" && source <= previous {
+			return nil, fmt.Errorf("checksum inventory is not strictly source-sorted")
+		}
+		if _, duplicate := checksums[source]; duplicate {
+			return nil, fmt.Errorf("checksum inventory has duplicate source %q", source)
+		}
+		checksums[source] = digest
+		previous = source
+	}
+	if len(checksums) == 0 {
+		return nil, fmt.Errorf("checksum inventory contains no asset digests")
+	}
+	return checksums, nil
+}
+
+func validateChecksums(files map[string][]byte, checksums map[string]string) error {
+	if len(files) != len(checksums)+1 {
+		return fmt.Errorf("checksum inventory and embedded sources are not one-to-one")
+	}
+	for source, contents := range files {
+		if source == catalogChecksumSource {
+			continue
+		}
+		expected, exists := checksums[source]
+		if !exists {
+			return fmt.Errorf("embedded source %q has no checksum", source)
+		}
+		sum := sha256.Sum256(contents)
+		if hex.EncodeToString(sum[:]) != expected {
+			return fmt.Errorf("embedded source %q does not match its checksum", source)
+		}
+	}
+	for source := range checksums {
+		if _, exists := files[source]; !exists {
+			return fmt.Errorf("checksum source %q is absent", source)
+		}
 	}
 	return nil
 }
 
-func readZipFile(file *zip.File) ([]byte, error) {
-	reader, err := file.Open()
-	if err != nil {
-		return nil, err
+func validateRoleAssets(files map[string][]byte) error {
+	definitions := make([]rolecatalog.Definition, 0)
+	for source, contents := range files {
+		if !strings.HasPrefix(source, "roles/") {
+			continue
+		}
+		if path.Ext(source) != ".yaml" || path.Dir(source) != "roles" {
+			return fmt.Errorf("role catalog contains unsupported source %q", source)
+		}
+		definition, err := rolecatalog.Parse(contents)
+		if err != nil {
+			return fmt.Errorf("parse role source %q: %w", source, err)
+		}
+		if path.Base(source) != definition.ID+".yaml" {
+			return fmt.Errorf("role source %q does not match role %q", source, definition.ID)
+		}
+		definitions = append(definitions, definition)
 	}
-	contents, readErr := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return nil, readErr
+	if err := rolecatalog.ValidateCatalog(definitions); err != nil {
+		return err
 	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	return contents, nil
+	return nil
 }
 
-func parseManifest(contents []byte) (embeddedManifest, error) {
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
-	var manifest embeddedManifest
-	if err := decoder.Decode(&manifest); err != nil {
-		return embeddedManifest{}, fmt.Errorf("decode manifest: %w", err)
+func buildCatalog(files map[string][]byte) catalogState {
+	assets := make(map[string]catalogAsset, len(files)+len(catalogHelpAliases))
+	sources := make([]string, 0, len(files))
+	for source := range files {
+		sources = append(sources, source)
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return embeddedManifest{}, fmt.Errorf("decode manifest: trailing JSON value")
-		}
-		return embeddedManifest{}, fmt.Errorf("decode manifest suffix: %w", err)
-	}
-	canonical, err := json.Marshal(manifest)
-	if err != nil {
-		return embeddedManifest{}, fmt.Errorf("marshal manifest: %w", err)
-	}
-	if !bytes.Equal(canonical, contents) {
-		return embeddedManifest{}, fmt.Errorf("manifest is not canonical JSON")
-	}
-	return manifest, nil
-}
-
-func validateCatalogManifest(manifest embeddedManifest, files map[string]*zip.File) catalogState {
-	if manifest.Version != 1 {
-		return failedCatalogState(fmt.Errorf("unsupported manifest version %d", manifest.Version))
-	}
-	if len(manifest.Assets) == 0 {
-		return failedCatalogState(fmt.Errorf("manifest contains no assets"))
-	}
-
-	expectedZipPaths := make(map[string]struct{}, len(manifest.Assets))
-	identities := make(map[string]sourceIdentity, len(manifest.Assets))
-	assets := make(map[string]catalogAsset, len(manifest.Assets))
-	helpIDs := make(map[string]struct{}, len(catalogHelpAliases))
-	defaultIDs := make(map[string]struct{}, len(catalogDefaultAliases))
-
-	for _, asset := range manifest.Assets {
-		id, err := ports.ParseAssetID(asset.ID)
-		if err != nil {
-			return failedCatalogState(fmt.Errorf("invalid asset ID %q: %w", asset.ID, err))
-		}
-		if _, duplicate := assets[asset.ID]; duplicate {
-			return failedCatalogState(fmt.Errorf("duplicate asset ID %q", asset.ID))
-		}
-		kind := ports.AssetKind(asset.Kind)
-		if !kind.Valid() {
-			return failedCatalogState(fmt.Errorf("invalid asset kind %q", asset.Kind))
-		}
-		source, err := validateEmbeddedSource(asset.Source)
-		if err != nil {
-			return failedCatalogState(fmt.Errorf("invalid source %q: %w", asset.Source, err))
-		}
-		sourcePath, err := ports.NewSafeRelativePath(source)
-		if err != nil {
-			return failedCatalogState(fmt.Errorf("asset %q source metadata: %w", asset.ID, err))
-		}
-		if asset.ZipPath != catalogZipPrefix+source {
-			return failedCatalogState(fmt.Errorf("asset %q has non-canonical zip path %q", asset.ID, asset.ZipPath))
-		}
-		if asset.MediaType != catalogMediaType(source, kind) {
-			return failedCatalogState(fmt.Errorf("asset %q has invalid media type %q", asset.ID, asset.MediaType))
-		}
-		if asset.Size < 0 || !isLowerSHA256(asset.SHA256) {
-			return failedCatalogState(fmt.Errorf("asset %q has invalid integrity metadata", asset.ID))
-		}
-		if existing, duplicate := identities[source]; duplicate {
-			if existing.zipPath != asset.ZipPath || existing.size != asset.Size || existing.sha256 != asset.SHA256 {
-				return failedCatalogState(fmt.Errorf("asset %q does not match canonical source %q", asset.ID, source))
-			}
-		} else {
-			identities[source] = sourceIdentity{
-				zipPath: asset.ZipPath,
-				size:    asset.Size,
-				sha256:  asset.SHA256,
-			}
-		}
-		expectedZipPaths[asset.ZipPath] = struct{}{}
-
-		metadata, err := ports.NewAssetMetadata(id, kind, sourcePath, asset.MediaType, "sha256:"+asset.SHA256, asset.Size)
-		if err != nil {
-			return failedCatalogState(fmt.Errorf("asset %q metadata: %w", asset.ID, err))
-		}
-		assets[asset.ID] = catalogAsset{metadata: metadata}
-		if kind == ports.AssetKindHelp {
-			helpIDs[asset.ID] = struct{}{}
-		}
-		if kind == ports.AssetKindDefaults {
-			defaultIDs[asset.ID] = struct{}{}
-		}
-	}
-
-	if len(files) != len(expectedZipPaths)+1 {
-		return failedCatalogState(fmt.Errorf("zip entries do not exactly match manifest paths"))
-	}
-	for zipPath := range expectedZipPaths {
-		if _, exists := files[zipPath]; !exists {
-			return failedCatalogState(fmt.Errorf("manifest zip path %q is absent", zipPath))
-		}
-	}
-	if err := validateAliasIDs(helpIDs, catalogHelpAliases, "help"); err != nil {
-		return failedCatalogState(err)
-	}
-	if err := validateAliasIDs(defaultIDs, catalogDefaultAliases, "default"); err != nil {
-		return failedCatalogState(err)
-	}
-
-	contentsByZipPath := make(map[string][]byte, len(expectedZipPaths))
-	for zipPath := range expectedZipPaths {
-		contents, err := readZipFile(files[zipPath])
-		if err != nil {
-			return failedCatalogState(fmt.Errorf("read asset zip entry %q: %w", zipPath, err))
-		}
-		contentsByZipPath[zipPath] = contents
-	}
-
-	for _, asset := range manifest.Assets {
-		contents := contentsByZipPath[asset.ZipPath]
-		if int64(len(contents)) != asset.Size {
-			return failedCatalogState(fmt.Errorf("asset %q size does not match zip contents", asset.ID))
-		}
-		sum := sha256.Sum256(contents)
-		if hex.EncodeToString(sum[:]) != asset.SHA256 {
-			return failedCatalogState(fmt.Errorf("asset %q sha256 does not match zip contents", asset.ID))
-		}
-		kind := ports.AssetKind(asset.Kind)
-		canonical, err := validateAssetIdentity(asset, kind, contents)
+	sort.Strings(sources)
+	for _, source := range sources {
+		id, kind, err := catalogCanonicalIdentity(source, files[source])
 		if err != nil {
 			return failedCatalogState(err)
 		}
-		identity := identities[asset.Source]
-		if canonical {
-			if identity.canonical {
-				return failedCatalogState(fmt.Errorf("source %q has multiple canonical entries", asset.Source))
-			}
-			identity.canonical = true
-			identities[asset.Source] = identity
+		if err := addCatalogAsset(assets, id, kind, source, files[source]); err != nil {
+			return failedCatalogState(err)
 		}
-		stored := assets[asset.ID]
-		stored.bytes = contents
-		assets[asset.ID] = stored
 	}
-	for source, identity := range identities {
-		if !identity.canonical {
-			return failedCatalogState(fmt.Errorf("source %q has no canonical entry", source))
-		}
+	if err := addCatalogAliases(assets, files, catalogHelpAliases, ports.AssetKindHelp, "help"); err != nil {
+		return failedCatalogState(err)
+	}
+	if err := addCatalogAliases(assets, files, catalogDefaultAliases, ports.AssetKindDefaults, "default"); err != nil {
+		return failedCatalogState(err)
 	}
 
 	list := make([]ports.AssetMetadata, 0, len(assets))
@@ -366,36 +283,51 @@ func validateCatalogManifest(manifest embeddedManifest, files map[string]*zip.Fi
 	return catalogState{assets: assets, list: list}
 }
 
-type sourceIdentity struct {
-	zipPath   string
-	size      int64
-	sha256    string
-	canonical bool
+func addCatalogAliases(assets map[string]catalogAsset, files map[string][]byte, aliases map[string]string, kind ports.AssetKind, name string) error {
+	ids := make([]string, 0, len(aliases))
+	for id := range aliases {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		source := aliases[id]
+		contents, exists := files[source]
+		if !exists {
+			return fmt.Errorf("%s alias %q source %q is absent", name, id, source)
+		}
+		if err := addCatalogAsset(assets, id, kind, source, contents); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func validateAssetIdentity(asset embeddedAssetInfo, kind ports.AssetKind, contents []byte) (bool, error) {
-	canonicalID, canonicalKind, err := catalogCanonicalIdentity(asset.Source, contents)
+func addCatalogAsset(assets map[string]catalogAsset, idValue string, kind ports.AssetKind, source string, contents []byte) error {
+	id, err := ports.ParseAssetID(idValue)
 	if err != nil {
-		return false, err
+		return fmt.Errorf("invalid asset ID %q: %w", idValue, err)
 	}
-	switch kind {
-	case ports.AssetKindSOT, ports.AssetKindSchema, ports.AssetKindExample:
-		if kind != canonicalKind || asset.ID != canonicalID {
-			return false, fmt.Errorf("asset %q does not match canonical identity for %q", asset.ID, asset.Source)
-		}
-		return true, nil
-	case ports.AssetKindHelp:
-		if source, exists := catalogHelpAliases[asset.ID]; !exists || source != asset.Source {
-			return false, fmt.Errorf("asset %q is not a valid help alias", asset.ID)
-		}
-	case ports.AssetKindDefaults:
-		if source, exists := catalogDefaultAliases[asset.ID]; !exists || source != asset.Source {
-			return false, fmt.Errorf("asset %q is not a valid default alias", asset.ID)
-		}
-	default:
-		return false, fmt.Errorf("asset %q has unsupported kind %q", asset.ID, kind)
+	if _, duplicate := assets[idValue]; duplicate {
+		return fmt.Errorf("duplicate asset ID %q", idValue)
 	}
-	return false, nil
+	sourcePath, err := ports.NewSafeRelativePath(source)
+	if err != nil {
+		return fmt.Errorf("asset %q source metadata: %w", idValue, err)
+	}
+	sum := sha256.Sum256(contents)
+	metadata, err := ports.NewAssetMetadata(
+		id,
+		kind,
+		sourcePath,
+		catalogMediaType(source, kind),
+		"sha256:"+hex.EncodeToString(sum[:]),
+		int64(len(contents)),
+	)
+	if err != nil {
+		return fmt.Errorf("asset %q metadata: %w", idValue, err)
+	}
+	assets[idValue] = catalogAsset{metadata: metadata, bytes: append([]byte(nil), contents...)}
+	return nil
 }
 
 func catalogCanonicalIdentity(source string, contents []byte) (string, ports.AssetKind, error) {
@@ -418,18 +350,6 @@ func catalogCanonicalIdentity(source string, contents []byte) (string, ports.Ass
 	}
 }
 
-func validateAliasIDs(actual map[string]struct{}, expected map[string]string, name string) error {
-	if len(actual) != len(expected) {
-		return fmt.Errorf("manifest has %d %s aliases; want %d", len(actual), name, len(expected))
-	}
-	for id := range expected {
-		if _, exists := actual[id]; !exists {
-			return fmt.Errorf("manifest is missing %s alias %q", name, id)
-		}
-	}
-	return nil
-}
-
 func catalogMediaType(source string, kind ports.AssetKind) string {
 	if kind == ports.AssetKindSchema {
 		return "application/schema+json"
@@ -450,7 +370,7 @@ func validateEmbeddedSource(value string) (string, error) {
 	if value == "" || !utf8.ValidString(value) {
 		return "", fmt.Errorf("must be non-empty UTF-8")
 	}
-	if strings.Contains(value, "\\") || strings.HasPrefix(value, "/") || path.Clean(value) != value {
+	if strings.Contains(value, "\\") || strings.HasPrefix(value, "/") || path.Clean(value) != value || !fs.ValidPath(value) {
 		return "", fmt.Errorf("must be a canonical slash-relative path")
 	}
 	for _, component := range strings.Split(value, "/") {

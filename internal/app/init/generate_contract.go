@@ -47,16 +47,17 @@ func generate() error {
 	if err := writeIfChanged(filepath.Join(root, "internal", "app", "init", "testdata", "mutation-outcomes.v1.json"), golden); err != nil {
 		return err
 	}
-	if err := replaceSchemaMatrix(filepath.Join(root, "sot", "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
+	assets := filepath.Join(root, "internal", "builtin", "assets")
+	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaOutcomeContract(filepath.Join(root, "sot", "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
+	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaDiscoveryContract(filepath.Join(root, "sot", "schemas", "kar-command-result.v1.schema.json"), discoverySpecs); err != nil {
+	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), discoverySpecs); err != nil {
 		return err
 	}
-	return replaceMarkedBlock(filepath.Join(root, "sot", "docs", "10-reporting-ci-and-exit-codes.md"), renderDocumentation(specs, discoverySpecs))
+	return replaceMarkedBlock(filepath.Join(assets, "docs", "10-reporting-ci-and-exit-codes.md"), renderDocumentation(specs, discoverySpecs))
 }
 
 func repositoryRoot() (string, error) {

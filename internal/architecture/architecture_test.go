@@ -187,7 +187,7 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	specVersion, err := os.ReadFile(filepath.Join(repositoryRoot(t), "sot", "SPEC_VERSION"))
+	specVersion, err := os.ReadFile(filepath.Join(repositoryRoot(t), "internal", "builtin", "assets", "SPEC_VERSION"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,30 +1,46 @@
 package builtin
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/irootkernel/kkachi-agent-review/internal/ports"
 )
 
-const testSOTRoot = "../../sot"
-const testRolesRoot = "../../roles"
+const testSOTRoot = "assets"
+const testPlanRoot = "../../sot/plan"
+
+type embeddedManifest struct {
+	Version int
+	Assets  []embeddedAssetInfo
+}
+
+type embeddedAssetInfo struct {
+	ID        string
+	Kind      string
+	Source    string
+	MediaType string
+	Size      int64
+	SHA256    string
+	ZipPath   string
+}
 
 func TestCatalogFailsClosedAfterInitializationError(t *testing.T) {
 	t.Parallel()
 
-	catalog := testCatalog(malformedManifestArchive(t))
+	catalog := testCatalog(fstest.MapFS{})
 	if _, err := catalog.List(context.Background()); err == nil {
-		t.Fatal("List succeeded for an invalid catalog archive")
+		t.Fatal("List succeeded for an invalid asset filesystem")
 	}
 	id := mustAssetID(t, "sot:README.md")
 	if _, _, err := catalog.Read(context.Background(), id); err == nil {
@@ -32,23 +48,71 @@ func TestCatalogFailsClosedAfterInitializationError(t *testing.T) {
 	}
 }
 
-func TestProductionCatalogPinsAuthoritativeArchiveDigest(t *testing.T) {
-	sum := sha256.Sum256(embeddedArchive)
-	if got := hex.EncodeToString(sum[:]); got != embeddedArchiveSHA256 {
-		t.Fatalf("embedded archive digest = %s, want %s", got, embeddedArchiveSHA256)
-	}
-
-	mutated := append([]byte(nil), embeddedArchive...)
+func TestProductionCatalogPinsEveryEmbeddedAssetDigest(t *testing.T) {
+	files := embeddedTestFS(t)
+	mutated := append([]byte(nil), files["README.md"].Data...)
 	mutated[len(mutated)-1] ^= 0x01
-	catalog := &Catalog{archive: mutated, expectedSHA256: embeddedArchiveSHA256}
+	files["README.md"] = &fstest.MapFile{Data: mutated, Mode: 0o644}
+	catalog := testCatalog(files)
 	if _, err := catalog.List(context.Background()); err == nil {
-		t.Fatal("production catalog accepted bytes outside the authoritative digest")
+		t.Fatal("production catalog accepted bytes outside the checksum inventory")
 	}
 }
-func testCatalog(archive []byte) *Catalog {
-	cloned := append([]byte(nil), archive...)
-	sum := sha256.Sum256(cloned)
-	return &Catalog{archive: cloned, expectedSHA256: hex.EncodeToString(sum[:])}
+
+func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, fstest.MapFS)
+	}{
+		{
+			name: "missing checksummed source",
+			mutate: func(_ *testing.T, files fstest.MapFS) {
+				delete(files, "README.md")
+			},
+		},
+		{
+			name: "unchecksummed source",
+			mutate: func(_ *testing.T, files fstest.MapFS) {
+				files["unexpected.txt"] = &fstest.MapFile{Data: []byte("unexpected\n"), Mode: 0o644}
+			},
+		},
+		{
+			name: "malformed checksum inventory",
+			mutate: func(_ *testing.T, files fstest.MapFS) {
+				files[catalogChecksumSource] = &fstest.MapFile{Data: []byte("not a checksum\n"), Mode: 0o644}
+			},
+		},
+		{
+			name: "invalid role catalog",
+			mutate: func(t *testing.T, files fstest.MapFS) {
+				files["roles/logic.yaml"] = &fstest.MapFile{Data: []byte("schema_version: invalid\n"), Mode: 0o644}
+				rewriteTestChecksums(t, files)
+			},
+		},
+		{
+			name: "invalid schema identity",
+			mutate: func(t *testing.T, files fstest.MapFS) {
+				files["schemas/kar-command-result.v1.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
+				rewriteTestChecksums(t, files)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			files := embeddedTestFS(t)
+			test.mutate(t, files)
+			if _, err := testCatalog(files).List(context.Background()); err == nil {
+				t.Fatal("List succeeded for an invalid embedded filesystem")
+			}
+		})
+	}
+}
+
+func testCatalog(filesystem fs.FS) *Catalog {
+	return &Catalog{filesystem: filesystem}
 }
 
 func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
@@ -188,17 +252,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 84 {
-		t.Fatalf("authoritative SOT source count = %d, want 84", len(authoritativeSources))
-	}
-	roleEntries, err := os.ReadDir(testRolesRoot)
-	if err != nil {
-		t.Fatalf("read authoritative roles: %v", err)
-	}
-	for _, entry := range roleEntries {
-		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".yaml") {
-			authoritativeSources["roles/"+entry.Name()] = struct{}{}
-		}
+	if len(authoritativeSources) != 91 {
+		t.Fatalf("authoritative runtime source count = %d, want 91", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -211,11 +266,7 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 			t.Errorf("manifest omits authoritative source %q", source)
 			continue
 		}
-		root, relative := testSOTRoot, source
-		if strings.HasPrefix(source, "roles/") {
-			root, relative = testRolesRoot, strings.TrimPrefix(source, "roles/")
-		}
-		want, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		want, err := os.ReadFile(filepath.Join(testSOTRoot, filepath.FromSlash(source)))
 		if err != nil {
 			t.Errorf("read authoritative source %q: %v", source, err)
 			continue
@@ -235,7 +286,7 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 				continue
 			}
 			if !bytes.Equal(got, want) {
-				t.Errorf("Read(%q) bytes differ from ../../../sot/%s", entry.ID, source)
+				t.Errorf("Read(%q) bytes differ from assets/%s", entry.ID, source)
 			}
 			if metadata.Source().String() != source {
 				t.Errorf("Read(%q) source = %q, want %q", entry.ID, metadata.Source().String(), source)
@@ -261,7 +312,7 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 func TestProductionCatalogExcludesPlanningOnlySOT(t *testing.T) {
 	t.Parallel()
 
-	entries, err := os.ReadDir(filepath.Join(testSOTRoot, "plan", "diagnostics"))
+	entries, err := os.ReadDir(filepath.Join(testPlanRoot, "diagnostics"))
 	if err != nil {
 		t.Fatalf("read diagnostics plan: %v", err)
 	}
@@ -508,26 +559,86 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 
 func testManifest(t *testing.T) embeddedManifest {
 	t.Helper()
-	reader, err := zip.NewReader(bytes.NewReader(embeddedArchive), int64(len(embeddedArchive)))
+	catalog := NewCatalog()
+	metadata, err := catalog.List(context.Background())
 	if err != nil {
-		t.Fatalf("read embedded archive: %v", err)
+		t.Fatalf("List: %v", err)
 	}
-	for _, file := range reader.File {
-		if file.Name != catalogManifestName {
-			continue
-		}
-		contents, err := readZipFile(file)
+	manifest := embeddedManifest{Version: 1, Assets: make([]embeddedAssetInfo, 0, len(metadata))}
+	for _, asset := range metadata {
+		_, _, err := catalog.Read(context.Background(), asset.ID())
 		if err != nil {
-			t.Fatalf("read embedded manifest: %v", err)
+			t.Fatalf("Read(%q): %v", asset.ID().String(), err)
 		}
-		manifest, err := parseManifest(contents)
-		if err != nil {
-			t.Fatalf("parse embedded manifest: %v", err)
-		}
-		return manifest
+		manifest.Assets = append(manifest.Assets, embeddedAssetInfo{
+			ID:        asset.ID().String(),
+			Kind:      string(asset.Kind()),
+			Source:    asset.Source().String(),
+			MediaType: asset.MediaType(),
+			Size:      asset.ByteLength(),
+			SHA256:    strings.TrimPrefix(asset.SHA256(), "sha256:"),
+			ZipPath:   asset.Source().String(),
+		})
 	}
-	t.Fatalf("embedded archive has no %s", catalogManifestName)
-	return embeddedManifest{}
+	sort.Slice(manifest.Assets, func(left, right int) bool {
+		if manifest.Assets[left].Source != manifest.Assets[right].Source {
+			return manifest.Assets[left].Source < manifest.Assets[right].Source
+		}
+		leftCanonical := isCatalogCanonicalKind(manifest.Assets[left].Kind)
+		rightCanonical := isCatalogCanonicalKind(manifest.Assets[right].Kind)
+		if leftCanonical != rightCanonical {
+			return leftCanonical
+		}
+		return manifest.Assets[left].ID < manifest.Assets[right].ID
+	})
+	return manifest
+}
+
+func embeddedTestFS(t *testing.T) fstest.MapFS {
+	t.Helper()
+	root, err := fs.Sub(embeddedAssets, "assets")
+	if err != nil {
+		t.Fatalf("open embedded assets: %v", err)
+	}
+	files := make(fstest.MapFS)
+	err = fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == "." || entry.IsDir() {
+			return nil
+		}
+		contents, err := fs.ReadFile(root, name)
+		if err != nil {
+			return err
+		}
+		files[name] = &fstest.MapFile{Data: contents, Mode: 0o644}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("copy embedded assets: %v", err)
+	}
+	return files
+}
+
+func rewriteTestChecksums(t *testing.T, files fstest.MapFS) {
+	t.Helper()
+	sources := make([]string, 0, len(files)-1)
+	for source := range files {
+		if source != catalogChecksumSource {
+			sources = append(sources, source)
+		}
+	}
+	sort.Strings(sources)
+	var inventory strings.Builder
+	for _, source := range sources {
+		sum := sha256.Sum256(files[source].Data)
+		inventory.WriteString(hex.EncodeToString(sum[:]))
+		inventory.WriteString("  ")
+		inventory.WriteString(source)
+		inventory.WriteByte('\n')
+	}
+	files[catalogChecksumSource] = &fstest.MapFile{Data: []byte(inventory.String()), Mode: 0o644}
 }
 
 func mustAssetID(t *testing.T, value string) ports.AssetID {
@@ -614,24 +725,4 @@ func containsExactPair(pairs []schemaExamplePair, expected schemaExamplePair) bo
 		}
 	}
 	return false
-}
-func malformedManifestArchive(t *testing.T) []byte {
-	t.Helper()
-
-	var contents bytes.Buffer
-	writer := zip.NewWriter(&contents)
-	entry, err := writer.CreateHeader(&zip.FileHeader{
-		Name:   catalogManifestName,
-		Method: zip.Store,
-	})
-	if err != nil {
-		t.Fatalf("create malformed manifest entry: %v", err)
-	}
-	if _, err := entry.Write([]byte(`{"version":1,"assets":[]}`)); err != nil {
-		t.Fatalf("write malformed manifest: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close malformed archive: %v", err)
-	}
-	return contents.Bytes()
 }
