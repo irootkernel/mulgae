@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	appexport "github.com/irootkernel/kkachi-agent-review/internal/app/export"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appexport "github.com/irootkernel/mulgae/internal/app/export"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 

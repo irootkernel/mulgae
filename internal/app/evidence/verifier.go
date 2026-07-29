@@ -14,11 +14,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/text/unicode/norm"
 )
 
-const excerptDigestDomain = "KAR-EVIDENCE-EXCERPT/1"
+const excerptDigestDomain = "Mulgae-EVIDENCE-EXCERPT/1"
 
 // Side identifies one captured side of a current review target.
 type Side string

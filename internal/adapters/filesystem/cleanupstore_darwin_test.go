@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/clean"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/clean"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -281,8 +281,8 @@ func TestCleanupStoreRejectsDiagnosticOnlyTargetChangedToP2AfterTombstone(t *tes
 		name  string
 		p2URI func(string, string) string
 	}{
-		{name: "canonical link", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/manifest.json" }},
-		{name: "mismatched link", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/other.json" }},
+		{name: "canonical link", p2URI: func(session, run string) string { return ".mulgae/" + session + "/" + run + "/manifest.json" }},
+		{name: "mismatched link", p2URI: func(session, run string) string { return ".mulgae/" + session + "/" + run + "/other.json" }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			root, err := ports.NewAnchoredRoot(t.TempDir())
@@ -325,8 +325,8 @@ func TestCleanupStoreDeletesOnlyExactlyLinkedDiagnosticWithP2(t *testing.T) {
 		p2URI      func(string, string) string
 		wantDelete bool
 	}{
-		{name: "linked", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/manifest.json" }, wantDelete: true},
-		{name: "mismatched", p2URI: func(session, run string) string { return ".kar/" + session + "/" + run + "/other.json" }, wantDelete: false},
+		{name: "linked", p2URI: func(session, run string) string { return ".mulgae/" + session + "/" + run + "/manifest.json" }, wantDelete: true},
+		{name: "mismatched", p2URI: func(session, run string) string { return ".mulgae/" + session + "/" + run + "/other.json" }, wantDelete: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			root, err := ports.NewAnchoredRoot(t.TempDir())
@@ -374,7 +374,7 @@ func TestCleanupStoreKeepsMalformedLinkedDiagnosticSeparateFromHealthyP2(t *test
 	session := "s_019f596a-cf80-7c67-b265-f37053d51ccf"
 	run := "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
 	writeCleanupP2Fixture(t, root.String(), session, "r_019f596a-cfe4-7c9c-b82e-7149158243ba", run, "completed", cleanupP2CompletedAt)
-	diagnosticPath := writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunCompleted, cleanupP2CompletedAt, ".kar/"+session+"/"+run+"/manifest.json")
+	diagnosticPath := writeCleanupDiagnosticFixture(t, root.String(), session, run, domain.RunCompleted, cleanupP2CompletedAt, ".mulgae/"+session+"/"+run+"/manifest.json")
 	if err := os.WriteFile(filepath.Join(diagnosticPath, "status.json"), []byte(`{"schema_version":"tampered"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -575,9 +575,9 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 	epochPath := "store/epochs/epoch_00000000000000000001.json"
 	supportIndexPath := prefix + "/support/index.json"
 	stagedPath := prefix + "/publication/staged/review_" + review + ".json.tmp"
-	edge := map[string]any{"schema_version": "kar-lineage-edge.v1", "edge_id": "edge-1", "child": map[string]any{"session_id": session, "run_id": child, "review_id": review}, "parent_run_id": parent}
+	edge := map[string]any{"schema_version": "mulgae-lineage-edge.v1", "edge_id": "edge-1", "child": map[string]any{"session_id": session, "run_id": child, "review_id": review}, "parent_run_id": parent}
 	edgeBytes := cleanupJSON(t, edge)
-	final := map[string]any{"schema_version": "kar-review-artifact.v3", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
+	final := map[string]any{"schema_version": "mulgae-review-artifact.v3", "session_id": session, "run_id": child, "review_id": review, "publication_status": "committed", "immutable_lineage": map[string]any{"parent_run_id": parent, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))}}
 	finalBytes := cleanupJSON(t, final)
 	exitCode := 0
 	switch state {
@@ -587,8 +587,8 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 		exitCode = 1
 	}
 	manifest := map[string]any{
-		"schema_version": "kar-run-manifest.v2", "session_id": session, "run_id": child, "run_type": "review", "state": state, "sealed": true,
-		"created_at": completedAt, "started_at": completedAt, "completed_at": completedAt, "kar_version": "0.1.0",
+		"schema_version": "mulgae-run-manifest.v2", "session_id": session, "run_id": child, "run_type": "review", "state": state, "sealed": true,
+		"created_at": completedAt, "started_at": completedAt, "completed_at": completedAt, "mulgae_version": "0.1.0",
 		"immutable_lineage": map[string]any{"parent_run_id": parent, "source_run_id": nil, "source_review_id": nil, "source_finding_ref": nil, "replay_mode": nil, "lineage_edge_path": edgePath, "lineage_edge_sha256": cleanupTestHash(string(edgeBytes))},
 		"target":            map[string]any{"manifest_path": "target/target-manifest.json", "content_sha256": cleanupTestHash("target")},
 		"selected_roles":    []string{}, "required_roles": []string{}, "attempts": []any{}, "content_verdict": "no_findings", "coverage_status": "complete",
@@ -600,7 +600,7 @@ func writeCleanupP2Fixture(t *testing.T, root, session, parent, child, state, co
 		"failures": []any{}, "warnings": []string{}, "exit_code": exitCode,
 	}
 	manifestBytes := cleanupJSON(t, manifest)
-	epoch := map[string]any{"schema_version": "kar-publication-epoch.v1", "store_epoch": 1, "manifest": map[string]any{"path": manifestPath, "sha256": cleanupTestHash(string(manifestBytes))}, "lineage_edge": map[string]any{"path": edgePath, "sha256": cleanupTestHash(string(edgeBytes))}, "final_review": map[string]any{"path": finalPath, "sha256": cleanupTestHash(string(finalBytes))}}
+	epoch := map[string]any{"schema_version": "mulgae-publication-epoch.v1", "store_epoch": 1, "manifest": map[string]any{"path": manifestPath, "sha256": cleanupTestHash(string(manifestBytes))}, "lineage_edge": map[string]any{"path": edgePath, "sha256": cleanupTestHash(string(edgeBytes))}, "final_review": map[string]any{"path": finalPath, "sha256": cleanupTestHash(string(finalBytes))}}
 	for path, data := range map[string][]byte{edgePath: edgeBytes, finalPath: finalBytes, manifestPath: manifestBytes, epochPath: cleanupJSON(t, epoch)} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0700); err != nil {
 			t.Fatal(err)
@@ -637,8 +637,8 @@ func writeCleanupDiagnosticFixture(t *testing.T, root, session, run string, stat
 		t.Fatal(err)
 	}
 	for name, data := range map[string][]byte{
-		"status.json":       cleanupJSON(t, status),
-		"kar-runtime.jsonl": []byte("{}\n"),
+		"status.json":          cleanupJSON(t, status),
+		"mulgae-runtime.jsonl": []byte("{}\n"),
 	} {
 		if err := os.WriteFile(filepath.Join(runPath, name), data, 0o600); err != nil {
 			t.Fatal(err)

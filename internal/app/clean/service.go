@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Tombstone is the durable authorization to remove one run. A deletion may be
@@ -86,7 +86,7 @@ func NewService(clock ports.Clock, policy RetentionPolicySource, validator Schem
 	if nilCleanDependency(clock) || nilCleanDependency(policy) || nilCleanDependency(validator) || nilCleanDependency(store) {
 		return nil, errors.New("clean service: clock, policy source, schema validator, and apply store are required")
 	}
-	schemaID, err := ports.ParseAssetID("https://kar.local/schemas/kar-clean-plan.v1.schema.json")
+	schemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("clean service: clean plan schema ID: %w", err)
 	}

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
-	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
+	"github.com/irootkernel/mulgae/internal/ports"
+	rolecatalog "github.com/irootkernel/mulgae/internal/roles"
 )
 
 const catalogChecksumSource = "CHECKSUMS.sha256"

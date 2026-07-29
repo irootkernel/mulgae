@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestAGYSafetyContractIsDeterministicAndNotMaterialized(t *testing.T) {
@@ -81,7 +81,7 @@ func sha256Hex(bytes []byte) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 func TestDirectExecutionEnvironmentAuthorityFailsClosed(t *testing.T) {
-	root := "/private/kar-owned-namespace"
+	root := "/private/mulgae-owned-namespace"
 	namespaceEnvironment := directExecutionNamespaceEnvironment(t, root, filepath.Join(root, "home"))
 	namespace := currentProbeNamespace{environment: namespaceEnvironment}
 	if err := validateDirectExecutionEnvironmentAuthority(FamilyKimi, namespace, namespaceEnvironment, namespaceEnvironment); err != nil {
@@ -104,7 +104,7 @@ func TestDirectExecutionEnvironmentAuthorityFailsClosed(t *testing.T) {
 		t.Fatal("path-escaping namespace environment accepted")
 	}
 
-	wrongRoot := directExecutionNamespaceEnvironment(t, "/private/not-kar-owned", nativeHome.Path())
+	wrongRoot := directExecutionNamespaceEnvironment(t, "/private/not-mulgae-owned", nativeHome.Path())
 	if err := validateDirectExecutionEnvironmentAuthority(FamilyAgy, agyNamespace, wrongRoot, wrongRoot); err == nil {
 		t.Fatal("same-shape wrong-root namespace environment accepted")
 	}
@@ -134,7 +134,7 @@ func directExecutionNamespaceEnvironment(t *testing.T, root, home string) []port
 		mustEnvironment(t, "TMPDIR", filepath.Join(root, "tmp")),
 		mustEnvironment(t, "TMP", filepath.Join(root, "tmp")),
 		mustEnvironment(t, "TEMP", filepath.Join(root, "tmp")),
-		mustEnvironment(t, "KAR_PROVIDER_SCRATCH", filepath.Join(root, "scratch")),
+		mustEnvironment(t, "MULGAE_PROVIDER_SCRATCH", filepath.Join(root, "scratch")),
 	}
 }
 

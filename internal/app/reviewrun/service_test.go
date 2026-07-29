@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestWorkspaceAbortReasonPreservesStageAndOverridesSecurityAndCancellation(t *testing.T) {
@@ -138,8 +138,8 @@ func TestRootReviewLayerProvenanceOrderAndRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertLayerIDs(t, repaired, append(wantBase, "builtin:repair/provider-review", "review:repair-plan"))
-	if repaired.Version() != "3" || !bytes.Contains(repaired.Bytes(), []byte("KAR ROOT REVIEW REPAIR CONTRACT/3")) ||
-		!bytes.Contains(repaired.Bytes(), []byte("KAR ROOT REVIEW REPAIR PLAN/3")) ||
+	if repaired.Version() != "3" || !bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR CONTRACT/3")) ||
+		!bytes.Contains(repaired.Bytes(), []byte("Mulgae ROOT REVIEW REPAIR PLAN/3")) ||
 		!bytes.Contains(repaired.Bytes(), []byte("provider-review wire v3")) ||
 		bytes.Contains(repaired.Bytes(), []byte("provider-review wire v2")) {
 		t.Fatalf("repair template retained a stale contract: version=%q", repaired.Version())
@@ -630,7 +630,7 @@ func TestServiceExecuteFinalizesLoginRequiredAfterCleanup(t *testing.T) {
 	if !loginRequired || len(providers) != 1 || providers[0] != "agy" {
 		t.Fatalf("login-required failure = %v, providers %v", err, providers)
 	}
-	if uri, ok := RuntimeDiagnosticURIFromError(err); !ok || uri.String() != ".kar/diagnostics/s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7001-8001-000000000002" {
+	if uri, ok := RuntimeDiagnosticURIFromError(err); !ok || uri.String() != ".mulgae/diagnostics/s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7001-8001-000000000002" {
 		t.Fatal("login-required failure did not expose installed diagnostics")
 	}
 	if len(diagnostics.finalizeRequests) != 1 || diagnostics.finalizeRequests[0].State() != domain.RunFailed || diagnostics.finalizeRequests[0].Cause() != domain.DiagnosticCauseLoginRequired {
@@ -814,7 +814,7 @@ func (authority *serviceAuthority) Planner() ExecutionPlanner {
 	return servicePlanner{calls: authority.calls, cancel: authority.cancelPlan}
 }
 func (authority *serviceAuthority) BuildIdentity() BuildIdentity {
-	return BuildIdentity{Product: "kar", Version: "1.0.0", Commit: "abc123"}
+	return BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}
 }
 func (authority *serviceAuthority) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {
 	*authority.calls = append(*authority.calls, "drain")
@@ -890,7 +890,7 @@ func (serviceReader) ReadImmutableTarget(context.Context, string, evidence.Side,
 func serviceForLifecycle(t *testing.T, calls *[]string, capture ImmutableInputSource, factory RunAuthorityFactory) *Service {
 	t.Helper()
 	service, err := NewService(Dependencies{
-		Clock: serviceClock{}, IDs: &serviceIDs{calls: calls}, Build: BuildIdentity{Product: "kar", Version: "1.0.0", Commit: "abc123"},
+		Clock: serviceClock{}, IDs: &serviceIDs{calls: calls}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"},
 		RunAuthorityFactory: factory, Validator: &validation.ReviewValidator{}, Publication: servicePublisher{calls: calls}, Templates: mustServiceTemplates(t),
 		Diagnostics: ports.NewInMemoryRuntimeDiagnosticSinkFactory(),
 	})

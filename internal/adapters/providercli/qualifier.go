@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const currentProbeTimeout = 30 * time.Second
@@ -487,7 +487,7 @@ func currentProbeEvidenceID(kind, runtimeDefinitionIdentity string, values any) 
 		Domain                    string `json:"domain"`
 		RuntimeDefinitionIdentity string `json:"runtime_definition_identity"`
 		Values                    any    `json:"values"`
-	}{Domain: "KAR-CURRENT-PROBE-RECEIPT/" + kind + "/1", RuntimeDefinitionIdentity: runtimeDefinitionIdentity, Values: values})
+	}{Domain: "Mulgae-CURRENT-PROBE-RECEIPT/" + kind + "/1", RuntimeDefinitionIdentity: runtimeDefinitionIdentity, Values: values})
 	if err != nil {
 		return "", err
 	}
@@ -547,7 +547,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 }
 
 func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string) string {
-	sum := sha256.Sum256([]byte("KAR-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/2\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
+	sum := sha256.Sum256([]byte("Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/2\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -588,7 +588,7 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMismatch, "post-output frame length does not match stdout length")
 	}
 	sum := sha256.New()
-	_, _ = sum.Write([]byte("KAR-PROCESS-STDOUT-FRAME/1"))
+	_, _ = sum.Write([]byte("Mulgae-PROCESS-STDOUT-FRAME/1"))
 	_, _ = sum.Write([]byte{0})
 	_, _ = sum.Write(observation.Stdout())
 	if frame.SHA256() != hex.EncodeToString(sum.Sum(nil)) {

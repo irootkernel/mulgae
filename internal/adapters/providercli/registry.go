@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -230,7 +230,7 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 }
 
 // NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy binds the
-// operator-admitted Kimi model without placing KAR-only metadata in provider
+// operator-admitted Kimi model without placing Mulgae-only metadata in provider
 // argv.
 func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
@@ -1081,7 +1081,7 @@ func (r *Registry) drainNamespacesWithContext(ctx context.Context) (ports.Provid
 }
 
 func newEphemeralNamespaceFactory() (*NamespaceFactory, error) {
-	root, err := os.MkdirTemp("", "kar-provider-namespaces-")
+	root, err := os.MkdirTemp("", "mulgae-provider-namespaces-")
 	if err != nil {
 		return nil, fmt.Errorf("provider registry: create namespace root: %w", err)
 	}
@@ -1129,7 +1129,7 @@ func isolatedProcessEnvironment(
 		owned[variable.Name()] = struct{}{}
 		environment = append(environment, variable)
 	}
-	required := [...]string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH"}
+	required := [...]string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"}
 	for _, name := range required {
 		if _, exists := owned[name]; !exists {
 			return nil, fmt.Errorf("provider registry: incomplete namespace environment")
@@ -1150,7 +1150,7 @@ func isolatedProcessEnvironment(
 func namespaceEnvironmentName(name string) bool {
 	switch name {
 	case "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
-		"TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH":
+		"TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH":
 		return true
 	default:
 		return false
@@ -1159,7 +1159,7 @@ func namespaceEnvironmentName(name string) bool {
 
 func unsafeNamespaceEnvironmentName(name string) bool {
 	return name == "HOME" || name == "TMPDIR" || name == "TMP" || name == "TEMP" ||
-		strings.HasPrefix(name, "XDG_") || name == "KAR_PROVIDER_SCRATCH"
+		strings.HasPrefix(name, "XDG_") || name == "MULGAE_PROVIDER_SCRATCH"
 }
 
 func workspaceGuardError(operation string, cause error) error {

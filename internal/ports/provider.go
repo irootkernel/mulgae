@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // ProviderInvocationPurpose identifies the bounded stage of an attempt sent to
@@ -308,7 +308,7 @@ func validateRawSHA256(value string) error {
 }
 func providerPacketDigest(packet []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(packet)
 	return hex.EncodeToString(hash.Sum(nil))

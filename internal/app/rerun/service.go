@@ -9,10 +9,10 @@ import (
 	"reflect"
 	"time"
 
-	appprompt "github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appprompt "github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // ChildRunIssuer issues only fresh child run identities.
@@ -312,7 +312,7 @@ func SourceAttemptSHA256(source SourceAttempt) string {
 }
 func sourceAttemptDigest(source SourceAttempt) string {
 	hasher := sha256.New()
-	writeReplayDigestField(hasher, "domain", []byte("kar/rerun-source-attempt/v1"))
+	writeReplayDigestField(hasher, "domain", []byte("mulgae/rerun-source-attempt/v1"))
 	writeReplayDigestField(hasher, "session_id", []byte(source.SessionID.String()))
 	writeReplayDigestField(hasher, "run_id", []byte(source.RunID.String()))
 	writeReplayDigestField(hasher, "review_id", []byte(source.ReviewID.String()))

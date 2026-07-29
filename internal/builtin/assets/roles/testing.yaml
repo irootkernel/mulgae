@@ -1,10 +1,10 @@
-schema_version: kar-role.v1
+schema_version: mulgae-role.v1
 id: testing
 order: 6
 activation: always
 provider_preferences: [zcode, agy, kimi]
 system_prompt: |-
-  KAR ROOT REVIEW ROLE GUIDE/3: TESTING
+  Mulgae ROOT REVIEW ROLE GUIDE/3: TESTING
   Responsibility
   Review meaningful regression coverage of observable behavior, boundaries, failures, cancellation or concurrency, security negatives, and prior defect classes.
   High-signal checks

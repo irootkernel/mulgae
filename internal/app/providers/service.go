@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+	"github.com/irootkernel/mulgae/internal/app/doctor"
 )
 
 // Diagnoser supplies the redacted environment diagnosis consumed by this

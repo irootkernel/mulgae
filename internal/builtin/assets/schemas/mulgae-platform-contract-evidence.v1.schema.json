@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json",
+  "title": "Mulgae Platform Contract Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "external_contract_readiness",
+    "filesystem_scope",
+    "cells"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-platform-contract-evidence.v1"
+    },
+    "external_contract_readiness": {
+      "type": "string",
+      "enum": [
+        "UNVERIFIED",
+        "VERIFIED"
+      ]
+    },
+    "filesystem_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "network_filesystems_supported"
+      ],
+      "properties": {
+        "kind": {
+          "const": "LOCAL_POSIX"
+        },
+        "network_filesystems_supported": {
+          "const": false
+        }
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/cell"
+      }
+    }
+  },
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell_id",
+        "operating_system",
+        "architecture",
+        "native_required",
+        "native_observed",
+        "execution_state",
+        "status",
+        "probes",
+        "evidence_uri",
+        "unverified_reason"
+      ],
+      "properties": {
+        "cell_id": {
+          "type": "string",
+          "enum": [
+            "linux-amd64",
+            "linux-arm64",
+            "darwin-amd64",
+            "darwin-arm64"
+          ]
+        },
+        "operating_system": {
+          "type": "string",
+          "enum": [
+            "linux",
+            "darwin"
+          ]
+        },
+        "architecture": {
+          "type": "string",
+          "enum": [
+            "amd64",
+            "arm64"
+          ]
+        },
+        "native_required": {
+          "const": true
+        },
+        "native_observed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "execution_state": {
+          "type": "string",
+          "enum": [
+            "NOT_EXECUTED",
+            "EXECUTED"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 11,
+          "maxItems": 11,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/probe"
+          }
+        },
+        "evidence_uri": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "unverified_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "execution_state": {
+                "const": "NOT_EXECUTED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "native_observed": {
+                "const": null
+              },
+              "status": {
+                "const": "INCONCLUSIVE"
+              },
+              "evidence_uri": {
+                "const": null
+              },
+              "unverified_reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "probes": {
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/probe"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "INCONCLUSIVE"
+                        },
+                        "reason": {
+                          "const": "not_executed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe_id",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "probe_id": {
+          "type": "string",
+          "enum": [
+            "PL-IDENTITY-NATIVE",
+            "PL-LOCAL-FS",
+            "PL-SAME-DEVICE",
+            "PL-PROCESS-GROUP",
+            "PL-LOCK-STALE",
+            "PL-PERMISSION",
+            "PL-SYMLINK",
+            "PL-RENAME",
+            "PL-FILE-FSYNC",
+            "PL-DIR-FSYNC",
+            "PL-RECOVERY"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "not_executed",
+            "environment_unavailable",
+            "assertion_failed",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

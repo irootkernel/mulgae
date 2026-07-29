@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type GitLocalityAttestor struct{ adapter *Adapter }
@@ -181,7 +181,7 @@ func canonicalIndex(data []byte) ([sha256.Size]byte, int, bool, bool, error) {
 		return entries[i].oid < entries[j].oid
 	})
 	var canonical bytes.Buffer
-	canonical.WriteString("KAR-INDEX/v1\x00")
+	canonical.WriteString("Mulgae-INDEX/v1\x00")
 	for _, entry := range entries {
 		fmt.Fprintf(&canonical, "%s\x00%d\x00%s\x00%s\x00", entry.path, entry.stage, entry.mode, entry.oid)
 	}
@@ -205,10 +205,12 @@ func splitNUL(data []byte) []string {
 func canonicalGitPath(value string) bool {
 	return value != "" && !path.IsAbs(value) && path.Clean(value) == value && !strings.Contains(value, "\\") && !strings.ContainsRune(value, 0) && value != ".." && !strings.HasPrefix(value, "../")
 }
-func privatePath(value string) bool { return value == ".kar" || strings.HasPrefix(value, ".kar/") }
+func privatePath(value string) bool {
+	return value == ".mulgae" || strings.HasPrefix(value, ".mulgae/")
+}
 
 func privatePathReason(value string) ports.ConfigLocalityReason {
-	if value == ".kar/config.yaml" {
+	if value == ".mulgae/config.yaml" {
 		return ports.ConfigLocalityTargetPrivateConfigForbidden
 	}
 	if privatePath(value) {

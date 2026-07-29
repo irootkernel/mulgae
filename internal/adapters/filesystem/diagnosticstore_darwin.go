@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -118,7 +118,7 @@ func (store *DiagnosticStore) validateExistingRunStatus() (bool, error) {
 }
 
 func (store *DiagnosticStore) openOrCreateLog(ctx context.Context) error {
-	path, _ := ports.NewSafeRelativePath(store.request.RunPath().String() + "/kar-runtime.jsonl")
+	path, _ := ports.NewSafeRelativePath(store.request.RunPath().String() + "/mulgae-runtime.jsonl")
 	parts, name, _ := splitDestination(path)
 	directory, err := walkPrivateDirectory(store.request.Root(), parts, false)
 	if err != nil {
@@ -127,7 +127,7 @@ func (store *DiagnosticStore) openOrCreateLog(ctx context.Context) error {
 	fd, openErr := unix.Openat(directory, name, unix.O_RDWR|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	closeFD(directory)
 	if errors.Is(openErr, unix.ENOENT) {
-		writeRequest, requestErr := ports.NewSecureWriteRequest(store.request.Root(), path, "runtime_diagnostic_log", bytes.NewReader(nil), 1, []string{"kar_runtime"}, func(error) {})
+		writeRequest, requestErr := ports.NewSecureWriteRequest(store.request.Root(), path, "runtime_diagnostic_log", bytes.NewReader(nil), 1, []string{"mulgae_runtime"}, func(error) {})
 		if requestErr != nil {
 			return requestErr
 		}
@@ -327,7 +327,7 @@ func (store *DiagnosticStore) validateLogPath() error {
 	}
 	defer closeFD(directory)
 	expected := secureFileIdentity{device: store.logIdentity.device, inode: store.logIdentity.inode}
-	return validateSecureFileAt(directory, "kar-runtime.jsonl", expected)
+	return validateSecureFileAt(directory, "mulgae-runtime.jsonl", expected)
 }
 
 func (store *DiagnosticStore) ReplaceRunStatus(ctx context.Context, status ports.RuntimeDiagnosticRunStatus) error {

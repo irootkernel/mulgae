@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"reflect"
 
-	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type SelectionMode string
@@ -711,21 +711,21 @@ func initFailureMessage(code string) string {
 	case "init_selection_invalid":
 		return "The init selection is invalid."
 	case "init_destination_exists":
-		return "The project-local KAR configuration already exists."
+		return "The project-local Mulgae configuration already exists."
 	case "init_discovery_empty":
 		return "No supported provider was discovered."
 	case "init_provider_unavailable":
 		return "A selected provider is unavailable."
 	case "init_private_dir_raced":
-		return "The private KAR directory changed during initialization."
+		return "The private Mulgae directory changed during initialization."
 	case "init_private_dir_commit_unconfirmed":
-		return "The private KAR directory could not be durably confirmed."
+		return "The private Mulgae directory could not be durably confirmed."
 	case "init_existing_private_dir_commit_unconfirmed":
-		return "The existing private KAR directory could not be durably confirmed."
+		return "The existing private Mulgae directory could not be durably confirmed."
 	case "init_write_failed":
-		return "The project-local KAR configuration could not be written."
+		return "The project-local Mulgae configuration could not be written."
 	case "init_commit_unconfirmed":
-		return "The installed KAR configuration could not be durably confirmed."
+		return "The installed Mulgae configuration could not be durably confirmed."
 	case "init_result_prevalidation_failed":
 		return "The init command result could not be prevalidated."
 	case "init_result_delivery_failed":
@@ -737,9 +737,9 @@ func initFailureMessage(code string) string {
 	case "init_native_home_mismatch":
 		return "The asserted native home does not match the installed user."
 	case "config_yaml_invalid":
-		return "The project-local KAR configuration is invalid."
+		return "The project-local Mulgae configuration is invalid."
 	case "config_locality_unsafe", "config_locality_drifted", string(ports.ConfigLocalityTargetPrivateConfigForbidden), string(ports.ConfigLocalityTargetPrivateNamespaceForbidden):
-		return "The project-local KAR configuration failed locality admission."
+		return "The project-local Mulgae configuration failed locality admission."
 	default:
 		return "The initialization could not be completed."
 	}

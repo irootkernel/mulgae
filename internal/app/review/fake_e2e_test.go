@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/fakeprovider"
-	adapterjsonschema "github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/fakeprovider"
+	adapterjsonschema "github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type e2eClock struct{ now time.Time }
@@ -238,9 +238,9 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	initialRaw := []byte(`{"schema_version":"kar-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
-	repairRaw := []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
-	validNoFindings := []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
+	initialRaw := []byte(`{"schema_version":"mulgae-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	repairRaw := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
+	validNoFindings := []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
 
 	sessionID := parseE2ESession(t, 1)
 	runID := parseE2ERun(t, 2)
@@ -250,7 +250,7 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repairConstraints, err := prompt.NewTrustedLayer("review-repair-constraints", "v1", []byte("KAR REPAIR CONSTRAINTS/1\nmode:fill_missing_fields\nallowed_paths:\n- /summary\nReturn only the repair form required by mode.\nDo not change role, provider identity, finding count, severity, target identity, or unrelated fields."))
+	repairConstraints, err := prompt.NewTrustedLayer("review-repair-constraints", "v1", []byte("Mulgae REPAIR CONSTRAINTS/1\nmode:fill_missing_fields\nallowed_paths:\n- /summary\nReturn only the repair form required by mode.\nDo not change role, provider identity, finding count, severity, target identity, or unrelated fields."))
 	if err != nil {
 		t.Fatal(err)
 	}

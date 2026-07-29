@@ -14,7 +14,7 @@ func validConfig() Config {
 	}
 	return Config{
 		Version:    ConfigVersion,
-		Project:    ProjectConfig{Name: "project", Context: ".kar-context.md"},
+		Project:    ProjectConfig{Name: "project", Context: ".mulgae-context.md"},
 		NativeUser: NativeUserConfig{Home: "/Users/test"},
 		Providers:  ProvidersConfig{Kimi: &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: "/Users/test/.kimi-code"}},
 		Execution:  ExecutionConfig{WorkspaceAccess: "none"},
@@ -261,7 +261,7 @@ func TestCredentialDetectorUsesReasonOnlyAndBoundaries(t *testing.T) {
 func TestDecodeRejectsExplicitEmptyControlPlaceholderAndNoncanonicalUnknownKey(t *testing.T) {
 	base, _ := EncodeCanonical(validConfig())
 	cases := []string{
-		strings.Replace(string(base), "  context: \".kar-context.md\"\n", "  context: \"\"\n", 1),
+		strings.Replace(string(base), "  context: \".mulgae-context.md\"\n", "  context: \"\"\n", 1),
 		strings.Replace(string(base), "name: \"project\"", "name: \"project\\tname\"", 1),
 		strings.Replace(string(base), "name: \"project\"", "name: \"${PROJECT}\"", 1),
 		string(base) + "Unknown-Key: true\n",

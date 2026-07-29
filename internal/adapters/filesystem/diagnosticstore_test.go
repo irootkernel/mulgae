@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type diagnosticStoreTestClock struct {
@@ -84,7 +84,7 @@ func TestDiagnosticStoreOpenCreatesPrivateInstalledRun(t *testing.T) {
 	if !installed || uri != fixture.request.RunPath() {
 		t.Fatalf("URI = %q, %v", uri.String(), installed)
 	}
-	for _, path := range []string{"", "status.json", "kar-runtime.jsonl"} {
+	for _, path := range []string{"", "status.json", "mulgae-runtime.jsonl"} {
 		info, err := os.Stat(diagnosticStorePath(fixture, path))
 		if err != nil {
 			t.Fatal(err)
@@ -138,7 +138,7 @@ func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.
 	if _, err := fixture.store.Finalize(context.Background(), finalize); err == nil {
 		t.Fatal("second finalize accepted")
 	}
-	logBytes, err := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
+	logBytes, err := os.ReadFile(diagnosticStorePath(fixture, "mulgae-runtime.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend(t *testing.T) {
 	if event.Sequence() != 1 {
 		t.Fatalf("recovered sequence = %d", event.Sequence())
 	}
-	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
+	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "mulgae-runtime.jsonl"))
 	if len(logBytes) == 0 || logBytes[len(logBytes)-1] != '\n' || strings.Count(string(logBytes), "\n") != 1 {
 		t.Fatalf("recovered log is not one complete line: %q", logBytes)
 	}
@@ -382,7 +382,7 @@ func TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize(t *testing.
 	if err != nil || result.LastSequence() != 2 {
 		t.Fatalf("same-sink finalize = %#v, %v", result, err)
 	}
-	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 2)
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "mulgae-runtime.jsonl"), 2)
 }
 
 func TestDiagnosticStoreRollsBackAppendAfterSyncFailure(t *testing.T) {
@@ -405,7 +405,7 @@ func TestDiagnosticStoreRollsBackAppendAfterSyncFailure(t *testing.T) {
 	if err != nil || event.Sequence() != 1 {
 		t.Fatalf("event after recovered sync failure = %#v, %v", event, err)
 	}
-	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 1)
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "mulgae-runtime.jsonl"), 1)
 }
 
 func TestDiagnosticStoreFinalizeRetryDoesNotDuplicateTerminalEvent(t *testing.T) {
@@ -425,7 +425,7 @@ func TestDiagnosticStoreFinalizeRetryDoesNotDuplicateTerminalEvent(t *testing.T)
 	if err != nil || result.LastSequence() != 2 {
 		t.Fatalf("retry finalize = %#v, %v", result, err)
 	}
-	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "kar-runtime.jsonl"), 2)
+	assertDiagnosticLogSequences(t, diagnosticStorePath(fixture, "mulgae-runtime.jsonl"), 2)
 }
 
 func TestDiagnosticStoreRejectsReopenOfFinalizedRunWithoutChangingStatus(t *testing.T) {
@@ -523,7 +523,7 @@ func TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence(t *testin
 	if len(seen) != count {
 		t.Fatalf("sequence count = %d", len(seen))
 	}
-	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "kar-runtime.jsonl"))
+	logBytes, _ := os.ReadFile(diagnosticStorePath(fixture, "mulgae-runtime.jsonl"))
 	lines := strings.Split(strings.TrimSuffix(string(logBytes), "\n"), "\n")
 	if len(lines) != count {
 		t.Fatalf("line count = %d", len(lines))

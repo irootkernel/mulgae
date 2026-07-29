@@ -1,6 +1,6 @@
 {
-  "schema_version": "kar-provider-review-output.v2",
-  "summary": "One high-severity coordinator issue was identified with a current-target location claim that KAR must verify.",
+  "schema_version": "mulgae-provider-review-output.v2",
+  "summary": "One high-severity coordinator issue was identified with a current-target location claim that Mulgae must verify.",
   "completeness": "complete",
   "limitations": [],
   "findings": [

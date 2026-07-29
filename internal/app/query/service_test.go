@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	coreapp "github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestNewServiceRequiresStoreValidatorAndPositiveLimit(t *testing.T) {
@@ -143,7 +143,7 @@ func TestReadCommittedAllowsValidProductionProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	productionFinal := queryProductionFinalDTO()
-	final.KAR = productionFinal.KAR
+	final.Mulgae = productionFinal.Mulgae
 	final.Provenance.Production = productionFinal.Provenance.Production
 	finalBytes, err := json.Marshal(final)
 	if err != nil {
@@ -203,10 +203,10 @@ func queryProductionFinalDTO() finalDTO {
 		}
 	}
 	return finalDTO{
-		RunType: string(domain.RunTypeReview), KAR: finalKARDTO{Version: "0.1.0", Commit: &commit},
+		RunType: string(domain.RunTypeReview), Mulgae: finalMulgaeDTO{Version: "0.1.0", Commit: &commit},
 		Target: finalTargetDTO{ContentSHA256: "sha256:" + strings.Repeat("d", 64)},
 		Provenance: provenanceDTO{Production: &productionProvenanceDTO{
-			BuildProduct: "kar", BuildVersion: "0.1.0", BuildCommit: commit, ObjectiveSHA256: &objective, ObjectivePresent: true,
+			BuildProduct: "mulgae", BuildVersion: "0.1.0", BuildCommit: commit, ObjectiveSHA256: &objective, ObjectivePresent: true,
 			SnapshotManifestSHA256: "sha256:" + strings.Repeat("e", 64), WorkspaceTerminalReceipt: receipt("workspace", "6"),
 			Providers: []productionProviderDTO{provider("alpha", "alpha-main"), provider("beta", "beta-main")},
 		}},
@@ -788,7 +788,7 @@ func TestReadCommittedRejectsArtifactAndSchemaCorruption(t *testing.T) {
 			validator.err = errors.New("schema rejected")
 		},
 		"semantic final mismatch": func(store *queryStore, _ *queryValidator) {
-			badFinalBytes := []byte(`{"schema_version":"kar-review-artifact.v3"}`)
+			badFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v3"}`)
 			identity := snapshot.Final().Identity()
 			badIdentity, err := ports.NewFinalReviewIdentity(identity.ReviewID(), identity.Path(), querySHA(badFinalBytes))
 			if err != nil {
@@ -2205,15 +2205,15 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 	stdin := mustQueryArtifact(t, mustQueryPath(t, stdinPath), []byte("runtime stdin bytes"))
 	promptPath := prefix + "/prompts/" + attempt.String() + "/001-initial.manifest.json"
 	completeStdinSHA256 := prompt.CompleteStdinSHA256(stdin.Bytes())
-	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"kar-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
+	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
 	targetManifestPath := prefix + "/target/target-manifest.json"
-	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"kar-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
+	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
 	normalizedPath := prefix + "/excerpts/F001.json"
 	normalized := mustQueryArtifact(t, mustQueryPath(t, normalizedPath), []byte(`{"id":"F001"}`))
 	excerptPath := prefix + "/excerpts/F001_1.md"
 	excerpt := mustQueryArtifact(t, mustQueryPath(t, excerptPath), []byte("line one\nline two"))
 	supportPath := prefix + "/support/index.json"
-	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), []byte(fmt.Sprintf(`{"schema_version":"kar-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q}]}`, normalizedPath, normalized.SHA256(), excerptPath, excerpt.SHA256(), targetPath, target.SHA256(), stdinPath, stdin.SHA256(), promptPath, prompt.SHA256(), targetManifestPath, targetManifest.SHA256())))
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q}]}`, normalizedPath, normalized.SHA256(), excerptPath, excerpt.SHA256(), targetPath, target.SHA256(), stdinPath, stdin.SHA256(), promptPath, prompt.SHA256(), targetManifestPath, targetManifest.SHA256())))
 
 	finalRecord, err := decodeFinalDTO(baseSnapshot.Final().Bytes())
 	if err != nil {
@@ -2463,8 +2463,8 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 	manifestPath := mustQueryPath(t, prefix+"/manifest.json")
 	edgePath := mustQueryPath(t, "store/lineage-edges/e_"+reviewID.String()+".json")
 	epochPath := mustQueryPath(t, "store/epochs/epoch_00000000000000000001.json")
-	edgeBytes := []byte(`{"schema_version":"kar-lineage-edge.v1"}`)
-	epochBytes := []byte(`{"schema_version":"kar-publication-epoch.v1"}`)
+	edgeBytes := []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`)
+	epochBytes := []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`)
 	edge := mustQueryArtifact(t, edgePath, edgeBytes)
 	epochRecord := mustQueryArtifact(t, epochPath, epochBytes)
 	epoch, err := ports.NewPublicationEpoch(1, epochRecord)
@@ -2472,8 +2472,8 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		t.Fatal(err)
 	}
 	finalBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
-		"kar":{"version":"0.1.0","commit":null},
+		"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"mulgae":{"version":"0.1.0","commit":null},
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},
 		"validation":{"status":"valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed"},
@@ -2495,7 +2495,7 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		t.Fatal(err)
 	}
 	manifestBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"completed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
+		"schema_version":"mulgae-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"completed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","mulgae_version":"0.1.0",
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security"],"required_roles":["logic","security"],"attempts":[
 			{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},
@@ -2593,7 +2593,7 @@ func querySnapshotAtEpoch(
 ) ports.CommittedPublicationSnapshot {
 	t.Helper()
 	path := mustQueryPath(t, fmt.Sprintf("store/epochs/epoch_%020d.json", epochValue))
-	epochBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-publication-epoch.v1","store_epoch":%d}`, epochValue))
+	epochBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-publication-epoch.v1","store_epoch":%d}`, epochValue))
 	record := mustQueryArtifact(t, path, epochBytes)
 	epoch, err := ports.NewPublicationEpoch(epochValue, record)
 	if err != nil {

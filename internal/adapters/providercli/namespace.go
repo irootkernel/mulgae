@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // unlinkNamespaceEntry is the single unlink operation boundary. Callers verify
@@ -376,7 +376,7 @@ func namespaceEnvironment(root string) ([]ports.EnvironmentVariable, error) {
 		{"TMPDIR", "tmp"},
 		{"TMP", "tmp"},
 		{"TEMP", "tmp"},
-		{"KAR_PROVIDER_SCRATCH", "scratch"},
+		{"MULGAE_PROVIDER_SCRATCH", "scratch"},
 	}
 	environment := make([]ports.EnvironmentVariable, 0, len(values))
 	for _, value := range values {

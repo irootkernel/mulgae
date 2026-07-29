@@ -12,18 +12,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
 const (
-	lockerHelperEnvironment = "KAR_LANELOCK_HELPER"
-	lockerHelperAction      = "KAR_LANELOCK_ACTION"
-	lockerHelperRoot        = "KAR_LANELOCK_ROOT"
-	lockerHelperKey         = "KAR_LANELOCK_KEY"
-	lockerHelperReady       = "KAR_LANELOCK_READY"
-	lockerHelperControl     = "KAR_LANELOCK_CONTROL"
+	lockerHelperEnvironment = "MULGAE_LANELOCK_HELPER"
+	lockerHelperAction      = "MULGAE_LANELOCK_ACTION"
+	lockerHelperRoot        = "MULGAE_LANELOCK_ROOT"
+	lockerHelperKey         = "MULGAE_LANELOCK_KEY"
+	lockerHelperReady       = "MULGAE_LANELOCK_READY"
+	lockerHelperControl     = "MULGAE_LANELOCK_CONTROL"
 	lockerHelperTimeout     = 5 * time.Second
 )
 

@@ -5,18 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 	t.Parallel()
 
 	run := publicationTestRun(t)
-	wrongRoot, err := NewAnchoredRoot("/tmp/kar-publication-contract-wrong-root")
+	wrongRoot, err := NewAnchoredRoot("/tmp/mulgae-publication-contract-wrong-root")
 	if err != nil {
 		t.Fatal(err)
 	}
-	finalBytes := []byte(`{"schema_version":"kar-review-artifact.v2"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2"}`)
 	final := publicationTestFinal(t, finalBytes)
 	issued := publicationTestIssued(t, final)
 	binding, err := NewIssuedFinalBinding(issued, final)
@@ -99,7 +99,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 	); err == nil {
 		t.Error("undersized staged adoption cap accepted")
 	}
-	otherFinalBytes := []byte(`{"schema_version":"kar-review-artifact.v2","different":true}`)
+	otherFinalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2","different":true}`)
 	otherFinalIdentity, err := NewFinalReviewIdentity(
 		final.ReviewID(),
 		final.Path(),
@@ -306,9 +306,9 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 		t.Error("mutable replacement result accepted a receipt for different bytes")
 	}
 
-	manifestBytes := []byte(`{"schema_version":"kar-run-manifest.v2"}`)
-	lineageBytes := []byte(`{"schema_version":"kar-lineage-edge.v1"}`)
-	epochBytes := []byte(`{"schema_version":"kar-publication-epoch.v1"}`)
+	manifestBytes := []byte(`{"schema_version":"mulgae-run-manifest.v2"}`)
+	lineageBytes := []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`)
+	epochBytes := []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`)
 	manifestPath := publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/manifest.json")
 	lineagePath := publicationTestPath(t, "store/lineage-edges/e_019f596a-d174-7321-b920-c2d312c82cc2.json")
 	epochPath := publicationTestPath(t, "store/epochs/epoch_00000000000000000001.json")
@@ -370,7 +370,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalBytes[0] = '!'
-	if got := string(finalArtifact.Bytes()); got != `{"schema_version":"kar-review-artifact.v2"}` {
+	if got := string(finalArtifact.Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2"}` {
 		t.Fatalf("final artifact retained caller bytes %q", got)
 	}
 	snapshot, err := NewCommittedPublicationSnapshot(finalArtifact, manifest, lineage, epoch)
@@ -385,7 +385,7 @@ func TestPublicationContractsValidateAndDefensivelyCopy(t *testing.T) {
 		t.Fatalf("snapshot request = %#v, %v", read, err)
 	}
 
-	diagnosticBytes := []byte(`{"schema_version":"kar-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":1,"reason_codes":["artifact_mismatch"]}`)
+	diagnosticBytes := []byte(`{"schema_version":"mulgae-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":1,"reason_codes":["artifact_mismatch"]}`)
 	diagnosticPath := publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/recovery/diagnostics/publication-corrupt_1.json")
 	diagnostic := publicationTestArtifact(t, diagnosticPath, diagnosticBytes)
 	reasons := []string{"artifact_mismatch"}
@@ -477,7 +477,7 @@ func TestCorruptionObservationCASSupportsHighHintP0None(t *testing.T) {
 func TestPublicationContractsFailClosedOnInvalidScopeIdentityAndOutcome(t *testing.T) {
 	t.Parallel()
 
-	root, err := NewAnchoredRoot("/tmp/kar-publication-contract")
+	root, err := NewAnchoredRoot("/tmp/mulgae-publication-contract")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +531,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	t.Parallel()
 
 	run := publicationTestRun(t)
-	final := publicationTestFinal(t, []byte(`{"schema_version":"kar-review-artifact.v2"}`))
+	final := publicationTestFinal(t, []byte(`{"schema_version":"mulgae-review-artifact.v2"}`))
 	issued := publicationTestIssued(t, final)
 	binding, err := NewIssuedFinalBinding(issued, final)
 	if err != nil {
@@ -570,17 +570,17 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	manifest := publicationTestArtifact(
 		t,
 		publicationTestPath(t, "wrong-manifest.json"),
-		[]byte(`{"schema_version":"kar-run-manifest.v2"}`),
+		[]byte(`{"schema_version":"mulgae-run-manifest.v2"}`),
 	)
 	lineage := publicationTestArtifact(
 		t,
 		publicationTestPath(t, "wrong-lineage.json"),
-		[]byte(`{"schema_version":"kar-lineage-edge.v1"}`),
+		[]byte(`{"schema_version":"mulgae-lineage-edge.v1"}`),
 	)
 	epochRecord := publicationTestArtifact(
 		t,
 		publicationTestPath(t, "wrong-epoch.json"),
-		[]byte(`{"schema_version":"kar-publication-epoch.v1"}`),
+		[]byte(`{"schema_version":"mulgae-publication-epoch.v1"}`),
 	)
 	epoch, err := NewPublicationEpoch(1, epochRecord)
 	if err != nil {
@@ -593,7 +593,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	diagnostic := publicationTestArtifact(
 		t,
 		publicationTestPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/recovery/diagnostics/publication-corrupt_1.json"),
-		[]byte(`{"schema_version":"kar-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":2,"reason_codes":["artifact_mismatch"]}`),
+		[]byte(`{"schema_version":"mulgae-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":2,"reason_codes":["artifact_mismatch"]}`),
 	)
 	if _, err := NewCorruptionDiagnosticRequest(run, publicationTestCorruptionCAS(t, 1, []string{"artifact_mismatch"}), diagnostic); err == nil {
 		t.Error("diagnostic payload with mismatched epoch accepted")
@@ -601,7 +601,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 	duplicateDiagnostic := publicationTestArtifact(
 		t,
 		publicationTestPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/recovery/diagnostics/publication-corrupt_1.json"),
-		[]byte(`{"schema_version":"kar-publication-corruption.v1","schema_version":"kar-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":1,"reason_codes":["artifact_mismatch"]}`),
+		[]byte(`{"schema_version":"mulgae-publication-corruption.v1","schema_version":"mulgae-publication-corruption.v1","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","observation_epoch":1,"reason_codes":["artifact_mismatch"]}`),
 	)
 	if _, err := NewCorruptionDiagnosticRequest(run, publicationTestCorruptionCAS(t, 1, []string{"artifact_mismatch"}), duplicateDiagnostic); err == nil {
 		t.Error("diagnostic payload with duplicate keys accepted")
@@ -611,7 +611,7 @@ func TestPublicationRequestsRejectCrossNamespaceDestinations(t *testing.T) {
 func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	t.Parallel()
 
-	finalBytes := []byte(`{"schema_version":"kar-review-artifact.v2","state":"final"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2","state":"final"}`)
 	final := publicationTestFinal(t, finalBytes)
 	finalArtifact, err := NewFinalReviewArtifact(final, finalBytes)
 	if err != nil {
@@ -759,7 +759,7 @@ func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	finalBytes[0] = '!'
 	journalBytes[0] = '!'
 	statusBytes[0] = '!'
-	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"kar-review-artifact.v2","state":"final"}` {
+	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2","state":"final"}` {
 		t.Fatalf("recovery material retained final bytes %q", got)
 	}
 	if got := string(restageMaterial.Journal().Bytes()); got != `{"persisted_journal_state":"content_validated"}` {
@@ -784,7 +784,7 @@ func TestPublicationObservationRecoveryMaterialContracts(t *testing.T) {
 	finalCopy[0] = '!'
 	journalCopy[0] = '!'
 	statusCopy[0] = '!'
-	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"kar-review-artifact.v2","state":"final"}` {
+	if got := string(restageMaterial.Final().Bytes()); got != `{"schema_version":"mulgae-review-artifact.v2","state":"final"}` {
 		t.Fatalf("recovery material leaked final bytes %q", got)
 	}
 	if got := string(restageMaterial.Journal().Bytes()); got != `{"persisted_journal_state":"content_validated"}` {
@@ -976,7 +976,7 @@ func TestPreparedPublicationPortContracts(t *testing.T) {
 	t.Parallel()
 
 	run := publicationTestRun(t)
-	finalBytes := []byte(`{"schema_version":"kar-review-artifact.v2"}`)
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v2"}`)
 	final := publicationTestFinal(t, finalBytes)
 	finalArtifact, err := NewFinalReviewArtifact(final, finalBytes)
 	if err != nil {
@@ -1177,7 +1177,7 @@ func (publicationStoreContractFake) WriteCorruptionDiagnostic(context.Context, C
 
 func publicationTestRun(t *testing.T) PublicationRun {
 	t.Helper()
-	root, err := NewAnchoredRoot("/tmp/kar-publication-contract")
+	root, err := NewAnchoredRoot("/tmp/mulgae-publication-contract")
 	if err != nil {
 		t.Fatal(err)
 	}

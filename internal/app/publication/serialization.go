@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Build assigns the post-validation ReviewID and constructs every deterministic
@@ -290,7 +290,7 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 		seen[key] = struct{}{}
 		identities = append(identities, artifactIdentityWire{Path: key, SHA256: artifact.SHA256()})
 	}
-	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: "kar-run-support-index.v1", Artifacts: identities})
+	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: "mulgae-run-support-index.v1", Artifacts: identities})
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("publication build: serialize support index: %w", err)
 	}
@@ -324,7 +324,7 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 	artifacts := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, role := range candidate.roles {
 		for _, attempt := range role.attempts {
-			status := attemptStatusWire{SchemaVersion: "kar-attempt-status.v1", AttemptID: attempt.id.String()}
+			status := attemptStatusWire{SchemaVersion: "mulgae-attempt-status.v1", AttemptID: attempt.id.String()}
 			hasCapture := false
 			repairOrdinal := 0
 			for _, invocation := range attempt.invocations {
@@ -515,7 +515,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 					return nil, fmt.Errorf("publication build: runtime prompt path: %w", err)
 				}
 				promptBytes, err := marshalCanonical(runtimePromptManifestWire{
-					SchemaVersion:       "kar-runtime-prompt-manifest.v1",
+					SchemaVersion:       "mulgae-runtime-prompt-manifest.v1",
 					Target:              artifactIdentityWire{Path: targetArtifact.Path().String(), SHA256: targetArtifact.SHA256()},
 					Stdin:               artifactIdentityWire{Path: stdin.Path().String(), SHA256: stdin.SHA256()},
 					CompleteStdinSHA256: runtime.stdinSHA256,
@@ -576,7 +576,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		return nil, fmt.Errorf("publication build: runtime target manifest path: %w", err)
 	}
 	targetManifestBytes, err := marshalCanonical(runtimeTargetManifestWire{
-		SchemaVersion: "kar-runtime-target-manifest.v1",
+		SchemaVersion: "mulgae-runtime-target-manifest.v1",
 		Target: artifactIdentityWire{
 			Path:   fmt.Sprintf("%s/%s/target/target.bytes", candidate.sessionID, candidate.runID),
 			SHA256: sha256Identifier(target),
@@ -608,7 +608,7 @@ func (candidate PreparedCandidate) buildArtistInputArtifacts(capturedArchive []b
 		raw = raw[index+1:]
 	}
 	var inputs capturedArtistInputWire
-	if json.Unmarshal(raw, &inputs) != nil || inputs.SchemaVersion != "kar-artist-inputs.v1" {
+	if json.Unmarshal(raw, &inputs) != nil || inputs.SchemaVersion != "mulgae-artist-inputs.v1" {
 		return nil, nil, nil, nil
 	}
 	if inputs.Status != "ready" || inputs.TaskPath == "" || inputs.Task == "" || len(inputs.VisualAssets) == 0 {
@@ -633,7 +633,7 @@ func (candidate PreparedCandidate) buildArtistInputArtifacts(capturedArchive []b
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("publication build: artist brief: %w", err)
 	}
-	visualBytes, err := marshalCanonical(publishedArtistVisualsWire{SchemaVersion: "kar-artist-visual-assets.v1", BriefPath: inputs.TaskPath, VisualAssets: inputs.VisualAssets})
+	visualBytes, err := marshalCanonical(publishedArtistVisualsWire{SchemaVersion: "mulgae-artist-visual-assets.v1", BriefPath: inputs.TaskPath, VisualAssets: inputs.VisualAssets})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest: %w", err)
 	}
@@ -655,7 +655,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 	createdAt string,
 	lineageEdge ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
-	commit := optionalString(candidate.kar.commit)
+	commit := optionalString(candidate.mulgae.commit)
 	baseOID := optionalString(candidate.target.baseOID)
 	headOID := optionalString(candidate.target.headOID)
 	status := "valid"
@@ -666,14 +666,14 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: "kar-review-artifact.v3",
+		SchemaVersion: "mulgae-review-artifact.v3",
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
 		RunType:       string(candidate.publicationLineage().runType),
 		CreatedAt:     createdAt,
-		KAR: karWire{
-			Version: candidate.kar.version,
+		Mulgae: mulgaeWire{
+			Version: candidate.mulgae.version,
 			Commit:  commit,
 		},
 		ImmutableLineage: candidate.immutableLineageWire(lineageEdge),
@@ -712,7 +712,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	supportIndex ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:            "kar-run-manifest.v2",
+		SchemaVersion:            "mulgae-run-manifest.v2",
 		SessionID:                candidate.sessionID.String(),
 		RunID:                    candidate.runID.String(),
 		RunType:                  string(candidate.publicationLineage().runType),
@@ -721,7 +721,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 		CreatedAt:                createdAt,
 		StartedAt:                optionalString(createdAt),
 		CompletedAt:              optionalString(createdAt),
-		KARVersion:               candidate.kar.version,
+		MulgaeVersion:            candidate.mulgae.version,
 		ImmutableLineage:         candidate.immutableLineageWire(lineageEdge),
 		FollowupOutcome:          candidate.followupOutcomeWire(),
 		Target:                   manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: candidate.target.sha256},
@@ -996,7 +996,7 @@ func marshalCanonical(value any) ([]byte, error) {
 	return cloneBytes(buffer.Bytes()), nil
 }
 
-type karWire struct {
+type mulgaeWire struct {
 	Version string  `json:"version"`
 	Commit  *string `json:"commit"`
 }
@@ -1147,7 +1147,7 @@ type finalReviewWire struct {
 	ReviewID          string                `json:"review_id"`
 	RunType           string                `json:"run_type"`
 	CreatedAt         string                `json:"created_at"`
-	KAR               karWire               `json:"kar"`
+	Mulgae            mulgaeWire            `json:"mulgae"`
 	ImmutableLineage  immutableLineageWire  `json:"immutable_lineage"`
 	FollowupOutcome   *followupOutcomeWire  `json:"followup_outcome,omitempty"`
 	Target            finalTargetWire       `json:"target"`
@@ -1221,7 +1221,7 @@ type runManifestWire struct {
 	CreatedAt                string                  `json:"created_at"`
 	StartedAt                *string                 `json:"started_at"`
 	CompletedAt              *string                 `json:"completed_at"`
-	KARVersion               string                  `json:"kar_version"`
+	MulgaeVersion            string                  `json:"mulgae_version"`
 	ImmutableLineage         immutableLineageWire    `json:"immutable_lineage"`
 	FollowupOutcome          *followupOutcomeWire    `json:"followup_outcome,omitempty"`
 	Target                   manifestTargetWire      `json:"target"`

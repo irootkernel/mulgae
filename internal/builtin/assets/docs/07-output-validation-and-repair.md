@@ -2,7 +2,7 @@
 
 ## 1. Publication Gate
 
-A provider process exit code of zero is not sufficient to publish a review. KAR applies three deterministic validation stages:
+A provider process exit code of zero is not sufficient to publish a review. Mulgae applies three deterministic validation stages:
 
 ```text
 Schema completeness
@@ -13,7 +13,7 @@ Schema completeness
 Only a valid normalized aggregate may become:
 
 ```text
-.kar/{session_id}/{run_id}/review_{uuidv7}.json
+.mulgae/{session_id}/{run_id}/review_{uuidv7}.json
 ```
 
 ## 2. Validation Flow
@@ -50,7 +50,7 @@ flowchart TD
 
 Mandatory keys are divided by ownership.
 
-### 3.1 KAR-owned fields
+### 3.1 Mulgae-owned fields
 
 Examples:
 
@@ -71,7 +71,7 @@ content_verdict, coverage_status, publication_status, and ci_decision
 artifact hashes
 ```
 
-KAR generates these values from execution state. Missing KAR-owned fields indicate an implementation or artifact failure. They must never be sent to AI for completion.
+Mulgae generates these values from execution state. Missing Mulgae-owned fields indicate an implementation or artifact failure. They must never be sent to AI for completion.
 
 ### 3.2 AI-owned fields
 
@@ -106,7 +106,7 @@ new_findings[].evidence[].current.quote
 limitations[] when present
 ```
 
-KAR checks every listed provider-owned text value after trimming and placeholder normalization. For `resolution=resolved`, KAR also normalizes punctuation and case in `rationale` and deterministically rejects an assertion that the issue remains, is still present or open, is not resolved, or remains unresolved. Non-contradictory text such as an assertion that the issue no longer remains is accepted; KAR does not use a model-based semantic judge.
+Mulgae checks every listed provider-owned text value after trimming and placeholder normalization. For `resolution=resolved`, Mulgae also normalizes punctuation and case in `rationale` and deterministically rejects an assertion that the issue remains, is still present or open, is not resolved, or remains unresolved. Non-contradictory text such as an assertion that the issue no longer remains is accepted; Mulgae does not use a model-based semantic judge.
 
 ## 4. JSON Schema Validation
 
@@ -123,10 +123,10 @@ JSON Schema validates:
 
 Provider schemas:
 
-- [Review output v2](../schemas/kar-provider-review-output.v2.schema.json)
-- [Followup output v2](../schemas/kar-provider-followup-output.v2.schema.json)
+- [Review output v2](../schemas/mulgae-provider-review-output.v2.schema.json)
+- [Followup output v2](../schemas/mulgae-provider-followup-output.v2.schema.json)
 
-These schemas validate KAR-normalized envelopes: KAR always injects current target identity and injects immutable source identity only for source-bearing followup, delta, rerun, or equivalent review modes; root review omits `source`. Provider-owned evidence remains a path/range/quote claim with `verification=claimed`. A provider cannot emit a trusted verification state.
+These schemas validate Mulgae-normalized envelopes: Mulgae always injects current target identity and injects immutable source identity only for source-bearing followup, delta, rerun, or equivalent review modes; root review omits `source`. Provider-owned evidence remains a path/range/quote claim with `verification=claimed`. A provider cannot emit a trusted verification state.
 
 A key that exists with `null`, whitespace, a placeholder, or the wrong type does not satisfy the contract.
 
@@ -145,7 +145,7 @@ A field-specific schema or semantic rule may explicitly allow `unknown`, but the
 
 ## 5. Semantic Validation
 
-JSON Schema cannot express all cross-field rules. KAR applies deterministic semantic checks.
+JSON Schema cannot express all cross-field rules. Mulgae applies deterministic semantic checks.
 
 Examples:
 
@@ -162,11 +162,11 @@ Examples:
 
 Semantic contradiction is not treated as a missing-value repair by default. It requires an exact rerun or fallback after classification.
 
-For source-bound followup, fallback remains forbidden. KAR may issue one repair to the same provider under the same attempt only when the initial output is not one JSON object or the KAR-normalized document fails the provider-owned JSON Schema. The repair returns a complete replacement followup object and is recorded as invocation sequence 2 with purpose `repair`. Trust-boundary violations, semantic contradictions, invalid evidence, and operational provider failures bypass repair and terminate with their original typed class.
+For source-bound followup, fallback remains forbidden. Mulgae may issue one repair to the same provider under the same attempt only when the initial output is not one JSON object or the Mulgae-normalized document fails the provider-owned JSON Schema. The repair returns a complete replacement followup object and is recorded as invocation sequence 2 with purpose `repair`. Trust-boundary violations, semantic contradictions, invalid evidence, and operational provider failures bypass repair and terminate with their original typed class.
 
 ## 6. Source and Current Evidence Reducers
 
-Provider evidence is a claim. KAR preserves source identity and current verification as separate objects; source evidence can never be presented as current verified evidence.
+Provider evidence is a claim. Mulgae preserves source identity and current verification as separate objects; source evidence can never be presented as current verified evidence.
 
 A source reference requires all of:
 
@@ -179,7 +179,7 @@ source_target_sha256
 source_excerpt_sha256
 ```
 
-KAR verifies those fields only against the immutable source captured target and source artifact. `source.source_excerpt_sha256` identifies only the original source excerpt. It cannot satisfy, replace, or be copied as a fallback for a current excerpt digest.
+Mulgae verifies those fields only against the immutable source captured target and source artifact. `source.source_excerpt_sha256` identifies only the original source excerpt. It cannot satisfy, replace, or be copied as a fallback for a current excerpt digest.
 
 A persisted current reference requires all of:
 
@@ -200,7 +200,7 @@ Captured-target lookup is by immutable `target_sha256`, `side`, and path. Line s
 
 ```text
 excerpt_sha256 =
-  SHA-256("KAR-EVIDENCE-EXCERPT/1" || 0x00 ||
+  SHA-256("Mulgae-EVIDENCE-EXCERPT/1" || 0x00 ||
           raw_target_digest_32 || 0x00 || ASCII(side) || 0x00 ||
           UTF8_NFC(path) || 0x00 || u64be(line_start) || u64be(line_end) ||
           0x00 || excerpt_bytes)
@@ -208,7 +208,7 @@ excerpt_sha256 =
 
 A claimed current reference becomes `verified` only on an exact target, range, quote, and `current_excerpt_sha256` match. `current_excerpt_sha256` identifies the newly verified current excerpt and controls indexed excerpt verification and order; it is never derived from or substituted by `source.source_excerpt_sha256`. It becomes `stale` when the source reference is valid but the current target differs or no longer matches; `invalid` for malformed paths, ranges, or a false hash; and `unverifiable` when immutable bytes are unavailable. Source/current spoofing, traversal, inverted or out-of-bounds ranges, stale targets, excerpt mismatches, and missing source bytes are negative cases.
 
-An `invalid` or `unverifiable` provider claim is an evidence-validation failure. A quote mismatch may use one bounded `exact_evidence` repair only when immutable lookup already selected the exact claimed path, side, and inclusive range; the repair authority contains only the mismatched quote JSON Pointer paths. Stale targets, invalid or out-of-bounds paths/ranges, unavailable bytes, and reader failures bypass repair and proceed directly to eligible fallback or exhaustion. A stored artifact or query hash mismatch is an artifact failure (exit `7`), not a repairable provider claim. Human-readable excerpts are created by KAR only after this reducer succeeds and are persisted through the secure writer.
+An `invalid` or `unverifiable` provider claim is an evidence-validation failure. A quote mismatch may use one bounded `exact_evidence` repair only when immutable lookup already selected the exact claimed path, side, and inclusive range; the repair authority contains only the mismatched quote JSON Pointer paths. Stale targets, invalid or out-of-bounds paths/ranges, unavailable bytes, and reader failures bypass repair and proceed directly to eligible fallback or exhaustion. A stored artifact or query hash mismatch is an artifact failure (exit `7`), not a repairable provider claim. Human-readable excerpts are created by Mulgae only after this reducer succeeds and are persisted through the secure writer.
 
 ## 7. Repair Budget
 
@@ -238,7 +238,7 @@ Do not add, remove, merge, downgrade, or reinterpret findings.
 Return JSON only.
 ```
 
-KAR stores original and repaired bytes separately only after the shared secure writer accepts them. A secret match or scan overflow drops the buffered content and prevents its hash or substring from being persisted; it is a security violation, not a repair input. A repaired result still receives full validation because semantic identity cannot be presumed.
+Mulgae stores original and repaired bytes separately only after the shared secure writer accepts them. A secret match or scan overflow drops the buffered content and prevents its hash or substring from being persisted; it is a security violation, not a repair input. A repaired result still receives full validation because semantic identity cannot be presumed.
 
 ### 8.2 `fill_missing_fields`
 
@@ -248,7 +248,7 @@ The repair response is a constrained patch:
 
 ```json
 {
-  "schema_version": "kar-repair-patch.v1",
+  "schema_version": "mulgae-repair-patch.v1",
   "repairs": [
     {
       "path": "/findings/0/recommendation",
@@ -258,7 +258,7 @@ The repair response is a constrained patch:
 }
 ```
 
-KAR validates:
+Mulgae validates:
 
 - every path appears in `allowed_paths`;
 - no existing meaningful value is replaced;
@@ -322,7 +322,7 @@ validation/final-validation.json
 
 Example machine contract:
 
-- [Validation result schema](../schemas/kar-validation-result.v2.schema.json)
+- [Validation result schema](../schemas/mulgae-validation-result.v2.schema.json)
 
 ## 12. Outcome Axes and Finalization
 

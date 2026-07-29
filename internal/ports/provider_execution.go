@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // ErrProviderLoginRequired marks an explicit native provider response that
-// requires the installed user to authenticate outside KAR before retrying.
+// requires the installed user to authenticate outside Mulgae before retrying.
 var ErrProviderLoginRequired = errors.New("provider login required")
 
 // ProviderRuntimeError carries a closed detailed cause when the provider

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,7 +20,7 @@ const (
 	lockDirectoryMode  = 0o700
 	lockFileMode       = 0o600
 	flockRetryInterval = 10 * time.Millisecond
-	lockGuardPrefix    = ".kar-lane-"
+	lockGuardPrefix    = ".mulgae-lane-"
 	lockGuardSuffix    = ".guard"
 )
 
@@ -168,7 +168,7 @@ func sameIdentity(expected, actual nodeIdentity) bool {
 }
 
 // openLockAuthority establishes the parent-controlled namespace shared by
-// cooperating KAR processes for one root and key. It is not privilege isolation
+// cooperating Mulgae processes for one root and key. It is not privilege isolation
 // from an actively malicious same-UID process. The root's parent is the explicit
 // trust boundary: it must remain current-user owned, non-group/world-writable,
 // and path-stable for a lease.

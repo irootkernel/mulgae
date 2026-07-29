@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestCoordinatorScenarios(t *testing.T) {
@@ -3393,7 +3393,7 @@ func coordinatorVerifiedEvidenceFixture(
 		return validation.ValidatedReview{}, nil, err
 	}
 	raw := fmt.Sprintf(
-		`{"schema_version":"kar-provider-review-output.v3","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
+		`{"schema_version":"mulgae-provider-review-output.v3","summary":"Coordinator evidence fixture.","completeness":"complete","limitations":[],"findings":[{"severity":%q,"title":%q,"description":"Coordinator evidence fixture description.","evidence":[{"current":{"path":%q,"side":"base","line_start":%d,"line_end":%d,"quote":%q}}],"recommendation":"Retain coordinator evidence proof.","confidence":"high"}]}`,
 		string(input.severity),
 		input.title,
 		input.path,

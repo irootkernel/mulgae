@@ -1,7 +1,7 @@
 // Package providers lists the fixed, trusted provider profiles without invoking them.
 package providers
 
-import "github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+import "github.com/irootkernel/mulgae/internal/app/doctor"
 
 // Family identifies one provider family in canonical runtime order.
 type Family string

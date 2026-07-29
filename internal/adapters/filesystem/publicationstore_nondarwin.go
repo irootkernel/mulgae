@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 var errPublicationStoreUnsupportedPlatform = errors.New("publication store requires darwin/arm64 secure filesystem primitives")

@@ -2,7 +2,7 @@
 
 ## 1. Aggregate Model
 
-KAR separates lineage, execution, review content, and publication.
+Mulgae separates lineage, execution, review content, and publication.
 
 ```mermaid
 classDiagram
@@ -65,9 +65,9 @@ classDiagram
 ### 1.1 Functional role boundary
 
 ```text
-KAR roles are functional review lenses.
+Mulgae roles are functional review lenses.
 They are not people, teams, or organizational authorities.
-KAR reports findings and recommendations only.
+Mulgae reports findings and recommendations only.
 ```
 
 ## 2. Identifier Policy
@@ -279,7 +279,7 @@ The central coordinator owns transitions. Lane workers execute child-process inv
 
 ## 6. Outcome Computation
 
-Provider output does not set any authoritative outcome. KAR computes each axis after normalization and policy evaluation.
+Provider output does not set any authoritative outcome. Mulgae computes each axis after normalization and policy evaluation.
 
 ### 6.1 Content and coverage
 
@@ -341,7 +341,7 @@ Provider tuples use NFC fields and the normalized ASCII `concurrency_key`. A tup
 
 ## 7. Finding Identity
 
-AI providers do not assign final finding IDs. KAR assigns run-local IDs after validation and deterministic ordering:
+AI providers do not assign final finding IDs. Mulgae assigns run-local IDs after validation and deterministic ordering:
 
 ```text
 F001
@@ -380,12 +380,12 @@ Final findings are sorted by:
 5. provider instance ascending;
 6. title ascending.
 
-KAR assigns `F001` identifiers only after this sort. Provider timing must not change final finding numbering.
+Mulgae assigns `F001` identifiers only after this sort. Provider timing must not change final finding numbering.
 
 ## 15. Runtime Diagnostic Model
 
-Runtime diagnostics are private operational evidence, not review or publication authority. `RuntimeDiagnosticEvent` is immutable after validation and contains `schema_version="kar-runtime-log.v1"`, UTC RFC3339Nano time, a closed `INFO|WARN|ERROR` level, a closed safe message, a run-wide positive sequence, nondecreasing monotonic elapsed milliseconds, component, operation, event, session ID, and run ID. Applicable events may additionally contain validated attempt/invocation identity, role, provider, cause, failure, mitigation, state, outcome, stream, byte offset/length, termination, exit code, and safe artifact reference. Unknown codes, inconsistent identities, negative ranges, non-UTC time, decreasing elapsed time, and non-monotonic sequence are invalid.
+Runtime diagnostics are private operational evidence, not review or publication authority. `RuntimeDiagnosticEvent` is immutable after validation and contains `schema_version="mulgae-runtime-log.v1"`, UTC RFC3339Nano time, a closed `INFO|WARN|ERROR` level, a closed safe message, a run-wide positive sequence, nondecreasing monotonic elapsed milliseconds, component, operation, event, session ID, and run ID. Applicable events may additionally contain validated attempt/invocation identity, role, provider, cause, failure, mitigation, state, outcome, stream, byte offset/length, termination, exit code, and safe artifact reference. Unknown codes, inconsistent identities, negative ranges, non-UTC time, decreasing elapsed time, and non-monotonic sequence are invalid.
 
 The event families cover command/run, qualification/planning, scheduling, process, parsing/validation, fallback/reduction, publication, and cleanup transitions. Normal lifecycle is `INFO`, mitigated or degraded lifecycle is `WARN`, and terminal failure is `ERROR`. Paths, Go locations, prompts, source content, raw provider content, credentials, and free-form error chains are forbidden inline values.
 
-Run, attempt, and invocation status projections use separate closed `kar-runtime-run-status.v1`, `kar-runtime-attempt-status.v1`, and `kar-runtime-invocation-status.v1` wire contracts. Run status owns state/timestamps, selected roles, lane counts, last sequence, terminal failure, optional P2 reference, bounded drop counters, `diagnostic_only=true`, and `publication_authority=false`. Attempt status owns role/provider, primary or fallback selection, state/timestamps, invocation count, last sequence, and optional terminal cause. Invocation status owns invocation identity, run-wide ordinal, purpose, process/parse/validation states, timestamps, termination/exit code, last sequence, and separate stdout/stderr artifact or drop metadata. Unknown fields are rejected and unavailable optional values are omitted rather than encoded as `null`.
+Run, attempt, and invocation status projections use separate closed `mulgae-runtime-run-status.v1`, `mulgae-runtime-attempt-status.v1`, and `mulgae-runtime-invocation-status.v1` wire contracts. Run status owns state/timestamps, selected roles, lane counts, last sequence, terminal failure, optional P2 reference, bounded drop counters, `diagnostic_only=true`, and `publication_authority=false`. Attempt status owns role/provider, primary or fallback selection, state/timestamps, invocation count, last sequence, and optional terminal cause. Invocation status owns invocation identity, run-wide ordinal, purpose, process/parse/validation states, timestamps, termination/exit code, last sequence, and separate stdout/stderr artifact or drop metadata. Unknown fields are rejected and unavailable optional values are omitted rather than encoded as `null`.

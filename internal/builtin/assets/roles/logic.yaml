@@ -1,10 +1,10 @@
-schema_version: kar-role.v1
+schema_version: mulgae-role.v1
 id: logic
 order: 1
 activation: always
 provider_preferences: [kimi, zcode, agy]
 system_prompt: |-
-  KAR ROOT REVIEW ROLE GUIDE/3: LOGIC
+  Mulgae ROOT REVIEW ROLE GUIDE/3: LOGIC
   Responsibility
   Review correctness, invariants, state transitions, branch and edge values, error propagation, retries and fallbacks, cancellation, concurrency ordering, resource cleanup, and nil, overflow, and range behavior.
   High-signal checks

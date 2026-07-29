@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestEnvelopeRendererRendersCanonicalEnvelopeInContractOrder(t *testing.T) {
@@ -20,13 +20,13 @@ func TestEnvelopeRendererRendersCanonicalEnvelopeInContractOrder(t *testing.T) {
 	validator := &envelopeValidator{}
 	renderer := mustEnvelopeRenderer(t, validator)
 	request := []byte(`{"target":{"value":"origin/main...HEAD","kind":"diff"},"source_run_id":"r_019f596a-cfe4-7c9c-b82e-7149158243ba","request_id":"i_019f596a-e201-7a4b-8d76-1cf503a1849e","role":"logic","output_format":"json","objective":"Verify whether the source finding is resolved.","finding_id":"F003","command":"followup"}`)
-	result := mustCommandSuccess(t, app.CommandFollowup, []byte(`{"run_id":"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e","followup_artifact_uri":".kar/followup.json","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","resolution":"still_open","kind":"followup_started"}`))
+	result := mustCommandSuccess(t, app.CommandFollowup, []byte(`{"run_id":"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e","followup_artifact_uri":".mulgae/followup.json","session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","resolution":"still_open","kind":"followup_started"}`))
 
 	got, err := renderer.Render(context.Background(), result, request, nil)
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	want := []byte("{\"schema_version\":\"kar-command-result.v1\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".kar/followup.json\",\"kind\":\"followup_started\",\"resolution\":\"still_open\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
+	want := []byte("{\"schema_version\":\"mulgae-command-result.v1\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".mulgae/followup.json\",\"kind\":\"followup_started\",\"resolution\":\"still_open\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Render() = %s\nwant     = %s", got, want)
 	}
@@ -89,7 +89,7 @@ func TestEnvelopeRendererHonorsCommandOwnedRetryability(t *testing.T) {
 		"cli.init",
 		domain.FailureArtifact,
 		"init_write_failed",
-		"The project-local KAR configuration could not be written.",
+		"The project-local Mulgae configuration could not be written.",
 		true,
 	)
 	if err != nil {
@@ -131,8 +131,8 @@ func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 		attemptID,
 		true,
 		true,
-		".kar/diagnostics/guard.json",
-		"kar doctor --internal-debug",
+		".mulgae/diagnostics/guard.json",
+		"mulgae doctor --internal-debug",
 	)
 	if err != nil {
 		t.Fatalf("NewDiagnostic() error = %v", err)
@@ -151,7 +151,7 @@ func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 		"security_reviewer",
 		"remote-provider.internal",
 		attemptID.String(),
-		"kar doctor --internal-debug",
+		"mulgae doctor --internal-debug",
 		"fallback_attempted",
 		"fallback_prohibited",
 	} {
@@ -171,7 +171,7 @@ func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 		Code:        "secret_guard_triggered",
 		Message:     "The guarded input cannot be transmitted.",
 		Retryable:   false,
-		ArtifactURI: stringPointer(".kar/diagnostics/guard.json"),
+		ArtifactURI: stringPointer(".mulgae/diagnostics/guard.json"),
 	}
 	if len(envelope.Reasons) != 1 || !equalReason(envelope.Reasons[0], want) {
 		t.Fatalf("reasons = %#v, want %#v", envelope.Reasons, want)

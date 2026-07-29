@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 const (
@@ -221,7 +221,7 @@ func providerTestAttempt(t *testing.T) domain.AttemptID {
 }
 func providerTestDigest(stdin []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(stdin)
 	return hex.EncodeToString(hash.Sum(nil))

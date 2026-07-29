@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type scriptedResponse struct {
@@ -255,7 +255,7 @@ func TestTrustedReadTreeMembershipFailuresAreFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := ports.NewSafeRelativePath(".kar.yaml")
+	file, err := ports.NewSafeRelativePath(".mulgae.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

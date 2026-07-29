@@ -13,7 +13,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "configuration_violation",
-    "message": "The project-local KAR configuration already exists.",
+    "message": "The project-local Mulgae configuration already exists.",
     "retryable": false
   },
   {
@@ -23,7 +23,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -33,7 +33,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -43,7 +43,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -53,7 +53,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "artifact_failure",
-    "message": "The project-local KAR configuration could not be written.",
+    "message": "The project-local Mulgae configuration could not be written.",
     "retryable": true
   },
   {
@@ -63,7 +63,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "artifact_failure",
-    "message": "The project-local KAR configuration could not be written.",
+    "message": "The project-local Mulgae configuration could not be written.",
     "retryable": true
   },
   {
@@ -73,7 +73,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "artifact_failure",
-    "message": "The private KAR directory changed during initialization.",
+    "message": "The private Mulgae directory changed during initialization.",
     "retryable": true
   },
   {
@@ -83,7 +83,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "artifact_failure",
-    "message": "The private KAR directory could not be durably confirmed.",
+    "message": "The private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -93,7 +93,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "artifact_failure",
-    "message": "The private KAR directory could not be durably confirmed.",
+    "message": "The private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -103,7 +103,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "artifact_failure",
-    "message": "The private KAR directory could not be durably confirmed.",
+    "message": "The private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -113,7 +113,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -123,7 +123,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -133,7 +133,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -143,7 +143,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -153,7 +153,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -163,7 +163,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -173,7 +173,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -183,7 +183,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -193,7 +193,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -203,7 +203,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "artifact_failure",
-    "message": "The existing private KAR directory could not be durably confirmed.",
+    "message": "The existing private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -213,7 +213,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "artifact_failure",
-    "message": "The existing private KAR directory could not be durably confirmed.",
+    "message": "The existing private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -223,7 +223,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "artifact_failure",
-    "message": "The existing private KAR directory could not be durably confirmed.",
+    "message": "The existing private Mulgae directory could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -233,7 +233,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -243,7 +243,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -253,7 +253,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -263,7 +263,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -273,7 +273,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -283,7 +283,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -293,7 +293,7 @@
     "committed": false,
     "destination_state": "absent",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -303,7 +303,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -313,7 +313,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -323,7 +323,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "artifact_failure",
-    "message": "The installed KAR configuration could not be durably confirmed.",
+    "message": "The installed Mulgae configuration could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -333,7 +333,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "artifact_failure",
-    "message": "The installed KAR configuration could not be durably confirmed.",
+    "message": "The installed Mulgae configuration could not be durably confirmed.",
     "retryable": true
   },
   {
@@ -343,7 +343,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -353,7 +353,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -363,7 +363,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -373,7 +373,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -383,7 +383,7 @@
     "committed": false,
     "destination_state": "present",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {
@@ -393,7 +393,7 @@
     "committed": false,
     "destination_state": "not_observed",
     "class": "security_policy_violation",
-    "message": "The project-local KAR configuration failed locality admission.",
+    "message": "The project-local Mulgae configuration failed locality admission.",
     "retryable": false
   },
   {

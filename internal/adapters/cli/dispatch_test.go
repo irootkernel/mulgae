@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 type testHandler struct {

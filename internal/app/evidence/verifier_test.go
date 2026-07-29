@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -413,7 +413,7 @@ func expectedExcerptSHA256(targetHex string, side Side, path string, lineStart, 
 		panic(err)
 	}
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-EVIDENCE-EXCERPT/1"))
+	_, _ = hash.Write([]byte("Mulgae-EVIDENCE-EXCERPT/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(targetDigest)
 	_, _ = hash.Write([]byte{0})

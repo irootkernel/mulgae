@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	environmentadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
-	filesystemadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
-	workspaceadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	environmentadapter "github.com/irootkernel/mulgae/internal/adapters/environment"
+	filesystemadapter "github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	workspaceadapter "github.com/irootkernel/mulgae/internal/adapters/workspace"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestMain(m *testing.M) {
@@ -37,8 +37,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestLiveAgyCapability(t *testing.T) {
-	binaryPath := liveAgyConfiguredPath(t, "KAR_LIVE_AGY_BIN")
-	runtimeHome, err := liveAgyInstalledHome(user.Current, os.Geteuid(), os.Getenv("KAR_LIVE_AGY_HOME"))
+	binaryPath := liveAgyConfiguredPath(t, "MULGAE_LIVE_AGY_BIN")
+	runtimeHome, err := liveAgyInstalledHome(user.Current, os.Geteuid(), os.Getenv("MULGAE_LIVE_AGY_HOME"))
 	if err != nil {
 		t.Fatalf("INCONCLUSIVE: resolve installed AGY user home: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	authBeforeSetup, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR setup: %v", err)
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before Mulgae setup: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
@@ -165,7 +165,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	if environment["HOME"] != runtimeHome {
 		t.Fatal("FAIL: retained AGY namespace HOME differs from the configured native home")
 	}
-	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH"} {
+	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"} {
 		if !liveAgyOwnedByDisposableNamespace(environment[name], namespaceRoot) {
 			t.Fatalf("FAIL: retained AGY namespace %s is not disposable", name)
 		}
@@ -175,10 +175,10 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	authAfterSetup, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings after KAR setup: %v", err)
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings after Mulgae setup: %v", err)
 	}
 	if !reflect.DeepEqual(authBeforeSetup, authAfterSetup) {
-		t.Fatal("FAIL: KAR setup changed installed AGY filesystem auth/settings surfaces")
+		t.Fatal("FAIL: Mulgae setup changed installed AGY filesystem auth/settings surfaces")
 	}
 	probe, err := providercli.NewCurrentProbe(recordingRunner, verifier)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	liveAgyRequireExactReceipts(t, result.Receipts)
 	authBeforeDrain, err := liveAgyAuthSettingsManifest(runtimeHome)
 	if err != nil {
-		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before KAR drain: %v", err)
+		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before Mulgae drain: %v", err)
 	}
 
 	workspaceReceipt, err := fixture.DrainTerminal(ctx)
@@ -266,7 +266,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		!namespaceReceipts[0].Drained() || !namespaceReceipts[0].Unlinked() || !namespaceReceipts[0].TornDown() {
 		t.Fatal("FAIL: isolated namespace terminal receipt is invalid")
 	}
-	// The manifest proves KAR setup and teardown never persist changes under the
+	// The manifest proves Mulgae setup and teardown never persist changes under the
 	// installed HOME. It intentionally does not deny the AGY child its normal
 	// user-owned authentication behavior; doing so would recreate the permission
 	// failures this native-HOME contract exists to avoid.
@@ -275,7 +275,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings after drain: %v", snapshotErr)
 	}
 	if !reflect.DeepEqual(authBeforeDrain, authAfterDrain) {
-		t.Fatal("FAIL: KAR changed installed AGY filesystem auth/settings surfaces")
+		t.Fatal("FAIL: Mulgae changed installed AGY filesystem auth/settings surfaces")
 	}
 	drained = true
 	t.Logf("PASS: installed AGY %s completed the descriptor-bound immutable fixture probe", result.Version)
@@ -396,7 +396,7 @@ func liveAgyEnvironment(t *testing.T, environment []ports.EnvironmentVariable) m
 		}
 		values[variable.Name()] = variable.Value()
 	}
-	for _, name := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH"} {
+	for _, name := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"} {
 		if values[name] == "" {
 			t.Fatalf("retained AGY namespace omitted %s", name)
 		}

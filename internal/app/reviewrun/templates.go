@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
-	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
+	rolecatalog "github.com/irootkernel/mulgae/internal/roles"
 )
 
 type templateDescriptor struct {

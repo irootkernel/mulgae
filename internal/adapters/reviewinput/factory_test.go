@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type captureFake struct {

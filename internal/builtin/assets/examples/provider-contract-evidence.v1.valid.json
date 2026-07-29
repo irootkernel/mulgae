@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-provider-contract-evidence.v1",
+  "schema_version": "mulgae-provider-contract-evidence.v1",
   "external_contract_readiness": "UNVERIFIED",
   "providers": [
     {

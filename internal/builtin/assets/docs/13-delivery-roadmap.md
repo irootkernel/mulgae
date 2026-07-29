@@ -105,7 +105,7 @@ Acceptance:
 G008 delivered:
 - application services and CLI dispatch boundaries for `followup`, `delta`, `rerun`, `clean`, and `export`; fake/composed offline P2 verification does not close production review verification;
 - immutable lineage edges, source/current evidence views, retention planning, tombstones, and redacted export;
-- executable behavior proven through fake/composed offline P2 workflow coverage across review-shaped, followup, delta, and exact rerun flows, plus focused cleanup and export tests; production `kar review` is composed and wired, but this offline evidence is not a substitute for its required authority gates and family-distinct normal P2 receipts.
+- executable behavior proven through fake/composed offline P2 workflow coverage across review-shaped, followup, delta, and exact rerun flows, plus focused cleanup and export tests; production `mulgae review` is composed and wired, but this offline evidence is not a substitute for its required authority gates and family-distinct normal P2 receipts.
 
 G008 acceptance:
 - every workflow creates a new run and preserves source bytes;

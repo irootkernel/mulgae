@@ -2,7 +2,7 @@ package init
 
 import (
 	"bytes"
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"testing"
 )
 

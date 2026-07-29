@@ -1,4 +1,4 @@
-module github.com/irootkernel/kkachi-agent-review
+module github.com/irootkernel/mulgae
 
 go 1.26
 

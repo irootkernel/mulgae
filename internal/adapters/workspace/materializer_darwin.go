@@ -18,11 +18,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
-const manifestName = "._kar_workspace_manifest.json"
+const manifestName = "._mulgae_workspace_manifest.json"
 
 var errIdentityDrift = ports.ErrWorkspaceSnapshotDrift
 
@@ -1314,11 +1314,11 @@ func validateFiles(files []ports.WorkspaceSnapshotFile) error {
 	previous := ""
 	for _, file := range files {
 		value := file.Path().String()
-		if value == manifestName || value == ".git" || value == ".kar" || strings.HasPrefix(value, ".git/") || strings.HasPrefix(value, ".kar/") {
+		if value == manifestName || value == ".git" || value == ".mulgae" || strings.HasPrefix(value, ".git/") || strings.HasPrefix(value, ".mulgae/") {
 			return fmt.Errorf("workspace snapshot: reserved path %q", value)
 		}
 		for _, part := range strings.Split(value, "/") {
-			if part == ".git" || part == ".kar" {
+			if part == ".git" || part == ".mulgae" {
 				return fmt.Errorf("workspace snapshot: reserved path %q", value)
 			}
 		}
@@ -1573,6 +1573,7 @@ func directoryNames(fd int) ([]string, error) {
 		}
 		names = append(names, entry.Name())
 	}
+	sort.Strings(names)
 	return names, nil
 }
 

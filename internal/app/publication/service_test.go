@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestAttemptCaptureArtifactsAreImmutableAndSecretBytesAreDropped(t *testing.T) {
@@ -173,8 +173,8 @@ func TestRepairedCandidateAndPatchStdoutHaveDistinctCanonicalArtifacts(t *testin
 	attempt.invocations = append(attempt.invocations, preparedInvocation{
 		sequence: 2, purpose: domain.InvocationRepair, state: domain.InvocationSucceeded,
 	})
-	reconstructed := []byte(`{"schema_version":"kar-provider-review-output.v3","findings":[]}`)
-	patch := []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[]}`)
+	reconstructed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","findings":[]}`)
+	patch := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[]}`)
 	repaired, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactRepairedCandidate, reconstructed, false)
 	if err != nil {
 		t.Fatal(err)

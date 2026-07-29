@@ -1,6 +1,6 @@
 package config
 
-import "github.com/irootkernel/kkachi-agent-review/internal/domain"
+import "github.com/irootkernel/mulgae/internal/domain"
 
 type RedactedConfig struct {
 	ConfiguredProviderIDs []string       `json:"configured_provider_ids" yaml:"configured_provider_ids"`

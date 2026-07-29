@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,9 +33,9 @@ func (writer *SecureWriter) PrepareConfigDirectory(ctx context.Context, root por
 		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationNotObserved, err)
 	}
 	created := false
-	karFD, openErr := unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	mulgaeFD, openErr := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if errors.Is(openErr, unix.ENOENT) {
-		if err := unix.Mkdirat(rootFD, ".kar", privateDirectoryMode); err != nil {
+		if err := unix.Mkdirat(rootFD, ".mulgae", privateDirectoryMode); err != nil {
 			stage := ports.ConfigInstallStagePreinstall
 			if errors.Is(err, unix.EEXIST) {
 				stage = ports.ConfigInstallStagePrivateDirRace
@@ -43,31 +43,31 @@ func (writer *SecureWriter) PrepareConfigDirectory(ctx context.Context, root por
 			return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(stage, ports.ConfigDestinationNotObserved, err)
 		}
 		created = true
-		karFD, openErr = unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		mulgaeFD, openErr = unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	}
 	if openErr != nil {
 		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationNotObserved, openErr)
 	}
-	defer closeFD(karFD)
-	if err := verifyPrivateDirectory(karFD); err != nil {
-		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(karFD), err)
+	defer closeFD(mulgaeFD)
+	if err := verifyPrivateDirectory(mulgaeFD); err != nil {
+		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(mulgaeFD), err)
 	}
-	karIdentity, err := privateDirectoryIdentityForFD(karFD)
+	mulgaeIdentity, err := privateDirectoryIdentityForFD(mulgaeFD)
 	if err != nil {
-		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(karFD), err)
+		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(mulgaeFD), err)
 	}
-	proof, err := configDirectoryIdentity(rootIdentity, karIdentity)
+	proof, err := configDirectoryIdentity(rootIdentity, mulgaeIdentity)
 	if err != nil {
-		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(karFD), err)
+		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(mulgaeFD), err)
 	}
 	receipt, err := ports.NewVerifiedConfigDirectoryReceipt(created, proof)
 	if err != nil {
-		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(karFD), err)
+		return ports.ConfigDirectoryReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, observeConfig(mulgaeFD), err)
 	}
 	if err := operations.fsync(rootFD); err != nil {
-		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootSync, observeConfig(karFD), err)
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootSync, observeConfig(mulgaeFD), err)
 	}
-	if err := revalidateRootAndPrivate(root, rootIdentity, karIdentity); err != nil {
+	if err := revalidateRootAndPrivate(root, rootIdentity, mulgaeIdentity); err != nil {
 		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageRootReattestation, observeConfigAtRoot(root), err)
 	}
 	return receipt, nil
@@ -91,7 +91,7 @@ func (writer *SecureWriter) InstallConfig(ctx context.Context, root ports.Anchor
 	if err != nil {
 		return ports.ConfigInstallReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationNotObserved, err)
 	}
-	directoryFD, err := unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	directoryFD, err := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return ports.ConfigInstallReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationNotObserved, err)
 	}
@@ -208,7 +208,7 @@ func observeConfigAtRoot(root ports.AnchoredRoot) ports.ConfigDestinationState {
 		return ports.ConfigDestinationNotObserved
 	}
 	defer closeFD(rootFD)
-	directoryFD, err := unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	directoryFD, err := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if errors.Is(err, unix.ENOENT) {
 		return ports.ConfigDestinationAbsent
 	}
@@ -228,7 +228,7 @@ func observeInstalledConfigAtRoot(root ports.AnchoredRoot) ports.ConfigDestinati
 	}
 	return ports.ConfigDestinationNotObserved
 }
-func revalidateRootAndPrivate(root ports.AnchoredRoot, rootIdentity, karIdentity privateDirectoryIdentity) error {
+func revalidateRootAndPrivate(root ports.AnchoredRoot, rootIdentity, mulgaeIdentity privateDirectoryIdentity) error {
 	rootFD, err := openAnchoredRoot(root)
 	if err != nil {
 		return err
@@ -238,16 +238,16 @@ func revalidateRootAndPrivate(root ports.AnchoredRoot, rootIdentity, karIdentity
 	if err != nil || actual != rootIdentity {
 		return fmt.Errorf("root identity changed")
 	}
-	karFD, err := unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	mulgaeFD, err := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
-	defer closeFD(karFD)
-	if err := verifyPrivateDirectory(karFD); err != nil {
+	defer closeFD(mulgaeFD)
+	if err := verifyPrivateDirectory(mulgaeFD); err != nil {
 		return err
 	}
-	actualKar, err := privateDirectoryIdentityForFD(karFD)
-	if err != nil || actualKar != karIdentity {
+	actualMulgae, err := privateDirectoryIdentityForFD(mulgaeFD)
+	if err != nil || actualMulgae != mulgaeIdentity {
 		return fmt.Errorf("private directory identity changed")
 	}
 	return nil

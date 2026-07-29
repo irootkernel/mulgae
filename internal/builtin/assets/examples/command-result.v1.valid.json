@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-command-result.v1",
+  "schema_version": "mulgae-command-result.v1",
   "command": "followup",
   "request": {
     "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
@@ -24,7 +24,7 @@
     "kind": "followup_started",
     "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
     "run_id": "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e",
-    "followup_artifact_uri": ".kar/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e/followup.json",
+    "followup_artifact_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e/followup.json",
     "resolution": "resolved"
   }
 }

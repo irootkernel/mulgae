@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	fdExecHiddenArgument           = "__kar_fdexec_v1"
-	fdExecNativeHomeHiddenArgument = "__kar_fdexec_native_home_v1"
+	fdExecHiddenArgument           = "__mulgae_fdexec_v1"
+	fdExecNativeHomeHiddenArgument = "__mulgae_fdexec_native_home_v1"
 )
 
-// ExecInheritedDirectory recognizes KAR's private descriptor-bound launch
+// ExecInheritedDirectory recognizes Mulgae's private descriptor-bound launch
 // mode. A recognized request never returns successfully: it changes to the
 // inherited directory and immediately replaces itself with the provider.
 func ExecInheritedDirectory(argv []string) (bool, error) {

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-// CommandName is one command in the fixed KAR command surface.
+// CommandName is one command in the fixed Mulgae command surface.
 type CommandName string
 
 const (
@@ -70,7 +70,7 @@ const (
 	ExitCodeInternal     ExitCode = 10
 )
 
-// Valid reports whether code is an assigned KAR exit code.
+// Valid reports whether code is an assigned Mulgae exit code.
 func (code ExitCode) Valid() bool {
 	switch code {
 	case ExitCodeSuccess, ExitCodePolicy, ExitCodeUsage, ExitCodeReadiness,

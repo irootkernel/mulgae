@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 const (

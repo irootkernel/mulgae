@@ -12,8 +12,8 @@ import (
 
 	jschema "github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestValidatorRejectsInvalidJSONInputsAndUnknownIDs(t *testing.T) {
@@ -39,7 +39,7 @@ func TestValidatorRejectsInvalidJSONInputsAndUnknownIDs(t *testing.T) {
 		})
 	}
 
-	unknownSchemaID := mustAssetID(t, "https://kar.local/schemas/not-in-catalog.v1.schema.json")
+	unknownSchemaID := mustAssetID(t, "https://mulgae.local/schemas/not-in-catalog.v1.schema.json")
 	requireDiagnosticStage(t, validator.Validate(context.Background(), unknownSchemaID, []byte("{}")), StageSchema)
 	requireDiagnosticStage(t, validator.Validate(context.Background(), mustAssetID(t, authoritativePairs[0].exampleID), []byte("{}")), StageSchema)
 }
@@ -49,11 +49,11 @@ func TestValidatorReadinessAuthorityIsV2Only(t *testing.T) {
 		id   string
 		want bool
 	}{
-		{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", false},
-		{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", false},
-		{"https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json", true},
-		{"https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json", true},
-		{"https://kar.local/schemas/kar-provider-contract-evidence.v3.schema.json", false},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", false},
+		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", false},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", false},
 	} {
 		if got := ReadinessAuthority(mustAssetID(t, test.id)); got != test.want {
 			t.Errorf("ReadinessAuthority(%q) = %t, want %t", test.id, got, test.want)
@@ -75,7 +75,7 @@ func TestNewRejectsTamperedCatalogAndSchemaIDMismatch(t *testing.T) {
 	tampered := &catalogOverride{base: base, id: targetID, metadata: metadata, raw: tamperedRaw}
 	requireDiagnosticStage(t, newCatalogError(ctx, tampered), StageCatalog)
 
-	mismatchedRaw := bytes.Replace(raw, []byte(targetID.String()), []byte("urn:kar:tampered-schema-id"), 1)
+	mismatchedRaw := bytes.Replace(raw, []byte(targetID.String()), []byte("urn:mulgae:tampered-schema-id"), 1)
 	if bytes.Equal(mismatchedRaw, raw) {
 		t.Fatal("target schema did not contain its $id")
 	}
@@ -118,7 +118,7 @@ func TestNewRejectsTamperedCatalogAndSchemaIDMismatch(t *testing.T) {
 	requireDiagnosticStage(t, newCatalogError(ctx, unresolved), StageCatalog)
 }
 func TestSchemaCompilerDeniesExternalResolution(t *testing.T) {
-	localID := "https://kar.local/schemas/local-reference.schema.json"
+	localID := "https://mulgae.local/schemas/local-reference.schema.json"
 	local := newSchemaCompiler()
 	if err := local.AddResource(localID, map[string]any{
 		"$schema": draft2020URI,
@@ -146,7 +146,7 @@ func TestSchemaCompilerDeniesExternalResolution(t *testing.T) {
 			}
 
 			compiler := newSchemaCompiler()
-			id := "https://kar.local/schemas/closed-loader.schema.json"
+			id := "https://mulgae.local/schemas/closed-loader.schema.json"
 			if err := compiler.AddResource(id, map[string]any{
 				"$schema": draft2020URI,
 				"$id":     id,
@@ -261,7 +261,7 @@ func TestStrictJSONDecoderDepthUnicodeAndEquivalentKeys(t *testing.T) {
 
 func TestValidationDiagnosticRedactsInputControlledPath(t *testing.T) {
 	const hostileKey = "secret\n\u001b[31mcredential-material"
-	const id = "https://kar.local/schemas/path-redaction.schema.json"
+	const id = "https://mulgae.local/schemas/path-redaction.schema.json"
 	document := map[string]any{
 		"$schema": draft2020URI,
 		"$id":     id,
@@ -357,7 +357,7 @@ func TestValidatorRegexErrorsDoNotBypassApplicators(t *testing.T) {
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			id := "https://kar.local/schemas/regexp-" + test.name + ".schema.json"
+			id := "https://mulgae.local/schemas/regexp-" + test.name + ".schema.json"
 			document := map[string]any{
 				"$schema": draft2020URI,
 				"$id":     id,

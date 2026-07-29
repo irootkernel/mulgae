@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -38,7 +38,7 @@ func TestNamespaceFactoryIsolatesInstancesAndRetainsGeneration(t *testing.T) {
 	}
 	if firstEnvironment["XDG_CONFIG_HOME"] == "" || firstEnvironment["XDG_DATA_HOME"] == "" ||
 		firstEnvironment["XDG_CACHE_HOME"] == "" || firstEnvironment["TMPDIR"] == "" ||
-		firstEnvironment["KAR_PROVIDER_SCRATCH"] == "" {
+		firstEnvironment["MULGAE_PROVIDER_SCRATCH"] == "" {
 		t.Fatal("provider namespace omitted required isolated directories")
 	}
 	if err := first.ValidateForSpawn(); err != nil {

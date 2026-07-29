@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-export-manifest.v1",
+  "schema_version": "mulgae-export-manifest.v1",
   "export_id": "x_019f596a-e1b2-7cd3-8efa-7149158243ba",
   "created_at": "2026-07-13T12:05:00Z",
   "immutable_source": {
@@ -33,7 +33,7 @@
     "verification": "verified"
   },
   "secure_writer": {
-    "contract": "kar-secure-writer/v1",
+    "contract": "mulgae-secure-writer/v1",
     "scan_before_write": true,
     "redaction_policy": "redacted_export",
     "redaction_status": "complete",

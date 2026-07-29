@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
@@ -127,7 +127,7 @@ func TestAGYUsesInstalledHomeWithoutCredentialProjection(t *testing.T) {
 	if environment["HOME"] != nativeHome {
 		t.Fatalf("AGY HOME = %q, want verified native home %q", environment["HOME"], nativeHome)
 	}
-	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH"} {
+	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"} {
 		if !strings.HasPrefix(environment[name], concrete.root+string(filepath.Separator)) {
 			t.Fatalf("%s escaped namespace: %q", name, environment[name])
 		}

@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-clean-plan.v1",
+  "schema_version": "mulgae-clean-plan.v1",
   "mode": "dry_run",
   "now": "2026-07-13T12:00:00Z",
   "store_epoch": {

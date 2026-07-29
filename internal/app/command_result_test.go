@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestExitCodeValuesAreExactAndClosed(t *testing.T) {
@@ -201,8 +201,8 @@ func TestDiagnosticPreservesTypedFailureContext(t *testing.T) {
 		attempt,
 		true,
 		true,
-		".kar/diagnostics/secure-write.json",
-		"kar doctor security",
+		".mulgae/diagnostics/secure-write.json",
+		"mulgae doctor security",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestDiagnosticPreservesTypedFailureContext(t *testing.T) {
 	if !diagnostic.FallbackAttempted() || !diagnostic.FallbackProhibited() {
 		t.Fatal("fallback flags were not preserved")
 	}
-	if diagnostic.ArtifactPath() != ".kar/diagnostics/secure-write.json" || diagnostic.RecommendedNextCommand() != "kar doctor security" {
+	if diagnostic.ArtifactPath() != ".mulgae/diagnostics/secure-write.json" || diagnostic.RecommendedNextCommand() != "mulgae doctor security" {
 		t.Fatalf("guidance = %q/%q", diagnostic.ArtifactPath(), diagnostic.RecommendedNextCommand())
 	}
 }
@@ -275,8 +275,8 @@ func testDiagnostic(t *testing.T) Diagnostic {
 		domain.AttemptID{},
 		false,
 		true,
-		".kar/diagnostics/provider.json",
-		"kar doctor security",
+		".mulgae/diagnostics/provider.json",
+		"mulgae doctor security",
 	)
 	if err != nil {
 		t.Fatal(err)

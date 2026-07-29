@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	environmentadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/environment"
-	filesystemadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
-	workspaceadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	environmentadapter "github.com/irootkernel/mulgae/internal/adapters/environment"
+	filesystemadapter "github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	workspaceadapter "github.com/irootkernel/mulgae/internal/adapters/workspace"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type liveCapabilityConfig struct {
@@ -41,7 +41,7 @@ type liveCapabilityConfig struct {
 func TestLiveKimiCapability(t *testing.T) {
 	certifyLiveCapability(t, liveCapabilityConfig{
 		family: providercli.FamilyKimi, credential: providercli.CredentialSourceKimi, instance: "kimi-logic", role: domain.RoleLogic,
-		executableEnv: "KAR_LIVE_KIMI_BIN", dataHomeEnv: "KAR_LIVE_KIMI_DATA_HOME", transportIndex: 4,
+		executableEnv: "MULGAE_LIVE_KIMI_BIN", dataHomeEnv: "MULGAE_LIVE_KIMI_DATA_HOME", transportIndex: 4,
 		minimumVersion: [3]int{0, 23, 6}, kimiModel: "kimi-code/kimi-for-coding",
 		protectedPaths: func(_ string, dataHome string) []string {
 			return []string{filepath.Join(dataHome, "config.toml"), filepath.Join(dataHome, "credentials", "kimi-code.json")}
@@ -52,7 +52,7 @@ func TestLiveKimiCapability(t *testing.T) {
 func TestLiveZCodeCapability(t *testing.T) {
 	certifyLiveCapability(t, liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
-		executableEnv: "KAR_LIVE_ZCODE_NODE_BIN", launcherEnv: "KAR_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
+		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
 		minimumVersion: [3]int{0, 15, 2},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}

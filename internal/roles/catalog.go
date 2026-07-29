@@ -9,11 +9,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 
-const SchemaVersion = "kar-role.v1"
+const SchemaVersion = "mulgae-role.v1"
 
 type Activation string
 

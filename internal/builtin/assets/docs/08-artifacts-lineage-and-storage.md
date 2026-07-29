@@ -2,16 +2,16 @@
 
 ## 1. Canonical Root
 
-KAR uses a standalone project-local root:
+Mulgae uses a standalone project-local root:
 
 ```text
-.kar/
+.mulgae/
 ```
 
 The canonical final artifact path is:
 
 ```text
-.kar/{session_id}/{run_id}/review_{uuidv7}.json
+.mulgae/{session_id}/{run_id}/review_{uuidv7}.json
 ```
 
 There is no intermediate `runs/` directory in the canonical path.
@@ -19,7 +19,7 @@ There is no intermediate `runs/` directory in the canonical path.
 ## 2. Canonical Tree
 
 ```text
-.kar/
+.mulgae/
   config.yaml
   cache/
 
@@ -100,14 +100,14 @@ There is no intermediate `runs/` directory in the canonical path.
 
 See [artifact-tree.txt](../examples/artifact-tree.txt) for a complete example.
 
-The `inputs/` members exist only for a run that selects artist. KAR copies the
+The `inputs/` members exist only for a run that selects artist. Mulgae copies the
 resolved brief bytes to `inputs/artist-brief.md` and emits the canonical visual
 identity list at `inputs/artist-visual-assets.json`. The target manifest and
 run support index bind both paths and SHA-256 identities to
 `target/captured-review.json`, so rerun consumes the same captured bytes even if
 the project files later change. These files are generated run evidence beneath
-`.kar/`; users provide the source brief at any safe project-relative path such
-as `docs/roadmap.md` and do not author files inside `.kar/`.
+`.mulgae/`; users provide the source brief at any safe project-relative path such
+as `docs/roadmap.md` and do not author files inside `.mulgae/`.
 
 ## 3. Directory Identity
 
@@ -120,13 +120,13 @@ attempt_id: ^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 review_id:  ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
 ```
 
-KAR additionally parses the UUID and verifies version 7. It rejects separators, `.` and `..`, non-canonical case, and symlink traversal.
+Mulgae additionally parses the UUID and verifies version 7. It rejects separators, `.` and `..`, non-canonical case, and symlink traversal.
 
 ## 4. Artifact Ownership
 
 | Artifact | Owner | Mutable during run | Mutable after run terminal state |
 |---|---|---:|---:|
-| `status.json` | KAR | Yes, atomic replacement | Final write only |
+| `status.json` | Mulgae | Yes, atomic replacement | Final write only |
 | Attempt raw output | Runtime | Bounded memory or quarantined secure temporary storage until scan acceptance | No |
 | Validation records | Validator | New immutable files | No |
 | `manifest.json` | Artifact store | Atomic replacement until sealing | No |
@@ -137,7 +137,7 @@ KAR additionally parses the UUID and verifies version 7. It rejects separators, 
 A new followup, delta, or rerun never modifies source run files.
 G008 implements immutable child/source lineage: a child run references validated immutable source artifacts and immutable lineage-edge bytes; it never adopts, rewrites, or deletes source-run bytes.
 
-After child execution and before publication, followup, delta, and rerun independently reread and validate their immutable source authority. A reread failure, validation mismatch, or changed source identity or bytes is a security-policy failure: KAR publishes no child P2 result and projects exit `8`.
+After child execution and before publication, followup, delta, and rerun independently reread and validate their immutable source authority. A reread failure, validation mismatch, or changed source identity or bytes is a security-policy failure: Mulgae publishes no child P2 result and projects exit `8`.
 
 ## 5. Session Metadata
 
@@ -145,7 +145,7 @@ After child execution and before publication, followup, delta, and rerun indepen
 
 ```json
 {
-  "schema_version": "kar-session.v1",
+  "schema_version": "mulgae-session.v1",
   "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
   "created_at": "2026-07-13T03:00:00Z",
   "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
@@ -170,8 +170,8 @@ For G008 child runs, lineage edges are immutable, content-addressed child-to-par
 
 Schemas:
 
-- [Run manifest v2 schema](../schemas/kar-run-manifest.v2.schema.json)
-- [Final review artifact v3 schema](../schemas/kar-review-artifact.v3.schema.json)
+- [Run manifest v2 schema](../schemas/mulgae-run-manifest.v2.schema.json)
+- [Final review artifact v3 schema](../schemas/mulgae-review-artifact.v3.schema.json)
 
 ## 7. Final Review Artifact
 A completed successful or policy-valid degraded run has at most one canonical final review file:
@@ -223,15 +223,15 @@ Every production root or child publication obtains its next root-scoped epoch at
 
 ## 10. File Permissions and Git Ignore
 
-Recommended defaults on Unix-like systems are `0700` for `.kar/` and session/run directories, and `0600` for artifact files. KAR warns when the artifact root is group- or world-readable. Artifacts may contain proprietary code, secrets, personal data, or internal paths.
+Recommended defaults on Unix-like systems are `0700` for `.mulgae/` and session/run directories, and `0600` for artifact files. Mulgae warns when the artifact root is group- or world-readable. Artifacts may contain proprietary code, secrets, personal data, or internal paths.
 
-`kar init` proposes:
+`mulgae init` proposes:
 
 ```gitignore
-.kar/
+.mulgae/
 ```
 
-`kar init` never edits ignore files. Operators should ignore the entire private `.kar/` namespace; configuration, captured context references, prompt packets, and run artifacts are never versioned authority.
+`mulgae init` never edits ignore files. Operators should ignore the entire private `.mulgae/` namespace; configuration, captured context references, prompt packets, and run artifacts are never versioned authority.
 
 ## 11. Retention, Export, and Transitive Protection
 
@@ -249,7 +249,7 @@ explicit keep IDs
 
 Each lineage edge is directed `child → parent ancestor`. A known valid edge has schema-valid child and parent IDs whose validated run manifests both exist. The retained seed adds the directed transitive ancestor closure over known valid edges: repeatedly follow each `child → parent` edge from every retained seed run.
 
-For every non-dangling graph anomaly, every known endpoint and every identified anomaly run is an anomaly seed. KAR then protects the undirected transitive closure of those anomaly seeds over known valid edges, treating each such edge as connected in both directions. If any edge has a dangling or unknown endpoint, KAR fails closed by protecting the whole store and emitting no deletion action. Missing or invalid completion time is protected. These set operations use validated run IDs and canonical lexical ordering, so identical validated inputs produce the same protection closure. Reasons are exactly:
+For every non-dangling graph anomaly, every known endpoint and every identified anomaly run is an anomaly seed. Mulgae then protects the undirected transitive closure of those anomaly seeds over known valid edges, treating each such edge as connected in both directions. If any edge has a dangling or unknown endpoint, Mulgae fails closed by protecting the whole store and emitting no deletion action. Missing or invalid completion time is protected. These set operations use validated run IDs and canonical lexical ordering, so identical validated inputs produce the same protection closure. Reasons are exactly:
 
 ```text
 protected_explicit
@@ -278,7 +278,7 @@ Dry-run emits the canonical clean-plan with its exact resolved-policy inputs, `E
 
 ```text
 plan_hash = "sha256:" + lowercase_hex(
-  SHA-256(ASCII("KAR-CLEAN-PLAN/1") || 0x00 || rfc8785_bytes(plan_hash_input))
+  SHA-256(ASCII("Mulgae-CLEAN-PLAN/1") || 0x00 || rfc8785_bytes(plan_hash_input))
 )
 ```
 
@@ -314,9 +314,9 @@ Durable observations normalize to these classes:
 The classifier takes the persisted hint, journal expected path/hash, staged and final observations, and manifest/edge/epoch observations. It applies exactly one ordered rule:
 
 1. Any `AMBIGUOUS_OR_MISMATCH` produces `derived_publication_status=corrupt`, no authority, an immutable diagnostic, and exit `7`.
-2. A complete `P2_COMMITTED` produces `committed` with P2 authority regardless of the hint. KAR reconstructs only mutable status/journal state and returns the stored normal outcome projection `0`, `1`, or `4`.
-3. Without P2, `P1_INSTALLED` produces `installed` with P1 recovery authority regardless of the hint. Under the store lock, KAR idempotently completes the manifest, edge, and epoch composite commit, then reclassifies. Success returns final `0`, `1`, or `4`; an artifact failure returns `7`.
-4. Without P2/P1, `P0_STAGED` produces `staged` with P0 recovery authority regardless of the hint. KAR revalidates, fsyncs, and atomically installs the temp, then follows rule 3. Success returns final `0`, `1`, or `4`; an artifact failure returns `7`.
+2. A complete `P2_COMMITTED` produces `committed` with P2 authority regardless of the hint. Mulgae reconstructs only mutable status/journal state and returns the stored normal outcome projection `0`, `1`, or `4`.
+3. Without P2, `P1_INSTALLED` produces `installed` with P1 recovery authority regardless of the hint. Under the store lock, Mulgae idempotently completes the manifest, edge, and epoch composite commit, then reclassifies. Success returns final `0`, `1`, or `4`; an artifact failure returns `7`.
+4. Without P2/P1, `P0_STAGED` produces `staged` with P0 recovery authority regardless of the hint. Mulgae revalidates, fsyncs, and atomically installs the temp, then follows rule 3. Success returns final `0`, `1`, or `4`; an artifact failure returns `7`.
 5. With `P0_NONE`, `collecting` resumes collection and `content_validated` or `final_staged` recreates a stage from the immutable validated candidate. `final_file_installed`, `manifest_committed`, or `completed` without required durable effects is `corrupt`, exit `7`. Typed role/run failure during low-hint resume retains its typed exit.
 6. Every remaining combination is `corrupt`, exit `7`.
 
@@ -341,7 +341,7 @@ The required cross-boundary cases are:
 
 ## 14. General Crash Recovery
 
-At startup or `kar doctor artifacts`, KAR also reports abandoned running ownership, leftover temporary files, missing manifest references, final hash mismatches, and multiple top-level final names through the classifier. Recovery never fabricates a valid final review. It preserves immutable completed bytes, records a diagnostic, and offers a new rerun path when the durable facts are not authoritative.
+At startup or `mulgae doctor artifacts`, Mulgae also reports abandoned running ownership, leftover temporary files, missing manifest references, final hash mismatches, and multiple top-level final names through the classifier. Recovery never fabricates a valid final review. It preserves immutable completed bytes, records a diagnostic, and offers a new rerun path when the durable facts are not authoritative.
 
 ## 15. G0 Gate Archive Resolution
 
@@ -350,7 +350,7 @@ The G0 receipt index keeps the canonical current Gate paths under `.gjc/_session
 Before replacing a current Gate, the issuer reads its exact old bytes and verifies the supplied expected old SHA-256. That old-hash CAS is checked again immediately before pointer replacement. Before either CAS check can permit replacement, the issuer must archive the byte-for-byte old Gate and immutable copies of every mutable bound input under `gates/archive/<old-sha256>/`, using exclusive `0600` temporary files, file fsync, atomic no-replace installation, and archive-directory fsync. It then writes `gates/archive/<old-sha256>/resolution.json` by the same protocol; this receipt binds the archived Gate name/path/hash to the immediate successor Gate path/hash. An existing archive or resolution path is a collision, not a replacement opportunity.
 The archived Gate retains its original canonical pointer fields so its bytes and hash remain unchanged. Verification derives immutable bound-input locations rather than rewriting those fields: Gate A1 manifests and P0 impact use `gates/archive-inputs/<input-sha256>/<canonical-basename>`; Gate A2 uses its immutable candidate evidence manifest, `gates/archive-inputs/<tool-lock-sha256>/tools.lock.json`, and `gates/archive/<gate-a1-sha256>/gate-a1.json`. The issuer create-once snapshots each derived input before pointer replacement. Bound-input inventories are exact, ordered by their contract definitions, and reject missing, extra, duplicate, path, hash, or schema mismatches before following a successor.
 
-Archive fallback also requires one immutable candidate-specific `$CANDIDATE_ROOT/gate-archive-authority.json`, because multiple candidates may share the same Gate hash. Its exact schema is `kar-gate-archive-authority.v1`, with `candidate_oid`, `status="superseded"`, `promotion_authorized=false`, and the exact `authority_path` under `$CANDIDATE_ROOT`. It binds immutable candidate `receipt_index_path`/`receipt_index_sha256`/`receipt_index_root_sha256`, `readiness_path`/`readiness_sha256`, `scope_invalidation_path`/`scope_invalidation_sha256`/`scope_invalidation_reason`, and Architect and Critic review paths, hashes, verdicts, and reasons. Its exact `gate_entries` array has at most one entry per Gate and at most two entries total. Each entry must bind that candidate receipt index's initial Gate hash, archived path, first resolution path/hash, and immediate successor hash; unrelated, duplicate, or non-initial entries are invalid. The document is immutable and must never be extended for a future issuance. Every path and hash must resolve to immutable candidate or archive bytes, the candidate must be non-active and promotion-unapproved, and the initial Gate successor must match `resolution.json`. A diagnostic, absent, inferred, mutable, promotion-authorized, or candidate-mismatched record is not fallback authority.
+Archive fallback also requires one immutable candidate-specific `$CANDIDATE_ROOT/gate-archive-authority.json`, because multiple candidates may share the same Gate hash. Its exact schema is `mulgae-gate-archive-authority.v1`, with `candidate_oid`, `status="superseded"`, `promotion_authorized=false`, and the exact `authority_path` under `$CANDIDATE_ROOT`. It binds immutable candidate `receipt_index_path`/`receipt_index_sha256`/`receipt_index_root_sha256`, `readiness_path`/`readiness_sha256`, `scope_invalidation_path`/`scope_invalidation_sha256`/`scope_invalidation_reason`, and Architect and Critic review paths, hashes, verdicts, and reasons. Its exact `gate_entries` array has at most one entry per Gate and at most two entries total. Each entry must bind that candidate receipt index's initial Gate hash, archived path, first resolution path/hash, and immediate successor hash; unrelated, duplicate, or non-initial entries are invalid. The document is immutable and must never be extended for a future issuance. Every path and hash must resolve to immutable candidate or archive bytes, the candidate must be non-active and promotion-unapproved, and the initial Gate successor must match `resolution.json`. A diagnostic, absent, inferred, mutable, promotion-authorized, or candidate-mismatched record is not fallback authority.
 
 Under the issuance lock, the issuer computes the successor bytes/hash first, writes the old Gate archive and `resolution.json`, then creates each newly superseded candidate's `gate-archive-authority.json` with that initial successor hash. Later issuances must not create, replace, or extend that authority. Only after those immutable writes and directory fsyncs succeed, and the second old-hash CAS still matches, may it atomically replace the mutable current pointer and fsync its directory. No pointer changes after a collision or failed step.
 
@@ -363,9 +363,9 @@ This protocol never overwrites an old receipt, selects an archive by glob, treat
 Operational diagnostics use the reserved tree below and do not migrate existing P2 paths:
 
 ```text
-.kar/diagnostics/<session_id>/<run_id>/
+.mulgae/diagnostics/<session_id>/<run_id>/
   status.json
-  kar-runtime.jsonl
+  mulgae-runtime.jsonl
   attempts/<attempt_id>/
     status.json
     invocations/<ordinal>-<purpose>/
@@ -374,8 +374,8 @@ Operational diagnostics use the reserved tree below and do not migrate existing 
       stderr.raw
 ```
 
-All paths are validated safe relative artifact URIs beneath an approved anchored `.kar` root. Directories are mode `0700`; files are mode `0600`. Traversal uses openat/no-follow identity checks and rejects symlinks, namespace substitution, path escape, non-regular files, and ownership or permission mismatch.
+All paths are validated safe relative artifact URIs beneath an approved anchored `.mulgae` root. Directories are mode `0700`; files are mode `0600`. Traversal uses openat/no-follow identity checks and rejects symlinks, namespace substitution, path escape, non-regular files, and ownership or permission mismatch.
 
-`kar-runtime.jsonl` contains exactly one complete compact JSON object followed by LF per record. A serialized writer assigns sequence and prevents interleaving. Recovery treats only complete LF-terminated records as durable and removes a trailing partial record before append. Total JSONL capacity is 8 MiB, of which 256 KiB is reserved exclusively for mandatory lifecycle, error, terminal, and finalize events. Ordinary overflow increments bounded safe drop counters in status; exhaustion of mandatory reserve is a diagnostic persistence failure.
+`mulgae-runtime.jsonl` contains exactly one complete compact JSON object followed by LF per record. A serialized writer assigns sequence and prevents interleaving. Recovery treats only complete LF-terminated records as durable and removes a trailing partial record before append. Total JSONL capacity is 8 MiB, of which 256 KiB is reserved exclusively for mandatory lifecycle, error, terminal, and finalize events. Ordinary overflow increments bounded safe drop counters in status; exhaustion of mandatory reserve is a diagnostic persistence failure.
 
 Each raw stream freezes the invocation's approved stdout or stderr cap and passes through the shared scan-before-write boundary. Each status payload is capped at 256 KiB and replaced atomically. File and containing-directory fsync, crash recovery, and exactly-once finalize are mandatory. Secret, overflow, producer, write, close, rename, sync, or verification failure removes unsafe temporary content and returns a typed persistence failure. A URI may be returned only after its artifact has been installed and verified.

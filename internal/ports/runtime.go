@@ -3,7 +3,7 @@ package ports
 import (
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // Clock is the only source of wall-clock time used by application services.

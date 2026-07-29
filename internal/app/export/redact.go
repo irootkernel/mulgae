@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 var (

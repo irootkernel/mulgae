@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	appprompt "github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	appprompt "github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -221,13 +221,13 @@ func TestStartRerunPropagatesCommittedTerminalExitAndFailsClosedWithoutIt(t *tes
 		{name: "absent", result: ChildReplayResult{
 			SessionID: source.SessionID, RunID: mustRerunRun(rerunChildRun), ParentRunID: source.RunID, SourceRunID: source.RunID,
 			SourceReviewID: source.ReviewID, SourceAttemptID: source.AttemptID, ExecutionInvocationID: "exec-child",
-			PromptIdentity: "prompt-child", PromptManifestURI: "kar://prompt/child", PromptManifestSHA256: rerunDigest([]byte("child")),
+			PromptIdentity: "prompt-child", PromptManifestURI: "mulgae://prompt/child", PromptManifestSHA256: rerunDigest([]byte("child")),
 			ReplayMode: ExactReplay, ExactReplay: true,
 		}},
 		{name: "malformed", result: ChildReplayResult{
 			SessionID: source.SessionID, RunID: mustRerunRun(rerunChildRun), ParentRunID: source.RunID, SourceRunID: source.RunID,
 			SourceReviewID: source.ReviewID, SourceAttemptID: source.AttemptID, ExecutionInvocationID: "exec-child",
-			PromptIdentity: "prompt-child", PromptManifestURI: "kar://prompt/child", PromptManifestSHA256: rerunDigest([]byte("child")),
+			PromptIdentity: "prompt-child", PromptManifestURI: "mulgae://prompt/child", PromptManifestSHA256: rerunDigest([]byte("child")),
 			ReplayMode: ExactReplay, ExactReplay: true, terminalExit: &malformedExit,
 		}},
 	} {
@@ -282,7 +282,7 @@ func TestSourceAttemptDigestRejectsEveryBoundFieldMutation(t *testing.T) {
 		{"provider", func(source *SourceAttempt) { source.ProviderInstance = "other-provider" }},
 		{"target bytes", func(source *SourceAttempt) { source.Target.Bytes[0] = 'X' }},
 		{"target hash", func(source *SourceAttempt) { source.Target.SHA256 = rerunDigest([]byte("other")) }},
-		{"manifest uri", func(source *SourceAttempt) { source.Prompt.URI = "kar://prompt/other" }},
+		{"manifest uri", func(source *SourceAttempt) { source.Prompt.URI = "mulgae://prompt/other" }},
 		{"manifest hash", func(source *SourceAttempt) { source.Prompt.SHA256 = rerunDigest([]byte("other manifest")) }},
 		{"stdin", func(source *SourceAttempt) { source.Prompt.ComposedStdin[0] = 'X' }},
 		{"stdin hash", func(source *SourceAttempt) { source.Prompt.ComposedStdinSHA256 = rerunDigest([]byte("other stdin")) }},
@@ -389,7 +389,7 @@ func validRerunSource() SourceAttempt {
 	if err != nil {
 		panic(err)
 	}
-	source := SourceAttempt{SessionID: mustRerunSession(), RunID: mustRerunRun(rerunSourceRun), ReviewID: mustRerunReview(), AttemptID: mustRerunAttempt(), ProviderInstance: "kimi-main", Target: Target{Identity: identity, Bytes: target, SHA256: rerunDigest(target)}, Prompt: PromptManifest{URI: "kar://prompt/source", SHA256: rerunDigest([]byte("manifest")), ComposedStdin: stdin, ComposedStdinSHA256: rerunDigest(stdin), CompleteStdinSHA256: appprompt.CompleteStdinSHA256(stdin), SourceInvocationID: "source-invocation", ExecutionInvocationID: "source-execution", TemplateID: "root-review", TemplateVersion: "v1", TemplateSHA256: rerunDigest([]byte("template")), AdapterProfile: "kimi-main", Parameters: []Parameter{{Name: "temperature", Value: "0"}}, Scope: "repository", Role: "security"}}
+	source := SourceAttempt{SessionID: mustRerunSession(), RunID: mustRerunRun(rerunSourceRun), ReviewID: mustRerunReview(), AttemptID: mustRerunAttempt(), ProviderInstance: "kimi-main", Target: Target{Identity: identity, Bytes: target, SHA256: rerunDigest(target)}, Prompt: PromptManifest{URI: "mulgae://prompt/source", SHA256: rerunDigest([]byte("manifest")), ComposedStdin: stdin, ComposedStdinSHA256: rerunDigest(stdin), CompleteStdinSHA256: appprompt.CompleteStdinSHA256(stdin), SourceInvocationID: "source-invocation", ExecutionInvocationID: "source-execution", TemplateID: "root-review", TemplateVersion: "v1", TemplateSHA256: rerunDigest([]byte("template")), AdapterProfile: "kimi-main", Parameters: []Parameter{{Name: "temperature", Value: "0"}}, Scope: "repository", Role: "security"}}
 	source.ImmutableSHA256 = sourceAttemptDigest(source)
 	return source
 }
@@ -486,7 +486,7 @@ func mustChildReplayResult(child ChildReplay, resultID domain.RunID, code domain
 	}
 	result, err := NewChildReplayResult(
 		child.SessionID, resultID, child.ParentRunID, child.SourceRunID, child.SourceReviewID, child.SourceAttemptID,
-		"exec-child", "prompt-child", "kar://prompt/child", rerunDigest([]byte("child")), child.Mode, child.Mode == ExactReplay,
+		"exec-child", "prompt-child", "mulgae://prompt/child", rerunDigest([]byte("child")), child.Mode, child.Mode == ExactReplay,
 		mustRerunCommittedExit(code),
 	)
 	if err != nil {

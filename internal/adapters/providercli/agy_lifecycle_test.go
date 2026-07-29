@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	processadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/process"
-	runtimeadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
-	workspaceadapter "github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
+	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	workspaceadapter "github.com/irootkernel/mulgae/internal/adapters/workspace"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // The offline fixture re-executes the race-instrumented test binary through the
@@ -218,12 +218,12 @@ func newAgyLifecycleHarness(t *testing.T, mode string, stdoutCap int64, timeout 
 	executable := filepath.Join(root, "agy-offline")
 	script := `#!/bin/sh
 if [ "$1" = "--version" ]; then printf '1.1.2\n'; exit 0; fi
-[ "$HOME" = "$KAR_AGY_EXPECTED_HOME" ] || exit 91
-[ ! -e "$HOME/.kar-credential-copy" ] || exit 92
-[ "$PWD" = "$KAR_AGY_EXPECTED_CWD" ] || exit 93
-[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$KAR_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "3m55s" ] && [ "${12}" = "--print" ] || exit 94
-case "$KAR_AGY_TEST_MODE" in
-post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$KAR_AGY_CHILD_PID"; wait ;;
+[ "$HOME" = "$MULGAE_AGY_EXPECTED_HOME" ] || exit 91
+[ ! -e "$HOME/.mulgae-credential-copy" ] || exit 92
+[ "$PWD" = "$MULGAE_AGY_EXPECTED_CWD" ] || exit 93
+[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "3m55s" ] && [ "${12}" = "--print" ] || exit 94
+case "$MULGAE_AGY_TEST_MODE" in
+post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$MULGAE_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
 resistant) trap '' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
 handled) trap 'printf "Error: timeout waiting for response\n" >&2; exit 1' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
@@ -264,8 +264,8 @@ esac
 		t.Fatal(err)
 	}
 	env := []ports.EnvironmentVariable{
-		agyLifecycleEnv(t, "KAR_AGY_TEST_MODE", mode), agyLifecycleEnv(t, "KAR_AGY_EXPECTED_HOME", nativeHome),
-		agyLifecycleEnv(t, "KAR_AGY_EXPECTED_CWD", workspace.WorkspaceSnapshotIdentity().SnapshotPath()), agyLifecycleEnv(t, "KAR_AGY_CHILD_PID", childPID),
+		agyLifecycleEnv(t, "MULGAE_AGY_TEST_MODE", mode), agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_HOME", nativeHome),
+		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_CWD", workspace.WorkspaceSnapshotIdentity().SnapshotPath()), agyLifecycleEnv(t, "MULGAE_AGY_CHILD_PID", childPID),
 	}
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, key, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout, stdoutCap, 256)
 	if err != nil {
@@ -386,7 +386,7 @@ func agyLifecycleEnv(t *testing.T, name, value string) ports.EnvironmentVariable
 }
 func agyLifecyclePacketDigest(value []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))

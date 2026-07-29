@@ -10,9 +10,9 @@ import (
 	"io"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // SchemaValidator validates final publication records against their consumer-owned
@@ -407,7 +407,7 @@ type Role struct {
 	limitations      []string
 }
 
-// Name returns the fixed KAR role.
+// Name returns the fixed Mulgae role.
 func (role Role) Name() domain.Role { return role.role }
 
 // Required reports whether the role was required for coverage.
@@ -464,7 +464,7 @@ func (finding Finding) ID() string { return finding.id }
 // Fingerprint returns the canonical finding fingerprint digest.
 func (finding Finding) Fingerprint() string { return finding.fingerprint }
 
-// Role returns the producing fixed KAR role.
+// Role returns the producing fixed Mulgae role.
 func (finding Finding) Role() domain.Role { return finding.role }
 
 // ProviderInstance returns the producing provider instance.
@@ -616,7 +616,7 @@ type finalDTO struct {
 	ReviewID          string               `json:"review_id"`
 	RunType           string               `json:"run_type"`
 	CreatedAt         string               `json:"created_at"`
-	KAR               finalKARDTO          `json:"kar"`
+	Mulgae            finalMulgaeDTO       `json:"mulgae"`
 	ImmutableLineage  lineageDTO           `json:"immutable_lineage"`
 	FollowupOutcome   *followupOutcomeDTO  `json:"followup_outcome"`
 	Target            finalTargetDTO       `json:"target"`
@@ -639,7 +639,7 @@ type followupOutcomeDTO struct {
 	Evidence   []finalEvidenceDTO `json:"evidence"`
 }
 
-type finalKARDTO struct {
+type finalMulgaeDTO struct {
 	Version string  `json:"version"`
 	Commit  *string `json:"commit"`
 }
@@ -782,7 +782,7 @@ type manifestDTO struct {
 	CreatedAt                string               `json:"created_at"`
 	StartedAt                *string              `json:"started_at"`
 	CompletedAt              *string              `json:"completed_at"`
-	KARVersion               string               `json:"kar_version"`
+	MulgaeVersion            string               `json:"mulgae_version"`
 	ImmutableLineage         lineageDTO           `json:"immutable_lineage"`
 	FollowupOutcome          *followupOutcomeDTO  `json:"followup_outcome"`
 	Target                   manifestTargetDTO    `json:"target"`

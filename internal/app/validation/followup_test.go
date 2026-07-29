@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type followupSchemaFunc func(context.Context, ports.AssetID, []byte) error
@@ -30,7 +30,7 @@ func TestFollowupValidatorInjectsTrustedEvidenceForEveryResolution(t *testing.T)
 				}
 				return nil
 			}))
-			raw := []byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"summary","resolution":"` + resolution + `","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`)
+			raw := []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"summary","resolution":"` + resolution + `","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`)
 			result, err := validator.Validate(context.Background(), raw, followupTestScope(t))
 			if err != nil || string(result.Resolution()) != resolution {
 				t.Fatalf("Validate() = %q, %v", result.Resolution(), err)
@@ -48,12 +48,12 @@ func TestFollowupValidatorInjectsTrustedEvidenceForEveryResolution(t *testing.T)
 
 func TestFollowupValidatorFailsClosed(t *testing.T) {
 	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
-	valid := []byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`)
+	valid := []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`)
 	cases := [][]byte{
 		[]byte(`{`),
-		[]byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"source":{},"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
-		[]byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[],"provider":"spoof"}`),
-		[]byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":2,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
+		[]byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"source":{},"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
+		[]byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[],"provider":"spoof"}`),
+		[]byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":2,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
 	}
 	for _, raw := range cases {
 		if _, err := validator.Validate(context.Background(), raw, followupTestScope(t)); err == nil {
@@ -184,7 +184,7 @@ func TestFollowupValidatorAcceptsNonContradictoryRationale(t *testing.T) {
 
 func followupTestDocument(resolution, rationale string) map[string]any {
 	return map[string]any{
-		"schema_version": "kar-provider-followup-output.v2",
+		"schema_version": "mulgae-provider-followup-output.v2",
 		"summary":        "The finding was checked against the current target.",
 		"resolution":     resolution,
 		"rationale":      rationale,

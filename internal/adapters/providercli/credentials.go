@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const maxProjectedCredentialBytes int64 = 16 << 20

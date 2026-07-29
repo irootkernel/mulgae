@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -253,26 +253,26 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 				fmt.Errorf("process runner: duplicate bound launch directory: %w", err))
 		}
 		launchDirectory = os.NewFile(uintptr(duplicate), root.Path())
-		karExecutable, err := os.Executable()
+		mulgaeExecutable, err := os.Executable()
 		if err != nil {
 			_ = launchDirectory.Close()
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
 			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
-				fmt.Errorf("process runner: resolve trusted KAR executable: %w", err))
+				fmt.Errorf("process runner: resolve trusted Mulgae executable: %w", err))
 		}
-		karExecutable, err = filepath.Abs(karExecutable)
+		mulgaeExecutable, err = filepath.Abs(mulgaeExecutable)
 		if err != nil {
 			_ = launchDirectory.Close()
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
 			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
-				fmt.Errorf("process runner: canonicalize trusted KAR executable: %w", err))
+				fmt.Errorf("process runner: canonicalize trusted Mulgae executable: %w", err))
 		}
 		if authority, protected := request.NativeHomeLaunchAuthority(); protected {
-			child.Path = karExecutable
+			child.Path = mulgaeExecutable
 			child.Args = append([]string{
-				karExecutable,
+				mulgaeExecutable,
 				fdExecNativeHomeHiddenArgument,
 				strconv.Itoa(3),
 				request.Executable(),
@@ -283,8 +283,8 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			}, argv[1:]...)
 			child.ExtraFiles = []*os.File{launchDirectory}
 		} else {
-			child.Path = karExecutable
-			child.Args = append([]string{karExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
+			child.Path = mulgaeExecutable
+			child.Args = append([]string{mulgaeExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
 			child.ExtraFiles = []*os.File{launchDirectory}
 		}
 	} else {
@@ -1083,7 +1083,7 @@ func stdinReceipt(stdin []byte, written int) (ports.StdinWriteReceipt, error) {
 
 func stdinWriteSHA256(value []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
@@ -1182,7 +1182,7 @@ func promptFileIdentity(binding ports.ProviderPacketBinding) (ports.ProviderPack
 	}
 
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	written, err := io.CopyN(hash, file, stat.Size)
 	if err != nil {

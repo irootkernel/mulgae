@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-run-manifest.v2",
+  "schema_version": "mulgae-run-manifest.v2",
   "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
   "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
   "run_type": "review",
@@ -8,7 +8,7 @@
   "created_at": "2026-07-13T03:00:00.100Z",
   "started_at": "2026-07-13T03:00:00.150Z",
   "completed_at": "2026-07-13T03:00:00.600Z",
-  "kar_version": "0.1.0",
+  "mulgae_version": "0.1.0",
   "immutable_lineage": {
     "parent_run_id": null,
     "source_run_id": null,

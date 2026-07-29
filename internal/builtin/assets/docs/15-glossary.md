@@ -7,13 +7,13 @@
 | Attempt | One logical primary or fallback provider selection for a role task, containing an initial invocation and optional repair invocations |
 | Invocation | One child-process execution inside an attempt |
 | Captured target | Immutable bytes and metadata that define what was reviewed |
-| Common contract | Highest-priority KAR prompt instructions shared by all attempts |
+| Common contract | Highest-priority Mulgae prompt instructions shared by all attempts |
 | Concurrency key | Key that serializes provider attempts sharing auth, cache, or rate limits |
 | Delta | Difference between a previous immutable target snapshot and a newly captured snapshot |
 | Evidence | Source location and content that supports a finding |
-| Evidence verification | KAR's deterministic check that provider evidence matches the captured target |
+| Evidence verification | Mulgae's deterministic check that provider evidence matches the captured target |
 | Fallback | Secondary provider attempt scheduled only after a qualifying primary failure |
-| Finding | Normalized, evidence-backed review issue assigned a KAR identifier |
+| Finding | Normalized, evidence-backed review issue assigned a Mulgae identifier |
 | Finding fingerprint | Stable hash used to assist matching or deduplication across runs |
 | Followup | New run that evaluates whether one prior finding has been addressed |
 | Functional role | Review lens such as logic, security, or testing |
@@ -22,7 +22,7 @@
 | Manifest | Run-level index and integrity record |
 | Objective | User-supplied text that narrows review focus without overriding contracts |
 | Primary | First configured provider instance for a role task |
-| Project config | Sole operator-local runtime authority at `.kar/config.yaml`, admitted through locality and private-file checks |
+| Project config | Sole operator-local runtime authority at `.mulgae/config.yaml`, admitted through locality and private-file checks |
 | Provider driver | Adapter family for a provider CLI |
 | Provider instance | Local executable and runtime settings for one driver/account/profile |
 | Provider output | Untrusted JSON claim produced by a provider attempt |
@@ -31,13 +31,13 @@
 | Rerun | New run that repeats a prior attempt using exact or recomposed input |
 | Review | New independent review run over a captured target |
 | Review artifact | Final validated machine-readable result published under the canonical path |
-| Review verdict | KAR-computed content result: no findings, findings present, or request changes; completeness is the separate coverage status |
+| Review verdict | Mulgae-computed content result: no findings, findings present, or request changes; completeness is the separate coverage status |
 | Role task | Required work for one selected functional role within a run |
 | Run | One immutable execution of review, followup, delta, or rerun |
 | Session | Lineage grouping a root review and its related later runs |
-| System-owned field | Metadata generated deterministically by KAR, never by AI |
+| System-owned field | Metadata generated deterministically by Mulgae, never by AI |
 | Validation pipeline | Schema, semantic, and evidence checks applied before publication |
-| Workspace access | Provider filesystem exposure mode: `none` or `readonly_snapshot`. The legacy `project` concept is not selectable and is rejected; KAR never exposes the live project root through this setting. |
+| Workspace access | Provider filesystem exposure mode: `none` or `readonly_snapshot`. The legacy `project` concept is not selectable and is rejected; Mulgae never exposes the live project root through this setting. |
 | Content verdict | Aggregation-owned content axis: `no_findings`, `findings_present`, or `request_changes` |
 | Coverage status | Coordinator-owned coverage axis: `complete`, `degraded`, or `incomplete` |
 | Publication status | Store-derived publication axis: `not_published`, `staged`, `installed`, `committed`, or `corrupt` |
@@ -66,10 +66,10 @@
 | Authority-ref CAS | Compare-and-swap update of the authoritative SOT Git ref using the approved expected old state |
 | Delete-ref CAS | Compare-and-swap deletion of an authority ref when rollback returns to an initially absent authority |
 | Secure writer | Shared scan-before-write persistence boundary for newly durable untrusted bytes |
-| G008 application boundary | Historical application-boundary evidence for `followup`, `delta`, `rerun`, cleanup, and redacted export. It is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; production `kar review` is composed and wired, but this historical evidence does not establish its required authority gates or family-distinct normal P2 receipts. |
+| G008 application boundary | Historical application-boundary evidence for `followup`, `delta`, `rerun`, cleanup, and redacted export. It is retained as `HISTORICAL_GATE_PASS_NON_PRODUCTION`; production `mulgae review` is composed and wired, but this historical evidence does not establish its required authority gates or family-distinct normal P2 receipts. |
 | G009 integrated verification gate | Historical integrated-gate evidence retaining repository test, `go vet`, race, cleaner, executor-QA, architect-review, and integrated-gate evidence categories. It is classified `HISTORICAL_GATE_PASS_NON_PRODUCTION`; it does not authorize production closure, release CI, asset creation, or publication. |
 | Reopened production review | Historical G009 decision token `REOPENED_PRODUCTION_REVIEW_INCOMPLETE`. G012 restored exact-binary actual-provider composition coverage; G013 corrected its login-blocking live-gate order. |
-| Runtime diagnostic event | One validated safe operational transition in the run-wide `kar-runtime-log.v1` sequence |
+| Runtime diagnostic event | One validated safe operational transition in the run-wide `mulgae-runtime-log.v1` sequence |
 | Runtime diagnostic sink | Run-scoped port that serializes events, installs separated raw streams, replaces status projections, and finalizes private diagnostics |
 | Diagnostic-only run | A private finalized diagnostic record without P2 publication authority |
 | Mandatory tail reserve | JSONL capacity reserved only for lifecycle, error, terminal, and finalize events after ordinary event capacity is exhausted |

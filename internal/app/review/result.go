@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Assignment is a trusted, immutable role selection. Required is always true
@@ -226,7 +226,7 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	paths := plan.AllowedPaths()
 	sort.Strings(paths)
 	lines := []string{
-		"KAR ROOT REVIEW REPAIR PLAN/3",
+		"Mulgae ROOT REVIEW REPAIR PLAN/3",
 		"original_output_sha256:" + plan.OriginalSHA256(),
 		"mode:" + string(plan.Mode()),
 		"allowed_paths_count:" + strconv.Itoa(len(paths)),

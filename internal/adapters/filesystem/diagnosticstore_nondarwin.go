@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 var errDiagnosticStoreUnsupportedPlatform = errors.New("diagnostic store requires darwin/arm64 secure filesystem primitives")

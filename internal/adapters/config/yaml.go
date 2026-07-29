@@ -503,7 +503,7 @@ func safeContext(value string) bool {
 	if value == "" || path.IsAbs(value) || path.Clean(value) != value || strings.Contains(value, "\\") || value == "." {
 		return false
 	}
-	return value != ".kar" && value != ".gjc" && !strings.HasPrefix(value, ".kar/") && !strings.HasPrefix(value, ".gjc/") && !strings.HasPrefix(value, "../")
+	return value != ".mulgae" && value != ".gjc" && !strings.HasPrefix(value, ".mulgae/") && !strings.HasPrefix(value, ".gjc/") && !strings.HasPrefix(value, "../")
 }
 func validModel(value string) bool {
 	if !modelPattern.MatchString(value) || path.IsAbs(value) || strings.Contains(value, "//") {

@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-platform-contract-evidence.v1",
+  "schema_version": "mulgae-platform-contract-evidence.v1",
   "external_contract_readiness": "UNVERIFIED",
   "filesystem_scope": {
     "kind": "LOCAL_POSIX",

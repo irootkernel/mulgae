@@ -107,7 +107,7 @@ func PlanHash(plan CleanPlan) (string, error) {
 		return "", err
 	}
 	h := sha256.New()
-	_, _ = h.Write([]byte("KAR-CLEAN-PLAN/1"))
+	_, _ = h.Write([]byte("Mulgae-CLEAN-PLAN/1"))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(bytes)
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil

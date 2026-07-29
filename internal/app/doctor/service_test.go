@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestDiagnoseEnvironmentDarwinWithoutEvidenceIsUnverified(t *testing.T) {
@@ -175,10 +175,10 @@ func TestDiagnoseEnvironmentV1EvidenceIsNotAuthoritative(t *testing.T) {
 	evidence := readyEvidence()
 	for _, providerID := range intendedProviderIDs {
 		record := evidence.providers[providerID]
-		record.SchemaID = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
+		record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
 		evidence.providers[providerID] = record
 	}
-	evidence.platform.SchemaID = "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json"
+	evidence.platform.SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 	service, _, _ := readyFixture(t, evidence)
 	result := diagnose(t, service)
 	for _, row := range result.ProviderEvidence {
@@ -201,7 +201,7 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 			name: "provider",
 			mutate: func(evidence *fakeEvidence) {
 				record := evidence.providers["kimi"]
-				record.SchemaID = "https://kar.local/schemas/kar-provider-contract-evidence.v3.schema.json"
+				record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json"
 				evidence.providers["kimi"] = record
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {
@@ -212,7 +212,7 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 		{
 			name: "platform",
 			mutate: func(evidence *fakeEvidence) {
-				evidence.platform.SchemaID = "https://kar.local/schemas/kar-platform-contract-evidence.v3.schema.json"
+				evidence.platform.SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v3.schema.json"
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {
 				return platformRow(t, result, PlatformDarwinARM64).EvidenceState
@@ -376,10 +376,10 @@ func TestDiagnoseEnvironmentReasonsAreSortedUniqueAndDiagnosticsRedacted(t *test
 	evidence := readyEvidence()
 	for _, providerID := range intendedProviderIDs {
 		record := evidence.providers[providerID]
-		record.SchemaID = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
+		record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
 		evidence.providers[providerID] = record
 	}
-	evidence.platform.SchemaID = "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json"
+	evidence.platform.SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 	evidence.tools = ToolsLockObservation{State: ToolsLockMissing}
 	service, inspector, catalog := readyFixture(t, evidence)
 	inspector.platform = mustPlatform(t, "linux", "amd64")

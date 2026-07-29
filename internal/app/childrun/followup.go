@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"time"
 
-	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // FollowupIDIssuer mints the fresh child and its one bounded provider attempt.
@@ -54,16 +54,16 @@ type FollowupExecutor struct {
 	artifactRoot      ports.AnchoredRoot
 	providerInstance  string
 	severityThreshold domain.Severity
-	karVersion        string
-	karCommit         string
+	mulgaeVersion     string
+	mulgaeCommit      string
 	diagnostics       ports.RuntimeDiagnosticSinkFactory
 }
 
 type FollowupExecutorConfig struct {
 	ProviderInstance  string
 	SeverityThreshold domain.Severity
-	KARVersion        string
-	KARCommit         string
+	MulgaeVersion     string
+	MulgaeCommit      string
 	Diagnostics       ports.RuntimeDiagnosticSinkFactory
 }
 
@@ -74,7 +74,7 @@ func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports
 	if _, ok := prompts.(FollowupRuntimeInventorySource); !ok {
 		return nil, fmt.Errorf("followup executor: runtime inventory authority is incomplete")
 	}
-	if config.ProviderInstance == "" || config.KARVersion == "" || config.KARCommit == "" {
+	if config.ProviderInstance == "" || config.MulgaeVersion == "" || config.MulgaeCommit == "" {
 		return nil, fmt.Errorf("followup executor: publication identity is incomplete")
 	}
 	if config.SeverityThreshold == "" {
@@ -83,7 +83,7 @@ func NewFollowupExecutor(clock ports.Clock, ids FollowupIDIssuer, provider ports
 	if !config.SeverityThreshold.Valid() {
 		return nil, fmt.Errorf("followup executor: severity threshold is invalid")
 	}
-	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, severityThreshold: config.SeverityThreshold, karVersion: config.KARVersion, karCommit: config.KARCommit, diagnostics: config.Diagnostics}, nil
+	return &FollowupExecutor{clock: clock, ids: ids, provider: provider, prompts: prompts, validator: validator, publisher: publisher, artifactRoot: artifactRoot, providerInstance: config.ProviderInstance, severityThreshold: config.SeverityThreshold, mulgaeVersion: config.MulgaeVersion, mulgaeCommit: config.MulgaeCommit, diagnostics: config.Diagnostics}, nil
 }
 
 // ExecuteFollowup publishes only a schema-valid, trusted-scope normalized
@@ -245,7 +245,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		}
 		runtimes[index].RuntimeCaptures = captures
 	}
-	candidate, err := publication.PrepareFollowupCandidate(publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observations[len(observations)-1], Runtime: runtimes[len(runtimes)-1], Observations: observations, Runtimes: runtimes, Repaired: repaired, InitialCandidate: initialRaw, SeverityThreshold: executor.severityThreshold, KARVersion: executor.karVersion, KARCommit: executor.karCommit})
+	candidate, err := publication.PrepareFollowupCandidate(publication.FollowupCandidateInput{Run: run, SourceSessionID: execution.Source.SessionID, SourceRunID: execution.Source.RunID, SourceReviewID: execution.Source.ReviewID, SourceFindingID: execution.Source.Finding.ID, SourceTargetSHA256: "sha256:" + execution.Source.Target.SHA256(), SourceExcerptSHA256: "sha256:" + execution.Source.Receipt.ExcerptSHA256, AttemptID: attemptID, Provider: executor.providerInstance, Output: validated, Observation: observations[len(observations)-1], Runtime: runtimes[len(runtimes)-1], Observations: observations, Runtimes: runtimes, Repaired: repaired, InitialCandidate: initialRaw, SeverityThreshold: executor.severityThreshold, MulgaeVersion: executor.mulgaeVersion, MulgaeCommit: executor.mulgaeCommit})
 	if err != nil {
 		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionInvalidEvidenceClaim, domain.FailureInvalidOutput, err)
 	}
@@ -257,7 +257,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if !ok || !final.Valid() {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publication has no P2 final receipt")
 	}
-	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
+	diagnosticP2, _ = ports.NewSafeRelativePath(".mulgae/" + final.Path().String())
 	terminalExit, err := committedTerminalExit(published)
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: publication terminal exit: %w", err)

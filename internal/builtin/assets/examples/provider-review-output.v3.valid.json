@@ -1,13 +1,13 @@
 {
-  "schema_version": "kar-provider-review-output.v3",
-  "summary": "One high-severity coordinator issue was identified with a current-target location claim that KAR must verify.",
+  "schema_version": "mulgae-provider-review-output.v3",
+  "summary": "One high-severity coordinator issue was identified with a current-target location claim that Mulgae must verify.",
   "completeness": "complete",
   "limitations": [],
   "findings": [
     {
       "severity": "high",
       "title": "Fallback is triggered after a valid negative review",
-      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping. KAR must verify the current target excerpt before accepting the finding.",
+      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping. Mulgae must verify the current target excerpt before accepting the finding.",
       "evidence": [
         {
           "current": {

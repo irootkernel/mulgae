@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "kar-doctor-result.v2"
+const LocalSchemaVersion = "mulgae-doctor-result.v2"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -72,7 +72,7 @@ type LocalDoctorResult struct {
 }
 
 func (result LocalDoctorResult) Validate() error {
-	if result.SchemaVersion != LocalSchemaVersion || result.CheckedAt.IsZero() || result.ProjectRootURI != "." || result.Config.URI != ".kar/config.yaml" || result.Config.Authority != "project_local" {
+	if result.SchemaVersion != LocalSchemaVersion || result.CheckedAt.IsZero() || result.ProjectRootURI != "." || result.Config.URI != ".mulgae/config.yaml" || result.Config.Authority != "project_local" {
 		return fmt.Errorf("local doctor result: invalid identity")
 	}
 	if len(result.ProviderInventory) != 3 || result.ProviderInventory[0].Family != "kimi" || result.ProviderInventory[1].Family != "zcode" || result.ProviderInventory[2].Family != "agy" {

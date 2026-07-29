@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // ApplyRepair applies one already-classified repair response. It never retries,
 // invokes a provider, or owns repair budget. A reformat repair revalidates a
 // replacement review; a fill-missing-fields repair accepts only the bounded
-// kar-repair-patch.v1 pointer set from its RepairPlan.
+// mulgae-repair-patch.v1 pointer set from its RepairPlan.
 func (validator *ReviewValidator) ApplyRepair(ctx context.Context, originalRaw, repairRaw []byte, scope ReviewValidationScope, plan RepairPlan) (ValidatedReview, error) {
 	review, _, err := validator.ApplyRepairCandidate(ctx, originalRaw, repairRaw, scope, plan)
 	return review, err
@@ -159,7 +159,7 @@ func (validator *ReviewValidator) decodeRepairPatch(ctx context.Context, raw []b
 		return repairPatch{}, fmt.Errorf("review repair: repair patch schema: %w", err)
 	}
 	version, ok := patch["schema_version"].(string)
-	if !ok || version != "kar-repair-patch.v1" {
+	if !ok || version != "mulgae-repair-patch.v1" {
 		return repairPatch{}, fmt.Errorf("review repair: repair patch has invalid schema_version")
 	}
 	repairsValue, ok := patch["repairs"].([]any)
@@ -364,7 +364,7 @@ func meaningfulRepairTarget(pointer string, value any) bool {
 		return ok && meaningfulText(text)
 	case "schema_version":
 		text, ok := value.(string)
-		return ok && text == "kar-provider-review-output.v3"
+		return ok && text == "mulgae-provider-review-output.v3"
 	case "completeness":
 		text, ok := value.(string)
 		return ok && (text == "complete" || text == "incomplete")

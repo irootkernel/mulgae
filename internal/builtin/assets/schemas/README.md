@@ -1,38 +1,38 @@
 # JSON Schema Contracts
 
-All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 schemas use `https://kar.local/schemas/<filename>.schema.json`, while released v1 schemas retain their immutable identity.
+All schemas use JSON Schema Draft 2020-12 and declare a canonical `$id`; new G0 schemas use `https://mulgae.local/schemas/<filename>.schema.json`, while released v1 schemas retain their immutable identity.
 
 ## Contracts
 
 | Schema | Valid example | Producer | Consumer |
 |---|---|---|---|
-| `kar-provider-review-output.v1` | `../examples/provider-review-output.valid.json` | Review, delta, or rerun provider | KAR validation pipeline |
-| `kar-provider-followup-output.v1` | `../examples/provider-followup-output.valid.json` | Followup provider | KAR validation pipeline |
-| `kar-validation-result.v1` | `../examples/validation-result.valid.json` | KAR validator | Artifacts, diagnostics, tests |
-| `kar-repair-request.v1` | `../examples/repair-request.json` | KAR | Same provider repair invocation |
-| `kar-repair-patch.v1` | `../examples/repair-patch.json` | Provider repair invocation | KAR constrained patch applicator |
-| `kar-review-artifact.v1` | `../examples/review-artifact.valid.json` | KAR publisher | Existing v1 readers |
-| `kar-run-manifest.v1` | `../examples/run-manifest.valid.json` | KAR artifact store | Existing v1 readers |
-| `kar-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` | KAR cleanup planner | Clean apply and explain |
-| `kar-command-result.v1` | `../examples/command-result.v1.valid.json` | KAR command envelope | CLI, CI, and automation |
-| `kar-doctor-result.v1` | `../examples/doctor-result.v1.valid.json` | KAR doctor | CLI, CI, and readiness gates |
-| `kar-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` | Project-local KAR doctor | CLI, CI, and readiness gates |
-| `kar-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` | KAR exporter | Export verifier and consumer |
-| `kar-g0-file-catalog.v1` | `../examples/g0-file-catalog.v1.valid.json` | G0 catalog generator | Integrity and promotion validation |
-| `kar-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` | Platform probe | Doctor and G0 readiness validation |
-| `kar-platform-contract-evidence.v2` | `../examples/platform-contract-evidence.v2.valid.json` | Platform probe | G0 readiness ingress authority |
-| `kar-provider-contract-evidence.v1` | `../examples/provider-contract-evidence.v1.valid.json` | Provider probe | Doctor and G0 readiness validation |
-| `kar-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` | Provider probe | G0 readiness ingress authority |
-| `kar-provider-followup-output.v2` | `../examples/provider-followup-output.v2.valid.json` | KAR-normalized followup provider result | KAR validation pipeline |
-| `kar-provider-review-output.v2` | `../examples/provider-review-output.v2.valid.json` | KAR-normalized review/delta/rerun provider result | KAR validation pipeline |
-| `kar-provider-review-wire.v2` | `../examples/provider-review-wire.v2.valid.json` | Provider root-review wire | KAR normalization and validation |
-| `kar-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` | KAR publisher | CLI, CI, reporting, and external consumers |
-| `kar-review-artifact.v3` | `../examples/review-artifact.v3.valid.json` | KAR publisher | CLI, CI, reporting, and external consumers; verified visual evidence |
-| `kar-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` | KAR artifact store | CLI, recovery, integrity, and publication validation |
-| `kar-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` | KAR validator | G0 receipts, diagnostics, and tests |
-| `kar-validation-result.v2` | `../examples/validation-result.v2.valid.json` | KAR validator | Artifacts, diagnostics, and tests |
+| `mulgae-provider-review-output.v1` | `../examples/provider-review-output.valid.json` | Review, delta, or rerun provider | Mulgae validation pipeline |
+| `mulgae-provider-followup-output.v1` | `../examples/provider-followup-output.valid.json` | Followup provider | Mulgae validation pipeline |
+| `mulgae-validation-result.v1` | `../examples/validation-result.valid.json` | Mulgae validator | Artifacts, diagnostics, tests |
+| `mulgae-repair-request.v1` | `../examples/repair-request.json` | Mulgae | Same provider repair invocation |
+| `mulgae-repair-patch.v1` | `../examples/repair-patch.json` | Provider repair invocation | Mulgae constrained patch applicator |
+| `mulgae-review-artifact.v1` | `../examples/review-artifact.valid.json` | Mulgae publisher | Existing v1 readers |
+| `mulgae-run-manifest.v1` | `../examples/run-manifest.valid.json` | Mulgae artifact store | Existing v1 readers |
+| `mulgae-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` | Mulgae cleanup planner | Clean apply and explain |
+| `mulgae-command-result.v1` | `../examples/command-result.v1.valid.json` | Mulgae command envelope | CLI, CI, and automation |
+| `mulgae-doctor-result.v1` | `../examples/doctor-result.v1.valid.json` | Mulgae doctor | CLI, CI, and readiness gates |
+| `mulgae-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` | Project-local Mulgae doctor | CLI, CI, and readiness gates |
+| `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` | Mulgae exporter | Export verifier and consumer |
+| `mulgae-g0-file-catalog.v1` | `../examples/g0-file-catalog.v1.valid.json` | G0 catalog generator | Integrity and promotion validation |
+| `mulgae-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` | Platform probe | Doctor and G0 readiness validation |
+| `mulgae-platform-contract-evidence.v2` | `../examples/platform-contract-evidence.v2.valid.json` | Platform probe | G0 readiness ingress authority |
+| `mulgae-provider-contract-evidence.v1` | `../examples/provider-contract-evidence.v1.valid.json` | Provider probe | Doctor and G0 readiness validation |
+| `mulgae-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` | Provider probe | G0 readiness ingress authority |
+| `mulgae-provider-followup-output.v2` | `../examples/provider-followup-output.v2.valid.json` | Mulgae-normalized followup provider result | Mulgae validation pipeline |
+| `mulgae-provider-review-output.v2` | `../examples/provider-review-output.v2.valid.json` | Mulgae-normalized review/delta/rerun provider result | Mulgae validation pipeline |
+| `mulgae-provider-review-wire.v2` | `../examples/provider-review-wire.v2.valid.json` | Provider root-review wire | Mulgae normalization and validation |
+| `mulgae-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` | Mulgae publisher | CLI, CI, reporting, and external consumers |
+| `mulgae-review-artifact.v3` | `../examples/review-artifact.v3.valid.json` | Mulgae publisher | CLI, CI, reporting, and external consumers; verified visual evidence |
+| `mulgae-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` | Mulgae artifact store | CLI, recovery, integrity, and publication validation |
+| `mulgae-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` | Mulgae validator | G0 receipts, diagnostics, and tests |
+| `mulgae-validation-result.v2` | `../examples/validation-result.v2.valid.json` | Mulgae validator | Artifacts, diagnostics, and tests |
 
-The twenty-one G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain frozen and immutable; `kar-platform-contract-evidence.v1` and `kar-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `kar-platform-contract-evidence.v2` and `kar-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
+The twenty-one G0 contract pairs above are additive. The seven existing v1 schema/example pairs remain frozen and immutable; `mulgae-platform-contract-evidence.v1` and `mulgae-provider-contract-evidence.v1` are compatibility-only and are not readiness-ingress authorities. The explicit `mulgae-platform-contract-evidence.v2` and `mulgae-provider-contract-evidence.v2` `$id` values are the only provider/platform readiness-ingress authorities.
 
 The initial v2 examples are schema-valid UNVERIFIED fixtures, not PASS evidence: the required `darwin-arm64` platform row is all `NOT_RUN`, and the examples themselves grant no support, readiness, or implementation authority. G001 completion is established by executed receipts and the authority chain, never by these example bytes.
 

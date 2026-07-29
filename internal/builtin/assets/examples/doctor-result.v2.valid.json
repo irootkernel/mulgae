@@ -1,10 +1,10 @@
 {
-  "schema_version": "kar-doctor-result.v2",
+  "schema_version": "mulgae-doctor-result.v2",
   "checked_at": "2026-07-20T00:00:00Z",
   "project_root_uri": ".",
   "config": {
     "status": "ready",
-    "uri": ".kar/config.yaml",
+    "uri": ".mulgae/config.yaml",
     "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "authority": "project_local",
     "locality": "verified",

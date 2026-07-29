@@ -1,7 +1,7 @@
 {
-  "schema_version": "kar-repair-request.v1",
+  "schema_version": "mulgae-repair-request.v1",
   "mode": "fill_missing_fields",
-  "provider_output_schema": "kar-provider-review-output.v1",
+  "provider_output_schema": "mulgae-provider-review-output.v1",
   "role": "logic",
   "run_type": "review",
   "validation_errors": [
@@ -15,7 +15,7 @@
     "/findings/0/recommendation"
   ],
   "original_output": {
-    "schema_version": "kar-provider-review-output.v1",
+    "schema_version": "mulgae-provider-review-output.v1",
     "summary": "One high-severity coordinator issue was identified.",
     "completeness": "complete",
     "limitations": [],

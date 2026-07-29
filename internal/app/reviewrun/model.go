@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type InputCaptureRequest struct {
@@ -280,13 +280,25 @@ type ExecutionPlanner interface {
 
 // BuildIdentity is immutable provenance attached to a qualified production run.
 type BuildIdentity struct {
-	Product string
-	Version string
-	Commit  string
+	Product     string
+	Version     string
+	Module      string
+	ModuleSum   string
+	VCSRevision string
 }
 
 func (identity BuildIdentity) Valid() bool {
-	return identity.Product != "" && identity.Version != "" && identity.Commit != ""
+	return identity.Product == "mulgae" &&
+		identity.Version != "" &&
+		identity.Module == "github.com/irootkernel/mulgae" &&
+		(identity.ModuleSum != "" || identity.VCSRevision != "")
+}
+
+func (identity BuildIdentity) ImmutableReference() string {
+	if identity.VCSRevision != "" {
+		return identity.VCSRevision
+	}
+	return identity.ModuleSum
 }
 
 // RunAuthorityFactory is the sole production authority factory for a changed

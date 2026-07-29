@@ -12,9 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	appinit "github.com/irootkernel/kkachi-agent-review/internal/app/init"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appinit "github.com/irootkernel/mulgae/internal/app/init"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -48,13 +48,13 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
+	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v1.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), specs); err != nil {
+	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v1.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "kar-command-result.v1.schema.json"), discoverySpecs); err != nil {
+	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v1.schema.json"), discoverySpecs); err != nil {
 		return err
 	}
 	return replaceMarkedBlock(filepath.Join(assets, "docs", "10-reporting-ci-and-exit-codes.md"), renderDocumentation(specs, discoverySpecs))

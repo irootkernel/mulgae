@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/irootkernel/kkachi-agent-review/"
+const modulePath = "github.com/irootkernel/mulgae/"
 
 func TestProductionDependencyDirection(t *testing.T) {
 	root := repositoryRoot(t)
@@ -198,9 +198,9 @@ func TestMakefileContract(t *testing.T) {
 	for _, required := range []string{
 		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,
-		"KAR_LIVE_KIMI_BIN", "KAR_LIVE_ZCODE_NODE_BIN", "KAR_LIVE_ZCODE_LAUNCHER", "KAR_LIVE_AGY_BIN",
-		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'", "KAR_E2E_BINARY", "KAR_E2E_PROJECT_ROOT",
-		"KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+		"MULGAE_LIVE_KIMI_BIN", "MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN",
+		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(text, required) {
@@ -236,7 +236,7 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
 		t.Fatal("required live family capability certification may not skip prerequisites")
 	}
-	workflowData, err := os.ReadFile(filepath.Join(root, "cmd", "kar", "live_e2e_test.go"))
+	workflowData, err := os.ReadFile(filepath.Join(root, "live_e2e_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	for _, required := range []string{
 		"func TestE2EActualProvidersProductionWorkflow", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"KAR_E2E_BINARY", "KAR_E2E_KIMI_EXECUTABLE", "KAR_E2E_ZCODE_NODE_EXECUTABLE", "KAR_E2E_ZCODE_LAUNCHER", "KAR_E2E_AGY_EXECUTABLE",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)
@@ -275,12 +275,12 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 }
 
 func TestRequiredArtistPrerequisitesFailClosed(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "cmd", "kar", "artist_workspace_e2e_test.go"))
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "artist_workspace_e2e_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") || strings.Contains(text, "KAR_REQUIRE_ARTIST_E2E") {
+	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") || strings.Contains(text, "MULGAE_REQUIRE_ARTIST_E2E") {
 		t.Fatal("required Artist/Playwright integration may not skip unavailable prerequisites")
 	}
 	for _, required := range []string{"func TestIntegrationArtistHomepageWorkspaceReview", "npx", "--offline", "playwright", "t.Fatalf(format, arguments...)"} {

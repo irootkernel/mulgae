@@ -36,39 +36,39 @@ test-e2e:
 	@e2e_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
 	e2e_base="$${TMPDIR:-/tmp}"; \
-	e2e_project="$$(mktemp -d "$${e2e_base%/}/kar-e2e-project.XXXXXX")"; \
+	e2e_project="$$(mktemp -d "$${e2e_base%/}/mulgae-e2e-project.XXXXXX")"; \
 	chmod 700 "$$e2e_project"; \
-	KAR_E2E_BINARY="$$e2e_tmp/kar"; \
-	KAR_E2E_COMMIT="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildProduct=kar -X main.buildVersion=v1.15.0 -X main.buildCommit=$$KAR_E2E_COMMIT" -o "$$KAR_E2E_BINARY" ./cmd/kar; \
-	kimi_bin="$${KAR_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
+	MULGAE_E2E_BINARY="$$e2e_tmp/mulgae"; \
+	MULGAE_E2E_COMMIT="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=v1.15.0 -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
+	kimi_bin="$${MULGAE_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
 	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-e2e requires the Kimi executable" >&2; exit 1; }; \
 	case "$$kimi_bin" in /*) ;; *) echo "test-e2e requires an absolute Kimi executable" >&2; exit 1;; esac; \
-	kimi_data_home="$${KAR_E2E_KIMI_DATA_HOME:-$${HOME}/.kimi-code}"; \
+	kimi_data_home="$${MULGAE_E2E_KIMI_DATA_HOME:-$${HOME}/.kimi-code}"; \
 	test -d "$$kimi_data_home" || { echo "test-e2e requires the Kimi data home" >&2; exit 1; }; \
-	zcode_node="$${KAR_E2E_ZCODE_NODE_EXECUTABLE:-$$(command -v node)}"; \
+	zcode_node="$${MULGAE_E2E_ZCODE_NODE_EXECUTABLE:-$$(command -v node)}"; \
 	test -n "$$zcode_node" && test -x "$$zcode_node" || { echo "test-e2e requires the ZCode Node executable" >&2; exit 1; }; \
 	case "$$zcode_node" in /*) ;; *) echo "test-e2e requires an absolute ZCode Node executable" >&2; exit 1;; esac; \
-	zcode_launcher="$${KAR_E2E_ZCODE_LAUNCHER:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"; \
+	zcode_launcher="$${MULGAE_E2E_ZCODE_LAUNCHER:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"; \
 	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
 	case "$$zcode_launcher" in /*) ;; *) echo "test-e2e requires an absolute ZCode launcher" >&2; exit 1;; esac; \
-	agy_bin="$${KAR_E2E_AGY_EXECUTABLE:-$$(command -v agy)}"; \
+	agy_bin="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy)}"; \
 	test -n "$$agy_bin" && test -x "$$agy_bin" || { echo "test-e2e requires the AGY executable" >&2; exit 1; }; \
 	case "$$agy_bin" in /*) ;; *) echo "test-e2e requires an absolute AGY executable" >&2; exit 1;; esac; \
-	if KAR_E2E_BINARY="$$KAR_E2E_BINARY" KAR_E2E_PROJECT_ROOT="$$e2e_project" \
-		KAR_E2E_KIMI_EXECUTABLE="$$kimi_bin" KAR_E2E_KIMI_DATA_HOME="$$kimi_data_home" \
-		KAR_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" KAR_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
-		KAR_E2E_AGY_EXECUTABLE="$$agy_bin" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^Test(E2E|Live)' ./cmd/kar; then \
+	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
+		MULGAE_E2E_KIMI_EXECUTABLE="$$kimi_bin" MULGAE_E2E_KIMI_DATA_HOME="$$kimi_data_home" \
+		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
+		MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^Test(E2E|Live)' .; then \
 		:; \
 	else \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \
 	fi; \
-	KAR_LIVE_KIMI_BIN="$$kimi_bin" KAR_LIVE_KIMI_DATA_HOME="$$kimi_data_home" \
-	KAR_LIVE_ZCODE_NODE_BIN="$$zcode_node" KAR_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
-	KAR_LIVE_AGY_BIN="$$agy_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
+	MULGAE_LIVE_KIMI_BIN="$$kimi_bin" MULGAE_LIVE_KIMI_DATA_HOME="$$kimi_data_home" \
+	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
+	MULGAE_LIVE_AGY_BIN="$$agy_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLive(Kimi|ZCode|Agy)Capability$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \

@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestProductionFollowupTemplateDefinesProviderOwnedEvidenceShape(t *testing.T) {
 	for _, required := range []string{
 		`"evidence":[{"current":`,
 		"Every evidence item must contain only current.",
-		"KAR injects source identity, target_sha256, and verification",
+		"Mulgae injects source identity, target_sha256, and verification",
 		"including the final selected line",
 		"never reuse line numbers or quotes",
 		"instead of fabricating evidence",

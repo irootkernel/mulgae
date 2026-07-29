@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/delta"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/delta"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/rerun"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // ExecutorConfig contains the immutable review and publication authority for
@@ -24,8 +24,8 @@ type ExecutorConfig struct {
 	Assignments       []review.Assignment
 	SeverityThreshold domain.Severity
 	Policy            *domain.CIPolicy
-	KARVersion        string
-	KARCommit         string
+	MulgaeVersion     string
+	MulgaeCommit      string
 	Diagnostics       ports.RuntimeDiagnosticSinkFactory
 	Clock             ports.Clock
 }
@@ -68,7 +68,7 @@ func NewExecutor(
 	if !config.SeverityThreshold.Valid() {
 		return nil, fmt.Errorf("child executor: severity threshold is invalid")
 	}
-	if config.KARVersion == "" || config.KARCommit == "" {
+	if config.MulgaeVersion == "" || config.MulgaeCommit == "" {
 		return nil, fmt.Errorf("child executor: publication identity is incomplete")
 	}
 	registry := &childDiagnosticRegistry{}
@@ -85,7 +85,7 @@ func NewExecutor(
 		diagnostics: registry,
 		config: ExecutorConfig{
 			Assignments: append([]review.Assignment(nil), config.Assignments...), SeverityThreshold: config.SeverityThreshold,
-			Policy: config.Policy, KARVersion: config.KARVersion, KARCommit: config.KARCommit, Diagnostics: config.Diagnostics, Clock: config.Clock,
+			Policy: config.Policy, MulgaeVersion: config.MulgaeVersion, MulgaeCommit: config.MulgaeCommit, Diagnostics: config.Diagnostics, Clock: config.Clock,
 		},
 	}, nil
 }
@@ -166,7 +166,7 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication lineage: %w", err)
 	}
-	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(result, run.Target(), executor.config.SeverityThreshold, executor.config.KARVersion, executor.config.KARCommit, publicationContext, inventory)
+	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(result, run.Target(), executor.config.SeverityThreshold, executor.config.MulgaeVersion, executor.config.MulgaeCommit, publicationContext, inventory)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: prepare delta publication: %w", err)
 	}
@@ -178,7 +178,7 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if !ok || !final.Valid() {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: publication did not return a P2 final receipt")
 	}
-	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
+	diagnosticP2, _ = ports.NewSafeRelativePath(".mulgae/" + final.Path().String())
 	terminalExit, err := committedTerminalExit(published)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication terminal exit: %w", err)
@@ -290,8 +290,8 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun publication lineage: %w", err)
 	}
 	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(
-		result, run.Target(), executor.config.SeverityThreshold, executor.config.KARVersion,
-		executor.config.KARCommit, publicationContext, inventory,
+		result, run.Target(), executor.config.SeverityThreshold, executor.config.MulgaeVersion,
+		executor.config.MulgaeCommit, publicationContext, inventory,
 	)
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: prepare rerun publication: %w", err)
@@ -304,7 +304,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if !ok || !final.Valid() {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: publication did not return a P2 final receipt")
 	}
-	diagnosticP2, _ = ports.NewSafeRelativePath(".kar/" + final.Path().String())
+	diagnosticP2, _ = ports.NewSafeRelativePath(".mulgae/" + final.Path().String())
 	selectedInventory, err := terminalReplayInventory(result, inventory, domain.Role(child.Role), child.Mode)
 	if err != nil {
 		return rerun.ChildReplayResult{}, err

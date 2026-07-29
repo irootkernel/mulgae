@@ -4,8 +4,8 @@ package export
 import "time"
 
 const (
-	manifestSchemaVersion = "kar-export-manifest.v1"
-	secureWriterContract  = "kar-secure-writer/v1"
+	manifestSchemaVersion = "mulgae-export-manifest.v1"
+	secureWriterContract  = "mulgae-secure-writer/v1"
 )
 
 // VerifiedSourceProjection is the complete allowlisted input to an export. It

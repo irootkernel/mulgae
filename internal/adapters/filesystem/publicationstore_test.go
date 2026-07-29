@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,7 +28,7 @@ func TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := ports.NewAnchoredRoot("/tmp/kar-publication-store-test")
+	root, err := ports.NewAnchoredRoot("/tmp/mulgae-publication-store-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON(t *testing
 	reviewID := "019f596a-d174-7321-b920-c2d312c82cc2"
 	prefix := session.String() + "/" + runID.String()
 	journalPath := mustPublicationSafePath(prefix + "/publication/journal.json")
-	valid := fmt.Sprintf(`{"schema_version":"kar-publication-journal.v1","session_id":%q,"run_id":%q,"persisted_journal_state":"final_staged","expected_staged":{"path":%q,"sha256":%q},"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q,"store_epoch":7,"normal_exit":0,"manifest_path":%q,"lineage_edge_path":%q,"epoch_path":%q}`,
+	valid := fmt.Sprintf(`{"schema_version":"mulgae-publication-journal.v1","session_id":%q,"run_id":%q,"persisted_journal_state":"final_staged","expected_staged":{"path":%q,"sha256":%q},"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q,"store_epoch":7,"normal_exit":0,"manifest_path":%q,"lineage_edge_path":%q,"epoch_path":%q}`,
 		session.String(), runID.String(), prefix+"/publication/staged/review_"+reviewID+".json.tmp", hash,
 		prefix+"/review_"+reviewID+".json", hash, hash, prefix+"/manifest.json", "store/lineage-edges/e_"+reviewID+".json", "store/epochs/epoch_00000000000000000007.json")
 	if _, facts, err := parsePublicationJournal(run, journalPath, []byte(valid)); err != nil {
@@ -50,7 +50,7 @@ func TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON(t *testing
 	}
 	for _, raw := range []string{
 		strings.Replace(valid, `"schema_version":`, `"unknown":true,"schema_version":`, 1),
-		strings.Replace(valid, `"schema_version":`, `"schema_version":"kar-publication-journal.v1","schema_version":`, 1),
+		strings.Replace(valid, `"schema_version":`, `"schema_version":"mulgae-publication-journal.v1","schema_version":`, 1),
 		valid + " {}",
 	} {
 		if _, _, err := parsePublicationJournal(run, journalPath, []byte(raw)); err == nil {
@@ -255,7 +255,7 @@ func TestPublicationStoreCorruptionDiagnosticIsDurablyIdempotent(t *testing.T) {
 		),
 	)
 	payload := []byte(fmt.Sprintf(
-		`{"schema_version":"kar-publication-corruption.v1","session_id":%q,"run_id":%q,"observation_epoch":%d,"reason_codes":[%q]}`,
+		`{"schema_version":"mulgae-publication-corruption.v1","session_id":%q,"run_id":%q,"observation_epoch":%d,"reason_codes":[%q]}`,
 		fixture.run.SessionID().String(),
 		fixture.run.RunID().String(),
 		observation.StoreEpoch(),
@@ -299,7 +299,7 @@ func TestPublicationStoreCorruptionDiagnosticIsDurablyIdempotent(t *testing.T) {
 	}
 
 	tamperedBytes := []byte(fmt.Sprintf(
-		`{"schema_version":"kar-publication-corruption.v1","session_id":%q,"run_id":%q,"observation_epoch":%d,"reason_codes":["other"]}`,
+		`{"schema_version":"mulgae-publication-corruption.v1","session_id":%q,"run_id":%q,"observation_epoch":%d,"reason_codes":["other"]}`,
 		fixture.run.SessionID().String(),
 		fixture.run.RunID().String(),
 		observation.StoreEpoch(),
@@ -322,7 +322,7 @@ func TestPublicationStoreRejectsStagedFinalIdentitySubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`,
+	substitutedBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`,
 		fixture.run.SessionID().String(), fixture.run.RunID().String(), otherReviewID.String()))
 	substitutedFinal, err := ports.NewFinalReviewIdentity(
 		fixture.final.Identity().ReviewID(),
@@ -1767,7 +1767,7 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 	}
 	prefix := session.String() + "/" + runID.String()
 	finalPath := mustRelativePath(t, prefix+"/review_"+reviewID.String()+".json")
-	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
+	finalBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q}`, session.String(), runID.String(), reviewID.String()))
 	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, publicationSHA256(finalBytes))
 	if err != nil {
 		t.Fatal(err)
@@ -1777,20 +1777,20 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 		t.Fatal(err)
 	}
 	lineagePath := mustRelativePath(t, "store/lineage-edges/e_"+reviewID.String()+".json")
-	lineageBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-lineage-edge.v1","edge_id":"edge-1","child":{"session_id":%q,"run_id":%q,"review_id":%q}}`, session.String(), runID.String(), reviewID.String()))
+	lineageBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-lineage-edge.v1","edge_id":"edge-1","child":{"session_id":%q,"run_id":%q,"review_id":%q}}`, session.String(), runID.String(), reviewID.String()))
 	lineage, err := ports.NewImmutablePublicationArtifact(lineagePath, publicationSHA256(lineageBytes), lineageBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifestPath := publicationManifestPath(run)
 	epochPath := mustRelativePath(t, "store/epochs/epoch_00000000000000000007.json")
-	manifestBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"publication_status":"committed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2","final_review":{"review_id":%q,"path":%q,"sha256":%q},"immutable_lineage":{"lineage_edge_path":%q,"lineage_edge_sha256":%q},"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"exit_code":0}`,
+	manifestBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-run-manifest.v2","session_id":%q,"run_id":%q,"publication_status":"committed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2","final_review":{"review_id":%q,"path":%q,"sha256":%q},"immutable_lineage":{"lineage_edge_path":%q,"lineage_edge_sha256":%q},"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"exit_code":0}`,
 		session.String(), runID.String(), reviewID.String(), finalPath.String(), finalIdentity.SHA256(), lineagePath.String(), lineage.SHA256(), manifestPath.String(), lineagePath.String(), lineage.SHA256(), epochPath.String()))
 	manifest, err := ports.NewImmutablePublicationArtifact(manifestPath, publicationSHA256(manifestBytes), manifestBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	epochBytes := []byte(fmt.Sprintf(`{"schema_version":"kar-publication-epoch.v1","store_epoch":7,"manifest":{"path":%q,"sha256":%q},"lineage_edge":{"path":%q,"sha256":%q},"final_review":{"path":%q,"sha256":%q}}`,
+	epochBytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-publication-epoch.v1","store_epoch":7,"manifest":{"path":%q,"sha256":%q},"lineage_edge":{"path":%q,"sha256":%q},"final_review":{"path":%q,"sha256":%q}}`,
 		manifestPath.String(), manifest.SHA256(), lineagePath.String(), lineage.SHA256(), finalPath.String(), finalIdentity.SHA256()))
 	epochRecord, err := ports.NewImmutablePublicationArtifact(epochPath, publicationSHA256(epochBytes), epochBytes)
 	if err != nil {
@@ -1816,7 +1816,7 @@ func newPublicationStoreFixture(t *testing.T) publicationStoreTestFixture {
 
 func (fixture publicationStoreTestFixture) writeJournal(t *testing.T, state domain.PersistedJournalState) {
 	t.Helper()
-	bytes := []byte(fmt.Sprintf(`{"schema_version":"kar-publication-journal.v1","session_id":%q,"run_id":%q,"persisted_journal_state":%q,"expected_staged":{"path":%q,"sha256":%q},"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q,"store_epoch":7,"normal_exit":0,"manifest_path":%q,"lineage_edge_path":%q,"epoch_path":%q}`,
+	bytes := []byte(fmt.Sprintf(`{"schema_version":"mulgae-publication-journal.v1","session_id":%q,"run_id":%q,"persisted_journal_state":%q,"expected_staged":{"path":%q,"sha256":%q},"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q,"store_epoch":7,"normal_exit":0,"manifest_path":%q,"lineage_edge_path":%q,"epoch_path":%q}`,
 		fixture.run.SessionID().String(), fixture.run.RunID().String(), state, fixture.stagedPath.String(), fixture.final.Identity().SHA256(),
 		fixture.final.Identity().Path().String(), fixture.final.Identity().SHA256(), fixture.final.Identity().SHA256(),
 		fixture.composite.Manifest().Path().String(), fixture.composite.LineageEdge().Path().String(), fixture.composite.Epoch().Record().Path().String()))

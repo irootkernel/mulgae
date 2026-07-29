@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -363,7 +363,7 @@ func (receipt ProviderNamespaceTerminalReceipt) ReceiptID() string {
 	if !receipt.Valid() {
 		return ""
 	}
-	sum := sha256.Sum256([]byte("kar-provider-namespace-terminal-v1\x00" +
+	sum := sha256.Sum256([]byte("mulgae-provider-namespace-terminal-v1\x00" +
 		receipt.providerInstance + "\x00" + receipt.generation +
 		"\x00drained\x00credentials-zeroed\x00unlinked\x00torn-down"))
 	return "provider-namespace-terminal:v1:sha256:" + hex.EncodeToString(sum[:])
@@ -999,7 +999,7 @@ func NewProcessOutputFrameReceipt(framing ProcessOutputFraming, stdout []byte, s
 		return ProcessOutputFrameReceipt{}, fmt.Errorf("output frame receipt: invalid frame or stability grace")
 	}
 	sum := sha256.New()
-	_, _ = sum.Write([]byte("KAR-PROCESS-STDOUT-FRAME/1"))
+	_, _ = sum.Write([]byte("Mulgae-PROCESS-STDOUT-FRAME/1"))
 	_, _ = sum.Write([]byte{0})
 	_, _ = sum.Write(stdout)
 	return ProcessOutputFrameReceipt{framing: framing, byteLength: int64(len(stdout)), sha256: hex.EncodeToString(sum.Sum(nil)), stabilityGrace: stabilityGrace}, nil
@@ -1013,7 +1013,7 @@ func (r ProcessOutputFrameReceipt) Valid() bool {
 }
 func outputFrameDigest(stdout []byte) string {
 	sum := sha256.New()
-	_, _ = sum.Write([]byte("KAR-PROCESS-STDOUT-FRAME/1"))
+	_, _ = sum.Write([]byte("Mulgae-PROCESS-STDOUT-FRAME/1"))
 	_, _ = sum.Write([]byte{0})
 	_, _ = sum.Write(stdout)
 	return hex.EncodeToString(sum.Sum(nil))
@@ -1195,7 +1195,7 @@ func (signal ProcessSignal) Valid() bool { return validateProcessSignal(signal) 
 
 // StdinWriteReceipt is the immutable record of bytes successfully written to
 // one child stdin pipe. SHA256 is the raw lower-case hexadecimal digest of
-// "KAR-PROVIDER-STDIN/1" || 0x00 || those exact successful bytes.
+// "Mulgae-PROVIDER-STDIN/1" || 0x00 || those exact successful bytes.
 type StdinWriteReceipt struct {
 	intendedByteLength int64
 	writtenByteCount   int64

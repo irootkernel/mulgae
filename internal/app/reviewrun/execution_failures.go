@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // ProviderExecutionFailure is one safe terminal provider fact. It contains no

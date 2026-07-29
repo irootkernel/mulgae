@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	coreapp "github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -25,8 +25,8 @@ const (
 	renderExcerptStage     = "query.render_excerpt"
 	readRuntimeTargetStage = "query.read_runtime_target"
 
-	finalReviewSchemaURI = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
-	runManifestSchemaURI = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
+	finalReviewSchemaURI = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	runManifestSchemaURI = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
 )
 
 var (
@@ -173,7 +173,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err := decodeStrictDTO(targetManifest.Bytes(), &manifest); err != nil {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest decode failed", err)
 	}
-	if manifest.SchemaVersion != "kar-runtime-target-manifest.v1" || !validSHA256(manifest.Target.SHA256) {
+	if manifest.SchemaVersion != "mulgae-runtime-target-manifest.v1" || !validSHA256(manifest.Target.SHA256) {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest is invalid", nil)
 	}
 	targetPath, err := ports.NewSafeRelativePath(manifest.Target.Path)
@@ -258,7 +258,7 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
-	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) == 0 {
+	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) == 0 {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
 	identities := make(map[string]string, len(index.Artifacts))
@@ -426,7 +426,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest decode failed", err)
 	}
 	promptRole := domain.Role(wire.Role)
-	if !promptRole.Valid() || wire.SchemaVersion != "kar-runtime-prompt-manifest.v1" || promptRole != role ||
+	if !promptRole.Valid() || wire.SchemaVersion != "mulgae-runtime-prompt-manifest.v1" || promptRole != role ||
 		wire.Target.Path == "" || strings.TrimPrefix(wire.Target.SHA256, "sha256:") != target.Identity().SHA256() ||
 		!validSHA256(wire.Stdin.SHA256) || wire.CompleteStdinSHA256 == "" {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest binding is invalid", nil)
@@ -1118,7 +1118,7 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	if final.SchemaVersion != "kar-review-artifact.v3" || manifest.SchemaVersion != "kar-run-manifest.v2" {
+	if final.SchemaVersion != "mulgae-review-artifact.v3" || manifest.SchemaVersion != "mulgae-run-manifest.v2" {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)
@@ -1280,10 +1280,10 @@ func validateProductionProvenance(final finalDTO) error {
 		final.Target.ContentSHA256 == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
 		return fmt.Errorf("production provenance is only valid for changed root reviews")
 	}
-	if production.BuildProduct != "kar" || !validBoundedText(production.BuildVersion, 128) ||
-		!validBoundedText(production.BuildCommit, 128) || production.BuildVersion != final.KAR.Version ||
-		final.KAR.Commit == nil || production.BuildCommit != *final.KAR.Commit {
-		return fmt.Errorf("production provenance build metadata does not match final KAR metadata")
+	if production.BuildProduct != "mulgae" || !validBoundedText(production.BuildVersion, 128) ||
+		!validBoundedText(production.BuildCommit, 128) || production.BuildVersion != final.Mulgae.Version ||
+		final.Mulgae.Commit == nil || production.BuildCommit != *final.Mulgae.Commit {
+		return fmt.Errorf("production provenance build metadata does not match final Mulgae metadata")
 	}
 	if (production.ObjectivePresent && (production.ObjectiveSHA256 == nil || !validSHA256(*production.ObjectiveSHA256))) ||
 		(!production.ObjectivePresent && production.ObjectiveSHA256 != nil) ||

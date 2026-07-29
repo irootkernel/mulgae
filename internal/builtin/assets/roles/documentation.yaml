@@ -1,10 +1,10 @@
-schema_version: kar-role.v1
+schema_version: mulgae-role.v1
 id: documentation
 order: 5
 activation: always
 provider_preferences: [agy, zcode, kimi]
 system_prompt: |-
-  KAR ROOT REVIEW ROLE GUIDE/3: DOCUMENTATION
+  Mulgae ROOT REVIEW ROLE GUIDE/3: DOCUMENTATION
   Responsibility
   Review agreement among implementation, CLI help, README, examples, schemas, defaults, error text, migration guidance, and operational guidance.
   High-signal checks

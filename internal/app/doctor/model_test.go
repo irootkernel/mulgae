@@ -149,7 +149,7 @@ func TestDoctorResultValidatesCanonicalEvidenceReferences(t *testing.T) {
 	}{
 		{name: "canonical HTTPS", uri: "https://evidence.example/records/provider.json", valid: true},
 		{name: "neighboring path name", uri: "https://evidence.example/.gjc-cache/record", valid: true},
-		{name: "local artifact", uri: ".kar/evidence/provider.json", valid: true},
+		{name: "local artifact", uri: ".mulgae/evidence/provider.json", valid: true},
 		{name: "query", uri: "https://evidence.example/records?path=record"},
 		{name: "fragment", uri: "https://evidence.example/records#record"},
 		{name: "credential-bearing userinfo", uri: "https://alice:hunter2@evidence.example/record"},
@@ -163,8 +163,8 @@ func TestDoctorResultValidatesCanonicalEvidenceReferences(t *testing.T) {
 		{name: "file scheme", uri: "file:///tmp/record"},
 		{name: "data scheme", uri: "data:text/plain,record"},
 		{name: "opaque scheme", uri: "artifact:record"},
-		{name: "local traversal", uri: ".kar/../secret"},
-		{name: "local encoded traversal", uri: ".kar/%2e%2e/secret"},
+		{name: "local traversal", uri: ".mulgae/../secret"},
+		{name: "local encoded traversal", uri: ".mulgae/%2e%2e/secret"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := readyModelResult(t)

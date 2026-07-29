@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mulgae:schema:repair-request:v1",
+  "title": "Mulgae Repair Request v1",
+  "description": "Historical read-compatibility packet. It is not an executable repair request, trusted prompt layer, or authority to select a repair mode, modify provider output, or verify evidence.",
+  "deprecated": true,
+  "$comment": "Current root-review repair execution uses the bound repair plan and mode-specific response contracts documented in sot/docs/06-prompt-contract.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mode",
+    "provider_output_schema",
+    "role",
+    "run_type",
+    "validation_errors",
+    "allowed_paths",
+    "original_output",
+    "constraints",
+    "relevant_evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-repair-request.v1"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "reformat_only",
+        "fill_missing_fields"
+      ]
+    },
+    "provider_output_schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "review",
+        "followup",
+        "delta",
+        "rerun"
+      ]
+    },
+    "validation_errors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      }
+    },
+    "allowed_paths": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "original_output": {
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 1000000
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json_only",
+        "preserve_existing_values",
+        "preserve_finding_count",
+        "prohibit_system_fields"
+      ],
+      "properties": {
+        "json_only": {
+          "const": true
+        },
+        "preserve_existing_values": {
+          "const": true
+        },
+        "preserve_finding_count": {
+          "const": true
+        },
+        "prohibit_system_fields": {
+          "const": true
+        }
+      }
+    },
+    "relevant_evidence": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "side",
+          "line_start",
+          "line_end",
+          "quote"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "old",
+              "new",
+              "context",
+              "unknown"
+            ]
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          }
+        }
+      }
+    }
+  }
+}

@@ -17,7 +17,7 @@ const (
 	FailureSecurityPolicy      FailureClass = "security_policy_violation"
 	FailureConfiguration       FailureClass = "configuration_violation"
 	FailureArtifact            FailureClass = "artifact_failure"
-	FailureInternal            FailureClass = "kar_internal_error"
+	FailureInternal            FailureClass = "mulgae_internal_error"
 	FailureCancelled           FailureClass = "user_cancelled"
 )
 

@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/reviewrun"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type testClock struct{}
@@ -234,7 +234,7 @@ func (installer *testInstaller) PrepareConfigDirectory(_ context.Context, root p
 	installer.prepareCalls++
 	created := !installer.existing
 	if created {
-		if err := os.Mkdir(filepath.Join(root.String(), ".kar"), 0o700); err != nil {
+		if err := os.Mkdir(filepath.Join(root.String(), ".mulgae"), 0o700); err != nil {
 			return ports.ConfigDirectoryReceipt{}, err
 		}
 	}
@@ -272,7 +272,7 @@ func (installer *testInstaller) InstallConfig(_ context.Context, root ports.Anch
 	if installer.installError != nil {
 		return ports.ConfigInstallReceipt{}, installer.installError
 	}
-	path := filepath.Join(root.String(), ".kar", "config.yaml")
+	path := filepath.Join(root.String(), ".mulgae", "config.yaml")
 	if _, err := os.Lstat(path); err == nil {
 		return ports.ConfigInstallReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStageCollision, ports.ConfigDestinationPresent, os.ErrExist)
 	}
@@ -324,8 +324,8 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 	if installer.prepareCalls != 0 || installer.installCalls != 0 {
 		t.Fatalf("installer calls = prepare %d install %d", installer.prepareCalls, installer.installCalls)
 	}
-	if _, err := os.Lstat(filepath.Join(rootPath, ".kar")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("prevalidation mutated .kar: %v", err)
+	if _, err := os.Lstat(filepath.Join(rootPath, ".mulgae")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prevalidation mutated .mulgae: %v", err)
 	}
 }
 
@@ -368,7 +368,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if !result.Committed || result.WriteState != "committed" || !reflect.DeepEqual(result.ConfiguredProviderIDs, ids) {
 			t.Fatalf("mask %d result=%#v", mask, result)
 		}
-		data, err := os.ReadFile(filepath.Join(rootPath, ".kar", "config.yaml"))
+		data, err := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 		if err != nil {
 			t.Fatalf("mask %d read config: %v", mask, err)
 		}
@@ -417,7 +417,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 			if !reflect.DeepEqual(result.ConfiguredRoleIDs, selected) {
 				t.Fatalf("configured roles = %v, want %v", result.ConfiguredRoleIDs, selected)
 			}
-			data, err := os.ReadFile(filepath.Join(rootPath, ".kar", "config.yaml"))
+			data, err := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -683,7 +683,7 @@ func TestInitializeProjectReportsCreatedAndExistingRootBarrierTruthfully(t *test
 			rootPath := t.TempDir()
 			_ = os.Chmod(rootPath, 0o700)
 			if test.existing {
-				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+				_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installer := &testInstaller{rootError: true, existing: test.existing}
@@ -742,8 +742,8 @@ func TestPrepareRootSyncWithConcurrentDestinationUsesPrevalidatedArtifactOutcome
 func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
-	_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
-	_ = os.WriteFile(filepath.Join(rootPath, ".kar", "config.yaml"), []byte("x"), 0o600)
+	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
+	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), []byte("x"), 0o600)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	service, _ := NewService(&testInstaller{existing: true}, testInspector{absent: true}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}})
@@ -761,7 +761,7 @@ func TestInitializeProjectReportsPostBarrierLocalityFailureByDirectoryOwnership(
 			rootPath := t.TempDir()
 			_ = os.Chmod(rootPath, 0o700)
 			if test.existing {
-				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+				_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			attestor := &scriptedAttestor{failAttestAt: 2}
@@ -784,7 +784,7 @@ func TestInitializeProjectReportsPreparedIdentityDriftByDirectoryOwnership(t *te
 			rootPath := t.TempDir()
 			_ = os.Chmod(rootPath, 0o700)
 			if test.existing {
-				_ = os.Mkdir(filepath.Join(rootPath, ".kar"), 0o700)
+				_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installError := ports.NewConfigInstallError(ports.ConfigInstallStagePreparedIdentity, test.destination, errors.New("injected identity drift"))
@@ -804,7 +804,7 @@ func TestInitializeProjectClassifiesReplacementConfigAsLocalityDrift(t *testing.
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	installer := &afterPrepareTestInstaller{delegate: &testInstaller{}, after: func(root ports.AnchoredRoot) error {
-		original := filepath.Join(root.String(), ".kar")
+		original := filepath.Join(root.String(), ".mulgae")
 		if err := os.Rename(original, original+"-original"); err != nil {
 			return err
 		}
@@ -827,7 +827,7 @@ func TestInitializeProjectRejectsSameByteConfigIdentitySubstitution(t *testing.T
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	installer := &afterInstallTestInstaller{delegate: &testInstaller{}, after: func(root ports.AnchoredRoot, data []byte) error {
-		path := filepath.Join(root.String(), ".kar", "config.yaml")
+		path := filepath.Join(root.String(), ".mulgae", "config.yaml")
 		if err := os.Rename(path, path+".original"); err != nil {
 			return err
 		}
@@ -863,7 +863,7 @@ func TestInitializeProjectRequiresTerminalLocalityRevalidation(t *testing.T) {
 	attestor := &scriptedAttestor{failRevalidateAt: 4}
 	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
-	_, statErr := os.Lstat(filepath.Join(rootPath, ".kar", "config.yaml"))
+	_, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 	if err == nil || result.WriteState != "installed_unconfirmed" || statErr != nil || result.Committed {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -873,7 +873,7 @@ func TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation(t *testi
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	attestor := &finalConfigMutatingAttestor{path: filepath.Join(rootPath, ".kar", "config.yaml")}
+	attestor := &finalConfigMutatingAttestor{path: filepath.Join(rootPath, ".mulgae", "config.yaml")}
 	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	if err == nil || !attestor.mutated || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
@@ -920,7 +920,7 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 	validator := &recordingPrevalidator{}
 	service := &Service{prevalidator: validator}
 	base := InitializeProjectResult{
-		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
+		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: digest([]byte("config")),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
@@ -960,7 +960,7 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 
 func TestPrevalidatedOutcomeRejectsContradictoryFailureTuple(t *testing.T) {
 	result := InitializeProjectResult{
-		Kind: "initialization_failed", ConfigURI: ".kar/config.yaml", ConfigSHA256: digest([]byte("config")),
+		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: digest([]byte("config")),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,

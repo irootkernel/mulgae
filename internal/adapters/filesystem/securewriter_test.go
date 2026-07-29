@@ -15,12 +15,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
 func TestSecureWriteReceiptBindsLineageDefensively(t *testing.T) {
-	root := mustRoot(t, "/tmp/kar")
+	root := mustRoot(t, "/tmp/mulgae")
 	sourceIDs := []string{"provider:stdout"}
 	receipt, err := ports.NewSecureWriteReceipt(
 		root,
@@ -115,7 +115,7 @@ func TestSecureWriterWritesPrivateFileWithReceipt(t *testing.T) {
 }
 func TestSecureWriterCrashBeforeRenameLeavesOnlyTemporaryFile(t *testing.T) {
 	const (
-		helperRootEnv = "KAR_SECUREWRITER_CRASH_BEFORE_RENAME_ROOT"
+		helperRootEnv = "MULGAE_SECUREWRITER_CRASH_BEFORE_RENAME_ROOT"
 		helperExit    = 97
 	)
 	if root := os.Getenv(helperRootEnv); root != "" {
@@ -238,7 +238,7 @@ func TestSecureWriterRejectsExistingDestinationWithoutReplacement(t *testing.T) 
 }
 
 func TestInstalledButUndurableErrorExposesInstalledReceipt(t *testing.T) {
-	root := mustRoot(t, "/tmp/kar")
+	root := mustRoot(t, "/tmp/mulgae")
 	receipt, err := ports.NewSecureWriteReceipt(
 		root,
 		mustRelativePath(t, "nested/artifact.json"),

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	adapterruntime "github.com/irootkernel/kkachi-agent-review/internal/adapters/runtime"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	adapterruntime "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type plannerCoordinatorRuntime struct {

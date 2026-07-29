@@ -1,16 +1,16 @@
 # Project-local configuration
 
-KAR has one configuration authority: `<canonical-project-root>/.kar/config.yaml`.
+Mulgae has one configuration authority: `<canonical-project-root>/.mulgae/config.yaml`.
 It does not search a home directory, XDG directory, repository proposal, embedded
 default, environment variable, or compatibility filename. The file is local
 operator state and must never be tracked by Git.
-There is no migration or compatibility path from `.kar.yaml`, `.kar.yml`, a
+There is no migration or compatibility path from `.mulgae.yaml`, `.mulgae.yml`, a
 home-directory configuration, or an XDG configuration.
 
 ## Admission
 
 The project root is a no-symlink, effective-user-owned directory with mode
-`0700`, `0750`, or `0755`. `.kar` is mode `0700`; `config.yaml` is a single-link
+`0700`, `0750`, or `0755`. `.mulgae` is mode `0700`; `config.yaml` is a single-link
 regular file at mode `0600`. Descriptor traversal is no-follow and the accepted
 file is bounded to 1 MiB.
 
@@ -19,11 +19,11 @@ file is bounded to 1 MiB.
 Admission also binds an immutable locality context containing the repository and
 root identity, checkout HEAD and tree, every index stage, applicable target
 commits, the config descriptor and digest, and the parsed target decision. A
-tracked or committed `.kar/` path, an unmerged index, or a complete unified diff
-that changes `.kar/` rejects admission. The proof is revalidated before decode,
+tracked or committed `.mulgae/` path, an unmerged index, or a complete unified diff
+that changes `.mulgae/` rejects admission. The proof is revalidated before decode,
 provider qualification, and provider execution.
 
-An exact `.kar/config.yaml` target reports `target_private_config_forbidden`; `.kar` itself and every other descendant report `target_private_namespace_forbidden`. Both are reason-only security failures at exit `8`. Prose and malformed patch-like input do not trigger either reason.
+An exact `.mulgae/config.yaml` target reports `target_private_config_forbidden`; `.mulgae` itself and every other descendant report `target_private_namespace_forbidden`. Both are reason-only security failures at exit `8`. Prose and malformed patch-like input do not trigger either reason.
 
 ## Canonical YAML v2
 
@@ -32,7 +32,7 @@ The document has `version: 2` and the sections `project`, `native_user`,
 `ci`. `providers` contains any nonempty subset of `kimi`, `zcode`, and `agy`.
 Provider commands are family-specific fields; generic argv, environment, shell,
 and credential fields do not exist. `execution.workspace_access` is required and
-may only be `none` or `readonly_snapshot`; omission is rejected. `kar init`
+may only be `none` or `readonly_snapshot`; omission is rejected. `mulgae init`
 explicitly writes `none` into every newly created configuration.
 
 Each role contains `enabled`, `primary_provider`, and, except for a
@@ -46,7 +46,7 @@ Disabled roles retain deterministic provider assignments so the
 document shape remains fixed, but they are not qualified, scheduled, budgeted,
 or selected by a default review. Every `review.required_roles` member must be
 enabled, and the required-role set must include `logic`; other enabled roles may
-also be required. New projects enable only `logic` unless `kar init --roles`
+also be required. New projects enable only `logic` unless `mulgae init --roles`
 selects more roles. UI projects may additionally enable `artist`, but do not do
 so automatically. Config v2 retains the field names `inputs.task_path` and
 `inputs.design_spec_globs` as project defaults for one UTF-8 artist brief and
@@ -64,7 +64,7 @@ from `kimi,zcode,agy` for logic, `agy,zcode,kimi` for documentation, and
 primary and has no fallback.
 
 Artist activation is declaration-only: filenames and framework detection never
-turn it on. For `kar review`, `--artist-brief` and
+turn it on. For `mulgae review`, `--artist-brief` and
 `--artist-design-specs` independently override the corresponding Config v2
 fallback. A selected artist review fails before provider execution when its
 resolved brief is missing, empty, or invalid, or when its resolved globs match
@@ -91,7 +91,7 @@ the reason code, never the key, value, path, digest, or source bytes.
 PEM detection covers PKCS#8, encrypted, RSA, DSA, EC, OpenSSH, and other
 canonical `BEGIN ... PRIVATE KEY` headers rather than a fixed algorithm list.
 
-`kar config` also admits the configured native account before returning an
+`mulgae config` also admits the configured native account before returning an
 effective or provenance digest. An unavailable account or a configured home
 that does not match the effective installed account is readiness exit `4`.
 An unsafe native-home descriptor or identity drift is security exit `8`.
@@ -100,10 +100,10 @@ accepted digest and does not weaken an independently observed security failure.
 
 ## Init and runtime
 
-`kar init` discovers or accepts an explicit provider subset, renders and
-round-trips canonical bytes, then creates `.kar/config.yaml` exactly once. It
+`mulgae init` discovers or accepts an explicit provider subset, renders and
+round-trips canonical bytes, then creates `.mulgae/config.yaml` exactly once. It
 uses an unconditional project-root durability barrier, a same-directory 0600
-temporary file, no-replace installation, a `.kar` durability barrier, and final
+temporary file, no-replace installation, a `.mulgae` durability barrier, and final
 identity, byte, and locality re-attestation. Installed-but-unconfirmed bytes are
 retained and reported truthfully; output delivery failure never rolls back a
 committed config.
@@ -114,7 +114,7 @@ CJS launcher identity; the launcher is descriptor-hashed but does not require
 execute permission. ZCode projects only its native CLI config into the distinct
 `zcode-{role}` namespace for each configured ZCode route; no additional
 configuration field or second native credential source is required. AGY uses the effective OS account home and an explicit
-`safe` or `dangerously-skip-permissions` mode; omission is `safe`. KAR never
+`safe` or `dangerously-skip-permissions` mode; omission is `safe`. Mulgae never
 persists credentials or copies provider state back. Runtime review uses only
 the absolute executable, launcher, and Kimi data-home paths admitted from this
 file; ambient PATH, `XDG_CONFIG_HOME`, and `KIMI_CODE_HOME` cannot override or

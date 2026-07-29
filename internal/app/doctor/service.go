@@ -10,17 +10,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	privateRootPath            = ".kar"
-	providerEvidenceV1SchemaID = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
-	platformEvidenceV1SchemaID = "https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json"
+	privateRootPath            = ".mulgae"
+	providerEvidenceV1SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	platformEvidenceV1SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 )
 
 var requiredCatalogSchemaIDs = []string{
-	"https://kar.local/schemas/kar-doctor-result.v1.schema.json",
+	"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json",
 	providerEvidenceV2SchemaID,
 	platformEvidenceV2SchemaID,
 }

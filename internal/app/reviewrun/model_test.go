@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestCapturedReviewTargetValidatesExactBytesAndGitMetadata(t *testing.T) {
@@ -260,7 +260,7 @@ func TestPromptCompilerProjectContextFramePresence(t *testing.T) {
 
 func TestArtistPromptContextIsIsolatedFromOtherRoles(t *testing.T) {
 	target := reviewRunPatchTarget(t)
-	context := []byte("shared project context\n" + `{"schema_version":"kar-artist-inputs.v1","status":"ready","task_path":"docs/roadmap.md","task":"Check visual hierarchy.","visual_assets":[{"path":"design-specs/current.png","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"image/png"}]}`)
+	context := []byte("shared project context\n" + `{"schema_version":"mulgae-artist-inputs.v1","status":"ready","task_path":"docs/roadmap.md","task":"Check visual hierarchy.","visual_assets":[{"path":"design-specs/current.png","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"image/png"}]}`)
 	input, err := NewImmutableReviewInput(target, nil, false, context)
 	if err != nil {
 		t.Fatal(err)

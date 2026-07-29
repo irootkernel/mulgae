@@ -12,7 +12,7 @@
 | Provider contract tests | Family and runtime-capability compatibility | Optional controlled environment |
 | Live capability certification | Production boundary for each supported family | Required actual Kimi, ZCode, and AGY |
 
-Unit and integration tests do not require provider credentials or network access. The final G013 `make test` release gate deliberately requires the installed actual providers, their native authentication, available provider service access, and the exact release KAR binary.
+Unit and integration tests do not require provider credentials or network access. The final G013 `make test` release gate deliberately requires the installed actual providers, their native authentication, available provider service access, and the exact release Mulgae binary.
 
 ID and safe-path properties use fixed-seed standard-library generators so
 failures are reproducible: `internal/domain/identifiers_test.go::TestIdentifierParsingSeededCanonicalityProperty`
@@ -43,13 +43,13 @@ G0 contract validators and G001–G012 evidence remain historical. G013 supersed
 | `checksums-verify` | checksums and SOT payload | `CHECKSUMS_OK`, 83 payload files | `E/checksums-verify/receipt.json` |
 
 Every row uses the locked `g0_validate.py` argv and fixture hashes defined by the G0 evidence contract. Shell parsing, alternate arguments, unrecorded reserialization, and a partial operation set are invalid substitutes. Typed non-success results remain readiness `4`, artifact/hash/schema/CAS/stale `7`, security `8`, and internal invariant `10`.
-The canonical-argv fixture fixes the label order `provider:kimi`, `provider:zcode`, `provider:agy`, and `platform:darwin-arm64`. Each compact one-line UTF-8 JSON array is hashed as `SHA-256("KAR-G0-ARGV/1" || 0x00 || argv_json_bytes)` without a trailing LF; the fixed-order raw32 bundle uses `KAR-G0-ARGV-BUNDLE/1\n`. The exact supplied hashes are `kimi=c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129`, `zcode=724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e`, `agy=bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520`, `darwin-arm64=b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b`, and `bundle=c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7`. Provider v2 requires `--runtime-contract` and the fixed `--gate-receipt`; legacy `--evidence-root` and `--index` are rejected. The historical `failure` fixture requires `timeout`, generic `auth`, `quota`, and `rate_limit` to have `repair=none` and `fallback=allowed`; no configured eligible fallback means exhaustion, not a changed rule. G010 tests additionally require explicit `login_required` to fail closed without repair or fallback and to retain provider attribution.
+The canonical-argv fixture fixes the label order `provider:kimi`, `provider:zcode`, `provider:agy`, and `platform:darwin-arm64`. Each compact one-line UTF-8 JSON array is hashed as `SHA-256("Mulgae-G0-ARGV/1" || 0x00 || argv_json_bytes)` without a trailing LF; the fixed-order raw32 bundle uses `Mulgae-G0-ARGV-BUNDLE/1\n`. The exact supplied hashes are `kimi=c092d46a84dff52a23cf5a08637cf80346a9e6a39adbe3ddac62fbc180950129`, `zcode=724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e`, `agy=bbc244436caa277d59ed6785f513f088ad9da292990d5bc6559ceb47eb346520`, `darwin-arm64=b04269cc9a3d8b7763d41e737a8b6a12e2dd49208314dea79448760293862c9b`, and `bundle=c0353931bd27274e001b650a7a3f5e8d2fc7a1412e5a64c1bdf3ccad2adb1cd7`. Provider v2 requires `--runtime-contract` and the fixed `--gate-receipt`; legacy `--evidence-root` and `--index` are rejected. The historical `failure` fixture requires `timeout`, generic `auth`, `quota`, and `rate_limit` to have `repair=none` and `fallback=allowed`; no configured eligible fallback means exhaustion, not a changed rule. G010 tests additionally require explicit `login_required` to fail closed without repair or fallback and to retain provider attribution.
 
 The provider/probe branch contains exactly the three runtime-order families `kimi`, `zcode`, and `agy`, each with the same 16 probes: ten base probes plus six role-fit probes. Provider readiness requires all **48 PASS**, three secure-writer indexes **PASS**, and a live assignment receipt **PASS**; selected-only evidence is insufficient. The platform inventory retains `linux-amd64`, `linux-arm64`, `darwin-amd64`, and `darwin-arm64`, but only `darwin-arm64` is required/blocking and must complete native local-POSIX evidence for all 11 platform probes. The three future cells are `intended_future`, non-blocking, unsupported, and release-ineligible, with fixed `NOT_RUN` evidence; they are not execution targets. Provider/platform v1 evidence is compatibility-only, while only v2 evidence can enter readiness. Complete required probe PASS is exit `0`, any required INCONCLUSIVE is `4`, required probe failure is `7`, and security or mutation is `8`. G001 completed the required PASS conjunction; any future revalidation with a non-PASS required input fails closed.
 
 Cross-axis fixtures must preserve a valid high finding with required-role exhaustion as `content_verdict=request_changes` and `coverage_status=incomplete`, then calculate publication and CI separately. Locality fixtures exercise checkout, full-index, applicable-commit, config-descriptor, target-byte, and spawn-time drift rejection. Assignment fixtures cover singleton null fallbacks and degraded resilience, distinct required-role fallbacks when multiple families are eligible, and the 24-invocation ceiling.
 
-Prompt fixtures exercise canonical frames, declared length, section and stdin hashes, malformed/truncated input, fresh execution identity, and exact replay. Evidence fixtures cover source/current identity separation, stale evidence, path traversal, range errors, spoofing, hash mismatch, and missing immutable bytes. Publication fixtures cover all persisted states, P0/P1/P2 recovery, the ten named cross-boundary observations, and immutable `corrupt` diagnostics. Cleanup fixtures cover retained seeds, transitive ancestors, corrupt graph protection, separate age and size sets, fixed epoch, plan hash, tombstone restart, and stale-plan rejection. Integrity fixtures cover the 84-path catalog, 83-file checksum payload, `KAR-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise sorting, NUL plus raw32 digest records, and the empty-set vector. Authority fixtures cover runtime-only approvals, candidate reviews, forward CAS, delete-ref rollback CAS, post-verification, and the independent implementation approval boundary.
+Prompt fixtures exercise canonical frames, declared length, section and stdin hashes, malformed/truncated input, fresh execution identity, and exact replay. Evidence fixtures cover source/current identity separation, stale evidence, path traversal, range errors, spoofing, hash mismatch, and missing immutable bytes. Publication fixtures cover all persisted states, P0/P1/P2 recovery, the ten named cross-boundary observations, and immutable `corrupt` diagnostics. Cleanup fixtures cover retained seeds, transitive ancestors, corrupt graph protection, separate age and size sets, fixed epoch, plan hash, tombstone restart, and stale-plan rejection. Integrity fixtures cover the 84-path catalog, 83-file checksum payload, `Mulgae-SOT-PAYLOAD-ROOT/1` domain, UTF-8 bytewise sorting, NUL plus raw32 digest records, and the empty-set vector. Authority fixtures cover runtime-only approvals, candidate reviews, forward CAS, delete-ref rollback CAS, post-verification, and the independent implementation approval boundary.
 The publication fixture includes each exact cross-boundary ID once: `pub-cross-content-validated-staged-temp`, `pub-cross-final-staged-installed-final`, `pub-cross-final-installed-composite-commit`, `pub-cross-manifest-committed-completed-side-effect`, `pub-cross-hint-low-valid-p2`, `pub-cross-staged-and-installed-conflict`, `pub-cross-p2-manifest-edge-mismatch`, `pub-cross-completed-missing-final`, `pub-cross-final-installed-no-journal`, and `pub-cross-p0-none-impossible-high-hint`.
 
 
@@ -122,7 +122,7 @@ Avoid timing-only assertions. Use channels, barriers, fake clocks, and event tra
 - quote mismatch fails;
 - old/new side confusion fails;
 - high-severity finding without verified evidence fails policy;
-- excerpt is generated by KAR, not accepted from provider output.
+- excerpt is generated by Mulgae, not accepted from provider output.
 
 ## 5. Artifact Store Tests
 
@@ -190,7 +190,7 @@ the canonical case-to-test index; every listed test runs offline unless marked
 | Mutation checks remain supplementary detection and fail closed as security, not sandbox authority | `internal/app/followup/service_test.go::TestStartFollowupRunRejectsMutationDespiteExecutorSelfAttestation`; `internal/app/delta/service_test.go::TestStartDeltaRunRejectsSourceMutationAfterOneChildExecution`; `internal/app/rerun/service_test.go::TestStartRerunClassifiesSourceMutationAsSecurityPolicy` |
 | macOS AGY captures and revalidates the installed-user native `HOME`, without a synthetic authentication home or credential projection | `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection`; `internal/adapters/environment/inspector_test.go::TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement` |
 | AGY namespace setup and drain do not write, overwrite, zero, or unlink user authentication/settings; normal provider-owned refresh is disclosed separately | `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection`; `internal/adapters/providercli/agy_boundary_darwin_test.go::TestAgyAuthSettingsManifestDetectsMutation` |
-| AGY keeps the descriptor-bound immutable snapshot as CWD while KAR owns XDG, cache, temporary, and scratch namespaces | `internal/adapters/providercli/registry_test.go::TestRegistryObserveWorkspaceUsesGuardedCWDLifecycleAndBoundRequest`; `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection` |
+| AGY keeps the descriptor-bound immutable snapshot as CWD while Mulgae owns XDG, cache, temporary, and scratch namespaces | `internal/adapters/providercli/registry_test.go::TestRegistryObserveWorkspaceUsesGuardedCWDLifecycleAndBoundRequest`; `internal/adapters/providercli/credential_source_test.go::TestAGYUsesInstalledHomeWithoutCredentialProjection` |
 | Kimi and ZCode retain isolated `HOME` directories and credential projection | `internal/adapters/providercli/credential_source_test.go::TestCredentialSourceProjectsOnlyDeclaredFamilyFiles`; `internal/adapters/providercli/namespace_test.go::TestCredentialProjectionUsesOnlyProviderHomePaths` |
 | AGY argv contains `--sandbox`, the exact immutable-snapshot `--add-dir`, and `--mode plan`, with bounded output/time and post-output `SIGTERM`/`SIGKILL` lifecycle | `internal/adapters/providercli/registry_test.go::TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt`; `internal/adapters/providercli/agy_lifecycle_test.go::TestAgyLifecycleOfflineRealProcess` |
 | Explicit provider `login_required` fails closed before P2, schedules no repair or fallback, reports affected provider instances, and is not automatically retryable | provider CLI classification tests; coordinator transition tests; review-run qualification/runtime tests; CLI human/JSON projection tests |
@@ -202,27 +202,27 @@ the canonical case-to-test index; every listed test runs offline unless marked
 Golden-test:
 
 ```text
-kar --help
-kar help quickstart
-kar help config
-kar help providers
-kar roles
-kar roles --output json
-kar help lanes
-kar help prompts
-kar help workflows
-kar help artifacts
-kar help validation
-kar help ci
-kar help exit-codes
-kar help security
+mulgae --help
+mulgae help quickstart
+mulgae help config
+mulgae help providers
+mulgae roles
+mulgae roles --output json
+mulgae help lanes
+mulgae help prompts
+mulgae help workflows
+mulgae help artifacts
+mulgae help validation
+mulgae help ci
+mulgae help exit-codes
+mulgae help security
 ```
 
 Also verify:
 
 - README commands match CLI output;
 - all linked examples parse;
-- schema filenames printed by `kar schema list` exist;
+- schema filenames printed by `mulgae schema list` exist;
 - dangerous flags include warnings;
 - negative review language does not imply provider failure;
 - product help does not depend on external organizational terminology.
@@ -247,7 +247,7 @@ Doctor tests cover the exact v2 projection, fixed Kimi/ZCode/AGY inventory, inli
 
 ## 11. Schema Example Validation
 
-CI validates every JSON example against its declared schema. Semantic examples additionally run through KAR's semantic validator fixture.
+CI validates every JSON example against its declared schema. Semantic examples additionally run through Mulgae's semantic validator fixture.
 
 The authoritative current pair list is the 27 schema/example relationships in `examples/g0-file-catalog.v1.valid.json`. Validation must compile every schema as Draft 2020-12 where applicable and validate each paired example. Released v1 pairs remain compatibility cases; v2 provider/platform evidence is the only readiness authority. Negative cases remove or corrupt required fields and must fail.
 
@@ -268,7 +268,7 @@ The release gate requires:
 
 Fake-provider and controlled-process workflow tests are integration tests. They are the authority for product semantics: Config v2, every supported role and provider subset, committed and dirty target capture, qualification planning, scheduling and same-CWD concurrency, repair/fallback policy, root and child workflows, schemas, evidence validation, diagnostics, publication, recovery, cleanup, and CLI exit projection. These suites run with the race detector and may not depend on stochastic provider findings.
 
-`test-e2e` builds the current KAR candidate and executes that exact binary through the actual-provider production workflow before performing one live capability certification for each supported family. This order is mandatory: an explicit Kimi login-required qualification must reach KAR's bounded native login, fresh credential namespace reconstruction, and one fresh qualification instead of being intercepted by the standalone capability probe. The workflow covers Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun. Each later family certification retains its production argv and environment boundary, immutable fixture CWD, prompt transport, bounded process lifecycle, output-frame recovery, runtime capability contract, and non-mutation checks. Missing binaries, launcher state, unresolved native authentication, service access, or a valid live response fail rather than skip.
+`test-e2e` builds the current Mulgae candidate and executes that exact binary through the actual-provider production workflow before performing one live capability certification for each supported family. This order is mandatory: an explicit Kimi login-required qualification must reach Mulgae's bounded native login, fresh credential namespace reconstruction, and one fresh qualification instead of being intercepted by the standalone capability probe. The workflow covers Config v2 init/config/doctor, six-role root review, schema-valid P2 publication, diagnostics, cleanup, followup, delta, exact rerun, and recomposed rerun. Each later family certification retains its production argv and environment boundary, immutable fixture CWD, prompt transport, bounded process lifecycle, output-frame recovery, runtime capability contract, and non-mutation checks. Missing binaries, launcher state, unresolved native authentication, service access, or a valid live response fail rather than skip.
 
 Live release verification does not require a predetermined exact line or quote, role consensus, or a fixed process-time intersection. The root fixture does require one schema-valid security finding so the actual followup command has a trusted source. Scheduling and repair/fallback policy remain exhaustively deterministic below the live boundary; the executable workflow proves their production composition rather than duplicating timing predicates.
 

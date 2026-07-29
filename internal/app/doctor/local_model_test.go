@@ -11,7 +11,7 @@ func TestLocalDoctorResultValidateEnforcesCrossStateProjection(t *testing.T) {
 		CheckedAt:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 		ProjectRootURI: ".",
 		Config: LocalConfigProjection{
-			Status: "ready", URI: ".kar/config.yaml", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Status: "ready", URI: ".mulgae/config.yaml", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Authority: "project_local", Locality: "verified", CheckoutHeadOID: "head", IndexEntriesSHA256: "sha256:index",
 			TargetCommitOIDs: []string{"head"}, NativeHomeIdentity: "verified", ProvenanceState: "accepted", ReasonCodes: []string{},
 		},
@@ -67,7 +67,7 @@ func TestLocalDoctorResultAllowsDegradedOperationWithOneOfTwoConfiguredProviders
 		CheckedAt:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 		ProjectRootURI: ".",
 		Config: LocalConfigProjection{
-			Status: "ready", URI: ".kar/config.yaml", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Status: "ready", URI: ".mulgae/config.yaml", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Authority: "project_local", Locality: "verified", CheckoutHeadOID: "head", IndexEntriesSHA256: "sha256:index",
 			TargetCommitOIDs: []string{"head"}, NativeHomeIdentity: "verified", ProvenanceState: "accepted", ReasonCodes: []string{},
 		},

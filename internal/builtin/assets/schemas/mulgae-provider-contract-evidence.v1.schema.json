@@ -1,0 +1,1002 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json",
+  "title": "Mulgae Provider Contract Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "external_contract_readiness",
+    "providers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-provider-contract-evidence.v1"
+    },
+    "external_contract_readiness": {
+      "type": "string",
+      "enum": [
+        "UNVERIFIED",
+        "VERIFIED"
+      ]
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/kimi_provider"
+        },
+        {
+          "$ref": "#/$defs/zcode_provider"
+        },
+        {
+          "$ref": "#/$defs/agy_provider"
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullable_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact_uri": {
+      "type": "string",
+      "format": "uri",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "nullable_artifact_uri": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "argument": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "tool_lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "lock_uri",
+        "lock_sha256",
+        "python_executable_path",
+        "python_executable_sha256",
+        "python_version",
+        "probe_script_sha256",
+        "probe_manifest_sha256"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "NOT_CAPTURED",
+            "LOCKED"
+          ]
+        },
+        "lock_uri": {
+          "$ref": "#/$defs/nullable_artifact_uri"
+        },
+        "lock_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "python_executable_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "python_executable_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "python_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "probe_script_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "probe_manifest_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "NOT_CAPTURED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lock_uri": {
+                "const": null
+              },
+              "lock_sha256": {
+                "const": null
+              },
+              "python_executable_path": {
+                "const": null
+              },
+              "python_executable_sha256": {
+                "const": null
+              },
+              "python_version": {
+                "const": null
+              },
+              "probe_script_sha256": {
+                "const": null
+              },
+              "probe_manifest_sha256": {
+                "const": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    "probe_runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argv",
+        "argv_sha256",
+        "cwd",
+        "tool_lock"
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "prefixItems": [
+            {
+              "const": "/usr/bin/env"
+            },
+            {
+              "const": "python3"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/g0/tools/provider_probe\\.py$"
+            },
+            {
+              "const": "run"
+            },
+            {
+              "const": "--family"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "kimi",
+                "zcode",
+                "agy"
+              ]
+            },
+            {
+              "const": "--probe-manifest"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/g0/fixtures/provider-probes\\.json$"
+            },
+            {
+              "const": "--evidence-root"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/providers/(?:kimi|zcode|agy)$"
+            },
+            {
+              "const": "--index"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/evidence-index\\.json$"
+            }
+          ],
+          "items": false
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "cwd": {
+          "const": "REPOSITORY_ROOT"
+        },
+        "tool_lock": {
+          "$ref": "#/$defs/tool_lock"
+        }
+      }
+    },
+    "isolated_cwd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "observed_path",
+        "observed"
+      ],
+      "properties": {
+        "required": {
+          "const": true
+        },
+        "observed_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "observed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe_id",
+        "status",
+        "reason",
+        "raw_evidence_uri",
+        "raw_evidence_sha256",
+        "secure_writer_receipt_uri",
+        "secure_writer_receipt_sha256"
+      ],
+      "properties": {
+        "probe_id": {
+          "type": "string",
+          "enum": [
+            "PV-VERSION",
+            "PV-NONINTERACTIVE",
+            "PV-PROMPT-TRANSPORT",
+            "PV-JSON-ONLY",
+            "PV-STDOUT-STDERR",
+            "PV-CANCELLATION",
+            "PV-OUTPUT-CAP",
+            "PV-AUTH-CACHE-CONCURRENCY",
+            "PV-EXIT-CLASSIFICATION",
+            "PV-CWD-ISOLATION",
+            "PV-ROLE-FIT-logic",
+            "PV-ROLE-FIT-security",
+            "PV-ROLE-FIT-maintainability",
+            "PV-ROLE-FIT-product",
+            "PV-ROLE-FIT-documentation",
+            "PV-ROLE-FIT-testing"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "not_executed",
+            "environment_unavailable",
+            "harness_ceiling",
+            "unsupported_observable",
+            "assertion_failed",
+            "security_violation",
+            "mutation_detected",
+            "timeout_unexpected",
+            null
+          ]
+        },
+        "raw_evidence_uri": {
+          "$ref": "#/$defs/nullable_artifact_uri"
+        },
+        "raw_evidence_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "secure_writer_receipt_uri": {
+          "$ref": "#/$defs/nullable_artifact_uri"
+        },
+        "secure_writer_receipt_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        }
+      }
+    },
+    "base_probe": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "enum": [
+                "PV-VERSION",
+                "PV-NONINTERACTIVE",
+                "PV-PROMPT-TRANSPORT",
+                "PV-JSON-ONLY",
+                "PV-STDOUT-STDERR",
+                "PV-CANCELLATION",
+                "PV-OUTPUT-CAP",
+                "PV-AUTH-CACHE-CONCURRENCY",
+                "PV-EXIT-CLASSIFICATION",
+                "PV-CWD-ISOLATION"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "role_fit_probe": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "pattern": "^PV-ROLE-FIT-(?:logic|security|maintainability|product|documentation|testing)$"
+            }
+          }
+        }
+      ]
+    },
+    "pv_version": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-VERSION"
+            }
+          }
+        }
+      ]
+    },
+    "pv_noninteractive": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-NONINTERACTIVE"
+            }
+          }
+        }
+      ]
+    },
+    "pv_prompt_transport": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-PROMPT-TRANSPORT"
+            }
+          }
+        }
+      ]
+    },
+    "pv_json_only": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-JSON-ONLY"
+            }
+          }
+        }
+      ]
+    },
+    "pv_stdio_separation": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-STDOUT-STDERR"
+            }
+          }
+        }
+      ]
+    },
+    "pv_cancel_group": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-CANCELLATION"
+            }
+          }
+        }
+      ]
+    },
+    "pv_output_cap": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-OUTPUT-CAP"
+            }
+          }
+        }
+      ]
+    },
+    "pv_auth_quota_rate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-AUTH-CACHE-CONCURRENCY"
+            }
+          }
+        }
+      ]
+    },
+    "pv_exit_classification": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-EXIT-CLASSIFICATION"
+            }
+          }
+        }
+      ]
+    },
+    "pv_cwd_isolation": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-CWD-ISOLATION"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_logic": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-logic"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_security": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-security"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_maintainability": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-maintainability"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_product": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-product"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_documentation": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-documentation"
+            }
+          }
+        }
+      ]
+    },
+    "pv_role_fit_testing": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/role_fit_probe"
+        },
+        {
+          "properties": {
+            "probe_id": {
+              "const": "PV-ROLE-FIT-testing"
+            }
+          }
+        }
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "intended",
+        "automatic_substitution",
+        "substitute_family",
+        "support_status",
+        "execution_state",
+        "probe_status",
+        "unverified_reason",
+        "binary_path",
+        "binary_sha256",
+        "version",
+        "environment_identity_sha256",
+        "concurrency_key",
+        "normalized_concurrency_key",
+        "tuple_sha256",
+        "probe_runner",
+        "isolated_cwd",
+        "redaction_status",
+        "evidence_uri",
+        "evidence_sha256",
+        "probes"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": [
+            "kimi",
+            "zcode",
+            "agy"
+          ]
+        },
+        "intended": {
+          "const": true
+        },
+        "automatic_substitution": {
+          "const": false
+        },
+        "substitute_family": {
+          "const": null
+        },
+        "support_status": {
+          "type": "string",
+          "enum": [
+            "SUPPORTED",
+            "UNSUPPORTED",
+            "UNVERIFIED"
+          ]
+        },
+        "execution_state": {
+          "type": "string",
+          "enum": [
+            "NOT_EXECUTED",
+            "EXECUTED"
+          ]
+        },
+        "probe_status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "unverified_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "binary_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "binary_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "environment_identity_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "concurrency_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "normalized_concurrency_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "tuple_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "probe_runner": {
+          "$ref": "#/$defs/probe_runner"
+        },
+        "isolated_cwd": {
+          "$ref": "#/$defs/isolated_cwd"
+        },
+        "redaction_status": {
+          "type": "string",
+          "enum": [
+            "NOT_CAPTURED",
+            "CLEAN",
+            "REDACTED",
+            "BLOCKED_SECRET"
+          ]
+        },
+        "evidence_uri": {
+          "$ref": "#/$defs/nullable_artifact_uri"
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/pv_version"
+            },
+            {
+              "$ref": "#/$defs/pv_noninteractive"
+            },
+            {
+              "$ref": "#/$defs/pv_prompt_transport"
+            },
+            {
+              "$ref": "#/$defs/pv_json_only"
+            },
+            {
+              "$ref": "#/$defs/pv_stdio_separation"
+            },
+            {
+              "$ref": "#/$defs/pv_cancel_group"
+            },
+            {
+              "$ref": "#/$defs/pv_output_cap"
+            },
+            {
+              "$ref": "#/$defs/pv_auth_quota_rate"
+            },
+            {
+              "$ref": "#/$defs/pv_exit_classification"
+            },
+            {
+              "$ref": "#/$defs/pv_cwd_isolation"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_logic"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_security"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_maintainability"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_product"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_documentation"
+            },
+            {
+              "$ref": "#/$defs/pv_role_fit_testing"
+            }
+          ],
+          "items": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "execution_state": {
+                "const": "NOT_EXECUTED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "support_status": {
+                "const": "UNVERIFIED"
+              },
+              "probe_status": {
+                "const": "INCONCLUSIVE"
+              },
+              "unverified_reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "binary_path": {
+                "const": null
+              },
+              "binary_sha256": {
+                "const": null
+              },
+              "version": {
+                "const": null
+              },
+              "environment_identity_sha256": {
+                "const": null
+              },
+              "concurrency_key": {
+                "const": null
+              },
+              "normalized_concurrency_key": {
+                "const": null
+              },
+              "tuple_sha256": {
+                "const": null
+              },
+              "isolated_cwd": {
+                "properties": {
+                  "observed_path": {
+                    "const": null
+                  },
+                  "observed": {
+                    "const": null
+                  }
+                }
+              },
+              "redaction_status": {
+                "const": "NOT_CAPTURED"
+              },
+              "evidence_uri": {
+                "const": null
+              },
+              "evidence_sha256": {
+                "const": null
+              },
+              "probes": {
+                "items": {
+                  "properties": {
+                    "status": {
+                      "const": "INCONCLUSIVE"
+                    },
+                    "reason": {
+                      "const": "not_executed"
+                    },
+                    "raw_evidence_uri": {
+                      "const": null
+                    },
+                    "raw_evidence_sha256": {
+                      "const": null
+                    },
+                    "secure_writer_receipt_uri": {
+                      "const": null
+                    },
+                    "secure_writer_receipt_sha256": {
+                      "const": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "kimi_provider": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/provider"
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "kimi"
+            },
+            "probe_runner": {
+              "properties": {
+                "argv": {
+                  "prefixItems": [
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    {
+                      "const": "kimi"
+                    },
+                    true,
+                    true,
+                    true,
+                    {
+                      "pattern": "/providers/kimi$"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "zcode_provider": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/provider"
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "zcode"
+            },
+            "probe_runner": {
+              "properties": {
+                "argv": {
+                  "prefixItems": [
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    {
+                      "const": "zcode"
+                    },
+                    true,
+                    true,
+                    true,
+                    {
+                      "pattern": "/providers/zcode$"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "agy_provider": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/provider"
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "agy"
+            },
+            "probe_runner": {
+              "properties": {
+                "argv": {
+                  "prefixItems": [
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    {
+                      "const": "agy"
+                    },
+                    true,
+                    true,
+                    true,
+                    {
+                      "pattern": "/providers/agy$"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

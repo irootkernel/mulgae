@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestClassifyProbeFailurePreservesExplicitLoginRequired(t *testing.T) {
@@ -732,7 +732,7 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 	mutations := map[string]func(*RuntimeDefinition){
 		"argv": func(d *RuntimeDefinition) { d.baseArgv = append(d.baseArgv, "--other") },
 		"environment": func(d *RuntimeDefinition) {
-			d.environment = append(d.environment, mustEnvironment(t, "KAR_TEST", "other"))
+			d.environment = append(d.environment, mustEnvironment(t, "MULGAE_TEST", "other"))
 		},
 		"policy":              func(d *RuntimeDefinition) { d.runtimeSafetyPolicyIdentity = "other-policy" },
 		"transport":           func(d *RuntimeDefinition) { d.transport = otherTransport },
@@ -934,7 +934,7 @@ func currentProbeNativeHome(t *testing.T) ports.NativeHomeLaunchAuthority {
 }
 func currentProbeEnvironment(t *testing.T) []ports.EnvironmentVariable {
 	t.Helper()
-	return []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home"), mustEnvironment(t, "XDG_CONFIG_HOME", "/private/settings"), mustEnvironment(t, "XDG_DATA_HOME", "/private/auth"), mustEnvironment(t, "XDG_CACHE_HOME", "/private/cache"), mustEnvironment(t, "TMPDIR", "/private/tmp"), mustEnvironment(t, "TMP", "/private/tmp"), mustEnvironment(t, "TEMP", "/private/tmp"), mustEnvironment(t, "KAR_PROVIDER_SCRATCH", "/private/scratch")}
+	return []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home"), mustEnvironment(t, "XDG_CONFIG_HOME", "/private/settings"), mustEnvironment(t, "XDG_DATA_HOME", "/private/auth"), mustEnvironment(t, "XDG_CACHE_HOME", "/private/cache"), mustEnvironment(t, "TMPDIR", "/private/tmp"), mustEnvironment(t, "TMP", "/private/tmp"), mustEnvironment(t, "TEMP", "/private/tmp"), mustEnvironment(t, "MULGAE_PROVIDER_SCRATCH", "/private/scratch")}
 }
 func TestCurrentProbeRejectsPairwiseRoleWorkspaceReuseBeforeLaunch(t *testing.T) {
 	baseIdentity, err := ports.NewWorkspaceSnapshotIdentity("fixture-root-base", "snapshot-00000000000000000000000000000000", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "policy", 1, 2, 3, 4)

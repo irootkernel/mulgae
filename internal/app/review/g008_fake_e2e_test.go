@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/fakeprovider"
-	adapterjsonschema "github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/fakeprovider"
+	adapterjsonschema "github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // g008PromptSource binds the coordinator to real compiled provider packets. It
@@ -63,7 +63,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if err != nil {
 		t.Fatal(err)
 	}
-	repairRules, err := prompt.NewTrustedLayer("repair-rules", "v1", []byte("KAR REPAIR CONSTRAINTS/1\nmode:fill_missing_fields\nallowed_paths:\n- /summary\nReturn only the repair form required by mode."))
+	repairRules, err := prompt.NewTrustedLayer("repair-rules", "v1", []byte("Mulgae REPAIR CONSTRAINTS/1\nmode:fill_missing_fields\nallowed_paths:\n- /summary\nReturn only the repair form required by mode."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if err != nil {
 		t.Fatal(err)
 	}
-	initialRaw := []byte(`{"schema_version":"kar-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
+	initialRaw := []byte(`{"schema_version":"mulgae-provider-review-output.v3","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
 	prior := prompt.NewPayload(initialRaw)
 	repair := compileE2EPrompt(t, repairTemplate, sessionID, runID, parseE2ERoleTask(t, 5), attemptID, parseE2ESource(t, 9), parseE2EExecution(t, 10), target.Bytes(), &prior)
 	securityAttempt := parseE2EAttempt(t, 4)
@@ -84,8 +84,8 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	}
 	// The initial packet is schema-invalid (missing summary), forcing the real validator repair path.
 	invalid := initialRaw
-	fixed := []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
-	valid := []byte(`{"schema_version":"kar-provider-review-output.v3","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
+	fixed := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
+	valid := []byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"No findings.","completeness":"complete","limitations":[],"findings":[]}`)
 	provider, err := fakeprovider.New([]fakeprovider.ExpectedCall{
 		expectedE2ECall("fake.logic", domain.RoleLogic, attemptID, ports.ProviderInvocationInitial, initial, invalid),
 		expectedE2ECall("fake.security", domain.RoleSecurity, securityAttempt, ports.ProviderInvocationInitial, security, valid),

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestCurrentQualifierCanonicalRolesRejectDuplicateAndMissingBase(t *testing.T) {
@@ -662,7 +662,7 @@ func authorityProbeDigest(value []byte) string {
 }
 func authorityProbeStdinDigest(value []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
@@ -785,21 +785,21 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 }
 func authorityProbeEnvironment(t *testing.T, family Family) []ports.EnvironmentVariable {
 	t.Helper()
-	root := "/private/kar-provider-namespace"
+	root := "/private/mulgae-provider-namespace"
 	values := map[string]string{
-		"HOME":                 filepath.Join(root, "home"),
-		"XDG_CONFIG_HOME":      filepath.Join(root, "settings"),
-		"XDG_DATA_HOME":        filepath.Join(root, "auth"),
-		"XDG_CACHE_HOME":       filepath.Join(root, "cache"),
-		"TMPDIR":               filepath.Join(root, "tmp"),
-		"TMP":                  filepath.Join(root, "tmp"),
-		"TEMP":                 filepath.Join(root, "tmp"),
-		"KAR_PROVIDER_SCRATCH": filepath.Join(root, "scratch"),
+		"HOME":                    filepath.Join(root, "home"),
+		"XDG_CONFIG_HOME":         filepath.Join(root, "settings"),
+		"XDG_DATA_HOME":           filepath.Join(root, "auth"),
+		"XDG_CACHE_HOME":          filepath.Join(root, "cache"),
+		"TMPDIR":                  filepath.Join(root, "tmp"),
+		"TMP":                     filepath.Join(root, "tmp"),
+		"TEMP":                    filepath.Join(root, "tmp"),
+		"MULGAE_PROVIDER_SCRATCH": filepath.Join(root, "scratch"),
 	}
 	if family == FamilyAGY {
 		values["HOME"] = "/private/HOME"
 	}
-	names := []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "KAR_PROVIDER_SCRATCH"}
+	names := []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"}
 	environment := make([]ports.EnvironmentVariable, 0, len(names))
 	for _, name := range names {
 		variable, err := ports.NewEnvironmentVariable(name, values[name])

@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -39,7 +39,7 @@ func newCanonicalRepository(root ports.AnchoredRoot, references ...string) (cano
 		return canonicalRepository{}, nil, err
 	}
 
-	gitDir, err := os.MkdirTemp("", "kar-git-")
+	gitDir, err := os.MkdirTemp("", "mulgae-git-")
 	if err != nil {
 		err = fmt.Errorf("Git canonical admin directory: %w", err)
 		err = joinCanonicalConstructionCleanup(err, "close Git metadata descriptors", directories.source.close)
@@ -81,7 +81,7 @@ func newCanonicalObjectRepository(root ports.AnchoredRoot, objectID ports.GitObj
 		err = joinCanonicalConstructionCleanup(err, "close Git metadata descriptors", directories.source.close)
 		return canonicalRepository{}, nil, err
 	}
-	gitDir, err := os.MkdirTemp("", "kar-git-")
+	gitDir, err := os.MkdirTemp("", "mulgae-git-")
 	if err != nil {
 		err = fmt.Errorf("Git canonical admin directory: %w", err)
 		err = joinCanonicalConstructionCleanup(err, "close Git metadata descriptors", directories.source.close)
@@ -101,7 +101,7 @@ func newCanonicalObjectRepository(root ports.AnchoredRoot, objectID ports.GitObj
 		err = joinCanonicalConstructionCleanup(err, "close Git metadata descriptors", directories.source.close)
 		return canonicalRepository{}, nil, err
 	}
-	if err := writeCanonicalGitFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/kar-oid-only\n")); err != nil {
+	if err := writeCanonicalGitFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/mulgae-oid-only\n")); err != nil {
 		err = joinCanonicalConstructionCleanup(err, "cleanup canonical repository", cleanup)
 		err = joinCanonicalConstructionCleanup(err, "close Git metadata descriptors", directories.source.close)
 		return canonicalRepository{}, nil, err
@@ -148,7 +148,7 @@ func (repository canonicalRepository) command(args ...string) Command {
 // canonicalRepositoryID binds capture identity to the resolved common Git
 // directory without consulting mutable repository configuration.
 func canonicalRepositoryID(commonGitDir string) string {
-	digest := sha256.Sum256([]byte("kar.git-admin-path/v1\x00" + commonGitDir))
+	digest := sha256.Sum256([]byte("mulgae.git-admin-path/v1\x00" + commonGitDir))
 	return fmt.Sprintf("git-dir-sha256:%x", digest)
 }
 
@@ -1368,7 +1368,7 @@ func writeCanonicalGitFile(path string, data []byte) error {
 	return joinCanonicalConstructionCleanup(resultErr, "close Git canonical file", file.Close)
 }
 
-var captureFormatMagic = []byte("kar.git-target\x00")
+var captureFormatMagic = []byte("mulgae.git-target\x00")
 
 // canonicalCapturedBytes frames every captured field in a fixed order. Field
 // names and values are independently length-prefixed so no two field bindings

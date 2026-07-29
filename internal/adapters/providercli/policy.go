@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // RuntimeSafetyPolicy records retained namespace configuration provenance. It
@@ -33,7 +33,7 @@ type agySafetyContract struct {
 }
 
 // AGYExecutionPolicy is the exact, immutable description of one native AGY
-// qualification execution. KAR receives no native-HOME mutation capability:
+// qualification execution. Mulgae receives no native-HOME mutation capability:
 // the typed authority supplies only identity-checked launch context. The child
 // provider retains its normal installed-user authentication behavior, so this
 // policy deliberately does not claim that AGY itself cannot refresh auth state.
@@ -230,7 +230,7 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) AGYControlAuthorityID
 	}
 	sort.Slice(proofs, func(i, j int) bool { return proofs[i].Role < proofs[j].Role })
 	bytes, err := json.Marshal(currentProbeAGYControlAuthorityContract{
-		Domain:          "KAR-CURRENT-PROBE-AGY-CONTROL-AUTHORITY/1",
+		Domain:          "Mulgae-CURRENT-PROBE-AGY-CONTROL-AUTHORITY/1",
 		ExpiresUnixNano: receipt.expiresAt.UTC().UnixNano(),
 		Proofs:          proofs,
 	})
@@ -275,8 +275,8 @@ func validatedDisposableNamespaceEnvironment(environment []ports.EnvironmentVari
 		paths["TMPDIR"] != filepath.Join(root, "tmp") ||
 		paths["TMP"] != filepath.Join(root, "tmp") ||
 		paths["TEMP"] != filepath.Join(root, "tmp") ||
-		paths["KAR_PROVIDER_SCRATCH"] != filepath.Join(root, "scratch") {
-		return nil, fmt.Errorf("namespace environment escapes KAR-owned root")
+		paths["MULGAE_PROVIDER_SCRATCH"] != filepath.Join(root, "scratch") {
+		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
 	}
 	values := make([]string, 0, len(paths))
 	for name, value := range paths {
@@ -310,7 +310,7 @@ func validateDirectExecutionEnvironmentAuthority(family string, namespace Qualif
 	}
 	root := filepath.Dir(home)
 	if root == string(filepath.Separator) || home != filepath.Join(root, "home") {
-		return fmt.Errorf("non-AGY HOME escapes KAR-owned root")
+		return fmt.Errorf("non-AGY HOME escapes Mulgae-owned root")
 	}
 	return nil
 }
@@ -459,7 +459,7 @@ func effectiveEnvironmentIdentity(environment []ports.EnvironmentVariable) (stri
 	bytes, err := json.Marshal(struct {
 		Domain string   `json:"domain"`
 		Values []string `json:"values"`
-	}{Domain: "KAR-CURRENT-PROBE-EFFECTIVE-ENVIRONMENT/1", Values: values})
+	}{Domain: "Mulgae-CURRENT-PROBE-EFFECTIVE-ENVIRONMENT/1", Values: values})
 	if err != nil {
 		return "", err
 	}
@@ -497,7 +497,7 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 		}
 	}
 	bytes, err := json.Marshal(currentProbeDirectExecutionAuthorityContract{
-		Domain: "KAR-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/1", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
+		Domain: "Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/1", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
 	})
 	if err != nil {
 		return "", fmt.Errorf("current probe direct-execution authority: encode")
@@ -523,7 +523,7 @@ func validAGYNativeReference(reference string) bool {
 		return false
 	}
 	for _, segment := range stringsSplitPath(reference) {
-		if segment == ".git" || segment == ".kar" {
+		if segment == ".git" || segment == ".mulgae" {
 			return false
 		}
 	}

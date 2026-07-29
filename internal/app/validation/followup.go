@@ -13,12 +13,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // ProviderFollowupSchemaID is the sole schema accepted for provider followup output.
-const ProviderFollowupSchemaID = "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json"
+const ProviderFollowupSchemaID = "https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json"
 
 // FollowupValidationScope is the complete trusted lineage and execution identity
 // injected into a provider followup result. Providers have no authority over it.

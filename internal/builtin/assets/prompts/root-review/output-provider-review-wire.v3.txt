@@ -1,8 +1,8 @@
-KAR ROOT REVIEW OUTPUT CONTRACT/3
+Mulgae ROOT REVIEW OUTPUT CONTRACT/3
 Return one UTF-8 RFC 8259 JSON object only. No Markdown, code fence, commentary, prefix, suffix, or second JSON value.
 This is an instance of the provider-owned root-review wire contract, not a schema document.
 Top level: exactly schema_version, summary, completeness, limitations, findings.
-schema_version: exactly "kar-provider-review-output.v3".
+schema_version: exactly "mulgae-provider-review-output.v3".
 summary: meaningful string, 1..4000 Unicode scalar values; it must agree with findings and completeness.
 completeness: exactly "complete" or "incomplete".
 limitations: array of 0..20 unique meaningful strings, each at most 2000 scalar values. incomplete requires at least one material limitation. complete must not claim material target scope was unreadable.
@@ -19,7 +19,7 @@ line_start and line_end: positive one-based inclusive integers with line_end >= 
 side: exactly base, head, worktree, or index.
 quote: meaningful exact target bytes for that inclusive range, represented as a JSON string; include every selected line's terminating LF as \n when the target line has one, including the final selected line.
 For artist findings, visual has path, sha256, and bbox with non-negative x and y plus positive width and height.
-Do not emit target_sha256, verification, source, any session/run/attempt/review/finding ID, role/provider identity, lifecycle/evidence state, verdict/coverage/CI/publication state, hashes, or any other field. KAR injects target_sha256 and verification="claimed", then independently verifies the claim. A provider can never emit verified, stale, invalid, or unverifiable authority.
+Do not emit target_sha256, verification, source, any session/run/attempt/review/finding ID, role/provider identity, lifecycle/evidence state, verdict/coverage/CI/publication state, hashes, or any other field. Mulgae injects target_sha256 and verification="claimed", then independently verifies the claim. A provider can never emit verified, stale, invalid, or unverifiable authority.
 The free-text placeholders N/A, TBD, TODO, unknown, none, and - are invalid when used as the entire value.
 If there are no supported findings, return findings:[] with a truthful summary; do not invent evidence. Use limitations only for actual review constraints.
 Before returning, silently perform this final output check: the response is one JSON object only; the top-level keys are exactly schema_version, summary, completeness, limitations, findings; completeness is exactly complete or incomplete; every evidence side is exactly base, head, worktree, or index in lowercase; every evidence quote exactly matches the selected target lines and includes each terminating LF as \n. Correct any violation before returning.

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 const (
@@ -22,15 +22,15 @@ const (
 	// fail; they are never silently truncated.
 	MaxReviewTargetBytes = 180000
 
-	framePreamble                     = "KAR-UNTRUSTED/1\n"
-	framesPreamble                    = "\nKAR-FRAMES/1\n"
-	framesEnd                         = "KAR-FRAMES-END/1\n"
-	stdinHashDomain                   = "KAR-PROVIDER-STDIN/1\x00"
-	sectionHashDomain                 = "KAR-PROMPT-SECTION/1\x00"
+	framePreamble                     = "Mulgae-UNTRUSTED/1\n"
+	framesPreamble                    = "\nMulgae-FRAMES/1\n"
+	framesEnd                         = "Mulgae-FRAMES-END/1\n"
+	stdinHashDomain                   = "Mulgae-PROVIDER-STDIN/1\x00"
+	sectionHashDomain                 = "Mulgae-PROMPT-SECTION/1\x00"
 	sectionIDHexLength                = 32
 	sha256HexLength                   = sha256.Size * 2
 	maximumDecimalBytes               = 20
-	trustedLayerManifestSchemaVersion = "kar-trusted-layer-manifest.v1"
+	trustedLayerManifestSchemaVersion = "mulgae-trusted-layer-manifest.v1"
 	trustedLayerManifestMaximumBytes  = 4096
 	trustedLayerManifestMaximumLayers = 16
 	// TrustedLayerManifestAdapterParameter is the runtime adapter-parameter key
@@ -844,7 +844,7 @@ func makeFrame(scope FrameScope, sectionID string, kind SectionKind, payload []b
 	frame.WriteString("\n\n")
 	frame.Write(payload)
 	frame.WriteByte('\n')
-	frame.WriteString("KAR-END/")
+	frame.WriteString("Mulgae-END/")
 	frame.WriteString(sectionID)
 	frame.WriteByte('\n')
 	frameBytes := frame.Bytes()
@@ -988,7 +988,7 @@ func ParseStdin(template TrustedTemplate, stdin []byte) (ParsedPrompt, error) {
 	}
 	offset := len(template.bytes)
 	if !bytes.HasPrefix(stdin[offset:], []byte(framesPreamble)) {
-		return ParsedPrompt{}, fmt.Errorf("prompt parser: KAR-FRAMES sentinel is missing")
+		return ParsedPrompt{}, fmt.Errorf("prompt parser: Mulgae-FRAMES sentinel is missing")
 	}
 	offset += len(framesPreamble)
 
@@ -1001,7 +1001,7 @@ func ParseStdin(template TrustedTemplate, stdin []byte) (ParsedPrompt, error) {
 			break
 		}
 		if offset == len(stdin) {
-			return ParsedPrompt{}, fmt.Errorf("prompt parser: KAR-FRAMES-END sentinel is missing")
+			return ParsedPrompt{}, fmt.Errorf("prompt parser: Mulgae-FRAMES-END sentinel is missing")
 		}
 		section, next, err := parseFrame(stdin, offset)
 		if err != nil {
@@ -1017,7 +1017,7 @@ func ParseStdin(template TrustedTemplate, stdin []byte) (ParsedPrompt, error) {
 		offset = next
 	}
 	if offset != len(stdin) {
-		return ParsedPrompt{}, fmt.Errorf("prompt parser: trailing bytes after KAR-FRAMES-END sentinel")
+		return ParsedPrompt{}, fmt.Errorf("prompt parser: trailing bytes after Mulgae-FRAMES-END sentinel")
 	}
 	if err := validateSections(sections); err != nil {
 		return ParsedPrompt{}, fmt.Errorf("prompt parser: %w", err)
@@ -1124,7 +1124,7 @@ func parseFrame(stdin []byte, offset int) (FramedSection, int, error) {
 	if err != nil {
 		return FramedSection{}, 0, fmt.Errorf("prompt parser: frame end: %w", err)
 	}
-	if endLine != "KAR-END/"+sectionID {
+	if endLine != "Mulgae-END/"+sectionID {
 		return FramedSection{}, 0, fmt.Errorf("prompt parser: frame end id does not match section-id")
 	}
 	offset = next

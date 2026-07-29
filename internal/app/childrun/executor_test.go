@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/delta"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/rerun"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/delta"
+	"github.com/irootkernel/mulgae/internal/app/rerun"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T) {

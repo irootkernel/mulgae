@@ -1,4 +1,4 @@
-// Package cli exposes the fixed KAR command registry and its dispatcher.
+// Package cli exposes the fixed Mulgae command registry and its dispatcher.
 package cli
 
 import (
@@ -6,25 +6,25 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app"
+	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://kar.local/schemas/kar-command-result.v1.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 17
 
 const (
-	doctorResultContractURI             = "https://kar.local/schemas/kar-doctor-result.v2.schema.json"
-	runManifestContractURI              = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
-	reviewArtifactContractURI           = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
-	providerFollowupOutputContractURI   = "https://kar.local/schemas/kar-provider-followup-output.v2.schema.json"
-	providerContractEvidenceContractURI = "https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json"
-	cleanPlanContractURI                = "https://kar.local/schemas/kar-clean-plan.v1.schema.json"
-	exportManifestContractURI           = "https://kar.local/schemas/kar-export-manifest.v1.schema.json"
+	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
+	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
+	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json"
+	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
+	exportManifestContractURI           = "https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json"
 )
 
-// CommandSpec is immutable metadata for one command in the fixed KAR surface.
+// CommandSpec is immutable metadata for one command in the fixed Mulgae surface.
 type CommandSpec struct {
 	command            app.CommandName
 	owner              string
@@ -62,7 +62,7 @@ func CommandSpecs() []CommandSpec {
 }
 
 // ValidateCommandSpecs rejects a registry that is incomplete or whose command
-// metadata differs from the canonical KAR contract.
+// metadata differs from the canonical Mulgae contract.
 func ValidateCommandSpecs(specs []CommandSpec) error {
 	return validateCommandSpecs(specs)
 }

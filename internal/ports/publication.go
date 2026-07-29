@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // PublicationRun identifies one run beneath an approved artifact root.
@@ -3202,7 +3202,7 @@ func validateCorruptionDiagnosticPayload(
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("diagnostic payload has trailing data")
 	}
-	if wire.SchemaVersion != "kar-publication-corruption.v1" ||
+	if wire.SchemaVersion != "mulgae-publication-corruption.v1" ||
 		wire.SessionID != run.SessionID().String() ||
 		wire.RunID != run.RunID().String() ||
 		wire.ObservationEpoch != observationEpoch {

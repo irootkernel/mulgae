@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-provider-review-output.v1",
+  "schema_version": "mulgae-provider-review-output.v1",
   "summary": "One high-severity coordinator issue was identified.",
   "completeness": "complete",
   "limitations": [],

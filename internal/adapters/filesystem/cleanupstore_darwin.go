@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/clean"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/clean"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -446,7 +446,7 @@ func (store *CleanupStore) observeDiagnosticRuns(ctx context.Context, runs *[]cl
 			observation.CompletedAt = completedAt
 			observation.Active = !terminal
 			p2URI, hasP2 := status.P2URI()
-			expectedP2 := ".kar/" + sessionEntry.Name() + "/" + runEntry.Name() + "/manifest.json"
+			expectedP2 := ".mulgae/" + sessionEntry.Name() + "/" + runEntry.Name() + "/manifest.json"
 			linked := matchingPublication >= 0 && terminal && hasP2 && p2URI.String() == expectedP2
 			switch {
 			case linked:
@@ -729,7 +729,7 @@ func (store *CleanupStore) deletableDiagnosticSession(id, publicationSession str
 			return "", nil
 		}
 		p2URI, hasP2 := status.P2URI()
-		expectedP2 := ".kar/" + entry + "/" + id + "/manifest.json"
+		expectedP2 := ".mulgae/" + entry + "/" + id + "/manifest.json"
 		if publicationSession == "" {
 			if hasP2 {
 				return "", errors.New("cleanup store: diagnostic-only deletion target changed")

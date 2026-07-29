@@ -27,7 +27,7 @@ func liveAgyInstalledHome(current func() (*user.User, error), effectiveUID int, 
 		return "", fmt.Errorf("installed user identity does not match effective UID")
 	}
 	if override != "" && override != installed.HomeDir {
-		return "", fmt.Errorf("KAR_LIVE_AGY_HOME differs from the installed user home")
+		return "", fmt.Errorf("MULGAE_LIVE_AGY_HOME differs from the installed user home")
 	}
 	return installed.HomeDir, nil
 }

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-const SchemaVersion = "kar-clean-plan.v1"
+const SchemaVersion = "mulgae-clean-plan.v1"
 
 type FailureKind string
 

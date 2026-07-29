@@ -4,8 +4,8 @@
 
 | ID | Decision | Status | Rationale |
 |---|---|---|---|
-| D-001 | KAR is standalone and uses `.kar/` | Accepted | Avoids dependency on external organizational tooling |
-| D-002 | Canonical final path is `.kar/{session_id}/{run_id}/review_{uuidv7}.json` | Accepted | Clear lineage and approximate chronological ordering |
+| D-001 | Mulgae is standalone and uses `.mulgae/` | Accepted | Avoids dependency on external organizational tooling |
+| D-002 | Canonical final path is `.mulgae/{session_id}/{run_id}/review_{uuidv7}.json` | Accepted | Clear lineage and approximate chronological ordering |
 | D-003 | Session, run, and attempt directory IDs are prefixed UUIDv7 values | Accepted | Prevents namespace collisions and improves diagnostics |
 | D-004 | Review ID is generated only after final validation succeeds | Accepted | File existence becomes a meaningful publication signal |
 | D-005 | SHA-256 is stored in `manifest.json`, not the final filename | Accepted | Separates identity and chronology from integrity and avoids self-reference |
@@ -13,7 +13,7 @@
 | D-007 | Completed runs are immutable | Accepted | Preserves auditability and CI reproducibility |
 | D-008 | Review, followup, delta, and rerun always create new runs | Accepted | Keeps scope and lineage explicit |
 | D-009 | Provider output is JSON-only | Accepted | Enables strict validation and stable automation |
-| D-010 | KAR owns final IDs, normalized findings, coverage, and verdict | Accepted | Prevents AI hallucination of system metadata and policy |
+| D-010 | Mulgae owns final IDs, normalized findings, coverage, and verdict | Accepted | Prevents AI hallucination of system metadata and policy |
 | D-011 | Mandatory values are validated for existence and meaning | Accepted | Key presence alone does not provide a usable contract |
 | D-012 | AI repair is bounded and constrained to allowed AI-owned paths | Accepted | Improves robustness without allowing review drift |
 | D-013 | Default repair budget is one | Accepted | Bounds cost, latency, and semantic drift |
@@ -45,20 +45,20 @@
 | D-039 | G008 owns the application/CLI boundary for `followup`, `delta`, `rerun`, `clean`, and `export`; its composed P2 verification surface also exercises the established `review` workflow, while immutable lineage, retention, and redacted export remain application and adapter responsibilities | Accepted | Keeps CLI parsing/envelope rendering separate from child-run creation, cleanup-plan authority, and export/redaction effects |
 | D-040 | Ordinary provider support is family-and-capability based: only allowlisted `kimi`, `zcode`, and `agy` families may run, and each must satisfy its runtime capability and role-fit contracts | Accepted | Version, executable path, SHA-256, and adapter profile are diagnostic provenance for issue reporting and reproduction, not authorization. Direct argv, trusted process-profile safety, bounded execution, fail-closed capability failures, and no automatic family substitution remain required. Historical exact-tuple receipts remain qualification evidence only |
 | D-041 | Reopen production review implementation | Superseded by D-060 | Retained as the historical G009/G010 reopening condition; current closure is governed by G012 |
-| D-042 | macOS AGY native-auth boundary | Accepted | AGY authentication uses only an explicitly captured, inode-revalidated installed-user native `HOME`/Keychain context. KAR never substitutes a synthetic `HOME`, projects AGY credentials, or copies OAuth or installation files. KAR's namespace setup, policy, and cleanup paths never write, overwrite, zero, or unlink user AGY authentication or settings files; AGY may still perform normal provider-owned Keychain/profile refresh while running. The authentication home remains separate from the descriptor-bound immutable review CWD and KAR-owned XDG/cache/temp/scratch namespaces. Kimi and ZCode retain isolated `HOME` directories plus credential projection. KAR does not install an AGY `settings.json` policy; its enforceable controls are `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. |
-| D-043 | `.kar/config.yaml` is the sole runtime configuration authority | Accepted | Global, XDG, embedded-default, legacy project, migration, and fallback reads are removed; admission binds descriptor, ownership, mode, checkout, index, commits, and target locality |
+| D-042 | macOS AGY native-auth boundary | Accepted | AGY authentication uses only an explicitly captured, inode-revalidated installed-user native `HOME`/Keychain context. Mulgae never substitutes a synthetic `HOME`, projects AGY credentials, or copies OAuth or installation files. Mulgae's namespace setup, policy, and cleanup paths never write, overwrite, zero, or unlink user AGY authentication or settings files; AGY may still perform normal provider-owned Keychain/profile refresh while running. The authentication home remains separate from the descriptor-bound immutable review CWD and Mulgae-owned XDG/cache/temp/scratch namespaces. Kimi and ZCode retain isolated `HOME` directories plus credential projection. Mulgae does not install an AGY `settings.json` policy; its enforceable controls are `--sandbox`, exact immutable-snapshot `--add-dir`, `--mode plan`, bounded time/output, and post-output `SIGTERM`/`SIGKILL`. |
+| D-043 | `.mulgae/config.yaml` is the sole runtime configuration authority | Accepted | Global, XDG, embedded-default, legacy project, migration, and fallback reads are removed; admission binds descriptor, ownership, mode, checkout, index, commits, and target locality |
 | D-044 | Any nonempty subset of `kimi,zcode,agy` is operational | Accepted | Singleton assignment uses null fallbacks and reports degraded resilience at exit `0`; missing primaries remain unavailable |
-| D-045 | Logic is the sole mandatory role; init uses only `--roles`, defaults to logic, and lane exhaustion always fails incomplete | Accepted | Config may require additional enabled roles, explicit root-review subsets remain exact, artist remains UI-only and opt-in, and `kar roles` is the static discovery surface |
+| D-045 | Logic is the sole mandatory role; init uses only `--roles`, defaults to logic, and lane exhaustion always fails incomplete | Accepted | Config may require additional enabled roles, explicit root-review subsets remain exact, artist remains UI-only and opt-in, and `mulgae roles` is the static discovery surface |
 | D-046 | Init and review locality are immutable barriers | Accepted | Init crosses durability barriers before commit. Review binds checkout/index, applicable commits, target bytes, config identity, qualification, and every spawn; drift fails closed. Pure native-home observation cancellation aborts init/config/doctor at exit 9 without admitting identity or emitting partial authority. Help is repository-independent because it renders only embedded documentation and reads no configuration. |
-| D-047 | Config v2 explicitly owns each role's primary and fallback family | Accepted | Removes ambiguous planner-selected family preference while retaining qualification and lane authority in KAR |
+| D-047 | Config v2 explicitly owns each role's primary and fallback family | Accepted | Removes ambiguous planner-selected family preference while retaining qualification and lane authority in Mulgae |
 | D-048 | Configured fallback is failure-only, not comparison or consensus | Accepted | Valid primary output, including findings, terminates the role without result shopping |
 | D-049 | Followup and exact rerun remain source-provider bound | Accepted | Source finding and exact replay identity take precedence over current configured fallback; review, delta, and recomposed rerun use current assignments |
 | D-050 | `make test` is the sole technical release-ready gate | Accepted | Race unit/integration plus non-skipping real-provider E2E replace separate offline, race, release, or retained-receipt gates |
 | D-057 | Judge direct provider health independently from recovery-aware product success | Superseded by D-059 | Retained as the historical G010 twelve-route/full-workflow release predicate |
 | D-058 | Provider-native state is projected from configured roots and AGY privilege is explicit | Accepted | Kimi and ZCode use configured descriptor-bound sources. AGY uses the installed-user home and explicit permission mode with no probing or automatic escalation |
-| D-059 | `make test` remains the sole release gate, with deterministic product acceptance and one live capability certification per supported provider family | Superseded by D-060 | Capability-only live coverage failed to execute the built release KAR binary and did not verify actual-provider production composition |
-| D-060 | `make test` requires deterministic acceptance, three live family certifications, and an exact release-binary actual-provider root/child workflow | Superseded by D-061 | It restored both layers but ordered standalone capability certification before KAR's production login recovery path |
-| D-061 | The exact release-binary workflow precedes the mandatory three-family capability suite in `test-e2e` | Accepted | An expired Kimi session must reach KAR's bounded native login and fresh qualification before independent capability certification; both layers remain fail-closed and mandatory |
+| D-059 | `make test` remains the sole release gate, with deterministic product acceptance and one live capability certification per supported provider family | Superseded by D-060 | Capability-only live coverage failed to execute the built release Mulgae binary and did not verify actual-provider production composition |
+| D-060 | `make test` requires deterministic acceptance, three live family certifications, and an exact release-binary actual-provider root/child workflow | Superseded by D-061 | It restored both layers but ordered standalone capability certification before Mulgae's production login recovery path |
+| D-061 | The exact release-binary workflow precedes the mandatory three-family capability suite in `test-e2e` | Accepted | An expired Kimi session must reach Mulgae's bounded native login and fresh qualification before independent capability certification; both layers remain fail-closed and mandatory |
 
 ## 1.1 Current Decision and Implementation Status
 
@@ -71,7 +71,7 @@ The prior G002 through G009 implementation and integrated-gate record is `HISTOR
 
 | Draft concept | Final decision |
 |---|---|
-| `.kar/runs/<run_id>/` | `.kar/{session_id}/{run_id}/` |
+| `.mulgae/runs/<run_id>/` | `.mulgae/{session_id}/{run_id}/` |
 | `review_{hash}.json` | `review_{uuidv7}.json`, with SHA-256 in manifest |
 | `lineage_id` | `session_id` |
 | `consensus.json` | `aggregation.json` |
@@ -133,7 +133,7 @@ These features must preserve the accepted invariants in this specification.
 | ID | Decision | Status | Rationale |
 |---|---|---|---|
 | D-051 | Use one private run-wide diagnostic sink opened before provider spawn and finalized on every terminal path | Accepted | Preserves normal and failure chronology without granting publication authority |
-| D-052 | Keep structured runtime JSONL, stdout, and stderr separate under `.kar/diagnostics/<session>/<run>` | Accepted | Prevents raw provider bytes from entering safe structured events or P2 |
+| D-052 | Keep structured runtime JSONL, stdout, and stderr separate under `.mulgae/diagnostics/<session>/<run>` | Accepted | Prevents raw provider bytes from entering safe structured events or P2 |
 | D-053 | Let the sink own UTC time, monotonic elapsed time, and serialized run-wide sequence | Accepted | Produces deterministic concurrency and complete JSON lines |
 | D-054 | Freeze raw caps from invocation limits and cap JSONL at 8 MiB with a 256 KiB mandatory tail reserve | Accepted | Bounds storage while retaining terminal evidence |
 | D-055 | Use separate closed v1 run, attempt, and invocation status wires | Accepted | Avoids a weak optional-field union and validates identity at each hierarchy level |

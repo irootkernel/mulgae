@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json",
+  "title": "Mulgae Project-local Doctor Result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "checked_at", "project_root_uri", "config", "configured_provider_ids", "provider_inventory", "assignment", "platform_evidence", "tools_lock", "readiness", "diagnostics"],
+  "properties": {
+    "schema_version": { "const": "mulgae-doctor-result.v2" },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "project_root_uri": { "const": "." },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "uri", "sha256", "authority", "locality", "checkout_head_oid", "index_entries_sha256", "target_commit_oids", "native_home_identity", "provenance_state", "reason_codes"],
+      "properties": {
+        "status": { "enum": ["ready", "missing", "invalid", "unsafe", "drifted"] },
+        "uri": { "const": ".mulgae/config.yaml" },
+        "sha256": { "type": "string" },
+        "authority": { "enum": ["project_local"] },
+        "locality": { "enum": ["not_observed", "verified", "rejected", "drifted"] },
+        "checkout_head_oid": { "type": "string" },
+        "index_entries_sha256": { "type": "string" },
+        "target_commit_oids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "native_home_identity": { "type": "string" },
+        "provenance_state": { "type": "string" },
+        "reason_codes": { "type": "array", "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reason_code" } }
+      },
+      "oneOf": [
+        { "properties": { "status": { "const": "missing" }, "locality": { "const": "not_observed" }, "reason_codes": { "prefixItems": [{ "const": "config_missing" }], "minItems": 1, "maxItems": 1, "items": false } } },
+        { "properties": { "status": { "const": "invalid" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "const": "config_yaml_invalid" }], "minItems": 1, "maxItems": 1, "items": false } } },
+        { "properties": { "status": { "const": "unsafe" }, "locality": { "enum": ["rejected", "verified"] }, "reason_codes": { "minItems": 1 } } },
+        { "properties": { "status": { "const": "drifted" }, "locality": { "const": "drifted" }, "reason_codes": { "prefixItems": [{ "const": "config_locality_drifted" }], "minItems": 1, "maxItems": 1, "items": false } } },
+        { "properties": { "status": { "const": "ready" }, "locality": { "const": "verified" }, "sha256": { "pattern": "^sha256:[0-9a-f]{64}$" }, "native_home_identity": { "const": "verified" }, "provenance_state": { "const": "accepted" }, "reason_codes": { "maxItems": 0 } } }
+      ]
+    },
+    "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+    "provider_inventory": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "$ref": "#/$defs/provider_kimi" },
+        { "$ref": "#/$defs/provider_zcode" },
+        { "$ref": "#/$defs/provider_agy" }
+      ],
+      "items": false
+    },
+    "assignment": {
+      "type": "object", "additionalProperties": false, "required": ["state", "resilience"],
+      "properties": { "state": { "enum": ["ready", "degraded_resilience", "unavailable", "not_observed"] }, "resilience": { "enum": ["ready", "degraded", "unavailable", "not_observed"] } },
+      "oneOf": [
+        { "properties": { "state": { "const": "ready" }, "resilience": { "const": "ready" } } },
+        { "properties": { "state": { "const": "degraded_resilience" }, "resilience": { "const": "degraded" } } },
+        { "properties": { "state": { "const": "unavailable" }, "resilience": { "const": "unavailable" } } },
+        { "properties": { "state": { "const": "not_observed" }, "resilience": { "const": "not_observed" } } }
+      ]
+    },
+    "platform_evidence": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["cell", "native"], "properties": { "cell": { "type": "string", "minLength": 1 }, "native": { "type": "boolean" } } } },
+    "tools_lock": { "type": "object", "additionalProperties": false, "required": ["state"], "properties": { "state": { "const": "not_observed" } } },
+    "readiness": {
+      "type": "object", "additionalProperties": false, "required": ["state", "exit_code", "reason_codes"],
+      "properties": { "state": { "enum": ["ready", "degraded", "unverified", "unsafe"] }, "exit_code": { "enum": [0, 4, 8] }, "reason_codes": { "type": "array", "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reason_code" } } },
+      "oneOf": [
+        { "properties": { "state": { "const": "ready" }, "exit_code": { "const": 0 }, "reason_codes": { "maxItems": 0 } } },
+        { "properties": { "state": { "const": "degraded" }, "exit_code": { "const": 0 }, "reason_codes": { "minItems": 1 } } },
+        { "properties": { "state": { "const": "unverified" }, "exit_code": { "const": 4 }, "reason_codes": { "minItems": 1 } } },
+        { "properties": { "state": { "const": "unsafe" }, "exit_code": { "const": 8 }, "reason_codes": { "minItems": 1 } } }
+      ]
+    },
+    "diagnostics": { "type": "array", "maxItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["code", "category", "message", "redacted"], "properties": { "code": { "$ref": "#/$defs/reason_code" }, "category": { "enum": ["configuration", "readiness", "artifact", "security"] }, "message": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" }, "redacted": { "const": true } } } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "config": { "properties": { "status": { "enum": ["missing", "invalid"] } } } } },
+      "then": {
+        "properties": {
+          "configured_provider_ids": { "maxItems": 0 },
+          "provider_inventory": { "$ref": "#/$defs/not_observed_inventory" },
+          "assignment": { "properties": { "state": { "const": "not_observed" } } },
+          "readiness": { "properties": { "state": { "const": "unverified" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "config": { "properties": { "status": { "enum": ["unsafe", "drifted"] } } } } },
+      "then": {
+        "properties": {
+          "configured_provider_ids": { "maxItems": 0 },
+          "provider_inventory": { "$ref": "#/$defs/not_observed_inventory" },
+          "assignment": { "properties": { "state": { "const": "not_observed" } } },
+          "readiness": { "properties": { "state": { "const": "unsafe" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "config": { "properties": { "status": { "const": "ready" } } } } },
+      "then": {
+        "properties": { "configured_provider_ids": { "minItems": 1 } }
+      }
+    },
+    {
+      "oneOf": [
+        { "properties": { "assignment": { "properties": { "state": { "const": "ready" } } }, "readiness": { "properties": { "state": { "const": "ready" } } } } },
+        { "properties": { "assignment": { "properties": { "state": { "const": "degraded_resilience" } } }, "readiness": { "properties": { "state": { "const": "degraded" } } } } },
+        { "properties": { "assignment": { "properties": { "state": { "const": "unavailable" } } }, "readiness": { "properties": { "state": { "enum": ["unverified", "unsafe"] } } } } },
+        { "properties": { "assignment": { "properties": { "state": { "const": "not_observed" } } }, "readiness": { "properties": { "state": { "enum": ["unverified", "unsafe"] } } } } }
+      ]
+    }
+  ],
+  "$defs": {
+    "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "canonical_provider_ids": {
+      "type": "array",
+      "oneOf": [
+        { "maxItems": 0 },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "kimi" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "zcode" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }], "items": false },
+        { "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }], "items": false }
+      ]
+    },
+    "provider": { "type": "object", "additionalProperties": false, "required": ["family", "state", "reason"], "properties": { "family": { "type": "string" }, "state": { "enum": ["eligible", "unavailable", "not_configured", "not_observed"] }, "reason": { "type": "string" } } },
+    "provider_kimi": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "kimi" } } }] },
+    "provider_zcode": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "zcode" } } }] },
+    "provider_agy": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "agy" } } }] },
+    "not_observed_inventory": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "properties": { "family": { "const": "kimi" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } },
+        { "properties": { "family": { "const": "zcode" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } },
+        { "properties": { "family": { "const": "agy" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } }
+      ],
+      "items": false
+    }
+  }
+}

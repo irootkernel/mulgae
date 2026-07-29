@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
@@ -117,10 +117,10 @@ func TestReviewCaptureRealGitRangeDirtyPatchAndStdin(t *testing.T) {
 		writeReviewFile(t, filepath.Join(root, "untracked-한글.txt"), "unicode\n")
 		writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
 		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored\n")
-		if err := os.MkdirAll(filepath.Join(root, ".kar", "diagnostics"), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, ".mulgae", "diagnostics"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		writeReviewFile(t, filepath.Join(root, ".kar", "diagnostics", "doctor.json"), "{}\n")
+		writeReviewFile(t, filepath.Join(root, ".mulgae", "diagnostics", "doctor.json"), "{}\n")
 		material, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetDirty, "dirty"))
 		if err != nil {
 			t.Fatal(err)
@@ -132,7 +132,7 @@ func TestReviewCaptureRealGitRangeDirtyPatchAndStdin(t *testing.T) {
 		if !strings.Contains(patch, "diff --git a/untracked.txt b/untracked.txt") ||
 			!strings.Contains(patch, "diff --git \"a/untracked space.txt\" \"b/untracked space.txt\"") ||
 			strings.Contains(patch, "diff --git a/ignored.txt b/ignored.txt") ||
-			strings.Contains(patch, ".kar/") {
+			strings.Contains(patch, ".mulgae/") {
 			t.Fatalf("dirty patch did not apply captured ignore decision: %q", patch)
 		}
 		if parsed, privateFree := parseUnifiedDiffPrivatePathFree(material.Target().Bytes()); !parsed || !privateFree {
@@ -180,7 +180,7 @@ func TestReviewCaptureStageUsesIndexNotWorktree(t *testing.T) {
 	reviewGit(t, root, "add", "tracked.txt")
 	writeReviewFile(t, filepath.Join(root, "tracked.txt"), "unstaged\n")
 	writeReviewFile(t, filepath.Join(root, "untracked.txt"), "untracked\n")
-	writeReviewFile(t, filepath.Join(root, ".karignore"), "ignored.go\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "ignored.go\n")
 	writeReviewFile(t, filepath.Join(root, "ignored.go"), "package ignored\n")
 	reviewGit(t, root, "add", "ignored.go")
 	adapter, err := NewReviewTargetCapturer(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector())
@@ -215,7 +215,7 @@ func TestReviewCaptureWorkspaceWithoutGitHonorsIgnoreFiles(t *testing.T) {
 	writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored\n")
 	writeReviewFile(t, filepath.Join(root, "image.bin"), "\x00binary")
 	writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
-	writeReviewFile(t, filepath.Join(root, ".karignore"), "*.bin\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "*.bin\n")
 	anchored, err := ports.NewAnchoredRoot(root)
 	if err != nil {
 		t.Fatal(err)
@@ -307,10 +307,10 @@ func TestReviewCaptureRejectsEligibleSpecialFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace")); err == nil || !strings.Contains(err.Error(), "capture.fifo") || !strings.Contains(err.Error(), ".karignore") {
+	if _, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace")); err == nil || !strings.Contains(err.Error(), "capture.fifo") || !strings.Contains(err.Error(), ".mulgaeignore") {
 		t.Fatalf("eligible special file error = %v", err)
 	}
-	writeReviewFile(t, filepath.Join(root, ".karignore"), "capture.fifo\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "capture.fifo\n")
 	if _, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace")); err != nil {
 		t.Fatalf("ignored special file still blocked capture: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestIntegrationReviewCaptureScopeMatrix(t *testing.T) {
 	})
 }
 
-func TestIntegrationReviewCaptureIgnoreRulesAndKarIgnoreAcrossModes(t *testing.T) {
+func TestIntegrationReviewCaptureIgnoreRulesAndMulgaeIgnoreAcrossModes(t *testing.T) {
 	t.Run("root nested negation and anchored patterns", func(t *testing.T) {
 		root := t.TempDir()
 		for path, contents := range map[string]string{
@@ -456,7 +456,7 @@ func TestIntegrationReviewCaptureIgnoreRulesAndKarIgnoreAcrossModes(t *testing.T
 		}
 		writeReviewFile(t, filepath.Join(root, ".gitignore"), "/root-only.txt\n*.tmp\n!keep.tmp\n")
 		writeReviewFile(t, filepath.Join(root, "nested", ".gitignore"), "/nested-only.txt\n")
-		writeReviewFile(t, filepath.Join(root, ".karignore"), "/secret.txt\n")
+		writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "/secret.txt\n")
 		material := captureReviewMaterial(t, root, ports.ReviewTargetWorkspace, "workspace")
 		paths := reviewFilePathSet(material.Snapshot().Files())
 		for _, path := range []string{"keep.go", "keep.tmp", "nested/root-only.txt", "nested/deep/nested-only.txt", "nested/secret.txt"} {
@@ -471,7 +471,7 @@ func TestIntegrationReviewCaptureIgnoreRulesAndKarIgnoreAcrossModes(t *testing.T
 		}
 	})
 
-	t.Run("karignore filters target snapshot and every evidence side", func(t *testing.T) {
+	t.Run("mulgaeignore filters target snapshot and every evidence side", func(t *testing.T) {
 		root := reviewCaptureRepository(t)
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep base\n")
 		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored base\n")
@@ -480,7 +480,7 @@ func TestIntegrationReviewCaptureIgnoreRulesAndKarIgnoreAcrossModes(t *testing.T
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep committed\n")
 		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored committed\n")
 		reviewGit(t, root, "commit", "-am", "ignore changed")
-		writeReviewFile(t, filepath.Join(root, ".karignore"), "ignored.txt\n")
+		writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "ignored.txt\n")
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep index\n")
 		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored index\n")
 		reviewGit(t, root, "add", "keep.txt", "ignored.txt")
@@ -526,10 +526,10 @@ func TestIntegrationReviewCaptureRejectsEligibleNonTextAndSpecialPathsWithGuidan
 			writeReviewFile(t, filepath.Join(root, "source.go"), "package source\n")
 			fixture.make(t, filepath.Join(root, fixture.path))
 			err := captureReviewError(t, root, ports.ReviewTargetWorkspace, "workspace")
-			if err == nil || !strings.Contains(err.Error(), fixture.path) || !strings.Contains(err.Error(), ".karignore") {
+			if err == nil || !strings.Contains(err.Error(), fixture.path) || !strings.Contains(err.Error(), ".mulgaeignore") {
 				t.Fatalf("workspace rejection = %v", err)
 			}
-			writeReviewFile(t, filepath.Join(root, ".karignore"), fixture.path+"\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), fixture.path+"\n")
 			if material := captureReviewMaterial(t, root, ports.ReviewTargetWorkspace, "workspace"); reviewFilePathSet(material.Snapshot().Files())[fixture.path] {
 				t.Fatalf("ignored %s remained in snapshot", fixture.path)
 			}

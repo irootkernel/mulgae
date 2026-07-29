@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	appfollowup "github.com/irootkernel/kkachi-agent-review/internal/app/followup"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestNewFollowupExecutorRejectsIncompleteAuthority(t *testing.T) {

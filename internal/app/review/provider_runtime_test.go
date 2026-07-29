@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type providerRuntimeDiagnosticResolver struct {
@@ -535,7 +535,7 @@ func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
 	if got := initialValidationFailureCondition(nil); got != AttemptConditionUnrepairableProviderOutput {
 		t.Fatalf("planless validation failure condition = %q", got)
 	}
-	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"kar-provider-review-output.v3"}`), []string{"/findings/0/evidence/0/current/quote"})
+	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"mulgae-provider-review-output.v3"}`), []string{"/findings/0/evidence/0/current/quote"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +650,7 @@ func providerRuntimeWorkspaceIdentity(t *testing.T, suffix string) ports.Workspa
 
 func providerRuntimePacketDigest(packet []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(packet)
 	return hex.EncodeToString(hash.Sum(nil))

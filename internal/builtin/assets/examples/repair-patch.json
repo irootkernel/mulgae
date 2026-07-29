@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-repair-patch.v1",
+  "schema_version": "mulgae-repair-patch.v1",
   "repairs": [
     {
       "path": "/findings/0/recommendation",

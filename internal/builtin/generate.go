@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	rolecatalog "github.com/irootkernel/kkachi-agent-review/internal/roles"
+	rolecatalog "github.com/irootkernel/mulgae/internal/roles"
 )
 
 const checksumSource = "CHECKSUMS.sha256"

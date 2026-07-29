@@ -17,25 +17,25 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
-	runManifestSchemaAsset = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
+	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
 
 	targetManifestPath   = "target/target-manifest.json"
 	aggregationPath      = "aggregation.json"
 	finalValidationPath  = "validation/final-validation.json"
-	publicationJournalV1 = "kar-publication-journal.v1"
-	publicationStatusV1  = "kar-publication-status.v1"
-	lineageEdgeV1        = "kar-lineage-edge.v1"
-	publicationEpochV1   = "kar-publication-epoch.v1"
+	publicationJournalV1 = "mulgae-publication-journal.v1"
+	publicationStatusV1  = "mulgae-publication-status.v1"
+	lineageEdgeV1        = "mulgae-lineage-edge.v1"
+	publicationEpochV1   = "mulgae-publication-epoch.v1"
 )
 
 // SchemaValidator validates bytes against one embedded schema asset. It is
@@ -53,7 +53,7 @@ type PreparedCandidate struct {
 	runState           domain.RunState
 	target             preparedTarget
 	threshold          domain.Severity
-	kar                preparedKAR
+	mulgae             preparedMulgae
 	production         *ProductionReviewProvenance
 	axes               preparedAxes
 	roles              []preparedRole
@@ -340,7 +340,7 @@ type preparedTarget struct {
 	headOID string
 }
 
-type preparedKAR struct {
+type preparedMulgae struct {
 	version string
 	commit  string
 }
@@ -709,11 +709,11 @@ func PrepareCandidate(
 	result review.CoordinatorResult,
 	target domain.TargetIdentity,
 	severityThreshold domain.Severity,
-	karVersion string,
-	karCommit string,
+	mulgaeVersion string,
+	mulgaeCommit string,
 ) (PreparedCandidate, error) {
 	return PrepareCandidateWithContext(
-		result, target, severityThreshold, karVersion, karCommit, rootPublicationContext(),
+		result, target, severityThreshold, mulgaeVersion, mulgaeCommit, rootPublicationContext(),
 	)
 }
 
@@ -758,7 +758,7 @@ func PrepareNoChangeCandidate(
 	candidate := PreparedCandidate{
 		sessionID: sessionID, runID: runID, runState: domain.RunCompleted,
 		target:    preparedTarget{sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID()},
-		threshold: severityThreshold, kar: preparedKAR{version: provenance.BuildVersion, commit: provenance.BuildCommit},
+		threshold: severityThreshold, mulgae: preparedMulgae{version: provenance.BuildVersion, commit: provenance.BuildCommit},
 		axes:  preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
 		roles: roles, findings: []preparedFinding{}, failures: []preparedFailure{}, limits: []string{},
 		reasons: []string{"policy_evaluated"}, exitCode: int(domain.ExitCommittedPass),
@@ -775,8 +775,8 @@ func PrepareCandidateWithContext(
 	result review.CoordinatorResult,
 	target domain.TargetIdentity,
 	severityThreshold domain.Severity,
-	karVersion string,
-	karCommit string,
+	mulgaeVersion string,
+	mulgaeCommit string,
 	context RunPublicationContext,
 ) (PreparedCandidate, error) {
 	if err := context.validate(); err != nil {
@@ -794,7 +794,7 @@ func PrepareCandidateWithContext(
 	if !severityThreshold.Valid() {
 		return PreparedCandidate{}, fmt.Errorf("publication candidate: invalid severity threshold %q", severityThreshold)
 	}
-	if err := validateBuildMetadata(karVersion, karCommit); err != nil {
+	if err := validateBuildMetadata(mulgaeVersion, mulgaeCommit); err != nil {
 		return PreparedCandidate{}, fmt.Errorf("publication candidate: build metadata: %w", err)
 	}
 
@@ -831,9 +831,9 @@ func PrepareCandidateWithContext(
 			headOID: target.HeadObjectID(),
 		},
 		threshold: severityThreshold,
-		kar: preparedKAR{
-			version: karVersion,
-			commit:  karCommit,
+		mulgae: preparedMulgae{
+			version: mulgaeVersion,
+			commit:  mulgaeCommit,
 		},
 		axes:       axes,
 		roles:      clonePreparedRoles(roles),
@@ -858,13 +858,13 @@ func PrepareCandidateWithRuntimeArtifacts(
 	result review.CoordinatorResult,
 	target domain.TargetIdentity,
 	severityThreshold domain.Severity,
-	karVersion string,
-	karCommit string,
+	mulgaeVersion string,
+	mulgaeCommit string,
 	context RunPublicationContext,
 	inputs []review.RuntimeArtifactInventory,
 ) (PreparedCandidate, error) {
 	candidate, err := PrepareCandidateWithContext(
-		result, target, severityThreshold, karVersion, karCommit, context,
+		result, target, severityThreshold, mulgaeVersion, mulgaeCommit, context,
 	)
 	if err != nil {
 		return PreparedCandidate{}, err
@@ -1040,7 +1040,7 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		_, _ = digest.Write(size[:])
 		_, _ = digest.Write([]byte(value))
 	}
-	write("KAR-PUBLICATION-CANDIDATE/1")
+	write("Mulgae-PUBLICATION-CANDIDATE/1")
 	write(candidate.sessionID.String())
 	write(candidate.runID.String())
 	write(string(candidate.runState))
@@ -1087,8 +1087,8 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 	write(candidate.target.baseOID)
 	write(candidate.target.headOID)
 	write(string(candidate.threshold))
-	write(candidate.kar.version)
-	write(candidate.kar.commit)
+	write(candidate.mulgae.version)
+	write(candidate.mulgae.commit)
 	if candidate.production == nil {
 		write("production:absent")
 	} else {
@@ -1274,7 +1274,7 @@ func (candidate PreparedCandidate) validate() error {
 		!validOptionalOID(candidate.target.baseOID) || !validOptionalOID(candidate.target.headOID) {
 		return fmt.Errorf("target or threshold is invalid")
 	}
-	if err := validateBuildMetadata(candidate.kar.version, candidate.kar.commit); err != nil {
+	if err := validateBuildMetadata(candidate.mulgae.version, candidate.mulgae.commit); err != nil {
 		return err
 	}
 	if !candidate.axes.content.Valid() || !candidate.axes.coverage.Valid() || !candidate.axes.ci.Valid() {
@@ -1296,7 +1296,7 @@ func (candidate PreparedCandidate) validate() error {
 		if candidate.publicationLineage().runType != domain.RunTypeReview || candidate.noChange {
 			return fmt.Errorf("production provenance is only valid for changed root candidates")
 		}
-		if candidate.kar.version != candidate.production.BuildVersion || candidate.kar.commit != candidate.production.BuildCommit {
+		if candidate.mulgae.version != candidate.production.BuildVersion || candidate.mulgae.commit != candidate.production.BuildCommit {
 			return fmt.Errorf("production provenance build metadata does not match candidate")
 		}
 		if err := validateProductionReviewProvenance(*candidate.production); err != nil {
@@ -1772,8 +1772,8 @@ func validateNoChangeProvenance(value NoChangeProvenance) error {
 func (candidate PreparedCandidate) validateNoChange() error {
 	if candidate.production != nil || candidate.noChangeProvenance == nil ||
 		validateNoChangeProvenance(*candidate.noChangeProvenance) != nil ||
-		candidate.kar.version != candidate.noChangeProvenance.BuildVersion ||
-		candidate.kar.commit != candidate.noChangeProvenance.BuildCommit ||
+		candidate.mulgae.version != candidate.noChangeProvenance.BuildVersion ||
+		candidate.mulgae.commit != candidate.noChangeProvenance.BuildCommit ||
 		candidate.lineage.runType != domain.RunTypeReview || candidate.runState != domain.RunCompleted ||
 		candidate.target.sha256 != "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ||
 		candidate.axes != (preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass}) ||
@@ -2039,10 +2039,10 @@ func validateTarget(target domain.TargetIdentity) error {
 
 func validateBuildMetadata(version, commit string) error {
 	if !safeText(version, 128, true) {
-		return fmt.Errorf("KAR version is invalid")
+		return fmt.Errorf("Mulgae version is invalid")
 	}
 	if commit != "" && !safeText(commit, 128, true) {
-		return fmt.Errorf("KAR commit is invalid")
+		return fmt.Errorf("Mulgae commit is invalid")
 	}
 	return nil
 }
@@ -2349,7 +2349,7 @@ func validateBundleSupportIndex(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &index, "support index"); err != nil {
 		return err
 	}
-	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) != len(expected) {
+	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) != len(expected) {
 		return fmt.Errorf("support index contents are invalid")
 	}
 	for _, item := range index.Artifacts {
@@ -2425,11 +2425,11 @@ func validateFinalProductionProvenance(final finalReviewWire) error {
 		return fmt.Errorf("final review production provenance: %w", err)
 	}
 	commit := ""
-	if final.KAR.Commit != nil {
-		commit = *final.KAR.Commit
+	if final.Mulgae.Commit != nil {
+		commit = *final.Mulgae.Commit
 	}
-	if final.KAR.Version != value.BuildVersion || commit != value.BuildCommit {
-		return fmt.Errorf("final review production build metadata does not match KAR")
+	if final.Mulgae.Version != value.BuildVersion || commit != value.BuildCommit {
+		return fmt.Errorf("final review production build metadata does not match Mulgae")
 	}
 	return nil
 }
@@ -2476,7 +2476,7 @@ func validatePublicationCompositeSemantics(
 	if err != nil {
 		return 0, err
 	}
-	if finalWire.SchemaVersion != "kar-review-artifact.v3" ||
+	if finalWire.SchemaVersion != "mulgae-review-artifact.v3" ||
 		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
@@ -2495,12 +2495,12 @@ func validatePublicationCompositeSemantics(
 		finalWire.Provenance.ManifestPath != "manifest.json" {
 		return 0, fmt.Errorf("final review has invalid publication semantics")
 	}
-	karCommit := ""
-	if finalWire.KAR.Commit != nil {
-		karCommit = *finalWire.KAR.Commit
+	mulgaeCommit := ""
+	if finalWire.Mulgae.Commit != nil {
+		mulgaeCommit = *finalWire.Mulgae.Commit
 	}
-	if err := validateBuildMetadata(finalWire.KAR.Version, karCommit); err != nil ||
-		(finalWire.KAR.Commit != nil && karCommit == "") ||
+	if err := validateBuildMetadata(finalWire.Mulgae.Version, mulgaeCommit); err != nil ||
+		(finalWire.Mulgae.Commit != nil && mulgaeCommit == "") ||
 		(finalWire.Target.BaseOID != nil &&
 			(*finalWire.Target.BaseOID == "" || !validOptionalOID(*finalWire.Target.BaseOID))) ||
 		(finalWire.Target.HeadOID != nil &&
@@ -2534,7 +2534,7 @@ func validatePublicationCompositeSemantics(
 		return 0, err
 	}
 
-	if manifest.SchemaVersion != "kar-run-manifest.v2" ||
+	if manifest.SchemaVersion != "mulgae-run-manifest.v2" ||
 		manifest.SessionID != finalWire.SessionID ||
 		manifest.RunID != finalWire.RunID ||
 		manifest.RunType != finalWire.RunType ||
@@ -2545,7 +2545,7 @@ func validatePublicationCompositeSemantics(
 		manifest.CreatedAt != finalWire.CreatedAt ||
 		manifest.StartedAt == nil || *manifest.StartedAt != finalWire.CreatedAt ||
 		manifest.CompletedAt == nil || *manifest.CompletedAt != finalWire.CreatedAt ||
-		manifest.KARVersion != finalWire.KAR.Version ||
+		manifest.MulgaeVersion != finalWire.Mulgae.Version ||
 		!reflect.DeepEqual(manifest.ImmutableLineage, finalWire.ImmutableLineage) ||
 		manifest.Target.ManifestPath != finalWire.Target.ManifestPath ||
 		manifest.Target.ContentSHA256 != finalWire.Target.ContentSHA256 ||

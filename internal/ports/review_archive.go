@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // CapturedReviewArchive is the durable, authority-free serialization of one
@@ -52,7 +52,7 @@ func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, err
 	}
 	identity := material.Target().Identity()
 	wire := capturedReviewArchiveWire{
-		SchemaVersion: "kar-captured-review-archive.v1",
+		SchemaVersion: "mulgae-captured-review-archive.v1",
 		TargetIdentity: capturedTargetIdentityWire{
 			Kind: string(identity.Kind()), SHA256: identity.SHA256(), RepositoryID: identity.RepositoryID(),
 			BaseObjectID: identity.BaseObjectID(), HeadObjectID: identity.HeadObjectID(),
@@ -79,7 +79,7 @@ func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, err
 // rebuilding constructor-owned domain objects.
 func UnmarshalCapturedReviewMaterial(bytes []byte) (CapturedReviewMaterial, error) {
 	var wire capturedReviewArchiveWire
-	if err := json.Unmarshal(bytes, &wire); err != nil || wire.SchemaVersion != "kar-captured-review-archive.v1" {
+	if err := json.Unmarshal(bytes, &wire); err != nil || wire.SchemaVersion != "mulgae-captured-review-archive.v1" {
 		return CapturedReviewMaterial{}, fmt.Errorf("captured review archive: invalid encoding")
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{

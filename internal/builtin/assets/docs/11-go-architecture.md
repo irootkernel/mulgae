@@ -31,7 +31,7 @@ Publication separates a persisted journal hint from derived durable state. The o
 
 ## 1. Architectural Style
 
-KAR uses a domain-first, ports-and-adapters architecture. Core domain and application packages do not depend on Cobra, YAML, JSON Schema libraries, Git commands, `os/exec`, or filesystem implementations.
+Mulgae uses a domain-first, ports-and-adapters architecture. Core domain and application packages do not depend on Cobra, YAML, JSON Schema libraries, Git commands, `os/exec`, or filesystem implementations.
 
 ```mermaid
 flowchart TB
@@ -52,7 +52,11 @@ Dependency direction points inward. Adapters implement ports owned by the applic
 ## 2. Recommended Package Layout
 
 ```text
-cmd/kar/
+main.go
+version.go
+production_graph.go
+review_composition.go
+child_composition.go
 
 internal/domain/
   attempt.go
@@ -118,11 +122,11 @@ internal/adapters/runtime/
 internal/adapters/workspace/
 
 internal/builtin/
-internal/entrypoint/kar/
+internal/entrypoint/mulgae/
 ```
 `internal/app/reviewrun` owns production review orchestration through neutral
 provider-qualification ports; it does not import `internal/adapters/providercli`.
-`internal/entrypoint/kar` is the composition root that binds application ports to
+`internal/entrypoint/mulgae` is the composition root that binds application ports to
 CLI, configuration, provider, process, Git, filesystem, schema, review-input,
 runtime, and workspace adapters. Report, validation, evidence, and prompt logic
 are application packages. Provider families share the flat
@@ -189,7 +193,7 @@ type ArtifactStore interface {
 }
 ```
 
-`PublishReview` owns temporary file creation, final schema validation, atomic rename, SHA-256 calculation, and manifest-safe return values. Historical G009 evidence classified `HISTORICAL_GATE_PASS_NON_PRODUCTION` includes a direct crash-before-rename proof: a crashing child leaves only the temporary file and no visible final file. It is diagnostic evidence only and does not production-verify or close composed `kar review`.
+`PublishReview` owns temporary file creation, final schema validation, atomic rename, SHA-256 calculation, and manifest-safe return values. Historical G009 evidence classified `HISTORICAL_GATE_PASS_NON_PRODUCTION` includes a direct crash-before-rename proof: a crashing child leaves only the temporary file and no visible final file. It is diagnostic evidence only and does not production-verify or close composed `mulgae review`.
 
 ### Validator
 
@@ -257,7 +261,7 @@ const (
     FailureSecurityPolicy     FailureClass = "security_policy_violation"
     FailureConfiguration      FailureClass = "configuration_violation"
     FailureArtifact           FailureClass = "artifact_failure"
-    FailureInternal           FailureClass = "kar_internal_error"
+    FailureInternal           FailureClass = "mulgae_internal_error"
     FailureCancelled          FailureClass = "user_cancelled"
 )
 ```
@@ -300,7 +304,7 @@ their source-derived IDs, schema `$id` URLs, or help aliases, for example:
 ```text
 sot:prompts/root-review/common.v2.txt
 roles/security.yaml
-https://kar.local/schemas/kar-provider-review-output.v2.schema.json
+https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json
 help:security
 ```
 
@@ -325,18 +329,18 @@ It must not implement scheduling, fallback, validation, target capture, publicat
 Version strings are explicit:
 
 ```text
-kar-provider-review-output.v1           compatibility reader only
-kar-provider-followup-output.v1         compatibility reader only
-kar-review-artifact.v1                  compatibility reader only
-kar-run-manifest.v1                     compatibility reader only
-kar-provider-review-output.v2           G0 execution contract
-kar-provider-followup-output.v2         G0 execution contract
-kar-review-artifact.v3                  G0 publication contract
-kar-run-manifest.v2                     G0 publication contract
-kar-provider-contract-evidence.v1       compatibility-only; never readiness authority
-kar-platform-contract-evidence.v1       compatibility-only; never readiness authority
-kar-provider-contract-evidence.v2       family evidence readiness authority
-kar-platform-contract-evidence.v2       platform evidence readiness authority
+mulgae-provider-review-output.v1           compatibility reader only
+mulgae-provider-followup-output.v1         compatibility reader only
+mulgae-review-artifact.v1                  compatibility reader only
+mulgae-run-manifest.v1                     compatibility reader only
+mulgae-provider-review-output.v2           G0 execution contract
+mulgae-provider-followup-output.v2         G0 execution contract
+mulgae-review-artifact.v3                  G0 publication contract
+mulgae-run-manifest.v2                     G0 publication contract
+mulgae-provider-contract-evidence.v1       compatibility-only; never readiness authority
+mulgae-platform-contract-evidence.v1       compatibility-only; never readiness authority
+mulgae-provider-contract-evidence.v2       family evidence readiness authority
+mulgae-platform-contract-evidence.v2       platform evidence readiness authority
 ```
 
 Within a major schema version, additions require careful `additionalProperties` policy and backward-compatible readers. Breaking field or semantic changes require a new schema version and migration/read compatibility plan.
@@ -350,8 +354,8 @@ The dependency direction is `domain -> ports -> application -> adapters -> entry
 The following version strings remain fixed by SOT 1.15.0:
 
 ```text
-kar-runtime-log.v1
-kar-runtime-run-status.v1
-kar-runtime-attempt-status.v1
-kar-runtime-invocation-status.v1
+mulgae-runtime-log.v1
+mulgae-runtime-run-status.v1
+mulgae-runtime-attempt-status.v1
+mulgae-runtime-invocation-status.v1
 ```

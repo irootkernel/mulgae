@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/providercli"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -119,7 +119,7 @@ func TestMaterializeLinkedFilesAndReceipt(t *testing.T) {
 }
 
 func TestRequestRejectsUnsafeBytesAndBounds(t *testing.T) {
-	for _, name := range []string{"/absolute", "../escape", ".git/config", ".kar/state"} {
+	for _, name := range []string{"/absolute", "../escape", ".git/config", ".mulgae/state"} {
 		path, err := ports.NewSafeRelativePath(name)
 		if err != nil {
 			continue
@@ -196,7 +196,7 @@ func TestSnapshotDefensiveCopiesDriftAndOwnership(t *testing.T) {
 	defer func() {
 		_ = os.Chmod(receipt.SnapshotPath(), 0700)
 		_ = os.Chmod(filepath.Join(receipt.SnapshotPath(), "roadmap.md"), 0600)
-		_ = os.Chmod(filepath.Join(receipt.SnapshotPath(), "._kar_workspace_manifest.json"), 0600)
+		_ = os.Chmod(filepath.Join(receipt.SnapshotPath(), "._mulgae_workspace_manifest.json"), 0600)
 	}()
 	if err := os.Chmod(filepath.Join(receipt.SnapshotPath(), "roadmap.md"), 0644); err != nil {
 		t.Fatal(err)
@@ -968,8 +968,20 @@ func TestCleanupTreeRetriesAfterSiblingPrefixAndChildCloseFailure(t *testing.T) 
 	if err := owner.Retry(); !errors.Is(err, closeFailure) {
 		t.Fatalf("tree close failure = %v", err)
 	}
-	if owner.tree == nil || len(owner.tree.stack) != 2 || owner.tree.stack[0].next != 1 {
-		t.Fatalf("tree traversal did not retain the child after sibling prefix: %#v", owner.tree)
+	if owner.tree == nil || len(owner.tree.stack) != 2 ||
+		owner.tree.stack[0].next <= 0 ||
+		owner.tree.stack[0].next >= len(owner.tree.stack[0].names) ||
+		owner.tree.stack[0].names[owner.tree.stack[0].next] != "z" {
+		if owner.tree == nil {
+			t.Fatal("tree traversal did not retain the child after sibling prefix: nil tree")
+		}
+		t.Fatalf(
+			"tree traversal did not retain the child after sibling prefix: stack=%d root-next=%d root-names=%q child=%q",
+			len(owner.tree.stack),
+			owner.tree.stack[0].next,
+			owner.tree.stack[0].names,
+			owner.tree.stack[len(owner.tree.stack)-1].name,
+		)
 	}
 	if err := owner.Retry(); err != nil {
 		t.Fatalf("tree cleanup retry: %v", err)

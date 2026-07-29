@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,10 +18,10 @@ type LocalConfigObservation struct {
 	rootInode    uint64
 	rootUID      uint32
 	rootMode     uint32
-	karDevice    uint64
-	karInode     uint64
-	karUID       uint32
-	karMode      uint32
+	mulgaeDevice uint64
+	mulgaeInode  uint64
+	mulgaeUID    uint32
+	mulgaeMode   uint32
 	configDevice uint64
 	configInode  uint64
 	configUID    uint32
@@ -42,16 +42,16 @@ func (observation LocalConfigObservation) RootIdentity() (uint64, uint64, uint32
 	return observation.rootDevice, observation.rootInode, observation.rootUID, observation.rootMode
 }
 func (observation LocalConfigObservation) PrivateDirectoryIdentity() (uint64, uint64) {
-	return observation.karDevice, observation.karInode
+	return observation.mulgaeDevice, observation.mulgaeInode
 }
 func (observation LocalConfigObservation) ConfigIdentity() (uint64, uint64, uint32, uint32, uint64, int64) {
 	return observation.configDevice, observation.configInode, observation.configUID, observation.configMode, observation.configLinks, observation.size
 }
 func (observation LocalConfigObservation) Proof() (ports.ConfigFileProof, error) {
-	return ports.NewConfigFileProof(observation.present, observation.rootDevice, observation.rootInode, observation.rootUID, observation.rootMode, observation.karDevice, observation.karInode, observation.karUID, observation.karMode, observation.configDevice, observation.configInode, observation.configUID, observation.configMode, observation.configLinks, observation.size, observation.SHA256())
+	return ports.NewConfigFileProof(observation.present, observation.rootDevice, observation.rootInode, observation.rootUID, observation.rootMode, observation.mulgaeDevice, observation.mulgaeInode, observation.mulgaeUID, observation.mulgaeMode, observation.configDevice, observation.configInode, observation.configUID, observation.configMode, observation.configLinks, observation.size, observation.SHA256())
 }
 func (observation LocalConfigObservation) DirectoryIdentity() (ports.ConfigDirectoryIdentity, error) {
-	return ports.NewConfigDirectoryIdentity(observation.rootDevice, observation.rootInode, observation.rootUID, observation.rootMode, observation.karDevice, observation.karInode, observation.karUID, observation.karMode)
+	return ports.NewConfigDirectoryIdentity(observation.rootDevice, observation.rootInode, observation.rootUID, observation.rootMode, observation.mulgaeDevice, observation.mulgaeInode, observation.mulgaeUID, observation.mulgaeMode)
 }
 func (observation LocalConfigObservation) InstalledConfigIdentity() (ports.ConfigFileIdentity, error) {
 	if !observation.present {
@@ -66,7 +66,7 @@ type LocalConfigSource struct {
 	observation LocalConfigObservation
 }
 
-// NewLocalConfigSource opens only <root>/.kar/config.yaml. It never consults
+// NewLocalConfigSource opens only <root>/.mulgae/config.yaml. It never consults
 // HOME, XDG, embedded defaults, legacy filenames, or Git-controlled content.
 func NewLocalConfigSource(root ports.AnchoredRoot, allowAbsent bool) (*LocalConfigSource, error) {
 	if !root.Valid() {
@@ -140,24 +140,24 @@ func readLocalConfig(root ports.AnchoredRoot, allowAbsent bool) ([]byte, LocalCo
 		return nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe project root")
 	}
 	observation := LocalConfigObservation{rootDevice: uint64(rootStat.Dev), rootInode: uint64(rootStat.Ino), rootUID: rootStat.Uid, rootMode: rootMode}
-	karFD, err := unix.Openat(rootFD, ".kar", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	mulgaeFD, err := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if allowAbsent && err == unix.ENOENT {
 			return nil, observation, nil
 		}
 		return nil, LocalConfigObservation{}, fmt.Errorf("local config: open private directory: %w", err)
 	}
-	defer unix.Close(karFD)
-	karStat, err := statFD(karFD)
+	defer unix.Close(mulgaeFD)
+	mulgaeStat, err := statFD(mulgaeFD)
 	if err != nil {
 		return nil, LocalConfigObservation{}, err
 	}
-	if karStat.Mode&unix.S_IFMT != unix.S_IFDIR || karStat.Uid != uint32(os.Geteuid()) || karStat.Mode&0o7777 != 0o700 {
+	if mulgaeStat.Mode&unix.S_IFMT != unix.S_IFDIR || mulgaeStat.Uid != uint32(os.Geteuid()) || mulgaeStat.Mode&0o7777 != 0o700 {
 		return nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe private directory")
 	}
-	observation.karDevice, observation.karInode = uint64(karStat.Dev), uint64(karStat.Ino)
-	observation.karUID, observation.karMode = karStat.Uid, uint32(karStat.Mode&0o7777)
-	configFD, err := unix.Openat(karFD, "config.yaml", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	observation.mulgaeDevice, observation.mulgaeInode = uint64(mulgaeStat.Dev), uint64(mulgaeStat.Ino)
+	observation.mulgaeUID, observation.mulgaeMode = mulgaeStat.Uid, uint32(mulgaeStat.Mode&0o7777)
+	configFD, err := unix.Openat(mulgaeFD, "config.yaml", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if allowAbsent && err == unix.ENOENT {
 			return nil, observation, nil

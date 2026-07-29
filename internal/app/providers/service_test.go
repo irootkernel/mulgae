@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/doctor"
+	"github.com/irootkernel/mulgae/internal/app/doctor"
 )
 
 type fakeDiagnoser struct {
@@ -166,7 +166,7 @@ func TestListProviderProfilesRejectsInvalidDoctorResultsBeforeProjection(t *test
 		{
 			name: "invalid schema version",
 			mutate: func(result *doctor.DoctorResult) {
-				result.SchemaVersion = "kar-doctor-result.v0"
+				result.SchemaVersion = "mulgae-doctor-result.v0"
 			},
 		},
 	}

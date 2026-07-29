@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const processTestExecutionTimeout = 5 * time.Second
@@ -124,7 +124,7 @@ func TestExecInheritedDirectoryNativeHomeTrampoline(t *testing.T) {
 		argv = append(argv, "-test.run=^TestRunnerHelperProcess$", "--", "native-home-provider", marker)
 		command := exec.Command(binary, argv...)
 		command.ExtraFiles = []*os.File{directory}
-		command.Env = append(os.Environ(), "KAR_PROCESS_RUNNER_HELPER=1")
+		command.Env = append(os.Environ(), "MULGAE_PROCESS_RUNNER_HELPER=1")
 		return command
 	}
 
@@ -289,7 +289,7 @@ func TestRunnerExactArgvEnvironmentWorkingDirectoryAndStdin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("KAR_PROCESS_RUNNER_LEAK", "inherited-parent-value")
+	t.Setenv("MULGAE_PROCESS_RUNNER_LEAK", "inherited-parent-value")
 	workingDirectory := t.TempDir()
 	input := []byte("copied stdin")
 	literalArgument := "$(touch never-runs); * ; $HOME"
@@ -298,7 +298,7 @@ func TestRunnerExactArgvEnvironmentWorkingDirectoryAndStdin(t *testing.T) {
 		workingDirectory,
 		"record",
 		[]string{"first", literalArgument},
-		[]ports.EnvironmentVariable{mustEnvironment(t, "KAR_PROCESS_RUNNER_VALUE", "explicit-value")},
+		[]ports.EnvironmentVariable{mustEnvironment(t, "MULGAE_PROCESS_RUNNER_VALUE", "explicit-value")},
 		input,
 		processTestExecutionTimeout,
 		1024,
@@ -1753,7 +1753,7 @@ func newHelperRequest(
 	argv := []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", scenario}
 	argv = append(argv, arguments...)
 	environment = append([]ports.EnvironmentVariable{
-		mustEnvironment(t, "KAR_PROCESS_RUNNER_HELPER", "1"),
+		mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
 		mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
 	}, environment...)
 	key, err := ports.ParseConcurrencyKey("process-test")
@@ -1788,7 +1788,7 @@ func newProviderHelperRequest(
 	argv := []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", scenario}
 	argv = append(argv, arguments...)
 	environment := []ports.EnvironmentVariable{
-		mustEnvironment(t, "KAR_PROCESS_RUNNER_HELPER", "1"),
+		mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
 		mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
 	}
 	request, err := ports.NewProviderProcessRequest(
@@ -1836,7 +1836,7 @@ func newPostOutputProviderHelperRequest(
 		binary,
 		argv,
 		[]ports.EnvironmentVariable{
-			mustEnvironment(t, "KAR_PROCESS_RUNNER_HELPER", "1"),
+			mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
 			mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
 		},
 		workingDirectory,
@@ -2055,7 +2055,7 @@ func assertSignal(t *testing.T, observation ports.ProcessObservation, wantNumber
 
 func runnerTestStdinDigest(value []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
@@ -2168,7 +2168,7 @@ func waitForProcessGroupLeaderZombie(processGroupID int, timeout time.Duration) 
 }
 
 func TestRunnerHelperProcess(t *testing.T) {
-	if os.Getenv("KAR_PROCESS_RUNNER_HELPER") != "1" {
+	if os.Getenv("MULGAE_PROCESS_RUNNER_HELPER") != "1" {
 		return
 	}
 
@@ -2297,7 +2297,7 @@ func TestRunnerHelperProcess(t *testing.T) {
 		if err != nil {
 			os.Exit(2)
 		}
-		value, present := os.LookupEnv("KAR_PROCESS_RUNNER_VALUE")
+		value, present := os.LookupEnv("MULGAE_PROCESS_RUNNER_VALUE")
 		fmt.Fprintf(
 			os.Stdout,
 			"argv0=%q\nargs=%q\ncwd=%q\npwd=%q\nenv=%t:%q\nleaked=%q\nstdin=%q\n",
@@ -2307,7 +2307,7 @@ func TestRunnerHelperProcess(t *testing.T) {
 			os.Getenv("PWD"),
 			present,
 			value,
-			os.Getenv("KAR_PROCESS_RUNNER_LEAK"),
+			os.Getenv("MULGAE_PROCESS_RUNNER_LEAK"),
 			stdin,
 		)
 		os.Exit(0)

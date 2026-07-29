@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -4162,7 +4162,7 @@ func parsePublicationJournal(run ports.PublicationRun, path ports.SafeRelativePa
 	if err := strictDecodePublicationJSON(documentBytes, &wire); err != nil {
 		return ports.ObservedMutablePublicationDocument{}, publicationJournalFacts{}, err
 	}
-	if wire.SchemaVersion != "kar-publication-journal.v1" {
+	if wire.SchemaVersion != "mulgae-publication-journal.v1" {
 		return ports.ObservedMutablePublicationDocument{}, publicationJournalFacts{}, errors.New("unknown journal schema")
 	}
 	facts, err := parsePublicationRestart(run, wire.publicationRestartWire)
@@ -4375,7 +4375,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "kar-review-artifact.v3" {
+	if err != nil || schema != "mulgae-review-artifact.v3" {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4408,7 +4408,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "kar-run-manifest.v2" {
+	if err != nil || schema != "mulgae-run-manifest.v2" {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4495,7 +4495,7 @@ func parsePublicationLineage(document []byte) (publicationLineageWire, error) {
 	if err := strictDecodePublicationJSON(document, &wire); err != nil {
 		return publicationLineageWire{}, err
 	}
-	if wire.SchemaVersion != "kar-lineage-edge.v1" || wire.EdgeID == "" ||
+	if wire.SchemaVersion != "mulgae-lineage-edge.v1" || wire.EdgeID == "" ||
 		wire.Child.SessionID == "" || wire.Child.RunID == "" || wire.Child.ReviewID == "" {
 		return publicationLineageWire{}, errors.New("invalid lineage edge")
 	}
@@ -4516,7 +4516,7 @@ func parsePublicationEpoch(document []byte) (publicationEpochWire, error) {
 	if err := strictDecodePublicationJSON(document, &wire); err != nil {
 		return publicationEpochWire{}, err
 	}
-	if wire.SchemaVersion != "kar-publication-epoch.v1" || wire.StoreEpoch == 0 ||
+	if wire.SchemaVersion != "mulgae-publication-epoch.v1" || wire.StoreEpoch == 0 ||
 		!validPublicationSHA256(wire.Manifest.SHA256) || !validPublicationSHA256(wire.LineageEdge.SHA256) || !validPublicationSHA256(wire.FinalReview.SHA256) {
 		return publicationEpochWire{}, errors.New("invalid epoch record")
 	}

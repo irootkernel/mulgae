@@ -1,22 +1,22 @@
-# KAR Standalone Review CLI
+# Mulgae Standalone Review CLI
 
 **Development Specification v1.15.0**
 **Date:** 2026-07-28
-**Primary binary:** `kar`
+**Primary binary:** `mulgae`
 **Implementation target:** Go
 
-KAR is a standalone, help-first CLI for multi-provider, multi-role AI review. It captures an immutable review target, composes role-specific prompt packets, executes provider instances through serialized lanes, validates and repairs structured output, verifies evidence, and publishes a durable review artifact.
+Mulgae is a standalone, help-first CLI for multi-provider, multi-role AI review. It captures an immutable review target, composes role-specific prompt packets, executes provider instances through serialized lanes, validates and repairs structured output, verifies evidence, and publishes a durable review artifact.
 
-KAR reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
+Mulgae reports findings and recommendations. It does not grant merge, release, waiver, or organizational approval.
 CI is a trusted projection of a committed artifact, not a `review` command mode: `review --ci` and a CI request field are unsupported.
 
-KAR roles are functional review lenses.
+Mulgae roles are functional review lenses.
 They are not people, teams, or organizational authorities.
-KAR reports findings and recommendations only.
+Mulgae reports findings and recommendations only.
 
 ## SOT 1.15.0 Contract and Implementation Baseline
 
-This package defines an 84-path/83-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.15.0 preserves G001–G012 as history and closes G013 by ordering the exact release-binary workflow before live family certification. That order exercises KAR's bounded Kimi login recovery before the independent capability gate while retaining both layers as mandatory, fail-closed release evidence.
+This package defines an 84-path/83-payload SOT contract. `CHECKSUMS.sha256` remains cataloged but excluded from its own payload. SOT 1.15.0 preserves G001–G012 as history and closes G013 by ordering the exact release-binary workflow before live family certification. That order exercises Mulgae's bounded Kimi login recovery before the independent capability gate while retaining both layers as mandatory, fail-closed release evidence.
 
 The `plan/` subtree is repository planning authority, not runtime product SOT. It is excluded from `CHECKSUMS.sha256`, the 84-path SOT catalog, runtime defaults, schemas, and release evidence. A plan changes product behavior only after its accepted contract is promoted into the normative SOT; if planning text conflicts with this package, the normative SOT wins.
 
@@ -40,13 +40,13 @@ Current independent oracles are: product commands **17**; canonical probe argv *
 A validated review is published at:
 
 ```text
-.kar/{session_id}/{run_id}/review_{uuidv7}.json
+.mulgae/{session_id}/{run_id}/review_{uuidv7}.json
 ```
 
 Example:
 
 ```text
-.kar/s_019f596a-cf80-7c67-b265-f37053d51ccf/
+.mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/
      r_019f596a-cfe4-7c9c-b82e-7149158243ba/
      review_019f596a-d174-7321-b920-c2d312c82cc2.json
 ```
@@ -58,10 +58,10 @@ The file is created only after deterministic schema, semantic, and evidence vali
 1. Review targets, project context, project-controlled prompts, and provider output are untrusted inputs.
 2. Project configuration cannot introduce executable provider commands by default.
 3. Provider execution has no live project filesystem access.
-4. A provider returns JSON only. KAR owns normalization, identifiers, the four final outcome axes, and publication.
+4. A provider returns JSON only. Mulgae owns normalization, identifiers, the four final outcome axes, and publication.
 5. Missing AI-owned mandatory values may receive one constrained repair attempt. System-owned fields are never delegated to AI.
 6. Fallback is triggered only by explicitly classified provider availability, execution, or invalid-output failures.
-7. Security violations, configuration violations, user cancellation, artifact failures, and KAR internal errors do not trigger fallback.
+7. Security violations, configuration violations, user cancellation, artifact failures, and Mulgae internal errors do not trigger fallback.
 8. Completed runs and published review artifacts are immutable.
 9. A completed run has at most one top-level `review_*.json` artifact.
 10. UUIDv7 provides identity and approximate time ordering. SHA-256 recorded in `manifest.json` provides integrity.
@@ -119,35 +119,35 @@ flowchart LR
 
 ## Machine-Readable Contracts
 
-All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts remain frozen. Project-local doctor output uses `kar-doctor-result.v2`; provider/platform v1 evidence is compatibility-only and cannot enter readiness.
+All schemas use JSON Schema Draft 2020-12. Released v1 compatibility contracts remain frozen. Project-local doctor output uses `mulgae-doctor-result.v2`; provider/platform v1 evidence is compatibility-only and cannot enter readiness.
 
 | Contract | File |
 |---|---|
-| Provider review output v1 | [kar-provider-review-output.v1.schema.json](schemas/kar-provider-review-output.v1.schema.json) |
-| Provider review output v2 | [kar-provider-review-output.v2.schema.json](schemas/kar-provider-review-output.v2.schema.json) |
-| Provider review wire v2 | [kar-provider-review-wire.v2.schema.json](schemas/kar-provider-review-wire.v2.schema.json) |
-| Provider followup output v1 | [kar-provider-followup-output.v1.schema.json](schemas/kar-provider-followup-output.v1.schema.json) |
-| Provider followup output v2 | [kar-provider-followup-output.v2.schema.json](schemas/kar-provider-followup-output.v2.schema.json) |
-| Final review artifact v1 | [kar-review-artifact.v1.schema.json](schemas/kar-review-artifact.v1.schema.json) |
-| Final review artifact v2 | [kar-review-artifact.v2.schema.json](schemas/kar-review-artifact.v2.schema.json) |
-| Final review artifact v3 | [kar-review-artifact.v3.schema.json](schemas/kar-review-artifact.v3.schema.json) |
-| Run manifest v1 | [kar-run-manifest.v1.schema.json](schemas/kar-run-manifest.v1.schema.json) |
-| Run manifest v2 | [kar-run-manifest.v2.schema.json](schemas/kar-run-manifest.v2.schema.json) |
-| Validation result v1 | [kar-validation-result.v1.schema.json](schemas/kar-validation-result.v1.schema.json) |
-| Validation result v2 | [kar-validation-result.v2.schema.json](schemas/kar-validation-result.v2.schema.json) |
-| Validation receipt | [kar-validation-receipt.v1.schema.json](schemas/kar-validation-receipt.v1.schema.json) |
-| Repair request | [kar-repair-request.v1.schema.json](schemas/kar-repair-request.v1.schema.json) |
-| Repair patch | [kar-repair-patch.v1.schema.json](schemas/kar-repair-patch.v1.schema.json) |
-| Command result envelope | [kar-command-result.v1.schema.json](schemas/kar-command-result.v1.schema.json) |
-| Doctor result v1 (compatibility) | [kar-doctor-result.v1.schema.json](schemas/kar-doctor-result.v1.schema.json) |
-| Project-local doctor result v2 | [kar-doctor-result.v2.schema.json](schemas/kar-doctor-result.v2.schema.json) |
-| Clean plan | [kar-clean-plan.v1.schema.json](schemas/kar-clean-plan.v1.schema.json) |
-| Export manifest | [kar-export-manifest.v1.schema.json](schemas/kar-export-manifest.v1.schema.json) |
-| G0 file catalog | [kar-g0-file-catalog.v1.schema.json](schemas/kar-g0-file-catalog.v1.schema.json) |
-| Provider contract evidence v1 (compatibility only) | [kar-provider-contract-evidence.v1.schema.json](schemas/kar-provider-contract-evidence.v1.schema.json) |
-| Provider contract evidence v2 (readiness authority) | [kar-provider-contract-evidence.v2.schema.json](schemas/kar-provider-contract-evidence.v2.schema.json) |
-| Platform contract evidence v1 (compatibility only) | [kar-platform-contract-evidence.v1.schema.json](schemas/kar-platform-contract-evidence.v1.schema.json) |
-| Platform contract evidence v2 (readiness authority) | [kar-platform-contract-evidence.v2.schema.json](schemas/kar-platform-contract-evidence.v2.schema.json) |
+| Provider review output v1 | [mulgae-provider-review-output.v1.schema.json](schemas/mulgae-provider-review-output.v1.schema.json) |
+| Provider review output v2 | [mulgae-provider-review-output.v2.schema.json](schemas/mulgae-provider-review-output.v2.schema.json) |
+| Provider review wire v2 | [mulgae-provider-review-wire.v2.schema.json](schemas/mulgae-provider-review-wire.v2.schema.json) |
+| Provider followup output v1 | [mulgae-provider-followup-output.v1.schema.json](schemas/mulgae-provider-followup-output.v1.schema.json) |
+| Provider followup output v2 | [mulgae-provider-followup-output.v2.schema.json](schemas/mulgae-provider-followup-output.v2.schema.json) |
+| Final review artifact v1 | [mulgae-review-artifact.v1.schema.json](schemas/mulgae-review-artifact.v1.schema.json) |
+| Final review artifact v2 | [mulgae-review-artifact.v2.schema.json](schemas/mulgae-review-artifact.v2.schema.json) |
+| Final review artifact v3 | [mulgae-review-artifact.v3.schema.json](schemas/mulgae-review-artifact.v3.schema.json) |
+| Run manifest v1 | [mulgae-run-manifest.v1.schema.json](schemas/mulgae-run-manifest.v1.schema.json) |
+| Run manifest v2 | [mulgae-run-manifest.v2.schema.json](schemas/mulgae-run-manifest.v2.schema.json) |
+| Validation result v1 | [mulgae-validation-result.v1.schema.json](schemas/mulgae-validation-result.v1.schema.json) |
+| Validation result v2 | [mulgae-validation-result.v2.schema.json](schemas/mulgae-validation-result.v2.schema.json) |
+| Validation receipt | [mulgae-validation-receipt.v1.schema.json](schemas/mulgae-validation-receipt.v1.schema.json) |
+| Repair request | [mulgae-repair-request.v1.schema.json](schemas/mulgae-repair-request.v1.schema.json) |
+| Repair patch | [mulgae-repair-patch.v1.schema.json](schemas/mulgae-repair-patch.v1.schema.json) |
+| Command result envelope | [mulgae-command-result.v1.schema.json](schemas/mulgae-command-result.v1.schema.json) |
+| Doctor result v1 (compatibility) | [mulgae-doctor-result.v1.schema.json](schemas/mulgae-doctor-result.v1.schema.json) |
+| Project-local doctor result v2 | [mulgae-doctor-result.v2.schema.json](schemas/mulgae-doctor-result.v2.schema.json) |
+| Clean plan | [mulgae-clean-plan.v1.schema.json](schemas/mulgae-clean-plan.v1.schema.json) |
+| Export manifest | [mulgae-export-manifest.v1.schema.json](schemas/mulgae-export-manifest.v1.schema.json) |
+| G0 file catalog | [mulgae-g0-file-catalog.v1.schema.json](schemas/mulgae-g0-file-catalog.v1.schema.json) |
+| Provider contract evidence v1 (compatibility only) | [mulgae-provider-contract-evidence.v1.schema.json](schemas/mulgae-provider-contract-evidence.v1.schema.json) |
+| Provider contract evidence v2 (readiness authority) | [mulgae-provider-contract-evidence.v2.schema.json](schemas/mulgae-provider-contract-evidence.v2.schema.json) |
+| Platform contract evidence v1 (compatibility only) | [mulgae-platform-contract-evidence.v1.schema.json](schemas/mulgae-platform-contract-evidence.v1.schema.json) |
+| Platform contract evidence v2 (readiness authority) | [mulgae-platform-contract-evidence.v2.schema.json](schemas/mulgae-platform-contract-evidence.v2.schema.json) |
 See [schemas/README.md](schemas/README.md) for validation responsibilities and the distinction between JSON Schema checks and semantic checks.
 
 ## Examples
@@ -184,26 +184,26 @@ See [schemas/README.md](schemas/README.md) for validation responsibilities and t
 ## Minimal User Workflow
 
 ```bash
-kar init
-kar doctor
-kar review --diff origin/main...HEAD \
+mulgae init
+mulgae doctor
+mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
-kar report --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
+mulgae report --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
   --output-path reports/review.md --output json
-kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
+mulgae findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf \
   --severity high --output json
 ```
 
 A remediation check creates a new run in the same session:
 
 ```bash
-kar followup --run latest --finding F001 --dirty \
+mulgae followup --run latest --finding F001 --dirty \
   --objective "Verify only whether the original issue is resolved."
 ```
 
 ## Recorded Implementation Progress
 
-The repository records historical G001–G012 evidence. G013 is **RELEASE_READY** after correcting the release-blocking order that let an expired Kimi session stop the gate before KAR's own login recovery could run. The sole gate now executes the exact-binary root/child workflow first and then requires all retained family capability certifications on the same invocation.
+The repository records historical G001–G012 evidence. G013 is **RELEASE_READY** after correcting the release-blocking order that let an expired Kimi session stop the gate before Mulgae's own login recovery could run. The sole gate now executes the exact-binary root/child workflow first and then requires all retained family capability certifications on the same invocation.
 
 | Goal | Scope | Status | Repository marker |
 |---|---|---|---|

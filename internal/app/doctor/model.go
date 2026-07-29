@@ -13,7 +13,7 @@ import (
 
 const (
 	// SchemaVersion is the fixed doctor-result contract version.
-	SchemaVersion = "kar-doctor-result.v1"
+	SchemaVersion = "mulgae-doctor-result.v1"
 
 	remoteTransmissionRiskCode    = "remote_provider_transmission_risk"
 	remoteTransmissionRiskMessage = "Providers may transmit prompts and targets to remote services; select providers appropriate for your data policy."
@@ -78,7 +78,7 @@ const (
 	DiagnosticSecurity      DiagnosticCategory = "security"
 )
 
-// DoctorResult is the kar-doctor-result.v1 JSON document.
+// DoctorResult is the mulgae-doctor-result.v1 JSON document.
 type DoctorResult struct {
 	SchemaVersion         string             `json:"schema_version"`
 	CheckedAt             time.Time          `json:"checked_at"`
@@ -490,7 +490,7 @@ func validURI(value *string) bool {
 		return false
 	}
 	raw := *value
-	if strings.HasPrefix(raw, ".kar/") {
+	if strings.HasPrefix(raw, ".mulgae/") {
 		return validLocalArtifactReference(raw)
 	}
 	parsed, err := url.Parse(raw)
@@ -512,7 +512,7 @@ func validLocalArtifactReference(raw string) bool {
 		return false
 	}
 	components := strings.Split(raw, "/")
-	if len(components) < 2 || components[0] != ".kar" {
+	if len(components) < 2 || components[0] != ".mulgae" {
 		return false
 	}
 	for _, component := range components[1:] {

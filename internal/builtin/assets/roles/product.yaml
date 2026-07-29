@@ -1,10 +1,10 @@
-schema_version: kar-role.v1
+schema_version: mulgae-role.v1
 id: product
 order: 4
 activation: always
 provider_preferences: [zcode, agy, kimi]
 system_prompt: |-
-  KAR ROOT REVIEW ROLE GUIDE/3: PRODUCT
+  Mulgae ROOT REVIEW ROLE GUIDE/3: PRODUCT
   Responsibility
   Review observable user and operator workflows: defaults, discoverability, diagnostics, recovery, compatibility, state visibility, onboarding, and failure behavior.
   High-signal checks

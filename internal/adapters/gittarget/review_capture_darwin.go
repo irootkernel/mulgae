@@ -17,8 +17,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
@@ -128,7 +128,7 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 	if adapter.artistBriefPath == "" {
 		return material, nil
 	}
-	manifest := artistInputManifest{SchemaVersion: "kar-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistBriefPath, VisualAssets: []artistAssetManifest{}}
+	manifest := artistInputManifest{SchemaVersion: "mulgae-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistBriefPath, VisualAssets: []artistAssetManifest{}}
 	for _, file := range material.Snapshot().Files() {
 		if file.Path().String() == adapter.artistBriefPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
 			manifest.Task = string(file.Bytes())
@@ -268,31 +268,31 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	karRules, karDigest, err := capturedKarIgnore(root)
+	mulgaeRules, mulgaeDigest, err := capturedMulgaeIgnore(root)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err = filterKarIgnoredPatch(patch, karRules)
+	patch, err = filterMulgaeIgnoredPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "diff", patch); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles, err := adapter.objectSnapshot(ctx, root, base, karRules)
+	baseFiles, err := adapter.objectSnapshot(ctx, root, base, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	headFiles, err := adapter.objectSnapshot(ctx, root, head, karRules)
+	headFiles, err := adapter.objectSnapshot(ctx, root, head, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
-	headFiles = filterKarIgnoredSnapshot(headFiles, karRules)
+	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	headFiles = filterMulgaeIgnoredSnapshot(headFiles, mulgaeRules)
 	return adapter.materialize(patch, headFiles, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase: baseFiles,
 		ports.CapturedEvidenceHead: headFiles,
-	}, "diff;git=canonical-v1;ignore=karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+	}, "diff;git=canonical-v1;ignore=mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		return ports.NewCapturedReviewGitTarget(repo.repositoryID, base, head, tree, nil, patch)
 	})
 }
@@ -350,27 +350,27 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	karRules, karDigest, err := capturedKarIgnore(root)
+	mulgaeRules, mulgaeDigest, err := capturedMulgaeIgnore(root)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err := filterKarIgnoredPatch(patchOut.Stdout, karRules)
+	patch, err := filterMulgaeIgnoredPatch(patchOut.Stdout, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "index", patch); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles, err := adapter.objectSnapshot(ctx, root, base, karRules)
+	baseFiles, err := adapter.objectSnapshot(ctx, root, base, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	indexFiles, err := adapter.objectSnapshot(ctx, root, indexTree, karRules)
+	indexFiles, err := adapter.objectSnapshot(ctx, root, indexTree, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
-	indexFiles = filterKarIgnoredSnapshot(indexFiles, karRules)
+	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	indexFiles = filterMulgaeIgnoredSnapshot(indexFiles, mulgaeRules)
 	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("index changed while capturing")
@@ -378,7 +378,7 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	return adapter.materialize(patch, indexFiles, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase:  baseFiles,
 		ports.CapturedEvidenceIndex: indexFiles,
-	}, "index;git=canonical-v1;ignore=karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+	}, "index;git=canonical-v1;ignore=mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		mode := domain.GitTargetDiff
 		if baseRef == "HEAD" {
 			mode = domain.GitTargetStage
@@ -553,18 +553,18 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 			continue
 		}
 		if len(fields) != 3 || (fields[0] != "100644" && fields[0] != "100755") || fields[1] != "blob" {
-			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .karignore", split[1])
+			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .mulgaeignore", split[1])
 		}
 		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", fields[2]))
 		if err != nil {
 			return nil, err
 		}
 		if int64(len(blob.Stdout)) > ports.WorkspaceSnapshotMaxFileBytes {
-			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .karignore", split[1])
+			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .mulgaeignore", split[1])
 		}
 		file, err := adapter.newCapturedFile(ctx, path, blob.Stdout)
 		if err != nil {
-			return nil, fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", split[1], err)
+			return nil, fmt.Errorf("captured path %q: %w; add it to .mulgaeignore if it is not reviewable", split[1], err)
 		}
 		files = append(files, file)
 	}
@@ -589,7 +589,7 @@ func sortFiles(files []ports.WorkspaceSnapshotFile) ([]ports.WorkspaceSnapshotFi
 	return files, nil
 }
 func reservedReviewPath(path string) bool {
-	return path == ".git" || path == ".kar" || strings.HasPrefix(path, ".git/") || strings.HasPrefix(path, ".kar/")
+	return path == ".git" || path == ".mulgae" || strings.HasPrefix(path, ".git/") || strings.HasPrefix(path, ".mulgae/")
 }
 func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports.AnchoredRoot) (ports.CapturedReviewMaterial, error) {
 	repo, cleanup, err := newCanonicalRepository(root, "HEAD")
@@ -617,12 +617,12 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	karRules, karDigest, err := capturedKarIgnore(root)
+	mulgaeRules, mulgaeDigest, err := capturedMulgaeIgnore(root)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	for path := range eligible.eligible {
-		if workspaceIgnored(path, karRules) {
+		if workspaceIgnored(path, mulgaeRules) {
 			delete(eligible.eligible, path)
 		}
 	}
@@ -635,23 +635,23 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 		return ports.CapturedReviewMaterial{}, err
 	}
 	patch := append(append([]byte(nil), out.Stdout...), untracked...)
-	patch, err = filterKarIgnoredPatch(patch, karRules)
+	patch, err = filterMulgaeIgnoredPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "git", patch); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles, err := adapter.objectSnapshot(ctx, root, head, karRules)
+	baseFiles, err := adapter.objectSnapshot(ctx, root, head, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	files, err := adapter.worktreeSnapshot(ctx, root, eligible.eligible, karRules)
+	files, err := adapter.worktreeSnapshot(ctx, root, eligible.eligible, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterKarIgnoredSnapshot(baseFiles, karRules)
-	files = filterKarIgnoredSnapshot(files, karRules)
+	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	files = filterMulgaeIgnoredSnapshot(files, mulgaeRules)
 	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
@@ -667,7 +667,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	return adapter.materialize(patch, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase:     baseFiles,
 		ports.CapturedEvidenceWorktree: files,
-	}, "dirty;git=canonical-v1;ignore="+eligible.identity+"+karignore-v1-"+karDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+	}, "dirty;git=canonical-v1;ignore="+eligible.identity+"+mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		return ports.NewCapturedReviewGitTargetWithMode(domain.GitTargetDirty, repo.repositoryID, head, head, tree, &indexTree, patch)
 	})
 }
@@ -689,7 +689,7 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 	for _, path := range paths {
 		bytes, err := readStableRegular(root.String(), path, int(ports.ReviewTargetMaxBytes))
 		if err != nil {
-			return nil, fmt.Errorf("untracked path %q: %w; add it to .karignore", path, err)
+			return nil, fmt.Errorf("untracked path %q: %w; add it to .mulgaeignore", path, err)
 		}
 		if len(patch)+len(bytes) > ports.ReviewTargetMaxBytes {
 			return nil, fmt.Errorf("dirty patch exceeds limit")
@@ -806,7 +806,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if selected {
-				return fmt.Errorf("captured path %q is a symlink; add it to .karignore", relative)
+				return fmt.Errorf("captured path %q is a symlink; add it to .mulgaeignore", relative)
 			}
 			return nil
 		}
@@ -815,7 +815,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		if !entry.Type().IsRegular() {
 			if selected {
-				return fmt.Errorf("captured path %q is not a regular file; add it to .karignore", relative)
+				return fmt.Errorf("captured path %q is not a regular file; add it to .mulgaeignore", relative)
 			}
 			return nil
 		}
@@ -828,7 +828,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		bytes, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
-			return fmt.Errorf("captured path %q: %w; add it to .karignore", relative, err)
+			return fmt.Errorf("captured path %q: %w; add it to .mulgaeignore", relative, err)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil {
@@ -836,7 +836,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		file, err := adapter.newCapturedFile(ctx, path, bytes)
 		if err != nil {
-			return fmt.Errorf("captured path %q: %w; add it to .karignore if it is not reviewable", relative, err)
+			return fmt.Errorf("captured path %q: %w; add it to .mulgaeignore if it is not reviewable", relative, err)
 		}
 		files = append(files, file)
 		return nil

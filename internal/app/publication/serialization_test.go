@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type publicationTestValidator struct {
@@ -114,7 +114,7 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 		t.Fatal("final artifact omits production provenance")
 	}
 	production := final.Provenance.Production
-	if production.BuildProduct != "kar" || production.BuildVersion != "0.1.0" ||
+	if production.BuildProduct != "mulgae" || production.BuildVersion != "0.1.0" ||
 		production.BuildCommit != "0123456789abcdef" || !production.ObjectivePresent ||
 		production.ObjectiveSHA256 == nil || production.SnapshotManifestSHA256 == "" ||
 		production.WorkspaceTerminalReceipt != sha256Identifier([]byte("workspace-terminal")) || len(production.Providers) != 2 {
@@ -194,7 +194,7 @@ func TestFinalArtifactV3SerializesVerifiedVisualEvidence(t *testing.T) {
 	if err := unmarshalExact(bundle.Final().Bytes(), &final); err != nil {
 		t.Fatal(err)
 	}
-	if final.SchemaVersion != "kar-review-artifact.v3" {
+	if final.SchemaVersion != "mulgae-review-artifact.v3" {
 		t.Fatalf("schema version = %q", final.SchemaVersion)
 	}
 	visual := final.Findings[0].Evidence[0].Visual
@@ -229,7 +229,7 @@ func TestPublicationBundleBindsCanonicalSupportIndex(t *testing.T) {
 	if err := unmarshalExact(bundle.Excerpts()[len(bundle.Excerpts())-1].Bytes(), &index); err != nil {
 		t.Fatal(err)
 	}
-	if index.SchemaVersion != "kar-run-support-index.v1" || len(index.Artifacts) == 0 {
+	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) == 0 {
 		t.Fatalf("support index is not canonical runtime inventory: %#v", index)
 	}
 	for _, artifact := range index.Artifacts {
@@ -254,7 +254,7 @@ func TestRepairedAttemptSelectsInitialReplayPrompt(t *testing.T) {
 	for _, artifact := range bundle.Excerpts() {
 		var candidateManifest runtimeTargetManifestWire
 		if err := unmarshalExact(artifact.Bytes(), &candidateManifest); err == nil &&
-			candidateManifest.SchemaVersion == "kar-runtime-target-manifest.v1" {
+			candidateManifest.SchemaVersion == "mulgae-runtime-target-manifest.v1" {
 			targetManifest = &candidateManifest
 			break
 		}
@@ -299,7 +299,7 @@ func TestFailedAttemptRetainsInitialReplayPrompt(t *testing.T) {
 	for _, artifact := range artifacts {
 		var decoded runtimeTargetManifestWire
 		if err := unmarshalExact(artifact.Bytes(), &decoded); err == nil &&
-			decoded.SchemaVersion == "kar-runtime-target-manifest.v1" {
+			decoded.SchemaVersion == "mulgae-runtime-target-manifest.v1" {
 			targetManifest = decoded
 			found = true
 			break
@@ -344,7 +344,7 @@ func TestRuntimeArtifactsPersistCapturedReviewArchive(t *testing.T) {
 			foundArchive = bytes.Equal(artifact.Bytes(), archive)
 		}
 		var decoded runtimeTargetManifestWire
-		if unmarshalExact(artifact.Bytes(), &decoded) == nil && decoded.SchemaVersion == "kar-runtime-target-manifest.v1" {
+		if unmarshalExact(artifact.Bytes(), &decoded) == nil && decoded.SchemaVersion == "mulgae-runtime-target-manifest.v1" {
 			manifest = decoded
 		}
 	}
@@ -385,7 +385,7 @@ func TestRuntimeArtifactsPersistAndBindArtistInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	artistContext, err := json.Marshal(capturedArtistInputWire{
-		SchemaVersion: "kar-artist-inputs.v1", Status: "ready", TaskPath: "docs/roadmap.md", Task: string(briefBytes),
+		SchemaVersion: "mulgae-artist-inputs.v1", Status: "ready", TaskPath: "docs/roadmap.md", Task: string(briefBytes),
 		VisualAssets: []capturedArtistVisualWire{{Path: visual.Path().String(), SHA256: visual.SHA256(), MediaType: visual.MediaType()}},
 	})
 	if err != nil {

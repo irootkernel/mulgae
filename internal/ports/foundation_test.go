@@ -18,14 +18,14 @@ func TestAnchoredRootAndSafeRelativePathValidation(t *testing.T) {
 		valid bool
 	}{
 		{name: "root", value: "/", valid: true},
-		{name: "canonical absolute", value: "/tmp/kar", valid: true},
+		{name: "canonical absolute", value: "/tmp/mulgae", valid: true},
 		{name: "empty", value: ""},
-		{name: "relative", value: "tmp/kar"},
-		{name: "NUL", value: "/tmp/kar\x00blocked"},
-		{name: "backslash", value: "/tmp\\kar"},
+		{name: "relative", value: "tmp/mulgae"},
+		{name: "NUL", value: "/tmp/mulgae\x00blocked"},
+		{name: "backslash", value: "/tmp\\mulgae"},
 		{name: "dot", value: "/tmp/."},
-		{name: "dotdot", value: "/tmp/../kar"},
-		{name: "trailing separator", value: "/tmp/kar/"},
+		{name: "dotdot", value: "/tmp/../mulgae"},
+		{name: "trailing separator", value: "/tmp/mulgae/"},
 	}
 	for _, test := range rootTests {
 		t.Run("root/"+test.name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestAnchoredRootAndSafeRelativePathValidation(t *testing.T) {
 		{name: "one component", value: "manifest.json", valid: true},
 		{name: "nested", value: "runs/current/manifest.json", valid: true},
 		{name: "empty", value: ""},
-		{name: "absolute", value: "/tmp/kar"},
+		{name: "absolute", value: "/tmp/mulgae"},
 		{name: "NUL", value: "run\x00/manifest"},
 		{name: "backslash", value: "run\\manifest"},
 		{name: "dot", value: "."},
@@ -131,7 +131,7 @@ func TestContractValuesAndWriteRequestsDefensivelyOwnMutableInputs(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assetSource, err := NewSafeRelativePath("schemas/kar-command-result.v1.schema.json")
+	assetSource, err := NewSafeRelativePath("schemas/mulgae-command-result.v1.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestContractValuesAndWriteRequestsDefensivelyOwnMutableInputs(t *testing.T)
 		t.Fatalf("metadata = %#v", metadata)
 	}
 
-	root, err := NewAnchoredRoot("/tmp/kar")
+	root, err := NewAnchoredRoot("/tmp/mulgae")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestAssetMetadataRequiresCanonicalSourceAndMediaType(t *testing.T) {
 func TestSecureWriteRequestRequiresStreamCapSourceIDsAndAbort(t *testing.T) {
 	t.Parallel()
 
-	root, err := NewAnchoredRoot("/tmp/kar")
+	root, err := NewAnchoredRoot("/tmp/mulgae")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestSecureWriteRequestRequiresStreamCapSourceIDsAndAbort(t *testing.T) {
 func TestSecureWriteReceiptBindsExactRootAndLineage(t *testing.T) {
 	t.Parallel()
 
-	root, err := NewAnchoredRoot("/tmp/kar")
+	root, err := NewAnchoredRoot("/tmp/mulgae")
 	if err != nil {
 		t.Fatal(err)
 	}

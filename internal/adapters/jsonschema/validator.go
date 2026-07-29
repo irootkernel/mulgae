@@ -17,7 +17,7 @@ import (
 	"github.com/dlclark/regexp2"
 	jschema "github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (

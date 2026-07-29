@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type catalogAsset struct {
@@ -59,8 +59,8 @@ func (writer fakeWriter) Write(ctx context.Context, request ports.SecureWriteReq
 }
 
 func TestListFiltersOrderedSchemaMetadata(t *testing.T) {
-	first := testAsset(t, "https://kar.local/schemas/a.schema.json", ports.AssetKindSchema, "schemas/a.schema.json", []byte(`{"a":1}`))
-	second := testAsset(t, "https://kar.local/schemas/b.schema.json", ports.AssetKindSchema, "schemas/b.schema.json", []byte(`{"b":2}`))
+	first := testAsset(t, "https://mulgae.local/schemas/a.schema.json", ports.AssetKindSchema, "schemas/a.schema.json", []byte(`{"a":1}`))
+	second := testAsset(t, "https://mulgae.local/schemas/b.schema.json", ports.AssetKindSchema, "schemas/b.schema.json", []byte(`{"b":2}`))
 	help := testAsset(t, "help:quickstart", ports.AssetKindHelp, "docs/help.md", []byte("help\n"))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{
@@ -80,8 +80,8 @@ func TestListFiltersOrderedSchemaMetadata(t *testing.T) {
 	}
 }
 func TestListRejectsOutOfOrderCatalog(t *testing.T) {
-	first := testAsset(t, "https://kar.local/schemas/a.schema.json", ports.AssetKindSchema, "schemas/a.schema.json", []byte(`{"a":1}`))
-	second := testAsset(t, "https://kar.local/schemas/b.schema.json", ports.AssetKindSchema, "schemas/b.schema.json", []byte(`{"b":2}`))
+	first := testAsset(t, "https://mulgae.local/schemas/a.schema.json", ports.AssetKindSchema, "schemas/a.schema.json", []byte(`{"a":1}`))
+	second := testAsset(t, "https://mulgae.local/schemas/b.schema.json", ports.AssetKindSchema, "schemas/b.schema.json", []byte(`{"b":2}`))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{
 			first.metadata.ID().String():  first,
@@ -94,7 +94,7 @@ func TestListRejectsOutOfOrderCatalog(t *testing.T) {
 }
 
 func TestShowReturnsExactDefensiveBytes(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte("{\r\n  \"exact\": true\r\n}\n"))
+	asset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte("{\r\n  \"exact\": true\r\n}\n"))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{asset.metadata.ID().String(): asset},
 		listed: []ports.AssetMetadata{asset.metadata},
@@ -126,7 +126,7 @@ func TestShowReturnsExactDefensiveBytes(t *testing.T) {
 }
 
 func TestShowRejectsUnknownAndNonSchemaIDs(t *testing.T) {
-	schemaAsset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
+	schemaAsset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
 	helpAsset := testAsset(t, "help:quickstart", ports.AssetKindHelp, "docs/help.md", []byte("help\n"))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{
@@ -136,7 +136,7 @@ func TestShowRejectsUnknownAndNonSchemaIDs(t *testing.T) {
 		listed: []ports.AssetMetadata{helpAsset.metadata, schemaAsset.metadata},
 	}
 	service := NewService(catalog, nil)
-	unknown := mustAssetID(t, "https://kar.local/schemas/missing.schema.json")
+	unknown := mustAssetID(t, "https://mulgae.local/schemas/missing.schema.json")
 
 	for name, id := range map[string]ports.AssetID{
 		"unknown":    unknown,
@@ -153,7 +153,7 @@ func TestShowRejectsUnknownAndNonSchemaIDs(t *testing.T) {
 }
 
 func TestExportStreamsExactRequestAndBindsReceipt(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/export.schema.json", ports.AssetKindSchema, "schemas/export.schema.json", []byte("{\n  \"preserve\": [1, 2, 3]\n}\n"))
+	asset := testAsset(t, "https://mulgae.local/schemas/export.schema.json", ports.AssetKindSchema, "schemas/export.schema.json", []byte("{\n  \"preserve\": [1, 2, 3]\n}\n"))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{asset.metadata.ID().String(): asset},
 		listed: []ports.AssetMetadata{asset.metadata},
@@ -200,7 +200,7 @@ func TestExportStreamsExactRequestAndBindsReceipt(t *testing.T) {
 }
 
 func TestExportFailsWithoutWriter(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
+	asset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{asset.metadata.ID().String(): asset},
 		listed: []ports.AssetMetadata{asset.metadata},
@@ -211,7 +211,7 @@ func TestExportFailsWithoutWriter(t *testing.T) {
 }
 
 func TestExportRejectsBlockedWrite(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
+	asset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
 	catalog := &fakeCatalog{
 		assets: map[string]catalogAsset{asset.metadata.ID().String(): asset},
 		listed: []ports.AssetMetadata{asset.metadata},
@@ -240,7 +240,7 @@ func TestExportRejectsBlockedWrite(t *testing.T) {
 }
 
 func TestExportRejectsReceiptThatDoesNotBindAuthoritativeBytes(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
+	asset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
 	root := mustRoot(t, "/private/schema-export")
 	destination := mustRelativePath(t, "schemas/example.schema.json")
 	otherDestination := mustRelativePath(t, "schemas/other.schema.json")
@@ -289,7 +289,7 @@ func TestExportRejectsReceiptThatDoesNotBindAuthoritativeBytes(t *testing.T) {
 	}
 }
 func TestCatalogAndWriterErrorsRemainTyped(t *testing.T) {
-	asset := testAsset(t, "https://kar.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
+	asset := testAsset(t, "https://mulgae.local/schemas/example.schema.json", ports.AssetKindSchema, "schemas/example.schema.json", []byte(`{"schema":true}`))
 	root := mustRoot(t, "/private/schema-export")
 	destination := mustRelativePath(t, "schemas/example.schema.json")
 
@@ -355,7 +355,7 @@ func mustRelativePath(t *testing.T, value string) ports.SafeRelativePath {
 
 func mustReceipt(t *testing.T, destination ports.SafeRelativePath, sha256 string, size int64) ports.SecureWriteReceipt {
 	t.Helper()
-	receipt, err := ports.NewSecureWriteReceipt(mustRoot(t, "/private/schema-export"), destination, sha256, size, exportChannel, []string{"https://kar.local/schemas/example.schema.json"})
+	receipt, err := ports.NewSecureWriteReceipt(mustRoot(t, "/private/schema-export"), destination, sha256, size, exportChannel, []string{"https://mulgae.local/schemas/example.schema.json"})
 	if err != nil {
 		t.Fatalf("NewSecureWriteReceipt() error = %v", err)
 	}

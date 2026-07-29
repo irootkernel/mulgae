@@ -1,15 +1,15 @@
 {
-  "schema_version": "kar-provider-contract-evidence.v2",
+  "schema_version": "mulgae-provider-contract-evidence.v2",
   "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
   "gate_a2": {
-    "schema_version": "kar-gate-a2.v1",
+    "schema_version": "mulgae-gate-a2.v1",
     "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/gates/gate-a2.json",
     "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
     "nonce": "provider-contract-evidence-v2-example"
   },
   "runtime_contract": {
-    "schema_version": "kar-provider-runtime-contract.v1",
+    "schema_version": "mulgae-provider-runtime-contract.v1",
     "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-runtime-contract.v1.json",
     "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   },
@@ -42,7 +42,7 @@
       "cwd": "REPOSITORY_ROOT"
     },
     "secure_writer_index": {
-      "contract": "kar-secure-writer/v1",
+      "contract": "mulgae-secure-writer/v1",
       "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/candidates/0123456789abcdef0123456789abcdef01234567/providers/kimi/secure-writer-index.json",
       "file_sha256": null,
       "root_sha256": null

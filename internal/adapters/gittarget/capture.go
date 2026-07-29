@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Adapter captures immutable Git targets and reads trusted project files from

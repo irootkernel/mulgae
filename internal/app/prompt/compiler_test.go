@@ -9,7 +9,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 type testInvocationIssuer struct {
@@ -114,7 +114,7 @@ func TestComposeTrustedTemplatePreservesOrderedLayerProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantJSON := `{"schema_version":"kar-trusted-layer-manifest.v1","layers":[{"ordinal":1,"id":"builtin:common","version":"2","sha256":"` +
+	wantJSON := `{"schema_version":"mulgae-trusted-layer-manifest.v1","layers":[{"ordinal":1,"id":"builtin:common","version":"2","sha256":"` +
 		manifestSHA256(commonBytes) + `","byte_length":6},{"ordinal":2,"id":"builtin:role/logic","version":"2","sha256":"` +
 		manifestSHA256(roleBytes) + `","byte_length":4}]}`
 	if first != wantJSON || second != wantJSON {
@@ -153,10 +153,10 @@ func TestCompileEmitsCanonicalSOTPacket(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	stdin := compiled.Stdin()
-	if !bytes.HasPrefix(stdin, []byte("trusted contract\nKAR-FRAMES/1\n")) {
+	if !bytes.HasPrefix(stdin, []byte("trusted contract\nMulgae-FRAMES/1\n")) {
 		t.Fatalf("stdin prefix = %q", stdin)
 	}
-	if !bytes.HasSuffix(stdin, []byte("KAR-FRAMES-END/1\n")) {
+	if !bytes.HasSuffix(stdin, []byte("Mulgae-FRAMES-END/1\n")) {
 		t.Fatalf("stdin has no exact end sentinel: %q", stdin)
 	}
 
@@ -240,18 +240,18 @@ func TestCompileEmitsHardCodedFullPacketGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	const wantStdin = "trusted\n" +
-		"KAR-FRAMES/1\n" +
-		"KAR-UNTRUSTED/1\n" +
+		"Mulgae-FRAMES/1\n" +
+		"Mulgae-UNTRUSTED/1\n" +
 		"scope:s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7002-8002-000000000002/rt_019f5a09-5eec-7003-8003-000000000003/a_019f5a09-5eec-7004-8004-000000000004/i_019f5a09-5eec-7005-8005-000000000005\n" +
-		"section-id:3bbe7e16a0b8231536a766ad0ec6027d\n" +
+		"section-id:e68f4ab7bcb7e7a543cd9e879337b13d\n" +
 		"kind:review_target\n" +
 		"length:6\n" +
 		"sha256:34a04005bcaf206eec990bd9637d9fdb6725e0a0c0d4aebf003f17f4c956eb5c\n" +
 		"\n" +
 		"target\n" +
-		"KAR-END/3bbe7e16a0b8231536a766ad0ec6027d\n" +
-		"KAR-FRAMES-END/1\n"
-	const wantDigest = "942e404d57e12296cb5ffc34f497557cfae732ae86e67ad4f063a1995e0a27cd"
+		"Mulgae-END/e68f4ab7bcb7e7a543cd9e879337b13d\n" +
+		"Mulgae-FRAMES-END/1\n"
+	const wantDigest = "8f9475685bbe2074784abf938c6325f6bddf469fcf4f34ff620f6313019bc011"
 	if got := string(compiled.Stdin()); got != wantStdin {
 		t.Fatalf("stdin = %q, want %q", got, wantStdin)
 	}
@@ -350,7 +350,7 @@ func TestParseStdinRejectsMalformedTruncatedTrailingAndNonCanonicalFrames(t *tes
 	}
 	stdin := compiled.Stdin()
 	first := compiled.Sections()[0]
-	endID := []byte("KAR-END/" + first.ID())
+	endID := []byte("Mulgae-END/" + first.ID())
 
 	cases := []struct {
 		name   string
@@ -359,7 +359,7 @@ func TestParseStdinRejectsMalformedTruncatedTrailingAndNonCanonicalFrames(t *tes
 		{
 			name: "missing frames preamble",
 			mutate: func(value []byte) []byte {
-				return bytes.Replace(value, []byte("KAR-FRAMES/1"), []byte("KAR-FRAMES/X"), 1)
+				return bytes.Replace(value, []byte("Mulgae-FRAMES/1"), []byte("Mulgae-FRAMES/X"), 1)
 			},
 		},
 		{
@@ -377,7 +377,7 @@ func TestParseStdinRejectsMalformedTruncatedTrailingAndNonCanonicalFrames(t *tes
 		{
 			name: "mismatched end id",
 			mutate: func(value []byte) []byte {
-				return bytes.Replace(value, endID, []byte("KAR-END/00000000000000000000000000000000"), 1)
+				return bytes.Replace(value, endID, []byte("Mulgae-END/00000000000000000000000000000000"), 1)
 			},
 		},
 		{
@@ -696,7 +696,7 @@ func TestCompilerParserRoundTripArbitraryPayloads(t *testing.T) {
 			input.ProjectContext = &context
 		}
 		if iteration%3 == 0 {
-			input.ExternalLogs = []Payload{NewPayload(payload), NewPayload([]byte("\nKAR-FRAMES-END/1\n"))}
+			input.ExternalLogs = []Payload{NewPayload(payload), NewPayload([]byte("\nMulgae-FRAMES-END/1\n"))}
 		}
 		compiled, err := compiler.Compile(input)
 		if err != nil {
@@ -786,7 +786,7 @@ func testUUID(number int) string {
 
 func independentlyDerivedSectionID(source SourceInvocationID, ordinal uint64, kind SectionKind, payload []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROMPT-SECTION/1\x00"))
+	_, _ = hash.Write([]byte("Mulgae-PROMPT-SECTION/1\x00"))
 	_, _ = hash.Write([]byte(source.String()))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write([]byte(fmt.Sprintf("%d", ordinal)))
@@ -799,7 +799,7 @@ func independentlyDerivedSectionID(source SourceInvocationID, ordinal uint64, ki
 
 func independentlyHashedStdin(stdin []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1\x00"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1\x00"))
 	_, _ = hash.Write(stdin)
 	return hex.EncodeToString(hash.Sum(nil))
 }

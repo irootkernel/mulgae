@@ -1,5 +1,5 @@
 {
-  "schema_version": "kar-doctor-result.v1",
+  "schema_version": "mulgae-doctor-result.v1",
   "checked_at": "2026-07-13T03:11:00.000Z",
   "project_root": ".",
   "intended_provider_ids": [

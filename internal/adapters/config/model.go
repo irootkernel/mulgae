@@ -1,6 +1,6 @@
 package config
 
-import appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
+import appconfig "github.com/irootkernel/mulgae/internal/app/config"
 
 type Config = appconfig.Config
 type ProjectConfig = appconfig.ProjectConfig

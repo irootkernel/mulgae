@@ -1,9 +1,9 @@
 package config_test
 
 import (
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
-	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/domain"
 	"testing"
 )
 

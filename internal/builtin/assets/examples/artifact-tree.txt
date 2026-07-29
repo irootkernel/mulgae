@@ -1,4 +1,4 @@
-.kar/
+.mulgae/
   config.yaml
   cache/
     provider-profiles/
@@ -31,7 +31,7 @@
     s_019f596a-cf80-7c67-b265-f37053d51ccf/
       r_019f596a-cfe4-7c9c-b82e-7149158243ba/
         status.json
-        kar-runtime.jsonl
+        mulgae-runtime.jsonl
         attempts/
           a_019f596a-d048-79e7-b2b7-59822f012273/
             status.json

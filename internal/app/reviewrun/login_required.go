@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/review"
 )
 
 // ProviderLoginRequiredError is the safe provider-attributed application

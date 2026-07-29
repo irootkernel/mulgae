@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type runtimeDiagnosticLifecycle struct {
@@ -215,7 +215,7 @@ func runtimeDiagnosticP2URI(result Result, terminalErr error) (ports.SafeRelativ
 	if !manifest.Valid() {
 		return ports.SafeRelativePath{}, nil
 	}
-	p2URI, err := ports.NewSafeRelativePath(".kar/" + manifest.String())
+	p2URI, err := ports.NewSafeRelativePath(".mulgae/" + manifest.String())
 	if err != nil {
 		return ports.SafeRelativePath{}, diagnosticArtifactFailure("reviewrun.diagnostics.p2_reference", err)
 	}

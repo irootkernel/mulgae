@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	finalReviewSchemaAsset = "https://kar.local/schemas/kar-review-artifact.v3.schema.json"
-	runManifestSchemaAsset = "https://kar.local/schemas/kar-run-manifest.v2.schema.json"
+	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
 )
 
 // PublicationSchemaValidator validates the two consumer-owned publication

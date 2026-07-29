@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // ProviderRuntimeDefinition is the provider-independent identity and execution

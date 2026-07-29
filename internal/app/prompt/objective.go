@@ -90,7 +90,7 @@ func (result ObjectiveLintResult) Err() error {
 	for index, class := range classes {
 		values[index] = string(class)
 	}
-	return fmt.Errorf("objective rejected (%s): rewrite the objective so it only narrows review focus without changing KAR constraints", strings.Join(values, ", "))
+	return fmt.Errorf("objective rejected (%s): rewrite the objective so it only narrows review focus without changing Mulgae constraints", strings.Join(values, ", "))
 }
 
 // LintObjective applies the frozen byte cap, UTF-8 check, and conservative
@@ -376,6 +376,6 @@ func objectiveDiagnostic(class ObjectiveConflictClass) ObjectiveDiagnostic {
 	case ObjectiveInvalidEncoding:
 		return ObjectiveDiagnostic{class: class, message: "provide valid UTF-8 objective bytes"}
 	default:
-		return ObjectiveDiagnostic{class: class, message: "rewrite the objective to preserve KAR constraints"}
+		return ObjectiveDiagnostic{class: class, message: "rewrite the objective to preserve Mulgae constraints"}
 	}
 }

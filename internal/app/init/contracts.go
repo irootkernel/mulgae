@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // DiscoverySourceFieldSpec defines one exact family-specific init discovery
@@ -100,7 +100,7 @@ func (function ResultPrevalidatorFunc) PrevalidateInitOutcome(ctx context.Contex
 // Validate enforces the command-owned semantic relationship between the init
 // result projections. JSON Schema additionally validates their wire shape.
 func (result InitializeProjectResult) Validate() error {
-	if result.ConfigURI != ".kar/config.yaml" || !canonicalFamilyIDs(result.SelectedProviderIDs) || !canonicalFamilyIDs(result.CandidateProviderIDs) || !canonicalFamilyIDs(result.ConfiguredProviderIDs) || !canonicalRoleIDs(result.ConfiguredRoleIDs) {
+	if result.ConfigURI != ".mulgae/config.yaml" || !canonicalFamilyIDs(result.SelectedProviderIDs) || !canonicalFamilyIDs(result.CandidateProviderIDs) || !canonicalFamilyIDs(result.ConfiguredProviderIDs) || !canonicalRoleIDs(result.ConfiguredRoleIDs) {
 		return fmt.Errorf("init result: invalid identity projection")
 	}
 	if len(result.ConfiguredProviderIDs) == 0 {

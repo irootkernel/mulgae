@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestReducePublicationEvidenceUsesTotalAuthorityReducer(t *testing.T) {
@@ -107,7 +107,7 @@ func TestPrepareNoChangeCandidateSerializesZeroAttempts(t *testing.T) {
 	}
 	candidate, err := PrepareNoChangeCandidate(sessionID, runID, target,
 		[]domain.Role{domain.RoleLogic, domain.RoleSecurity}, domain.SeverityHigh, NoChangeProvenance{
-			BuildProduct: "kar", BuildVersion: "test", BuildCommit: "0123456789abcdef",
+			BuildProduct: "mulgae", BuildVersion: "test", BuildCommit: "0123456789abcdef",
 			SnapshotManifestSHA256:   "sha256:" + strings.Repeat("a", 64),
 			WorkspaceTerminalReceipt: "workspace-terminal:v1:sha256:" + strings.Repeat("b", 64),
 		})
@@ -142,7 +142,7 @@ func TestPrepareNoChangeCandidateSerializesZeroAttempts(t *testing.T) {
 func TestProductionPublicationContextCopiesAndRejectsIncompleteProvenance(t *testing.T) {
 	t.Parallel()
 	provenance := ProductionReviewProvenance{
-		BuildProduct: "kar", BuildVersion: "1.9.0", BuildCommit: "abc123",
+		BuildProduct: "mulgae", BuildVersion: "1.9.0", BuildCommit: "abc123",
 		SnapshotManifestSHA256: sha256Identifier([]byte("snapshot")), WorkspaceTerminalReceipt: sha256Identifier([]byte("workspace-terminal")),
 		Providers: []ProductionProviderProvenance{{
 			Family: "kimi", Instance: "kimi-main", Version: "0.23.6", Executable: "/private/bin/kimi",
@@ -594,7 +594,7 @@ func TestValidatedCandidateSHA256BindsRuntimeInventory(t *testing.T) {
 		{"target identity kind, repository, base, head, tree, and index", func(t *testing.T, candidate *PreparedCandidate) {
 			runtime := candidate.roles[0].attempts[0].invocations[0].runtime
 			runtime.targetKind = domain.TargetGit
-			runtime.targetRepository = "github.com/irootkernel/kkachi-agent-review"
+			runtime.targetRepository = "github.com/irootkernel/mulgae"
 			runtime.targetBaseOID = strings.Repeat("d", 64)
 			runtime.targetHeadOID = strings.Repeat("e", 64)
 			runtime.targetHeadTreeOID = strings.Repeat("f", 64)
@@ -665,10 +665,10 @@ func TestValidatedCandidateSHA256BindsProductionProvenance(t *testing.T) {
 		name   string
 		mutate func(*PreparedCandidate)
 	}{
-		{"build product", func(c *PreparedCandidate) { c.production.BuildProduct = "other-kar" }},
-		{"build version", func(c *PreparedCandidate) { c.production.BuildVersion, c.kar.version = "0.2.0", "0.2.0" }},
+		{"build product", func(c *PreparedCandidate) { c.production.BuildProduct = "other-mulgae" }},
+		{"build version", func(c *PreparedCandidate) { c.production.BuildVersion, c.mulgae.version = "0.2.0", "0.2.0" }},
 		{"build commit", func(c *PreparedCandidate) {
-			c.production.BuildCommit, c.kar.commit = "fedcba9876543210", "fedcba9876543210"
+			c.production.BuildCommit, c.mulgae.commit = "fedcba9876543210", "fedcba9876543210"
 		}},
 		{"objective digest", func(c *PreparedCandidate) { c.production.ObjectiveSHA256 = sha256Identifier([]byte("other objective")) }},
 		{"objective presence", func(c *PreparedCandidate) { c.production.HasObjective, c.production.ObjectiveSHA256 = false, "" }},
@@ -818,9 +818,9 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 			sha256: shaA,
 		},
 		threshold: domain.SeverityHigh,
-		kar:       preparedKAR{version: "0.1.0", commit: "0123456789abcdef"},
+		mulgae:    preparedMulgae{version: "0.1.0", commit: "0123456789abcdef"},
 		production: &ProductionReviewProvenance{
-			BuildProduct: "kar", BuildVersion: "0.1.0", BuildCommit: "0123456789abcdef",
+			BuildProduct: "mulgae", BuildVersion: "0.1.0", BuildCommit: "0123456789abcdef",
 			ObjectiveSHA256: sha256Identifier([]byte("objective")), HasObjective: true,
 			SnapshotManifestSHA256:   sha256Identifier([]byte("snapshot")),
 			WorkspaceTerminalReceipt: sha256Identifier([]byte("workspace-terminal")),

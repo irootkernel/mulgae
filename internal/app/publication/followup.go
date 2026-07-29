@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // FollowupCandidateInput is the complete trusted input for a one-role followup
@@ -32,8 +32,8 @@ type FollowupCandidateInput struct {
 	Repaired            bool
 	InitialCandidate    []byte
 	SeverityThreshold   domain.Severity
-	KARVersion          string
-	KARCommit           string
+	MulgaeVersion       string
+	MulgaeCommit        string
 }
 
 // PrepareFollowupCandidate builds the regular P2 candidate shape for the
@@ -102,7 +102,7 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 	candidate := PreparedCandidate{
 		sessionID: input.Run.SessionID(), runID: input.Run.ID(), runState: domain.RunCompleted,
 		target:    preparedTarget{sha256: "sha256:" + input.Run.Target().SHA256(), baseOID: input.Run.Target().BaseObjectID(), headOID: input.Run.Target().HeadObjectID()},
-		threshold: threshold, kar: preparedKAR{version: input.KARVersion, commit: input.KARCommit}, axes: axes,
+		threshold: threshold, mulgae: preparedMulgae{version: input.MulgaeVersion, commit: input.MulgaeCommit}, axes: axes,
 		roles: []preparedRole{role}, findings: findings, failures: []preparedFailure{}, limits: limits, reasons: reasons, exitCode: exitCode, lineage: context.immutableLineage(), followup: &followup,
 	}
 	inventories := make([]runtimeArtifactInventory, len(runtimes))

@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/filesystem"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/gittarget"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/jsonschema"
-	"github.com/irootkernel/kkachi-agent-review/internal/adapters/workspace"
-	appquery "github.com/irootkernel/kkachi-agent-review/internal/app/query"
-	appreport "github.com/irootkernel/kkachi-agent-review/internal/app/report"
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
+	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/adapters/workspace"
+	appquery "github.com/irootkernel/mulgae/internal/app/query"
+	appreport "github.com/irootkernel/mulgae/internal/app/report"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type publicationIntegrationIDs struct{ reviewID domain.ReviewID }
@@ -42,7 +42,7 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootPath := filepath.Join(t.TempDir(), ".kar")
+	rootPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(rootPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicationPath := filepath.Join(t.TempDir(), ".kar")
+	publicationPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(publicationPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootPath := filepath.Join(t.TempDir(), ".kar")
+	rootPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(rootPath, 0o700); err != nil {
 		t.Fatal(err)
 	}

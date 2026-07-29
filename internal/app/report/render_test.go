@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/query"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	coreapp "github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
@@ -536,7 +536,7 @@ func reportProductionProvenanceJSON() string {
 	const transport = "transport:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	const namespace = "namespace:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	const workspace = "workspace:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	return `{"build_product":"kar","build_version":"0.1.0","build_commit":"abc123","objective_sha256":"` + digest +
+	return `{"build_product":"mulgae","build_version":"0.1.0","build_commit":"abc123","objective_sha256":"` + digest +
 		`","objective_present":true,"snapshot_manifest_sha256":"` + digest +
 		`","workspace_terminal_receipt":"` + workspace +
 		`","providers":[{"family":"alpha","instance":"alpha-1","version":"1.0.0","executable":"/private/bin/provider","executable_sha256":"` + digest +
@@ -906,8 +906,8 @@ func reportCommittedFixtureWithMutations(
 	manifestPath := reportPath(t, prefix+"/manifest.json")
 	edgePath := reportPath(t, prefix+"/lineage/edge.json")
 	epochPath := reportPath(t, prefix+"/epochs/epoch_000001.json")
-	edge := reportArtifact(t, edgePath, []byte(`{"schema_version":"kar-lineage-edge.v1"}`))
-	epochRecord := reportArtifact(t, epochPath, []byte(`{"schema_version":"kar-publication-epoch.v1"}`))
+	edge := reportArtifact(t, edgePath, []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`))
+	epochRecord := reportArtifact(t, epochPath, []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`))
 	epoch, err := ports.NewPublicationEpoch(1, epochRecord)
 	if err != nil {
 		t.Fatal(err)
@@ -916,8 +916,8 @@ func reportCommittedFixtureWithMutations(
 	excerptBytes := []byte("line one\nline two")
 	currentExcerptSHA256 := reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, excerptBytes)
 	finalBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
-		"kar":{"version":"0.1.0","commit":"abc123"},
+		"schema_version":"mulgae-review-artifact.v3","session_id":%q,"run_id":%q,"review_id":%q,"run_type":"review","created_at":"2026-07-13T03:00:00Z",
+		"mulgae":{"version":"0.1.0","commit":"abc123"},
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222"},
 		"validation":{"status":"repaired_valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed_with_warnings"},
@@ -944,7 +944,7 @@ func reportCommittedFixtureWithMutations(
 	}
 
 	manifestBytes := []byte(fmt.Sprintf(`{
-		"schema_version":"kar-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"failed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","kar_version":"0.1.0",
+		"schema_version":"mulgae-run-manifest.v2","session_id":%q,"run_id":%q,"run_type":"review","state":"failed","sealed":true,"created_at":"2026-07-13T03:00:00Z","started_at":null,"completed_at":"2026-07-13T03:01:00Z","mulgae_version":"0.1.0",
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"manifest_path":"target/target-manifest.json","content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"selected_roles":["logic","security","maintainability"],"required_roles":["logic","security"],"attempts":[{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","role":"security","provider_instance":"security-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-primary","selected_as":"primary","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ae-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1},{"attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-fallback","selected_as":"fallback","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ad-77c2-8b68-0bd73e911b2e/status.json","invocation_count":1}],
 		"content_verdict":"request_changes","coverage_status":"incomplete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold","required_role_incomplete"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",

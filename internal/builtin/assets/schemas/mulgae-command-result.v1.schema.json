@@ -1,0 +1,3605 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json",
+  "title": "Mulgae Command Result v1",
+  "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "request",
+    "completed_at",
+    "exit",
+    "reasons",
+    "result"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-command-result.v1"
+    },
+    "command": {
+      "$ref": "#/$defs/command"
+    },
+    "request": {
+      "oneOf": [
+        { "$ref": "#/$defs/requests/init" },
+        { "$ref": "#/$defs/requests/doctor" },
+        { "$ref": "#/$defs/requests/review" },
+        { "$ref": "#/$defs/requests/followup" },
+        { "$ref": "#/$defs/requests/delta" },
+        { "$ref": "#/$defs/requests/rerun" },
+        { "$ref": "#/$defs/requests/status" },
+        { "$ref": "#/$defs/requests/report" },
+        { "$ref": "#/$defs/requests/findings" },
+        { "$ref": "#/$defs/requests/excerpt" },
+        { "$ref": "#/$defs/requests/providers" },
+        { "$ref": "#/$defs/requests/roles" },
+        { "$ref": "#/$defs/requests/config" },
+        { "$ref": "#/$defs/requests/schema" },
+        { "$ref": "#/$defs/requests/clean" },
+        { "$ref": "#/$defs/requests/export" },
+        { "$ref": "#/$defs/requests/help" }
+      ]
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit": {
+      "$ref": "#/$defs/exit"
+    },
+    "reasons": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason"
+      }
+    },
+    "result": {
+      "oneOf": [
+        { "$ref": "#/$defs/results/init" },
+        { "$ref": "#/$defs/results/doctor" },
+        { "$ref": "#/$defs/results/review" },
+        { "$ref": "#/$defs/results/followup" },
+        { "$ref": "#/$defs/results/delta" },
+        { "$ref": "#/$defs/results/rerun" },
+        { "$ref": "#/$defs/results/status" },
+        { "$ref": "#/$defs/results/report" },
+        { "$ref": "#/$defs/results/findings" },
+        { "$ref": "#/$defs/results/excerpt" },
+        { "$ref": "#/$defs/results/providers" },
+        { "$ref": "#/$defs/results/roles" },
+        { "$ref": "#/$defs/results/config" },
+        { "$ref": "#/$defs/results/schema" },
+        { "$ref": "#/$defs/results/clean" },
+        { "$ref": "#/$defs/results/export" },
+        { "$ref": "#/$defs/results/help" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "command": { "const": "init" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/init" },
+          "result": { "$ref": "#/$defs/results/init" },
+          "exit": { "$ref": "#/$defs/exits/init" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "request": {
+                  "properties": { "request_state": { "const": "invalid" } },
+                  "required": ["request_state"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "exit": {
+                  "properties": {
+                    "code": { "const": 2 },
+                    "kind": { "const": "usage" }
+                  }
+                },
+                "reasons": {
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [
+                    {
+                      "properties": {
+                        "artifact_uri": { "const": null },
+                        "category": { "const": "usage" },
+                        "code": { "const": "init_selection_invalid" },
+                        "message": { "const": "The init selection is invalid." },
+                        "retryable": { "const": false }
+                      }
+                    }
+                  ]
+                },
+                "result": {
+                  "properties": {
+                    "kind": { "const": "initialization_failed" },
+                    "config_sha256": { "const": "" },
+                    "selected_provider_ids": { "maxItems": 0 },
+                    "candidate_provider_ids": { "maxItems": 0 },
+                    "configured_provider_ids": { "maxItems": 0 },
+                    "write_state": { "const": "not_attempted" },
+                    "committed": { "const": false },
+                    "destination_state": { "const": "not_observed" },
+                    "discovery": { "maxItems": 0 }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "result": {
+                  "properties": {
+                    "config_sha256": { "$ref": "#/$defs/sha256" },
+                    "configured_provider_ids": { "minItems": 1 },
+                    "write_state": { "enum": ["existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] }
+                  }
+                }
+              }
+            },
+            "then": { "$ref": "#/$defs/init_mutation_outcome" }
+          }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "doctor" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/doctor" },
+          "result": { "$ref": "#/$defs/results/doctor" },
+          "exit": { "$ref": "#/$defs/exits/doctor" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "review" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/review" },
+          "result": { "$ref": "#/$defs/results/review" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "followup" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/followup" },
+          "result": { "$ref": "#/$defs/results/followup" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "delta" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/delta" },
+          "result": { "$ref": "#/$defs/results/delta" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "rerun" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/rerun" },
+          "result": { "$ref": "#/$defs/results/rerun" },
+          "exit": { "$ref": "#/$defs/exits/run" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/status" },
+          "result": { "$ref": "#/$defs/results/status" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/report" },
+          "result": { "$ref": "#/$defs/results/report" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/findings" },
+          "result": { "$ref": "#/$defs/results/findings" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/excerpt" },
+          "result": { "$ref": "#/$defs/results/excerpt" },
+          "exit": { "$ref": "#/$defs/exits/excerpt" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "providers" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/providers" },
+          "result": { "$ref": "#/$defs/results/providers" },
+          "exit": { "$ref": "#/$defs/exits/readiness" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "roles" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/roles" },
+          "result": { "$ref": "#/$defs/results/roles" },
+          "exit": { "$ref": "#/$defs/exits/help" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "config" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/config" },
+          "result": { "$ref": "#/$defs/results/config" },
+          "exit": { "$ref": "#/$defs/exits/config" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "schema" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/schema" },
+          "result": { "$ref": "#/$defs/results/schema" },
+          "exit": { "$ref": "#/$defs/exits/read" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "clean" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/clean" },
+          "result": { "$ref": "#/$defs/results/clean" },
+          "exit": { "$ref": "#/$defs/exits/maintenance" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "export" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/export" },
+          "result": { "$ref": "#/$defs/results/export" },
+          "exit": { "$ref": "#/$defs/exits/maintenance" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "help" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/help" },
+          "result": { "$ref": "#/$defs/results/help" },
+          "exit": { "$ref": "#/$defs/exits/help" }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "status_read" },
+              "publication_status": { "type": "string" },
+              "recovery_action": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "status_failed" },
+                "run_state": { "type": "null" },
+                "publication_status": { "type": "null" },
+                "recovery_action": { "type": "null" },
+                "final_artifact_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "report_rendered" },
+              "report_uri": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "report" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "report_failed" },
+                "report_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "findings_listed" },
+              "finding_count": { "type": "integer" },
+              "review_artifact_uri": { "type": "string" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "findings" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "findings_failed" },
+                "finding_count": { "type": "null" },
+                "review_artifact_uri": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+          {
+            "properties": {
+              "exit": {
+                "properties": { "code": { "const": 0 } },
+                "required": ["code"]
+              }
+            },
+            "required": ["exit"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "kind": { "const": "excerpt_rendered" },
+              "evidence_state": { "const": "verified" },
+              "excerpt_base64": { "type": "string", "minLength": 4 },
+              "excerpt_sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "command": { "const": "excerpt" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "result": {
+              "properties": {
+                "kind": { "const": "excerpt_failed" },
+                "evidence_state": { "const": "unverifiable" },
+                "excerpt_uri": { "type": "null" },
+                "excerpt_base64": { "type": "null" },
+                "excerpt_sha256": { "type": "null" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "string",
+      "enum": [
+        "init",
+        "doctor",
+        "review",
+        "followup",
+        "delta",
+        "rerun",
+        "status",
+        "report",
+        "findings",
+        "excerpt",
+        "providers",
+        "roles",
+        "config",
+        "schema",
+        "clean",
+        "export",
+        "help"
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "canonical_provider_ids": {
+      "type": "array",
+      "oneOf": [
+        { "maxItems": 0 },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "kimi" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "zcode" }], "items": false },
+        { "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }], "items": false },
+        { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }], "items": false },
+        { "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }], "items": false }
+      ]
+    },
+    "canonical_role_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/role" },
+      "contains": { "const": "logic" }
+    },
+    "init_discovery_kimi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","executable_source","model_source","data_home_source"],
+      "properties": {
+        "family": { "const": "kimi" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "model_source": { "enum": ["override","default_k3","not_selected"] },
+        "data_home_source": { "enum": ["override","startup_environment","native_home_default","not_selected"] }
+      }
+    },
+    "init_discovery_zcode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","node_executable_source","launcher_source"],
+      "properties": {
+        "family": { "const": "zcode" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "node_executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "launcher_source": { "enum": ["override","bundled","not_discovered","not_selected"] }
+      }
+    },
+    "init_discovery_agy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","executable_source","native_home_source","permission_mode_source"],
+      "properties": {
+        "family": { "const": "agy" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "native_home_source": { "enum": ["os_account","verified_equal_input","not_selected"] },
+        "permission_mode_source": { "enum": ["explicit","safe_default","not_selected"] }
+      }
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "artifact_uri": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000\\r\\n]+$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "role_inventory_logic": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "logic" }, "mandatory": { "const": true }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_security": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "security" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_maintainability": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "maintainability" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_product": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "product" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_documentation": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "documentation" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_testing": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "testing" }, "mandatory": { "const": false }, "availability": { "const": "all_projects" } }
+    },
+    "role_inventory_artist": {
+      "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
+      "properties": { "id": { "const": "artist" }, "mandatory": { "const": false }, "availability": { "const": "ui_projects" } }
+    },
+    "provider_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+    },
+    "output_format": {
+      "type": "string",
+      "enum": ["json", "human"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["workspace", "stage", "dirty", "diff", "patch", "stdin"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        }
+      }
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "code", "message", "retryable", "artifact_uri"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "policy",
+            "usage",
+            "configuration",
+            "readiness",
+            "coverage",
+            "evidence",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "artifact_uri": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "kind"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "enum": [0, 1, 2, 4, 7, 8, 9, 10]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "success",
+            "policy",
+            "usage",
+            "readiness",
+            "artifact",
+            "security",
+            "cancellation",
+            "internal"
+          ]
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "code": { "const": 0 } } }, "then": { "properties": { "kind": { "const": "success" } } } },
+        { "if": { "properties": { "code": { "const": 1 } } }, "then": { "properties": { "kind": { "const": "policy" } } } },
+        { "if": { "properties": { "code": { "const": 2 } } }, "then": { "properties": { "kind": { "const": "usage" } } } },
+        { "if": { "properties": { "code": { "const": 4 } } }, "then": { "properties": { "kind": { "const": "readiness" } } } },
+        { "if": { "properties": { "code": { "const": 7 } } }, "then": { "properties": { "kind": { "const": "artifact" } } } },
+        { "if": { "properties": { "code": { "const": 8 } } }, "then": { "properties": { "kind": { "const": "security" } } } },
+        { "if": { "properties": { "code": { "const": 9 } } }, "then": { "properties": { "kind": { "const": "cancellation" } } } },
+        { "if": { "properties": { "code": { "const": 10 } } }, "then": { "properties": { "kind": { "const": "internal" } } } }
+      ]
+    },
+    "exits": {
+      "init": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
+      "doctor": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9] } } }] },
+      "run": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 1, 2, 4, 7, 8, 9, 10] } } }] },
+      "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 9, 10] } } }] },
+      "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
+      "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
+      "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
+      "maintenance": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8] } } }] },
+      "help": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2] } } }] }
+    },
+    "init_mutation_outcome": {
+      "oneOf": [
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 0
+                },
+                "kind": {
+                  "const": "success"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 0
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": true
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialized"
+                },
+                "write_state": {
+                  "const": "committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 2
+                },
+                "kind": {
+                  "const": "usage"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "configuration"
+                    },
+                    "code": {
+                      "const": "init_destination_exists"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration already exists."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "existing_untouched"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_write_failed"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration could not be written."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_write_failed"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration could not be written."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_raced"
+                    },
+                    "message": {
+                      "const": "The private Mulgae directory changed during initialization."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_created_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_existing_private_dir_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The existing private Mulgae directory could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "absent"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "private_dir_existing_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The installed Mulgae configuration could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_commit_unconfirmed"
+                    },
+                    "message": {
+                      "const": "The installed Mulgae configuration could not be durably confirmed."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "config_locality_drifted"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_config_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 8
+                },
+                "kind": {
+                  "const": "security"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "security"
+                    },
+                    "code": {
+                      "const": "target_private_namespace_forbidden"
+                    },
+                    "message": {
+                      "const": "The project-local Mulgae configuration failed locality admission."
+                    },
+                    "retryable": {
+                      "const": false
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "not_observed"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "installed_unconfirmed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_result_delivery_failed"
+                    },
+                    "message": {
+                      "const": "The init result could not be delivered after commit."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": true
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialized"
+                },
+                "write_state": {
+                  "const": "committed"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "requests": {
+      "init": {
+        "oneOf": [
+          { "$ref": "#/$defs/requests/init_accepted" },
+          { "$ref": "#/$defs/requests/init_rejected" }
+        ]
+      },
+      "init_accepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "project_name", "context", "selection", "roles", "overrides", "overwrite", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "init" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "project_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "context": { "type": ["string", "null"] },
+          "project_kind": { "const": "ui" },
+          "artist_brief": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$" },
+          "artist_design_specs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+          "selection": {
+            "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "const": "auto" } } },
+              { "type": "object", "additionalProperties": false, "required": ["mode", "provider_ids"], "properties": { "mode": { "const": "selected" }, "provider_ids": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "enum": ["kimi", "zcode", "agy"] } } } }
+            ]
+          },
+          "roles": { "$ref": "#/$defs/canonical_role_ids" },
+          "overrides": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "kimi_executable": { "$ref": "#/$defs/path" }, "kimi_model": { "type": "string", "minLength": 1, "maxLength": 128 }, "kimi_data_home": { "$ref": "#/$defs/path" },
+              "zcode_node_executable": { "$ref": "#/$defs/path" }, "zcode_launcher": { "$ref": "#/$defs/path" },
+              "agy_executable": { "$ref": "#/$defs/path" }, "agy_permission_mode": { "enum": ["safe", "dangerously-skip-permissions"] }
+            }
+          },
+          "overwrite": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "init_rejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "request_state", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "init" },
+          "request_state": { "const": "invalid" },
+          "output_format": { "const": "json" }
+        }
+      },
+      "doctor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "check_providers", "check_platform", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "doctor" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "check_providers": { "type": "boolean" },
+          "check_platform": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "target", "objective", "roles", "role_selection", "artist_brief", "artist_design_specs", "session_id", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "review" },
+          "target": { "$ref": "#/$defs/target" },
+          "objective": { "type": ["string", "null"], "maxLength": 12000, "pattern": "^[^\\u0000\\r\\n]+$", "description": "Semantic validation enforces at most 12000 UTF-8 bytes; maxLength is only a conservative code-point bound.", "x-mulgae-maxUtf8Bytes": 12000 },
+          "roles": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": { "$ref": "#/$defs/role" } },
+          "role_selection": { "enum": ["project_default", "explicit"] },
+          "artist_brief": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$" },
+          "artist_design_specs": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "followup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "finding_id", "target", "objective", "role", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "followup" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "finding_id": { "$ref": "#/$defs/finding_id" },
+          "target": { "$ref": "#/$defs/target" },
+          "objective": { "type": ["string", "null"], "maxLength": 12000, "pattern": "^[^\\u0000\\r\\n]+$", "description": "Semantic validation enforces at most 12000 UTF-8 bytes; maxLength is only a conservative code-point bound.", "x-mulgae-maxUtf8Bytes": 12000 },
+          "role": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/role" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "delta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "target", "roles", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "delta" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "target": { "$ref": "#/$defs/target" },
+          "roles": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": { "$ref": "#/$defs/role" } },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "rerun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "source_run_id", "source_attempt_id", "replay_mode", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "rerun" },
+          "source_run_id": { "$ref": "#/$defs/run_id" },
+          "source_attempt_id": { "$ref": "#/$defs/attempt_id" },
+          "replay_mode": { "type": "string", "enum": ["exact", "recompose"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "status" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_path", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "report" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_path": { "$ref": "#/$defs/path" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "findings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "minimum_severity", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "findings" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "minimum_severity": { "type": "string", "enum": ["low", "medium", "high", "critical", "blocker"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "excerpt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "finding_id", "current_target_sha256", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "excerpt" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "finding_id": { "$ref": "#/$defs/finding_id" },
+          "current_target_sha256": { "$ref": "#/$defs/sha256" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "providers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "include_unverified", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "providers" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "include_unverified": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "roles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "roles" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "config": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "mode", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "config" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "mode": { "type": "string", "enum": ["effective", "provenance"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "schema_id", "export_path", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "schema" },
+          "schema_id": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^https://mulgae\\.local/schemas/[a-z0-9.-]+\\.schema\\.json$" },
+          "export_path": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "clean": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "mode", "expected_plan_sha256", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "clean" },
+          "mode": { "type": "string", "enum": ["plan", "apply", "explain"] },
+          "expected_plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "export": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "run_id", "output_path", "redacted", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "export" },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "output_path": { "$ref": "#/$defs/path" },
+          "redacted": { "const": true },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "help": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "topic", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "help" },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      }
+    },
+    "results": {
+      "init": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "config_uri", "config_sha256", "selected_provider_ids", "candidate_provider_ids", "configured_provider_ids", "configured_role_ids", "write_state", "committed", "destination_state", "discovery"],
+        "oneOf": [
+          { "properties": { "kind": { "const": "initialized" }, "write_state": { "const": "committed" }, "committed": { "const": true }, "destination_state": { "const": "present" }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "not_attempted" }, "committed": { "const": false }, "destination_state": { "enum": ["absent", "not_observed"] } }, "oneOf": [
+            { "properties": { "config_sha256": { "const": "" }, "configured_provider_ids": { "maxItems": 0 } } },
+            { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+          ] },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "existing_untouched" }, "committed": { "const": false }, "destination_state": { "const": "present" } }, "oneOf": [
+            { "properties": { "config_sha256": { "const": "" }, "candidate_provider_ids": { "maxItems": 0 }, "configured_provider_ids": { "maxItems": 0 }, "discovery": { "maxItems": 0 } } },
+            { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+          ] },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "not_committed" }, "committed": { "const": false }, "destination_state": { "enum": ["absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_created_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_existing_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "installed_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
+        ],
+        "properties": {
+          "kind": { "enum": ["initialized", "initialization_failed"] },
+          "config_uri": { "const": ".mulgae/config.yaml" },
+          "config_sha256": { "oneOf": [{ "const": "" }, { "$ref": "#/$defs/sha256" }] },
+          "selected_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "candidate_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
+          "configured_role_ids": { "oneOf": [{ "maxItems": 0 }, { "$ref": "#/$defs/canonical_role_ids" }] },
+          "write_state": { "enum": ["not_attempted", "existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] },
+          "committed": { "type": "boolean" },
+          "destination_state": { "enum": ["present", "absent", "not_observed"] },
+          "discovery": {
+            "type": "array",
+            "oneOf": [
+              { "maxItems": 0 },
+              { "minItems": 3, "maxItems": 3, "prefixItems": [
+                { "$ref": "#/$defs/init_discovery_kimi" },
+                { "$ref": "#/$defs/init_discovery_zcode" },
+                { "$ref": "#/$defs/init_discovery_agy" }
+              ], "items": false }
+            ]
+          }
+        }
+      },
+      "doctor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "doctor_result_uri", "readiness", "doctor"],
+        "properties": {
+          "kind": { "const": "diagnosed" },
+          "doctor_result_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "readiness": { "type": "string", "enum": ["ready", "degraded", "unverified", "unsafe"] },
+          "doctor": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["schema_version"],
+                "properties": { "schema_version": { "const": "mulgae-doctor-result.v2" } }
+              }
+            ]
+          }
+        }
+      },
+      "review": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "run_manifest_uri", "review_artifact_uri"],
+        "properties": {
+          "kind": { "const": "review_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "run_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "followup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution"],
+        "properties": {
+          "kind": { "const": "followup_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "followup_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "resolution": {
+            "oneOf": [
+              { "type": "null" },
+              { "enum": ["resolved", "partially_resolved", "still_open", "unclear"] }
+            ]
+          }
+        }
+      },
+      "delta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "review_artifact_uri"],
+        "properties": {
+          "kind": { "const": "delta_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "rerun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "session_id", "run_id", "prompt_manifest_uri"],
+        "properties": {
+          "kind": { "const": "rerun_started" },
+          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+          "prompt_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "run_id", "run_state", "publication_status", "recovery_action", "final_artifact_uri"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["status_read", "status_failed"] },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "run_state": {
+            "type": ["string", "null"],
+            "enum": ["pending", "running", "completed", "degraded", "failed", "cancelled", null]
+          },
+          "publication_status": {
+            "type": ["string", "null"],
+            "enum": ["not_published", "staged", "installed", "committed", "corrupt", null]
+          },
+          "recovery_action": {
+            "type": ["string", "null"],
+            "enum": [
+              "none",
+              "resume_collection",
+              "restage_validated_candidate",
+              "install_staged_final",
+              "commit_composite_epoch",
+              "reconstruct_completed_status",
+              "emit_immutable_corruption_diagnostic",
+              null
+            ]
+          },
+          "final_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "content_verdict": { "type": "string", "enum": ["no_findings", "findings_present", "request_changes"] },
+          "coverage_status": { "type": "string", "enum": ["complete", "degraded", "incomplete"] },
+          "ci_decision": { "type": "string", "enum": ["pass", "fail"] }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "kind": { "const": "status_failed" },
+              "run_state": { "type": "null" },
+              "publication_status": { "type": "null" },
+              "recovery_action": { "type": "null" },
+              "final_artifact_uri": { "type": "null" }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["content_verdict"] },
+                { "required": ["coverage_status"] },
+                { "required": ["ci_decision"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "kind": { "const": "status_read" },
+              "run_state": { "type": "null" },
+              "publication_status": { "enum": ["not_published", "staged", "installed"] },
+              "final_artifact_uri": { "type": "null" }
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "publication_status": { "const": "not_published" },
+                  "recovery_action": { "enum": ["resume_collection", "restage_validated_candidate"] }
+                }
+              },
+              {
+                "properties": {
+                  "publication_status": { "const": "staged" },
+                  "recovery_action": { "const": "install_staged_final" }
+                }
+              },
+              {
+                "properties": {
+                  "publication_status": { "const": "installed" },
+                  "recovery_action": { "const": "commit_composite_epoch" }
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["content_verdict"] },
+                { "required": ["coverage_status"] },
+                { "required": ["ci_decision"] }
+              ]
+            }
+          },
+          {
+            "required": ["content_verdict", "coverage_status", "ci_decision"],
+            "properties": {
+              "kind": { "const": "status_read" },
+              "run_state": { "type": "string", "enum": ["completed", "degraded", "failed"] },
+              "publication_status": { "const": "committed" },
+              "recovery_action": { "const": "reconstruct_completed_status" },
+              "final_artifact_uri": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "report_uri"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["report_rendered", "report_failed"] },
+          "report_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "findings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "run_id", "finding_count", "review_artifact_uri"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["findings_listed", "findings_failed"] },
+          "run_id": { "$ref": "#/$defs/run_id" },
+          "finding_count": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000000 },
+          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "excerpt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "evidence_state", "excerpt_uri", "excerpt_base64", "excerpt_sha256"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["excerpt_rendered", "excerpt_failed"] },
+          "evidence_state": { "type": "string", "enum": ["verified", "stale", "invalid", "unverifiable"] },
+          "excerpt_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "excerpt_base64": { "type": ["string", "null"], "maxLength": 44739244, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$" },
+          "excerpt_sha256": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/sha256" }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "evidence_state": { "const": "verified" } }, "required": ["evidence_state"] },
+            "then": {
+              "properties": {
+                "excerpt_base64": { "type": "string", "minLength": 4 },
+                "excerpt_sha256": { "$ref": "#/$defs/sha256" }
+              }
+            },
+            "else": {
+              "properties": {
+                "excerpt_base64": { "type": "null" },
+                "excerpt_sha256": { "type": "null" }
+              }
+            }
+          }
+        ]
+      },
+      "providers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "provider_evidence_uri", "ready_provider_count"],
+        "properties": {
+          "kind": { "const": "providers_listed" },
+          "provider_evidence_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 1024 }
+        }
+      },
+      "roles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "roles"],
+        "properties": {
+          "kind": { "const": "roles_listed" },
+          "roles": {
+            "type": "array",
+            "oneOf": [
+              { "maxItems": 0 },
+              {
+                "minItems": 7,
+                "maxItems": 7,
+                "prefixItems": [
+                  { "$ref": "#/$defs/role_inventory_logic" },
+                  { "$ref": "#/$defs/role_inventory_security" },
+                  { "$ref": "#/$defs/role_inventory_maintainability" },
+                  { "$ref": "#/$defs/role_inventory_product" },
+                  { "$ref": "#/$defs/role_inventory_documentation" },
+                  { "$ref": "#/$defs/role_inventory_testing" },
+                  { "$ref": "#/$defs/role_inventory_artist" }
+                ],
+                "items": false
+              }
+            ]
+          }
+        }
+      },
+      "config": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "mode", "config_uri", "config_sha256"],
+        "properties": {
+          "kind": { "enum": ["configuration_resolved", "configuration_failed"] },
+          "mode": { "enum": ["effective", "provenance"] },
+          "config_uri": { "const": ".mulgae/config.yaml" },
+          "config_sha256": { "oneOf": [{ "const": "" }, { "$ref": "#/$defs/sha256" }] },
+          "policy": { "type": "object" },
+          "provenance": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["field", "source", "disposition", "value_class"], "properties": { "field": { "type": "string" }, "source": { "type": "string" }, "disposition": { "type": "string" }, "value_class": { "type": "string" } } } }
+        }
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "schema_id", "export_uri"],
+        "properties": {
+          "kind": { "const": "schema_inspected" },
+          "schema_id": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^https://mulgae\\.local/schemas/[a-z0-9.-]+\\.schema\\.json$" },
+          "export_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      },
+      "clean": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "clean_plan_uri", "plan_sha256", "applied"],
+        "properties": {
+          "kind": { "const": "clean_completed" },
+          "clean_plan_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "applied": { "type": "boolean" }
+        }
+      },
+      "export": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "export_manifest_uri", "bundle_uri", "redacted"],
+        "properties": {
+          "kind": { "const": "export_created" },
+          "export_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "bundle_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+          "redacted": { "const": true }
+        }
+      },
+      "help": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "topic", "rendered"],
+        "properties": {
+          "kind": { "const": "help_rendered" },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "rendered": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

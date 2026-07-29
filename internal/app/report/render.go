@@ -15,11 +15,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
-	appevidence "github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/query"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	coreapp "github.com/irootkernel/mulgae/internal/app"
+	appevidence "github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -34,7 +34,7 @@ type reportFinalDTO struct {
 	ReviewID          string                    `json:"review_id"`
 	RunType           string                    `json:"run_type"`
 	CreatedAt         string                    `json:"created_at"`
-	KAR               reportKARDTO              `json:"kar"`
+	Mulgae            reportMulgaeDTO           `json:"mulgae"`
 	ImmutableLineage  reportLineageDTO          `json:"immutable_lineage"`
 	FollowupOutcome   *reportFollowupOutcomeDTO `json:"followup_outcome"`
 	Target            reportTargetDTO           `json:"target"`
@@ -56,7 +56,7 @@ type reportFollowupOutcomeDTO struct {
 	Evidence   []reportEvidenceDTO `json:"evidence"`
 }
 
-type reportKARDTO struct {
+type reportMulgaeDTO struct {
 	Version string  `json:"version"`
 	Commit  *string `json:"commit"`
 }
@@ -297,7 +297,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "kar-review-artifact.v3" ||
+	if final.SchemaVersion != "mulgae-review-artifact.v3" ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
@@ -494,8 +494,8 @@ func validateReportProductionProvenance(final reportFinalDTO) error {
 	if production.ObjectiveSHA256 != nil && !validReportSHA256(*production.ObjectiveSHA256) {
 		return errors.New("objective identity is invalid")
 	}
-	if production.BuildVersion != final.KAR.Version || !sameReportOptionalString(final.KAR.Commit, production.BuildCommit, true) {
-		return errors.New("build metadata does not match KAR")
+	if production.BuildVersion != final.Mulgae.Version || !sameReportOptionalString(final.Mulgae.Commit, production.BuildCommit, true) {
+		return errors.New("build metadata does not match Mulgae")
 	}
 	for index, provider := range production.Providers {
 		if !reportSafeText(provider.Family, 64) || !validReportProviderInstance(provider.Instance) ||
@@ -793,8 +793,8 @@ func renderMarkdown(
 	writeBlankLine(&output)
 
 	writeHeading(&output, "Provider/runtime provenance")
-	writeField(&output, "KAR version", final.KAR.Version)
-	writeOptionalField(&output, "KAR commit", final.KAR.Commit)
+	writeField(&output, "Mulgae version", final.Mulgae.Version)
+	writeOptionalField(&output, "Mulgae commit", final.Mulgae.Commit)
 	for _, role := range review.Roles() {
 		if provider, ok := role.ProviderInstance(); ok {
 			writeField(&output, "Role provider", string(role.Name())+": "+provider)

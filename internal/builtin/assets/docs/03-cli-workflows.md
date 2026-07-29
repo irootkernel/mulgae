@@ -3,26 +3,26 @@
 ## 1. Command Surface
 
 ```text
-kar init
-kar doctor
-kar review
-kar followup
-kar delta
-kar rerun
-kar status
-kar report
-kar findings
-kar excerpt
-kar providers
-kar config
-kar schema
-kar clean
-kar export
-kar help
+mulgae init
+mulgae doctor
+mulgae review
+mulgae followup
+mulgae delta
+mulgae rerun
+mulgae status
+mulgae report
+mulgae findings
+mulgae excerpt
+mulgae providers
+mulgae config
+mulgae schema
+mulgae clean
+mulgae export
+mulgae help
 ```
 
 ## 2. Run-Creation Semantics
-This section specifies the production command contract. Production root `kar review` is implemented and release-ready under G013 after the exact release binary completed actual-provider root and child workflows before the fail-closed family capability suite. Deterministic integration tests own product semantics, while executable workflow and live capability coverage verify the composition and native boundaries through the sole `make test` gate.
+This section specifies the production command contract. Production root `mulgae review` is implemented and release-ready under G013 after the exact release binary completed actual-provider root and child workflows before the fail-closed family capability suite. Deterministic integration tests own product semantics, while executable workflow and live capability coverage verify the composition and native boundaries through the sole `make test` gate.
 
 | Command | Main question | Prior run required | Target basis | Creates a new run |
 |---|---|---:|---|---:|
@@ -32,12 +32,12 @@ This section specifies the production command contract. Production root `kar rev
 | `rerun` | Can an attempt be repeated after instability or invalid output? | Yes | Exact or recomposed source scope | Yes |
 ## 2.1 Complete 17-command contract
 
-The command-result envelope is `https://kar.local/schemas/kar-command-result.v1.schema.json`. Every machine-output request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. The frozen v1 schema has no truthful request variant for `schema list`, so `kar schema list --output json` fails closed as usage rather than fabricating an inspection envelope. Human `kar schema list` remains available; JSON `schema show` and `schema export` return the command-result envelope. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
+The command-result envelope is `https://mulgae.local/schemas/mulgae-command-result.v1.schema.json`. Every machine-output request variant is its literal `#/$defs/requests/<command>` pointer; provider-output schemas are never command requests. The frozen v1 schema has no truthful request variant for `schema list`, so `mulgae schema list --output json` fails closed as usage rather than fabricating an inspection envelope. Human `mulgae schema list` remains available; JSON `schema show` and `schema export` return the command-result envelope. Typed exits are exhaustive for the command surface: policy `1`, usage/configuration `2`, readiness/coverage `4`, artifact/evidence/publication/stale `7`, security `8`, cancellation `9`, and internal invariant `10`.
 G008 implements the frozen request contract and its two-phase boundary: CLI-only selectors are resolved and valueless stdin is captured before the schema-valid request is frozen. The frozen request contains canonical IDs and canonical target values only; it never contains `latest`, a role/provider rerun selector, or uncaptured stdin.
 
 | Command | Owner / service | Required reads → writes | Primary output contracts | Typed exits |
 |---|---|---|---|---|
-| `init` | `internal/app/init` / `InitializeProject` | installed-user identity and provider discovery → sole project-local `.kar/config.yaml` | command result | 2, 4, 7, 8, 9, 10 |
+| `init` | `internal/app/init` / `InitializeProject` | installed-user identity and provider discovery → sole project-local `.mulgae/config.yaml` | command result | 2, 4, 7, 8, 9, 10 |
 | `doctor` | `internal/app/doctor` / `DiagnoseEnvironment` | config, binaries, provider/platform evidence → redacted diagnostic | doctor result, command result | 2, 4, 7, 8, 9 |
 | `review` | `internal/app/review` / `StartReviewRun` | target, resolved policy → run, prompts, attempts, final, epoch | run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
 | `followup` | `internal/app/followup` / `StartFollowupRun` | source run/review/finding and target → child run and final | provider followup output v2, run manifest v2, review artifact v2 | 1, 2, 4, 7, 8, 9, 10 |
@@ -49,7 +49,7 @@ G008 implements the frozen request contract and its two-phase boundary: CLI-only
 | `excerpt` | `internal/app/query` / `RenderExcerpt` | target, review, evidence → none | command result | 2, 4, 7, 8, 9, 10 |
 | `providers` | `internal/app/providers` / `ListProviderProfiles` | config and provider evidence → none | provider-contract evidence v1 | 2, 4, 7, 8 |
 | `roles` | `internal/app/roles` / `ListRoles` | embedded role inventory → none | command result | 2 |
-| `config` | `internal/app/config` / `ResolveConfiguration` | attested project-local `.kar/config.yaml` → resolved policy | command result | 2, 4, 7, 8, 9, 10 |
+| `config` | `internal/app/config` / `ResolveConfiguration` | attested project-local `.mulgae/config.yaml` → resolved policy | command result | 2, 4, 7, 8, 9, 10 |
 | `schema` | `internal/app/schema` / `InspectSchema` | embedded schemas → optional export | command result | 2, 7 |
 | `clean` | `internal/app/clean` / `PlanAndApplyRetention` | manifests, edges, epoch → plan, tombstone, deletion receipt | clean plan v1 | 2, 7, 8 |
 | `export` | `internal/app/export` / `ExportRedactedRun` | immutable run and review → secure bundle and manifest | export manifest v1 | 2, 7, 8 |
@@ -76,19 +76,19 @@ It accepts each of the seven nonempty family subsets and canonicalizes request,
 result, and configuration order to Kimi, ZCode, AGY. Empty tokens, whitespace,
 unknown or duplicate families, and mixing `auto` with a family are usage
 errors. When an invalid init argv still unambiguously requests `--output json`,
-KAR emits the rejected request
+Mulgae emits the rejected request
 `{request_id,command:"init",request_state:"invalid",output_format:"json"}`
 with `init_selection_invalid` at exit `2`; it does not fabricate accepted
 selection or path fields.
 
-The literal non-command output URIs are `https://kar.local/schemas/kar-doctor-result.v2.schema.json`, `https://kar.local/schemas/kar-run-manifest.v2.schema.json`, `https://kar.local/schemas/kar-review-artifact.v3.schema.json`, `https://kar.local/schemas/kar-provider-followup-output.v2.schema.json`, `https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json`, `https://kar.local/schemas/kar-clean-plan.v1.schema.json`, and `https://kar.local/schemas/kar-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
+The literal non-command output URIs are `https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json`, `https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json`, `https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json`, `https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json`, `https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json`, `https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json`, and `https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json`. A command's response must retain independent content, coverage, publication, and CI outcomes rather than synthesizing one verdict.
 `help` is intentionally repository-independent. It renders only embedded documentation, reads no project configuration, and remains available in non-Git and unborn directories without locality attestation.
-For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.kar`, `.git`, `.gjc`, and KAR-owned root configuration names before any publication lookup.
+For G006, successful `status` results include the durable `recovery_action` and expose `final_artifact_uri` only for a validated P2 commit; errored status results retain the selected `run_id` but use null authority fields. Successful JSON `excerpt` results carry the exact verified bytes as canonical RFC 4648 `excerpt_base64` plus `excerpt_sha256`, where the digest is computed over the decoded transport bytes; non-verified results carry neither. Nonzero `status`, `report`, `findings`, and `excerpt` results use the explicit `status_failed`, `report_failed`, `findings_failed`, and `excerpt_failed` kinds. Report output validation rejects case aliases of `.mulgae`, `.git`, `.gjc`, and Mulgae-owned root configuration names before any publication lookup.
 
 ## 2.2 Gate and readiness semantics
 
 `init` records all configured intended provider IDs with `status=unverified` when evidence is unavailable. It must neither silently disable nor substitute them; `doctor` is required before review readiness can be claimed. `doctor`, `providers`, and `status` expose `PASS`, `FAIL`, or `INCONCLUSIVE` evidence without promoting it. `INCONCLUSIVE` is not PASS.
-`doctor` emits `kar-doctor-result.v2` inline and never persists diagnostics. It reports the fixed Kimi/ZCode/AGY inventory, project-local config admission, assignment resilience, and readiness. Singleton eligibility is `degraded` at exit `0`; missing or unavailable primaries are `unverified` at exit `4`; locality or identity violations are `unsafe` at exit `8`. Human and JSON output are ANSI-free.
+`doctor` emits `mulgae-doctor-result.v2` inline and never persists diagnostics. It reports the fixed Kimi/ZCode/AGY inventory, project-local config admission, assignment resilience, and readiness. Singleton eligibility is `degraded` at exit `0`; missing or unavailable primaries are `unverified` at exit `4`; locality or identity violations are `unsafe` at exit `8`. Human and JSON output are ANSI-free.
 A pure native-home observation cancellation aborts `init`, `config`, or `doctor`
 at exit `9` with `request_cancelled`. Init does not mutate, config exposes no
 accepted digest, and doctor emits no partial doctor artifact. A separately
@@ -96,22 +96,22 @@ observed security or artifact failure retains its higher precedence.
 
 No command, including `init`, `doctor`, or `schema`, authorizes product implementation, authority-ref mutation, or `g0_complete`. Those actions require the separate session-bound G0 approval DAG.
 
-## 3. `kar review`
+## 3. `mulgae review`
 
 Specifies the composed independent review operation. G013 production verification is complete after the login-recovering exact-binary live workflow and subsequent family capability suite passed; current qualification, execution, validation, cleanup, and P2 publication still fail closed per invocation when their runtime authority is unavailable.
 
 ```bash
-kar review --diff origin/main...HEAD \
+mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
 ```bash
-kar review --dirty \
+mulgae review --dirty \
   --roles logic,security,testing
 ```
 
 ```bash
-cat change.patch | kar review --stdin \
+cat change.patch | mulgae review --stdin \
   --objective "Focus on fallback state transitions."
 ```
 
@@ -119,7 +119,7 @@ An artist review may bind its UX/UI inputs to that review instead of changing
 project configuration:
 
 ```bash
-kar review --dirty \
+mulgae review --dirty \
   --roles artist \
   --artist-brief docs/roadmap.md \
   --artist-design-specs "design-specs/**/*.png,design-specs/**/*.webp"
@@ -144,19 +144,19 @@ Semantics:
 - publishes at most one final review artifact.
 - preserves immutable captured target bytes; native `@file` transport, when selected, refers only to that captured material and never weakens the no-live-root or no-`HOME` boundary.
 
-## 4. `kar followup`
+## 4. `mulgae followup`
 
 Evaluates one prior finding.
 
 ```bash
-kar followup --run latest --finding F_SOURCE-1 --stdin \
+mulgae followup --run latest --finding F_SOURCE-1 --stdin \
   --objective "Verify only whether the original issue is resolved."
 ```
 
 Optional role targeting:
 
 ```bash
-kar followup --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F003 --dirty \
+mulgae followup --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F003 --dirty \
   --role logic
 ```
 
@@ -168,12 +168,12 @@ Semantics:
 - does not replace or mutate the original finding;
 - may report a newly introduced blocker, but does not silently become a broad review.
 
-## 5. `kar delta`
+## 5. `mulgae delta`
 
 Reviews the difference between immutable target snapshots.
 
 ```bash
-kar delta --since-run latest --dirty --roles logic,security
+mulgae delta --since-run latest --dirty --roles logic,security
 ```
 
 Delta is defined as:
@@ -190,14 +190,14 @@ Rules:
 - old findings are background only;
 - delta does not prove old findings were fixed;
 - if the source target cannot be reconstructed, the command fails with a target error;
-- stdin-only reviews support delta only if KAR materialized a comparable snapshot representation.
+- stdin-only reviews support delta only if Mulgae materialized a comparable snapshot representation.
 
-## 6. `kar rerun`
+## 6. `mulgae rerun`
 
 Repeats an attempt without mutating the source run.
 
 ```bash
-kar rerun --run latest --role documentation --provider kimi-main
+mulgae rerun --run latest --role documentation --provider kimi-main
 ```
 
 Replay modes:
@@ -206,12 +206,12 @@ Replay modes:
 |---|---|
 | `exact` | Reuses captured target bytes, composed prompt bytes, resolved adapter profile, and source attempt parameters |
 | `recompose` | Reuses the target but composes a new prompt using current trusted templates and configuration |
-A rerun accepts either `--attempt <attempt-id>` or exactly one `--role <role> --provider <provider>` selector. In the latter form, KAR resolves the run selector first and then resolves the role/provider pair to one canonical source attempt before freezing the request; the frozen request contains `source_run_id` and `source_attempt_id`, not the selector pair.
+A rerun accepts either `--attempt <attempt-id>` or exactly one `--role <role> --provider <provider>` selector. In the latter form, Mulgae resolves the run selector first and then resolves the role/provider pair to one canonical source attempt before freezing the request; the frozen request contains `source_run_id` and `source_attempt_id`, not the selector pair.
 
 Default:
 
 ```text
-kar rerun --run latest --attempt a_019f596a-cf80-7c67-b265-f37053d51ccf --replay exact
+mulgae rerun --run latest --attempt a_019f596a-cf80-7c67-b265-f37053d51ccf --replay exact
 ```
 
 `rerun` is for timeout, provider instability, invalid JSON, or other execution-quality problems. A code change intended to resolve a finding should use `followup` or `delta`.
@@ -235,8 +235,8 @@ Exactly one target input is required. `--workspace`, `--stage`, and `--dirty`
 are valueless. `--diff git` is not accepted.
 
 - `--workspace` captures every eligible project text file without requiring a
-  Git repository. `.git/` and `.kar/` are always excluded; `.gitignore` and
-  `.karignore` form independent exclusion sets.
+  Git repository. `.git/` and `.mulgae/` are always excluded; `.gitignore` and
+  `.mulgaeignore` form independent exclusion sets.
 - `--stage` captures `HEAD` to the current index and exposes current evidence
   through side `index`.
 - `--dirty` captures `HEAD` to the worktree, including staged, unstaged, and
@@ -247,9 +247,9 @@ are valueless. `--diff git` is not accepted.
 - A project without Git can use only `--workspace`. A Git repository without a
   first commit must also use `--workspace` rather than `--stage` or `--dirty`.
 
-`--stdin` is valueless at the CLI boundary. KAR captures it before canonical target creation; the frozen request records the resulting nonempty canonical stdin target value.
+`--stdin` is valueless at the CLI boundary. Mulgae captures it before canonical target creation; the frozen request records the resulting nonempty canonical stdin target value.
 
-For Git targets, KAR captures:
+For Git targets, Mulgae captures:
 
 - repository identity;
 - base object ID;
@@ -260,24 +260,24 @@ For Git targets, KAR captures:
 - untracked manifest when explicitly included;
 - canonical target SHA-256.
 
-The root `.karignore` uses Git-ignore pattern syntax and applies to workspace,
+The root `.mulgaeignore` uses Git-ignore pattern syntax and applies to workspace,
 stage, dirty, and commit diff targets, including tracked files. Eligible
 symlinks, special files, non-UTF-8 files, and bounded-size violations fail with
 an explicit path instead of being silently omitted.
 
-KAR publishes a captured-review archive beside the target bytes. The run
+Mulgae publishes a captured-review archive beside the target bytes. The run
 support index digest-binds its materialized workspace and evidence sides.
 Rerun reconstructs from that archive instead of recapturing the checkout;
 followup preserves the newly captured archive, and delta compares the source
 and current archived file sets. Child workflows therefore remain stable after
 the original worktree, index, or branch changes.
 
-KAR never stores only a mutable ref such as `origin/main` as the source of truth.
+Mulgae never stores only a mutable ref such as `origin/main` as the source of truth.
 
 ## 8. `latest` Resolution
 
 `latest` is scoped to the current project root and artifact root.
-`latest` is a CLI selector, not a request value. KAR resolves it before request freezing for every command that accepts it, including `--since-run` for `delta`, `--run` for `followup`, `rerun`, and `export`.
+`latest` is a CLI selector, not a request value. Mulgae resolves it before request freezing for every command that accepts it, including `--since-run` for `delta`, `--run` for `followup`, `rerun`, and `export`.
 
 Resolution order:
 
@@ -292,24 +292,24 @@ A corrupt or incomplete manifest is skipped with a diagnostic. Directory modific
 ```mermaid
 sequenceDiagram
     actor User
-    participant KAR
+    participant Mulgae
     participant Session
     participant ReviewRun
     participant FollowupRun
     participant DeltaRun
 
-    User->>KAR: kar review
-    KAR->>Session: create session_id
-    KAR->>ReviewRun: create run_id and capture target A
+    User->>Mulgae: mulgae review
+    Mulgae->>Session: create session_id
+    Mulgae->>ReviewRun: create run_id and capture target A
     ReviewRun-->>User: review_A.json
 
-    User->>KAR: kar followup --run latest --finding F001 --dirty
-    KAR->>FollowupRun: create new run in same session
+    User->>Mulgae: mulgae followup --run latest --finding F001 --dirty
+    Mulgae->>FollowupRun: create new run in same session
     FollowupRun->>ReviewRun: reference source finding and target A
     FollowupRun-->>User: followup result
 
-    User->>KAR: kar delta --since-run latest --dirty --roles logic,security
-    KAR->>DeltaRun: capture target B
+    User->>Mulgae: mulgae delta --since-run latest --dirty --roles logic,security
+    Mulgae->>DeltaRun: capture target B
     DeltaRun->>ReviewRun: compare immutable target A to B
     DeltaRun-->>User: delta review
 ```
@@ -317,9 +317,9 @@ sequenceDiagram
 ## 10. Artifact Maintenance
 
 ```bash
-kar clean --mode plan
-kar clean --mode apply --expected-plan-sha256 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-kar export --run latest --output-path exports/kar-review.zip --output human
+mulgae clean --mode plan
+mulgae clean --mode apply --expected-plan-sha256 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+mulgae export --run latest --output-path exports/mulgae-review.zip --output human
 ```
 
 `clean` obtains retention age, size thresholds, and explicit keep IDs from resolved policy, not CLI retention flags. `export` requires a safe relative `--output-path`; redaction is unconditional, and `--output` selects only the command-result format (`json` or `human`), never export redaction or destination.
@@ -334,21 +334,21 @@ It computes `age_delete_set` first from unprotected completed runs older than `n
 Required help topics:
 
 ```text
-kar help quickstart
-kar help config
-kar help providers
-kar help lanes
-kar help prompts
-kar help workflows
-kar help artifacts
-kar help validation
-kar help ci
-kar help exit-codes
-kar help security
+mulgae help quickstart
+mulgae help config
+mulgae help providers
+mulgae help lanes
+mulgae help prompts
+mulgae help workflows
+mulgae help artifacts
+mulgae help validation
+mulgae help ci
+mulgae help exit-codes
+mulgae help security
 ```
 
 The machine-stable role inventory is a command, not a help topic: use
-`kar roles` or `kar roles --output json`.
+`mulgae roles` or `mulgae roles --output json`.
 
 Help must explain:
 

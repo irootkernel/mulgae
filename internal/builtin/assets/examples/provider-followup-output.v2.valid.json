@@ -1,8 +1,8 @@
 {
-  "schema_version": "kar-provider-followup-output.v2",
-  "summary": "The followup identifies a changed current-target location that KAR must verify against the immutable source finding.",
+  "schema_version": "mulgae-provider-followup-output.v2",
+  "summary": "The followup identifies a changed current-target location that Mulgae must verify against the immutable source finding.",
   "resolution": "still_open",
-  "rationale": "The source finding remains a valid immutable reference. The provider supplies only a current location and excerpt claim; KAR owns the later stale, verified, invalid, or unverifiable result.",
+  "rationale": "The source finding remains a valid immutable reference. The provider supplies only a current location and excerpt claim; Mulgae owns the later stale, verified, invalid, or unverifiable result.",
   "evidence": [
     {
       "source": {
@@ -26,6 +26,6 @@
   ],
   "new_findings": [],
   "limitations": [
-    "KAR must compare the claimed current excerpt with captured target bytes before the source finding can be verified or resolved."
+    "Mulgae must compare the claimed current excerpt with captured target bytes before the source finding can be verified or resolved."
   ]
 }

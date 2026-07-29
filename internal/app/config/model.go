@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Config is the sole project-local KAR configuration authority.
+// Config is the sole project-local Mulgae configuration authority.
 type Config struct {
 	Version    int              `yaml:"version" json:"version"`
 	Project    ProjectConfig    `yaml:"project" json:"project"`
@@ -102,7 +102,7 @@ const (
 	ConfigVersion            = 2
 	DefaultKimiModel         = "kimi-code/kimi-for-coding"
 	DefaultAGYPermissionMode = "safe"
-	ConfigRelativePath       = ".kar/config.yaml"
+	ConfigRelativePath       = ".mulgae/config.yaml"
 	MaximumConfigBytes       = 1 << 20
 	ProjectKindNonUI         = "non_ui"
 	ProjectKindUI            = "ui"

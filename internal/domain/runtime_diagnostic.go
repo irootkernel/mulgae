@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const RuntimeDiagnosticSchemaVersion = "kar-runtime-log.v1"
+const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v1"
 
 type RuntimeDiagnosticLevel string
 

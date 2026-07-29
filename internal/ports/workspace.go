@@ -12,7 +12,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 const (
@@ -206,7 +206,7 @@ func workspaceReservedPath(value string) bool {
 	if slash := strings.IndexByte(first, '/'); slash >= 0 {
 		first = first[:slash]
 	}
-	return strings.EqualFold(first, ".git") || strings.EqualFold(first, ".kar")
+	return strings.EqualFold(first, ".git") || strings.EqualFold(first, ".mulgae")
 }
 func workspaceSnapshotName(value string) bool {
 	if !strings.HasPrefix(value, "snapshot-") || len(value) != len("snapshot-")+32 {
@@ -590,7 +590,7 @@ func workspaceTerminalReceiptID(workspace WorkspaceSnapshotIdentity, runID strin
 	write := func(value string) {
 		_, _ = fmt.Fprintf(hasher, "%d:%s", len(value), value)
 	}
-	write("kar.workspace-terminal-receipt.v1")
+	write("mulgae.workspace-terminal-receipt.v1")
 	write(workspace.SnapshotPath())
 	write(workspace.SnapshotName())
 	write(workspace.ManifestSHA256())

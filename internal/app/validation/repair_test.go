@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestApplyRepairCandidateReturnsTypedRepairPlanCause(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	_, _, err := validator.ApplyRepairCandidate(
-		context.Background(), validProviderReview(), []byte(`{"schema_version":"kar-repair-patch.v1","repairs":[]}`), testScope(), RepairPlan{},
+		context.Background(), validProviderReview(), []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[]}`), testScope(), RepairPlan{},
 	)
 	if err == nil {
 		t.Fatal("invalid repair plan was accepted")
@@ -25,7 +25,7 @@ func TestApplyRepairCandidateReturnsTypedRepairPlanCause(t *testing.T) {
 func marshalRepairPatch(t *testing.T, repairs []map[string]any) []byte {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
-		"schema_version": "kar-repair-patch.v1",
+		"schema_version": "mulgae-repair-patch.v1",
 		"repairs":        repairs,
 	})
 	if err != nil {

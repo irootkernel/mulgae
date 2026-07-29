@@ -9,16 +9,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 const (
 	RuntimeDiagnosticLogMaxBytes            int64 = 8 << 20
 	RuntimeDiagnosticTailReserveBytes       int64 = 256 << 10
 	RuntimeDiagnosticStatusMaxBytes         int64 = 256 << 10
-	RuntimeDiagnosticRunStatusSchema              = "kar-runtime-run-status.v1"
-	RuntimeDiagnosticAttemptStatusSchema          = "kar-runtime-attempt-status.v1"
-	RuntimeDiagnosticInvocationStatusSchema       = "kar-runtime-invocation-status.v1"
+	RuntimeDiagnosticRunStatusSchema              = "mulgae-runtime-run-status.v1"
+	RuntimeDiagnosticAttemptStatusSchema          = "mulgae-runtime-attempt-status.v1"
+	RuntimeDiagnosticInvocationStatusSchema       = "mulgae-runtime-invocation-status.v1"
 )
 
 var ErrRuntimeDiagnosticEventDropped = errors.New("runtime diagnostic ordinary event dropped at cap")

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const testSOTRoot = "assets"
@@ -94,7 +94,7 @@ func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 		{
 			name: "invalid schema identity",
 			mutate: func(t *testing.T, files fstest.MapFS) {
-				files["schemas/kar-command-result.v1.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
+				files["schemas/mulgae-command-result.v1.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
 				rewriteTestChecksums(t, files)
 			},
 		},
@@ -119,7 +119,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
-	id := mustAssetID(t, "https://kar.local/schemas/kar-command-result.v1.schema.json")
+	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json")
 	metadata, first, err := catalog.Read(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Read(%q): %v", id.String(), err)
@@ -130,7 +130,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	if metadata.Kind() != ports.AssetKindSchema {
 		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindSchema)
 	}
-	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "kar-command-result.v1.schema.json"))
+	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v1.schema.json"))
 	if err != nil {
 		t.Fatalf("read authoritative global default: %v", err)
 	}
@@ -429,11 +429,11 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 	content := help.String()
 	for _, required := range []string{
-		"one configuration authority: `<canonical-project-root>/.kar/config.yaml`",
+		"one configuration authority: `<canonical-project-root>/.mulgae/config.yaml`",
 		"`--providers auto|FAMILY[,FAMILY...]`",
 		"`FAMILY := kimi | zcode | agy`",
 		"`execution.workspace_access` is required",
-		"KAR roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nKAR reports findings and recommendations only.",
+		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
 		"an explicit\n`safe` or `dangerously-skip-permissions` mode",
 		"unconditional project-root durability barrier",
 		"output delivery failure never rolls back a\ncommitted config",
@@ -443,7 +443,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 			t.Errorf("embedded help is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"~/.config/kar", "$XDG_CONFIG_HOME/kar"} {
+	for _, forbidden := range []string{"~/.config/mulgae", "$XDG_CONFIG_HOME/mulgae"} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("embedded help retains legacy authority %q", forbidden)
 		}
@@ -471,33 +471,33 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 	t.Parallel()
 
 	expected := []schemaExamplePair{
-		{"https://kar.local/schemas/kar-clean-plan.v1.schema.json", "schemas/kar-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
-		{"https://kar.local/schemas/kar-command-result.v1.schema.json", "schemas/kar-command-result.v1.schema.json", "examples/command-result.v1.valid.json"},
-		{"https://kar.local/schemas/kar-doctor-result.v1.schema.json", "schemas/kar-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
-		{"https://kar.local/schemas/kar-doctor-result.v2.schema.json", "schemas/kar-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
-		{"https://kar.local/schemas/kar-export-manifest.v1.schema.json", "schemas/kar-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
-		{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "schemas/kar-g0-file-catalog.v1.schema.json", "examples/g0-file-catalog.v1.valid.json"},
-		{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "schemas/kar-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
-		{"https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json", "schemas/kar-platform-contract-evidence.v2.schema.json", "examples/platform-contract-evidence.v2.valid.json"},
-		{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", "schemas/kar-provider-contract-evidence.v1.schema.json", "examples/provider-contract-evidence.v1.valid.json"},
-		{"https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json", "schemas/kar-provider-contract-evidence.v2.schema.json", "examples/provider-contract-evidence.v2.valid.json"},
-		{"urn:kar:schema:provider-followup-output:v1", "schemas/kar-provider-followup-output.v1.schema.json", "examples/provider-followup-output.valid.json"},
-		{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "schemas/kar-provider-followup-output.v2.schema.json", "examples/provider-followup-output.v2.valid.json"},
-		{"urn:kar:schema:provider-review-output:v1", "schemas/kar-provider-review-output.v1.schema.json", "examples/provider-review-output.valid.json"},
-		{"https://kar.local/schemas/kar-provider-review-output.v2.schema.json", "schemas/kar-provider-review-output.v2.schema.json", "examples/provider-review-output.v2.valid.json"},
-		{"https://kar.local/schemas/kar-provider-review-output.v3.schema.json", "schemas/kar-provider-review-output.v3.schema.json", "examples/provider-review-output.v3.valid.json"},
-		{"https://kar.local/schemas/kar-provider-review-wire.v2.schema.json", "schemas/kar-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v2.valid.json"},
-		{"https://kar.local/schemas/kar-provider-review-wire.v3.schema.json", "schemas/kar-provider-review-wire.v3.schema.json", "examples/provider-review-wire.v3.valid.json"},
-		{"urn:kar:schema:repair-patch:v1", "schemas/kar-repair-patch.v1.schema.json", "examples/repair-patch.json"},
-		{"urn:kar:schema:repair-request:v1", "schemas/kar-repair-request.v1.schema.json", "examples/repair-request.json"},
-		{"urn:kar:schema:review-artifact:v1", "schemas/kar-review-artifact.v1.schema.json", "examples/review-artifact.valid.json"},
-		{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", "schemas/kar-review-artifact.v2.schema.json", "examples/review-artifact.v2.valid.json"},
-		{"https://kar.local/schemas/kar-review-artifact.v3.schema.json", "schemas/kar-review-artifact.v3.schema.json", "examples/review-artifact.v3.valid.json"},
-		{"urn:kar:schema:run-manifest:v1", "schemas/kar-run-manifest.v1.schema.json", "examples/run-manifest.valid.json"},
-		{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", "schemas/kar-run-manifest.v2.schema.json", "examples/run-manifest.v2.valid.json"},
-		{"https://kar.local/schemas/kar-validation-receipt.v1.schema.json", "schemas/kar-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
-		{"urn:kar:schema:validation-result:v1", "schemas/kar-validation-result.v1.schema.json", "examples/validation-result.valid.json"},
-		{"https://kar.local/schemas/kar-validation-result.v2.schema.json", "schemas/kar-validation-result.v2.schema.json", "examples/validation-result.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "schemas/mulgae-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json", "schemas/mulgae-command-result.v1.schema.json", "examples/command-result.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "schemas/mulgae-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "schemas/mulgae-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json", "schemas/mulgae-g0-file-catalog.v1.schema.json", "examples/g0-file-catalog.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "schemas/mulgae-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json", "schemas/mulgae-platform-contract-evidence.v2.schema.json", "examples/platform-contract-evidence.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", "schemas/mulgae-provider-contract-evidence.v1.schema.json", "examples/provider-contract-evidence.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", "schemas/mulgae-provider-contract-evidence.v2.schema.json", "examples/provider-contract-evidence.v2.valid.json"},
+		{"urn:mulgae:schema:provider-followup-output:v1", "schemas/mulgae-provider-followup-output.v1.schema.json", "examples/provider-followup-output.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json", "schemas/mulgae-provider-followup-output.v2.schema.json", "examples/provider-followup-output.v2.valid.json"},
+		{"urn:mulgae:schema:provider-review-output:v1", "schemas/mulgae-provider-review-output.v1.schema.json", "examples/provider-review-output.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json", "schemas/mulgae-provider-review-output.v2.schema.json", "examples/provider-review-output.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-review-output.v3.schema.json", "schemas/mulgae-provider-review-output.v3.schema.json", "examples/provider-review-output.v3.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-review-wire.v2.schema.json", "schemas/mulgae-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-review-wire.v3.schema.json", "schemas/mulgae-provider-review-wire.v3.schema.json", "examples/provider-review-wire.v3.valid.json"},
+		{"urn:mulgae:schema:repair-patch:v1", "schemas/mulgae-repair-patch.v1.schema.json", "examples/repair-patch.json"},
+		{"urn:mulgae:schema:repair-request:v1", "schemas/mulgae-repair-request.v1.schema.json", "examples/repair-request.json"},
+		{"urn:mulgae:schema:review-artifact:v1", "schemas/mulgae-review-artifact.v1.schema.json", "examples/review-artifact.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json", "schemas/mulgae-review-artifact.v2.schema.json", "examples/review-artifact.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json", "schemas/mulgae-review-artifact.v3.schema.json", "examples/review-artifact.v3.valid.json"},
+		{"urn:mulgae:schema:run-manifest:v1", "schemas/mulgae-run-manifest.v1.schema.json", "examples/run-manifest.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json", "schemas/mulgae-run-manifest.v2.schema.json", "examples/run-manifest.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
+		{"urn:mulgae:schema:validation-result:v1", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-validation-result.v2.schema.json", "schemas/mulgae-validation-result.v2.schema.json", "examples/validation-result.v2.valid.json"},
 	}
 	if len(expected) != 27 {
 		t.Fatalf("test pair inventory contains %d pairs, want 27", len(expected))

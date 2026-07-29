@@ -3,8 +3,8 @@ package doctor
 import "context"
 
 const (
-	providerEvidenceV2SchemaID = "https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json"
-	platformEvidenceV2SchemaID = "https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json"
+	providerEvidenceV2SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
+	platformEvidenceV2SchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json"
 )
 
 var (

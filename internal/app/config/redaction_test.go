@@ -2,8 +2,8 @@ package config_test
 
 import (
 	"encoding/json"
-	adapterconfig "github.com/irootkernel/kkachi-agent-review/internal/adapters/config"
-	appconfig "github.com/irootkernel/kkachi-agent-review/internal/app/config"
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"strings"
 	"testing"
 )

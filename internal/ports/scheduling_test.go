@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestProcessExecutionErrorPreservesTypedPrimaryCauseAndSeparatedEvidence(t *testing.T) {
@@ -190,11 +190,11 @@ func TestProviderRouteBindsSafeProviderToValidKey(t *testing.T) {
 }
 
 func TestEnvironmentVariableValidatesPortableNameAndNULFreeValue(t *testing.T) {
-	variable, err := NewEnvironmentVariable("_KAR_1", "value=allowed")
+	variable, err := NewEnvironmentVariable("_MULGAE_1", "value=allowed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := variable.Name(), "_KAR_1"; got != want {
+	if got, want := variable.Name(), "_MULGAE_1"; got != want {
 		t.Fatalf("Name() = %q, want %q", got, want)
 	}
 	if got, want := variable.Value(), "value=allowed"; got != want {
@@ -209,11 +209,11 @@ func TestEnvironmentVariableValidatesPortableNameAndNULFreeValue(t *testing.T) {
 		value string
 	}{
 		{name: "", value: "value"},
-		{name: "1KAR", value: "value"},
-		{name: "KAR-NAME", value: "value"},
-		{name: "KAR=NAME", value: "value"},
+		{name: "1Mulgae", value: "value"},
+		{name: "Mulgae-NAME", value: "value"},
+		{name: "Mulgae=NAME", value: "value"},
 		{name: "K\u00c9Y", value: "value"},
-		{name: "KAR", value: "value\x00suffix"},
+		{name: "Mulgae", value: "value\x00suffix"},
 	} {
 		if _, err := NewEnvironmentVariable(test.name, test.value); err == nil {
 			t.Errorf("NewEnvironmentVariable(%q, %q) succeeded", test.name, test.value)
@@ -328,7 +328,7 @@ func TestProcessRequestValidRejectsMissingOrMismatchedPWD(t *testing.T) {
 
 	missing := request
 	missing.environment = []EnvironmentVariable{
-		schedulingTestEnvironmentVariable(t, "KAR_TOKEN", "redacted"),
+		schedulingTestEnvironmentVariable(t, "MULGAE_TOKEN", "redacted"),
 	}
 	if missing.Valid() {
 		t.Fatal("request without effective PWD reports valid")
@@ -842,7 +842,7 @@ func schedulingStdinReceipt(t *testing.T, intended, written int64) StdinWriteRec
 
 func schedulingStdinWriteSHA256(value []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("KAR-PROVIDER-STDIN/1"))
+	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
@@ -882,7 +882,7 @@ func schedulingValidProcessRequestInput(t *testing.T) schedulingProcessRequestIn
 	return schedulingProcessRequestInput{
 		executable:       "/usr/bin/provider",
 		argv:             []string{"/usr/bin/provider", "--request"},
-		environment:      []EnvironmentVariable{schedulingTestEnvironmentVariable(t, "KAR_TOKEN", "redacted")},
+		environment:      []EnvironmentVariable{schedulingTestEnvironmentVariable(t, "MULGAE_TOKEN", "redacted")},
 		workingDirectory: "/work",
 		stdin:            []byte("stdin"),
 		timeout:          time.Second,

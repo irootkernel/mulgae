@@ -2,7 +2,7 @@
 
 ## 1. Reporting Surfaces
 
-KAR exposes four related outputs:
+Mulgae exposes four related outputs:
 
 | Output | Purpose | Source of truth |
 |---|---|---:|
@@ -28,13 +28,13 @@ A reader treats `review_{uuidv7}.json` as a final machine contract only when the
 - role result summaries and attempt references;
 - normalized findings with source and current evidence verification;
 - limitations and degradation reasons; and
-- KAR and adapter provenance.
+- Mulgae and adapter provenance.
 
 Schemas:
 
-- [kar-review-artifact.v3.schema.json](../schemas/kar-review-artifact.v3.schema.json)
-- [kar-run-manifest.v2.schema.json](../schemas/kar-run-manifest.v2.schema.json)
-- [kar-validation-result.v2.schema.json](../schemas/kar-validation-result.v2.schema.json)
+- [mulgae-review-artifact.v3.schema.json](../schemas/mulgae-review-artifact.v3.schema.json)
+- [mulgae-run-manifest.v2.schema.json](../schemas/mulgae-run-manifest.v2.schema.json)
+- [mulgae-validation-result.v2.schema.json](../schemas/mulgae-validation-result.v2.schema.json)
 
 ## 3. Human Report Structure
 
@@ -86,7 +86,7 @@ A future explicit comparison strategy may produce provider agreement metrics. Th
 
 ## 5. Four Outcome Axes
 
-KAR serializes four independent fields. They are never collapsed into a single verdict and a failure in one axis does not erase another.
+Mulgae serializes four independent fields. They are never collapsed into a single verdict and a failure in one axis does not erase another.
 
 | Field | Exact enum | Meaning and owner |
 |---|---|---|
@@ -121,7 +121,7 @@ ci:
 
 Any exhausted selected role yields `coverage_status=incomplete`; it preserves valid content, fails the run, and returns exit `4` rather than being relabeled as an ordinary CI rejection. A valid limited result may yield `coverage_status=degraded` and project to `ci_decision=pass` or `fail` under trusted policy. Source/current evidence remains visible with its exact `verification` state; a source reference is never displayed as current `verified` evidence.
 
-CI configuration comes from the admitted project-local `.kar/config.yaml`. Code-fixed safety floors remain invariants and cannot be weakened by configuration or interactive input.
+CI configuration comes from the admitted project-local `.mulgae/config.yaml`. Code-fixed safety floors remain invariants and cannot be weakened by configuration or interactive input.
 
 ## 7. CI Projection
 
@@ -133,7 +133,7 @@ json: emit the command-result envelope to stdout
 CI: evaluate the committed artifact's trusted content, coverage, finding, and degradation policy
 ```
 
-There is no `review --ci` flag and no CI request field. CI stdout stays concise. Detailed artifacts and all reason codes belong under `.kar/` or an explicitly requested secure export.
+There is no `review --ci` flag and no CI request field. CI stdout stays concise. Detailed artifacts and all reason codes belong under `.mulgae/` or an explicitly requested secure export.
 
 ## 8. Exit Projection
 
@@ -146,9 +146,9 @@ There is no `review --ci` flag and no CI request field. CI stdout stays concise.
 | `7` | Artifact read/write/integrity/publication failure, including a corrupt publication classifier result |
 | `8` | Security policy violation, including secret exposure or source mutation |
 | `9` | User or parent-process cancellation |
-| `10` | KAR internal error or invariant violation |
+| `10` | Mulgae internal error or invariant violation |
 
-Private target admission uses the exact exit-8 reason `target_private_config_forbidden` for `.kar/config.yaml` and `target_private_namespace_forbidden` for `.kar` or any other descendant. The diagnostic never includes the rejected path bytes.
+Private target admission uses the exact exit-8 reason `target_private_config_forbidden` for `.mulgae/config.yaml` and `target_private_namespace_forbidden` for `.mulgae` or any other descendant. The diagnostic never includes the rejected path bytes.
 
 Exit `3` is not a typed G0 outcome and is reserved. The manifest records every observed failure and reason code even when one exit is selected.
 
@@ -156,7 +156,7 @@ An unresolved provider `login_required` is a pre-publication readiness failure a
 
 Other operational current-qualification rejection uses exit `4` and reason code `provider_qualification_failed`. Human and machine messages list each affected configured provider instance with only its closed safe reason code, set `retryable=true`, expose no P2 URI, and contain no raw provider output. A qualified candidate that is not required by any selected primary or fallback assignment does not fail the run merely because another configured candidate was rejected; exact selected assignments remain the authority.
 
-A coordinator security-policy, configuration, artifact, internal, or cancellation stop is non-publishable. KAR projects its typed failure before P2 preparation, drains provider and workspace authority, and returns no P2 URI. It must not pass cancelled or blocked peer roles to publication and then collapse the resulting invariant error into generic readiness.
+A coordinator security-policy, configuration, artifact, internal, or cancellation stop is non-publishable. Mulgae projects its typed failure before P2 preparation, drains provider and workspace authority, and returns no P2 URI. It must not pass cancelled or blocked peer roles to publication and then collapse the resulting invariant error into generic readiness.
 
 For a non-publishable provider execution stop, machine output uses reason code `provider_execution_failed`, preserves the highest-precedence typed exit, sets `retryable=false`, and names every unsuccessful lane's affected provider instance with only its closed attempt-condition code. Operational predecessor, lower-precedence, and peer-cancellation facts remain visible so fallback exhaustion or process termination cannot hide the initiating stop. Human output names the same provider facts. Raw provider output, paths, credentials, and free-form diagnostics are never projected.
 
@@ -202,51 +202,51 @@ This table is generated from `internal/app/init.MutationOutcomeSpecs`; manual ed
 | Write state | Destination | Category / code | Message | Retryable | Exit |
 |---|---|---|---|---:|---:|
 | `committed` | `present` | none / none | none | false | 0 |
-| `existing_untouched` | `present` | configuration / `init_destination_exists` | The project-local KAR configuration already exists. | false | 2 |
-| `existing_untouched` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `existing_untouched` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `existing_untouched` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `not_committed` | `absent` | artifact / `init_write_failed` | The project-local KAR configuration could not be written. | true | 7 |
-| `not_committed` | `not_observed` | artifact / `init_write_failed` | The project-local KAR configuration could not be written. | true | 7 |
-| `not_committed` | `not_observed` | artifact / `init_private_dir_raced` | The private KAR directory changed during initialization. | true | 7 |
-| `private_dir_created_unconfirmed` | `absent` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_created_unconfirmed` | `present` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_created_unconfirmed` | `not_observed` | artifact / `init_private_dir_commit_unconfirmed` | The private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_created_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `absent` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_existing_unconfirmed` | `present` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_existing_unconfirmed` | `not_observed` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private KAR directory could not be durably confirmed. | true | 7 |
-| `private_dir_existing_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `present` | artifact / `init_commit_unconfirmed` | The installed KAR configuration could not be durably confirmed. | true | 7 |
-| `installed_unconfirmed` | `not_observed` | artifact / `init_commit_unconfirmed` | The installed KAR configuration could not be durably confirmed. | true | 7 |
-| `installed_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
-| `installed_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local KAR configuration failed locality admission. | false | 8 |
+| `existing_untouched` | `present` | configuration / `init_destination_exists` | The project-local Mulgae configuration already exists. | false | 2 |
+| `existing_untouched` | `present` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `existing_untouched` | `present` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `existing_untouched` | `present` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `not_committed` | `absent` | artifact / `init_write_failed` | The project-local Mulgae configuration could not be written. | true | 7 |
+| `not_committed` | `not_observed` | artifact / `init_write_failed` | The project-local Mulgae configuration could not be written. | true | 7 |
+| `not_committed` | `not_observed` | artifact / `init_private_dir_raced` | The private Mulgae directory changed during initialization. | true | 7 |
+| `private_dir_created_unconfirmed` | `absent` | artifact / `init_private_dir_commit_unconfirmed` | The private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `present` | artifact / `init_private_dir_commit_unconfirmed` | The private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `not_observed` | artifact / `init_private_dir_commit_unconfirmed` | The private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_created_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_created_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `present` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `not_observed` | artifact / `init_existing_private_dir_commit_unconfirmed` | The existing private Mulgae directory could not be durably confirmed. | true | 7 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `absent` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `private_dir_existing_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | artifact / `init_commit_unconfirmed` | The installed Mulgae configuration could not be durably confirmed. | true | 7 |
+| `installed_unconfirmed` | `not_observed` | artifact / `init_commit_unconfirmed` | The installed Mulgae configuration could not be durably confirmed. | true | 7 |
+| `installed_unconfirmed` | `present` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `config_locality_drifted` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `target_private_config_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `present` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
+| `installed_unconfirmed` | `not_observed` | security / `target_private_namespace_forbidden` | The project-local Mulgae configuration failed locality admission. | false | 8 |
 | `committed` | `present` | artifact / `init_result_delivery_failed` | The init result could not be delivered after commit. | true | 7 |
 <!-- END GENERATED INIT MUTATION OUTCOMES -->
 
 ## 9. Status Command
 
-`kar status --run <id>` should display:
+`mulgae status --run <id>` should display:
 
 - session and run identity;
 - run state and elapsed duration;
@@ -258,16 +258,16 @@ This table is generated from `internal/app/init.MutationOutcomeSpecs`; manual ed
 - reader-visible final artifact path only when `publication_status=committed`;
 - actionable next command.
 
-`kar status --run r_019f596a-cf80-7c67-b265-f37053d51ccf --output json` returns a versioned status object.
+`mulgae status --run r_019f596a-cf80-7c67-b265-f37053d51ccf --output json` returns a versioned status object.
 
 ## 10. Findings Commands
 
 Examples:
 
 ```bash
-kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity high --output json
-kar findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity critical
-kar excerpt --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F001 \
+mulgae findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity high --output json
+mulgae findings --run r_019f596a-cf80-7c67-b265-f37053d51ccf --severity critical
+mulgae excerpt --run r_019f596a-cf80-7c67-b265-f37053d51ccf --finding F001 \
   --current-target-sha256 sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --output json
 ```
@@ -277,7 +277,7 @@ Finding lookup always requires a canonical run ID and a supported minimum severi
 ## 11. Redacted Export
 
 ```bash
-kar export --run latest --output-path exports/kar-review.zip --output json
+mulgae export --run latest --output-path exports/mulgae-review.zip --output json
 ```
 
 A redacted export may omit:
@@ -301,4 +301,4 @@ It must retain:
 
 Human and JSON command results may expose the same installed safe diagnostic URI after session/run identity exists. They must not project a nonexistent or failed-to-install path. Login-required and provider execution failures retain closed provider attribution while raw provider output, credentials, prompts, source bytes, paths, and free-form internal errors remain private.
 
-Diagnostics cannot authorize a review artifact, CI pass, approval, release, retention decision, or cleanup of unrelated runs. `kar-runtime.jsonl` is chronological operational evidence and mutable status files are convenience projections; P2 remains the sole publication authority. Default export excludes diagnostics and raw streams.
+Diagnostics cannot authorize a review artifact, CI pass, approval, release, retention decision, or cleanup of unrelated runs. `mulgae-runtime.jsonl` is chronological operational evidence and mutable status files are convenience projections; P2 remains the sole publication authority. Default export excludes diagnostics and raw streams.

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/validation"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestStartFollowupRunPreservesSourceBytesAndUsesDefensiveCopies(t *testing.T) {
@@ -395,7 +395,7 @@ func validExecutionResultWithExit(source VerifiedSource, code domain.Operational
 	if err != nil {
 		panic(err)
 	}
-	output, err := validator.Validate(context.Background(), []byte(`{"schema_version":"kar-provider-followup-output.v2","summary":"resolved","resolution":"resolved","rationale":"verified","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`), validation.FollowupValidationScope{
+	output, err := validator.Validate(context.Background(), []byte(`{"schema_version":"mulgae-provider-followup-output.v2","summary":"resolved","resolution":"resolved","rationale":"verified","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`), validation.FollowupValidationScope{
 		SessionID: source.SessionID, SourceRunID: source.RunID, ReviewID: source.ReviewID,
 		FindingID: source.Finding.ID, SourceTargetSHA256: source.Target.SHA256(),
 		SourceExcerptSHA256: source.Receipt.ExcerptSHA256, CurrentTargetSHA256: source.Target.SHA256(),
@@ -405,7 +405,7 @@ func validExecutionResultWithExit(source VerifiedSource, code domain.Operational
 		panic(err)
 	}
 	result, err := NewExecutionResult(
-		source.SessionID, testRunIDForResult(), "https://kar.local/followup/review.json",
+		source.SessionID, testRunIDForResult(), "https://mulgae.local/followup/review.json",
 		output, mustFollowupCommittedExit(code),
 	)
 	if err != nil {

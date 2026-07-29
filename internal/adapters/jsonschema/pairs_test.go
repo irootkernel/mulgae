@@ -6,15 +6,15 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/builtin"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	validator := newBuiltinValidator(t)
-	schemaID := mustAssetID(t, "https://kar.local/schemas/kar-command-result.v1.schema.json")
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json")
 	envelope := map[string]any{
-		"schema_version": "kar-command-result.v1",
+		"schema_version": "mulgae-command-result.v1",
 		"command":        "init",
 		"request": map[string]any{
 			"request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf", "command": "init", "project_root": ".", "project_name": "project", "context": nil,
@@ -23,10 +23,10 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 		"completed_at": "2026-07-21T00:00:00.000Z",
 		"exit":         map[string]any{"code": 8, "kind": "security"},
 		"reasons": []any{map[string]any{
-			"category": "security", "code": "config_locality_drifted", "message": "The project-local KAR configuration failed locality admission.", "retryable": false, "artifact_uri": nil,
+			"category": "security", "code": "config_locality_drifted", "message": "The project-local Mulgae configuration failed locality admission.", "retryable": false, "artifact_uri": nil,
 		}},
 		"result": map[string]any{
-			"kind": "initialization_failed", "config_uri": ".kar/config.yaml", "config_sha256": "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
+			"kind": "initialization_failed", "config_uri": ".mulgae/config.yaml", "config_sha256": "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
 			"selected_provider_ids": []string{"agy"}, "candidate_provider_ids": []string{"agy"}, "configured_provider_ids": []string{"agy"}, "configured_role_ids": []string{"logic", "security"},
 			"write_state": "installed_unconfirmed", "committed": false, "destination_state": "present",
 			"discovery": []any{
@@ -48,7 +48,7 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	}
 	envelope["exit"] = map[string]any{"code": 2, "kind": "usage"}
 	envelope["reasons"] = []any{map[string]any{
-		"category": "configuration", "code": "init_destination_exists", "message": "The project-local KAR configuration already exists.", "retryable": false, "artifact_uri": nil,
+		"category": "configuration", "code": "init_destination_exists", "message": "The project-local Mulgae configuration already exists.", "retryable": false, "artifact_uri": nil,
 	}}
 	if err := validate(envelope); err == nil {
 		t.Fatal("contradictory init mutation envelope was accepted")
@@ -75,33 +75,33 @@ type schemaExamplePair struct {
 }
 
 var authoritativePairs = []schemaExamplePair{
-	{"https://kar.local/schemas/kar-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
-	{"https://kar.local/schemas/kar-command-result.v1.schema.json", "example:command-result.v1.valid.json"},
-	{"https://kar.local/schemas/kar-doctor-result.v1.schema.json", "example:doctor-result.v1.valid.json"},
-	{"https://kar.local/schemas/kar-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
-	{"https://kar.local/schemas/kar-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
-	{"https://kar.local/schemas/kar-g0-file-catalog.v1.schema.json", "example:g0-file-catalog.v1.valid.json"},
-	{"https://kar.local/schemas/kar-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
-	{"https://kar.local/schemas/kar-platform-contract-evidence.v2.schema.json", "example:platform-contract-evidence.v2.valid.json"},
-	{"https://kar.local/schemas/kar-provider-contract-evidence.v1.schema.json", "example:provider-contract-evidence.v1.valid.json"},
-	{"https://kar.local/schemas/kar-provider-contract-evidence.v2.schema.json", "example:provider-contract-evidence.v2.valid.json"},
-	{"urn:kar:schema:provider-followup-output:v1", "example:provider-followup-output.valid.json"},
-	{"https://kar.local/schemas/kar-provider-followup-output.v2.schema.json", "example:provider-followup-output.v2.valid.json"},
-	{"urn:kar:schema:provider-review-output:v1", "example:provider-review-output.valid.json"},
-	{"https://kar.local/schemas/kar-provider-review-output.v2.schema.json", "example:provider-review-output.v2.valid.json"},
-	{"https://kar.local/schemas/kar-provider-review-output.v3.schema.json", "example:provider-review-output.v3.valid.json"},
-	{"https://kar.local/schemas/kar-provider-review-wire.v2.schema.json", "example:provider-review-wire.v2.valid.json"},
-	{"https://kar.local/schemas/kar-provider-review-wire.v3.schema.json", "example:provider-review-wire.v3.valid.json"},
-	{"urn:kar:schema:repair-patch:v1", "example:repair-patch.json"},
-	{"urn:kar:schema:repair-request:v1", "example:repair-request.json"},
-	{"urn:kar:schema:review-artifact:v1", "example:review-artifact.valid.json"},
-	{"https://kar.local/schemas/kar-review-artifact.v2.schema.json", "example:review-artifact.v2.valid.json"},
-	{"https://kar.local/schemas/kar-review-artifact.v3.schema.json", "example:review-artifact.v3.valid.json"},
-	{"urn:kar:schema:run-manifest:v1", "example:run-manifest.valid.json"},
-	{"https://kar.local/schemas/kar-run-manifest.v2.schema.json", "example:run-manifest.v2.valid.json"},
-	{"https://kar.local/schemas/kar-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},
-	{"urn:kar:schema:validation-result:v1", "example:validation-result.valid.json"},
-	{"https://kar.local/schemas/kar-validation-result.v2.schema.json", "example:validation-result.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json", "example:command-result.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "example:doctor-result.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-g0-file-catalog.v1.schema.json", "example:g0-file-catalog.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v2.schema.json", "example:platform-contract-evidence.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", "example:provider-contract-evidence.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", "example:provider-contract-evidence.v2.valid.json"},
+	{"urn:mulgae:schema:provider-followup-output:v1", "example:provider-followup-output.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-followup-output.v2.schema.json", "example:provider-followup-output.v2.valid.json"},
+	{"urn:mulgae:schema:provider-review-output:v1", "example:provider-review-output.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json", "example:provider-review-output.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-review-output.v3.schema.json", "example:provider-review-output.v3.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-review-wire.v2.schema.json", "example:provider-review-wire.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-review-wire.v3.schema.json", "example:provider-review-wire.v3.valid.json"},
+	{"urn:mulgae:schema:repair-patch:v1", "example:repair-patch.json"},
+	{"urn:mulgae:schema:repair-request:v1", "example:repair-request.json"},
+	{"urn:mulgae:schema:review-artifact:v1", "example:review-artifact.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json", "example:review-artifact.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json", "example:review-artifact.v3.valid.json"},
+	{"urn:mulgae:schema:run-manifest:v1", "example:run-manifest.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json", "example:run-manifest.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},
+	{"urn:mulgae:schema:validation-result:v1", "example:validation-result.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-validation-result.v2.schema.json", "example:validation-result.v2.valid.json"},
 }
 
 func TestValidatorAcceptsExactAuthoritativePairs(t *testing.T) {
@@ -175,8 +175,8 @@ func TestBuildPairsRejectsPairPathThatDisagreesWithSchemaID(t *testing.T) {
 	g0 := examples[g0FileCatalogExampleID]
 	mutated := bytes.Replace(
 		g0.raw,
-		[]byte(`"pair": "sot/schemas/kar-clean-plan.v1.schema.json"`),
-		[]byte(`"pair": "sot/schemas/kar-command-result.v1.schema.json"`),
+		[]byte(`"pair": "sot/schemas/mulgae-clean-plan.v1.schema.json"`),
+		[]byte(`"pair": "sot/schemas/mulgae-command-result.v1.schema.json"`),
 		1,
 	)
 	if bytes.Equal(mutated, g0.raw) {
@@ -275,7 +275,7 @@ func TestBuildPairsRejectsReverseAndCardinalityViolations(t *testing.T) {
 		{
 			name: "twenty four schemas",
 			mutate: func(_ map[string]catalogExample, schemas map[string]string) {
-				schemas["https://kar.local/schemas/extra.schema.json"] = "schemas/extra.schema.json"
+				schemas["https://mulgae.local/schemas/extra.schema.json"] = "schemas/extra.schema.json"
 			},
 		},
 		{

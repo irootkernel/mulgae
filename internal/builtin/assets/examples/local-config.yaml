@@ -1,7 +1,7 @@
 version: 2
 project:
   name: "my-project"
-  context: ".kar-context.md"
+  context: ".mulgae-context.md"
 native_user:
   home: "/Users/example"
 providers:

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type serviceClock struct{ now time.Time }
@@ -32,7 +32,7 @@ type serviceValidator struct {
 }
 
 func (validator *serviceValidator) Validate(_ context.Context, id ports.AssetID, raw []byte) error {
-	if id.String() != "https://kar.local/schemas/kar-clean-plan.v1.schema.json" {
+	if id.String() != "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json" {
 		return errors.New("unexpected schema")
 	}
 	var plan CleanPlan

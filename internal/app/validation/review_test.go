@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type schemaCall struct {
@@ -67,7 +67,7 @@ func testScope() ReviewValidationScope {
 
 func validProviderReview() []byte {
 	return []byte(`{
-		"schema_version":"kar-provider-review-output.v3",
+		"schema_version":"mulgae-provider-review-output.v3",
 		"summary":"A high severity issue was found.",
 		"completeness":"complete",
 		"limitations":[],

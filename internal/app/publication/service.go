@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const publicationRecoveryActionLimit = 12
@@ -1003,7 +1003,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
 	}
-	if supportIndex.SchemaVersion != "kar-run-support-index.v1" {
+	if supportIndex.SchemaVersion != "mulgae-run-support-index.v1" {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
 	}
 	identities := make([]RunSupportArtifactIdentity, 0, len(supportIndex.Artifacts)+1)
@@ -1162,7 +1162,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if manifest.SchemaVersion != "kar-run-manifest.v2" ||
+	if manifest.SchemaVersion != "mulgae-run-manifest.v2" ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||
@@ -1279,7 +1279,7 @@ func (service *Service) writeDiagnostic(
 		return publicationFailure("recover.diagnostic", domain.FailureArtifact, "corruption diagnostic reasons do not match the observation", nil)
 	}
 	wire := publicationCorruptionDiagnosticWire{
-		SchemaVersion:    "kar-publication-corruption.v1",
+		SchemaVersion:    "mulgae-publication-corruption.v1",
 		SessionID:        run.SessionID().String(),
 		RunID:            run.RunID().String(),
 		ObservationEpoch: epoch,
@@ -1802,7 +1802,7 @@ func publicationExitReason(class domain.FailureClass) domain.ExitReason {
 		reason = "artifact_failure"
 	case domain.FailureInternal:
 		code = domain.ExitInternalError
-		reason = "kar_internal_error"
+		reason = "mulgae_internal_error"
 	case domain.FailureCancelled:
 		code = domain.ExitCancelled
 		reason = "user_cancelled"

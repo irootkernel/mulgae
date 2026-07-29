@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestQualificationTerminalCauseUsesExactSingleCause(t *testing.T) {

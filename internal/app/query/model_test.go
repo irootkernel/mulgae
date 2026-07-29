@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 func TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 	t.Parallel()
 	for name, raw := range map[string]string{
-		"duplicate": `{"schema_version":"kar-review-artifact.v3","schema_version":"kar-review-artifact.v3"}`,
+		"duplicate": `{"schema_version":"mulgae-review-artifact.v3","schema_version":"mulgae-review-artifact.v3"}`,
 		"unknown":   `{"unexpected":true}`,
 		"trailing":  `{} {}`,
 	} {

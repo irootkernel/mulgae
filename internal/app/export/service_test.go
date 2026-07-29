@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestBuildRedactedBundleDeterministicAndRedacted(t *testing.T) {
@@ -172,7 +172,7 @@ func validProjection() VerifiedSourceProjection {
 	return VerifiedSourceProjection{
 		SessionID: "s_018f0d1a-0000-7000-8000-000000000001", RunID: "r_018f0d1a-0000-7000-8000-000000000002", ReviewID: "018f0d1a-0000-7000-8000-000000000003",
 		RunManifest: ImmutableArtifactRef{ArtifactPath: "runs/run-manifest.json", SHA256: testHash("a")}, ReviewArtifact: ImmutableArtifactRef{ArtifactPath: "reviews/review.json", SHA256: testHash("b")},
-		SchemaVersions: []string{"kar-review-artifact.v3", "kar-run-manifest.v2"}, Review: Review{SchemaVersion: "kar-review-artifact.v3", ContentVerdict: string(domain.ContentRequestChanges)}, Run: Run{SchemaVersion: "kar-run-manifest.v2", State: "completed"},
+		SchemaVersions: []string{"mulgae-review-artifact.v3", "mulgae-run-manifest.v2"}, Review: Review{SchemaVersion: "mulgae-review-artifact.v3", ContentVerdict: string(domain.ContentRequestChanges)}, Run: Run{SchemaVersion: "mulgae-run-manifest.v2", State: "completed"},
 		Findings:        []Finding{{ID: "FINDING_1", Fingerprint: testHash("c"), Role: "security", Severity: "high", Title: "Path leak", Description: "seen at /Users/alice/private/file.go", Recommendation: "remove it", Confidence: "high", Lifecycle: "open"}},
 		Evidence:        []Evidence{{FindingID: "FINDING_1", SourceSessionID: "s_018f0d1a-0000-7000-8000-000000000001", SourceRunID: "r_018f0d1a-0000-7000-8000-000000000002", SourceReviewID: "018f0d1a-0000-7000-8000-000000000003", SourceFindingID: "FINDING_1", SourceTargetSHA256: testHash("d"), SourceExcerptSHA256: testHash("e"), TargetSHA256: testHash("f"), CurrentExcerptSHA256: testHash("0"), Path: "internal/app/export/model.go", Side: "head", LineStart: 1, LineEnd: 2, Verification: "verified"}},
 		Redaction:       RedactionManifest{Policy: "redacted_export"},
@@ -275,7 +275,7 @@ func (writer *exportWriter) Install(ctx context.Context, request ExportInstallRe
 
 func testRoot(t *testing.T) ports.AnchoredRoot {
 	t.Helper()
-	root, err := ports.NewAnchoredRoot("/tmp/kar-export")
+	root, err := ports.NewAnchoredRoot("/tmp/mulgae-export")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestExportRedactedRunUsesCommittedReaderAndSecureWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := ports.NewAnchoredRoot("/tmp/kar-export")
+	root, err := ports.NewAnchoredRoot("/tmp/mulgae-export")
 	if err != nil {
 		t.Fatal(err)
 	}

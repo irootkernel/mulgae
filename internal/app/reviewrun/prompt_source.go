@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // ProductionPromptSource is the shared current-template prompt authority for
@@ -158,7 +158,7 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 	if err := ctx.Err(); err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	marker := []byte("\nKAR-FRAMES/1\n")
+	marker := []byte("\nMulgae-FRAMES/1\n")
 	index := strings.Index(string(input.Stdin), string(marker))
 	if index <= 0 {
 		return review.RuntimePrompt{}, fmt.Errorf("review run: exact replay stored template boundary is absent")
@@ -214,7 +214,7 @@ func splitArtistPromptContext(input ImmutableReviewInput) (project []byte, hasPr
 		candidate = raw[index+1:]
 	}
 	var manifest artistPromptManifest
-	if json.Unmarshal(candidate, &manifest) != nil || manifest.SchemaVersion != "kar-artist-inputs.v1" {
+	if json.Unmarshal(candidate, &manifest) != nil || manifest.SchemaVersion != "mulgae-artist-inputs.v1" {
 		return raw, true, nil
 	}
 	if index < 0 {
@@ -228,7 +228,7 @@ func applyArtistPromptInputs(compileInput *prompt.CompileInput, raw []byte, role
 		return
 	}
 	var manifest artistPromptManifest
-	if json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != "kar-artist-inputs.v1" {
+	if json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != "mulgae-artist-inputs.v1" {
 		return
 	}
 	task := prompt.NewPayload([]byte(manifest.Task))

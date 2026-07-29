@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type authorityCandidateSource struct{ candidates []QualifiedRunCandidate }
@@ -53,7 +53,7 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 		qualified,
 		authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}},
 		plannerTestCanonicalPolicy(t, []Family{FamilyAGY}),
-		BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"},
+		BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	if authority.Provider() == nil || authority.Planner() == nil ||
-		authority.BuildIdentity() != (BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"}) {
+		authority.BuildIdentity() != (BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}) {
 		t.Fatal("authority did not retain provider, planner, and build identity")
 	}
 	first, err := authority.DrainTerminal(context.Background())
@@ -92,7 +92,7 @@ func TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure(t *testing.T) {
 	}
 	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
 	policy.MaxLanes = -1
-	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
+	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner(t *testing.T) {
 	}
 	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
 	policy.MaxLanes = -1
-	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "kar", Version: "1.2.3", Commit: "abc123"})
+	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
 		t.Fatal(err)
 	}

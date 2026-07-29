@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	coreapp "github.com/irootkernel/kkachi-agent-review/internal/app"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/evidence"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/prompt"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/publication"
-	"github.com/irootkernel/kkachi-agent-review/internal/app/review"
-	"github.com/irootkernel/kkachi-agent-review/internal/domain"
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	coreapp "github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Service is the provider-neutral root review composition boundary. It delegates
@@ -82,7 +82,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 			return
 		}
 		if err != nil {
-			projectURI, uriErr := ports.NewSafeRelativePath(".kar/" + finalized.URI().String())
+			projectURI, uriErr := ports.NewSafeRelativePath(".mulgae/" + finalized.URI().String())
 			if uriErr != nil {
 				result = Result{}
 				err = errors.Join(err, diagnosticArtifactFailure("reviewrun.diagnostics.project_uri", uriErr))
@@ -315,7 +315,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: production publication context: %w", err)
 	}
-	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(coordinatorResult, target, plan.Threshold, qualified.BuildIdentity().Version, qualified.BuildIdentity().Commit, publicationContext, inventory)
+	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(coordinatorResult, target, plan.Threshold, qualified.BuildIdentity().Version, qualified.BuildIdentity().ImmutableReference(), publicationContext, inventory)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: prepare publication candidate: %w", err)
 	}
@@ -493,7 +493,7 @@ func productionPublicationContext(
 	provenance := publication.ProductionReviewProvenance{
 		BuildProduct:             build.Product,
 		BuildVersion:             build.Version,
-		BuildCommit:              build.Commit,
+		BuildCommit:              build.ImmutableReference(),
 		HasObjective:             input.HasObjective(),
 		SnapshotManifestSHA256:   snapshot.ManifestSHA256(),
 		Providers:                provenanceProviders,
@@ -810,7 +810,7 @@ func (service *Service) publishNoChange(
 		sessionID, runID, target, roles, domain.SeverityHigh, publication.NoChangeProvenance{
 			BuildProduct:             service.dependencies.Build.Product,
 			BuildVersion:             service.dependencies.Build.Version,
-			BuildCommit:              service.dependencies.Build.Commit,
+			BuildCommit:              service.dependencies.Build.ImmutableReference(),
 			HasObjective:             input.HasObjective(),
 			ObjectiveSHA256:          noChangeObjectiveDigest(input),
 			SnapshotManifestSHA256:   workspaceSnapshot.ManifestSHA256(),

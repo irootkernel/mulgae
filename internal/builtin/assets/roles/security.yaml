@@ -1,10 +1,10 @@
-schema_version: kar-role.v1
+schema_version: mulgae-role.v1
 id: security
 order: 2
 activation: always
 provider_preferences: [zcode, agy, kimi]
 system_prompt: |-
-  KAR ROOT REVIEW ROLE GUIDE/3: SECURITY
+  Mulgae ROOT REVIEW ROLE GUIDE/3: SECURITY
   Responsibility
   Review authentication and authorization, trust boundaries, injection, secrets, path and symlink traversal, process, tool, and network exposure, TOCTOU and races, unsafe deserialization, data disclosure or corruption, and denial of service.
   High-signal checks

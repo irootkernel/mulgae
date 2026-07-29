@@ -1,6 +1,6 @@
 package app
 
-import "github.com/irootkernel/kkachi-agent-review/internal/domain"
+import "github.com/irootkernel/mulgae/internal/domain"
 
 // FailurePrecedence returns the canonical operational precedence for a failure
 // class. Higher values win when independent failures are observed together.

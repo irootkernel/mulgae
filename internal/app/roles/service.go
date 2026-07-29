@@ -1,7 +1,7 @@
 // Package roles exposes the fixed build-owned review role inventory.
 package roles
 
-import "github.com/irootkernel/kkachi-agent-review/internal/domain"
+import "github.com/irootkernel/mulgae/internal/domain"
 
 type Availability string
 

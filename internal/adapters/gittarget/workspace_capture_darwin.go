@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irootkernel/kkachi-agent-review/internal/ports"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -34,16 +34,16 @@ type workspaceTargetDescriptor struct {
 }
 
 func (adapter *ReviewTargetAdapter) captureWorkspace(ctx context.Context, root ports.AnchoredRoot) (ports.CapturedReviewMaterial, error) {
-	karRules, karBytes, err := readWorkspaceIgnore(root, ".karignore", "")
+	mulgaeRules, mulgaeBytes, err := readWorkspaceIgnore(root, ".mulgaeignore", "")
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	files := make([]ports.WorkspaceSnapshotFile, 0)
 	manifest := sha256.New()
-	manifest.Write([]byte("KAR-WORKSPACE-MANIFEST/v1\x00"))
-	manifest.Write(karBytes)
+	manifest.Write([]byte("Mulgae-WORKSPACE-MANIFEST/v1\x00"))
+	manifest.Write(mulgaeBytes)
 	var total int64
-	if err := adapter.walkWorkspace(ctx, root, "", nil, karRules, &files, manifest, &total); err != nil {
+	if err := adapter.walkWorkspace(ctx, root, "", nil, mulgaeRules, &files, manifest, &total); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	if len(files) == 0 {
@@ -55,7 +55,7 @@ func (adapter *ReviewTargetAdapter) captureWorkspace(ctx context.Context, root p
 	}
 	digest := "sha256:" + hex.EncodeToString(manifest.Sum(nil))
 	descriptor, err := json.Marshal(workspaceTargetDescriptor{
-		SchemaVersion: "kar-workspace-target.v1", ManifestSHA256: digest,
+		SchemaVersion: "mulgae-workspace-target.v1", ManifestSHA256: digest,
 		FileCount: len(files), TotalBytes: total,
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func (adapter *ReviewTargetAdapter) captureWorkspace(ctx context.Context, root p
 	}
 	return adapter.materialize(descriptor, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceWorktree: files,
-	}, "workspace;ignore=gitignore+karignore-v1-"+strings.TrimPrefix(digest, "sha256:")+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
+	}, "workspace;ignore=gitignore+mulgaeignore-v1-"+strings.TrimPrefix(digest, "sha256:")+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		return ports.NewCapturedReviewWorkspaceTarget(descriptor)
 	})
 }
@@ -76,7 +76,7 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 	ctx context.Context,
 	root ports.AnchoredRoot,
 	directory string,
-	gitRules, karRules []workspaceIgnoreRule,
+	gitRules, mulgaeRules []workspaceIgnoreRule,
 	files *[]ports.WorkspaceSnapshotFile,
 	manifest interface{ Write([]byte) (int, error) },
 	total *int64,
@@ -108,17 +108,17 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		if reservedReviewPath(relative) {
 			continue
 		}
-		ignored := workspaceIgnored(relative, gitRules) || workspaceIgnored(relative, karRules)
+		ignored := workspaceIgnored(relative, gitRules) || workspaceIgnored(relative, mulgaeRules)
 		if entry.Type()&os.ModeSymlink != 0 {
 			if !ignored {
-				return fmt.Errorf("workspace path %q is a symlink; add it to .karignore or replace it with a regular file", relative)
+				return fmt.Errorf("workspace path %q is a symlink; add it to .mulgaeignore or replace it with a regular file", relative)
 			}
 			continue
 		}
 		if entry.IsDir() {
 			// Descend even when the directory is ignored so a later negation can
 			// re-include a child, as Git ignore syntax permits.
-			if err := adapter.walkWorkspace(ctx, root, relative, gitRules, karRules, files, manifest, total); err != nil {
+			if err := adapter.walkWorkspace(ctx, root, relative, gitRules, mulgaeRules, files, manifest, total); err != nil {
 				return err
 			}
 			continue
@@ -127,7 +127,7 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 			continue
 		}
 		if !entry.Type().IsRegular() {
-			return fmt.Errorf("workspace path %q is not a regular file; add it to .karignore", relative)
+			return fmt.Errorf("workspace path %q is not a regular file; add it to .mulgaeignore", relative)
 		}
 		read := readStableRegular
 		if adapter.artistMediaType(relative) != "" {
@@ -135,10 +135,10 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		}
 		data, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
-			return fmt.Errorf("workspace path %q: %w; add it to .karignore if it is not reviewable", relative, err)
+			return fmt.Errorf("workspace path %q: %w; add it to .mulgaeignore if it is not reviewable", relative, err)
 		}
 		if adapter.artistMediaType(relative) == "" && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
-			return fmt.Errorf("workspace path %q is not UTF-8 text; add it to .karignore", relative)
+			return fmt.Errorf("workspace path %q is not UTF-8 text; add it to .mulgaeignore", relative)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil || norm.NFC.String(relative) != relative {
@@ -152,7 +152,7 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		*files = append(*files, file)
 		*total += int64(len(data))
 		if len(*files) > ports.WorkspaceSnapshotMaxFiles || *total > ports.WorkspaceSnapshotMaxBytes {
-			return fmt.Errorf("workspace snapshot exceeds its bounded file or byte limit; add generated content to .karignore")
+			return fmt.Errorf("workspace snapshot exceeds its bounded file or byte limit; add generated content to .mulgaeignore")
 		}
 		if _, err := manifest.Write([]byte("file\x00" + relative + "\x00" + strconv.FormatInt(int64(len(data)), 10) + "\x00")); err != nil {
 			return fmt.Errorf("workspace manifest: write file identity: %w", err)
@@ -257,8 +257,8 @@ func workspaceIgnored(path string, rules []workspaceIgnoreRule) bool {
 	return ignored
 }
 
-func capturedKarIgnore(root ports.AnchoredRoot) ([]workspaceIgnoreRule, string, error) {
-	rules, data, err := readWorkspaceIgnore(root, ".karignore", "")
+func capturedMulgaeIgnore(root ports.AnchoredRoot) ([]workspaceIgnoreRule, string, error) {
+	rules, data, err := readWorkspaceIgnore(root, ".mulgaeignore", "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -266,7 +266,7 @@ func capturedKarIgnore(root ports.AnchoredRoot) ([]workspaceIgnoreRule, string, 
 	return rules, hex.EncodeToString(digest[:]), nil
 }
 
-func filterKarIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []workspaceIgnoreRule) []ports.WorkspaceSnapshotFile {
+func filterMulgaeIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []workspaceIgnoreRule) []ports.WorkspaceSnapshotFile {
 	filtered := make([]ports.WorkspaceSnapshotFile, 0, len(files))
 	for _, file := range files {
 		if !workspaceIgnored(file.Path().String(), rules) {
@@ -276,7 +276,7 @@ func filterKarIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []works
 	return filtered
 }
 
-func filterKarIgnoredPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
+func filterMulgaeIgnoredPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
 	if len(rules) == 0 || len(patch) == 0 {
 		return append([]byte(nil), patch...), nil
 	}
@@ -298,11 +298,11 @@ func filterKarIgnoredPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, e
 		section := patch[start:end]
 		lineEnd := strings.IndexByte(string(section), '\n')
 		if lineEnd < 0 || !strings.HasPrefix(string(section[:lineEnd]), "diff --git ") {
-			return nil, fmt.Errorf("cannot apply .karignore to malformed Git patch")
+			return nil, fmt.Errorf("cannot apply .mulgaeignore to malformed Git patch")
 		}
 		left, right, ok := parseDiffGitPaths(strings.TrimPrefix(string(section[:lineEnd]), "diff --git "))
 		if !ok {
-			return nil, fmt.Errorf("cannot apply .karignore to non-canonical Git path")
+			return nil, fmt.Errorf("cannot apply .mulgaeignore to non-canonical Git path")
 		}
 		left = strings.TrimPrefix(left, "a/")
 		right = strings.TrimPrefix(right, "b/")
