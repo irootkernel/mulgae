@@ -16,6 +16,8 @@ type ProviderExecutionFailure struct {
 	role             domain.Role
 	reasonCode       string
 	class            domain.FailureClass
+	timeoutFacts     review.ProviderTimeoutFacts
+	hasTimeoutFacts  bool
 }
 
 func (failure ProviderExecutionFailure) ProviderInstance() string { return failure.providerInstance }
@@ -23,6 +25,9 @@ func (failure ProviderExecutionFailure) Role() domain.Role        { return failu
 func (failure ProviderExecutionFailure) ReasonCode() string       { return failure.reasonCode }
 func (failure ProviderExecutionFailure) FailureClass() domain.FailureClass {
 	return failure.class
+}
+func (failure ProviderExecutionFailure) ProviderTimeoutFacts() (review.ProviderTimeoutFacts, bool) {
+	return failure.timeoutFacts, failure.hasTimeoutFacts
 }
 
 // NewProviderExecutionFailure constructs one closed safe terminal provider fact.
@@ -44,11 +49,37 @@ func NewProviderExecutionFailure(
 	return failure, nil
 }
 
+func NewProviderExecutionFailureWithTimeoutFacts(
+	providerInstance string,
+	role domain.Role,
+	reasonCode string,
+	class domain.FailureClass,
+	facts review.ProviderTimeoutFacts,
+) (ProviderExecutionFailure, error) {
+	failure := ProviderExecutionFailure{
+		providerInstance: providerInstance,
+		role:             role,
+		reasonCode:       reasonCode,
+		class:            class,
+		timeoutFacts:     facts,
+		hasTimeoutFacts:  true,
+	}
+	if err := failure.validate(); err != nil {
+		return ProviderExecutionFailure{}, err
+	}
+	return failure, nil
+}
+
 func (failure ProviderExecutionFailure) validate() error {
 	if failure.providerInstance == "" || !failure.role.Valid() ||
 		!failure.class.Valid() ||
 		!review.AttemptCondition(failure.reasonCode).Valid() {
 		return fmt.Errorf("review run: invalid provider execution failure")
+	}
+	if failure.hasTimeoutFacts && (!failure.timeoutFacts.Valid() ||
+		review.AttemptCondition(failure.reasonCode) != review.AttemptConditionProviderTimeout ||
+		failure.class != domain.FailureTimeout) {
+		return fmt.Errorf("review run: invalid provider timeout facts")
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ type AdmissionError = appconfig.AdmissionError
 const (
 	ReasonYAMLInvalid             = appconfig.ReasonYAMLInvalid
 	ReasonSizeInvalid             = appconfig.ReasonSizeInvalid
+	ReasonProviderTimeoutInvalid  = appconfig.ReasonProviderTimeoutInvalid
 	ReasonCredentialKeyDetected   = appconfig.ReasonCredentialKeyDetected
 	ReasonCredentialValueDetected = appconfig.ReasonCredentialValueDetected
 )

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -458,11 +459,36 @@ func duplicateCoordinatorFinding(findings []domain.Finding) bool {
 // job. It contains either validated role content or one closed failure
 // condition, never both.
 type AttemptOutcome struct {
-	job          InvocationJob
-	output       ValidatedRoleOutput
-	condition    AttemptCondition
-	hasOutput    bool
-	hasCondition bool
+	job             InvocationJob
+	output          ValidatedRoleOutput
+	condition       AttemptCondition
+	timeoutFacts    ProviderTimeoutFacts
+	hasOutput       bool
+	hasCondition    bool
+	hasTimeoutFacts bool
+}
+
+// ProviderTimeoutFacts contains only safe timing facts from a provider process
+// boundary. Configured is bound to the coordinator job, and elapsed is derived
+// from validated process timestamps or a local monotonic measurement; no
+// provider streams are retained.
+type ProviderTimeoutFacts struct {
+	configured time.Duration
+	elapsed    time.Duration
+}
+
+func NewProviderTimeoutFacts(configured, elapsed time.Duration) (ProviderTimeoutFacts, error) {
+	facts := ProviderTimeoutFacts{configured: configured, elapsed: elapsed}
+	if !facts.Valid() {
+		return ProviderTimeoutFacts{}, fmt.Errorf("provider timeout facts: invalid timing")
+	}
+	return facts, nil
+}
+
+func (facts ProviderTimeoutFacts) ConfiguredTimeout() time.Duration { return facts.configured }
+func (facts ProviderTimeoutFacts) Elapsed() time.Duration           { return facts.elapsed }
+func (facts ProviderTimeoutFacts) Valid() bool {
+	return facts.configured > 0 && facts.elapsed >= 0
 }
 
 // NewAttemptOutcome constructs a success with output or a failure with a closed
@@ -500,6 +526,23 @@ func NewAttemptOutcome(
 	return outcome, nil
 }
 
+// NewProviderTimeoutAttemptOutcome binds one observed provider timeout to the
+// exact configured job limit and a safe elapsed duration.
+func NewProviderTimeoutAttemptOutcome(job InvocationJob, elapsed time.Duration) (AttemptOutcome, error) {
+	condition := AttemptConditionProviderTimeout
+	outcome, err := NewAttemptOutcome(job, nil, &condition)
+	if err != nil {
+		return AttemptOutcome{}, err
+	}
+	facts, err := NewProviderTimeoutFacts(job.Limits().Timeout(), elapsed)
+	if err != nil {
+		return AttemptOutcome{}, err
+	}
+	outcome.timeoutFacts = facts
+	outcome.hasTimeoutFacts = true
+	return outcome, nil
+}
+
 // Job returns a defensive value copy of the invocation job this outcome answers.
 func (outcome AttemptOutcome) Job() InvocationJob { return outcome.job.clone() }
 
@@ -519,11 +562,23 @@ func (outcome AttemptOutcome) Condition() (AttemptCondition, bool) {
 	return outcome.condition, outcome.hasCondition
 }
 
+func (outcome AttemptOutcome) ProviderTimeoutFacts() (ProviderTimeoutFacts, bool) {
+	return outcome.timeoutFacts, outcome.hasTimeoutFacts
+}
+
 func (outcome AttemptOutcome) validFor(job InvocationJob) bool {
 	if err := job.validate(); err != nil || outcome.job != job {
 		return false
 	}
 	if outcome.hasOutput == outcome.hasCondition {
+		return false
+	}
+	if outcome.hasTimeoutFacts && (!outcome.timeoutFacts.Valid() ||
+		outcome.condition != AttemptConditionProviderTimeout ||
+		outcome.timeoutFacts.configured != job.limits.timeout) {
+		return false
+	}
+	if !outcome.hasCondition && outcome.hasTimeoutFacts {
 		return false
 	}
 	if outcome.hasOutput {

@@ -85,6 +85,28 @@ func TestProviderExecutionFailuresAreSafeAndCanonical(t *testing.T) {
 	}
 }
 
+func TestProviderExecutionFailurePreservesOnlySafeTimeoutFacts(t *testing.T) {
+	facts, err := review.NewProviderTimeoutFacts(30*time.Minute, 30*time.Minute+125*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := NewProviderExecutionFailureWithTimeoutFacts(
+		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderTimeout), domain.FailureTimeout, facts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := failure.ProviderTimeoutFacts()
+	if !ok || got.ConfiguredTimeout() != 30*time.Minute || got.Elapsed() != 30*time.Minute+125*time.Millisecond {
+		t.Fatalf("timeout facts = %#v/%t", got, ok)
+	}
+	if _, err := NewProviderExecutionFailureWithTimeoutFacts(
+		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderOutputMissing), domain.FailureInvalidOutput, facts,
+	); err == nil {
+		t.Fatal("timeout facts were accepted for a non-timeout failure")
+	}
+}
+
 func TestProviderLoginRequiredProvidersIncludeTerminalExecutionFacts(t *testing.T) {
 	login, err := NewProviderExecutionFailure("zcode-default", domain.RoleSecurity, string(review.AttemptConditionLoginRequired), domain.FailureAuthentication)
 	if err != nil {

@@ -386,7 +386,7 @@ func validatePlan(plan ExecutionPlan, requestedRoles []domain.Role) (review.RunB
 			return review.RunBudgetReceipt{}, fmt.Errorf("review run: fallback assignment and budget mismatch")
 		}
 	}
-	receipt, err := review.PreflightRunBudget(plan.Budgets, plan.Ceilings)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
 	if err != nil || !receipt.Eligible() {
 		return review.RunBudgetReceipt{}, fmt.Errorf("review run: budget preflight failed: %w", err)
 	}

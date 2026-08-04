@@ -3,6 +3,7 @@ package reviewrun
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -27,11 +28,11 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || template.concurrencyKey.String() != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
 				t.Fatalf("template %s/%s = %#v", family, role, template)
 			}
-			if family == FamilyZCode && (template.transportArgvIndex != 6 || template.limits.Timeout() != productionZCodeTimeout) {
+			if family == FamilyZCode && template.transportArgvIndex != 6 {
 				t.Fatalf("ZCode template %s = %#v", role, template)
 			}
-			if family != FamilyZCode && template.limits.Timeout() != productionTimeout {
-				t.Fatalf("%s template timeout = %s, want %s", family, template.limits.Timeout(), productionTimeout)
+			if template.limits.Timeout() != productionDefaultProviderTimeout {
+				t.Fatalf("%s template timeout = %s, want %s", family, template.limits.Timeout(), productionDefaultProviderTimeout)
 			}
 			if family == FamilyAGY {
 				if template.transportArgvIndex != 12 || template.lifecycle == nil || !template.lifecycle.Valid() {
@@ -41,6 +42,64 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 				t.Fatalf("%s template %s has unexpected lifecycle", family, role)
 			}
 		}
+	}
+}
+
+func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntimeDefinitions(t *testing.T) {
+	profiles := []DiscoveredProviderProfile{
+		{family: FamilyKimi, executable: "/private/bin/kimi", launcher: "/private/bin/kimi", argv: []string{"/private/bin/kimi"}, sha256: "kimi-sha", launcherSHA256: "kimi-sha", reason: "unqualified_discovery"},
+		{family: FamilyZCode, executable: "/private/bin/node", launcher: ZCodeLauncher, argv: []string{"/private/bin/node", ZCodeLauncher}, sha256: "node-sha", launcherSHA256: "launcher-sha", reason: "unqualified_discovery"},
+		{family: FamilyAGY, executable: "/private/bin/agy", launcher: "/private/bin/agy", argv: []string{"/private/bin/agy"}, sha256: "agy-sha", launcherSHA256: "agy-sha", reason: "unqualified_discovery"},
+	}
+	identities := map[Family]string{FamilyKimi: "kimi-policy", FamilyZCode: "zcode-policy", FamilyAGY: "agy-policy"}
+	timeouts := map[Family]time.Duration{FamilyKimi: 10 * time.Minute, FamilyZCode: 30 * time.Minute, FamilyAGY: 15 * time.Minute}
+	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, identities, "safe", "operator/model-v1", timeouts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := NewRunSelection(domain.FixedRoleOrder(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCandidateCount := len(Families())*len(domain.FixedRoleOrder()) - 1
+	if len(candidates) != wantCandidateCount {
+		t.Fatalf("candidate count = %d, want %d", len(candidates), wantCandidateCount)
+	}
+	for _, candidate := range candidates {
+		family := Family(candidate.Definition.Family())
+		want := timeouts[family]
+		if got := candidate.Limits.Timeout(); got != want {
+			t.Errorf("%s candidate timeout = %s, want %s", family, got, want)
+		}
+		if got := candidate.Definition.Timeout(); got != want {
+			t.Errorf("%s runtime definition timeout = %s, want %s", family, got, want)
+		}
+	}
+}
+
+func TestProductionProviderTimeoutsRequireExactBoundedFamilyCoverage(t *testing.T) {
+	valid := map[Family]time.Duration{FamilyKimi: time.Minute, FamilyZCode: 30 * time.Minute, FamilyAGY: 60 * time.Minute}
+	if err := validateProductionProviderTimeouts(valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, invalid := range map[string]map[Family]time.Duration{
+		"missing":       {FamilyKimi: time.Minute, FamilyZCode: time.Minute},
+		"unknown":       {FamilyKimi: time.Minute, FamilyZCode: time.Minute, FamilyAGY: time.Minute, Family("other"): time.Minute},
+		"zero":          {FamilyKimi: 0, FamilyZCode: time.Minute, FamilyAGY: time.Minute},
+		"below minimum": {FamilyKimi: time.Minute - time.Second, FamilyZCode: time.Minute, FamilyAGY: time.Minute},
+		"above maximum": {FamilyKimi: time.Minute, FamilyZCode: 60*time.Minute + time.Second, FamilyAGY: time.Minute},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateProductionProviderTimeouts(invalid); err == nil {
+				t.Fatal("invalid provider timeout policy was accepted")
+			}
+		})
 	}
 }
 
@@ -94,6 +153,9 @@ func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 		instance := candidate.Definition.Instance()
 		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != "/private/bin/node" || candidate.Definition.Launcher() != ZCodeLauncher || candidate.Definition.ConcurrencyKey().String() != instance {
 			t.Fatalf("ZCode candidate %s = roles %v definition %#v", instance, candidate.SupportedRoles, candidate.Definition)
+		}
+		if candidate.Limits.Timeout() != productionDefaultProviderTimeout || candidate.Definition.Timeout() != productionDefaultProviderTimeout {
+			t.Fatalf("ZCode candidate %s default timeouts = %s/%s, want %s", instance, candidate.Limits.Timeout(), candidate.Definition.Timeout(), productionDefaultProviderTimeout)
 		}
 	}
 }

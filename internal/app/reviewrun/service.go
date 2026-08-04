@@ -375,12 +375,8 @@ func coordinatorNonPublishableFailure(result review.CoordinatorResult) error {
 		if len(attempts) == 0 {
 			continue
 		}
-		providerFailure, err := NewProviderExecutionFailure(
-			attempts[len(attempts)-1].Route().ProviderInstance(),
-			summary.Role(),
-			summary.ReasonCode(),
-			summary.FailureClass(),
-		)
+		terminalAttempt := attempts[len(attempts)-1]
+		providerFailure, err := providerExecutionFailureFromSummary(terminalAttempt, summary)
 		if err != nil {
 			return err
 		}
@@ -397,6 +393,17 @@ func coordinatorNonPublishableFailure(result review.CoordinatorResult) error {
 		return fmt.Errorf("review run: invalid non-publishable coordinator failure")
 	}
 	return failure
+}
+
+func providerExecutionFailureFromSummary(attempt review.CoordinatorAttemptSummary, summary review.CoordinatorRoleSummary) (ProviderExecutionFailure, error) {
+	if facts, ok := attempt.ProviderTimeoutFacts(); ok {
+		return NewProviderExecutionFailureWithTimeoutFacts(
+			attempt.Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(), facts,
+		)
+	}
+	return NewProviderExecutionFailure(
+		attempt.Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(),
+	)
 }
 
 func reduceNonPublishableCoordinatorFailures(classes ...domain.FailureClass) domain.FailureClass {

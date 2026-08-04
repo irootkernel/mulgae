@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"time"
 )
 
 type WorkspaceAccess string
@@ -40,12 +41,21 @@ type ResolvedConfig struct {
 	requireVerifiedFor     []domain.Severity
 	ciFailOnSeverity       []domain.Severity
 	runTotalOutputCapBytes int64
+	providerTimeouts       map[string]time.Duration
 }
 
 func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 	capBytes, err := RunTotalOutputCapBytes(raw)
 	if err != nil {
 		return ResolvedConfig{}, fmt.Errorf("resolve configuration: output cap: %w", err)
+	}
+	providerTimeouts := make(map[string]time.Duration, raw.Providers.Count())
+	for _, family := range raw.Providers.Families() {
+		timeout, timeoutErr := ParseProviderTimeout(configuredProviderTimeout(raw.Providers, family))
+		if timeoutErr != nil {
+			return ResolvedConfig{}, fmt.Errorf("resolve configuration: %s timeout: %w", family, timeoutErr)
+		}
+		providerTimeouts[family] = timeout
 	}
 	roles := make(map[domain.Role]ResolvedRole, len(domain.FixedRoleOrder()))
 	for _, role := range domain.FixedRoleOrder() {
@@ -59,7 +69,26 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 		requireVerifiedFor:     parseSeverities(raw.Validation.Evidence.RequireVerifiedFor),
 		ciFailOnSeverity:       parseSeverities(raw.CI.FailOnSeverity),
 		runTotalOutputCapBytes: capBytes,
+		providerTimeouts:       providerTimeouts,
 	}, nil
+}
+
+func configuredProviderTimeout(providers ProvidersConfig, family string) string {
+	switch family {
+	case "kimi":
+		if providers.Kimi != nil {
+			return providers.Kimi.Timeout
+		}
+	case "zcode":
+		if providers.ZCode != nil {
+			return providers.ZCode.Timeout
+		}
+	case "agy":
+		if providers.AGY != nil {
+			return providers.AGY.Timeout
+		}
+	}
+	return ""
 }
 
 func configuredRole(roles RolesConfig, role domain.Role) RoleConfig {
@@ -89,6 +118,13 @@ func (resolved ResolvedConfig) Runtime() RuntimePolicy {
 }
 func (resolved ResolvedConfig) Providers() ProvidersConfig {
 	return cloneConfig(resolved.raw).Providers
+}
+
+// ProviderTimeout returns the effective timeout for a configured provider
+// family. The boolean is false for an absent or unknown family.
+func (resolved ResolvedConfig) ProviderTimeout(family string) (time.Duration, bool) {
+	timeout, ok := resolved.providerTimeouts[family]
+	return timeout, ok
 }
 func (resolved ResolvedConfig) Role(role domain.Role) (ResolvedRole, bool) {
 	value, ok := resolved.roles[role]

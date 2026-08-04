@@ -380,6 +380,20 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if !reflect.DeepEqual(decoded.Roles, wantRoles) {
 			t.Fatalf("mask %d roles=%#v, want %#v", mask, decoded.Roles, wantRoles)
 		}
+		for _, family := range ids {
+			var timeout string
+			switch family {
+			case "kimi":
+				timeout = decoded.Providers.Kimi.Timeout
+			case "zcode":
+				timeout = decoded.Providers.ZCode.Timeout
+			case "agy":
+				timeout = decoded.Providers.AGY.Timeout
+			}
+			if timeout != "15m" {
+				t.Fatalf("mask %d %s timeout=%q", mask, family, timeout)
+			}
+		}
 	}
 }
 
@@ -638,6 +652,9 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		}
 		if config.Roles.Logic.PrimaryProvider != "zcode" || config.Roles.Logic.FallbackProvider != "agy" {
 			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
+		}
+		if config.Providers.ZCode.Timeout != "15m" || config.Providers.AGY.Timeout != "15m" {
+			t.Fatalf("auto provider timeouts = zcode:%q agy:%q", config.Providers.ZCode.Timeout, config.Providers.AGY.Timeout)
 		}
 	})
 

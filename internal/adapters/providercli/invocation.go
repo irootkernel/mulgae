@@ -3,6 +3,7 @@ package providercli
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -10,6 +11,8 @@ import (
 // NativeProbeInvocation builds the sole family-policy probe argv. Approved
 // permission bypasses are emitted only by their owning family policy.
 type NativeProbeInvocation struct{}
+
+const agyPrintTimeoutCleanupGrace = 5 * time.Second
 
 // VersionArgv builds the sole family-closed argv admitted for a version probe.
 func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string, error) {
@@ -119,9 +122,17 @@ func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.Work
 	if definition.Transport().ArgvIndex() == 13 {
 		controls = append(controls, "--dangerously-skip-permissions")
 	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@"+nativeReference)
+	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.Timeout()).String(), "--print", "@"+nativeReference)
 	return append(baseArgv, controls...), nil
 }
+
+func agyPrintTimeout(runtimeTimeout time.Duration) time.Duration {
+	// Keep AGY's own timeout inside the enclosing process deadline so Mulgae
+	// retains time to collect output and complete bounded lifecycle cleanup.
+	grace := min(agyPrintTimeoutCleanupGrace, runtimeTimeout/2)
+	return runtimeTimeout - grace
+}
+
 func immutableSnapshotPath(identity ports.WorkspaceSnapshotIdentity) (string, error) {
 	if !identity.Valid() {
 		return "", fmt.Errorf("native probe invocation: invalid immutable snapshot identity")

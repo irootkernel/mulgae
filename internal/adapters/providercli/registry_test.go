@@ -25,7 +25,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
 		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"}},
-		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "review bytes"}},
+		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -37,6 +37,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 				family:    test.family,
 				baseArgv:  []string{"/private/bin/" + test.family},
 				transport: transport,
+				timeout:   30 * time.Minute,
 			}, "/private/work", []byte("review bytes"))
 			if err != nil {
 				t.Fatal(err)
@@ -621,7 +622,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "review bytes"},
+			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "review bytes"},
 		},
 	}
 	for _, test := range tests {
@@ -1001,7 +1002,7 @@ func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *tes
 		t.Fatal(err)
 	}
 
-	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", string(invocation.PacketBytes())}
+	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", string(invocation.PacketBytes())}
 	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
 		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
 	}

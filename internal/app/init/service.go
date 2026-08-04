@@ -472,7 +472,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				}
 			}
 			if !familyUnsafe && executable != "" {
-				found.kimi = &appconfig.KimiProviderConfig{Executable: executable, Model: model, DataHome: dataHome}
+				found.kimi = &appconfig.KimiProviderConfig{Executable: executable, Model: model, DataHome: dataHome, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}
@@ -497,7 +497,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.LauncherSource = "bundled"
 			}
 			if node != "" && launcher != "" {
-				found.zcode = &appconfig.ZCodeProviderConfig{NodeExecutable: node, Launcher: launcher}
+				found.zcode = &appconfig.ZCodeProviderConfig{NodeExecutable: node, Launcher: launcher, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}
@@ -527,7 +527,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.PermissionModeSource = "safe_default"
 			}
 			if executable != "" {
-				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode}
+				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}

@@ -577,6 +577,24 @@ func TestNewAttemptOutcomeRejectsAmbiguityAndMismatches(t *testing.T) {
 	}
 }
 
+func TestProviderTimeoutAttemptOutcomeBindsConfiguredAndElapsedTiming(t *testing.T) {
+	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
+	elapsed := 875 * time.Millisecond
+	outcome, err := NewProviderTimeoutAttemptOutcome(job, elapsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	condition, ok := outcome.Condition()
+	facts, hasFacts := outcome.ProviderTimeoutFacts()
+	if !ok || condition != AttemptConditionProviderTimeout || !hasFacts ||
+		facts.ConfiguredTimeout() != job.Limits().Timeout() || facts.Elapsed() != elapsed || !outcome.validFor(job) {
+		t.Fatalf("timeout outcome = condition %q/%t facts %#v/%t", condition, ok, facts, hasFacts)
+	}
+	if _, err := NewProviderTimeoutAttemptOutcome(job, -time.Nanosecond); err == nil {
+		t.Fatal("negative elapsed timeout outcome succeeded")
+	}
+}
+
 func TestAttemptOutcomeAccessorsAreDefensiveAndBoundToJob(t *testing.T) {
 	t.Parallel()
 

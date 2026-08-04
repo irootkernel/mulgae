@@ -179,7 +179,7 @@ func composeProductionRuntimeGraph(
 	}
 	candidates := &configuredProductionCandidateSource{
 		inspector: environment.NewInspector(), config: policy.config, policyIdentities: identities,
-		agyPermissionMode: policy.agyPermissionMode, source: policy.source, attestor: policy.attestor,
+		agyPermissionMode: policy.agyPermissionMode, providerTimeouts: cloneProviderTimeouts(policy.providerTimeouts), source: policy.source, attestor: policy.attestor,
 		staticRequest: policy.localityRequest, staticContext: policy.locality,
 	}
 	detector := filesystem.NewContentDetector()

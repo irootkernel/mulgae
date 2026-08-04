@@ -413,7 +413,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 		roleBudgets = append(roleBudgets, roleBudget)
 		assignments = append(assignments, assignment)
 	}
-	receipt, err := review.PreflightRunBudget(roleBudgets, review.DefaultHarnessCeilings())
+	receipt, err := review.PreflightRunBudgetWithCapacity(roleBudgets, review.DefaultHarnessCeilings(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

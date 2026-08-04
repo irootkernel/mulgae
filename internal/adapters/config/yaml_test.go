@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 )
 
 func validConfig() Config {
@@ -23,6 +24,110 @@ func validConfig() Config {
 		Validation: ValidationConfig{Evidence: EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
 		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"},
 		CI:         CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
+	}
+}
+
+func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
+	config := validConfig()
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(canonical, []byte("timeout:")) {
+		t.Fatalf("default timeout was emitted:\n%s", canonical)
+	}
+	decoded, err := Decode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Providers.Kimi.Timeout != "15m" {
+		t.Fatalf("omitted timeout resolved to %q", decoded.Providers.Kimi.Timeout)
+	}
+	rendered, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatalf("legacy canonical bytes changed:\n%s", rendered)
+	}
+
+	config.Providers.Kimi.Timeout = "15m"
+	rendered, err = EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatal("explicit default did not canonicalize to the omitted form")
+	}
+}
+
+func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{
+		Kimi:  &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: DefaultKimiDataHome(config.NativeUser.Home), Timeout: "1m"},
+		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
+		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "60m"},
+	}
+	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+	config.Resources.RoleMaxInvocations = 4
+	config.Resources.RunMaxInvocations = 24
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "60m"`} {
+		if !bytes.Contains(canonical, []byte(field)) {
+			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
+		}
+	}
+	decoded, err := Decode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatal("non-default provider timeouts were not canonical")
+	}
+	if timeout, _ := ParseProviderTimeout(decoded.Providers.ZCode.Timeout); timeout != 30*time.Minute {
+		t.Fatalf("zcode timeout = %s", timeout)
+	}
+}
+
+func TestProviderTimeoutRejectsInvalidZeroAndOutOfRangeValues(t *testing.T) {
+	for _, value := range []string{"invalid", "0s", "-1m", "59s", "60m1s", "61m"} {
+		t.Run(value, func(t *testing.T) {
+			config := validConfig()
+			config.Providers.Kimi.Timeout = value
+			if _, err := EncodeCanonical(config); err == nil || !strings.Contains(err.Error(), "provider timeout must be a duration from 1m through 60m") {
+				t.Fatalf("timeout %q err=%v", value, err)
+			}
+		})
+	}
+	canonical, err := EncodeCanonical(validConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := strings.Replace(string(canonical), "providers:\n", "providers:\n", 1)
+	invalid = strings.Replace(invalid, "    executable: \"/usr/local/bin/kimi\"\n", "    executable: \"/usr/local/bin/kimi\"\n    timeout: \"0s\"\n", 1)
+	_, err = Decode([]byte(invalid))
+	admission, ok := AsAdmissionError(err)
+	if !ok || admission.Reason() != ReasonProviderTimeoutInvalid {
+		t.Fatalf("invalid timeout reason = %v", err)
+	}
+}
+
+func TestProviderTimeoutCanonicalizesEquivalentDurationSpellings(t *testing.T) {
+	config := validConfig()
+	config.Providers.Kimi.Timeout = "1800s"
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(canonical, []byte(`timeout: "30m"`)) || bytes.Contains(canonical, []byte("1800s")) {
+		t.Fatalf("duration was not normalized:\n%s", canonical)
 	}
 }
 

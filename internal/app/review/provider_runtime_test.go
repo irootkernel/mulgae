@@ -502,6 +502,94 @@ func TestRuntimeProviderErrorConditionDistinguishesObservedAndEnclosingTimeouts(
 	}
 }
 
+func TestRuntimeObservedTimeoutPreservesValidatedElapsedFacts(t *testing.T) {
+	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
+	packetBytes := []byte("provider packet")
+	packet, err := ports.NewProviderPacket(packetBytes, providerRuntimePacketDigest(packetBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := ports.NewProviderInvocationWithPacket(
+		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), ports.ProviderInvocationInitial, packet,
+		"i_019f5a09-5eec-7001-8001-000000000014", "019f5a09-5eec-7001-8001-000000000015",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := ports.NewStdinWriteReceipt(int64(len(packetBytes)), int64(len(packetBytes)), providerRuntimePacketDigest(packetBytes), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ended := started.Add(875 * time.Millisecond)
+	process, err := ports.NewProcessObservation(nil, nil, nil, ports.ProcessTerminationTimedOut, receipt, started, ended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewFailedProviderExecutionObservationWithCause(
+		ports.ProviderExecutionStatusTimedOut, invocation, process, "provider_timeout",
+		domain.DiagnosticCauseTimedOut, "", 1024, 1024,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome := runtimeObservedCondition(job, AttemptConditionProviderTimeout, observation, 625*time.Millisecond)
+	facts, ok := outcome.ProviderTimeoutFacts()
+	if !ok || facts.ConfiguredTimeout() != job.Limits().Timeout() || facts.Elapsed() != ended.Sub(started) {
+		t.Fatalf("timeout facts = %#v/%t", facts, ok)
+	}
+	partial, err := ports.NewPartialFailedProviderExecutionObservation(
+		ports.ProviderExecutionStatusTimedOut, invocation, nil, nil, "provider_timeout",
+		domain.DiagnosticCauseTimedOut, "", 1024, 1024,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partialOutcome := runtimeObservedCondition(job, AttemptConditionProviderTimeout, partial, 625*time.Millisecond)
+	partialFacts, ok := partialOutcome.ProviderTimeoutFacts()
+	if !ok || partialFacts.ConfiguredTimeout() != job.Limits().Timeout() || partialFacts.Elapsed() != 625*time.Millisecond {
+		t.Fatalf("partial timeout facts = %#v/%t", partialFacts, ok)
+	}
+}
+
+func TestProviderBoundaryRequiresTheFullConfiguredWindow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if contextCanRunFor(ctx, 3*time.Second) {
+		t.Fatal("provider was admitted with less than its configured timeout remaining")
+	}
+	if !contextCanRunFor(ctx, time.Second) {
+		t.Fatal("provider was rejected despite a full configured timeout remaining")
+	}
+	providerCtx, cancelProvider, ok := newProviderExecutionContext(ctx, time.Second)
+	if !ok || providerCtx == nil || cancelProvider == nil {
+		t.Fatal("provider context with a full independent window was rejected")
+	}
+	providerDeadline, _ := providerCtx.Deadline()
+	parentDeadline, _ := ctx.Deadline()
+	if !providerDeadline.Before(parentDeadline) {
+		t.Fatal("provider context inherited the enclosing deadline")
+	}
+	cancelProvider()
+
+	boundaryDeadline := time.Now().Add(time.Second)
+	boundary, cancelBoundary := context.WithDeadline(context.Background(), boundaryDeadline)
+	defer cancelBoundary()
+	if truncated, cancelTruncated, ok := newProviderExecutionContext(boundary, time.Second); ok || truncated != nil || cancelTruncated != nil {
+		if cancelTruncated != nil {
+			cancelTruncated()
+		}
+		t.Fatal("provider context accepted an enclosing deadline that truncates its window")
+	}
+
+	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
+	outcome := runtimeProviderCondition(job, AttemptConditionProviderTimeout, 875*time.Millisecond)
+	facts, ok := outcome.ProviderTimeoutFacts()
+	if !ok || facts.ConfiguredTimeout() != job.Limits().Timeout() || facts.Elapsed() != 875*time.Millisecond {
+		t.Fatalf("measured timeout facts = %#v/%t", facts, ok)
+	}
+}
+
 func TestObservedUnparseableProviderOutputIsFallbackOnly(t *testing.T) {
 	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputDecodeFailed); got != AttemptConditionProviderOutputDecodeFailed {
 		t.Fatalf("invalid provider framing condition = %q", got)

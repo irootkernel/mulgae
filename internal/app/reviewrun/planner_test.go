@@ -216,7 +216,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixLaneCoordinatorUnchanged(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := review.PreflightRunBudget(plan.Budgets, plan.Ceilings)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
 	if err != nil {
 		t.Fatal(err)
 	}

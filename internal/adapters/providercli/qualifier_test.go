@@ -166,6 +166,12 @@ func (r *currentProbeRunner) Run(_ context.Context, request ports.ProcessRequest
 	return result, nil
 }
 
+func TestBoundedProbeTimeoutCapsLongProductionTimeout(t *testing.T) {
+	if got := boundedProbeTimeout(30 * time.Minute); got != currentProbeTimeout {
+		t.Fatalf("bounded probe timeout = %s, want %s", got, currentProbeTimeout)
+	}
+}
+
 func currentProbeExitedLifecycle(t *testing.T) ports.ProcessLifecycleReceipt {
 	t.Helper()
 	final, err := ports.NewExitedProcessFinalTermination(0)
@@ -914,7 +920,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
 		FamilyZcode: {"--mode", "build", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", "*"},
-		FamilyAgy:   {"--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@roadmap.md"},
+		FamilyAgy:   {"--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "@roadmap.md"},
 	} {
 		definition := testProfile(t, family, "kimi_current", "lane", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)

@@ -1,6 +1,10 @@
 package config
 
-import appconfig "github.com/irootkernel/mulgae/internal/app/config"
+import (
+	"time"
+
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+)
 
 type Config = appconfig.Config
 type ProjectConfig = appconfig.ProjectConfig
@@ -24,6 +28,9 @@ const (
 	ConfigVersion            = appconfig.ConfigVersion
 	DefaultKimiModel         = appconfig.DefaultKimiModel
 	DefaultAGYPermissionMode = appconfig.DefaultAGYPermissionMode
+	DefaultProviderTimeout   = appconfig.DefaultProviderTimeout
+	MinimumProviderTimeout   = appconfig.MinimumProviderTimeout
+	MaximumProviderTimeout   = appconfig.MaximumProviderTimeout
 	ConfigRelativePath       = appconfig.ConfigRelativePath
 	MaximumConfigBytes       = appconfig.MaximumConfigBytes
 	ProjectKindNonUI         = appconfig.ProjectKindNonUI
@@ -34,6 +41,10 @@ const (
 var DefaultArtistDesignSpecGlobs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)
 
 func DefaultKimiDataHome(nativeHome string) string { return appconfig.DefaultKimiDataHome(nativeHome) }
+func ParseProviderTimeout(value string) (time.Duration, error) {
+	return appconfig.ParseProviderTimeout(value)
+}
+func ProviderTimeoutText(timeout time.Duration) string { return appconfig.ProviderTimeoutText(timeout) }
 func CanonicalRolesConfig(families []string) (RolesConfig, error) {
 	return appconfig.CanonicalRolesConfig(families)
 }

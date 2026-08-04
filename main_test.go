@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -66,6 +68,53 @@ func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T
 		if !slices.Equal(roles, test.roles) || base != test.base {
 			t.Fatalf("%s qualification roles/base = %v/%s, want %v/%s", test.family, roles, base, test.roles, test.base)
 		}
+	}
+}
+
+func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
+	roles, err := adapterconfig.CanonicalRolesConfig([]string{"zcode", "agy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := adapterconfig.Config{
+		Version:    adapterconfig.ConfigVersion,
+		Project:    adapterconfig.ProjectConfig{Name: "timeout-policy"},
+		NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"},
+		Providers: adapterconfig.ProvidersConfig{
+			ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/opt/zcode/launcher.cjs", Timeout: "30m"},
+			AGY:   &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"},
+		},
+		Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "readonly_snapshot"},
+		Roles:     roles,
+		Review: adapterconfig.ReviewConfig{
+			RequiredRoles:    []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
+			RequestChangesOn: []string{"high", "critical", "blocker"},
+		},
+		Validation: adapterconfig.ValidationConfig{
+			Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}},
+			Repair:   adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true},
+		},
+		Resources: adapterconfig.ResourcesConfig{
+			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1,
+			RoleMaxInvocations: 4, RunMaxInvocations: 28, RunTotalOutputCap: "64MiB",
+		},
+		CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
+	}
+	resolved, err := appconfig.ResolveConfiguration(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := deriveProductionRunPolicy(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[reviewrun.Family]time.Duration{
+		reviewrun.FamilyKimi:  appconfig.DefaultProviderTimeout,
+		reviewrun.FamilyZCode: 30 * time.Minute,
+		reviewrun.FamilyAGY:   appconfig.DefaultProviderTimeout,
+	}
+	if !reflect.DeepEqual(policy.providerTimeouts, want) {
+		t.Fatalf("production provider timeouts = %#v, want %#v", policy.providerTimeouts, want)
 	}
 }
 
@@ -1687,7 +1736,7 @@ func main() {
 	if len(argv) != 13 || argv[0] != "--new-project" || argv[1] != "--sandbox" ||
 		argv[2] != "--dangerously-skip-permissions" || argv[3] != "--add-dir" ||
 		argv[5] != "--mode" || argv[6] != "plan" || argv[7] != "--effort" || argv[8] != "low" ||
-		argv[9] != "--print-timeout" || argv[10] != "3m55s" || argv[11] != "--print" || argv[4] != cwd {
+		argv[9] != "--print-timeout" || argv[10] != "14m55s" || argv[11] != "--print" || argv[4] != cwd {
 		panic("non-canonical AGY invocation")
 	}
 	observation.Snapshot, observation.Prompt = argv[4], argv[12]

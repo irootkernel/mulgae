@@ -342,19 +342,21 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 		return
 	}
 
-	invocationCtx, cancelInvocation := context.WithTimeout(scheduler.ctx, job.Limits().Timeout())
-	defer cancelInvocation()
-	if invocationCtx.Err() != nil {
-		scheduler.send(job, scheduler.contextOutcome(job, invocationCtx))
+	// Process-lane, capacity, and cross-process lock acquisition are bounded by
+	// the enclosing run context. They deliberately do not consume the provider's
+	// configured process timeout; InvocationRuntime starts that timeout at the
+	// provider execution boundary.
+	if scheduler.ctx.Err() != nil {
+		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
 		return
 	}
 
 	processLease, err := coordinatorProcessLaneAuthority.acquire(
-		invocationCtx,
+		scheduler.ctx,
 		job.Route().ConcurrencyKey(),
 	)
 	if err != nil {
-		scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, invocationCtx, laneAcquisitionCondition(err)))
+		scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, laneAcquisitionCondition(err)))
 		return
 	}
 	defer func() {
@@ -362,44 +364,51 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 			scheduler.cancel()
 		}
 	}()
-	if invocationCtx.Err() != nil {
-		scheduler.send(job, scheduler.contextOutcome(job, invocationCtx))
+	if scheduler.ctx.Err() != nil {
+		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
 		return
 	}
 
-	if err := scheduler.capacity.acquire(invocationCtx); err != nil {
-		scheduler.send(job, scheduler.contextOutcome(job, invocationCtx))
+	if err := scheduler.capacity.acquire(scheduler.ctx); err != nil {
+		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
 		return
 	}
 	defer scheduler.capacity.releaseSlot()
-	if invocationCtx.Err() != nil {
-		scheduler.send(job, scheduler.contextOutcome(job, invocationCtx))
+	if scheduler.ctx.Err() != nil {
+		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
 		return
 	}
 
 	var lease ports.LaneLease
 	if scheduler.locker != nil {
-		acquired, err := scheduler.locker.Acquire(invocationCtx, job.Route().ConcurrencyKey())
+		acquired, err := scheduler.locker.Acquire(scheduler.ctx, job.Route().ConcurrencyKey())
 		if err != nil {
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, invocationCtx, laneAcquisitionCondition(err)))
+			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, laneAcquisitionCondition(err)))
 			return
 		}
 		if nilInterface(acquired) {
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, invocationCtx, AttemptConditionInternalInvariant))
+			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
 			return
 		}
 		if acquired.Key().String() != job.Route().ConcurrencyKey().String() {
 			if acquired.Release() != nil {
-				scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, invocationCtx, AttemptConditionInternalInvariant))
+				scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
 				return
 			}
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, invocationCtx, AttemptConditionInternalInvariant))
+			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
 			return
 		}
 		lease = acquired
 	}
 
-	outcome := scheduler.runtime.Invoke(invocationCtx, job)
+	// Contention belongs to the enclosing run budget. If it leaves less than a
+	// complete provider window, fail before entering the runtime so the parent
+	// deadline cannot masquerade as or truncate a provider timeout.
+	if !contextCanRunFor(scheduler.ctx, job.Limits().Timeout()) {
+		scheduler.send(job, scheduler.conditionOutcome(job, AttemptConditionTimeout))
+		return
+	}
+	outcome := scheduler.runtime.Invoke(scheduler.ctx, job)
 	conditions := []AttemptCondition{AttemptConditionInternalInvariant}
 	if outcome.validFor(job) {
 		conditions[0] = coordinatorOutcomeCondition(outcome)
@@ -407,7 +416,7 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 	if lease != nil && lease.Release() != nil {
 		conditions = append(conditions, AttemptConditionConfigurationViolation)
 	}
-	scheduler.send(job, scheduler.reduceOutcome(job, outcome, invocationCtx, conditions...))
+	scheduler.send(job, scheduler.reduceOutcome(job, outcome, scheduler.ctx, conditions...))
 }
 
 func laneAcquisitionCondition(err error) AttemptCondition {
@@ -470,7 +479,7 @@ func (scheduler *laneScheduler) reduceOutcome(
 			condition = contextCondition
 		}
 	}
-	if condition == AttemptConditionValidReview && outcome.validFor(job) {
+	if outcome.validFor(job) && coordinatorOutcomeCondition(outcome) == condition {
 		return outcome
 	}
 	return scheduler.conditionOutcome(job, condition)

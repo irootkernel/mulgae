@@ -206,10 +206,15 @@ func committedProviderFailureReasons(failures []reviewrun.ProviderExecutionFailu
 	reasons := make([]app.CommittedReason, len(failures))
 	for index, failure := range failures {
 		code := providerExecutionFailureCode(failure)
-		message := fmt.Sprintf(
-			"Stage provider.execute; role %s; provider %s; reason %s; summary terminal provider outcome; hint run %s.",
-			failure.Role(), failure.ProviderInstance(), code, providerFailureHint(code),
-		)
+		message := fmt.Sprintf("Stage provider.execute; role %s; provider %s; reason %s", failure.Role(), failure.ProviderInstance(), code)
+		if facts, ok := failure.ProviderTimeoutFacts(); ok && code == "provider_timeout" {
+			message += fmt.Sprintf(
+				"; configured timeout %s; elapsed %s; summary provider exceeded its configured timeout; hint increase this provider timeout or reduce review scope.",
+				appconfig.ProviderTimeoutText(facts.ConfiguredTimeout()), facts.Elapsed(),
+			)
+		} else {
+			message += fmt.Sprintf("; summary terminal provider outcome; hint run %s.", providerFailureHint(code))
+		}
 		parsed, err := app.NewCommittedReason(code, message)
 		if err != nil {
 			return nil, err

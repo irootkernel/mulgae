@@ -221,7 +221,7 @@ if [ "$1" = "--version" ]; then printf '1.1.2\n'; exit 0; fi
 [ "$HOME" = "$MULGAE_AGY_EXPECTED_HOME" ] || exit 91
 [ ! -e "$HOME/.mulgae-credential-copy" ] || exit 92
 [ "$PWD" = "$MULGAE_AGY_EXPECTED_CWD" ] || exit 93
-[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "3m55s" ] && [ "${12}" = "--print" ] || exit 94
+[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "$MULGAE_AGY_EXPECTED_PRINT_TIMEOUT" ] && [ "${12}" = "--print" ] || exit 94
 case "$MULGAE_AGY_TEST_MODE" in
 post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$MULGAE_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
@@ -266,6 +266,7 @@ esac
 	env := []ports.EnvironmentVariable{
 		agyLifecycleEnv(t, "MULGAE_AGY_TEST_MODE", mode), agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_HOME", nativeHome),
 		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_CWD", workspace.WorkspaceSnapshotIdentity().SnapshotPath()), agyLifecycleEnv(t, "MULGAE_AGY_CHILD_PID", childPID),
+		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_PRINT_TIMEOUT", agyPrintTimeout(timeout).String()),
 	}
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, key, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout, stdoutCap, 256)
 	if err != nil {

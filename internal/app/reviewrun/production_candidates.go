@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	productionProfileGeneration       = "reviewrun-production-candidates-v1"
-	productionWorkingDirectory        = "/private/var/empty"
-	productionTimeout                 = 4 * time.Minute
-	productionZCodeTimeout            = 6 * time.Minute
-	productionOutputCap         int64 = 256 << 10
+	productionProfileGeneration            = "reviewrun-production-candidates-v1"
+	productionWorkingDirectory             = "/private/var/empty"
+	productionDefaultProviderTimeout       = 15 * time.Minute
+	productionMinimumProviderTimeout       = time.Minute
+	productionMaximumProviderTimeout       = 60 * time.Minute
+	productionOutputCap              int64 = 256 << 10
 )
 
 type productionCandidateTemplate struct {
@@ -75,13 +76,22 @@ func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissio
 // invocation. Kimi's model is explicit here; callers pass the canonical
 // default only when the configuration omitted the field.
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string) (*ProductionQualifiedRunCandidateSource, error) {
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(
+		builder, profiles, identities, agyPermissionMode, kimiModel, defaultProductionProviderTimeouts(),
+	)
+}
+
+// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts
+// binds a complete family timeout policy to every role-specific production
+// candidate and its adapter-built runtime definition.
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
 	if nilInterface(builder) {
 		return nil, fmt.Errorf("review run: provider runtime builder is required")
 	}
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, fmt.Errorf("review run: invalid production policy identities: %w", err)
 	}
-	templates, err := productionCandidateTemplatesWithRuntimeSettings(identities, agyPermissionMode, kimiModel)
+	templates, err := productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities, agyPermissionMode, kimiModel, providerTimeouts)
 	if err != nil {
 		return nil, fmt.Errorf("review run: construct production candidate templates: %w", err)
 	}
@@ -216,7 +226,14 @@ func productionCandidateTemplatesWithAGYPermissionMode(identities map[Family]str
 }
 
 func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]string, agyPermissionMode, kimiModel string) ([]productionCandidateTemplate, error) {
+	return productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities, agyPermissionMode, kimiModel, defaultProductionProviderTimeouts())
+}
+
+func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[Family]string, agyPermissionMode, kimiModel string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
 	if err := validateProductionPolicyIdentities(identities); err != nil {
+		return nil, err
+	}
+	if err := validateProductionProviderTimeouts(providerTimeouts); err != nil {
 		return nil, err
 	}
 	if agyPermissionMode != "safe" && agyPermissionMode != "dangerously-skip-permissions" {
@@ -224,14 +241,6 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	}
 	if kimiModel == "" {
 		return nil, fmt.Errorf("invalid Kimi model")
-	}
-	limits, err := review.NewInvocationLimits(productionTimeout, productionOutputCap, productionOutputCap)
-	if err != nil {
-		return nil, err
-	}
-	zcodeLimits, err := review.NewInvocationLimits(productionZCodeTimeout, productionOutputCap, productionOutputCap)
-	if err != nil {
-		return nil, err
 	}
 	agyArgvIndex := 12
 	if agyPermissionMode == "dangerously-skip-permissions" {
@@ -247,6 +256,10 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 	}
 	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-1)
 	for _, family := range Families() {
+		limits, limitsErr := review.NewInvocationLimits(providerTimeouts[family], productionOutputCap, productionOutputCap)
+		if limitsErr != nil {
+			return nil, limitsErr
+		}
 		for _, role := range productionRolesForFamily(family) {
 			instance := string(family) + "-" + string(role)
 			key, keyErr := ports.ParseConcurrencyKey(instance)
@@ -262,7 +275,7 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 			case FamilyKimi:
 				template.kimiModel, template.transportArgvIndex = kimiModel, 4
 			case FamilyZCode:
-				template.transportArgvIndex, template.limits = 6, zcodeLimits
+				template.transportArgvIndex = 6
 			case FamilyAGY:
 				template.transportArgvIndex, template.lifecycle = agyArgvIndex, &lifecycle
 				template.environment = []ports.EnvironmentVariable{agyEnvironment}
@@ -271,6 +284,35 @@ func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]strin
 		}
 	}
 	return templates, nil
+}
+
+func defaultProductionProviderTimeouts() map[Family]time.Duration {
+	timeouts := make(map[Family]time.Duration, len(Families()))
+	for _, family := range Families() {
+		timeouts[family] = productionDefaultProviderTimeout
+	}
+	return timeouts
+}
+
+func validateProductionProviderTimeouts(timeouts map[Family]time.Duration) error {
+	if len(timeouts) != len(Families()) {
+		return fmt.Errorf("provider timeout family coverage")
+	}
+	for _, family := range Families() {
+		timeout, ok := timeouts[family]
+		if !ok {
+			return fmt.Errorf("missing provider timeout for %q", family)
+		}
+		if timeout < productionMinimumProviderTimeout || timeout > productionMaximumProviderTimeout {
+			return fmt.Errorf("provider timeout for %q must be between %s and %s", family, productionMinimumProviderTimeout, productionMaximumProviderTimeout)
+		}
+	}
+	for family := range timeouts {
+		if !family.Valid() {
+			return fmt.Errorf("unknown provider timeout family %q", family)
+		}
+	}
+	return nil
 }
 
 func validateProductionCandidateTemplates(templates []productionCandidateTemplate) error {
@@ -286,6 +328,9 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		}
 		role := template.supportedRoles[0]
 		wantInstance := string(template.family) + "-" + string(role)
+		if !template.limits.Valid() || template.limits.Timeout() < productionMinimumProviderTimeout || template.limits.Timeout() > productionMaximumProviderTimeout {
+			return fmt.Errorf("invalid template timeout")
+		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" ||
 			template.transportChannel != ports.ProviderPacketChannelArgvLiteral || template.transportArgvIndex < 0 || template.transportReference != "" ||
 			template.instance != wantInstance || template.profileID != template.instance || !template.concurrencyKey.Valid() ||

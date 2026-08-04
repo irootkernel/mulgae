@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
@@ -148,6 +149,7 @@ type productionRunPolicy struct {
 	requiredRoles     []domain.Role
 	enabledRoles      map[domain.Role]bool
 	agyPermissionMode string
+	providerTimeouts  map[reviewrun.Family]time.Duration
 	config            adapterconfig.Config
 	source            *adapterconfig.LocalConfigSource
 	attestor          ports.ConfigLocalityAttestor
@@ -261,6 +263,7 @@ type configuredProductionCandidateSource struct {
 	config            adapterconfig.Config
 	policyIdentities  map[reviewrun.Family]string
 	agyPermissionMode string
+	providerTimeouts  map[reviewrun.Family]time.Duration
 	source            *adapterconfig.LocalConfigSource
 	attestor          ports.ConfigLocalityAttestor
 	staticRequest     ports.ConfigLocalityRequest
@@ -347,7 +350,10 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if provider := source.config.Providers.Kimi; provider != nil {
 		kimiModel = provider.Model
 	}
-	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel)
+	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel,
+		cloneProviderTimeouts(source.providerTimeouts),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -470,6 +476,13 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 	if providers := resolved.Providers(); providers.AGY != nil {
 		agyPermissionMode = providers.AGY.PermissionMode
 	}
+	providerTimeouts := make(map[reviewrun.Family]time.Duration, len(reviewrun.Families()))
+	for _, family := range reviewrun.Families() {
+		providerTimeouts[family] = appconfig.DefaultProviderTimeout
+		if timeout, ok := resolved.ProviderTimeout(string(family)); ok {
+			providerTimeouts[family] = timeout
+		}
+	}
 	return productionRunPolicy{
 		planner: reviewrun.PlannerPolicy{
 			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes, Assignments: assignments, RequiredRoles: resolved.RequiredRoles(),
@@ -477,8 +490,17 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		requiredRoles:     resolved.RequiredRoles(),
 		enabledRoles:      enabled,
 		agyPermissionMode: agyPermissionMode,
+		providerTimeouts:  providerTimeouts,
 		config:            resolved.Raw(),
 	}, nil
+}
+
+func cloneProviderTimeouts(timeouts map[reviewrun.Family]time.Duration) map[reviewrun.Family]time.Duration {
+	cloned := make(map[reviewrun.Family]time.Duration, len(timeouts))
+	for family, timeout := range timeouts {
+		cloned[family] = timeout
+	}
+	return cloned
 }
 
 func reviewCompositionFailure(class domain.FailureClass, reason string, cause error) error {

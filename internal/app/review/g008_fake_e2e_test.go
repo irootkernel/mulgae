@@ -167,7 +167,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 		budgets = append(budgets, roleBudget)
 		assignments = append(assignments, assignment)
 	}
-	receipt, err := review.PreflightRunBudget(budgets, review.DefaultHarnessCeilings())
+	receipt, err := review.PreflightRunBudgetWithCapacity(budgets, review.DefaultHarnessCeilings(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

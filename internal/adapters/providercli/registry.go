@@ -1289,7 +1289,7 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 		if definition.transport.ArgvIndex() == 13 {
 			controls = append(controls, "--dangerously-skip-permissions")
 		}
-		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", value)
+		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--print", value)
 		return append(argv, controls...), nil
 	default:
 		return nil, fmt.Errorf("unknown provider family")

@@ -83,8 +83,9 @@ func provenanceRows(config Config) []ProvenanceRow {
 	fields := []string{
 		"version", "project.name", "project.root", "project.context", "native_user.home",
 		"providers.kimi.configured", "providers.kimi.executable", "providers.kimi.model", "providers.kimi.data_home",
-		"providers.zcode.configured", "providers.zcode.node_executable", "providers.zcode.launcher",
-		"providers.agy.configured", "providers.agy.executable", "providers.agy.permission_mode",
+		"providers.kimi.timeout",
+		"providers.zcode.configured", "providers.zcode.node_executable", "providers.zcode.launcher", "providers.zcode.timeout",
+		"providers.agy.configured", "providers.agy.executable", "providers.agy.permission_mode", "providers.agy.timeout",
 		"execution.workspace_access",
 		"roles.logic.enabled", "roles.logic.primary_provider", "roles.logic.fallback_provider",
 		"roles.security.enabled", "roles.security.primary_provider", "roles.security.fallback_provider",
@@ -94,7 +95,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"roles.testing.enabled", "roles.testing.primary_provider", "roles.testing.fallback_provider",
 		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
 		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.fallback_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "resources.run_total_output_cap", "ci.fail_on_severity", "ci.degraded_review_fails",
-		"execution.strategy", "execution.cross_process_lane_lock", "runtime.path_policy", "runtime.environment_policy", "provider.timeout_sec", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
+		"execution.strategy", "execution.cross_process_lane_lock", "runtime.path_policy", "runtime.environment_policy", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
 	}
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {
@@ -105,7 +106,13 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil {
 			disposition = "absent"
 		}
+		if field == "providers.kimi.timeout" && config.Providers.Kimi == nil || field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.agy.timeout" && config.Providers.AGY == nil {
+			disposition = "absent"
+		}
 		if field == "providers.kimi.model" && config.Providers.Kimi != nil && config.Providers.Kimi.Model == DefaultKimiModel || field == "providers.kimi.data_home" && config.Providers.Kimi != nil && config.Providers.Kimi.DataHome == DefaultKimiDataHome(config.NativeUser.Home) || field == "providers.agy.permission_mode" && config.Providers.AGY != nil && config.Providers.AGY.PermissionMode == DefaultAGYPermissionMode {
+			source, disposition = "default", "defaulted"
+		}
+		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			source, disposition = "default", "defaulted"
 		}
 		rows = append(rows, ProvenanceRow{Field: field, Source: source, Disposition: disposition, ValueClass: class})

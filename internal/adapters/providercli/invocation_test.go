@@ -3,6 +3,7 @@ package providercli
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -30,9 +31,10 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	identity := nativeInvocationIdentity(t, t.TempDir())
 	fixture := nativeInvocationFixture{identity: identity}
 	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
+	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "3m55s", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "14m55s", "--print", "@roadmap.md")
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -43,6 +45,24 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	tampered[len(definition.BaseArgv())+3] = "/unbound"
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, tampered); err == nil {
 		t.Fatal("validate accepted AGY argv with an unbound snapshot path")
+	}
+}
+
+func TestAGYPrintTimeoutPreservesBoundedLifecycleGrace(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		runtimeTimeout time.Duration
+		want           time.Duration
+	}{
+		{name: "fifteen minutes", runtimeTimeout: 15 * time.Minute, want: 14*time.Minute + 55*time.Second},
+		{name: "thirty minutes", runtimeTimeout: 30 * time.Minute, want: 29*time.Minute + 55*time.Second},
+		{name: "short runtime", runtimeTimeout: 3 * time.Second, want: 1500 * time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := agyPrintTimeout(test.runtimeTimeout); got != test.want {
+				t.Fatalf("AGY print timeout = %s, want %s", got, test.want)
+			}
+		})
 	}
 }
 

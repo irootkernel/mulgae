@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the sole project-local Mulgae configuration authority.
@@ -38,14 +39,17 @@ type KimiProviderConfig struct {
 	Executable string `yaml:"executable" json:"executable"`
 	Model      string `yaml:"model,omitempty" json:"model"`
 	DataHome   string `yaml:"data_home,omitempty" json:"data_home"`
+	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type ZCodeProviderConfig struct {
 	NodeExecutable string `yaml:"node_executable" json:"node_executable"`
 	Launcher       string `yaml:"launcher" json:"launcher"`
+	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type AGYProviderConfig struct {
 	Executable     string `yaml:"executable" json:"executable"`
 	PermissionMode string `yaml:"permission_mode,omitempty" json:"permission_mode"`
+	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type ExecutionConfig struct {
 	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"`
@@ -102,12 +106,42 @@ const (
 	ConfigVersion            = 1
 	DefaultKimiModel         = "kimi-code/kimi-for-coding"
 	DefaultAGYPermissionMode = "safe"
+	DefaultProviderTimeout   = 15 * time.Minute
+	MinimumProviderTimeout   = time.Minute
+	MaximumProviderTimeout   = 60 * time.Minute
 	ConfigRelativePath       = ".mulgae/config.yaml"
 	MaximumConfigBytes       = 1 << 20
 	ProjectKindNonUI         = "non_ui"
 	ProjectKindUI            = "ui"
 	DefaultArtistBriefPath   = "ux-ui-info.md"
 )
+
+// ParseProviderTimeout resolves an optional Config v1 provider timeout. An
+// omitted value uses the fixed 15-minute default; admitted explicit values are
+// bounded inclusively between one and sixty minutes.
+func ParseProviderTimeout(value string) (time.Duration, error) {
+	if value == "" {
+		return DefaultProviderTimeout, nil
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout < MinimumProviderTimeout || timeout > MaximumProviderTimeout {
+		return 0, fmt.Errorf("provider timeout must be a duration from %s through %s", canonicalProviderTimeout(MinimumProviderTimeout), canonicalProviderTimeout(MaximumProviderTimeout))
+	}
+	return timeout, nil
+}
+
+// ProviderTimeoutText returns the stable Config v1 spelling for a valid
+// provider timeout. Whole-minute values use the concise "30m" form.
+func ProviderTimeoutText(timeout time.Duration) string {
+	return canonicalProviderTimeout(timeout)
+}
+
+func canonicalProviderTimeout(timeout time.Duration) string {
+	if timeout%time.Minute == 0 {
+		return strconv.FormatInt(int64(timeout/time.Minute), 10) + "m"
+	}
+	return timeout.String()
+}
 
 var DefaultArtistDesignSpecGlobs = []string{
 	"design-specs/**/*.png",
@@ -279,6 +313,7 @@ type ReasonCode string
 const (
 	ReasonYAMLInvalid             ReasonCode = "config_yaml_invalid"
 	ReasonSizeInvalid             ReasonCode = "config_size_invalid"
+	ReasonProviderTimeoutInvalid  ReasonCode = "config_provider_timeout_invalid"
 	ReasonCredentialKeyDetected   ReasonCode = "config_credential_key_detected"
 	ReasonCredentialValueDetected ReasonCode = "config_credential_value_detected"
 )

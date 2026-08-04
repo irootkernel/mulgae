@@ -260,7 +260,7 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 	if err != nil {
 		return nil, nil, err
 	}
-	receipt, err := review.PreflightRunBudget(plan.Budgets, plan.Ceilings)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
 	if err != nil {
 		return nil, nil, err
 	}

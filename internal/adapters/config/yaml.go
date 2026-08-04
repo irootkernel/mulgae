@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -24,6 +25,7 @@ const (
 )
 
 var (
+	errProviderTimeoutInvalid  = errors.New("provider timeout invalid")
 	modelPattern               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	byteSizePattern            = regexp.MustCompile(`^([1-9][0-9]{0,8})(KiB|MiB|GiB)$`)
 	placeholderPattern         = regexp.MustCompile(`\$\{[^{}]+\}`)
@@ -61,6 +63,9 @@ func Decode(data []byte) (Config, error) {
 		return zero, reject(ReasonYAMLInvalid)
 	}
 	if err := validate(&decoded); err != nil {
+		if errors.Is(err, errProviderTimeoutInvalid) {
+			return zero, reject(ReasonProviderTimeoutInvalid)
+		}
 		return zero, reject(ReasonYAMLInvalid)
 	}
 	return decoded, nil
@@ -359,9 +364,21 @@ func validate(config *Config) error {
 		if !canonicalAbsolute(config.Providers.Kimi.DataHome) {
 			return fmt.Errorf("kimi data home")
 		}
+		timeout, err := ParseProviderTimeout(config.Providers.Kimi.Timeout)
+		if err != nil {
+			return fmt.Errorf("kimi timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.Kimi.Timeout = ProviderTimeoutText(timeout)
 	}
-	if config.Providers.ZCode != nil && (!canonicalAbsolute(config.Providers.ZCode.NodeExecutable) || !canonicalAbsolute(config.Providers.ZCode.Launcher)) {
-		return fmt.Errorf("zcode paths")
+	if config.Providers.ZCode != nil {
+		if !canonicalAbsolute(config.Providers.ZCode.NodeExecutable) || !canonicalAbsolute(config.Providers.ZCode.Launcher) {
+			return fmt.Errorf("zcode paths")
+		}
+		timeout, err := ParseProviderTimeout(config.Providers.ZCode.Timeout)
+		if err != nil {
+			return fmt.Errorf("zcode timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.ZCode.Timeout = ProviderTimeoutText(timeout)
 	}
 	if config.Providers.AGY != nil {
 		if !canonicalAbsolute(config.Providers.AGY.Executable) {
@@ -373,6 +390,11 @@ func validate(config *Config) error {
 		if config.Providers.AGY.PermissionMode != "safe" && config.Providers.AGY.PermissionMode != "dangerously-skip-permissions" {
 			return fmt.Errorf("agy permission")
 		}
+		timeout, err := ParseProviderTimeout(config.Providers.AGY.Timeout)
+		if err != nil {
+			return fmt.Errorf("agy timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.AGY.Timeout = ProviderTimeoutText(timeout)
 	}
 	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
 		return fmt.Errorf("workspace")
@@ -588,14 +610,23 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		if provider.DataHome != DefaultKimiDataHome(config.NativeUser.Home) {
 			out.WriteString("    data_home: " + q(provider.DataHome) + "\n")
 		}
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+		}
 	}
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+		}
 	}
 	if provider := config.Providers.AGY; provider != nil {
 		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
 		if provider.PermissionMode != DefaultAGYPermissionMode {
 			out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
+		}
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}
 	}
 	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")

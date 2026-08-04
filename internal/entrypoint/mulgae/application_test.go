@@ -2179,6 +2179,29 @@ func TestCommittedProviderFailureReasonsPreserveEveryTerminalRole(t *testing.T) 
 	}
 }
 
+func TestCommittedProviderTimeoutReasonIncludesConfiguredAndElapsedFacts(t *testing.T) {
+	facts, err := review.NewProviderTimeoutFacts(30*time.Minute, 30*time.Minute+125*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := reviewrun.NewProviderExecutionFailureWithTimeoutFacts(
+		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderTimeout), domain.FailureTimeout, facts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons, err := committedProviderFailureReasons([]reviewrun.ProviderExecutionFailure{failure})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reasons) != 1 || reasons[0].Code() != "provider_timeout" ||
+		!strings.Contains(reasons[0].Message(), "configured timeout 30m") ||
+		!strings.Contains(reasons[0].Message(), "elapsed 30m0.125s") ||
+		strings.Contains(reasons[0].Message(), "stderr") {
+		t.Fatalf("provider timeout reason = %#v", reasons)
+	}
+}
+
 func TestMergeCommittedReasonDetailsPreservesPolicyAndDuplicateProviderFailures(t *testing.T) {
 	first, err := app.NewCommittedReason("provider_output_missing", "first attributed provider failure")
 	if err != nil {

@@ -102,7 +102,7 @@ func TestPreflightRunBudgetIndependentLanesUseMaximumDeadline(t *testing.T) {
 		func(index int) string { return fmt.Sprintf("primary-%d", index) },
 		func(index int) string { return fmt.Sprintf("fallback-%d", index) },
 	)
-	ceilings := budgetTestCeilings(t, 5*time.Second, 1, 1, 48, 12*time.Second, 17*time.Second, 4, 24)
+	ceilings := budgetTestCeilings(t, 5*time.Second, 1, 1, 48, 12*time.Second, 27*time.Second, 4, 24)
 
 	receipt, err := PreflightRunBudget(roles, ceilings)
 	if err != nil {
@@ -126,8 +126,79 @@ func TestPreflightRunBudgetIndependentLanesUseMaximumDeadline(t *testing.T) {
 			t.Fatalf("unexpected lane %q", lane.ConcurrencyKey().String())
 		}
 	}
-	if got, want := receipt.RunDeadline(), 17*time.Second; got != want {
-		t.Fatalf("run deadline = %s, want maximum lane plus grace %s", got, want)
+	if got, want := receipt.CriticalPathDeadline(), 22*time.Second; got != want {
+		t.Fatalf("critical path = %s, want primary+repair+fallback+repair %s", got, want)
+	}
+	if got, want := receipt.RunDeadline(), 27*time.Second; got != want {
+		t.Fatalf("run deadline = %s, want critical path plus grace %s", got, want)
+	}
+}
+
+func TestPreflightRunBudgetCapacityCoversQueueAndRoleDependencyPaths(t *testing.T) {
+	t.Parallel()
+
+	primaryLimits := budgetTestLimits(t, 3*time.Second, 1, 1)
+	fallbackLimits := budgetTestLimits(t, 5*time.Second, 1, 1)
+	roles := budgetTestCompleteRoles(
+		t,
+		primaryLimits,
+		fallbackLimits,
+		func(index int) string { return fmt.Sprintf("capacity-primary-%d", index) },
+		func(index int) string { return fmt.Sprintf("capacity-fallback-%d", index) },
+	)
+	ceilings := budgetTestCeilings(t, 5*time.Second, 1, 1, 48, 30*time.Second, 3*time.Minute, 4, 24)
+
+	for _, test := range []struct {
+		capacity int
+		want     time.Duration
+	}{
+		{capacity: 1, want: 137 * time.Second},
+		{capacity: 2, want: 82 * time.Second},
+		{capacity: 12, want: 27 * time.Second},
+	} {
+		receipt, err := PreflightRunBudgetWithCapacity(roles, ceilings, test.capacity)
+		if err != nil {
+			t.Fatalf("PreflightRunBudgetWithCapacity(%d) error = %v", test.capacity, err)
+		}
+		if got := receipt.MaxActiveLanes(); got != test.capacity {
+			t.Fatalf("capacity = %d, want %d", got, test.capacity)
+		}
+		if got := receipt.CriticalPathDeadline(); got != 22*time.Second {
+			t.Fatalf("critical path = %s, want 22s", got)
+		}
+		if got := receipt.RunDeadline(); got != test.want {
+			t.Fatalf("capacity %d run deadline = %s, want %s", test.capacity, got, test.want)
+		}
+	}
+}
+
+func TestPreflightRunBudgetAcceptsThirtyAndSixtyMinuteProviderBoundaries(t *testing.T) {
+	t.Parallel()
+
+	for _, timeout := range []time.Duration{30 * time.Minute, 60 * time.Minute} {
+		limits := budgetTestLimits(t, timeout, 1, 1)
+		primary := budgetTestRoute(t, "primary", "shared-boundary", limits)
+		fallback := budgetTestRoute(t, "fallback", "shared-boundary", limits)
+		roles := []RoleBudget{budgetTestRole(t, domain.RoleLogic, primary, &fallback)}
+
+		receipt, err := PreflightRunBudgetWithCapacity(roles, DefaultHarnessCeilings(), 1)
+		if err != nil {
+			t.Fatalf("timeout %s rejected: %v", timeout, err)
+		}
+		wantLane := 4*timeout + 3*budgetTransitionGrace
+		if got := receipt.LaneDeadlines()[0].Deadline(); got != wantLane {
+			t.Fatalf("timeout %s lane deadline = %s, want %s", timeout, got, wantLane)
+		}
+		if got := receipt.RunDeadline(); got != wantLane+budgetRunGrace {
+			t.Fatalf("timeout %s run deadline = %s, want %s", timeout, got, wantLane+budgetRunGrace)
+		}
+	}
+
+	over := budgetTestLimits(t, 60*time.Minute+time.Nanosecond, 1, 1)
+	roles := []RoleBudget{budgetTestRole(t, domain.RoleLogic, budgetTestRoute(t, "primary-over", "over", over), nil)}
+	receipt, err := PreflightRunBudgetWithCapacity(roles, DefaultHarnessCeilings(), 1)
+	if err == nil || receipt.ReasonCode() != BudgetReasonInvocationCapExceeded {
+		t.Fatalf("one-over timeout = error:%v reason:%q", err, receipt.ReasonCode())
 	}
 }
 
@@ -185,7 +256,7 @@ func TestPreflightRunBudgetAcceptsProductionSixRoleTopology(t *testing.T) {
 	if len(wantDeadlines) != 0 {
 		t.Fatalf("missing production lane deadlines: %v", wantDeadlines)
 	}
-	if got, want := receipt.RunDeadline(), 12*time.Minute+9*time.Second; got != want {
+	if got, want := receipt.RunDeadline(), 20*time.Minute+11*time.Second; got != want {
 		t.Fatalf("production run deadline = %s, want %s", got, want)
 	}
 }
@@ -340,9 +411,9 @@ func TestDefaultHarnessCeilingsAreClosedAndValid(t *testing.T) {
 	}
 	if ceilings.MaxInvocationsPerRole() != 4 ||
 		ceilings.MaxInvocationsPerRun() != 28 ||
-		ceilings.MaxTimeout() != 6*time.Minute ||
+		ceilings.MaxTimeout() != 60*time.Minute ||
 		ceilings.MaxTotalOutput() != 64<<20 ||
-		ceilings.MaxRunDeadline() != 50*time.Minute {
+		ceilings.MaxRunDeadline() != 28*time.Hour+47*time.Second {
 		t.Fatalf("default ceilings = role=%d run=%d timeout=%s output=%d deadline=%s",
 			ceilings.MaxInvocationsPerRole(),
 			ceilings.MaxInvocationsPerRun(),
@@ -364,13 +435,21 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 		maxInvocationsPerRole int
 		maxInvocationsPerRun  int
 	}
+	exactLaneDeadline, overflow := topologyDeadlineCeiling(maxBudgetProviderTimeout, maxBudgetInvocationsPerRun)
+	if overflow {
+		t.Fatal("exact topology ceiling overflowed")
+	}
+	exactRunDeadline, overflow := addDuration(exactLaneDeadline, budgetRunGrace)
+	if overflow {
+		t.Fatal("exact run ceiling overflowed")
+	}
 	exact := ceilingInput{
-		maxTimeout:            180 * time.Second,
+		maxTimeout:            maxBudgetProviderTimeout,
 		maxStdout:             256 << 10,
 		maxStderr:             256 << 10,
 		maxTotalOutput:        maxBudgetTotalOutputBytes,
-		maxLaneDeadline:       maxBudgetRunDeadline,
-		maxRunDeadline:        maxBudgetRunDeadline,
+		maxLaneDeadline:       exactLaneDeadline,
+		maxRunDeadline:        exactRunDeadline,
 		maxInvocationsPerRole: maxBudgetInvocationsPerRole,
 		maxInvocationsPerRun:  maxBudgetInvocationsPerRun,
 	}
@@ -397,6 +476,12 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 		change func(*ceilingInput)
 	}{
 		{
+			name: "provider timeout",
+			change: func(input *ceilingInput) {
+				input.maxTimeout = maxBudgetProviderTimeout + time.Nanosecond
+			},
+		},
+		{
 			name: "role invocations",
 			change: func(input *ceilingInput) {
 				input.maxInvocationsPerRole = maxBudgetInvocationsPerRole + 1
@@ -417,13 +502,13 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 		{
 			name: "lane deadline",
 			change: func(input *ceilingInput) {
-				input.maxLaneDeadline = maxBudgetRunDeadline + time.Nanosecond
+				input.maxLaneDeadline = exactLaneDeadline + time.Nanosecond
 			},
 		},
 		{
 			name: "run deadline",
 			change: func(input *ceilingInput) {
-				input.maxRunDeadline = maxBudgetRunDeadline + time.Nanosecond
+				input.maxRunDeadline = exactRunDeadline + time.Nanosecond
 			},
 		},
 	} {

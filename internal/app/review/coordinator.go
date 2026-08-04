@@ -135,6 +135,9 @@ func NewCoordinatorWithEvidencePolicy(
 	if !validCoordinatorReceipt(receipt) {
 		return nil, fmt.Errorf("review coordinator: run budget receipt is not eligible")
 	}
+	if receipt.MaxActiveLanes() != maxActiveLanes {
+		return nil, fmt.Errorf("review coordinator: active lane capacity does not match run budget receipt")
+	}
 	if !validCoordinatorEvidencePolicy(policy) {
 		return nil, fmt.Errorf("review coordinator: evidence policy is invalid")
 	}
@@ -165,13 +168,19 @@ func validCoordinatorReceipt(receipt RunBudgetReceipt) bool {
 	if !receipt.Eligible() || receipt.ReasonCode() != BudgetReasonEligible {
 		return false
 	}
-	canonical, err := PreflightRunBudget(receipt.RoleBudgets(), receipt.Ceilings())
+	canonical, err := PreflightRunBudgetWithCapacity(
+		receipt.RoleBudgets(),
+		receipt.Ceilings(),
+		receipt.MaxActiveLanes(),
+	)
 	if err != nil || !canonical.Eligible() {
 		return false
 	}
 	return canonical.totalInvocations == receipt.totalInvocations &&
 		canonical.totalOutputCap == receipt.totalOutputCap &&
 		canonical.runDeadline == receipt.runDeadline &&
+		canonical.criticalPath == receipt.criticalPath &&
+		canonical.maxActiveLanes == receipt.maxActiveLanes &&
 		equalRoleBudgets(canonical.roles, receipt.roles) &&
 		equalLaneDeadlines(canonical.lanes, receipt.lanes)
 }
@@ -222,13 +231,15 @@ func (summary CoordinatorInvocationSummary) State() domain.InvocationState { ret
 // CoordinatorAttemptSummary is the immutable terminal projection of one
 // primary or fallback provider attempt.
 type CoordinatorAttemptSummary struct {
-	id           domain.AttemptID
-	kind         AttemptKind
-	route        ports.ProviderRoute
-	state        domain.AttemptState
-	failureClass domain.FailureClass
-	reasonCode   string
-	invocations  []CoordinatorInvocationSummary
+	id              domain.AttemptID
+	kind            AttemptKind
+	route           ports.ProviderRoute
+	state           domain.AttemptState
+	failureClass    domain.FailureClass
+	reasonCode      string
+	timeoutFacts    ProviderTimeoutFacts
+	hasTimeoutFacts bool
+	invocations     []CoordinatorInvocationSummary
 }
 
 // ID returns the coordinator-issued attempt ID.
@@ -250,6 +261,10 @@ func (summary CoordinatorAttemptSummary) FailureClass() domain.FailureClass {
 
 // ReasonCode returns the stable terminal policy reason, or empty on success.
 func (summary CoordinatorAttemptSummary) ReasonCode() string { return summary.reasonCode }
+
+func (summary CoordinatorAttemptSummary) ProviderTimeoutFacts() (ProviderTimeoutFacts, bool) {
+	return summary.timeoutFacts, summary.hasTimeoutFacts
+}
 
 // Invocations returns caller-owned immutable invocation summaries.
 func (summary CoordinatorAttemptSummary) Invocations() []CoordinatorInvocationSummary {
@@ -467,12 +482,14 @@ func (issuer *coordinatorIssuer) reserve(rawUUID string) error {
 }
 
 type coordinatorAttempt struct {
-	kind         AttemptKind
-	route        ports.ProviderRoute
-	attempt      domain.Attempt
-	repairUsed   bool
-	failureClass domain.FailureClass
-	reasonCode   string
+	kind            AttemptKind
+	route           ports.ProviderRoute
+	attempt         domain.Attempt
+	repairUsed      bool
+	failureClass    domain.FailureClass
+	reasonCode      string
+	timeoutFacts    ProviderTimeoutFacts
+	hasTimeoutFacts bool
 }
 
 type coordinatorRole struct {
@@ -1476,6 +1493,12 @@ func (execution *coordinatorExecution) commitOutcome(
 	if err := execution.record(CoordinatorEventInvocationCommitted, job.Role(), attempt, &job.purpose, &condition, "", domain.RunState("")); err != nil {
 		return nil, err
 	}
+	if condition == AttemptConditionProviderTimeout {
+		if facts, ok := outcome.ProviderTimeoutFacts(); ok {
+			attempt.timeoutFacts = facts
+			attempt.hasTimeoutFacts = true
+		}
+	}
 
 	if conditionRequiresValidation(condition) {
 		if err := attempt.attempt.TransitionInvocation(invocationSequence(job.Purpose()), domain.InvocationSucceeded); err != nil {
@@ -2083,13 +2106,15 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 	for index, attempt := range attempts {
 		invocations := attempt.attempt.Invocations()
 		snapshots[index] = CoordinatorAttemptSummary{
-			id:           attempt.attempt.ID(),
-			kind:         attempt.kind,
-			route:        attempt.route,
-			state:        attempt.attempt.State(),
-			failureClass: attempt.failureClass,
-			reasonCode:   attempt.reasonCode,
-			invocations:  make([]CoordinatorInvocationSummary, len(invocations)),
+			id:              attempt.attempt.ID(),
+			kind:            attempt.kind,
+			route:           attempt.route,
+			state:           attempt.attempt.State(),
+			failureClass:    attempt.failureClass,
+			reasonCode:      attempt.reasonCode,
+			timeoutFacts:    attempt.timeoutFacts,
+			hasTimeoutFacts: attempt.hasTimeoutFacts,
+			invocations:     make([]CoordinatorInvocationSummary, len(invocations)),
 		}
 		for invocationIndex, invocation := range invocations {
 			snapshots[index].invocations[invocationIndex] = CoordinatorInvocationSummary{

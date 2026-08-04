@@ -323,7 +323,15 @@ func (result ReviewRunResult) Validate() error {
 		return fmt.Errorf("invalid review terminal exit: %w", err)
 	}
 	for _, failure := range result.terminalFailures {
-		if _, err := reviewrun.NewProviderExecutionFailure(failure.ProviderInstance(), failure.Role(), failure.ReasonCode(), failure.FailureClass()); err != nil {
+		var err error
+		if facts, ok := failure.ProviderTimeoutFacts(); ok {
+			_, err = reviewrun.NewProviderExecutionFailureWithTimeoutFacts(
+				failure.ProviderInstance(), failure.Role(), failure.ReasonCode(), failure.FailureClass(), facts,
+			)
+		} else {
+			_, err = reviewrun.NewProviderExecutionFailure(failure.ProviderInstance(), failure.Role(), failure.ReasonCode(), failure.FailureClass())
+		}
+		if err != nil {
 			return fmt.Errorf("invalid review terminal provider failure: %w", err)
 		}
 	}
@@ -599,9 +607,18 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		if len(attempts) == 0 {
 			return ReviewRunResult{}, errors.New("review run: terminal role has no attempts")
 		}
-		failure, err := reviewrun.NewProviderExecutionFailure(
-			attempts[len(attempts)-1].Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(),
-		)
+		terminalAttempt := attempts[len(attempts)-1]
+		var failure reviewrun.ProviderExecutionFailure
+		var err error
+		if facts, ok := terminalAttempt.ProviderTimeoutFacts(); ok {
+			failure, err = reviewrun.NewProviderExecutionFailureWithTimeoutFacts(
+				terminalAttempt.Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(), facts,
+			)
+		} else {
+			failure, err = reviewrun.NewProviderExecutionFailure(
+				terminalAttempt.Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(),
+			)
+		}
 		if err != nil {
 			return ReviewRunResult{}, err
 		}

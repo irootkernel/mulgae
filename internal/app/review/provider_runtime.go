@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
@@ -488,8 +489,10 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if ctx == nil {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
-	invocationCtx, cancel := context.WithTimeout(ctx, job.Limits().Timeout())
-	defer cancel()
+	// Prompt construction and local validation are bounded by the enclosing run
+	// budget, but do not consume the configured provider process window. The
+	// exact provider timeout starts immediately before Observe/Invoke below.
+	invocationCtx := ctx
 	if err := invocationCtx.Err(); err != nil {
 		return runtimeCondition(job, runtimeContextCondition(err))
 	}
@@ -524,9 +527,19 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticInvocationPrepared, "", string(domain.InvocationQueued), "", "", 0, false, "", 0); err != nil {
 		return runtimeCondition(job, diagnosticConditionForPersistence(err))
 	}
+	// Never start a provider with an enclosing deadline that would truncate its
+	// configured process window. Lock, capacity, and prompt preparation may use
+	// the run budget, but their delay is reported as an execution timeout.
+	providerCtx, cancelProvider, fullWindow := newProviderExecutionContext(invocationCtx, job.Limits().Timeout())
+	if !fullWindow {
+		return runtimeCondition(job, AttemptConditionTimeout)
+	}
+	defer cancelProvider()
 	var stdout, rawStdout, stderr []byte
 	if runtime.observed != nil {
-		observation, observeErr := runtime.observed.Observe(invocationCtx, providerInvocation)
+		providerStarted := time.Now()
+		observation, observeErr := runtime.observed.Observe(providerCtx, providerInvocation)
+		providerElapsed := time.Since(providerStarted)
 		if observeErr != nil {
 			if observation.Validate() == nil && sameProviderInvocation(observation.Invocation(), providerInvocation) {
 				diagnosticObservation = diagnosticObservationPointer(observation)
@@ -536,8 +549,13 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 				if err := runtime.capture(invocationCtx, job, nil, observation.Stdout(), observation.Stderr(), false); err != nil {
 					return runtimeCondition(job, diagnosticConditionForPersistence(err))
 				}
+				condition := runtimeProviderErrorCondition(providerCtx, observeErr)
+				if !observation.Succeeded() && observedStatusCondition(observation.Status(), observation.PrimaryCause()) == AttemptConditionProviderTimeout {
+					condition = AttemptConditionProviderTimeout
+				}
+				return runtimeObservedCondition(job, condition, observation, providerElapsed)
 			}
-			return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, observeErr))
+			return runtimeProviderCondition(job, runtimeProviderErrorCondition(providerCtx, observeErr), providerElapsed)
 		}
 		if err := observation.Validate(); err != nil || !sameProviderInvocation(observation.Invocation(), providerInvocation) {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
@@ -551,7 +569,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
 				return runtimeCondition(job, diagnosticConditionForPersistence(err))
 			}
-			return runtimeCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()))
+			return runtimeObservedCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()), observation, providerElapsed)
 		}
 		result, ok := observation.Result()
 		if !ok || result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
@@ -565,9 +583,11 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
 		}
 	} else {
-		result, invokeErr := runtime.provider.Invoke(invocationCtx, providerInvocation)
+		providerStarted := time.Now()
+		result, invokeErr := runtime.provider.Invoke(providerCtx, providerInvocation)
+		providerElapsed := time.Since(providerStarted)
 		if invokeErr != nil {
-			return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, invokeErr))
+			return runtimeProviderCondition(job, runtimeProviderErrorCondition(providerCtx, invokeErr), providerElapsed)
 		}
 		stdout = result.Stdout()
 		rawStdout = stdout
@@ -1059,6 +1079,62 @@ func runtimeCondition(job InvocationJob, condition AttemptCondition) AttemptOutc
 		return AttemptOutcome{}
 	}
 	return outcome
+}
+
+func runtimeObservedCondition(job InvocationJob, condition AttemptCondition, observation ports.ProviderExecutionObservation, measuredElapsed time.Duration) AttemptOutcome {
+	if condition != AttemptConditionProviderTimeout || observation.Validate() != nil {
+		return runtimeCondition(job, condition)
+	}
+	process, ok := observation.AvailableProcessObservation()
+	elapsed := measuredElapsed
+	if ok {
+		elapsed = process.EndedAt().Sub(process.StartedAt())
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return runtimeProviderCondition(job, condition, elapsed)
+}
+
+func runtimeProviderCondition(job InvocationJob, condition AttemptCondition, elapsed time.Duration) AttemptOutcome {
+	if condition != AttemptConditionProviderTimeout {
+		return runtimeCondition(job, condition)
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	outcome, err := NewProviderTimeoutAttemptOutcome(job, elapsed)
+	if err != nil {
+		return runtimeCondition(job, condition)
+	}
+	return outcome
+}
+
+func contextCanRunFor(ctx context.Context, duration time.Duration) bool {
+	if ctx == nil || duration <= 0 || ctx.Err() != nil {
+		return false
+	}
+	deadline, ok := ctx.Deadline()
+	return !ok || time.Until(deadline) >= duration
+}
+
+func newProviderExecutionContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc, bool) {
+	if parent == nil || duration <= 0 || parent.Err() != nil {
+		return nil, nil, false
+	}
+	parentDeadline, hasParentDeadline := parent.Deadline()
+	providerCtx, cancel := context.WithTimeout(parent, duration)
+	if hasParentDeadline {
+		providerDeadline, hasProviderDeadline := providerCtx.Deadline()
+		// Equality means context.WithTimeout inherited the parent's earlier
+		// deadline. Only a strictly earlier child deadline proves that the full
+		// configured provider window owns this context.
+		if !hasProviderDeadline || !providerDeadline.Before(parentDeadline) {
+			cancel()
+			return nil, nil, false
+		}
+	}
+	return providerCtx, cancel, true
 }
 func runtimeContextCondition(err error) AttemptCondition {
 	if errors.Is(err, context.DeadlineExceeded) {

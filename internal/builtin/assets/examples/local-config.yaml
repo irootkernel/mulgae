@@ -8,6 +8,7 @@ providers:
   zcode:
     node_executable: "/opt/homebrew/bin/node"
     launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
+    timeout: "30m"
   agy:
     executable: "/opt/homebrew/bin/agy"
 execution:
