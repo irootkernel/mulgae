@@ -1,6 +1,6 @@
 GO ?= go
 TEST_TIMEOUT ?= 90m
-RELEASE_VERSION := v0.1.0
+RELEASE_VERSION := v0.1.1
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
 .PHONY: test test-prepare test-unit test-int test-release test-e2e
