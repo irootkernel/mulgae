@@ -458,6 +458,12 @@ func (scheduler *laneScheduler) reduceOutcome(
 	if err != nil {
 		return scheduler.conditionOutcome(job, AttemptConditionInternalInvariant)
 	}
+	// The process layer cannot distinguish a provider-owned invocation timeout
+	// from termination caused by the enclosing run context: both arrive as a
+	// typed timed-out observation. Parent deadline provenance is authoritative.
+	if condition == AttemptConditionProviderTimeout && errors.Is(scheduler.ctx.Err(), context.DeadlineExceeded) {
+		condition = AttemptConditionTimeout
+	}
 	if ctxErr != nil {
 		contextCondition := laneContextCondition(ctxErr)
 		if !conditionRetainsAuthorityAfterContext(condition, contextCondition) {

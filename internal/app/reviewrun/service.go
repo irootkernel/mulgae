@@ -51,7 +51,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	captured, err := request.InputSource.Capture(ctx, request)
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: capture immutable input: %w", err)
+		return Result{}, fmt.Errorf("review run: capture immutable input: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	lease := captured.WorkspaceLease()
 	if nilInterface(lease) {

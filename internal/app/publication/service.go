@@ -925,10 +925,6 @@ func (service *Service) p2ResultFromDecision(
 	if !ok {
 		return PublicationResult{}, publicationFailure("publication.p2", domain.FailureArtifact, "P2 observation omitted normal exit", nil)
 	}
-	exit, err := reduceExit(storedExit, "publication_committed")
-	if err != nil {
-		return PublicationResult{}, publicationFailure("publication.p2", domain.FailureInternal, "normal exit reduction failed", err)
-	}
 	material, ok := observation.RecoveryMaterial()
 	if !ok {
 		return PublicationResult{}, publicationFailure("publication.snapshot", domain.FailureArtifact, "P2 observation omitted recovery material", nil)
@@ -943,6 +939,14 @@ func (service *Service) p2ResultFromDecision(
 	}
 	if snapshotExit != storedExit {
 		return PublicationResult{}, publicationFailure("publication.snapshot", domain.FailureArtifact, "committed snapshot exit does not match the P2 observation", nil)
+	}
+	exitReasons, err := committedExitReasons(snapshot, storedExit)
+	if err != nil {
+		return PublicationResult{}, publicationFailure("publication.p2", domain.FailureArtifact, "normal exit reason is invalid", err)
+	}
+	exit, err := reduceExitReasons(exitReasons)
+	if err != nil {
+		return PublicationResult{}, publicationFailure("publication.p2", domain.FailureInternal, "normal exit reduction failed", err)
 	}
 	snapshotCandidateSHA256, err := committedSnapshotValidatedCandidateSHA256(snapshot)
 	if err != nil {
@@ -970,6 +974,100 @@ func (service *Service) p2ResultFromDecision(
 		result.issued = &issuedCopy
 	}
 	return result, nil
+}
+
+func committedExitReasons(snapshot ports.CommittedPublicationSnapshot, code domain.OperationalExitCode) ([]domain.ExitReason, error) {
+	if code == domain.ExitCommittedPass {
+		reason, err := domain.NewExitReason(domain.ExitCommittedPass, "publication_committed")
+		if err != nil {
+			return nil, err
+		}
+		return []domain.ExitReason{reason}, nil
+	}
+	var manifest runManifestWire
+	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &manifest); err != nil {
+		return nil, err
+	}
+	reasons := make([]domain.ExitReason, 0, len(manifest.Failures)+len(manifest.CIReasonCodes))
+	seen := make(map[string]struct{}, cap(reasons))
+	appendReason := func(exitCode domain.OperationalExitCode, reasonCode string) error {
+		if !validReasonCode(reasonCode) {
+			return nil
+		}
+		key := fmt.Sprintf("%d:%s", exitCode, reasonCode)
+		if _, duplicate := seen[key]; duplicate {
+			return nil
+		}
+		reason, err := domain.NewExitReason(exitCode, reasonCode)
+		if err != nil {
+			return err
+		}
+		seen[key] = struct{}{}
+		reasons = append(reasons, reason)
+		return nil
+	}
+	if code == domain.ExitIncompleteCoverage {
+		terminalReasons := terminalManifestFailureReasons(manifest)
+		if len(terminalReasons) == 0 {
+			return nil, fmt.Errorf("incomplete coverage manifest has no terminal role failure reason")
+		}
+		for _, reasonCode := range terminalReasons {
+			reason, err := domain.NewExitReason(domain.ExitIncompleteCoverage, reasonCode)
+			if err != nil {
+				return nil, err
+			}
+			reasons = append(reasons, reason)
+		}
+		for _, reason := range manifest.CIReasonCodes {
+			exitCode := domain.ExitCommittedCIRejected
+			if reason == "required_role_incomplete" {
+				exitCode = domain.ExitIncompleteCoverage
+			}
+			if err := appendReason(exitCode, reason); err != nil {
+				return nil, err
+			}
+		}
+		return reasons, nil
+	}
+	if code == domain.ExitCommittedCIRejected {
+		for _, reason := range manifest.CIReasonCodes {
+			if err := appendReason(domain.ExitCommittedCIRejected, reason); err != nil {
+				return nil, err
+			}
+		}
+		if len(reasons) == 0 {
+			return nil, fmt.Errorf("CI-rejected manifest has no policy reason")
+		}
+		return reasons, nil
+	}
+	return nil, fmt.Errorf("unsupported committed exit")
+}
+
+func terminalManifestFailureReasons(manifest runManifestWire) []string {
+	finalAttemptByRole := make(map[string]string, len(manifest.SelectedRoles))
+	attemptByID := make(map[string]manifestAttemptWire, len(manifest.Attempts))
+	for _, attempt := range manifest.Attempts {
+		attemptByID[attempt.AttemptID] = attempt
+		finalAttemptByRole[attempt.Role] = attempt.AttemptID
+	}
+	reasons := make([]string, 0, len(manifest.SelectedRoles))
+	for _, role := range manifest.SelectedRoles {
+		finalAttemptID, present := finalAttemptByRole[role]
+		if !present {
+			continue
+		}
+		attempt := attemptByID[finalAttemptID]
+		if attempt.State == string(domain.AttemptSucceeded) {
+			continue
+		}
+		for _, failure := range manifest.Failures {
+			if failure.AttemptID != nil && *failure.AttemptID == finalAttemptID && validReasonCode(failure.ReasonCode) {
+				reasons = append(reasons, failure.ReasonCode)
+				break
+			}
+		}
+	}
+	return reasons
 }
 func (service *Service) readManifestBoundSupportArtifacts(
 	ctx context.Context,
@@ -1640,7 +1738,11 @@ func reduceExit(code domain.OperationalExitCode, reason string) (domain.Operatio
 	if err != nil {
 		return domain.OperationalExitDecision{}, err
 	}
-	input, err := domain.NewOperationalExitInput([]domain.ExitReason{exitReason})
+	return reduceExitReasons([]domain.ExitReason{exitReason})
+}
+
+func reduceExitReasons(reasons []domain.ExitReason) (domain.OperationalExitDecision, error) {
+	input, err := domain.NewOperationalExitInput(reasons)
 	if err != nil {
 		return domain.OperationalExitDecision{}, err
 	}

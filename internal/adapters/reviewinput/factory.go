@@ -70,29 +70,46 @@ func (factory *Factory) CaptureArchived(ctx context.Context, archive []byte, obj
 	}
 	material, err := ports.UnmarshalCapturedReviewMaterial(archive)
 	if err != nil {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived capture decode failed: %w", err)
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived capture decode failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	if hasObjective {
 		detection, detectErr := factory.detector.DetectReviewInput(ctx, ports.ReviewInputObjective, objectiveDetectorLabel, objective)
-		if detectErr != nil || !detection.Valid() || detection.Verdict() != ports.ReviewInputClean {
-			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective rejected")
+		if detectErr != nil {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective detection failed: %w", ports.WrapReviewCaptureFailure(detectErr))
+		}
+		if !detection.Valid() {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective detector returned an invalid result: %w", ports.WrapReviewCaptureFailure(fmt.Errorf("invalid detector result")))
+		}
+		if detection.Verdict() == ports.ReviewInputBlocked {
+			identified, ok := factory.detector.(ports.ReviewInputContentDetectorIdentity)
+			if !ok {
+				return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective detector has no policy identity: %w", ports.WrapReviewCaptureFailure(fmt.Errorf("unidentified detector")))
+			}
+			failure, failureErr := ports.NewReviewCapturePolicyFailure("", "", detection.DetectorCode(), identified.ReviewInputDetectorIdentity(), fmt.Errorf("objective rejected by content policy"))
+			if failureErr != nil {
+				return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective rejected")
+			}
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective rejected: %w", failure)
 		}
 	}
 	lease, err := factory.leases.MaterializeLease(ctx, material.Snapshot())
 	if err != nil || nilInterface(lease) {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived workspace materialization failed")
+		if err == nil {
+			err = fmt.Errorf("workspace materializer returned no lease")
+		}
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived workspace materialization failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	input, err := reviewrun.NewImmutableReviewInputWithCapturedArchive(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext(), archive)
 	if err != nil {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived immutable input failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived immutable input failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	reader, err := newCapturedTargetReader(material)
 	if err != nil {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived evidence failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived evidence failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	captured, err := reviewrun.NewCapturedRunInput(input, lease, reader, factory.detector)
 	if err != nil {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived captured input failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived captured input failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	return captured, nil
 }
@@ -131,41 +148,62 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		material, err = source.factory.capturer.CaptureReviewTarget(ctx, source.request.Root(), source.request.Target())
 	}
 	if err != nil || !material.Valid() {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: target capture failed")
+		if err == nil {
+			err = fmt.Errorf("capturer returned invalid material")
+		}
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: target capture failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 
 	objective, hasObjective := source.request.Objective()
 	if hasObjective {
 		detection, detectErr := source.factory.detector.DetectReviewInput(ctx, ports.ReviewInputObjective, objectiveDetectorLabel, objective)
-		if detectErr != nil || !detection.Valid() || detection.Verdict() != ports.ReviewInputClean {
-			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective rejected")
+		if detectErr != nil {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective detection failed: %w", ports.WrapReviewCaptureFailure(detectErr))
+		}
+		if !detection.Valid() {
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective detector returned an invalid result: %w", ports.WrapReviewCaptureFailure(fmt.Errorf("invalid detector result")))
+		}
+		if detection.Verdict() == ports.ReviewInputBlocked {
+			identified, ok := source.factory.detector.(ports.ReviewInputContentDetectorIdentity)
+			if !ok {
+				return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective detector has no policy identity: %w", ports.WrapReviewCaptureFailure(fmt.Errorf("unidentified detector")))
+			}
+			identity := identified.ReviewInputDetectorIdentity()
+			failure, failureErr := ports.NewReviewCapturePolicyFailure("", "", detection.DetectorCode(), identity, fmt.Errorf("objective rejected by content policy"))
+			if failureErr != nil {
+				return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective rejected")
+			}
+			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: objective rejected: %w", failure)
 		}
 	}
 
 	lease, err := source.factory.leases.MaterializeLease(ctx, material.Snapshot())
 	if err != nil || nilInterface(lease) {
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace materialization failed")
+		if err == nil {
+			err = fmt.Errorf("workspace materializer returned no lease")
+		}
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace materialization failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 
 	archive, err := ports.MarshalCapturedReviewMaterial(material)
 	if err != nil {
 		source.quarantine(lease)
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured archive construction failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured archive construction failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	input, err := reviewrun.NewImmutableReviewInputWithCapturedArchive(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext(), archive)
 	if err != nil {
 		source.quarantine(lease)
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: immutable input construction failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: immutable input construction failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	reader, err := newCapturedTargetReader(material)
 	if err != nil {
 		source.quarantine(lease)
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: immutable evidence construction failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: immutable evidence construction failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	captured, err := reviewrun.NewCapturedRunInput(input, lease, reader, source.factory.detector)
 	if err != nil {
 		source.quarantine(lease)
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured input construction failed")
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured input construction failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 	return captured, nil
 }

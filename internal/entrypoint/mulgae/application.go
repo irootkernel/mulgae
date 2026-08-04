@@ -20,6 +20,7 @@ import (
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -259,6 +260,7 @@ type ReviewRunResult struct {
 	runManifestURI    string
 	reviewArtifactURI string
 	terminalExit      domain.OperationalExitDecision
+	terminalFailures  []reviewrun.ProviderExecutionFailure
 }
 
 // NewReviewRunResult creates an immutable terminal review projection.
@@ -278,6 +280,16 @@ func NewReviewRunResult(
 	}
 }
 
+func newReviewRunResultWithFailures(
+	sessionID, runID, runManifestURI, reviewArtifactURI string,
+	terminalExit domain.OperationalExitDecision,
+	failures []reviewrun.ProviderExecutionFailure,
+) ReviewRunResult {
+	result := NewReviewRunResult(sessionID, runID, runManifestURI, reviewArtifactURI, terminalExit)
+	result.terminalFailures = append([]reviewrun.ProviderExecutionFailure(nil), failures...)
+	return result
+}
+
 // SessionID returns the terminal review session ID.
 func (result ReviewRunResult) SessionID() string { return result.sessionID }
 
@@ -295,6 +307,10 @@ func (result ReviewRunResult) TerminalExit() domain.OperationalExitDecision {
 	return result.terminalExit
 }
 
+func (result ReviewRunResult) TerminalProviderFailures() []reviewrun.ProviderExecutionFailure {
+	return append([]reviewrun.ProviderExecutionFailure(nil), result.terminalFailures...)
+}
+
 // Validate verifies that the result can safely be represented in the review command envelope.
 func (result ReviewRunResult) Validate() error {
 	if _, err := domain.ParseSessionID(result.sessionID); err != nil ||
@@ -305,6 +321,11 @@ func (result ReviewRunResult) Validate() error {
 	}
 	if _, _, err := committedTerminalOutcome(result.terminalExit); err != nil {
 		return fmt.Errorf("invalid review terminal exit: %w", err)
+	}
+	for _, failure := range result.terminalFailures {
+		if _, err := reviewrun.NewProviderExecutionFailure(failure.ProviderInstance(), failure.Role(), failure.ReasonCode(), failure.FailureClass()); err != nil {
+			return fmt.Errorf("invalid review terminal provider failure: %w", err)
+		}
 	}
 	return nil
 }
@@ -479,7 +500,7 @@ func (adapter reviewRunAdapter) StartReviewRun(
 	}
 	source, err := adapter.factory.NewImmutableInputSource(ctx, captureRequest)
 	if err != nil {
-		return ReviewRunResult{}, err
+		return ReviewRunResult{}, ports.WrapReviewCaptureFailure(err)
 	}
 	if nilApplicationDependency(source) {
 		return ReviewRunResult{}, errors.New("review run: immutable input source is required")
@@ -569,12 +590,30 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 	if _, _, err := committedTerminalOutcome(terminalExit); err != nil {
 		return ReviewRunResult{}, fmt.Errorf("review run: terminal exit: %w", err)
 	}
-	return NewReviewRunResult(
+	failures := make([]reviewrun.ProviderExecutionFailure, 0)
+	for _, summary := range result.Coordinator().RoleSummaries() {
+		if summary.Valid() {
+			continue
+		}
+		attempts := summary.Attempts()
+		if len(attempts) == 0 {
+			return ReviewRunResult{}, errors.New("review run: terminal role has no attempts")
+		}
+		failure, err := reviewrun.NewProviderExecutionFailure(
+			attempts[len(attempts)-1].Route().ProviderInstance(), summary.Role(), summary.ReasonCode(), summary.FailureClass(),
+		)
+		if err != nil {
+			return ReviewRunResult{}, err
+		}
+		failures = append(failures, failure)
+	}
+	return newReviewRunResultWithFailures(
 		sessionID,
 		runID,
 		".mulgae/"+manifestPath,
 		".mulgae/"+reviewPath,
 		terminalExit,
+		failures,
 	), nil
 }
 
@@ -1018,26 +1057,30 @@ func (application *Application) newRequestID() (requestID string, err error) {
 }
 
 type execution struct {
-	human            []byte
-	data             []byte
-	failureData      []byte
-	failure          *executionFailure
-	exit             app.ExitCode
-	committedReasons []string
-	verbatim         bool
-	direct           *Result
+	human                  []byte
+	data                   []byte
+	failureData            []byte
+	failure                *executionFailure
+	exit                   app.ExitCode
+	committedReasons       []string
+	committedReasonDetails []app.CommittedReason
+	verbatim               bool
+	direct                 *Result
 }
 
 type executionFailure struct {
-	class         domain.FailureClass
-	code          string
-	message       string
-	humanMessage  string
-	retryable     bool
-	hasRetryable  bool
-	stage         string
-	exit          app.ExitCode
-	diagnosticURI string
+	class                  domain.FailureClass
+	code                   string
+	message                string
+	humanMessage           string
+	retryable              bool
+	hasRetryable           bool
+	stage                  string
+	exit                   app.ExitCode
+	diagnosticURI          string
+	role                   string
+	provider               string
+	recommendedNextCommand string
 }
 
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
@@ -1057,7 +1100,9 @@ func (application *Application) renderSuccess(ctx context.Context, invocation In
 	}
 	var commandResult app.CommandResult
 	var err error
-	if len(run.committedReasons) != 0 {
+	if len(run.committedReasonDetails) != 0 {
+		commandResult, err = app.NewCommittedCommandOutcomeWithReasons(invocation.Command(), run.exit, run.data, run.committedReasonDetails)
+	} else if len(run.committedReasons) != 0 {
 		commandResult, err = app.NewCommittedCommandOutcome(invocation.Command(), run.exit, run.data, run.committedReasons)
 	} else {
 		commandResult, err = app.NewCommandSuccess(invocation.Command(), run.data)
@@ -1109,18 +1154,17 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 	}
 	var diagnostic app.Diagnostic
 	if failure.hasRetryable {
-		if failure.diagnosticURI != "" {
-			diagnostic, err = app.NewDiagnosticWithRetryableArtifactPath(failure.stage, failure.class, failure.code, message, failure.retryable, failure.diagnosticURI)
-		} else {
-			diagnostic, err = app.NewDiagnosticWithRetryable(failure.stage, failure.class, failure.code, message, failure.retryable)
-		}
+		diagnostic, err = app.NewDiagnosticWithRetryableDetails(
+			failure.stage, failure.class, failure.code, message, failure.retryable,
+			failure.role, failure.provider, failure.diagnosticURI, failure.recommendedNextCommand,
+		)
 	} else {
 		diagnostic, err = app.NewDiagnostic(
 			failure.stage,
 			failure.class,
 			failure.code,
 			message,
-			"", "", domain.AttemptID{}, false, false, failure.diagnosticURI, "",
+			failure.role, failure.provider, domain.AttemptID{}, false, false, failure.diagnosticURI, failure.recommendedNextCommand,
 		)
 	}
 	if err != nil {
@@ -1303,6 +1347,42 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			failure.diagnosticURI = uri.String()
 		}
 	}()
+	if capture, ok := ports.ReviewCaptureFailureFromError(err); ok {
+		class := domain.FailureArtifact
+		if capture.Code() == ports.ReviewCapturePolicyBlocked {
+			class = domain.FailureSecurityPolicy
+		}
+		facts := make([]string, 0, 5)
+		if capture.Summary() != "" {
+			facts = append(facts, "summary: "+capture.Summary())
+		}
+		if capture.Path() != "" {
+			facts = append(facts, "path: "+capture.Path())
+		}
+		if capture.Role() != "" {
+			facts = append(facts, "role: "+string(capture.Role()))
+		}
+		if capture.EffectiveConfiguration() != "" {
+			facts = append(facts, "effective configuration: "+capture.EffectiveConfiguration())
+		}
+		if capture.Hint() != "" {
+			facts = append(facts, "hint: "+capture.Hint())
+		}
+		message := "Review input capture failed at stage review.capture."
+		if len(facts) != 0 {
+			message += " " + strings.Join(facts, "; ") + "."
+		}
+		return &executionFailure{
+			class:                  class,
+			code:                   string(capture.Code()),
+			message:                message,
+			humanMessage:           "mulgae: " + string(capture.Code()) + ": " + strings.Join(facts, "; "),
+			stage:                  "review.capture",
+			exit:                   requestedExit(class),
+			recommendedNextCommand: "mulgae doctor",
+			role:                   string(capture.Role()),
+		}
+	}
 	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired {
 		providerList := strings.Join(providers, ", ")
 		return &executionFailure{
@@ -1342,19 +1422,31 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	if failures, executionFailed := reviewrun.ProviderExecutionFailuresFromError(err); executionFailed {
 		facts := make([]string, 0, len(failures))
 		for _, failure := range failures {
-			facts = append(facts, failure.ProviderInstance()+"="+failure.ReasonCode())
+			facts = append(facts, fmt.Sprintf("role=%s provider=%s reason=%s", failure.Role(), failure.ProviderInstance(), failure.ReasonCode()))
 		}
 		failureList := strings.Join(facts, ", ")
 		class := reducedFailureClass(err, fallback)
+		first := failures[0]
+		for _, candidate := range failures {
+			if candidate.FailureClass() == class {
+				first = candidate
+				break
+			}
+		}
+		code := providerExecutionFailureCode(first)
+		hint := providerFailureHint(code)
 		return &executionFailure{
-			class:        class,
-			code:         "provider_execution_failed",
-			message:      "Provider execution failed: " + failureList + ".",
-			humanMessage: "mulgae: provider execution failed: " + failureList,
-			retryable:    false,
-			hasRetryable: true,
-			stage:        "cli." + string(command),
-			exit:         requestedExit(class),
+			class:                  class,
+			code:                   code,
+			message:                "Provider execution failed at stage provider.execute: " + failureList + "; hint: run " + hint + ".",
+			humanMessage:           "mulgae: provider execution failed: " + failureList,
+			retryable:              false,
+			hasRetryable:           true,
+			stage:                  "provider.execute",
+			exit:                   requestedExit(class),
+			role:                   string(first.Role()),
+			provider:               first.ProviderInstance(),
+			recommendedNextCommand: hint,
 		}
 	}
 	class := reducedFailureClass(err, fallback)
@@ -1376,14 +1468,55 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		}
 	case domain.FailureCancelled:
 		failure.code = "request_cancelled"
-	case domain.FailureProviderUnavailable, domain.FailureTimeout, domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
-		failure.code = "readiness_unverified"
+	case domain.FailureProviderUnavailable:
+		failure.code = "provider_unavailable"
+	case domain.FailureTimeout:
+		failure.code = "execution_timeout"
+	case domain.FailureInvalidOutput:
+		failure.code = "invalid_provider_output"
+	case domain.FailureAuthentication:
+		failure.code = "provider_authentication_failed"
+	case domain.FailureQuota:
+		failure.code = "provider_quota_exceeded"
+	case domain.FailureRateLimit:
+		failure.code = "provider_rate_limited"
 	default:
 		failure.class = domain.FailureInternal
 		failure.code = "internal_failure"
 		failure.exit = app.ExitCodeInternal
 	}
 	return failure
+}
+
+func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) string {
+	switch failure.ReasonCode() {
+	case string(review.AttemptConditionProviderPermissionDenied):
+		return "provider_permission_denied"
+	case string(review.AttemptConditionProviderTimeout):
+		return "provider_timeout"
+	case string(review.AttemptConditionTimeout):
+		return "execution_timeout"
+	case string(review.AttemptConditionProviderOutputMissing):
+		return "provider_output_missing"
+	case string(review.AttemptConditionProviderOutputDecodeFailed),
+		string(review.AttemptConditionInvalidProviderOutput),
+		string(review.AttemptConditionUnrepairableProviderOutput):
+		return "provider_output_decode_failed"
+	}
+	return "provider_execution_failed"
+}
+
+func providerFailureHint(code string) string {
+	switch code {
+	case "provider_permission_denied":
+		return "mulgae doctor"
+	case "provider_timeout":
+		return "mulgae doctor"
+	case "provider_output_missing", "provider_output_decode_failed":
+		return "mulgae doctor"
+	default:
+		return "mulgae doctor"
+	}
 }
 
 func appendDiagnosticURI(message []byte, uri string) []byte {

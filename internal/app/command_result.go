@@ -137,6 +137,32 @@ func NewDiagnosticWithRetryableArtifactPath(
 	return diagnostic, nil
 }
 
+// NewDiagnosticWithRetryableDetails constructs a command-owned retryable
+// diagnostic while retaining closed provider attribution and a redacted
+// remediation command.
+func NewDiagnosticWithRetryableDetails(
+	stage string,
+	failureClass domain.FailureClass,
+	machineCode string,
+	message string,
+	retryable bool,
+	role string,
+	provider string,
+	artifactPath string,
+	recommendedNextCommand string,
+) (Diagnostic, error) {
+	diagnostic, err := NewDiagnostic(
+		stage, failureClass, machineCode, message, role, provider,
+		domain.AttemptID{}, false, false, artifactPath, recommendedNextCommand,
+	)
+	if err != nil {
+		return Diagnostic{}, err
+	}
+	diagnostic.retryableOverride = new(bool)
+	*diagnostic.retryableOverride = retryable
+	return diagnostic, nil
+}
+
 // NewDiagnostic constructs a typed, redacted user-facing diagnostic. Empty
 // role, provider, attempt ID, artifact path, and recommended command represent
 // fields that are not applicable to this failure.
@@ -224,8 +250,29 @@ type CommandResult struct {
 	exitCode         ExitCode
 	data             []byte
 	diagnostics      []Diagnostic
-	committedReasons []string
+	committedReasons []CommittedReason
 }
+
+// CommittedReason is one safe, stable reason attached to a data-bearing P2
+// outcome. Message may be empty, in which case the CLI supplies its historical
+// generic text for the code.
+type CommittedReason struct {
+	code    string
+	message string
+}
+
+func NewCommittedReason(code, message string) (CommittedReason, error) {
+	if !validMachineCode(code) {
+		return CommittedReason{}, invalidCommandResult("committed reason code %q is invalid", code)
+	}
+	if err := validateText(message, 1024); err != nil {
+		return CommittedReason{}, invalidCommandResult("committed reason message is unsafe")
+	}
+	return CommittedReason{code: code, message: message}, nil
+}
+
+func (reason CommittedReason) Code() string    { return reason.code }
+func (reason CommittedReason) Message() string { return reason.message }
 
 // NewCommandResult validates a command-result combination and takes ownership
 // of data and diagnostics. Successful results must be success/0, carry no
@@ -290,6 +337,20 @@ func NewCommandFailure(command CommandName, exitCode ExitCode, diagnostics ...Di
 // verified terminal authority. Its policy and readiness exits are committed
 // outcomes, not transport failures, and retain every stable terminal reason.
 func NewCommittedCommandOutcome(command CommandName, exitCode ExitCode, data []byte, reasons []string) (CommandResult, error) {
+	details := make([]CommittedReason, len(reasons))
+	for index, reason := range reasons {
+		parsed, err := NewCommittedReason(reason, "")
+		if err != nil {
+			return CommandResult{}, invalidCommandResult("committed terminal reason %d is invalid", index)
+		}
+		details[index] = parsed
+	}
+	return NewCommittedCommandOutcomeWithReasons(command, exitCode, data, details)
+}
+
+// NewCommittedCommandOutcomeWithReasons preserves safe attributed messages for
+// each independent terminal reason without changing the v1 wire shape.
+func NewCommittedCommandOutcomeWithReasons(command CommandName, exitCode ExitCode, data []byte, reasons []CommittedReason) (CommandResult, error) {
 	if !command.Valid() {
 		return CommandResult{}, invalidCommandResult("unknown command %q", command)
 	}
@@ -305,7 +366,7 @@ func NewCommittedCommandOutcome(command CommandName, exitCode ExitCode, data []b
 		return CommandResult{}, invalidCommandResult("committed outcome requires a terminal reason")
 	}
 	for index, reason := range reasons {
-		if !validMachineCode(reason) {
+		if !validMachineCode(reason.code) || validateText(reason.message, 1024) != nil {
 			return CommandResult{}, invalidCommandResult("committed terminal reason %d is invalid", index)
 		}
 	}
@@ -314,7 +375,7 @@ func NewCommittedCommandOutcome(command CommandName, exitCode ExitCode, data []b
 		ok:               exitCode == ExitCodeSuccess,
 		exitCode:         exitCode,
 		data:             cloneBytes(data),
-		committedReasons: cloneStrings(reasons),
+		committedReasons: append([]CommittedReason(nil), reasons...),
 	}, nil
 }
 
@@ -338,8 +399,10 @@ func (result CommandResult) Diagnostics() []Diagnostic { return cloneDiagnostics
 // terminal outcome rather than an ordinary success or transport failure.
 func (result CommandResult) CommittedOutcome() bool { return len(result.committedReasons) != 0 }
 
-// CommittedReasons returns caller-owned stable terminal reason codes.
-func (result CommandResult) CommittedReasons() []string { return cloneStrings(result.committedReasons) }
+// CommittedReasons returns caller-owned stable terminal reasons.
+func (result CommandResult) CommittedReasons() []CommittedReason {
+	return append([]CommittedReason(nil), result.committedReasons...)
+}
 
 func (diagnostic Diagnostic) validate() error {
 	if err := validateText(diagnostic.stage, 128); err != nil || diagnostic.stage == "" {

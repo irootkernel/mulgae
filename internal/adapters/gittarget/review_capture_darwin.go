@@ -446,19 +446,64 @@ func (adapter *ReviewTargetAdapter) materialize(bytes []byte, files []ports.Work
 func (adapter *ReviewTargetAdapter) clean(ctx context.Context, channel ports.ReviewInputChannel, name string, bytes []byte) error {
 	limit := int64(ports.ReviewTargetMaxBytes)
 	allowEmpty := false
+	diagnosticPath := ""
 	if channel == ports.ReviewInputReference {
 		limit = ports.WorkspaceSnapshotMaxFileBytes
 		allowEmpty = true
+		diagnosticPath = name
 	}
 	if err := validateText(bytes, limit, allowEmpty); err != nil {
-		return err
+		failure, failureErr := ports.NewReviewCaptureFailure(
+			ports.ReviewCaptureUnsupported,
+			diagnosticPath,
+			"",
+			"use a supported capture path or exclude the file with .mulgaeignore",
+			err,
+		)
+		if failureErr != nil {
+			return err
+		}
+		return failure
 	}
 	detection, err := adapter.detector.DetectReviewInput(ctx, channel, name, append([]byte(nil), bytes...))
 	if err != nil {
-		return fmt.Errorf("review input detector: %w", err)
+		failure, failureErr := ports.NewReviewCaptureFailure(
+			ports.ReviewCaptureFailed,
+			diagnosticPath,
+			"",
+			"inspect the content detector diagnostic and retry",
+			err,
+		)
+		if failureErr != nil {
+			return fmt.Errorf("review input detector: %w", err)
+		}
+		return failure
 	}
-	if !detection.Valid() || detection.Verdict() != ports.ReviewInputClean {
-		return fmt.Errorf("review input blocked")
+	if !detection.Valid() {
+		failure, failureErr := ports.NewReviewCaptureFailure(
+			ports.ReviewCaptureFailed,
+			diagnosticPath,
+			"",
+			"inspect the content detector diagnostic and retry",
+			fmt.Errorf("content detector returned an invalid result"),
+		)
+		if failureErr != nil {
+			return fmt.Errorf("review input detector returned an invalid result")
+		}
+		return failure
+	}
+	if detection.Verdict() == ports.ReviewInputBlocked {
+		failure, failureErr := ports.NewReviewCapturePolicyFailure(
+			diagnosticPath,
+			"",
+			detection.DetectorCode(),
+			adapter.detectorPolicy,
+			fmt.Errorf("review input blocked"),
+		)
+		if failureErr != nil {
+			return fmt.Errorf("review input blocked")
+		}
+		return failure
 	}
 	return nil
 }

@@ -30,6 +30,10 @@ const (
 	AttemptConditionArtifactFailure            AttemptCondition = "artifact_failure"
 	AttemptConditionCancelled                  AttemptCondition = "cancelled"
 	AttemptConditionInternalInvariant          AttemptCondition = "internal_invariant"
+	AttemptConditionProviderPermissionDenied   AttemptCondition = "provider_permission_denied"
+	AttemptConditionProviderTimeout            AttemptCondition = "provider_timeout"
+	AttemptConditionProviderOutputMissing      AttemptCondition = "provider_output_missing"
+	AttemptConditionProviderOutputDecodeFailed AttemptCondition = "provider_output_decode_failed"
 )
 
 // TerminalProjection is the terminal role projection selected when this
@@ -169,6 +173,22 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		reasonCode:         string(AttemptConditionUnrepairableProviderOutput),
 	},
 	{
+		condition:          AttemptConditionProviderOutputMissing,
+		precedence:         conditionPrecedenceInvalidOutput,
+		terminalClass:      domain.FailureInvalidOutput,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionProviderOutputMissing),
+	},
+	{
+		condition:          AttemptConditionProviderOutputDecodeFailed,
+		precedence:         conditionPrecedenceInvalidOutput,
+		terminalClass:      domain.FailureInvalidOutput,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionProviderOutputDecodeFailed),
+	},
+	{
 		condition:          AttemptConditionInvalidEvidenceClaim,
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
@@ -209,12 +229,28 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		reasonCode:         string(AttemptConditionTimeout),
 	},
 	{
+		condition:          AttemptConditionProviderTimeout,
+		precedence:         conditionPrecedenceProviderFailure,
+		terminalClass:      domain.FailureTimeout,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionProviderTimeout),
+	},
+	{
 		condition:          AttemptConditionAuthentication,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureAuthentication,
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionFallbackOnly,
 		reasonCode:         string(AttemptConditionAuthentication),
+	},
+	{
+		condition:          AttemptConditionProviderPermissionDenied,
+		precedence:         conditionPrecedenceProviderFailure,
+		terminalClass:      domain.FailureAuthentication,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionProviderPermissionDenied),
 	},
 	{
 		condition:          AttemptConditionLoginRequired,

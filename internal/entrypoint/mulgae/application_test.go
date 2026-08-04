@@ -875,7 +875,7 @@ func TestApplicationConfigRejectsNativeAccountAndIdentityMismatch(t *testing.T) 
 	if err := json.Unmarshal(mismatch.Stdout(), &mismatchEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if len(mismatchEnvelope.Reasons) != 1 || mismatchEnvelope.Reasons[0].Code != "readiness_unverified" || mismatchEnvelope.Result.Kind != "configuration_failed" || mismatchEnvelope.Result.ConfigSHA256 != "" {
+	if len(mismatchEnvelope.Reasons) != 1 || mismatchEnvelope.Reasons[0].Code != "provider_unavailable" || mismatchEnvelope.Result.Kind != "configuration_failed" || mismatchEnvelope.Result.ConfigSHA256 != "" {
 		t.Fatalf("native account mismatch = %#v", mismatchEnvelope)
 	}
 
@@ -2108,7 +2108,8 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_execution_failed" ||
 		envelope.Reasons[0].Retryable ||
 		envelope.Reasons[0].ArtifactURI == nil || *envelope.Reasons[0].ArtifactURI != diagnosticURI.String() ||
-		envelope.Reasons[0].Message != "Provider execution failed: zcode-default=security_violation." {
+		!strings.Contains(envelope.Reasons[0].Message, "stage provider.execute") ||
+		!strings.Contains(envelope.Reasons[0].Message, "role=security provider=zcode-default reason=security_violation") {
 		t.Fatalf("provider execution failure envelope = %#v", envelope)
 	}
 
@@ -2116,8 +2117,131 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	humanFixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "mulgae: provider execution failed: zcode-default=security_violation\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
+		string(human.Stderr()) != "mulgae: provider execution failed: role=security provider=zcode-default reason=security_violation\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
 		t.Fatalf("human provider execution failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+}
+
+func TestApplicationReviewReportsCaptureStageAndSubtype(t *testing.T) {
+	capture, err := ports.NewReviewCaptureFailure(
+		ports.ReviewCaptureUnsupported,
+		"client/e2e/screenshots/example.png",
+		domain.RoleLogic,
+		"use role-aware binary capture",
+		errors.New("binary input is not supported by the selected path"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: capture}
+	result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+	var envelope struct {
+		Reasons []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "unsupported_content" ||
+		!strings.Contains(envelope.Reasons[0].Message, "stage review.capture") ||
+		!strings.Contains(envelope.Reasons[0].Message, "role: logic") || !strings.Contains(envelope.Reasons[0].Message, "client/e2e/screenshots/example.png") ||
+		!strings.Contains(envelope.Reasons[0].Message, "use role-aware binary capture") {
+		t.Fatalf("capture envelope = %#v", envelope)
+	}
+}
+
+func TestCommittedProviderFailureReasonsPreserveEveryTerminalRole(t *testing.T) {
+	logic, err := reviewrun.NewProviderExecutionFailure(
+		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderOutputMissing), domain.FailureInvalidOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	security, err := reviewrun.NewProviderExecutionFailure(
+		"agy-security", domain.RoleSecurity, string(review.AttemptConditionProviderPermissionDenied), domain.FailureAuthentication,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons, err := committedProviderFailureReasons([]reviewrun.ProviderExecutionFailure{logic, security})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reasons) != 2 || reasons[0].Code() != "provider_output_missing" ||
+		!strings.Contains(reasons[0].Message(), "role logic; provider zcode-logic") ||
+		reasons[1].Code() != "provider_permission_denied" ||
+		!strings.Contains(reasons[1].Message(), "role security; provider agy-security") {
+		t.Fatalf("committed provider reasons = %#v", reasons)
+	}
+}
+
+func TestMergeCommittedReasonDetailsPreservesPolicyAndDuplicateProviderFailures(t *testing.T) {
+	first, err := app.NewCommittedReason("provider_output_missing", "first attributed provider failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.NewCommittedReason("provider_output_missing", "second attributed provider failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCommittedReasonDetails(
+		[]string{"provider_output_missing", "request_changes_threshold", "provider_output_missing"},
+		[]app.CommittedReason{first, second},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 3 || merged[0].Message() != first.Message() ||
+		merged[1].Code() != "request_changes_threshold" || merged[1].Message() != "" ||
+		merged[2].Message() != second.Message() {
+		t.Fatalf("merged committed reasons = %#v", merged)
+	}
+}
+
+func TestApplicationReviewCommittedIncompleteCoveragePreservesEveryTerminalProviderFailure(t *testing.T) {
+	logic, err := reviewrun.NewProviderExecutionFailure(
+		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderOutputMissing), domain.FailureInvalidOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	security, err := reviewrun.NewProviderExecutionFailure(
+		"agy-security", domain.RoleSecurity, string(review.AttemptConditionProviderPermissionDenied), domain.FailureAuthentication,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := newReviewRunResultWithFailures(
+		g006SessionID,
+		"r_019f596a-d050-79e7-b2b7-59822f012273",
+		".mulgae/runs/manifest.json",
+		g006ReviewArtifactURI,
+		g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage),
+		[]reviewrun.ProviderExecutionFailure{logic, security},
+	)
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{result: result}
+	command := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, command, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(command.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 3 || envelope.Reasons[0].Code != "required_role_incomplete" ||
+		envelope.Reasons[1].Code != "provider_output_missing" ||
+		!strings.Contains(envelope.Reasons[1].Message, "role logic; provider zcode-logic") ||
+		envelope.Reasons[2].Code != "provider_permission_denied" ||
+		!strings.Contains(envelope.Reasons[2].Message, "role security; provider agy-security") {
+		t.Fatalf("committed incomplete reasons = %#v", envelope.Reasons)
 	}
 }
 
@@ -3506,7 +3630,14 @@ func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
 			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if envelope.OK || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_execution_failed" || envelope.Reasons[0].Retryable {
+			wantCode := "provider_execution_failed"
+			switch test.condition {
+			case review.AttemptConditionInvalidProviderOutput:
+				wantCode = "provider_output_decode_failed"
+			case review.AttemptConditionTimeout:
+				wantCode = "execution_timeout"
+			}
+			if envelope.OK || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != wantCode || envelope.Reasons[0].Retryable {
 				t.Fatalf("provider execution envelope = %#v", envelope)
 			}
 			if test.name == "rerun exact timeout" {

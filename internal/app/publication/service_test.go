@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -557,6 +558,116 @@ func TestPublishPersistsAndPublishesInDurableOrder(t *testing.T) {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
 	publicationServiceAssertJournalCAS(t, store.replacements)
+}
+
+func TestPublishP2ExitRetainsAllTerminalRoleAndPolicyReasons(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, true)
+	artistAttempt, err := domain.ParseAttemptID("a_019f596a-d110-7a47-aec7-c6a1ee8dc900")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist := clonePreparedRoles(candidate.roles[1:2])[0]
+	artist.role = domain.RoleArtist
+	artist.required = false
+	artist.attempts[0].id = artistAttempt
+	artist.attempts[0].provider = "agy-artist"
+	artist.validFindingIDs = []string{"F001"}
+	candidate.roles = append(candidate.roles, artist)
+	candidate.findings[0].role = domain.RoleArtist
+	candidate.findings[0].provider = "agy-artist"
+	candidate.roles[0].validFindingIDs = nil
+
+	for index, failure := range []struct {
+		class  domain.FailureClass
+		reason string
+	}{
+		{domain.FailureInvalidOutput, "provider_output_missing"},
+		{domain.FailureProviderUnavailable, "provider_permission_denied"},
+	} {
+		role := &candidate.roles[index]
+		role.state = domain.RoleTaskFailed
+		role.valid = false
+		role.outcome = "failed"
+		role.failureClass = failure.class
+		role.failureReason = failure.reason
+		role.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
+		role.attempts[0].state = domain.AttemptFailed
+		role.attempts[0].invocations[0].state = domain.InvocationFailed
+		attemptID := role.attempts[0].id
+		candidate.failures = append(candidate.failures, preparedFailure{
+			class: failure.class, stage: "review", reason: failure.reason, attemptID: &attemptID,
+		})
+	}
+	candidate.runState = domain.RunFailed
+	candidate.axes = preparedAxes{content: domain.ContentRequestChanges, coverage: domain.CoverageIncomplete, ci: domain.CIFail}
+	candidate.reasons = []string{"request_changes_threshold", "required_role_incomplete"}
+	candidate.exitCode = int(domain.ExitIncompleteCoverage)
+	candidate.limits = []string{"Required review coverage is incomplete."}
+	agyArtist := candidate.production.Providers[0]
+	agyArtist.Instance = "agy-artist"
+	candidate.production.Providers = []ProductionProviderProvenance{
+		agyArtist,
+		candidate.production.Providers[0],
+		candidate.production.Providers[1],
+	}
+
+	root, err := ports.NewAnchoredRoot("/tmp/publication-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := ports.NewPublicationRun(root, candidate.SessionID(), candidate.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID := publicationTestReviewID(t)
+	bundle, err := candidate.Build(context.Background(), publicationServiceValidator{}, reviewID, publicationTestTime(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := ports.NewIssuedReviewID(reviewID, candidate.ValidatedCandidateSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := publicationServiceFixture{root: root, run: run, candidate: candidate, issued: issued, bundle: bundle}
+	store := newPublicationServiceHappyStore(t, fixture)
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.Publish(context.Background(), root, candidate, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"provider_output_missing",
+		"provider_permission_denied",
+		"request_changes_threshold",
+		"required_role_incomplete",
+	}
+	assertReasons := func(label string, result PublicationResult) {
+		t.Helper()
+		exit, ok := result.TerminalExit()
+		if !ok || exit.Code() != domain.ExitIncompleteCoverage {
+			t.Fatalf("%s terminal exit = (%#v, %t), want incomplete coverage", label, exit, ok)
+		}
+		got := make([]string, 0, len(exit.Reasons()))
+		for _, reason := range exit.Reasons() {
+			got = append(got, reason.ReasonCode())
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s P2 terminal reasons = %#v, want %#v", label, got, want)
+		}
+	}
+	assertReasons("publish", result)
+
+	recovered, err := service.Recover(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReasons("recover", recovered)
 }
 func TestPublishNextUsesRootBoundEpochTransaction(t *testing.T) {
 	t.Parallel()
@@ -3209,5 +3320,29 @@ func publicationServiceRequireFailureClass(t *testing.T, err error, want domain.
 	}
 	if failure.Class() != want {
 		t.Fatalf("failure class = %q, want %q", failure.Class(), want)
+	}
+}
+
+func TestTerminalManifestFailureReasonsIgnoreRecoveredHistoricalAttemptsAndFollowRoleOrder(t *testing.T) {
+	recovered := "a_recovered"
+	logicFallback := "a_logic_fallback"
+	securityTerminal := "a_security_terminal"
+	manifest := runManifestWire{
+		SelectedRoles: []string{"logic", "security"},
+		Attempts: []manifestAttemptWire{
+			{AttemptID: recovered, Role: "logic", State: string(domain.AttemptTimedOut)},
+			{AttemptID: logicFallback, Role: "logic", State: string(domain.AttemptFailed)},
+			{AttemptID: securityTerminal, Role: "security", State: string(domain.AttemptFailed)},
+		},
+		Failures: []manifestFailureWire{
+			{ReasonCode: "provider_permission_denied", AttemptID: &securityTerminal},
+			{ReasonCode: "provider_timeout", AttemptID: &recovered},
+			{ReasonCode: "provider_output_missing", AttemptID: &logicFallback},
+		},
+	}
+	reasons := terminalManifestFailureReasons(manifest)
+	want := []string{"provider_output_missing", "provider_permission_denied"}
+	if !reflect.DeepEqual(reasons, want) {
+		t.Fatalf("terminal reasons = %#v, want %#v", reasons, want)
 	}
 }

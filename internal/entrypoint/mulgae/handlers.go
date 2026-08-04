@@ -172,6 +172,14 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
+	reasonDetails, err := committedProviderFailureReasons(result.TerminalProviderFailures())
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	reasonDetails, err = mergeCommittedReasonDetails(reasons, reasonDetails)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
 	data, err := json.Marshal(struct {
 		Kind              string `json:"kind"`
 		SessionID         string `json:"session_id"`
@@ -183,11 +191,69 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 	return execution{
-		human:            []byte("review started: " + runID),
-		data:             data,
-		exit:             exit,
-		committedReasons: reasons,
+		human:                  []byte("review started: " + runID),
+		data:                   data,
+		exit:                   exit,
+		committedReasons:       reasons,
+		committedReasonDetails: reasonDetails,
 	}
+}
+
+func committedProviderFailureReasons(failures []reviewrun.ProviderExecutionFailure) ([]app.CommittedReason, error) {
+	if len(failures) == 0 {
+		return nil, nil
+	}
+	reasons := make([]app.CommittedReason, len(failures))
+	for index, failure := range failures {
+		code := providerExecutionFailureCode(failure)
+		message := fmt.Sprintf(
+			"Stage provider.execute; role %s; provider %s; reason %s; summary terminal provider outcome; hint run %s.",
+			failure.Role(), failure.ProviderInstance(), code, providerFailureHint(code),
+		)
+		parsed, err := app.NewCommittedReason(code, message)
+		if err != nil {
+			return nil, err
+		}
+		reasons[index] = parsed
+	}
+	return reasons, nil
+}
+
+// mergeCommittedReasonDetails preserves the P2 reducer's complete, stable
+// reason ordering while replacing matching provider codes with their safe
+// attributed messages. Duplicate provider codes are matched one-for-one so
+// two roles failing for the same reason remain independently reportable.
+func mergeCommittedReasonDetails(reasonCodes []string, attributed []app.CommittedReason) ([]app.CommittedReason, error) {
+	if len(attributed) == 0 {
+		return nil, nil
+	}
+	used := make([]bool, len(attributed))
+	merged := make([]app.CommittedReason, 0, len(reasonCodes)+len(attributed))
+	for _, code := range reasonCodes {
+		matched := -1
+		for index, detail := range attributed {
+			if !used[index] && detail.Code() == code {
+				matched = index
+				break
+			}
+		}
+		if matched >= 0 {
+			used[matched] = true
+			merged = append(merged, attributed[matched])
+			continue
+		}
+		reason, err := app.NewCommittedReason(code, "")
+		if err != nil {
+			return nil, err
+		}
+		merged = append(merged, reason)
+	}
+	for index, detail := range attributed {
+		if !used[index] {
+			merged = append(merged, detail)
+		}
+	}
+	return merged, nil
 }
 
 func (application *Application) handleFollowup(ctx context.Context, invocation Invocation) execution {

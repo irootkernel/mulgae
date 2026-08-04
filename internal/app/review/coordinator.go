@@ -1237,7 +1237,8 @@ func conditionRetainsAuthorityAfterContext(
 			condition == AttemptConditionLoginRequired ||
 			condition == AttemptConditionSecurityViolation ||
 			condition == AttemptConditionMutationViolation ||
-			condition == AttemptConditionConfigurationViolation
+			condition == AttemptConditionConfigurationViolation ||
+			condition == AttemptConditionProviderTimeout
 	default:
 		return false
 	}
@@ -1696,6 +1697,9 @@ func (execution *coordinatorExecution) conditionForTransition(
 		return reduced, true, AttemptConditionCancelled, true, reduceErr
 	}
 	if execution.runContext != nil && execution.runContext.Err() == context.DeadlineExceeded {
+		if condition == AttemptConditionProviderTimeout {
+			return AttemptConditionTimeout, false, AttemptConditionTimeout, true, nil
+		}
 		if conditionRetainsAuthorityAfterContext(condition, AttemptConditionTimeout) {
 			return condition, false, AttemptConditionTimeout, true, nil
 		}

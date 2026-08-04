@@ -473,9 +473,41 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	}
 }
 
+func TestRuntimeProviderErrorConditionDistinguishesObservedAndEnclosingTimeouts(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+
+	observed, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseTimedOut, errors.New("closed provider detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(ctx, observed); got != AttemptConditionProviderTimeout {
+		t.Fatalf("observed timeout condition = %q, want provider timeout", got)
+	}
+	processObserved, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseTimedOut,
+		"",
+		nil,
+		nil,
+		context.DeadlineExceeded,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(ctx, processObserved); got != AttemptConditionProviderTimeout {
+		t.Fatalf("observed process timeout condition = %q, want provider timeout", got)
+	}
+	if got := runtimeProviderErrorCondition(ctx, context.DeadlineExceeded); got != AttemptConditionTimeout {
+		t.Fatalf("enclosing timeout condition = %q, want execution timeout", got)
+	}
+}
+
 func TestObservedUnparseableProviderOutputIsFallbackOnly(t *testing.T) {
-	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputDecodeFailed); got != AttemptConditionUnrepairableProviderOutput {
+	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputDecodeFailed); got != AttemptConditionProviderOutputDecodeFailed {
 		t.Fatalf("invalid provider framing condition = %q", got)
+	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputMissing); got != AttemptConditionProviderOutputMissing {
+		t.Fatalf("missing provider output condition = %q", got)
 	}
 	for _, cause := range []domain.RuntimeDiagnosticCause{domain.DiagnosticCauseObservationInvalid, domain.DiagnosticCauseProviderExecutionFailed} {
 		if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, cause); got != AttemptConditionArtifactFailure {

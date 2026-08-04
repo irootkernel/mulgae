@@ -1751,7 +1751,7 @@ func TestCoordinatorRunDeadlineAtCommitForbidsFollowup(t *testing.T) {
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleSecurity {
-			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+			return coordinatorConditionOutcome(t, job, AttemptConditionProviderTimeout)
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
@@ -2528,6 +2528,11 @@ func TestLaneConfigurationAndDeadlineReductionIsFailClosed(t *testing.T) {
 			conditions: []AttemptCondition{AttemptConditionInvalidProviderOutput},
 			want:       AttemptConditionTimeout,
 		},
+		{
+			name:       "observed provider timeout survives invocation deadline",
+			conditions: []AttemptCondition{AttemptConditionProviderTimeout},
+			want:       AttemptConditionProviderTimeout,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -2678,6 +2683,8 @@ func TestLaneInvocationDeadlineBoundsLockAndRuntime(t *testing.T) {
 		name    string
 		locker  ports.LaneLocker
 		runtime InvocationRuntime
+		want    AttemptCondition
+		parent  time.Duration
 	}{
 		{
 			name:   "lock",
@@ -2686,6 +2693,7 @@ func TestLaneInvocationDeadlineBoundsLockAndRuntime(t *testing.T) {
 				t.Fatalf("lock timeout reached runtime for job %d", job.Ordinal())
 				return AttemptOutcome{}
 			}},
+			want: AttemptConditionTimeout,
 		},
 		{
 			name: "runtime",
@@ -2693,6 +2701,24 @@ func TestLaneInvocationDeadlineBoundsLockAndRuntime(t *testing.T) {
 				<-ctx.Done()
 				return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
 			}},
+			want: AttemptConditionTimeout,
+		},
+		{
+			name: "provider observed timeout",
+			runtime: &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				<-ctx.Done()
+				return coordinatorConditionOutcome(t, job, AttemptConditionProviderTimeout)
+			}},
+			want: AttemptConditionProviderTimeout,
+		},
+		{
+			name: "enclosing run deadline",
+			runtime: &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				<-ctx.Done()
+				return coordinatorConditionOutcome(t, job, AttemptConditionProviderTimeout)
+			}},
+			want:   AttemptConditionTimeout,
+			parent: 25 * time.Millisecond,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -2713,15 +2739,21 @@ func TestLaneInvocationDeadlineBoundsLockAndRuntime(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			scheduler := newLaneScheduler(context.Background(), test.runtime, test.locker, 1, 1)
+			parent := context.Background()
+			cancelParent := func() {}
+			if test.parent > 0 {
+				parent, cancelParent = context.WithTimeout(parent, test.parent)
+			}
+			defer cancelParent()
+			scheduler := newLaneScheduler(parent, test.runtime, test.locker, 1, 1)
 			if !scheduler.submit(job) {
 				t.Fatal("scheduler rejected job")
 			}
 			result := <-scheduler.results
 			scheduler.close()
 			condition, ok := result.outcome.Condition()
-			if !ok || condition != AttemptConditionTimeout {
-				t.Fatalf("deadline condition = %q/%t, want timeout", condition, ok)
+			if !ok || condition != test.want {
+				t.Fatalf("deadline condition = %q/%t, want %q", condition, ok, test.want)
 			}
 		})
 	}

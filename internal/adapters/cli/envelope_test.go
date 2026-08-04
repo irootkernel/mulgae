@@ -349,6 +349,39 @@ func TestEnvelopeRendererFailsClosedWhenValidationFailsAndCopiesOutput(t *testin
 	}
 }
 
+func TestEnvelopeRendererKeepsAttributedCommittedReasonInsideV1Shape(t *testing.T) {
+	reason, err := app.NewCommittedReason(
+		"provider_output_missing",
+		"Stage provider.execute; role logic; provider zcode-logic; reason provider_output_missing; hint: run mulgae doctor.",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.NewCommittedCommandOutcomeWithReasons(
+		app.CommandReview, app.ExitCodeReadiness, []byte(`{"kind":"review_started"}`), []app.CommittedReason{reason},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := mustEnvelopeRenderer(t, &envelopeValidator{}).Render(
+		context.Background(), result, []byte(`{"command":"review"}`), nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		SchemaVersion string          `json:"schema_version"`
+		Reasons       []commandReason `json:"reasons"`
+	}
+	if err := json.Unmarshal(output, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != "mulgae-command-result.v1" || len(envelope.Reasons) != 1 ||
+		envelope.Reasons[0].Code != reason.Code() || envelope.Reasons[0].Message != reason.Message() {
+		t.Fatalf("committed envelope = %#v", envelope)
+	}
+}
+
 type envelopeClock struct {
 	now time.Time
 }

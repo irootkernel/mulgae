@@ -1103,6 +1103,14 @@ func sha256Identifier(bytes []byte) string {
 	return fmt.Sprintf("sha256:%x", sum)
 }
 func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondition {
+	// A typed provider timeout is an observation about the provider process, not
+	// merely an inference from the enclosing invocation context. The process and
+	// its context commonly reach their deadline together, so retain that more
+	// specific observation before consulting ctx.Err(). Untyped deadline errors
+	// still describe the enclosing execution budget below.
+	if runtimeProviderObservedTimeout(err) {
+		return AttemptConditionProviderTimeout
+	}
 	if ctx != nil && ctx.Err() != nil {
 		return runtimeContextCondition(ctx.Err())
 	}
@@ -1123,6 +1131,15 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	return AttemptConditionInternalInvariant
 }
 
+func runtimeProviderObservedTimeout(err error) bool {
+	var providerFailure *ports.ProviderRuntimeError
+	if errors.As(err, &providerFailure) && providerFailure.Cause() == domain.DiagnosticCauseTimedOut {
+		return true
+	}
+	var processFailure *ports.ProcessExecutionError
+	return errors.As(err, &processFailure) && processFailure.PrimaryCause() == domain.DiagnosticCauseTimedOut
+}
+
 func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition {
 	switch cause {
 	case domain.DiagnosticCauseLoginRequired:
@@ -1134,7 +1151,9 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 	case domain.DiagnosticCauseRateLimited:
 		return AttemptConditionRateLimit
 	case domain.DiagnosticCauseTimedOut:
-		return AttemptConditionTimeout
+		return AttemptConditionProviderTimeout
+	case domain.DiagnosticCausePermissionDenied:
+		return AttemptConditionProviderPermissionDenied
 	case domain.DiagnosticCauseWorkspaceRevalidationFailed,
 		domain.DiagnosticCauseTransportVerificationFailed,
 		domain.DiagnosticCausePromptFilePreStartFailed,
@@ -1145,13 +1164,15 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseObservationMismatch:
 		return AttemptConditionSecurityViolation
+	case domain.DiagnosticCauseOutputMissing:
+		return AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
 		domain.DiagnosticCauseResultBindingFailed,
 		domain.DiagnosticCauseCandidateValidationFailed,
 		domain.DiagnosticCauseCandidateRepairPlanInvalid:
-		return AttemptConditionInvalidProviderOutput
+		return AttemptConditionProviderOutputDecodeFailed
 	default:
 		return AttemptConditionInternalInvariant
 	}
@@ -1189,17 +1210,21 @@ func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) 
 
 func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.RuntimeDiagnosticCause) AttemptCondition {
 	switch cause {
+	case domain.DiagnosticCauseOutputMissing:
+		return AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
 		domain.DiagnosticCauseResultBindingFailed:
-		return AttemptConditionUnrepairableProviderOutput
+		return AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCausePermissionDenied:
+		return AttemptConditionProviderPermissionDenied
 	}
 	switch status {
 	case ports.ProviderExecutionStatusUnavailable:
 		return AttemptConditionProviderUnavailable
 	case ports.ProviderExecutionStatusTimedOut:
-		return AttemptConditionTimeout
+		return AttemptConditionProviderTimeout
 	case ports.ProviderExecutionStatusAuthentication:
 		if cause == domain.DiagnosticCauseLoginRequired {
 			return AttemptConditionLoginRequired

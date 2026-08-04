@@ -130,6 +130,7 @@ const (
 	DiagnosticCauseTransportReceiptMismatch    RuntimeDiagnosticCause = "provider_transport_receipt_mismatch"
 	DiagnosticCauseLifecycleReceiptInvalid     RuntimeDiagnosticCause = "provider_lifecycle_receipt_invalid"
 	DiagnosticCauseOutputFrameMissing          RuntimeDiagnosticCause = "provider_output_frame_missing"
+	DiagnosticCauseOutputMissing               RuntimeDiagnosticCause = "provider_output_missing"
 	DiagnosticCauseOutputFrameMismatch         RuntimeDiagnosticCause = "provider_output_frame_mismatch"
 	DiagnosticCauseSignalReceiptMismatch       RuntimeDiagnosticCause = "provider_signal_receipt_mismatch"
 	DiagnosticCauseOutputEnvelopeInvalid       RuntimeDiagnosticCause = "provider_output_envelope_invalid"
@@ -146,18 +147,20 @@ const (
 	DiagnosticCauseQuotaExceeded               RuntimeDiagnosticCause = "provider_quota_exceeded"
 	DiagnosticCauseRateLimited                 RuntimeDiagnosticCause = "provider_rate_limited"
 	DiagnosticCauseTimedOut                    RuntimeDiagnosticCause = "provider_timed_out"
+	DiagnosticCausePermissionDenied            RuntimeDiagnosticCause = "provider_permission_denied"
 )
 
 func (cause RuntimeDiagnosticCause) Valid() bool {
 	switch cause {
 	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
 		DiagnosticCauseTransportVerificationFailed, DiagnosticCausePromptFilePreStartFailed, DiagnosticCausePromptFilePostEndFailed,
-		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing,
+		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputMissing,
 		DiagnosticCauseOutputFrameMismatch, DiagnosticCauseSignalReceiptMismatch, DiagnosticCauseOutputEnvelopeInvalid,
 		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
 		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,
 		DiagnosticCauseWorkspaceRevalidationFailed, DiagnosticCausePersistenceFailed, DiagnosticCauseLoginRequired,
-		DiagnosticCauseAuthenticationFailed, DiagnosticCauseQuotaExceeded, DiagnosticCauseRateLimited, DiagnosticCauseTimedOut:
+		DiagnosticCauseAuthenticationFailed, DiagnosticCauseQuotaExceeded, DiagnosticCauseRateLimited, DiagnosticCauseTimedOut,
+		DiagnosticCausePermissionDenied:
 		return true
 	default:
 		return false

@@ -660,12 +660,16 @@ func providerExecutionCause(
 		return domain.DiagnosticCauseTimedOut
 	case "provider_auth":
 		return domain.DiagnosticCauseAuthenticationFailed
+	case "provider_permission_denied":
+		return domain.DiagnosticCausePermissionDenied
 	case "provider_quota":
 		return domain.DiagnosticCauseQuotaExceeded
 	case "provider_rate_limit":
 		return domain.DiagnosticCauseRateLimited
 	case "invalid_provider_output":
 		return domain.DiagnosticCauseOutputDecodeFailed
+	case "provider_output_missing":
+		return domain.DiagnosticCauseOutputMissing
 	case "post_output_trailing_bytes":
 		return domain.DiagnosticCauseOutputEnvelopeInvalid
 	case "transport_verification":

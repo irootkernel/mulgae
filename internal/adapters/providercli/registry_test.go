@@ -146,10 +146,13 @@ func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T
 		fixture   []byte
 		wantCause domain.RuntimeDiagnosticCause
 	}{
+		{"Kimi missing output", FamilyKimi, nil, domain.DiagnosticCauseOutputMissing},
 		{"Kimi missing frame", FamilyKimi, []byte(`{"role":"system"}`), domain.DiagnosticCauseOutputFrameMissing},
 		{"Kimi decode failure", FamilyKimi, []byte(`{"role":"assistant","content":[]}`), domain.DiagnosticCauseOutputDecodeFailed},
+		{"ZCode missing output", FamilyZcode, nil, domain.DiagnosticCauseOutputMissing},
 		{"ZCode invalid envelope", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
-		{"AGY malformed stream", FamilyAgy, []byte(`{"findings":[]} trailing`), domain.DiagnosticCauseOutputFrameMissing},
+		{"AGY missing output", FamilyAgy, nil, domain.DiagnosticCauseOutputMissing},
+		{"AGY malformed stream", FamilyAgy, []byte(`{"findings":[]} trailing`), domain.DiagnosticCauseOutputDecodeFailed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -161,10 +164,39 @@ func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T
 			if failure.Cause() != test.wantCause {
 				t.Fatalf("typed cause = %q, want %q", failure.Cause(), test.wantCause)
 			}
-			if strings.Contains(err.Error(), string(test.fixture)) {
+			if len(test.fixture) != 0 && strings.Contains(err.Error(), string(test.fixture)) {
 				t.Fatal("safe provider output error exposed fixture bytes")
 			}
 		})
+	}
+}
+
+func TestRegistryObserveClassifiesSuccessfulAgyPermissionDenialBeforeMissingOutput(t *testing.T) {
+	invocation := testInvocation(t, "agy_default")
+	runner := &observationRunner{observation: testProcessObservation(
+		t, nil, []byte("tool permission was denied"), ports.ProcessTerminationExited, 0,
+	)}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyAgy, "agy_default", "agy_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusAuthentication ||
+		observed.PrimaryCause() != domain.DiagnosticCausePermissionDenied ||
+		observed.DiagnosticCode() != "provider_permission_denied" {
+		t.Fatalf("permission observation = status %q cause %q diagnostic %q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode())
+	}
+}
+
+func TestAgyPermissionDeniedUsesOnlyBoundedStderrSignals(t *testing.T) {
+	if !agyPermissionDenied([]byte("request denied by permission policy")) {
+		t.Fatal("known AGY permission denial was not recognized")
+	}
+	if agyPermissionDenied([]byte("review finding: application returned permission denied")) {
+		t.Fatal("generic review prose was classified as an AGY permission denial")
 	}
 }
 
@@ -650,12 +682,14 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 
 func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T) {
 	tests := []struct {
-		family    string
-		stdout    []byte
-		wantCause domain.RuntimeDiagnosticCause
+		family         string
+		stdout         []byte
+		wantCause      domain.RuntimeDiagnosticCause
+		wantDiagnostic string
 	}{
-		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}"), domain.DiagnosticCauseOutputDecodeFailed},
-		{FamilyAgy, []byte("{\"findings\":[]} trailing"), domain.DiagnosticCauseOutputFrameMissing},
+		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}"), domain.DiagnosticCauseOutputDecodeFailed, "invalid_provider_output"},
+		{FamilyAgy, nil, domain.DiagnosticCauseOutputMissing, "provider_output_missing"},
+		{FamilyAgy, []byte("{\"findings\":[]} trailing"), domain.DiagnosticCauseOutputDecodeFailed, "invalid_provider_output"},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -672,7 +706,7 @@ func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if observed.Status() != ports.ProviderExecutionStatusArtifactFailure || observed.DiagnosticCode() != "invalid_provider_output" {
+			if observed.Status() != ports.ProviderExecutionStatusArtifactFailure || observed.DiagnosticCode() != test.wantDiagnostic {
 				t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
 			}
 			if observed.PrimaryCause() != test.wantCause {
@@ -801,13 +835,15 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 		stderr                 []byte
 		wantStatus             ports.ProviderExecutionStatus
 		wantCause              domain.RuntimeDiagnosticCause
+		wantDiagnostic         string
 	}{
-		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
-		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
-		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired},
-		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed},
-		{"quota", FamilyZcode, "zcode_default", []byte("quota_exceeded"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded},
-		{"rate limit", FamilyAgy, "agy_default", []byte("too many requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited},
+		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
+		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
+		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
+		{"agy permission", FamilyAgy, "agy_default", []byte("tool permission was denied"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCausePermissionDenied, "provider_permission_denied"},
+		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed, "provider_auth"},
+		{"quota", FamilyZcode, "zcode_default", []byte("quota_exceeded"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded, "provider_quota"},
+		{"rate limit", FamilyAgy, "agy_default", []byte("too many requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -821,8 +857,8 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if observed.Status() != test.wantStatus || observed.PrimaryCause() != test.wantCause {
-				t.Fatalf("status = %q, cause = %q; want %q, %q", observed.Status(), observed.PrimaryCause(), test.wantStatus, test.wantCause)
+			if observed.Status() != test.wantStatus || observed.PrimaryCause() != test.wantCause || observed.DiagnosticCode() != test.wantDiagnostic {
+				t.Fatalf("status = %q, cause = %q, diagnostic = %q; want %q, %q, %q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode(), test.wantStatus, test.wantCause, test.wantDiagnostic)
 			}
 		})
 	}

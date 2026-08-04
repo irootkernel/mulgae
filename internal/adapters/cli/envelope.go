@@ -117,8 +117,8 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 		if len(diagnostics) != 0 {
 			return nil, fmt.Errorf("cli envelope: committed outcome has diagnostics")
 		}
-		for index, code := range commandResult.CommittedReasons() {
-			reason, err := reasonForCommittedOutcome(commandResult.ExitCode(), code)
+		for index, committed := range commandResult.CommittedReasons() {
+			reason, err := reasonForCommittedOutcome(commandResult.ExitCode(), committed)
 			if err != nil {
 				return nil, fmt.Errorf("cli envelope: committed reason %d: %w", index, err)
 			}
@@ -262,7 +262,7 @@ func reasonForDiagnostic(diagnostic app.Diagnostic) (commandReason, error) {
 	}, nil
 }
 
-func reasonForCommittedOutcome(exit app.ExitCode, code string) (commandReason, error) {
+func reasonForCommittedOutcome(exit app.ExitCode, committed app.CommittedReason) (commandReason, error) {
 	var category, message string
 	switch exit {
 	case app.ExitCodeSuccess:
@@ -274,9 +274,12 @@ func reasonForCommittedOutcome(exit app.ExitCode, code string) (commandReason, e
 	default:
 		return commandReason{}, fmt.Errorf("committed outcome uses exit %d", exit)
 	}
+	if committed.Message() != "" {
+		message = committed.Message()
+	}
 	return commandReason{
 		Category: category,
-		Code:     code,
+		Code:     committed.Code(),
 		Message:  message,
 	}, nil
 }

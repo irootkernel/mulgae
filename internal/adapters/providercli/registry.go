@@ -834,6 +834,13 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if !processObservation.Valid() {
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: process runner returned invalid observation")
 	}
+	if definition.family == FamilyAgy && agyPermissionDenied(processObservation.Stderr()) {
+		return ports.NewFailedProviderExecutionObservationWithCause(
+			ports.ProviderExecutionStatusAuthentication, invocation, processObservation,
+			"provider_permission_denied", domain.DiagnosticCausePermissionDenied, "",
+			definition.maxStdoutBytes, definition.maxStderrBytes,
+		)
+	}
 	if processObservation.Succeeded() {
 		resultBytes, isolated, parseErr := providerResult(definition.family, processObservation.Stdout())
 		if parseErr != nil {
@@ -1192,6 +1199,8 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		return ports.ProviderExecutionStatusAuthentication, "login_required"
 	case domain.DiagnosticCauseAuthenticationFailed:
 		return ports.ProviderExecutionStatusAuthentication, "provider_auth"
+	case domain.DiagnosticCausePermissionDenied:
+		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied"
 	case domain.DiagnosticCauseQuotaExceeded:
 		return ports.ProviderExecutionStatusQuota, "provider_quota"
 	case domain.DiagnosticCauseRateLimited:
@@ -1206,7 +1215,8 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		domain.DiagnosticCauseWorkspaceRevalidationFailed:
 		return ports.ProviderExecutionStatusSecurityViolation, "process_security"
 	case domain.DiagnosticCauseOutputFrameMissing, domain.DiagnosticCauseOutputEnvelopeInvalid,
-		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed:
+		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed,
+		domain.DiagnosticCauseOutputMissing:
 		return ports.ProviderExecutionStatusArtifactFailure, providerOutputDiagnostic(cause)
 	default:
 		return ports.ProviderExecutionStatusInternalFailure, "process_internal"
@@ -1215,7 +1225,10 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 
 // providerOutputDiagnostic deliberately projects every closed output cause to
 // one safe external code. Consumers that need the distinction use PrimaryCause.
-func providerOutputDiagnostic(_ domain.RuntimeDiagnosticCause) string {
+func providerOutputDiagnostic(cause domain.RuntimeDiagnosticCause) string {
+	if cause == domain.DiagnosticCauseOutputMissing {
+		return "provider_output_missing"
+	}
 	return "invalid_provider_output"
 }
 
@@ -1284,6 +1297,9 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 }
 
 func providerResult(family string, stdout []byte) ([]byte, bool, error) {
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("provider output is empty"))
+	}
 	switch family {
 	case FamilyKimi:
 		result, err := kimiContent(stdout)
@@ -1307,7 +1323,7 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 	case FamilyAgy:
 		result, err := agyContent(stdout)
 		if err != nil {
-			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputFrameMissing, err)
+			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
 		}
 		return result, true, nil
 	default:
@@ -1468,6 +1484,8 @@ func nativeProviderOutcome(
 	switch {
 	case loginRequired:
 		return ports.ProviderExecutionStatusAuthentication, "login_required", domain.DiagnosticCauseLoginRequired, true
+	case family == FamilyAgy && agyPermissionDenied(stderr):
+		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, true
 	case providerNativeTimeout(output):
 		return ports.ProviderExecutionStatusTimedOut, "provider_timeout", domain.DiagnosticCauseTimedOut, true
 	case containsAny("quota_exceeded", "insufficient_quota"):
@@ -1479,6 +1497,21 @@ func nativeProviderOutcome(
 	default:
 		return "", "", "", false
 	}
+}
+
+func agyPermissionDenied(stderr []byte) bool {
+	output := bytes.ToLower(stderr)
+	for _, signal := range [][]byte{
+		[]byte("permission_denied"),
+		[]byte("tool permission was denied"),
+		[]byte("tool permission denied"),
+		[]byte("request denied by permission policy"),
+	} {
+		if bytes.Contains(output, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatus {

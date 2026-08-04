@@ -39,6 +39,8 @@ type detectorFake struct {
 	objective []byte
 }
 
+func (*detectorFake) ReviewInputDetectorIdentity() string { return "test-detector.v1" }
+
 func (fake *detectorFake) DetectReviewInput(_ context.Context, channel ports.ReviewInputChannel, label string, value []byte) (ports.ReviewInputDetection, error) {
 	*fake.calls = append(*fake.calls, "screen")
 	if channel != ports.ReviewInputObjective || label != objectiveDetectorLabel {
@@ -236,9 +238,26 @@ func TestImmutableInputSourceBlocksBeforeMaterialize(t *testing.T) {
 
 	if _, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}); err == nil {
 		t.Fatal("blocked objective was accepted")
+	} else if failure, ok := ports.ReviewCaptureFailureFromError(err); !ok || failure.Code() != ports.ReviewCapturePolicyBlocked ||
+		failure.EffectiveConfiguration() != "detector_policy=test-detector.v1; detector_code=secret" {
+		t.Fatalf("blocked objective failure = %#v, present=%t", failure, ok)
 	}
 	if got := strings.Join(calls, ","); got != "capture,screen" {
 		t.Fatalf("blocked objective materialized: %q", got)
+	}
+}
+
+func TestImmutableInputSourcePreservesTypedTargetCaptureFailure(t *testing.T) {
+	calls := []string{}
+	typed, err := ports.NewReviewCaptureFailure(ports.ReviewCaptureUnsupported, "image.png", "", "use binary capture", errors.New("binary"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, root := testSource(t, captureFake{err: typed, calls: &calls}, &detectorFake{calls: &calls}, &leaseFactoryFake{calls: &calls}, nil, false)
+	_, observedErr := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	observed, ok := ports.ReviewCaptureFailureFromError(observedErr)
+	if !ok || observed.Code() != ports.ReviewCaptureUnsupported || observed.Path() != "image.png" || observed.Hint() != "use binary capture" {
+		t.Fatalf("target capture failure = %#v, present=%t, err=%v", observed, ok, observedErr)
 	}
 }
 
