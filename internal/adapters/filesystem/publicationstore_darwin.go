@@ -281,11 +281,7 @@ func (store *PublicationStore) PersistValidatedCandidate(ctx context.Context, re
 		if err := store.validateFinalArtifact(ctx, request.Run(), candidate); err != nil {
 			return fmt.Errorf("persist validated candidate: final: %w", err)
 		}
-		immutable, err := ports.NewImmutablePublicationArtifact(request.Path(), candidate.Identity().SHA256(), candidate.Bytes())
-		if err != nil {
-			return fmt.Errorf("persist validated candidate: immutable candidate: %w", err)
-		}
-		receipt, writeErr := store.writeImmutable(ctx, request.Run(), immutable, "publication_validated_candidate")
+		receipt, writeErr := store.writeValidatedFinalArtifact(ctx, request.Run(), candidate, request.Path(), "publication_validated_candidate")
 		if writeErr != nil && !receipt.Destination().Valid() {
 			return fmt.Errorf("persist validated candidate: secure write: %w", writeErr)
 		}
@@ -363,13 +359,18 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 		return ports.PersistAuxiliaryArtifactResult{}, err
 	}
 	artifact := request.Artifact()
-	if _, err := ports.NewPersistRunSupportArtifactRequest(request.Run(), artifact); err != nil {
+	canonical, err := ports.NewPersistRunSupportArtifactRequest(request.Run(), artifact)
+	if err != nil || canonical.Kind() != request.Kind() {
 		return ports.PersistAuxiliaryArtifactResult{}, fmt.Errorf("persist auxiliary artifact: invalid request")
 	}
 
 	var result ports.PersistAuxiliaryArtifactResult
-	err := store.withLock(ctx, request.Run().Root(), func() error {
-		receipt, writeErr := store.writeImmutable(ctx, request.Run(), artifact, "publication_auxiliary_artifact")
+	err = store.withLock(ctx, request.Run().Root(), func() error {
+		write := publicationWriteOperation(store.writer.Write)
+		if authorizedUnscannedRunSupportKind(canonical.Kind()) {
+			write = store.writeAuthorizedRunSupport
+		}
+		receipt, writeErr := store.writeImmutableUsing(ctx, request.Run(), artifact, "publication_auxiliary_artifact", write)
 		if writeErr != nil && !receipt.Destination().Valid() {
 			return fmt.Errorf("persist auxiliary artifact: secure write: %w", writeErr)
 		}
@@ -428,6 +429,22 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 		return ports.PersistAuxiliaryArtifactResult{}, err
 	}
 	return result, nil
+}
+
+func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
+	switch kind {
+	case ports.RunSupportArtifactExcerpt,
+		ports.RunSupportArtifactTargetBytes,
+		ports.RunSupportArtifactTargetManifest,
+		ports.RunSupportArtifactCapturedArchive,
+		ports.RunSupportArtifactArtistBrief,
+		ports.RunSupportArtifactArtistVisuals,
+		ports.RunSupportArtifactPromptStdin,
+		ports.RunSupportArtifactPromptManifest:
+		return true
+	default:
+		return false
+	}
 }
 
 func (store *PublicationStore) ReadAuxiliaryArtifact(ctx context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
@@ -632,6 +649,13 @@ func (store *PublicationStore) StageFinal(ctx context.Context, request ports.Sta
 
 	var result ports.StageFinalResult
 	err = store.withLock(ctx, request.Run().Root(), func() error {
+		artifact, err := ports.NewFinalReviewArtifact(request.Final(), document)
+		if err != nil {
+			return fmt.Errorf("stage final: validated artifact identity: %w", err)
+		}
+		if err := store.validateFinalArtifact(ctx, request.Run(), artifact); err != nil {
+			return fmt.Errorf("stage final: validated artifact: %w", err)
+		}
 		secureRequest, err := ports.NewSecureWriteRequest(
 			request.Run().Root(),
 			request.StagedPath(),
@@ -644,7 +668,7 @@ func (store *PublicationStore) StageFinal(ctx context.Context, request ports.Sta
 		if err != nil {
 			return fmt.Errorf("stage final: secure write request: %w", err)
 		}
-		receipt, _, writeErr := store.writer.Write(ctx, secureRequest)
+		receipt, _, writeErr := store.writeValidatedFinal(ctx, secureRequest)
 		writeErr = classifiedPublicationStoreError(writeErr)
 		if writeErr != nil && !receipt.Destination().Valid() {
 			return fmt.Errorf("stage final: secure write: %w", writeErr)
@@ -766,11 +790,6 @@ func (store *PublicationStore) readStagedFinalBytes(
 		if readN == 0 {
 			return nil, reject(ErrSourceRead)
 		}
-	}
-	var scanner credentialScanner
-	defer scanner.Reset()
-	if _, found := scanner.Scan(document); found {
-		return nil, reject(ErrSecretDetected)
 	}
 	artifact, err := ports.NewFinalReviewArtifact(request.Final(), document)
 	if err != nil {
@@ -2925,8 +2944,34 @@ func (store *PublicationStore) writePreparedImmutable(
 }
 
 func (store *PublicationStore) writeImmutable(ctx context.Context, run ports.PublicationRun, artifact ports.ImmutablePublicationArtifact, channel string) (ports.SecureWriteReceipt, error) {
+	return store.writeImmutableUsing(ctx, run, artifact, channel, store.writer.Write)
+}
+
+func (store *PublicationStore) writeValidatedFinalArtifact(
+	ctx context.Context,
+	run ports.PublicationRun,
+	artifact ports.FinalReviewArtifact,
+	destination ports.SafeRelativePath,
+	channel string,
+) (ports.SecureWriteReceipt, error) {
+	if err := store.validateFinalArtifact(ctx, run, artifact); err != nil {
+		return ports.SecureWriteReceipt{}, err
+	}
+	immutable, err := ports.NewImmutablePublicationArtifact(destination, artifact.Identity().SHA256(), artifact.Bytes())
+	if err != nil {
+		return ports.SecureWriteReceipt{}, err
+	}
+	return store.writeImmutableUsing(ctx, run, immutable, channel, store.writeValidatedFinal)
+}
+
+type publicationWriteOperation func(context.Context, ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error)
+
+func (store *PublicationStore) writeImmutableUsing(ctx context.Context, run ports.PublicationRun, artifact ports.ImmutablePublicationArtifact, channel string, write publicationWriteOperation) (ports.SecureWriteReceipt, error) {
 	if !artifact.Valid() {
 		return ports.SecureWriteReceipt{}, errors.New("invalid immutable artifact")
+	}
+	if write == nil {
+		return ports.SecureWriteReceipt{}, errors.New("immutable writer is unavailable")
 	}
 	payload := artifact.Bytes()
 	if int64(len(payload)) > publicationMaximumReadBytes {
@@ -2945,7 +2990,7 @@ func (store *PublicationStore) writeImmutable(ctx context.Context, run ports.Pub
 	if err != nil {
 		return ports.SecureWriteReceipt{}, err
 	}
-	receipt, _, writeErr := store.writer.Write(ctx, request)
+	receipt, _, writeErr := write(ctx, request)
 	writeErr = classifiedPublicationStoreError(writeErr)
 	if writeErr != nil && !receipt.Destination().Valid() {
 		return ports.SecureWriteReceipt{}, writeErr
@@ -2973,6 +3018,25 @@ func (store *PublicationStore) writeImmutable(ctx context.Context, run ports.Pub
 		}
 	}
 	return receipt, writeErr
+}
+
+func (store *PublicationStore) writeValidatedFinal(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	writer, ok := store.writer.(validatedFinalSecureWriter)
+	if !ok {
+		// Test doubles and alternate writers retain the stricter public writer
+		// contract. The production SecureWriter supplies the validated-final
+		// capability.
+		return store.writer.Write(ctx, request)
+	}
+	return writer.writeValidatedFinal(ctx, request)
+}
+
+func (store *PublicationStore) writeAuthorizedRunSupport(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	writer, ok := store.writer.(authorizedRunSupportSecureWriter)
+	if !ok {
+		return store.writer.Write(ctx, request)
+	}
+	return writer.writeAuthorizedRunSupport(ctx, request)
 }
 
 type publicationArtifactWire struct {

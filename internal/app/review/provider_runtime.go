@@ -986,8 +986,21 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 			return fmt.Errorf("provider invocation runtime: diagnostic raw request: %w", err)
 		}
 		result, err := sink.PersistRaw(persistCtx, request)
+		securityDropped := false
 		if err != nil {
-			return err
+			var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+			drop, dropped := result.Drop()
+			if !errors.As(err, &rejection) || !result.ValidFor(stream) || !dropped || !sameRuntimeDiagnosticDrop(*drop, rejection.Drop()) {
+				return err
+			}
+			securityDropped = true
+		} else {
+			if !result.ValidFor(stream) {
+				return fmt.Errorf("provider invocation runtime: invalid diagnostic raw result")
+			}
+			if _, dropped := result.Drop(); dropped {
+				return fmt.Errorf("provider invocation runtime: unclassified diagnostic raw drop")
+			}
 		}
 		runtime.mu.Lock()
 		current, currentExists := runtime.inventory[key]
@@ -1003,6 +1016,11 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 		if !currentExists {
 			return fmt.Errorf("provider invocation runtime: diagnostic raw inventory disappeared")
 		}
+		if securityDropped {
+			if err := runtime.markCapturedStreamSecurityRejected(key, stream); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if err := persist(domain.DiagnosticStdout, stdout, job.Limits().MaxStdoutBytes()); err != nil {
@@ -1010,6 +1028,58 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 	}
 	return persist(domain.DiagnosticStderr, stderr, job.Limits().MaxStderrBytes())
 }
+
+func (runtime *ProviderInvocationRuntime) markCapturedStreamSecurityRejected(key captureKey, stream domain.RuntimeDiagnosticStream) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	capture, captured := runtime.captures[key]
+	inventory, inventoried := runtime.inventory[key]
+	if !captured || !inventoried {
+		return fmt.Errorf("provider invocation runtime: dropped diagnostic capture is unavailable")
+	}
+	redact := func(artifacts []ports.CapturedAttemptArtifact) ([]ports.CapturedAttemptArtifact, error) {
+		result := append([]ports.CapturedAttemptArtifact(nil), artifacts...)
+		for index, artifact := range result {
+			redactArtifact := stream == domain.DiagnosticStderr && artifact.Kind() == ports.AttemptArtifactStderr ||
+				stream == domain.DiagnosticStdout && (artifact.Kind() == ports.AttemptArtifactStdout || artifact.Kind() == ports.AttemptArtifactInitialCandidate || artifact.Kind() == ports.AttemptArtifactRepairedCandidate)
+			if !redactArtifact {
+				continue
+			}
+			rejected, err := ports.NewCapturedAttemptArtifact(artifact.Kind(), nil, true)
+			if err != nil {
+				return nil, err
+			}
+			result[index] = rejected
+		}
+		return result, nil
+	}
+	redacted, err := redact(capture.artifacts)
+	if err != nil {
+		return err
+	}
+	capture.artifacts = redacted
+	inventory.captures = append([]ports.CapturedAttemptArtifact(nil), redacted...)
+	runtime.captures[key] = capture
+	runtime.inventory[key] = inventory
+	return nil
+}
+
+func sameRuntimeDiagnosticDrop(left, right ports.DropMetadata) bool {
+	if left.Channel() != right.Channel() || left.Detector() != right.Detector() || left.Count() != right.Count() {
+		return false
+	}
+	leftSources, rightSources := left.SourceIDs(), right.SourceIDs()
+	if len(leftSources) != len(rightSources) {
+		return false
+	}
+	for index := range leftSources {
+		if leftSources[index] != rightSources[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func (runtime *ProviderInvocationRuntime) promptMatchesJob(compiled prompt.CompiledPrompt, job InvocationJob) bool {
 	scope := compiled.Scope()
 	if scope.SessionID() != job.SessionID() {

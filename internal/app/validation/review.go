@@ -909,7 +909,7 @@ func requiredEvidence(finding map[string]any, base string, inspection *reviewIns
 			path:      requiredText(current, "path", currentPath+"/path", 4096, inspection),
 			lineStart: requiredPositiveInteger(current, "line_start", currentPath+"/line_start", inspection),
 			lineEnd:   requiredPositiveInteger(current, "line_end", currentPath+"/line_end", inspection),
-			side:      requiredEnum(current, "side", currentPath+"/side", []string{"base", "head", "worktree"}, inspection),
+			side:      requiredEnum(current, "side", currentPath+"/side", []string{"base", "head", "worktree", "index"}, inspection),
 			quote:     requiredText(current, "quote", currentPath+"/quote", 0, inspection),
 		}
 		if visualValue, present := evidenceObject["visual"]; present && visualValue != nil {

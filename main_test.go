@@ -1116,6 +1116,15 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
+	mustWriteTestFile(t, filepath.Join(project, "security-fixtures.txt"), []byte(strings.Join([]string{
+		"changePassword: vi.fn()",
+		"Authorization: Bearer abcdefghijklmnop",
+		"api_key=placeholder-api-key",
+		"-----BEGIN RSA PRIVATE KEY-----",
+		"placeholder",
+		"-----END RSA PRIVATE KEY-----",
+	}, "\n")+"\n"))
+	runTestCommand(t, project, "git", "add", "security-fixtures.txt")
 
 	installedUser, err := user.Current()
 	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
@@ -1128,7 +1137,12 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 
 	providerDirectory := canonicalTestTempDir(t)
 	logPath := filepath.Join(canonicalTestTempDir(t), "agy-observations.jsonl")
-	buildFakeAGY(t, root, filepath.Join(providerDirectory, "agy"), logPath)
+	const credentialLikeSummary = "Reviewed changePassword: vi.fn() with Authorization: Bearer abcdefghijklmnop and password=development-only fixtures."
+	credentialLikeOutput := fmt.Sprintf(
+		`{"schema_version":"mulgae-provider-review-output.v1","summary":"One informational fixture finding.","completeness":"complete","limitations":[],"findings":[{"severity":"info","title":"Credential-like fixture remains reviewable","description":%q,"evidence":[{"current":{"path":"security-fixtures.txt","side":"index","line_start":2,"line_end":2,"quote":"Authorization: Bearer abcdefghijklmnop\n"}}],"recommendation":%q,"confidence":"high"}]}`,
+		credentialLikeSummary, credentialLikeSummary,
+	)
+	buildFakeAGYWithReviewOutput(t, root, filepath.Join(providerDirectory, "agy"), logPath, credentialLikeOutput)
 	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
 	environment = append(environment, "MULGAE_FAKE_AGY_LOG="+logPath)
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
@@ -1143,7 +1157,7 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 
 	const objective = "@roadmap.md review the changed behavior without rewriting this objective"
 	review := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"review", "--dirty", "--objective", objective, "--roles", "logic,security", "--output", "json")
+		"review", "--stage", "--objective", objective, "--roles", "logic,security", "--output", "json")
 	if review.exitCode != 0 || len(review.stderr) != 0 {
 		var failed commandEnvelope
 		if err := json.Unmarshal(review.stdout, &failed); err == nil {
@@ -1178,6 +1192,10 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(project, uri)); err != nil {
 			t.Fatalf("published URI %q is not reopenable: %v", uri, err)
 		}
+	}
+	finalBytes, err := os.ReadFile(filepath.Join(project, *reviewEnvelope.Result.ReviewArtifactURI))
+	if err != nil || !bytes.Contains(finalBytes, []byte(credentialLikeSummary)) {
+		t.Fatalf("published final omitted credential-like reviewed evidence: err=%v\n%s", err, finalBytes)
 	}
 	diagnosticLog, err := os.ReadFile(filepath.Join(project, ".mulgae", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "mulgae-runtime.jsonl"))
 	if err != nil {
@@ -1246,8 +1264,8 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		t.Fatalf("AGY runtime diagnostic status = %#v, want completed 2/2 lanes linked to %q", diagnosticStatus, *reviewEnvelope.Result.RunManifestURI)
 	}
 	rawStreams, err := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "attempts", "a_*", "invocations", "*", "*.raw"))
-	if err != nil || len(rawStreams) < 2 {
-		t.Fatalf("AGY raw diagnostic streams = %v, %v", rawStreams, err)
+	if err != nil || len(rawStreams) != 0 {
+		t.Fatalf("credential-like AGY raw diagnostics should be dropped without blocking publication: %v, %v", rawStreams, err)
 	}
 
 	status := runMulgaeBinaryWithEnv(t, binary, project, environment,

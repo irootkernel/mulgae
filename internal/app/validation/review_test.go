@@ -365,6 +365,25 @@ func TestReviewValidatorEvidenceClaimsUseNormalizedOrderAndDefensiveCopies(t *te
 		t.Fatalf("EvidenceClaims leaked mutable storage: %#v", freshGroups)
 	}
 }
+
+func TestReviewValidatorAcceptsIndexEvidenceSide(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	raw := providerReviewWith(t, func(document map[string]any) {
+		finding := document["findings"].([]any)[0].(map[string]any)
+		evidence := finding["evidence"].([]any)[0].(map[string]any)
+		current := evidence["current"].(map[string]any)
+		current["side"] = "index"
+	})
+	review, plan, err := validator.Validate(context.Background(), raw, testScope())
+	if err != nil || plan != nil {
+		t.Fatalf("index evidence validation: review=%#v plan=%#v err=%v", review, plan, err)
+	}
+	claims := review.EvidenceClaims()[0].Claims()
+	if len(claims) != 1 || claims[0].Side() != CurrentEvidenceSideIndex {
+		t.Fatalf("index evidence claims = %#v", claims)
+	}
+}
+
 func TestFindingEvidenceClaimsFailClosedOnProofIDOrClaimDisagreement(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	review, plan, err := validator.Validate(context.Background(), validProviderReview(), testScope())

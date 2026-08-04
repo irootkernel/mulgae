@@ -40,6 +40,17 @@ type PublicationStore struct {
 	manifestSchema ports.AssetID
 	operations     publicationStoreOperations
 }
+
+// validatedFinalSecureWriter is an adapter-private capability. Only canonical
+// final-review bytes that PublicationStore has bound to a run and validated
+// against the final schema may reach this method.
+type validatedFinalSecureWriter interface {
+	writeValidatedFinal(context.Context, ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error)
+}
+
+type authorizedRunSupportSecureWriter interface {
+	writeAuthorizedRunSupport(context.Context, ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error)
+}
 type publicationStoreOperations struct {
 	fsync       func(int) error
 	renameatxNp func(int, string, int, string, uint32) error

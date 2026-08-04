@@ -155,6 +155,23 @@ func (writer *SecureWriter) EnsurePrivateDir(root ports.AnchoredRoot, directory 
 // Write scans a bounded source stream before atomically creating it once without
 // replacing an existing destination.
 func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	return writer.write(ctx, request, true)
+}
+
+// writeValidatedFinal is intentionally package-private: PublicationStore may
+// use it only after final-review schema, identity, and run bindings have been
+// validated. All public SecureFileWriter traffic remains scan-before-write.
+func (writer *SecureWriter) writeValidatedFinal(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	return writer.write(ctx, request, false)
+}
+
+// writeAuthorizedRunSupport is package-private and is reachable only after
+// PublicationStore admits the closed run-support path and artifact contract.
+func (writer *SecureWriter) writeAuthorizedRunSupport(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+	return writer.write(ctx, request, false)
+}
+
+func (writer *SecureWriter) write(ctx context.Context, request ports.SecureWriteRequest, scanCredentials bool) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
 	if ctx == nil {
 		return ports.SecureWriteReceipt{}, nil, fmt.Errorf("secure write: nil context")
 	}
@@ -240,10 +257,12 @@ func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWrite
 			return reject("maximum_bytes_exceeded", ErrMaxBytesExceeded)
 		}
 		if readN > 0 {
-			match, found := scanner.Scan(buffer[:readN])
-			if found {
-				zeroBytes(buffer[:readN])
-				return reject(match.detector, ErrSecretDetected)
+			if scanCredentials {
+				match, found := scanner.Scan(buffer[:readN])
+				if found {
+					zeroBytes(buffer[:readN])
+					return reject(match.detector, ErrSecretDetected)
+				}
 			}
 			hash.Write(buffer[:readN])
 			if writeErr := writeAll(temporaryFD, buffer[:readN]); writeErr != nil {

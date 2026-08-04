@@ -10,31 +10,28 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestContentDetectorRejectsCredentialSignaturesAcrossChunkBoundaries(t *testing.T) {
+func TestContentDetectorAllowsCredentialLikeReviewEvidence(t *testing.T) {
 	detector := NewContentDetector()
-	tests := []struct {
-		name string
-		data string
-		code string
-	}{
-		{"authorization bearer", "Authorization: Bearer token", "authorization_bearer"},
-		{"password assignment", "password=value", "credential_assignment"},
-		{"passwd assignment", "passwd:value", "credential_assignment"},
-		{"secret assignment", "secret = value", "credential_assignment"},
-		{"API key assignment", "api_key=value", "credential_assignment"},
-		{"access token assignment", "access token: value", "credential_assignment"},
-		{"private key PEM", "-----BEGIN RSA PRIVATE KEY-----", "private_key_pem"},
-		{"AWS access key", "AKIAIOSFODNN7EXAMPLE", "aws_access_key_id"},
+	fixtures := []string{
+		"changePassword: vi.fn()",
+		"Authorization: Bearer abcdefghijklmnop",
+		"api_key = placeholder-api-key",
+		"-----BEGIN RSA PRIVATE KEY-----\nplaceholder\n-----END RSA PRIVATE KEY-----",
+		"DATABASE_PASSWORD=development-only",
+		"AKIAIOSFODNN7EXAMPLE",
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			data := append([]byte(strings.Repeat("x", scannerChunkSize-1)), []byte(test.data)...)
-			detection, err := detector.DetectReviewInput(context.Background(), ports.ReviewInputTarget, "target", data)
+	for _, channel := range []ports.ReviewInputChannel{ports.ReviewInputTarget, ports.ReviewInputReference, ports.ReviewInputObjective, ports.ReviewInputPacket} {
+		t.Run(string(channel), func(t *testing.T) {
+			source := "review-input"
+			if channel == ports.ReviewInputReference {
+				source = "security/redaction_test.go"
+			}
+			detection, err := detector.DetectReviewInput(context.Background(), channel, source, []byte(strings.Join(fixtures, "\n")))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if detection.Verdict() != ports.ReviewInputBlocked || detection.DetectorCode() != test.code || detection.Count() != 1 {
-				t.Fatalf("detection = (%q, %q, %d), want blocked %q with count 1", detection.Verdict(), detection.DetectorCode(), detection.Count(), test.code)
+			if detection.Verdict() != ports.ReviewInputClean || detection.DetectorCode() != "" || detection.Count() != 0 {
+				t.Fatalf("detection = (%q, %q, %d), want clean", detection.Verdict(), detection.DetectorCode(), detection.Count())
 			}
 		})
 	}
@@ -130,7 +127,7 @@ func TestContentDetectorMapsWorkspaceDetectorPort(t *testing.T) {
 		want ports.WorkspaceContentVerdict
 	}{
 		{"clean", "src/main.go", "package main", ports.WorkspaceContentClean},
-		{"credential", "src/main.go", "Authorization: Bearer token", ports.WorkspaceContentSecret},
+		{"credential fixture", "src/redaction_test.go", "Authorization: Bearer token\npassword=development-only", ports.WorkspaceContentClean},
 		{"instruction", ".github/copilot-instructions.md", "clean", ports.WorkspaceContentDangerousProviderInstruction},
 	} {
 		t.Run(test.name, func(t *testing.T) {

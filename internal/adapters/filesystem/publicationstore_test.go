@@ -394,7 +394,7 @@ func TestPublicationStoreRejectsMismatchedStagedStreamBeforeInstall(t *testing.T
 	}
 }
 
-func TestPublicationStoreClassifiesSecretRejectionAsSecurity(t *testing.T) {
+func TestPublicationStoreRejectsUnvalidatedSecretLikeStreamByIdentity(t *testing.T) {
 	fixture := newPublicationStoreFixture(t)
 	issued, err := ports.NewIssuedReviewID(
 		fixture.final.Identity().ReviewID(),
@@ -422,16 +422,88 @@ func TestPublicationStoreClassifiesSecretRejectionAsSecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := fixture.store.StageFinal(context.Background(), request)
-	var classified interface {
-		PublicationFailureClass() domain.FailureClass
-	}
-	if !errors.Is(err, ErrSecretDetected) || !errors.As(err, &classified) ||
-		classified.PublicationFailureClass() != domain.FailureSecurityPolicy {
-		t.Fatalf("secret rejection = %v, class carrier = %#v", err, classified)
+	if err == nil || errors.Is(err, ErrSecretDetected) {
+		t.Fatalf("unvalidated stream error = %v, want identity/schema rejection rather than secret scanning", err)
 	}
 	if result.Valid() || abortCause == nil ||
 		strings.Contains(abortCause.Error(), secret) || strings.Contains(err.Error(), secret) {
 		t.Fatal("secret rejection exposed triggering bytes, omitted abort cause, or returned a receipt")
+	}
+}
+
+func TestPublicationStorePersistsValidatedCredentialLikeFinalWhileGenericWriterStillScans(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	trigger := "changePassword: vi.fn(); Authorization: Bearer abcdefghijklmnop; password=development-only; -----BEGIN RSA PRIVATE KEY-----"
+	finalBytes := []byte(fmt.Sprintf(
+		`{"schema_version":"mulgae-review-artifact.v1","session_id":%q,"run_id":%q,"review_id":%q,"summary":%q}`,
+		fixture.run.SessionID().String(), fixture.run.RunID().String(), fixture.final.Identity().ReviewID().String(), trigger,
+	))
+	identity, err := ports.NewFinalReviewIdentity(
+		fixture.final.Identity().ReviewID(),
+		fixture.final.Identity().Path(),
+		publicationSHA256(finalBytes),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(identity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.final = final
+
+	candidateRequest, err := ports.NewPersistValidatedCandidateRequest(fixture.run, final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := fixture.store.PersistValidatedCandidate(context.Background(), candidateRequest)
+	if err != nil || !candidate.Valid() || candidate.Durability() != ports.ValidatedCandidateDurable {
+		t.Fatalf("credential-like validated candidate = %#v, %v", candidate, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(fixture.root, candidate.Path().String())); err != nil || !bytes.Equal(got, finalBytes) {
+		t.Fatalf("validated candidate bytes = %q, %v", got, err)
+	}
+
+	issued, err := ports.NewIssuedReviewID(identity.ReviewID(), identity.SHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := fixture.store.StageFinal(context.Background(), mustStageFinalRequest(t, fixture, issued))
+	if err != nil || !staged.Valid() || staged.Durability() != ports.StageFinalDurable {
+		t.Fatalf("credential-like staged final = %#v, %v", staged, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(fixture.root, staged.StagedPath().String())); err != nil || !bytes.Equal(got, finalBytes) {
+		t.Fatalf("staged final bytes = %q, %v", got, err)
+	}
+
+	supportPath := mustRelativePath(t, fixture.run.SessionID().String()+"/"+fixture.run.RunID().String()+"/excerpts/F001.json")
+	supportBytes := []byte(fmt.Sprintf(`{"finding_id":"F001","evidence":%q}`, trigger))
+	support, err := ports.NewImmutablePublicationArtifact(supportPath, publicationSHA256(supportBytes), supportBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supportRequest, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, support)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedSupport, err := fixture.store.PersistAuxiliaryArtifact(context.Background(), supportRequest)
+	if err != nil || !persistedSupport.Valid() || persistedSupport.Durability() != ports.AuxiliaryArtifactDurable {
+		t.Fatalf("credential-like authorized run support = %#v, %v", persistedSupport, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(fixture.root, supportPath.String())); err != nil || !bytes.Equal(got, supportBytes) {
+		t.Fatalf("authorized run support bytes = %q, %v", got, err)
+	}
+
+	untrustedPath := mustRelativePath(t, "untrusted/generic-write.txt")
+	request, err := ports.NewSecureWriteRequest(
+		fixture.run.Root(), untrustedPath, "untrusted_test", strings.NewReader("password=development-only"),
+		1024, []string{"untrusted"}, func(error) {},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt, drop, err := fixture.writer.Write(context.Background(), request); !errors.Is(err, ErrSecretDetected) || drop == nil || receipt.Destination().Valid() {
+		t.Fatalf("generic secure writer no longer scans: receipt=%#v drop=%#v err=%v", receipt, drop, err)
 	}
 }
 

@@ -209,6 +209,42 @@ func TestReviewCaptureStageUsesIndexNotWorktree(t *testing.T) {
 	}
 }
 
+func TestReviewCaptureStageAllowsCredentialLikeFixturesAndUnrelatedTrackedContent(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	writeReviewFile(t, filepath.Join(root, "unrelated-development.env"), "DATABASE_PASSWORD=development-only\n")
+	reviewGit(t, root, "add", "unrelated-development.env")
+	reviewGit(t, root, "commit", "-m", "unrelated fixture")
+
+	fixture := strings.Join([]string{
+		"changePassword: vi.fn()",
+		"Authorization: Bearer abcdefghijklmnop",
+		"api_key = placeholder-api-key",
+		"-----BEGIN RSA PRIVATE KEY-----",
+		"placeholder",
+		"-----END RSA PRIVATE KEY-----",
+	}, "\n") + "\n"
+	writeReviewFile(t, filepath.Join(root, "security-fixtures.txt"), fixture)
+	reviewGit(t, root, "add", "security-fixtures.txt")
+	writeReviewFile(t, filepath.Join(root, "outside-stage.env"), "API_KEY=untracked-placeholder\n")
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetStage, "stage")
+	if !strings.Contains(string(material.Target().Bytes()), "security-fixtures.txt") {
+		t.Fatalf("stage target omitted security fixture: %q", material.Target().Bytes())
+	}
+	paths := reviewFilePathSet(material.Snapshot().Files())
+	for _, path := range []string{"security-fixtures.txt", "unrelated-development.env"} {
+		if !paths[path] {
+			t.Fatalf("transmitted snapshot paths omitted %q: %v", path, paths)
+		}
+	}
+	indexFiles, ok := material.Evidence().Files(ports.CapturedEvidenceIndex)
+	if !ok {
+		t.Fatal("stage evidence omitted index files")
+	}
+	assertReviewFilesContain(t, indexFiles, "security-fixtures.txt", fixture)
+	assertReviewMaterialExcludes(t, material, "outside-stage.env", "untracked-placeholder")
+}
+
 func TestReviewCaptureWorkspaceWithoutGitHonorsIgnoreFiles(t *testing.T) {
 	root := t.TempDir()
 	writeReviewFile(t, filepath.Join(root, "source.go"), "package source\n")
@@ -474,15 +510,15 @@ func TestIntegrationReviewCaptureIgnoreRulesAndMulgaeIgnoreAcrossModes(t *testin
 	t.Run("mulgaeignore filters target snapshot and every evidence side", func(t *testing.T) {
 		root := reviewCaptureRepository(t)
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep base\n")
-		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored base\n")
+		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "API_KEY=ignored-base-placeholder\n")
 		reviewGit(t, root, "add", "keep.txt", "ignored.txt")
 		reviewGit(t, root, "commit", "-m", "ignore base")
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep committed\n")
-		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored committed\n")
+		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "Authorization: Bearer ignored-committed-placeholder\n")
 		reviewGit(t, root, "commit", "-am", "ignore changed")
 		writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "ignored.txt\n")
 		writeReviewFile(t, filepath.Join(root, "keep.txt"), "keep index\n")
-		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored index\n")
+		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "DATABASE_PASSWORD=ignored-index-placeholder\n")
 		reviewGit(t, root, "add", "keep.txt", "ignored.txt")
 
 		for _, selector := range []struct {

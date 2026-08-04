@@ -13,8 +13,10 @@ import (
 
 const dangerousProviderInstructionCode = "dangerous_provider_instruction"
 
-// ContentDetector rejects credentials and provider auto-instructions before
-// review input is hashed, persisted, or exposed to a provider.
+// ContentDetector rejects provider auto-instruction files before review input
+// is hashed, persisted, or exposed to a provider. Source-code credential-like
+// text is review evidence, not an admission-policy signal; repository owners
+// control exclusions with .mulgaeignore.
 type ContentDetector struct{}
 
 var (
@@ -32,13 +34,13 @@ func (detector *ContentDetector) ReviewInputDetectorIdentity() string {
 	if detector == nil {
 		return ""
 	}
-	return "filesystem-content-detector-v1"
+	return "filesystem-content-detector-v2"
 }
 
 // DetectReviewInput checks one complete immutable input channel. Only
 // reference snapshots use their source ID as a workspace path; target,
 // objective, and packet source IDs are labels and cannot trigger path policy.
-func (detector *ContentDetector) DetectReviewInput(ctx context.Context, channel ports.ReviewInputChannel, sourceID string, bytes []byte) (ports.ReviewInputDetection, error) {
+func (detector *ContentDetector) DetectReviewInput(ctx context.Context, channel ports.ReviewInputChannel, sourceID string, _ []byte) (ports.ReviewInputDetection, error) {
 	if ctx == nil {
 		return ports.ReviewInputDetection{}, fmt.Errorf("review input detector: invalid context")
 	}
@@ -54,15 +56,12 @@ func (detector *ContentDetector) DetectReviewInput(ctx context.Context, channel 
 	if channel == ports.ReviewInputReference && dangerousProviderInstructionPath(sourceID) {
 		return blockedReviewInput(dangerousProviderInstructionCode)
 	}
-	if match, found := scanReviewInputCredentials(bytes); found {
-		return blockedReviewInput(match.detector)
-	}
 	return ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
 }
 
 // DetectWorkspaceContent maps the review-input policy onto the existing
 // workspace detector port without exposing source paths or content in errors.
-func (detector *ContentDetector) DetectWorkspaceContent(ctx context.Context, path ports.SafeRelativePath, bytes []byte) (ports.WorkspaceContentVerdict, error) {
+func (detector *ContentDetector) DetectWorkspaceContent(ctx context.Context, path ports.SafeRelativePath, _ []byte) (ports.WorkspaceContentVerdict, error) {
 	if ctx == nil {
 		return "", fmt.Errorf("workspace content detector: invalid context")
 	}
@@ -74,9 +73,6 @@ func (detector *ContentDetector) DetectWorkspaceContent(ctx context.Context, pat
 	}
 	if dangerousProviderInstructionPath(path.String()) {
 		return ports.WorkspaceContentDangerousProviderInstruction, nil
-	}
-	if _, found := scanReviewInputCredentials(bytes); found {
-		return ports.WorkspaceContentSecret, nil
 	}
 	return ports.WorkspaceContentClean, nil
 }
@@ -94,22 +90,6 @@ func validReviewInputSource(channel ports.ReviewInputChannel, sourceID string) b
 	}
 	_, err := ports.NewSafeRelativePath(sourceID)
 	return err == nil
-}
-
-func scanReviewInputCredentials(bytes []byte) (scanMatch, bool) {
-	var scanner credentialScanner
-	defer scanner.Reset()
-	for len(bytes) > 0 {
-		length := scannerChunkSize
-		if length > len(bytes) {
-			length = len(bytes)
-		}
-		if match, found := scanner.Scan(bytes[:length]); found {
-			return match, true
-		}
-		bytes = bytes[length:]
-	}
-	return scanMatch{}, false
 }
 
 func dangerousProviderInstructionPath(path string) bool {

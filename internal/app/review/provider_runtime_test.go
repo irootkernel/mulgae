@@ -34,6 +34,16 @@ type providerRuntimeRawSink struct {
 	events  []domain.RuntimeDiagnosticEventCode
 }
 
+type providerRuntimeDropSink struct {
+	providerRuntimeRawSink
+	result ports.RuntimeDiagnosticRawResult
+	err    error
+}
+
+func (sink *providerRuntimeDropSink) PersistRaw(context.Context, ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
+	return sink.result, sink.err
+}
+
 func (sink *providerRuntimeRawSink) Emit(_ context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
 	sink.events = append(sink.events, draft.Input().Event)
 	return domain.RuntimeDiagnosticEvent{}, nil
@@ -113,6 +123,120 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	stderr, hasStderr := inventory.DiagnosticStderr()
 	if !hasStdout || !hasStderr || stdout.Stream() != domain.DiagnosticStdout || stderr.Stream() != domain.DiagnosticStderr {
 		t.Fatal("runtime inventory did not retain separated raw references")
+	}
+}
+
+func TestProviderRuntimeRecordsTypedRawSecretDropWithoutFailingInvocation(t *testing.T) {
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := coordinatorTypesAttemptID(t, 12)
+	job := providerRuntimeDiagnosticJob(t, runID, attemptID)
+	drop, err := ports.NewDropMetadata("provider_stdout", "credential_assignment", 1, []string{"provider:stdout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ports.NewRuntimeDiagnosticRawResult(domain.DiagnosticStdout, ports.SafeRelativePath{}, &drop, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &providerRuntimeDropSink{result: result, err: ports.NewRuntimeDiagnosticSecurityRejectionError(drop, errors.New("scanner rejected raw stream"))}
+	key := captureKey{attemptID: attemptID, sequence: 1}
+	runtime := providerRuntimeWithDiagnosticInventory(t, runID, attemptID, key, sink)
+	if err := runtime.persistDiagnosticRaw(context.Background(), job, key, []byte("password=placeholder"), nil); err != nil {
+		t.Fatalf("typed raw drop blocked provider outcome: %v", err)
+	}
+	stored, ok := runtime.inventory[key].DiagnosticStdout()
+	storedDrop, dropped := stored.Drop()
+	if !ok || !dropped || !sameRuntimeDiagnosticDrop(*storedDrop, drop) {
+		t.Fatalf("runtime inventory did not retain typed drop: %#v", stored)
+	}
+	for _, artifact := range runtime.captures[key].Artifacts() {
+		if !artifact.SecurityRejected() || len(artifact.Bytes()) != 0 {
+			t.Fatalf("raw-drop capture retained provider bytes: kind=%q rejected=%t", artifact.Kind(), artifact.SecurityRejected())
+		}
+	}
+}
+
+func TestProviderRuntimeRejectsMalformedOrMismatchedRawSecretDrop(t *testing.T) {
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := coordinatorTypesAttemptID(t, 12)
+	job := providerRuntimeDiagnosticJob(t, runID, attemptID)
+	drop, err := ports.NewDropMetadata("provider_stdout", "credential_assignment", 1, []string{"provider:stdout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatch, err := ports.NewDropMetadata("provider_stdout", "private_key_pem", 1, []string{"provider:stdout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ports.NewRuntimeDiagnosticRawResult(domain.DiagnosticStdout, ports.SafeRelativePath{}, &drop, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := captureKey{attemptID: attemptID, sequence: 1}
+	for _, test := range []struct {
+		name   string
+		result ports.RuntimeDiagnosticRawResult
+		err    error
+	}{
+		{name: "mismatched metadata", result: result, err: ports.NewRuntimeDiagnosticSecurityRejectionError(mismatch, errors.New("scanner rejected raw stream"))},
+		{name: "ordinary persistence error", err: errors.New("disk failure")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &providerRuntimeDropSink{result: test.result, err: test.err}
+			runtime := providerRuntimeWithDiagnosticInventory(t, runID, attemptID, key, sink)
+			if err := runtime.persistDiagnosticRaw(context.Background(), job, key, []byte("password=placeholder"), nil); err == nil {
+				t.Fatal("malformed diagnostic result was accepted")
+			}
+			if _, ok := runtime.inventory[key].DiagnosticStdout(); ok {
+				t.Fatal("failed diagnostic result entered inventory")
+			}
+		})
+	}
+}
+
+func providerRuntimeDiagnosticJob(t *testing.T, runID domain.RunID, attemptID domain.AttemptID) InvocationJob {
+	t.Helper()
+	sessionID, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := newCoordinatorInvocationJob(
+		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return job
+}
+
+func providerRuntimeWithDiagnosticInventory(t *testing.T, runID domain.RunID, attemptID domain.AttemptID, key captureKey, sink ports.RuntimeDiagnosticSink) *ProviderInvocationRuntime {
+	t.Helper()
+	candidate, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactInitialCandidate, []byte("password=placeholder"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactStdout, []byte("password=placeholder"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts := []ports.CapturedAttemptArtifact{candidate, stdout}
+	return &ProviderInvocationRuntime{
+		diagnostics: providerRuntimeDiagnosticResolver{runID: runID, sink: sink},
+		inventory: map[captureKey]RuntimeArtifactInventory{key: {
+			runID: runID, attemptID: attemptID, sequence: 1,
+			sourceInvocationID:    "i_019f5a09-5eec-7001-8001-000000000014",
+			executionInvocationID: "019f5a09-5eec-7001-8001-000000000015",
+			captures:              append([]ports.CapturedAttemptArtifact(nil), artifacts...),
+		}},
+		captures: map[captureKey]AttemptCapture{key: {attemptID: attemptID, sequence: 1, artifacts: artifacts}},
 	}
 }
 

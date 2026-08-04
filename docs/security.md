@@ -26,6 +26,35 @@ artifacts, or exported review bundles.
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.
 
+Review capture does not apply secret-pattern detection to source files,
+security fixtures, objectives, or provider packets. A configured provider is
+therefore authorized to receive every file in the captured snapshot, including
+credential-like placeholders and test data. Use `.mulgaeignore` to exclude
+`.env` files, credential files, generated data, or any other path that must not
+be transmitted. The immutable `._mulgae_workspace_manifest.json` supplied in
+each provider workspace lists the exact transmitted paths, sizes, and hashes.
+
+For example, a repository may start with:
+
+```gitignore
+.env
+.env.*
+*.pem
+*.key
+credentials/
+```
+
+These entries are examples, not a built-in policy: repository owners remain in
+control of the paths shared with their selected providers. Output redaction,
+configuration credential admission, bounded snapshots, and provider sandboxing
+remain enforced independently of capture admission.
+
+A credential-like provider raw stream may be omitted from private diagnostics,
+but that diagnostic drop does not turn an otherwise valid review into a
+provider failure. Canonical final reviews and path-authorized run support retain
+validated source evidence; unvalidated writes and exported projections continue
+to use their existing redaction and secret-rejection boundaries.
+
 ## Validation and fail-closed behavior
 
 Provider output must be exactly one JSON value. External schema loading is

@@ -6,12 +6,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -115,6 +117,55 @@ func TestMaterializeLinkedFilesAndReceipt(t *testing.T) {
 	}
 	if _, err := os.Stat(receipt.SnapshotPath()); !os.IsNotExist(err) {
 		t.Fatalf("snapshot survives cleanup: %v", err)
+	}
+}
+
+func TestProductionMaterializerAllowsCredentialLikeFixturesAndManifestsExactFiles(t *testing.T) {
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewMaterializer(root, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := "changePassword: vi.fn()\nAuthorization: Bearer abcdefghijklmnop\n-----BEGIN RSA PRIVATE KEY-----\nplaceholder\n"
+	request := snapshotRequest(t,
+		snapshotFile(t, "security/redaction_test.txt", fixture),
+		snapshotFile(t, "src/main.go", "package main\n"),
+	)
+	receipt, err := m.Materialize(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Cleanup(receipt) })
+	got, err := os.ReadFile(filepath.Join(receipt.SnapshotPath(), "security", "redaction_test.txt"))
+	if err != nil || string(got) != fixture {
+		t.Fatalf("materialized fixture = %q, %v", got, err)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(receipt.SnapshotPath(), manifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Files []struct {
+			Path   string `json:"path"`
+			Size   int64  `json:"size"`
+			SHA256 string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	requestFiles := request.Files()
+	if len(manifest.Files) != len(requestFiles) {
+		t.Fatalf("manifest file count = %d, want %d", len(manifest.Files), len(requestFiles))
+	}
+	for index, file := range requestFiles {
+		entry := manifest.Files[index]
+		if entry.Path != file.Path().String() || entry.Size != int64(len(file.Bytes())) || entry.SHA256 != file.SHA256() {
+			t.Fatalf("manifest file %d = %#v, want path=%q size=%d sha256=%q", index, entry, file.Path().String(), len(file.Bytes()), file.SHA256())
+		}
 	}
 }
 
