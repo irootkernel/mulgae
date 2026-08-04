@@ -1467,11 +1467,13 @@ func sealDirectories(rootFD int, directories map[string]struct{}, close func(int
 }
 
 type manifestFile struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
-	Mode   uint32 `json:"mode"`
-	Links  uint64 `json:"links"`
+	Path               string `json:"path"`
+	Size               int64  `json:"size"`
+	SHA256             string `json:"sha256"`
+	MediaType          string `json:"media_type"`
+	CaptureDisposition string `json:"capture_disposition"`
+	Mode               uint32 `json:"mode"`
+	Links              uint64 `json:"links"`
 }
 type manifestDirectory struct {
 	Path  string `json:"path"`
@@ -1493,7 +1495,14 @@ func canonicalManifest(policy string, files []ports.WorkspaceSnapshotFile, rootD
 	entries := make([]manifestFile, len(files))
 	directories := map[string]struct{}{"": {}}
 	for i, file := range files {
-		entries[i] = manifestFile{file.Path().String(), int64(len(file.Bytes())), file.SHA256(), 0444, 1}
+		disposition := "text"
+		if !file.IsText() {
+			disposition = "binary_preserved"
+		}
+		entries[i] = manifestFile{
+			Path: file.Path().String(), Size: int64(len(file.Bytes())), SHA256: file.SHA256(),
+			MediaType: file.MediaType(), CaptureDisposition: disposition, Mode: 0444, Links: 1,
+		}
 		directory := path.Dir(file.Path().String())
 		for directory != "." {
 			directories[directory] = struct{}{}
@@ -1517,7 +1526,7 @@ func canonicalManifest(policy string, files []ports.WorkspaceSnapshotFile, rootD
 	for i, directory := range names {
 		directoryEntries[i] = manifestDirectory{directory, 0555, links[directory] + 2}
 	}
-	return json.Marshal(manifestDocument{"v2", policy, directoryEntries, entries, rootDevice, rootInode, snapshotDevice, snapshotInode})
+	return json.Marshal(manifestDocument{"v3", policy, directoryEntries, entries, rootDevice, rootInode, snapshotDevice, snapshotInode})
 }
 
 func readRegular(rootFD int, relative string, close func(int) error) (bytes []byte, err error) {

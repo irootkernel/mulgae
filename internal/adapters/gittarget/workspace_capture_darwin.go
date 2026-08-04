@@ -130,14 +130,14 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 			return fmt.Errorf("workspace path %q is not a regular file; add it to .mulgaeignore", relative)
 		}
 		read := readStableRegular
-		if adapter.artistMediaType(relative) != "" {
+		if rasterMediaType(relative) != "" {
 			read = readStableRegularBinary
 		}
 		data, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
 		if err != nil {
 			return fmt.Errorf("workspace path %q: %w; add it to .mulgaeignore if it is not reviewable", relative, err)
 		}
-		if adapter.artistMediaType(relative) == "" && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
+		if rasterMediaType(relative) == "" && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
 			return fmt.Errorf("workspace path %q is not UTF-8 text; add it to .mulgaeignore", relative)
 		}
 		path, err := ports.NewSafeRelativePath(relative)

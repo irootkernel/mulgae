@@ -3,9 +3,13 @@
 package gittarget
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -16,6 +20,233 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestReviewCaptureStagePreservesPNGAsBinaryEvidence(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	if err := os.MkdirAll(filepath.Join(root, "client", "e2e", "screenshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const imagePath = "client/e2e/screenshots/staged.png"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(imagePath)), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", imagePath)
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetStage, "stage")
+	expectedSum := sha256.Sum256(pngBytes)
+	expectedSHA := "sha256:" + hex.EncodeToString(expectedSum[:])
+	assertCapturedPNG := func(name string, files []ports.WorkspaceSnapshotFile) {
+		t.Helper()
+		for _, file := range files {
+			if file.Path().String() != imagePath {
+				continue
+			}
+			if file.MediaType() != "image/png" || file.IsText() || file.SHA256() != expectedSHA || !bytes.Equal(file.Bytes(), pngBytes) {
+				t.Fatalf("%s PNG = media=%q text=%t sha=%q bytes=%x", name, file.MediaType(), file.IsText(), file.SHA256(), file.Bytes())
+			}
+			return
+		}
+		t.Fatalf("%s omitted %q", name, imagePath)
+	}
+	assertCapturedPNG("snapshot", material.Snapshot().Files())
+	indexFiles, ok := material.Evidence().Files(ports.CapturedEvidenceIndex)
+	if !ok {
+		t.Fatal("stage capture omitted index evidence")
+	}
+	assertCapturedPNG("index evidence", indexFiles)
+
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ports.UnmarshalCapturedReviewMaterial(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCapturedPNG("restored snapshot", restored.Snapshot().Files())
+}
+
+func TestReviewCaptureDirtyPreservesUntrackedPNGWithoutTextDecoding(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	pngBytes := make([]byte, ports.ReviewTargetMaxBytes+4096)
+	copy(pngBytes, []byte("\x89PNG\r\n\x1a\n"))
+	const imagePath = "untracked.png"
+	if err := os.WriteFile(filepath.Join(root, imagePath), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetDirty, "dirty")
+	if patch := string(material.Target().Bytes()); !strings.Contains(patch, "Binary files /dev/null and b/untracked.png differ") {
+		t.Fatalf("dirty target did not describe binary PNG: %q", patch)
+	}
+	for _, file := range material.Snapshot().Files() {
+		if file.Path().String() == imagePath {
+			if file.MediaType() != "image/png" || !bytes.Equal(file.Bytes(), pngBytes) {
+				t.Fatalf("dirty PNG = media=%q bytes=%x", file.MediaType(), file.Bytes())
+			}
+			return
+		}
+	}
+	t.Fatalf("dirty snapshot omitted %q", imagePath)
+}
+
+type rasterMutationRunner struct {
+	delegate    Runner
+	path        string
+	replacement []byte
+	writeTrees  int
+}
+
+func (runner *rasterMutationRunner) Run(ctx context.Context, command Command) (Result, error) {
+	if len(command.Args) > 0 && command.Args[len(command.Args)-1] == "write-tree" {
+		runner.writeTrees++
+		if runner.writeTrees == 2 {
+			if err := os.WriteFile(runner.path, runner.replacement, 0o644); err != nil {
+				return Result{}, err
+			}
+		}
+	}
+	return runner.delegate.Run(ctx, command)
+}
+
+func TestReviewCaptureDirtyRejectsRasterMutationAfterSnapshot(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	const imagePath = "changing.png"
+	before := []byte("\x89PNG\r\n\x1a\nbefore")
+	after := []byte("\x89PNG\r\n\x1a\nafter!")
+	fullPath := filepath.Join(root, imagePath)
+	if err := os.WriteFile(fullPath, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	anchored, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &rasterMutationRunner{delegate: NewExecRunner(), path: fullPath, replacement: after}
+	adapter, err := NewReviewTargetCapturer(runner, &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetDirty, "dirty"))
+	if err == nil || !strings.Contains(err.Error(), "dirty source changed while capturing") || !strings.Contains(err.Error(), imagePath) {
+		t.Fatalf("raster mutation capture error = %v", err)
+	}
+}
+
+func TestUntrackedRasterPatchRejectsAggregateMarkerOverflow(t *testing.T) {
+	rootPath := t.TempDir()
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eligible := make(map[string]bool)
+	for index := 0; index < 300; index++ {
+		name := fmt.Sprintf("raster-%03d-%s.png", index, strings.Repeat("x", 160))
+		if err := os.WriteFile(filepath.Join(rootPath, name), []byte("\x89PNG\r\n\x1a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		eligible[name] = true
+	}
+	if _, err := untrackedPatch(root, eligible); err == nil || !strings.Contains(err.Error(), "dirty patch exceeds limit") {
+		t.Fatalf("aggregate raster patch overflow = %v", err)
+	}
+}
+
+func TestReviewCaptureWorkspaceClassifiesSupportedRasterByExtensionAndSignature(t *testing.T) {
+	root := t.TempDir()
+	fixtures := map[string]struct {
+		mediaType string
+		bytes     []byte
+	}{
+		"assets/photo.jpeg":  {mediaType: "image/jpeg", bytes: []byte{0xff, 0xd8, 0xff, 0x00, 0x81}},
+		"assets/result.PNG":  {mediaType: "image/png", bytes: []byte("\x89PNG\r\n\x1a\n\x00\xff")},
+		"assets/screen.webp": {mediaType: "image/webp", bytes: []byte("RIFF\x04\x00\x00\x00WEBP\x00\xff")},
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, fixture := range fixtures {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), fixture.bytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	material := captureReviewMaterial(t, root, ports.ReviewTargetWorkspace, "workspace")
+	seen := make(map[string]bool, len(fixtures))
+	for _, file := range material.Snapshot().Files() {
+		fixture, ok := fixtures[file.Path().String()]
+		if !ok {
+			continue
+		}
+		if file.IsText() || file.MediaType() != fixture.mediaType || !bytes.Equal(file.Bytes(), fixture.bytes) {
+			t.Fatalf("raster %q = media=%q text=%t bytes=%x", file.Path().String(), file.MediaType(), file.IsText(), file.Bytes())
+		}
+		seen[file.Path().String()] = true
+	}
+	if len(seen) != len(fixtures) {
+		t.Fatalf("captured raster paths = %v", seen)
+	}
+}
+
+func TestReviewCaptureRejectsInvalidRasterAsTypedUnsupportedContent(t *testing.T) {
+	root := t.TempDir()
+	writeReviewFile(t, filepath.Join(root, "source.go"), "package source\n")
+	writeReviewFile(t, filepath.Join(root, "broken.png"), "not a PNG")
+	err := captureReviewError(t, root, ports.ReviewTargetWorkspace, "workspace")
+	failure, ok := ports.ReviewCaptureFailureFromError(err)
+	if !ok || failure.Code() != ports.ReviewCaptureUnsupported || failure.Path() != "broken.png" ||
+		!strings.Contains(failure.Hint(), "valid image/png") || !strings.Contains(failure.Hint(), ".mulgaeignore") {
+		t.Fatalf("invalid raster failure = %#v, present=%t, err=%v", failure, ok, err)
+	}
+}
+
+func TestArtistManifestUnionsConfiguredAndChangedRasterEvidence(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "design-specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "ux-ui-info.md"), "Review the staged screenshot.\n")
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "reference.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "unrelated.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", "ux-ui-info.md", "design-specs/reference.png", "unrelated.png")
+	reviewGit(t, root, "commit", "-m", "artist baseline")
+	if err := os.WriteFile(filepath.Join(root, "staged-evidence.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", "staged-evidence.png")
+
+	anchored, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewReviewTargetCapturer(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := ports.NewArtistReviewInputs("ux-ui-info.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetStage, "stage"), inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextText := string(material.ProjectContext())
+	if !strings.Contains(contextText, `"path":"design-specs/reference.png"`) || !strings.Contains(contextText, `"path":"staged-evidence.png"`) || strings.Contains(contextText, `"path":"unrelated.png"`) {
+		t.Fatalf("artist visual union = %s", contextText)
+	}
+}
 
 func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	root := reviewCaptureRepository(t)

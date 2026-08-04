@@ -129,11 +129,12 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 		return material, nil
 	}
 	manifest := artistInputManifest{SchemaVersion: "mulgae-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistBriefPath, VisualAssets: []artistAssetManifest{}}
+	visualPaths := adapter.artistVisualPaths(material)
 	for _, file := range material.Snapshot().Files() {
 		if file.Path().String() == adapter.artistBriefPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
 			manifest.Task = string(file.Bytes())
 		}
-		if !file.IsText() && adapter.artistMediaType(file.Path().String()) != "" {
+		if !file.IsText() && visualPaths[file.Path().String()] {
 			manifest.VisualAssets = append(manifest.VisualAssets, artistAssetManifest{Path: file.Path().String(), SHA256: file.SHA256(), MediaType: file.MediaType()})
 		}
 	}
@@ -160,6 +161,56 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 	return ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(material.Target(), material.Snapshot(), contextBytes, true, material.Evidence())
 }
 
+// artistVisualPaths preserves configured design references and adds raster
+// evidence changed by this Git target. Unchanged rasters outside the configured
+// globs remain ordinary bounded snapshot files and are not promoted into the
+// artist prompt manifest.
+func (adapter *ReviewTargetAdapter) artistVisualPaths(material ports.CapturedReviewMaterial) map[string]bool {
+	selected := make(map[string]bool)
+	for _, file := range material.Snapshot().Files() {
+		if !file.IsText() && adapter.artistMediaType(file.Path().String()) != "" {
+			selected[file.Path().String()] = true
+		}
+	}
+	if material.Target().Kind() != domain.TargetGit {
+		return selected
+	}
+	var currentSide ports.CapturedEvidenceSide
+	switch material.Target().Identity().GitMode() {
+	case domain.GitTargetStage:
+		currentSide = ports.CapturedEvidenceIndex
+	case domain.GitTargetDirty:
+		currentSide = ports.CapturedEvidenceWorktree
+	case domain.GitTargetDiff:
+		if _, ok := material.Target().IndexTreeID(); ok {
+			currentSide = ports.CapturedEvidenceIndex
+		} else {
+			currentSide = ports.CapturedEvidenceHead
+		}
+	default:
+		return selected
+	}
+	base, hasBase := material.Evidence().Files(ports.CapturedEvidenceBase)
+	current, hasCurrent := material.Evidence().Files(currentSide)
+	if !hasBase || !hasCurrent {
+		return selected
+	}
+	baseHashes := make(map[string]string, len(base))
+	for _, file := range base {
+		baseHashes[file.Path().String()] = file.SHA256()
+	}
+	for _, file := range current {
+		path := file.Path().String()
+		if file.IsText() || rasterMediaType(path) == "" {
+			continue
+		}
+		if prior, exists := baseHashes[path]; !exists || prior != file.SHA256() {
+			selected[path] = true
+		}
+	}
+	return selected
+}
+
 func (adapter *ReviewTargetAdapter) artistMediaType(path string) string {
 	matched := false
 	for _, pattern := range adapter.artistGlobs {
@@ -171,6 +222,13 @@ func (adapter *ReviewTargetAdapter) artistMediaType(path string) string {
 	if !matched {
 		return ""
 	}
+	return rasterMediaType(path)
+}
+
+// rasterMediaType identifies paths that must be captured through the bounded
+// binary reader. NewWorkspaceVisualAsset separately verifies that the bytes
+// match the declared raster type, so an extension alone never admits content.
+func rasterMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".png":
 		return "image/png"
@@ -186,8 +244,22 @@ func (adapter *ReviewTargetAdapter) artistMediaType(path string) string {
 func (adapter *ReviewTargetAdapter) newCapturedFile(ctx context.Context, path ports.SafeRelativePath, data []byte) (ports.WorkspaceSnapshotFile, error) {
 	digest := sha256.Sum256(data)
 	identity := "sha256:" + hex.EncodeToString(digest[:])
-	if mediaType := adapter.artistMediaType(path.String()); mediaType != "" {
-		return ports.NewWorkspaceVisualAsset(path, data, identity, mediaType)
+	if mediaType := rasterMediaType(path.String()); mediaType != "" {
+		file, err := ports.NewWorkspaceVisualAsset(path, data, identity, mediaType)
+		if err == nil {
+			return file, nil
+		}
+		failure, failureErr := ports.NewReviewCaptureFailure(
+			ports.ReviewCaptureUnsupported,
+			path.String(),
+			"",
+			"provide a valid "+mediaType+" raster or exclude the path with .mulgaeignore",
+			err,
+		)
+		if failureErr != nil {
+			return ports.WorkspaceSnapshotFile{}, err
+		}
+		return ports.WorkspaceSnapshotFile{}, failure
 	}
 	if err := adapter.clean(ctx, ports.ReviewInputReference, path.String(), data); err != nil {
 		return ports.WorkspaceSnapshotFile{}, err
@@ -709,12 +781,35 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	if err != nil || !bytes.Equal(untracked, verifyUntracked) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
 	}
+	if err := verifyCapturedRasterBytes(root, files); err != nil {
+		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing: %w", err)
+	}
 	return adapter.materialize(patch, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase:     baseFiles,
 		ports.CapturedEvidenceWorktree: files,
 	}, "dirty;git=canonical-v1;ignore="+eligible.identity+"+mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) {
 		return ports.NewCapturedReviewGitTargetWithMode(domain.GitTargetDirty, repo.repositoryID, head, head, tree, &indexTree, patch)
 	})
+}
+
+// verifyCapturedRasterBytes closes the identity gap left by Git's path-only
+// binary diff marker. The snapshot and its manifest bind the binary bytes; this
+// final read proves those bytes still describe the dirty worktree accepted by
+// the target capture.
+func verifyCapturedRasterBytes(root ports.AnchoredRoot, files []ports.WorkspaceSnapshotFile) error {
+	for _, file := range files {
+		if file.IsText() {
+			continue
+		}
+		data, err := readStableRegularBinary(root.String(), file.Path().String(), int(ports.WorkspaceSnapshotMaxFileBytes))
+		if err != nil {
+			return fmt.Errorf("revalidate raster %q: %w", file.Path().String(), err)
+		}
+		if !bytes.Equal(data, file.Bytes()) {
+			return fmt.Errorf("raster %q bytes drifted", file.Path().String())
+		}
+	}
+	return nil
 }
 
 // untrackedPatch produces deterministic new-file hunks from the exact eligible
@@ -732,11 +827,18 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 
 	var patch []byte
 	for _, path := range paths {
-		bytes, err := readStableRegular(root.String(), path, int(ports.ReviewTargetMaxBytes))
+		read := readStableRegular
+		binaryRaster := rasterMediaType(path) != ""
+		limit := ports.ReviewTargetMaxBytes
+		if binaryRaster {
+			read = readStableRegularBinary
+			limit = int(ports.WorkspaceSnapshotMaxFileBytes)
+		}
+		bytes, err := read(root.String(), path, limit)
 		if err != nil {
 			return nil, fmt.Errorf("untracked path %q: %w; add it to .mulgaeignore", path, err)
 		}
-		if len(patch)+len(bytes) > ports.ReviewTargetMaxBytes {
+		if !binaryRaster && len(patch)+len(bytes) > ports.ReviewTargetMaxBytes {
 			return nil, fmt.Errorf("dirty patch exceeds limit")
 		}
 		oldPath := quoteGitPath("a/" + path)
@@ -748,6 +850,15 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 		patch = append(patch, "\nnew file mode 100644\n--- /dev/null\n+++ "...)
 		patch = append(patch, newPath...)
 		patch = append(patch, '\n')
+		if binaryRaster {
+			patch = append(patch, "Binary files /dev/null and "...)
+			patch = append(patch, newPath...)
+			patch = append(patch, " differ\n"...)
+			if len(patch) > ports.ReviewTargetMaxBytes {
+				return nil, fmt.Errorf("dirty patch exceeds limit")
+			}
+			continue
+		}
 		if len(bytes) == 0 {
 			continue
 		}
@@ -868,7 +979,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 			return nil
 		}
 		read := readStableRegular
-		if adapter.artistMediaType(relative) != "" {
+		if rasterMediaType(relative) != "" {
 			read = readStableRegularBinary
 		}
 		bytes, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))

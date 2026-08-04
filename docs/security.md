@@ -31,8 +31,19 @@ security fixtures, objectives, or provider packets. A configured provider is
 therefore authorized to receive every file in the captured snapshot, including
 credential-like placeholders and test data. Use `.mulgaeignore` to exclude
 `.env` files, credential files, generated data, or any other path that must not
-be transmitted. The immutable `._mulgae_workspace_manifest.json` supplied in
-each provider workspace lists the exact transmitted paths, sizes, and hashes.
+be transmitted. The immutable v3 `._mulgae_workspace_manifest.json` supplied
+in each provider workspace lists the exact transmitted paths, sizes, hashes,
+media types, and capture dispositions.
+
+Supported PNG, JPEG, and WebP files are preserved as bounded binary evidence
+after extension and signature validation. Changed raster evidence and
+configured design references are listed in artist visual metadata. Line-based
+evidence readers omit their bodies instead of decoding them as UTF-8. Invalid
+raster signatures fail as `unsupported_content` with the affected path.
+`.mulgaeignore` and the existing workspace/file byte limits apply to raster
+evidence exactly as they do to text files. Git's textual binary-diff marker is
+path-only; the captured archive and workspace manifest bind the actual raster
+bytes, and dirty capture revalidates those bytes before admission.
 
 For example, a repository may start with:
 

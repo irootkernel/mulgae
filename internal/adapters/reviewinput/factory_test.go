@@ -2,13 +2,70 @@ package reviewinput
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+func TestCapturedTargetReaderOmitsBinaryVisualEvidence(t *testing.T) {
+	textPath, err := ports.NewSafeRelativePath("source.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pngPath, err := ports.NewSafeRelativePath("screenshots/result.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	textBytes := []byte("package source\n")
+	pngBytes := []byte("\x89PNG\r\n\x1a\nexact-binary-evidence")
+	textSum := sha256.Sum256(textBytes)
+	pngSum := sha256.Sum256(pngBytes)
+	textFile, err := ports.NewWorkspaceSnapshotFile(textPath, textBytes, "sha256:"+hex.EncodeToString(textSum[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pngFile, err := ports.NewWorkspaceVisualAsset(pngPath, pngBytes, "sha256:"+hex.EncodeToString(pngSum[:]), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest([]ports.WorkspaceSnapshotFile{pngFile, textFile}, "captured-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedEvidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
+		ports.CapturedEvidenceHead: {pngFile, textFile},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, capturedEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := newCapturedTargetReader(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetSHA := "sha256:" + target.Identity().SHA256()
+	availability, got, err := reader.ReadImmutableTarget(context.Background(), targetSHA, evidence.SideHead, textPath)
+	if err != nil || availability != evidence.ImmutableTargetAvailable || string(got) != string(textBytes) {
+		t.Fatalf("text evidence = availability=%q bytes=%q err=%v", availability, got, err)
+	}
+	availability, got, err = reader.ReadImmutableTarget(context.Background(), targetSHA, evidence.SideHead, pngPath)
+	if err != nil || availability != evidence.ImmutableTargetUnavailable || got != nil {
+		t.Fatalf("binary evidence leaked to line reader = availability=%q bytes=%x err=%v", availability, got, err)
+	}
+}
 
 type captureFake struct {
 	material ports.CapturedReviewMaterial

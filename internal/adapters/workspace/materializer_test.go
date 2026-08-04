@@ -3,6 +3,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -35,6 +36,20 @@ func snapshotFile(t *testing.T, name, contents string) ports.WorkspaceSnapshotFi
 	}
 	sum := sha256.Sum256([]byte(contents))
 	file, err := ports.NewWorkspaceSnapshotFile(path, []byte(contents), "sha256:"+hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func snapshotPNG(t *testing.T, name string, contents []byte) ports.WorkspaceSnapshotFile {
+	t.Helper()
+	path, err := ports.NewSafeRelativePath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(contents)
+	file, err := ports.NewWorkspaceVisualAsset(path, contents, "sha256:"+hex.EncodeToString(sum[:]), "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +163,8 @@ func TestProductionMaterializerAllowsCredentialLikeFixturesAndManifestsExactFile
 		t.Fatal(err)
 	}
 	var manifest struct {
-		Files []struct {
+		Version string `json:"version"`
+		Files   []struct {
 			Path   string `json:"path"`
 			Size   int64  `json:"size"`
 			SHA256 string `json:"sha256"`
@@ -156,6 +172,9 @@ func TestProductionMaterializerAllowsCredentialLikeFixturesAndManifestsExactFile
 	}
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
+	}
+	if manifest.Version != "v3" {
+		t.Fatalf("workspace manifest version = %q", manifest.Version)
 	}
 	requestFiles := request.Files()
 	if len(manifest.Files) != len(requestFiles) {
@@ -167,6 +186,55 @@ func TestProductionMaterializerAllowsCredentialLikeFixturesAndManifestsExactFile
 			t.Fatalf("manifest file %d = %#v, want path=%q size=%d sha256=%q", index, entry, file.Path().String(), len(file.Bytes()), file.SHA256())
 		}
 	}
+}
+
+func TestMaterializerPreservesPNGAndDescribesBinaryDisposition(t *testing.T) {
+	detectorCalls := 0
+	m := materializer(t, func(context.Context, ports.SafeRelativePath, []byte) (ports.WorkspaceContentVerdict, error) {
+		detectorCalls++
+		return ports.WorkspaceContentClean, nil
+	})
+	pngBytes := []byte("\x89PNG\r\n\x1a\nexact-workspace-bytes\x00\xff")
+	png := snapshotPNG(t, "screenshots/result.png", pngBytes)
+	request := snapshotRequest(t, png, snapshotFile(t, "source.go", "package source\n"))
+	receipt, err := m.Materialize(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Cleanup(receipt) })
+	if detectorCalls != 1 {
+		t.Fatalf("content detector calls = %d, want text files only", detectorCalls)
+	}
+	got, err := os.ReadFile(filepath.Join(receipt.SnapshotPath(), "screenshots", "result.png"))
+	if err != nil || !bytes.Equal(got, pngBytes) {
+		t.Fatalf("materialized PNG = %x, %v", got, err)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(receipt.SnapshotPath(), manifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Files []struct {
+			Path               string `json:"path"`
+			Size               int64  `json:"size"`
+			SHA256             string `json:"sha256"`
+			MediaType          string `json:"media_type"`
+			CaptureDisposition string `json:"capture_disposition"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range manifest.Files {
+		if entry.Path != "screenshots/result.png" {
+			continue
+		}
+		if entry.Size != int64(len(pngBytes)) || entry.SHA256 != png.SHA256() || entry.MediaType != "image/png" || entry.CaptureDisposition != "binary_preserved" {
+			t.Fatalf("PNG manifest entry = %#v", entry)
+		}
+		return
+	}
+	t.Fatal("PNG manifest entry is missing")
 }
 
 func TestRequestRejectsUnsafeBytesAndBounds(t *testing.T) {
