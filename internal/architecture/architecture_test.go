@@ -163,7 +163,7 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:"} {
+	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-kimi:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -214,20 +214,36 @@ func TestMakefileContract(t *testing.T) {
 	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 2 {
 		t.Fatal("release and E2E binaries do not share RELEASE_VERSION")
 	}
+	kimiStart := strings.Index(text, "\ntest-kimi:")
+	if kimiStart < 0 {
+		t.Fatal("Makefile does not define the opt-in Kimi gate")
+	}
+	e2eTarget := text[releaseEnd:kimiStart]
 	for _, required := range []string{
-		"kimi_bin=", `test -n "$$kimi_bin"`, "zcode_node=", `test -n "$$zcode_node"`,
+		"zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,
-		"MULGAE_LIVE_KIMI_BIN", "MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN",
-		"-tags=liveprovider", "-run '^TestLive(Kimi|ZCode|Agy)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
-		if !strings.Contains(text, required) {
+		if !strings.Contains(e2eTarget, required) {
 			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	capability := strings.Index(text, "-tags=liveprovider")
-	workflow := strings.Index(text, "-tags=live_e2e")
+	for _, forbidden := range []string{"kimi_bin=", "MULGAE_LIVE_KIMI_BIN", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME"} {
+		if strings.Contains(e2eTarget, forbidden) {
+			t.Errorf("mandatory test-e2e still requires Kimi token %q", forbidden)
+		}
+	}
+	kimiTarget := text[kimiStart:]
+	for _, required := range []string{"MULGAE_LIVE_KIMI_BIN", "MULGAE_LIVE_KIMI_DATA_HOME", "-run '^TestLiveKimiCapability$$'"} {
+		if !strings.Contains(kimiTarget, required) {
+			t.Errorf("test-kimi missing compatibility token %q", required)
+		}
+	}
+	capability := strings.Index(e2eTarget, "-tags=liveprovider")
+	workflow := strings.Index(e2eTarget, "-tags=live_e2e")
 	if workflow < 0 || capability <= workflow {
 		t.Fatal("test-e2e does not run the login-recovering exact-binary production workflow before family capability certification")
 	}
@@ -263,11 +279,14 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	for _, required := range []string{
 		"func TestE2EActualProvidersProductionWorkflow", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"MULGAE_E2E_BINARY", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)
 		}
+	}
+	if strings.Contains(workflowText, "MULGAE_E2E_KIMI_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_DATA_HOME") {
+		t.Fatal("mandatory exact-binary workflow still requires Kimi")
 	}
 	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
 		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")

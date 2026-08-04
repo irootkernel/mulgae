@@ -32,8 +32,6 @@ const (
 type liveE2EEnvironment struct {
 	binary        string
 	nativeHome    string
-	kimi          string
-	kimiDataHome  string
 	zcodeNode     string
 	zcodeLauncher string
 	agy           string
@@ -178,7 +176,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	validator := newLiveE2EValidator(t)
 	project := initializeLiveE2ERepository(t)
 
-	initResult := runLiveMulgae(t, validator, environment, project, 0, liveInitArguments(environment, "kimi,zcode,agy")...)
+	initResult := runLiveMulgae(t, validator, environment, project, 0, liveInitArguments(environment, "auto")...)
 	if initResult.Result.Kind != "initialized" {
 		t.Fatalf("init result kind = %q", initResult.Result.Kind)
 	}
@@ -189,7 +187,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
 	expected := map[string][2]string{
-		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"},
+		"logic": {"zcode-logic", "agy-logic"}, "security": {"zcode-security", "agy-security"},
 		"maintainability": {"zcode-maintainability", "agy-maintainability"}, "product": {"zcode-product", "agy-product"},
 		"documentation": {"agy-documentation", "zcode-documentation"}, "testing": {"zcode-testing", "agy-testing"},
 	}
@@ -234,7 +232,7 @@ func runLiveChildProductionWorkflows(
 	)
 	assertLiveSourceLineage(t, delta, root, "", "")
 	assertLiveAssignments(t, delta, map[string][2]string{
-		"logic": {"kimi-logic", "zcode-logic"}, "security": {"zcode-security", "agy-security"}, "documentation": {"agy-documentation", "zcode-documentation"},
+		"logic": {"zcode-logic", "agy-logic"}, "security": {"zcode-security", "agy-security"}, "documentation": {"agy-documentation", "zcode-documentation"},
 	})
 
 	exact := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
@@ -257,13 +255,10 @@ func liveInitArguments(environment liveE2EEnvironment, providers string) []strin
 		"init", "--providers", providers,
 		"--roles", "logic,security,maintainability,product,documentation,testing",
 	}
-	if strings.Contains(providers, "kimi") {
-		arguments = append(arguments, "--kimi-executable", environment.kimi, "--kimi-data-home", environment.kimiDataHome)
-	}
-	if strings.Contains(providers, "zcode") {
+	if providers == "auto" || strings.Contains(providers, "zcode") {
 		arguments = append(arguments, "--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher)
 	}
-	if strings.Contains(providers, "agy") {
+	if providers == "auto" || strings.Contains(providers, "agy") {
 		arguments = append(arguments,
 			"--agy-executable", environment.agy,
 			"--agy-permission-mode", "dangerously-skip-permissions",
@@ -294,7 +289,6 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 		t.Fatalf("native installed-user HOME is unavailable: %v", err)
 	}
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
-	kimi := requireLiveExecutable(t, "MULGAE_E2E_KIMI_EXECUTABLE", filepath.Join(installed.HomeDir, ".kimi-code", "bin", "kimi"))
 	zcodeNode := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", lookupLiveExecutable(t, "node"))
 	zcodeLauncher := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_LAUNCHER", "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs")
 	agyDefault := filepath.Join(installed.HomeDir, ".local", "bin", "agy")
@@ -302,8 +296,7 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 		agyDefault = found
 	}
 	agy := requireLiveExecutable(t, "MULGAE_E2E_AGY_EXECUTABLE", agyDefault)
-	kimiDataHome := requireLiveDirectory(t, "MULGAE_E2E_KIMI_DATA_HOME", filepath.Join(installed.HomeDir, ".kimi-code"))
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, kimi: kimi, kimiDataHome: kimiDataHome, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, agy: agy}
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, agy: agy}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -972,11 +965,11 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &redacted); err != nil {
 		t.Fatalf("decode redacted config: %v", err)
 	}
-	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"kimi", "zcode", "agy"}) {
+	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "agy"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
 	want := map[string][2]string{
-		"logic": {"kimi", "zcode"}, "security": {"zcode", "agy"}, "maintainability": {"zcode", "agy"},
+		"logic": {"zcode", "agy"}, "security": {"zcode", "agy"}, "maintainability": {"zcode", "agy"},
 		"product": {"zcode", "agy"}, "documentation": {"agy", "zcode"}, "testing": {"zcode", "agy"},
 		"artist": {"", ""},
 	}
@@ -1134,7 +1127,7 @@ func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	families := []string{"kimi", "zcode", "agy"}
+	families := []string{"zcode", "agy"}
 	var doctor struct {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Readiness             struct {
@@ -1512,5 +1505,5 @@ func assertLiveSourceLineage(t *testing.T, child, source livePublishedRun, findi
 }
 
 func (environment liveE2EEnvironment) String() string {
-	return fmt.Sprintf("Mulgae=%s HOME=%s Kimi=%s ZCode=%s/%s AGY=%s", environment.binary, environment.nativeHome, environment.kimi, environment.zcodeNode, environment.zcodeLauncher, environment.agy)
+	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s AGY=%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher, environment.agy)
 }

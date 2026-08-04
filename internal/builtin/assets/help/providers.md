@@ -3,6 +3,10 @@
 Mulgae supports the `kimi`, `zcode`, and `agy` provider families. Provider
 executables must be installed and authenticated before review.
 
+Automatic initialization selects ZCode and AGY and requires both to be
+available. Kimi is retained for existing Config v1 files and explicit
+`mulgae init --providers kimi` compatibility; it is not part of auto selection.
+
 ```bash
 mulgae providers
 mulgae providers --include-unverified

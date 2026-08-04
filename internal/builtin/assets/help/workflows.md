@@ -25,7 +25,7 @@ Child workflows create new immutable runs:
 ```bash
 mulgae followup --run latest --finding F001 --dirty
 mulgae delta --since-run latest --dirty --roles logic,testing
-mulgae rerun --run latest --role logic --provider kimi
+mulgae rerun --run latest --role logic --provider zcode
 ```
 
 `followup` checks one finding, `delta` reviews changes relative to a prior run,

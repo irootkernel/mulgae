@@ -457,6 +457,7 @@ func TestApplicationRejectedInitJSONUsesInvalidRequestContract(t *testing.T) {
 		{name: "empty provider", argv: []string{"init", "--providers", "", "--output", "json"}},
 		{name: "duplicate provider", argv: []string{"init", "--providers", "kimi,kimi", "--output", "json"}},
 		{name: "mixed auto", argv: []string{"init", "--providers", "auto,kimi", "--output", "json"}},
+		{name: "Kimi override in auto mode", argv: []string{"init", "--kimi-model", "k3", "--output", "json"}},
 		{name: "absent override", argv: []string{"init", "--providers", "agy", "--kimi-model", "k3", "--output", "json"}},
 		{name: "duplicate JSON output", argv: []string{"init", "--providers", "agy", "--output", "json", "--output", "json"}},
 	} {

@@ -5,8 +5,6 @@ project:
 native_user:
   home: "/Users/example"
 providers:
-  kimi:
-    executable: "/opt/homebrew/bin/kimi"
   zcode:
     node_executable: "/opt/homebrew/bin/node"
     launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
@@ -15,7 +13,7 @@ providers:
 execution:
   workspace_access: "none"
 roles:
-  logic: {enabled: true, primary_provider: "kimi", fallback_provider: "zcode"}
+  logic: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
   security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
   maintainability: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
   product: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}

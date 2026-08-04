@@ -5,7 +5,8 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.26 or newer
 - Git
-- authenticated Kimi, ZCode, and AGY installations for live tests
+- authenticated ZCode and AGY installations for the mandatory live tests
+- an authenticated Kimi installation only for the opt-in compatibility test
 
 ## Local checks
 
@@ -17,7 +18,7 @@ make test
 
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, an exact-binary production
-workflow, and independent live capability certification for all providers.
+workflow, and independent live capability certification for ZCode and AGY.
 
 Smaller targets are available while iterating:
 
@@ -26,9 +27,12 @@ make test-prepare
 make test-unit
 make test-int
 make test-e2e
+make test-kimi
 ```
 
-Do not call a change release-ready when the live gate was skipped.
+`make test-kimi` is an opt-in compatibility check and is not part of
+`make test`. Do not call a change release-ready when the mandatory ZCode/AGY
+live gate was skipped.
 
 ## Changing embedded assets
 

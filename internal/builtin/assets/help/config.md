@@ -17,6 +17,10 @@ mulgae init [--project-root PATH] [--name NAME]
 
 `FAMILY := kimi | zcode | agy`
 
+`--providers auto` discovers exactly ZCode and AGY and fails closed unless both
+are available. Select Kimi explicitly to create a Kimi-backed compatibility
+configuration.
+
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
 `execution.workspace_access` is required and must remain `none`.

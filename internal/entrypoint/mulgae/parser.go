@@ -453,6 +453,9 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	if request.agyPermissionMode != "" && request.agyPermissionMode != "safe" && request.agyPermissionMode != "dangerously-skip-permissions" {
 		return Invocation{}, usageError("unsupported AGY permission mode")
 	}
+	if request.selectionMode == "auto" && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
+		return Invocation{}, usageError("Kimi override requires explicit Kimi selection")
+	}
 	if request.selectionMode == "selected" {
 		selected := request.providerIDs
 		if !containsString(selected, "kimi") && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {

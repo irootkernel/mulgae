@@ -677,7 +677,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("auto discovery covers zero through three providers in human and json modes", func(t *testing.T) {
+	t.Run("auto discovery requires zcode and agy while ignoring ambient kimi", func(t *testing.T) {
 		installed, err := user.Current()
 		if err != nil || installed == nil {
 			t.Fatalf("current native account unavailable: %#v %v", installed, err)
@@ -685,11 +685,10 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		overrideDirectory := canonicalTestTempDir(t)
 		emptyPATH := canonicalTestTempDir(t)
 		paths := map[string]string{
-			"kimi":     filepath.Join(overrideDirectory, "kimi-override"),
+			"kimi":     filepath.Join(emptyPATH, "kimi"),
 			"node":     filepath.Join(overrideDirectory, "node-override"),
 			"launcher": filepath.Join(overrideDirectory, "zcode-launcher.cjs"),
 			"agy":      filepath.Join(overrideDirectory, "agy-override"),
-			"data":     filepath.Join(overrideDirectory, "kimi-data"),
 		}
 		for _, path := range []string{paths["kimi"], paths["node"], paths["agy"]} {
 			mustWriteTestFile(t, path, []byte("#!/bin/sh\nexit 0\n"))
@@ -698,52 +697,50 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			}
 		}
 		mustWriteTestFile(t, paths["launcher"], []byte("module.exports = {};\n"))
-		if err := os.Mkdir(paths["data"], 0o700); err != nil {
-			t.Fatal(err)
-		}
 		environment := isolatedMulgaeEnvWith(t, installed.HomeDir, emptyPATH)
-		for _, providerCount := range []int{0, 1, 2, 3} {
+		for _, test := range []struct {
+			name       string
+			arguments  []string
+			shouldPass bool
+			candidates []string
+		}{
+			{name: "neither", candidates: []string{}},
+			{name: "zcode only", arguments: []string{"--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"]}, candidates: []string{"zcode"}},
+			{name: "agy only", arguments: []string{"--agy-executable", paths["agy"]}, candidates: []string{"agy"}},
+			{name: "zcode and agy", arguments: []string{"--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"], "--agy-executable", paths["agy"], "--agy-permission-mode", "safe", "--native-home", installed.HomeDir}, shouldPass: true, candidates: []string{"zcode", "agy"}},
+		} {
 			for _, format := range []string{"human", "json"} {
-				t.Run(fmt.Sprintf("%d_%s", providerCount, format), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s_%s", test.name, format), func(t *testing.T) {
 					project := canonicalTestTempDir(t)
 					initializeReviewGitRepository(t, project)
 					arguments := []string{"init", "--providers", "auto", "--name", "auto-project"}
-					expected := []string{}
-					if providerCount >= 1 {
-						arguments = append(arguments, "--agy-executable", paths["agy"])
-						expected = append(expected, "agy")
-					}
-					if providerCount >= 2 {
-						arguments = append(arguments, "--kimi-executable", paths["kimi"], "--kimi-model", "kimi-code/kimi-for-coding", "--kimi-data-home", paths["data"])
-						expected = []string{"kimi", "agy"}
-					}
-					if providerCount >= 3 {
-						arguments = append(arguments, "--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"], "--agy-permission-mode", "safe", "--native-home", installed.HomeDir)
-						expected = []string{"kimi", "zcode", "agy"}
-					}
+					arguments = append(arguments, test.arguments...)
 					if format == "json" {
 						arguments = append(arguments, "--output", "json")
 					}
 					result := runMulgaeBinaryWithEnv(t, binary, project, environment, arguments...)
-					if providerCount == 0 {
+					if !test.shouldPass {
 						if result.exitCode != 4 || len(result.stderr) != 0 || len(result.stdout) == 0 {
-							t.Fatalf("auto zero = exit %d stdout %q stderr %q", result.exitCode, result.stdout, result.stderr)
+							t.Fatalf("auto %s = exit %d stdout %q stderr %q", test.name, result.exitCode, result.stdout, result.stderr)
 						}
 						if _, err := os.Lstat(filepath.Join(project, ".mulgae")); !errors.Is(err, os.ErrNotExist) {
-							t.Fatalf("auto zero mutated project: %v", err)
+							t.Fatalf("auto %s mutated project: %v", test.name, err)
 						}
 						return
 					}
 					if result.exitCode != 0 || len(result.stderr) != 0 || len(result.stdout) == 0 {
-						t.Fatalf("auto %d = exit %d stdout %q stderr %q", providerCount, result.exitCode, result.stdout, result.stderr)
+						t.Fatalf("auto %s = exit %d stdout %q stderr %q", test.name, result.exitCode, result.stdout, result.stderr)
 					}
 					data, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
 					if err != nil {
 						t.Fatal(err)
 					}
 					config, err := (adapterconfig.YAMLCodec{}).Decode(data)
-					if err != nil || !slices.Equal(config.Providers.Families(), expected) {
-						t.Fatalf("auto config families = %v err=%v, want %v", config.Providers.Families(), err, expected)
+					if err != nil || !slices.Equal(config.Providers.Families(), test.candidates) {
+						t.Fatalf("auto config families = %v err=%v, want %v", config.Providers.Families(), err, test.candidates)
+					}
+					if config.Roles.Logic.PrimaryProvider != "zcode" || config.Roles.Logic.FallbackProvider != "agy" {
+						t.Fatalf("auto logic assignment = %#v", config.Roles.Logic)
 					}
 					if format == "json" {
 						var envelope struct {
@@ -757,7 +754,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 								Configured []string `json:"configured_provider_ids"`
 							} `json:"result"`
 						}
-						if err := json.Unmarshal(result.stdout, &envelope); err != nil || envelope.Request.Selection.Mode != "auto" || !slices.Equal(envelope.Result.Candidates, expected) || !slices.Equal(envelope.Result.Configured, expected) {
+						if err := json.Unmarshal(result.stdout, &envelope); err != nil || envelope.Request.Selection.Mode != "auto" || !slices.Equal(envelope.Result.Candidates, test.candidates) || !slices.Equal(envelope.Result.Configured, test.candidates) {
 							t.Fatalf("auto JSON projection = %#v err=%v", envelope, err)
 						}
 					}

@@ -17,10 +17,12 @@ provider families:
 - ZCode
 - AGY
 
-Install and authenticate at least one supported provider before initializing a
-project. Mulgae records provider identity and capabilities at runtime and fails
-closed when a required capability is unavailable. Other operating systems,
-architectures, and provider families are not supported by the initial release.
+The default `mulgae init` topology requires authenticated ZCode and AGY
+installations. Kimi remains available only when selected explicitly with
+`--providers kimi`. Mulgae records provider identity and capabilities at runtime
+and fails closed when a required capability is unavailable. Other operating
+systems, architectures, and provider families are not supported by the initial
+release.
 
 ### Use ZCode from Mulgae
 
@@ -106,6 +108,10 @@ mulgae providers --include-unverified
 mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
+
+Automatic initialization configures ZCode as the primary reviewer and AGY as
+its fallback for logic, security, maintainability, product, and testing. The
+documentation role uses AGY with ZCode fallback.
 
 `mulgae init` creates the only configuration authority:
 `.mulgae/config.yaml`. It never overwrites an existing configuration.

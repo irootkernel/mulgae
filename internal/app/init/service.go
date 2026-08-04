@@ -414,7 +414,7 @@ type candidates struct {
 }
 
 func (service *Service) discover(ctx context.Context, request InitializeProjectRequest) (candidates, []DiscoveryRow, error) {
-	wanted := map[string]bool{"kimi": request.Selection.Mode == SelectionAuto, "zcode": request.Selection.Mode == SelectionAuto, "agy": request.Selection.Mode == SelectionAuto}
+	wanted := map[string]bool{"zcode": request.Selection.Mode == SelectionAuto, "agy": request.Selection.Mode == SelectionAuto}
 	for _, id := range request.Selection.ProviderIDs {
 		wanted[id] = true
 	}
@@ -538,8 +538,8 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 	if len(securityErrors) != 0 {
 		return found, rows, errors.Join(append([]error{errUnsafeDiscovery}, securityErrors...)...)
 	}
-	if request.Selection.Mode == SelectionAuto && len(ids) == 0 {
-		return found, rows, errors.Join(append([]error{errors.New("no provider discovered")}, discoveryErrors...)...)
+	if request.Selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "agy")) {
+		return found, rows, errors.Join(append([]error{errors.New("auto selection requires both zcode and agy")}, discoveryErrors...)...)
 	}
 	if request.Selection.Mode == SelectionSelected {
 		for _, id := range request.Selection.ProviderIDs {
@@ -649,7 +649,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 {
+		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -697,8 +697,8 @@ func contains(values []string, value string) bool {
 func digest(data []byte) string      { sum := sha256Sum(data); return fmt.Sprintf("sha256:%x", sum) }
 func sha256Sum(data []byte) [32]byte { return sha256.Sum256(data) }
 func discoveryReason(selection Selection, ids []string) string {
-	if selection.Mode == SelectionAuto && len(ids) == 0 {
-		return "init_discovery_empty"
+	if selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "agy")) {
+		return "init_auto_provider_topology_unavailable"
 	}
 	return "init_provider_unavailable"
 }
@@ -714,6 +714,8 @@ func initFailureMessage(code string) string {
 		return "The project-local Mulgae configuration already exists."
 	case "init_discovery_empty":
 		return "No supported provider was discovered."
+	case "init_auto_provider_topology_unavailable":
+		return "Automatic initialization requires both ZCode and AGY."
 	case "init_provider_unavailable":
 		return "A selected provider is unavailable."
 	case "init_private_dir_raced":

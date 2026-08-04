@@ -581,29 +581,95 @@ func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectAutoRetainsAvailableFamilyWhenAnotherDiscoveryFails(t *testing.T) {
-	rootPath := t.TempDir()
-	_ = os.Chmod(rootPath, 0o700)
-	root, _ := ports.NewAnchoredRoot(rootPath)
-	inspector := &scopedDiscoveryInspector{
-		observations: map[string]ports.ExecutableObservation{
-			"kimi":      availableDiscoveryObservation(t, "kimi", "/bin/kimi"),
-			"/bin/kimi": availableDiscoveryObservation(t, "/bin/kimi", "/bin/kimi"),
-		},
-		errors: map[string]error{"node": errors.New("injected ZCode discovery failure")},
-	}
-	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
-	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto},
-	})
+func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing.T) {
+	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"kimi"}) || len(result.Discovery) != 3 || result.Discovery[0].Status != "candidate" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "unavailable" {
-		t.Fatalf("result=%#v", result)
+	launcher := filepath.Join(launcherRoot, "zcode.cjs")
+	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if len(inspector.legacyCalls) != 0 {
-		t.Fatalf("provider executable was launched during discovery: %v", inspector.legacyCalls)
+	newInspector := func(withAgy bool) *scopedDiscoveryInspector {
+		observations := map[string]ports.ExecutableObservation{
+			"/bin/node": availableDiscoveryObservation(t, "/bin/node", "/bin/node"),
+		}
+		if withAgy {
+			observations["/bin/agy"] = availableDiscoveryObservation(t, "/bin/agy", "/bin/agy")
+		}
+		return &scopedDiscoveryInspector{
+			observations: observations,
+			fileObservations: map[string]ports.FileIdentityObservation{
+				launcher: availableFileObservation(t, launcher, launcher),
+			},
+			errors: map[string]error{"kimi": errors.New("auto must not inspect Kimi")},
+		}
+	}
+	request := func(root ports.AnchoredRoot) InitializeProjectRequest {
+		return InitializeProjectRequest{
+			ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto},
+			Overrides: Overrides{ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher, AGYExecutable: "/bin/agy"},
+		}
+	}
+
+	t.Run("both providers form the default topology", func(t *testing.T) {
+		rootPath := t.TempDir()
+		_ = os.Chmod(rootPath, 0o700)
+		root, _ := ports.NewAnchoredRoot(rootPath)
+		inspector := newInspector(true)
+		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		result, initErr := service.InitializeProject(context.Background(), request(root))
+		if initErr != nil {
+			t.Fatal(initErr)
+		}
+		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode", "agy"}) || len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "candidate" {
+			t.Fatalf("result=%#v", result)
+		}
+		if contains(inspector.calls, "kimi") || len(inspector.legacyCalls) != 0 {
+			t.Fatalf("auto discovery observed Kimi or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
+		}
+		data, readErr := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		config, decodeErr := adapterconfig.Decode(data)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if config.Roles.Logic.PrimaryProvider != "zcode" || config.Roles.Logic.FallbackProvider != "agy" {
+			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
+		}
+	})
+
+	t.Run("missing AGY fails closed", func(t *testing.T) {
+		rootPath := t.TempDir()
+		_ = os.Chmod(rootPath, 0o700)
+		root, _ := ports.NewAnchoredRoot(rootPath)
+		inspector := newInspector(false)
+		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		result, initErr := service.InitializeProject(context.Background(), request(root))
+		var failure *Failure
+		if !errors.As(initErr, &failure) || failure.Code() != "init_auto_provider_topology_unavailable" {
+			t.Fatalf("failure = %T %v", initErr, initErr)
+		}
+		if result.Committed || !reflect.DeepEqual(result.CandidateProviderIDs, []string{"zcode"}) {
+			t.Fatalf("result=%#v", result)
+		}
+		if contains(inspector.calls, "kimi") {
+			t.Fatalf("auto discovery observed Kimi: %v", inspector.calls)
+		}
+	})
+}
+
+func TestValidateSelectionRejectsKimiOverridesInAutoMode(t *testing.T) {
+	for _, overrides := range []Overrides{
+		{KimiExecutable: "/bin/kimi"},
+		{KimiModel: "k3"},
+		{KimiDataHome: "/Users/test/.kimi-code"},
+	} {
+		if _, err := validateSelection(Selection{Mode: SelectionAuto}, overrides); err == nil {
+			t.Fatalf("auto selection accepted Kimi override %#v", overrides)
+		}
 	}
 }
 
