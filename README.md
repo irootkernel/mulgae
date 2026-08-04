@@ -124,6 +124,60 @@ Every review command requires exactly one target:
 Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
 
+## AI agent instructions
+
+Copy the following block into a project's `AGENTS.md` or `CLAUDE.md` to tell AI
+agents how to use Mulgae safely and consistently:
+
+````markdown
+### Mulgae code review
+
+Use Mulgae only when the user explicitly asks for a Mulgae review.
+
+- Run Mulgae from the Git repository root. Verify that `mulgae` is installed and
+  `.mulgae/config.yaml` exists before starting. If either prerequisite is
+  missing, stop and tell the user what is required. Do not run `mulgae init`
+  unless the user separately and explicitly asks you to initialize the project.
+- Select exactly one target that matches the requested scope: use `--diff
+  origin/main...HEAD` for a branch or pull request (replacing `origin/main` with
+  the actual base), `--stage` for staged changes, `--dirty` for staged and
+  unstaged changes, or `--workspace` only when the user explicitly requests all
+  tracked files at the current workspace state.
+- State the review goal with `--objective` and use `--output json`. For example:
+
+  ```bash
+  mulgae review --diff origin/main...HEAD \
+    --objective "Review this change before merge." \
+    --output json
+  ```
+
+- Read the JSON result even when Mulgae exits with status 1: status 1 is a policy
+  outcome, not an execution failure. Treat any status other than 0 or 1 as an
+  operational failure; report it instead of bypassing Mulgae.
+- Preserve the exact run ID returned by the review. Inspect that run with:
+
+  ```bash
+  mulgae status --run r_... --output json
+  mulgae findings --run r_... --severity low --output json
+  ```
+
+- Treat every finding as an advisory hypothesis. Verify it against the captured
+  target and current code before changing anything, and make fixes only within
+  the user's authorized scope. Report findings that are valid, invalid, or
+  outside scope.
+- After an authorized fix, use the original run ID and finding ID with a target
+  that contains the fix. For an uncommitted fix, for example:
+
+  ```bash
+  mulgae followup --run r_... --finding F001 --dirty \
+    --objective "Check whether the original finding is resolved." \
+    --output json
+  ```
+
+- Do not commit or share `.mulgae/`, provider credential directories, raw
+  transcripts, or exported review bundles.
+````
+
 ## Review results
 
 A successful publication creates a run beneath:
