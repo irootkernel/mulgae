@@ -117,7 +117,10 @@ func replaceSchemaOutcomeContract(filename string, specs []appinit.MutationOutco
 		return err
 	}
 	startNeedle := []byte(`    "init_mutation_outcome": {`)
-	endNeedle := []byte(`    "requests": {`)
+	// The init outcome block is generated independently. Review preflight owns
+	// the following definitions, so stop at its stable first definition instead
+	// of consuming every definition up to requests.
+	endNeedle := []byte(`    "review_preflight_duration": {`)
 	start := bytes.Index(data, startNeedle)
 	end := bytes.Index(data, endNeedle)
 	if start < 0 || end <= start || bytes.Index(data[start+1:], startNeedle) >= 0 || bytes.Index(data[end+1:], endNeedle) >= 0 {

@@ -1392,7 +1392,13 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	buildFakeAGY(t, root, agyExecutable, agyLog)
 	home := canonicalTestTempDir(t)
 	environment := isolatedMulgaeEnvWith(t, home, providerDirectory)
-	initializeOfflineProviders(t, binary, project, environment, "zcode,agy", zcodeNode, zcodeLauncher, agyExecutable)
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "zcode,agy", "--roles", "logic,security,artist", "--project-kind", "ui",
+		"--artist-brief", "roadmap.md", "--artist-design-specs", "screenshots/**/*.png",
+		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher, "--agy-executable", agyExecutable)
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize first-project integration config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
 
 	configPath := filepath.Join(project, ".mulgae", "config.yaml")
 	configBytes, err := os.ReadFile(configPath)
@@ -1410,17 +1416,28 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if err != nil {
 		t.Fatal(err)
 	}
+	worktreePNG := append(append([]byte(nil), pngBytes...), []byte("worktree-only-drift")...)
 	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
-	mustWriteTestFile(t, filepath.Join(project, "security-fixtures.txt"), []byte("changePassword: vi.fn()\nAuthorization: Bearer placeholder-token\n"))
+	credentialFixtures := []byte(strings.Join([]string{
+		"changePassword: vi.fn()",
+		"Authorization: Bearer abcdefghijklmnop",
+		"api_key=placeholder-api-key",
+		"-----BEGIN RSA PRIVATE KEY-----",
+		"placeholder-private-key",
+		"-----END RSA PRIVATE KEY-----",
+		"database_password=development-only",
+	}, "\n") + "\n")
+	mustWriteTestFile(t, filepath.Join(project, "security-fixtures.txt"), credentialFixtures)
 	mustWriteTestFile(t, filepath.Join(project, "ignored.txt"), []byte("must not be transmitted\n"))
 	mustWriteTestFile(t, filepath.Join(project, ".mulgaeignore"), []byte("ignored.txt\n"))
 	runTestCommand(t, project, "git", "add", "review.go", "screenshots/staged.png", "security-fixtures.txt", ".mulgaeignore")
+	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), worktreePNG)
 
 	beforeMulgae := snapshotTestTree(t, filepath.Join(project, ".mulgae"))
 	tempRoot := environmentValue(t, environment, "TMPDIR")
 	beforeTemp := snapshotTestTree(t, tempRoot)
-	first := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
-	second := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
+	first := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "logic,security,artist", "--preflight", "--output", "json")
+	second := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "logic,security,artist", "--preflight", "--output", "json")
 	if first.exitCode != 0 || second.exitCode != 0 || len(first.stderr) != 0 || len(second.stderr) != 0 {
 		t.Fatalf("preflight exits = %d/%d stderr=%q/%q stdout=%q", first.exitCode, second.exitCode, first.stderr, second.stderr, first.stdout)
 	}
@@ -1459,10 +1476,42 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if !reflect.DeepEqual(firstResult, secondResult) {
 		t.Fatalf("preflight projection is nondeterministic:\n%#v\n%#v", firstResult, secondResult)
 	}
-	if firstResult.AGYPermissionMode != "dangerously-skip-permissions" || len(firstResult.Transmissions) != 2 ||
-		firstResult.Transmissions[0].ProviderFamily != "zcode" || firstResult.Transmissions[0].ConfiguredTimeout != "30m" ||
-		firstResult.Transmissions[1].ProviderFamily != "agy" || firstResult.Transmissions[1].ConfiguredTimeout != "15m" {
-		t.Fatalf("preflight routes = mode %q %#v", firstResult.AGYPermissionMode, firstResult.Transmissions)
+	wantRoutes := []string{
+		"logic/primary/zcode/zcode-logic/30m/not_applicable/prompt",
+		"logic/fallback/agy/agy-logic/15m/dangerously-skip-permissions/prompt",
+		"security/primary/zcode/zcode-security/30m/not_applicable/prompt",
+		"security/fallback/agy/agy-security/15m/dangerously-skip-permissions/prompt",
+		"artist/primary/agy/agy-artist/15m/dangerously-skip-permissions/prompt",
+		"artist/fallback/zcode/zcode-artist/30m/not_applicable/prompt",
+	}
+	gotRoutes := make([]string, 0, len(firstResult.Transmissions))
+	if len(firstResult.FileSets) != 1 || firstResult.FileSets[0].ID == "" {
+		t.Fatalf("preflight file sets = %#v, want one identified exact transmission set", firstResult.FileSets)
+	}
+	fileSetID := firstResult.FileSets[0].ID
+	for _, route := range firstResult.Transmissions {
+		gotRoutes = append(gotRoutes, strings.Join([]string{route.Role, route.RouteKind, route.ProviderFamily, route.ProviderInstance, route.ConfiguredTimeout, route.PermissionMode, route.TargetChannel}, "/"))
+		if route.FileSetID != fileSetID {
+			t.Fatalf("preflight routes do not share the exact file set: %#v", firstResult.Transmissions)
+		}
+	}
+	if firstResult.AGYPermissionMode != "dangerously-skip-permissions" || !slices.Equal(gotRoutes, wantRoutes) {
+		t.Fatalf("preflight routes = mode %q %v, want %v", firstResult.AGYPermissionMode, gotRoutes, wantRoutes)
+	}
+	wantLanes := []mulgaeentry.ReviewPreflightLaneDeadline{
+		{ConcurrencyKey: "agy-artist", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "30m0s", Deadline: "30m4s"},
+		{ConcurrencyKey: "agy-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
+		{ConcurrencyKey: "agy-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
+		{ConcurrencyKey: "zcode-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
+		{ConcurrencyKey: "zcode-logic", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "1h0m0s", Deadline: "1h0m4s"},
+		{ConcurrencyKey: "zcode-security", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "1h0m0s", Deadline: "1h0m4s"},
+	}
+	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 12 ||
+		budget.TotalOutputCapBytes != 6<<20 || budget.CriticalPathDeadline != "1h30m6s" || budget.RunDeadline != "2h30m15s" ||
+		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.LaneDeadline != "28h0m42s" || budget.Ceilings.RunDeadline != "28h0m47s" ||
+		budget.Ceilings.MaxInvocationsPerRole != 4 || budget.Ceilings.MaxInvocationsPerRun != 12 || budget.Ceilings.MaxTotalOutputBytes != 64<<20 ||
+		!reflect.DeepEqual(budget.Lanes, wantLanes) {
+		t.Fatalf("preflight budget = %#v, want exact first-project capacity envelope", budget)
 	}
 	wantPNGHash := sha256.Sum256(pngBytes)
 	wantPNG := "sha256:" + hex.EncodeToString(wantPNGHash[:])
@@ -1485,6 +1534,111 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		t.Fatalf("exact transmitted source paths = %v, want %v", paths, wantPaths)
 	}
 
+	actual := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"review", "--stage", "--roles", "logic,security,artist", "--output", "json")
+	var actualEnvelope commandEnvelope
+	if err := json.Unmarshal(actual.stdout, &actualEnvelope); err != nil || actual.exitCode != 0 || len(actual.stderr) != 0 ||
+		actualEnvelope.Result.Kind != "review_started" || actualEnvelope.Result.SessionID == nil || actualEnvelope.Result.RunID == nil ||
+		actualEnvelope.Result.RunManifestURI == nil || actualEnvelope.Result.ReviewArtifactURI == nil {
+		t.Fatalf("actual first-project review = exit %d envelope %#v decode=%v stdout=%q stderr=%q", actual.exitCode, actualEnvelope, err, actual.stdout, actual.stderr)
+	}
+	type zcodeObservation struct {
+		CWD    string `json:"cwd"`
+		Prompt string `json:"prompt"`
+	}
+	zcodeBytes, err := os.ReadFile(zcodeLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zcodeQualification, zcodeReviews int
+	for _, line := range strings.Split(strings.TrimSpace(string(zcodeBytes)), "\n") {
+		var observation zcodeObservation
+		if err := json.Unmarshal([]byte(line), &observation); err != nil {
+			t.Fatal(err)
+		}
+		if observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
+			t.Fatalf("ZCode escaped the bounded snapshot: %#v", observation)
+		}
+		if strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
+			zcodeQualification++
+		} else {
+			zcodeReviews++
+		}
+	}
+	if zcodeQualification != 3 || zcodeReviews != 2 {
+		t.Fatalf("ZCode launches = qualification:%d reviews:%d, want 3/2", zcodeQualification, zcodeReviews)
+	}
+	agyObservations := readFakeAGYObservations(t, agyLog)
+	var agyQualification, agyReviews int
+	for _, observation := range agyObservations {
+		if len(observation.Argv) == 1 && observation.Argv[0] == "--version" {
+			continue
+		}
+		if observation.CWD != observation.Snapshot || observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
+			t.Fatalf("AGY bounded snapshot contract = %#v", observation)
+		}
+		if observation.Prompt == "@roadmap.md" {
+			agyQualification++
+			continue
+		}
+		agyReviews++
+		if observation.Fixture != string(credentialFixtures) || observation.PNG != wantPNG ||
+			!slices.Contains(observation.Argv, "--sandbox") || !slices.Contains(observation.Argv, "--dangerously-skip-permissions") ||
+			!slices.Contains(observation.Argv, "--add-dir") {
+			t.Fatalf("AGY did not read the exact bounded fixture and raster evidence: %#v", observation)
+		}
+	}
+	if agyQualification != 3 || agyReviews != 1 {
+		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 3/1: %#v", agyQualification, agyReviews, agyObservations)
+	}
+	archivePath := filepath.Join(project, ".mulgae", *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID, "target", "captured-review.json")
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.UnmarshalCapturedReviewMaterial(archiveBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExactPNG := func(label string, files []ports.WorkspaceSnapshotFile) {
+		t.Helper()
+		for _, file := range files {
+			if file.Path().String() == "screenshots/staged.png" {
+				if file.MediaType() != "image/png" || file.SHA256() != wantPNG || !bytes.Equal(file.Bytes(), pngBytes) {
+					t.Fatalf("%s PNG = media=%q hash=%q bytes=%x", label, file.MediaType(), file.SHA256(), file.Bytes())
+				}
+				return
+			}
+		}
+		t.Fatalf("%s omitted staged PNG", label)
+	}
+	assertExactPNG("archive snapshot", archive.Snapshot().Files())
+	indexEvidence, ok := archive.Evidence().Files(ports.CapturedEvidenceIndex)
+	if !ok {
+		t.Fatal("archive omitted index evidence")
+	}
+	assertExactPNG("archive index evidence", indexEvidence)
+	if observed, err := os.ReadFile(filepath.Join(project, "screenshots", "staged.png")); err != nil || !bytes.Equal(observed, worktreePNG) {
+		t.Fatalf("actual review mutated the divergent worktree PNG: err=%v bytes=%x", err, observed)
+	}
+	agyBytes, err := os.ReadFile(agyLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerLogBaseline := map[string][]byte{zcodeLog: append([]byte(nil), zcodeBytes...), agyLog: append([]byte(nil), agyBytes...)}
+	assertProviderLogsUnchanged := func(stage string) {
+		t.Helper()
+		for path, baseline := range providerLogBaseline {
+			observed, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(observed, baseline) {
+				t.Fatalf("%s preflight invoked a provider: path=%s err=%v\nbefore=%s\nafter=%s", stage, path, err, baseline, observed)
+			}
+		}
+	}
+
+	beforeMulgae = snapshotTestTree(t, filepath.Join(project, ".mulgae"))
+	beforeTemp = snapshotTestTree(t, tempRoot)
+
 	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), []byte("not-a-png"))
 	runTestCommand(t, project, "git", "add", "screenshots/staged.png")
 	failed := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
@@ -1498,6 +1652,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if got := snapshotTestTree(t, filepath.Join(project, ".mulgae")); !reflect.DeepEqual(got, beforeMulgae) {
 		t.Fatalf("capture failure mutated .mulgae: before=%v after=%v", beforeMulgae, got)
 	}
+	assertProviderLogsUnchanged("capture-failure")
 	runTestCommand(t, project, "git", "reset")
 	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
 	noChange := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
@@ -1511,6 +1666,10 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if got := snapshotTestTree(t, tempRoot); !reflect.DeepEqual(got, beforeTemp) {
 		t.Fatalf("no-change preflight leaked temporary workspace: before=%v after=%v", beforeTemp, got)
 	}
+	if got := snapshotTestTree(t, filepath.Join(project, ".mulgae")); !reflect.DeepEqual(got, beforeMulgae) {
+		t.Fatalf("no-change preflight mutated .mulgae: before=%v after=%v", beforeMulgae, got)
+	}
+	assertProviderLogsUnchanged("no-change")
 }
 
 func snapshotTestTree(t *testing.T, root string) []string {
@@ -1744,6 +1903,8 @@ type fakeAGYObservation struct {
 	Scratch       string   `json:"scratch"`
 	Snapshot      string   `json:"snapshot"`
 	Prompt        string   `json:"prompt"`
+	Fixture       string   `json:"fixture,omitempty"`
+	PNG           string   `json:"png_sha256,omitempty"`
 }
 
 func initializeReviewGitRepository(t *testing.T, directory string) {
@@ -1934,6 +2095,7 @@ func buildFakeAGYWithReviewOutput(t *testing.T, root, binary, logPath, reviewOut
 	program := `package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1952,6 +2114,8 @@ type observation struct {
 	Scratch string ` + "`json:\"scratch\"`" + `
 	Snapshot string ` + "`json:\"snapshot\"`" + `
 	Prompt string ` + "`json:\"prompt\"`" + `
+	Fixture string ` + "`json:\"fixture,omitempty\"`" + `
+	PNG string ` + "`json:\"png_sha256,omitempty\"`" + `
 }
 
 func main() {
@@ -1977,6 +2141,17 @@ func main() {
 		panic("non-canonical AGY invocation")
 	}
 	observation.Snapshot, observation.Prompt = argv[4], argv[12]
+	if observation.Prompt != "@roadmap.md" {
+		fixture, fixtureErr := os.ReadFile("security-fixtures.txt")
+		png, pngErr := os.ReadFile("screenshots/staged.png")
+		if fixtureErr == nil && pngErr == nil {
+			observation.Fixture = string(fixture)
+			digest := sha256.Sum256(png)
+			observation.PNG = fmt.Sprintf("sha256:%x", digest[:])
+		} else if fixtureErr != nil && !os.IsNotExist(fixtureErr) || pngErr != nil && !os.IsNotExist(pngErr) {
+			panic("partial review inspection fixture")
+		}
+	}
 	write(observation)
 	if observation.Prompt == "@roadmap.md" {
 		roadmap, err := os.ReadFile("roadmap.md")

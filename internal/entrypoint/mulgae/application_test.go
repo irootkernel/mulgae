@@ -1194,6 +1194,9 @@ func TestApplicationDoctorReturnsInlineValidatedUnverifiedResult(t *testing.T) {
 	}
 
 	var envelope struct {
+		Reasons []struct {
+			Code string `json:"code"`
+		} `json:"reasons"`
 		Result struct {
 			DoctorResultURI *string                   `json:"doctor_result_uri"`
 			Doctor          *doctor.LocalDoctorResult `json:"doctor"`
@@ -1202,7 +1205,8 @@ func TestApplicationDoctorReturnsInlineValidatedUnverifiedResult(t *testing.T) {
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.DoctorResultURI != nil || envelope.Result.Doctor == nil {
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "readiness_unverified" ||
+		envelope.Result.DoctorResultURI != nil || envelope.Result.Doctor == nil {
 		t.Fatalf("doctor result = %#v, want inline artifact and null URI", envelope.Result)
 	}
 	contents, err := json.Marshal(envelope.Result.Doctor)
@@ -2289,6 +2293,77 @@ func TestApplicationReviewReportsCaptureStageAndSubtype(t *testing.T) {
 		!strings.Contains(envelope.Reasons[0].Message, "role: logic") || !strings.Contains(envelope.Reasons[0].Message, "client/e2e/screenshots/example.png") ||
 		!strings.Contains(envelope.Reasons[0].Message, "use role-aware binary capture") {
 		t.Fatalf("capture envelope = %#v", envelope)
+	}
+}
+
+func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testing.T) {
+	providerFailure := func(condition review.AttemptCondition, class domain.FailureClass) error {
+		t.Helper()
+		fact, err := reviewrun.NewProviderExecutionFailure("zcode-logic", domain.RoleLogic, string(condition), class)
+		if err != nil {
+			t.Fatal(err)
+		}
+		aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
+		failure, err := domain.NewFailure("reviewrun.execute", class, "provider execution failed", aggregate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	unsupported, err := ports.NewReviewCaptureFailure(
+		ports.ReviewCaptureUnsupported, "screenshots/invalid.png", domain.RoleLogic,
+		"use role-aware binary capture", errors.New("invalid PNG signature"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyBlocked, err := ports.NewReviewCapturePolicyFailure(
+		"fixtures/policy.txt", domain.RoleSecurity, "test-policy", "content-policy-v1", errors.New("policy rejected capture"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, code, stage string
+		exit              app.ExitCode
+		err               error
+		provider          bool
+		policyConfig      bool
+	}{
+		{name: "capture failed", code: "capture_failed", stage: "review.capture", exit: app.ExitCodeArtifact, err: ports.WrapReviewCaptureFailure(errors.New("snapshot unavailable"))},
+		{name: "unsupported content", code: "unsupported_content", stage: "review.capture", exit: app.ExitCodeArtifact, err: unsupported},
+		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
+		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
+		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
+		{name: "provider output missing", code: "provider_output_missing", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputMissing, domain.FailureInvalidOutput), provider: true},
+		{name: "provider output decode failed", code: "provider_output_decode_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputDecodeFailed, domain.FailureInvalidOutput), provider: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			fixture.application.reviewRuns = &reviewRunFake{err: test.err}
+			result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			var envelope struct {
+				Reasons []struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"reasons"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(envelope.Reasons) != 1 {
+				t.Fatalf("failure taxonomy = %#v, want one reason", envelope.Reasons)
+			}
+			message := envelope.Reasons[0].Message
+			if envelope.Reasons[0].Code != test.code ||
+				envelope.Reasons[0].Code == "readiness_unverified" || !strings.Contains(message, "stage "+test.stage) || !strings.Contains(message, "hint:") ||
+				test.provider && (!strings.Contains(message, "role=logic") || !strings.Contains(message, "provider=zcode-logic")) ||
+				test.policyConfig && !strings.Contains(message, "effective configuration: detector_policy=content-policy-v1; detector_code=test-policy") {
+				t.Fatalf("failure taxonomy = %#v, want code %q at stage %q", envelope.Reasons, test.code, test.stage)
+			}
+		})
 	}
 }
 
