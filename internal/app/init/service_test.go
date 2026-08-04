@@ -994,7 +994,7 @@ func (validator *recordingPrevalidator) PrevalidateInitOutcome(_ context.Context
 func admittedAGYDiscoveryRows() []DiscoveryRow {
 	agy := DiscoveryRow{
 		Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate",
-		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "safe_default",
+		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "headless_default",
 	}
 	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy}
 }

@@ -54,6 +54,23 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	}
 }
 
+func TestBuildArgvOmitsAGYPermissionBypassOnlyForExplicitSafeTransport(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := buildArgv(definition{
+		family: FamilyAgy, baseArgv: []string{"/private/bin/agy"}, transport: transport, timeout: 30 * time.Minute,
+	}, "/private/work", []byte("review bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
+	if !equalStrings(got, want) {
+		t.Fatalf("safe AGY argv = %q, want %q", got, want)
+	}
+}
+
 func TestProviderResultStrictness(t *testing.T) {
 	content, isolated, err := providerResult(FamilyKimi, []byte("{\"role\":\"system\"}\n{\"role\":\"assistant\",\"content\":\"answer\"}\n"))
 	if err != nil || !isolated || !bytes.Equal(content, []byte("answer")) {

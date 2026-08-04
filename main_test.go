@@ -116,6 +116,9 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 	if !reflect.DeepEqual(policy.providerTimeouts, want) {
 		t.Fatalf("production provider timeouts = %#v, want %#v", policy.providerTimeouts, want)
 	}
+	if policy.agyPermissionMode != adapterconfig.SafeAGYPermissionMode {
+		t.Fatalf("production AGY permission mode = %q, want explicit safe", policy.agyPermissionMode)
+	}
 }
 
 type childContextDetector struct{ err error }
@@ -812,7 +815,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("agy safe omission equals explicit safe and init never overwrites", func(t *testing.T) {
+	t.Run("agy omission selects headless default while safe remains explicit", func(t *testing.T) {
 		installed, err := user.Current()
 		if err != nil || installed == nil {
 			t.Fatalf("current native account unavailable: %#v %v", installed, err)
@@ -824,31 +827,42 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		environment := isolatedMulgaeEnvWith(t, installed.HomeDir, providerDirectory)
-		projects := []string{canonicalTestTempDir(t), canonicalTestTempDir(t)}
+		projects := []string{canonicalTestTempDir(t), canonicalTestTempDir(t), canonicalTestTempDir(t)}
 		for _, project := range projects {
 			initializeReviewGitRepository(t, project)
 		}
-		base := []string{"init", "--name", "safe-project", "--providers", "agy", "--agy-executable", agy, "--output", "json"}
+		base := []string{"init", "--name", "headless-project", "--providers", "agy", "--agy-executable", agy, "--output", "json"}
 		omitted := runMulgaeBinaryWithEnv(t, binary, projects[0], environment, base...)
-		explicitArguments := append(append([]string(nil), base...), "--agy-permission-mode", "safe")
-		explicit := runMulgaeBinaryWithEnv(t, binary, projects[1], environment, explicitArguments...)
-		if omitted.exitCode != 0 || explicit.exitCode != 0 {
-			t.Fatalf("safe init exits = omitted %d explicit %d", omitted.exitCode, explicit.exitCode)
+		explicitHeadlessArguments := append(append([]string(nil), base...), "--agy-permission-mode", "dangerously-skip-permissions")
+		explicitHeadless := runMulgaeBinaryWithEnv(t, binary, projects[1], environment, explicitHeadlessArguments...)
+		safeArguments := append(append([]string(nil), base...), "--agy-permission-mode", "safe")
+		safe := runMulgaeBinaryWithEnv(t, binary, projects[2], environment, safeArguments...)
+		if omitted.exitCode != 0 || explicitHeadless.exitCode != 0 || safe.exitCode != 0 {
+			t.Fatalf("AGY init exits = omitted %d explicit-headless %d safe %d", omitted.exitCode, explicitHeadless.exitCode, safe.exitCode)
 		}
 		omittedConfig, err := os.ReadFile(filepath.Join(projects[0], ".mulgae", "config.yaml"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		explicitConfig, err := os.ReadFile(filepath.Join(projects[1], ".mulgae", "config.yaml"))
-		if err != nil || !bytes.Equal(omittedConfig, explicitConfig) {
-			t.Fatalf("safe omission and explicit bytes differ: %v", err)
+		explicitHeadlessConfig, err := os.ReadFile(filepath.Join(projects[1], ".mulgae", "config.yaml"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		repeated := runMulgaeBinaryWithEnv(t, binary, projects[1], environment, explicitArguments...)
+		safeConfig, err := os.ReadFile(filepath.Join(projects[2], ".mulgae", "config.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(omittedConfig, []byte("permission_mode:")) ||
+			!bytes.Contains(explicitHeadlessConfig, []byte(`permission_mode: "dangerously-skip-permissions"`)) ||
+			!bytes.Contains(safeConfig, []byte(`permission_mode: "safe"`)) {
+			t.Fatalf("AGY canonical modes = omitted:\n%s\nexplicit headless:\n%s\nsafe:\n%s", omittedConfig, explicitHeadlessConfig, safeConfig)
+		}
+		repeated := runMulgaeBinaryWithEnv(t, binary, projects[2], environment, safeArguments...)
 		if repeated.exitCode != 2 || len(repeated.stderr) != 0 {
 			t.Fatalf("repeat init = exit %d stdout %q stderr %q", repeated.exitCode, repeated.stdout, repeated.stderr)
 		}
-		after, err := os.ReadFile(filepath.Join(projects[1], ".mulgae", "config.yaml"))
-		if err != nil || !bytes.Equal(after, explicitConfig) {
+		after, err := os.ReadFile(filepath.Join(projects[2], ".mulgae", "config.yaml"))
+		if err != nil || !bytes.Equal(after, safeConfig) {
 			t.Fatalf("repeat init changed config: %v", err)
 		}
 	})
@@ -1118,9 +1132,13 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
 	environment = append(environment, "MULGAE_FAKE_AGY_LOG="+logPath)
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"init", "--providers", "agy", "--roles", "security", "--agy-executable", filepath.Join(providerDirectory, "agy"), "--agy-permission-mode", "dangerously-skip-permissions")
+		"init", "--providers", "agy", "--roles", "security", "--agy-executable", filepath.Join(providerDirectory, "agy"))
 	if initialized.exitCode != 0 {
 		t.Fatalf("initialize AGY local config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+	configBytes, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
+	if err != nil || bytes.Contains(configBytes, []byte("permission_mode:")) {
+		t.Fatalf("default AGY config should omit permission mode: err=%v\n%s", err, configBytes)
 	}
 
 	const objective = "@roadmap.md review the changed behavior without rewriting this objective"

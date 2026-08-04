@@ -61,6 +61,64 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 	}
 }
 
+func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy"}}
+	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(canonical, []byte("permission_mode:")) {
+		t.Fatalf("headless default was emitted:\n%s", canonical)
+	}
+	decoded, err := Decode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Providers.AGY.PermissionMode != DefaultAGYPermissionMode {
+		t.Fatalf("omitted AGY permission mode resolved to %q", decoded.Providers.AGY.PermissionMode)
+	}
+	rendered, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatalf("omitted Config v1 bytes changed:\n%s", rendered)
+	}
+
+	legacyExplicit := bytes.Replace(
+		canonical,
+		[]byte("    executable: \"/usr/local/bin/agy\"\n"),
+		[]byte("    executable: \"/usr/local/bin/agy\"\n    permission_mode: \"dangerously-skip-permissions\"\n"),
+		1,
+	)
+	decodedLegacy, err := Decode(legacyExplicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decodedLegacy.Providers.AGY.PermissionModeExplicit {
+		t.Fatal("legacy explicit headless mode lost its presence marker")
+	}
+	renderedLegacy, err := EncodeCanonical(decodedLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(renderedLegacy, legacyExplicit) {
+		t.Fatalf("legacy explicit Config v1 bytes changed:\n%s", renderedLegacy)
+	}
+
+	config.Providers.AGY.PermissionMode = SafeAGYPermissionMode
+	safe, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(safe, []byte(`permission_mode: "safe"`)) {
+		t.Fatalf("explicit safe opt-in was omitted:\n%s", safe)
+	}
+}
+
 func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{

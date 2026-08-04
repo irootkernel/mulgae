@@ -42,6 +42,28 @@ providers:
 effective timeout. Provenance reports the field as `defaulted` when omitted and
 `configured` when a non-default value is present.
 
+AGY's effective `permission_mode` defaults to
+`dangerously-skip-permissions` for headless reviews. The flag does not expand
+workspace access: AGY remains sandboxed and receives only Mulgae's bounded
+snapshot through `--add-dir`. To opt into AGY's prompt-based policy, set:
+
+```yaml
+providers:
+  agy:
+    executable: "/opt/homebrew/bin/agy"
+    permission_mode: "safe"
+```
+
+Effective configuration reports both the selected mode and a warning when
+`safe` is selected, because headless tool requests may be denied. Provenance
+marks an omitted headless mode as `defaulted` and explicit safe mode as
+`configured`.
+
+Existing Config v1 files that explicitly recorded
+`dangerously-skip-permissions` remain canonical byte-for-byte. Older canonical
+files that omitted the former safe default now select the new headless default;
+add explicit `permission_mode: "safe"` to retain prompt-based behavior.
+
 Initialization uses atomic installation and an unconditional project-root
 durability barrier. An output delivery failure never rolls back a committed
 configuration.

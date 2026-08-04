@@ -39,6 +39,20 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 	if resolution.URI() != adapterconfig.ConfigRelativePath || resolution.SHA256() == "" || len(resolution.Provenance()) < 40 {
 		t.Fatalf("resolution=%#v", resolution)
 	}
+	permissionProvenance := appconfig.ProvenanceRow{}
+	for _, row := range resolution.Provenance() {
+		if row.Field == "providers.agy.permission_mode" {
+			permissionProvenance = row
+			break
+		}
+	}
+	if permissionProvenance.Source != "local" || permissionProvenance.Disposition != "configured" {
+		t.Fatalf("safe permission provenance = %#v", permissionProvenance)
+	}
+	policy := resolution.Config().Redacted().Policy
+	if policy.AGYPermissionMode != appconfig.SafeAGYPermissionMode || len(policy.Warnings) != 1 {
+		t.Fatalf("safe effective policy = %#v", policy)
+	}
 	configPath := filepath.Join(rootPath, ".mulgae", "config.yaml")
 	if err := os.Rename(configPath, configPath+".original"); err != nil {
 		t.Fatal(err)

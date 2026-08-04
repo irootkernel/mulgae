@@ -186,6 +186,10 @@ func currentProbeExitedLifecycle(t *testing.T) ports.ProcessLifecycleReceipt {
 }
 
 func currentProbeCapabilityObservation(t *testing.T, fixture *currentProbeFixture, output []byte) ports.ProcessObservation {
+	return currentProbeCapabilityObservationWithStderr(t, fixture, output, nil)
+}
+
+func currentProbeCapabilityObservationWithStderr(t *testing.T, fixture *currentProbeFixture, output, stderr []byte) ports.ProcessObservation {
 	t.Helper()
 	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
 	if err != nil {
@@ -203,13 +207,64 @@ func currentProbeCapabilityObservation(t *testing.T, fixture *currentProbeFixtur
 		t.Fatal(err)
 	}
 	observation, err := ports.NewStartedProviderProcessObservation(
-		output, nil, ports.ProcessTerminationExited, stdin, transport, currentProbeExitedLifecycle(t),
+		output, stderr, ports.ProcessTerminationExited, stdin, transport, currentProbeExitedLifecycle(t),
 		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return observation
+}
+
+func TestCurrentProbeClassifiesSuccessfulAGYPermissionDenialBeforeOutputDecode(t *testing.T) {
+	directory := t.TempDir()
+	identity, err := ports.NewWorkspaceSnapshotIdentity(directory, "snapshot-0123456789abcdef0123456789abcdef", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "policy", 1, 2, 3, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewValidatedWorkspaceRoot(directory, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &currentProbeFixture{root: root, identity: identity}
+	key, err := ports.ParseConcurrencyKey("agy-current-permission")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-current-permission", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition = currentProbeDefinitionWithExecutionIdentity(definition)
+	runner := &agyCurrentProbeRunner{t: t, fixture: fixture, permissionDenied: true}
+	probe, err := NewCurrentProbe(runner, &currentProbeVerifier{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = probe.QualifyCurrent(context.Background(), CurrentProbeRequest{
+		Definition: definition,
+		Namespace:  currentProbeNamespace{environment: currentProbeEnvironment(t), nativeHome: currentProbeNativeHome(t)},
+		Fixture:    fixture,
+		Invocation: NativeProbeInvocation{},
+		Now:        time.Now().UTC(),
+		TTL:        time.Minute,
+	})
+	if err == nil {
+		t.Fatal("AGY permission denial was accepted")
+	}
+	requireProviderDiagnosticCause(t, err, domain.DiagnosticCausePermissionDenied)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureAuthentication {
+		t.Fatalf("AGY permission failure = %v", err)
+	}
 }
 
 type currentProbeVerifier struct {
@@ -636,6 +691,36 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 	)
 }
 
+func TestAGYPermissionDiagnosticCannotMaskInvalidTransportEvidence(t *testing.T) {
+	directory := t.TempDir()
+	identity, err := ports.NewWorkspaceSnapshotIdentity(directory, "snapshot-0123456789abcdef0123456789abcdef", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "policy", 1, 2, 3, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewValidatedWorkspaceRoot(directory, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &currentProbeFixture{root: root, identity: identity}
+	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "kimi_current", "agy-invalid-transport", "", ""))
+	observation := testProcessObservation(
+		t,
+		nil,
+		[]byte("tool permission was denied: read_file"),
+		ports.ProcessTerminationExited,
+		0,
+	)
+	requireProviderDiagnosticCause(
+		t,
+		validateProbeTransportAndLifecycle(definition, packet, observation),
+		domain.DiagnosticCauseTransportReceiptMismatch,
+	)
+}
+
 func requireProviderDiagnosticCause(t *testing.T, err error, want domain.RuntimeDiagnosticCause) {
 	t.Helper()
 	if cause, ok := providerDiagnosticCause(err); !ok || cause != want {
@@ -813,6 +898,7 @@ type agyCurrentProbeRunner struct {
 	requests            []ports.ProcessRequest
 	capabilityBound     bool
 	capabilityLifecycle bool
+	permissionDenied    bool
 }
 
 func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -844,6 +930,29 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	}
 	if binding.ArgvIndex() >= len(request.Argv()) || request.Argv()[binding.ArgvIndex()] != nativeReference {
 		r.t.Fatal("native prompt-file reference is not at the bound argv index")
+	}
+	if r.permissionDenied {
+		final, err := ports.NewExitedProcessFinalTermination(0)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		lifecycleReceipt, err := ports.NewProcessLifecycleReceipt(final, true, nil)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.PacketIdentity(), binding.PacketIdentity())
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		observation, err := ports.NewStartedProviderProcessObservation(nil, []byte("tool permission was denied: read_file"), ports.ProcessTerminationExited, stdin, transport, lifecycleReceipt, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		return observation, nil
 	}
 	output := []byte(`{"root":"nonce","link":"linked","role":"logic"}`)
 	frame, err := ports.NewProcessOutputFrameReceipt(lifecycle.Framing(), output, lifecycle.StabilityGrace())

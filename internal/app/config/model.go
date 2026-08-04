@@ -47,9 +47,10 @@ type ZCodeProviderConfig struct {
 	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type AGYProviderConfig struct {
-	Executable     string `yaml:"executable" json:"executable"`
-	PermissionMode string `yaml:"permission_mode,omitempty" json:"permission_mode"`
-	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Executable             string `yaml:"executable" json:"executable"`
+	PermissionMode         string `yaml:"permission_mode,omitempty" json:"permission_mode"`
+	Timeout                string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	PermissionModeExplicit bool   `yaml:"-" json:"-"`
 }
 type ExecutionConfig struct {
 	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"`
@@ -103,9 +104,13 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion            = 1
-	DefaultKimiModel         = "kimi-code/kimi-for-coding"
-	DefaultAGYPermissionMode = "safe"
+	ConfigVersion    = 1
+	DefaultKimiModel = "kimi-code/kimi-for-coding"
+	// DefaultAGYPermissionMode is the non-interactive review default. Mulgae's
+	// sandbox and bounded snapshot remain the authority boundary; AGY cannot
+	// service interactive permission prompts in this execution mode.
+	DefaultAGYPermissionMode = "dangerously-skip-permissions"
+	SafeAGYPermissionMode    = "safe"
 	DefaultProviderTimeout   = 15 * time.Minute
 	MinimumProviderTimeout   = time.Minute
 	MaximumProviderTimeout   = 60 * time.Minute

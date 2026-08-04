@@ -23,6 +23,13 @@ namespace. Fallback is allowed only for classified provider availability,
 execution, or invalid-output failures; security, configuration, artifact,
 cancellation, and internal failures never trigger it.
 
-AGY runs with an explicit `safe` or `dangerously-skip-permissions` mode.
-The default is `safe`; use the dangerous mode only when its implications are
-understood and accepted.
+AGY reviews run headlessly with `dangerously-skip-permissions` by default so
+AGY can read and inspect the supplied snapshot without an interactive prompt.
+Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to the
+bounded, immutable review snapshot; that snapshot is the review's security
+boundary.
+
+Set `providers.agy.permission_mode: "safe"` only as an explicit opt-in. Mulgae
+reports a warning in effective configuration because headless `read_file` and
+command requests may be denied in safe mode. Permission denials are reported as
+`provider_permission_denied`, not as output decode failures.

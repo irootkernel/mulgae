@@ -62,6 +62,9 @@ func Decode(data []byte) (Config, error) {
 	if err := decoder.Decode(&decoded); err != nil {
 		return zero, reject(ReasonYAMLInvalid)
 	}
+	if decoded.Providers.AGY != nil {
+		decoded.Providers.AGY.PermissionModeExplicit = mappingHasPath(root, "providers", "agy", "permission_mode")
+	}
 	if err := validate(&decoded); err != nil {
 		if errors.Is(err, errProviderTimeoutInvalid) {
 			return zero, reject(ReasonProviderTimeoutInvalid)
@@ -69,6 +72,27 @@ func Decode(data []byte) (Config, error) {
 		return zero, reject(ReasonYAMLInvalid)
 	}
 	return decoded, nil
+}
+
+func mappingHasPath(root *yaml.Node, path ...string) bool {
+	current := root
+	for _, key := range path {
+		if current == nil || current.Kind != yaml.MappingNode {
+			return false
+		}
+		var next *yaml.Node
+		for index := 0; index < len(current.Content); index += 2 {
+			if current.Content[index].Value == key {
+				next = current.Content[index+1]
+				break
+			}
+		}
+		if next == nil {
+			return false
+		}
+		current = next
+	}
+	return true
 }
 
 func parseBoundedDocument(data []byte) (*yaml.Node, error) {
@@ -622,7 +646,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	}
 	if provider := config.Providers.AGY; provider != nil {
 		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
-		if provider.PermissionMode != DefaultAGYPermissionMode {
+		if provider.PermissionMode != DefaultAGYPermissionMode || provider.PermissionModeExplicit {
 			out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
 		}
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {

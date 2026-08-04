@@ -2060,6 +2060,110 @@ func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
 	}
 }
 
+func TestApplicationReviewReportsQualificationPermissionDenialByActualCause(t *testing.T) {
+	permissionCause, err := ports.NewProviderRuntimeError(
+		domain.DiagnosticCausePermissionDenied,
+		errors.New("closed provider permission detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agy, err := reviewrun.NewProviderQualificationFailure(
+		"agy-security", reviewrun.FamilyAGY, string(domain.FailureAuthentication), permissionCause,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{agy})
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--dirty", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_permission_denied" ||
+		envelope.Reasons[0].Retryable ||
+		!strings.Contains(envelope.Reasons[0].Message, "Provider permission denied during qualification for agy-security") ||
+		strings.Contains(envelope.Reasons[0].Message, "provider_output_decode_failed") {
+		t.Fatalf("qualification permission envelope = %#v", envelope.Reasons)
+	}
+}
+
+func TestApplicationReviewPreservesQualificationPermissionDenialInMixedAggregate(t *testing.T) {
+	permissionCause, err := ports.NewProviderRuntimeError(
+		domain.DiagnosticCausePermissionDenied,
+		errors.New("closed provider permission detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := reviewrun.NewProviderQualificationFailure(
+		"agy-security", reviewrun.FamilyAGY, string(domain.FailureAuthentication), permissionCause,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutCause, err := ports.NewProviderRuntimeError(
+		domain.DiagnosticCauseTimedOut,
+		errors.New("closed provider timeout detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeout, err := reviewrun.NewProviderQualificationFailure(
+		"zcode-logic", reviewrun.FamilyZCode, string(domain.FailureTimeout), timeoutCause,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{permission, timeout})
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--dirty", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_permission_denied" ||
+		!strings.Contains(envelope.Reasons[0].Message, "agy-security") ||
+		!strings.Contains(envelope.Reasons[0].Message, "Other qualification failures: zcode-logic=timeout") ||
+		strings.Contains(envelope.Reasons[0].Message, "agy-security=auth") {
+		t.Fatalf("mixed qualification envelope = %#v", envelope.Reasons)
+	}
+
+	humanFixture := newFoundationFixture(t)
+	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
+		string(human.Stderr()) != "mulgae: provider permission denied during qualification for agy-security; other qualification failures: zcode-logic=timeout\n" {
+		t.Fatalf("mixed human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+}
+
 func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T) {
 	execution, err := reviewrun.NewProviderExecutionFailure(
 		"zcode-default",

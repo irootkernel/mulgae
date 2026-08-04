@@ -521,13 +521,14 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.NativeHomeSource = "verified_equal_input"
 			}
 			mode := request.Overrides.AGYPermissionMode
+			modeExplicit := mode != ""
 			row.PermissionModeSource = "explicit"
 			if mode == "" {
 				mode = appconfig.DefaultAGYPermissionMode
-				row.PermissionModeSource = "safe_default"
+				row.PermissionModeSource = "headless_default"
 			}
 			if executable != "" {
-				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
+				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode, PermissionModeExplicit: modeExplicit, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}

@@ -231,6 +231,15 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
 			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
 		}
+		if definition.Family() == FamilyAgy && agyPermissionDenied(capabilityObservation.Stderr()) {
+			return CurrentProbeResult{}, classifyProbeFailure(
+				ctx,
+				definition.Family(),
+				errors.New("AGY capability probe permission denied"),
+				capabilityObservation.Stderr(),
+				capabilityObservation.Stdout(),
+			)
+		}
 		if !capabilityObservation.Succeeded() {
 			processErr := qualificationProcessFailure(definition.Family(), capabilityObservation, fmt.Errorf("capability probe failed"))
 			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
@@ -569,7 +578,8 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		return probeEvidenceFailure(domain.DiagnosticCauseLifecycleReceiptInvalid, "missing post-output lifecycle receipt")
 	}
 	frame, frameOK := lifecycle.OutputFrame()
-	if !observation.Succeeded() && !frameOK {
+	permissionDeniedWithoutOutput := definition.Family() == FamilyAgy && observation.Succeeded() && agyPermissionDenied(observation.Stderr())
+	if (!observation.Succeeded() || permissionDeniedWithoutOutput) && !frameOK {
 		if len(lifecycle.SignalRequests()) != 0 {
 			return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "failed launch carried post-output signal receipts without a frame")
 		}
@@ -835,6 +845,13 @@ func controlledProbeJSON(output []byte) ([]byte, error) {
 func classifyProbeFailure(ctx context.Context, family string, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if family == FamilyAgy && agyPermissionDenied(stderr) {
+		runtimeErr, runtimeErrConstruction := ports.NewProviderRuntimeError(domain.DiagnosticCausePermissionDenied, err)
+		if runtimeErrConstruction != nil {
+			return probeFailure("capability", domain.FailureInternal, "provider permission failure unavailable", runtimeErrConstruction)
+		}
+		return probeFailure("capability", domain.FailureAuthentication, "provider permission denied", runtimeErr)
 	}
 	stdout := bytes.Join(additionalDiagnostics, []byte{'\n'})
 	if status, _, _, ok := nativeProviderOutcome(family, stdout, stderr); ok {

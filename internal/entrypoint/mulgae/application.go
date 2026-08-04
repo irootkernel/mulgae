@@ -1419,6 +1419,39 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			facts = append(facts, failure.ProviderInstance()+"="+failure.ReasonCode())
 		}
 		failureList := strings.Join(facts, ", ")
+		if permissionFailures := qualificationPermissionDeniedFailures(failures); len(permissionFailures) > 0 {
+			hint := providerFailureHint("provider_permission_denied")
+			providers := make([]string, len(permissionFailures))
+			for index, failure := range permissionFailures {
+				providers[index] = failure.ProviderInstance()
+			}
+			providerList := strings.Join(providers, ", ")
+			message := "Provider permission denied during qualification for " + providerList + "; hint: run " + hint + "."
+			humanMessage := "mulgae: provider permission denied during qualification for " + providerList
+			if len(permissionFailures) != len(failures) {
+				otherFacts := make([]string, 0, len(failures)-len(permissionFailures))
+				for _, failure := range failures {
+					if failure.DiagnosticCause() != domain.DiagnosticCausePermissionDenied {
+						otherFacts = append(otherFacts, failure.ProviderInstance()+"="+failure.ReasonCode())
+					}
+				}
+				otherFailureList := strings.Join(otherFacts, ", ")
+				message += " Other qualification failures: " + otherFailureList + "."
+				humanMessage += "; other qualification failures: " + otherFailureList
+			}
+			return &executionFailure{
+				class:                  domain.FailureAuthentication,
+				code:                   "provider_permission_denied",
+				message:                message,
+				humanMessage:           humanMessage,
+				retryable:              false,
+				hasRetryable:           true,
+				stage:                  "provider.qualify",
+				exit:                   requestedExit(domain.FailureAuthentication),
+				provider:               permissionFailures[0].ProviderInstance(),
+				recommendedNextCommand: hint,
+			}
+		}
 		class := reducedFailureClass(err, fallback)
 		retryable := qualificationFailureRetryable(class)
 		message := "Provider qualification failed: " + failureList + ". Resolve provider qualification, then rerun the command."
@@ -1505,6 +1538,16 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	return failure
 }
 
+func qualificationPermissionDeniedFailures(failures []reviewrun.ProviderQualificationFailure) []reviewrun.ProviderQualificationFailure {
+	permissionFailures := make([]reviewrun.ProviderQualificationFailure, 0, len(failures))
+	for _, failure := range failures {
+		if failure.DiagnosticCause() == domain.DiagnosticCausePermissionDenied {
+			permissionFailures = append(permissionFailures, failure)
+		}
+	}
+	return permissionFailures
+}
+
 func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) string {
 	switch failure.ReasonCode() {
 	case string(review.AttemptConditionProviderPermissionDenied):
@@ -1526,7 +1569,7 @@ func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) st
 func providerFailureHint(code string) string {
 	switch code {
 	case "provider_permission_denied":
-		return "mulgae doctor"
+		return "mulgae config --mode effective"
 	case "provider_timeout":
 		return "mulgae doctor"
 	case "provider_output_missing", "provider_output_decode_failed":

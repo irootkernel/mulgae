@@ -28,6 +28,7 @@ const (
 	ConfigVersion            = appconfig.ConfigVersion
 	DefaultKimiModel         = appconfig.DefaultKimiModel
 	DefaultAGYPermissionMode = appconfig.DefaultAGYPermissionMode
+	SafeAGYPermissionMode    = appconfig.SafeAGYPermissionMode
 	DefaultProviderTimeout   = appconfig.DefaultProviderTimeout
 	MinimumProviderTimeout   = appconfig.MinimumProviderTimeout
 	MaximumProviderTimeout   = appconfig.MaximumProviderTimeout

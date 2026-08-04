@@ -66,6 +66,33 @@ func TestAGYPrintTimeoutPreservesBoundedLifecycleGrace(t *testing.T) {
 	}
 }
 
+func TestNativeProbeInvocationAgySafeOptInKeepsSandboxAndSnapshot(t *testing.T) {
+	identity := nativeInvocationIdentity(t, t.TempDir())
+	fixture := nativeInvocationFixture{identity: identity}
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := newTestProfileWithTransport(
+		t, FamilyAgy, "agy-safe", "agy-safe", []string{"/private/bin/agy"}, transport,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.timeout = 15 * time.Minute
+	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "14m55s", "--print", "@roadmap.md")
+	if !reflect.DeepEqual(argv, want) {
+		t.Fatalf("safe AGY probe argv = %#v, want %#v", argv, want)
+	}
+	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
+		t.Fatalf("validate safe AGY argv: %v", err)
+	}
+}
+
 func TestNativeProbeInvocationRejectsInvalidAgySnapshotIdentity(t *testing.T) {
 	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
 	for _, identity := range []ports.WorkspaceSnapshotIdentity{

@@ -35,7 +35,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 				t.Fatalf("%s template timeout = %s, want %s", family, template.limits.Timeout(), productionDefaultProviderTimeout)
 			}
 			if family == FamilyAGY {
-				if template.transportArgvIndex != 12 || template.lifecycle == nil || !template.lifecycle.Valid() {
+				if template.transportArgvIndex != 13 || template.lifecycle == nil || !template.lifecycle.Valid() {
 					t.Fatalf("AGY template %s lifecycle = %#v", role, template)
 				}
 			} else if template.lifecycle != nil {

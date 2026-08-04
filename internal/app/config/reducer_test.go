@@ -4,6 +4,7 @@ import (
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,5 +46,33 @@ func TestResolveConfigurationProjectsEffectiveProviderTimeouts(t *testing.T) {
 	redacted := resolved.Redacted()
 	if got := redacted.Policy.ProviderTimeouts; len(got) != 2 || got[0].Family != "zcode" || got[0].Timeout != "30m" || got[1].Family != "agy" || got[1].Timeout != "15m" {
 		t.Fatalf("redacted provider timeouts = %#v", got)
+	}
+}
+
+func TestRedactedPolicyReportsAGYHeadlessModeAndSafeWarning(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		mode         string
+		wantWarnings int
+	}{
+		{name: "headless default", mode: appconfig.DefaultAGYPermissionMode},
+		{name: "safe opt-in", mode: appconfig.SafeAGYPermissionMode, wantWarnings: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolved, err := appconfig.ResolveConfiguration(adapterconfig.Config{
+				Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{PermissionMode: test.mode}},
+				Resources: adapterconfig.ResourcesConfig{RunTotalOutputCap: "64MiB"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := resolved.Redacted().Policy
+			if policy.AGYPermissionMode != test.mode || len(policy.Warnings) != test.wantWarnings {
+				t.Fatalf("effective AGY policy = mode %q warnings %#v", policy.AGYPermissionMode, policy.Warnings)
+			}
+			if test.wantWarnings != 0 && !strings.Contains(policy.Warnings[0], "headless tool requests may be denied") {
+				t.Fatalf("safe warning = %q", policy.Warnings[0])
+			}
+		})
 	}
 }

@@ -594,7 +594,7 @@
         "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
         "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
         "native_home_source": { "enum": ["os_account","verified_equal_input","not_selected"] },
-        "permission_mode_source": { "enum": ["explicit","safe_default","not_selected"] }
+        "permission_mode_source": { "enum": ["explicit","headless_default","safe_default","not_selected"] }
       }
     },
     "path": {
