@@ -34,6 +34,71 @@ make test-kimi
 `make test`. Do not call a change release-ready when the mandatory ZCode/AGY
 live gate was skipped.
 
+### Optional Gaori evidence compression
+
+Gaori can wrap long or noisy local test commands so coding agents and developers
+can inspect bounded summaries before opening complete logs. It does not replace
+the Make targets above or change their pass/fail result.
+
+Install and verify the pinned version explicitly:
+
+```bash
+go install github.com/irootkernel/gaori@v0.1.8
+gaori --version
+```
+
+The version command must report `gaori v0.1.8`. Local Gaori configuration and
+evidence live below the ignored `.gaori/` directory. Provision
+`.gaori/tester.yaml` with these commands:
+
+| Command ID | Wrapped command | Parser | Tags | Timeout |
+|---|---|---|---|---:|
+| `prepare` | `make test-prepare` | `generic` | `go`, `static` | 3,600s |
+| `unit` | `make test-unit` | `go-test` | `go`, `unit` | 6,000s |
+| `integration` | `make test-int` | `go-test` | `go`, `integration` | 6,000s |
+| `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
+| `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
+| `kimi` | `make test-kimi` | `go-test` | `go`, `e2e`, `live`, `kimi` | 6,000s |
+| `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
+
+Use argv arrays for the wrapped commands and configure these RE2 redaction
+patterns for derived evidence:
+
+```yaml
+redaction:
+  patterns:
+    - name: credential-assignment
+      regex: '(?i)\b(authorization|api[_-]?key|token|secret|password)=\S+'
+      replace: '$1=<redacted>'
+    - name: bearer-token
+      regex: '(?i)(Bearer)\s+\S+'
+      replace: '$1 <redacted>'
+```
+
+Run a configured command from the repository root, for example:
+
+```bash
+gaori run unit
+```
+
+For a focused Go test that is not configured, select the parser explicitly:
+
+```bash
+gaori run --parser go-test --tag go --tag unit -- \
+  go test -count=1 ./internal/app/reviewrun -run '^TestQualifiedPlanner'
+```
+
+Gaori emits no running heartbeat. A long period without console output can be
+normal for the serialized race and live-provider targets. After a pass, use the
+compact status and do not open logs by default. After a failure, inspect the
+Markdown summary, structured summary, and bounded excerpts in that order. Open
+only the necessary portion of the raw log when extraction is insufficient or
+degraded: raw logs are preserved without redaction and may contain secrets.
+
+If Gaori or the pinned version is unavailable, run the corresponding Make
+target directly and report that evidence compression was unavailable. Never
+skip a required check because its optional wrapper is unavailable.
+
 ## Changing embedded assets
 
 Runtime assets live in `internal/builtin/assets` and are embedded directly.
