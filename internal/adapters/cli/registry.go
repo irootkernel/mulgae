@@ -18,6 +18,7 @@ const (
 	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json"
 	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	reviewPreflightContractURI          = "https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json"
 	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
 	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
 	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
@@ -94,7 +95,7 @@ func canonicalCommandSpecs() []CommandSpec {
 	return []CommandSpec{
 		newCommandSpec(app.CommandInit, "internal/app/init", "InitializeProject", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandDoctor, "internal/app/doctor", "DiagnoseEnvironment", []string{doctorResultContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation}),
-		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, reviewPreflightContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandFollowup, "internal/app/followup", "StartFollowupRun", []string{providerFollowupOutputContractURI, runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandDelta, "internal/app/delta", "StartDeltaRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),

@@ -139,7 +139,29 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
 	}
 	if nilApplicationDependency(application.reviewRuns) {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("review provider authority unavailable"), domain.FailureProviderUnavailable)}
+		return execution{failureData: preflightFailureData(request), failure: executionFailureFor(invocation.Command(), errors.New("review provider authority unavailable"), domain.FailureProviderUnavailable)}
+	}
+	if request.Preflight() {
+		projectRoot, err := ports.NewAnchoredRoot(canonicalProjectRoot)
+		if err != nil {
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+		}
+		preflight, ok := application.reviewRuns.(ReviewPreflightService)
+		if !ok || nilApplicationDependency(preflight) {
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), errors.New("review preflight authority unavailable"), domain.FailureProviderUnavailable)}
+		}
+		result, err := preflight.PreflightReview(ctx, request, projectRoot)
+		if err != nil {
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review.preflight", domain.FailureConfiguration, "review preflight failed", err), domain.FailureConfiguration)}
+		}
+		if err := result.Validate(); err != nil {
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+		}
+		data, err := reviewPreflightSuccessJSON(result)
+		if err != nil {
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+		}
+		return execution{human: renderReviewPreflightHuman(result), data: data, exit: app.ExitCodeSuccess}
 	}
 	projectRoot, _, err := publicationRoots(canonicalProjectRoot)
 	if err != nil {
@@ -197,6 +219,13 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		committedReasons:       reasons,
 		committedReasonDetails: reasonDetails,
 	}
+}
+
+func preflightFailureData(request ReviewRequest) []byte {
+	if request.Preflight() {
+		return reviewPreflightFailureJSON()
+	}
+	return nil
 }
 
 func committedProviderFailureReasons(failures []reviewrun.ProviderExecutionFailure) ([]app.CommittedReason, error) {

@@ -464,6 +464,7 @@ type ReviewRequest struct {
 	artistDesignGlobs []string
 	sessionID         string
 	hasSessionID      bool
+	preflight         bool
 }
 
 // Target returns the literal target request.
@@ -495,6 +496,10 @@ func (request ReviewRequest) ArtistDesignSpecs() []string {
 func (request ReviewRequest) SessionID() (string, bool) {
 	return request.sessionID, request.hasSessionID
 }
+
+// Preflight reports whether the review is an execution-free capture, routing,
+// and budget projection.
+func (request ReviewRequest) Preflight() bool { return request.preflight }
 
 // FollowupRequest contains the immutable source finding and target fields.
 type FollowupRequest struct {

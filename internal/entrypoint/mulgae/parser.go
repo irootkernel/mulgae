@@ -643,7 +643,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		"--workspace": false, "--stage": false, "--dirty": false,
 		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
 		"--roles": true, "--artist-brief": true, "--artist-design-specs": true,
-		"--session": true, "--output": true,
+		"--session": true, "--preflight": false, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -693,6 +693,10 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		}
 		request.sessionID, request.hasSessionID = session.String(), true
 	}
+	_, request.preflight = options["--preflight"]
+	if request.preflight && request.hasSessionID {
+		return Invocation{}, usageError("review --preflight cannot import a session")
+	}
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
 		return Invocation{}, err
@@ -711,6 +715,11 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if artistDesign == nil {
 		artistDesign = []string{}
 	}
+	var preflight *bool
+	if request.preflight {
+		value := true
+		preflight = &value
+	}
 	requestJSON, err := marshalRequest(struct {
 		RequestID string `json:"request_id"`
 		Command   string `json:"command"`
@@ -724,12 +733,13 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		ArtistBrief   *string      `json:"artist_brief"`
 		ArtistDesign  []string     `json:"artist_design_specs"`
 		SessionID     *string      `json:"session_id"`
+		Preflight     *bool        `json:"preflight,omitempty"`
 		OutputFormat  OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, outputFormat,
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err

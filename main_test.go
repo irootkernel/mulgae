@@ -5,6 +5,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +29,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -476,6 +480,32 @@ type failingReviewRunService struct{ err error }
 
 func (service failingReviewRunService) StartReviewRun(context.Context, mulgaeentry.ReviewRequest, ports.AnchoredRoot) (mulgaeentry.ReviewRunResult, error) {
 	return mulgaeentry.ReviewRunResult{}, service.err
+}
+
+type failingReviewPreflightService struct{ err error }
+
+func (service failingReviewPreflightService) PreflightReview(context.Context, mulgaeentry.ReviewRequest, ports.AnchoredRoot) (mulgaeentry.ReviewPreflightResult, error) {
+	return mulgaeentry.ReviewPreflightResult{}, service.err
+}
+
+func TestReviewPreflightCompositionCleansTemporaryRootAfterMaterializationFailure(t *testing.T) {
+	workspacePath := canonicalTestTempDir(t)
+	workspaceRoot, err := ports.NewAnchoredRoot(workspacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializationErr := errors.New("injected materialization failure")
+	service := &rootCleaningReviewPreflightService{
+		inner:         failingReviewPreflightService{err: materializationErr},
+		workspaceRoot: workspaceRoot,
+	}
+	_, err = service.PreflightReview(context.Background(), mulgaeentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if !errors.Is(err, materializationErr) {
+		t.Fatalf("preflight error = %v, want materialization failure", err)
+	}
+	if _, statErr := os.Lstat(workspacePath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("preflight retained temporary root %q: %v", workspacePath, statErr)
+	}
 }
 
 func TestReviewCompositionCleanupFailureIsArtifactFailureAndPreservesPrimaryError(t *testing.T) {
@@ -1345,6 +1375,177 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 			t.Fatalf("AGY review snapshot/control contract = %#v", observation)
 		}
 	}
+}
+
+func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPNG(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	providerDirectory := canonicalTestTempDir(t)
+	logDirectory := canonicalTestTempDir(t)
+	zcodeLog, agyLog := filepath.Join(logDirectory, "zcode.jsonl"), filepath.Join(logDirectory, "agy.jsonl")
+	zcodeNode, zcodeLauncher := filepath.Join(providerDirectory, "node"), filepath.Join(providerDirectory, "zcode.cjs")
+	agyExecutable := filepath.Join(providerDirectory, "agy")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success")
+	buildFakeAGY(t, root, agyExecutable, agyLog)
+	home := canonicalTestTempDir(t)
+	environment := isolatedMulgaeEnvWith(t, home, providerDirectory)
+	initializeOfflineProviders(t, binary, project, environment, "zcode,agy", zcodeNode, zcodeLauncher, agyExecutable)
+
+	configPath := filepath.Join(project, ".mulgae", "config.yaml")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcherLine := "    launcher: \"" + zcodeLauncher + "\"\n"
+	if !bytes.Contains(configBytes, []byte(launcherLine)) {
+		t.Fatalf("config omits ZCode launcher line:\n%s", configBytes)
+	}
+	configBytes = bytes.Replace(configBytes, []byte(launcherLine), []byte(launcherLine+"    timeout: \"30m\"\n"), 1)
+	mustWriteTestFile(t, configPath, configBytes)
+
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
+	mustWriteTestFile(t, filepath.Join(project, "security-fixtures.txt"), []byte("changePassword: vi.fn()\nAuthorization: Bearer placeholder-token\n"))
+	mustWriteTestFile(t, filepath.Join(project, "ignored.txt"), []byte("must not be transmitted\n"))
+	mustWriteTestFile(t, filepath.Join(project, ".mulgaeignore"), []byte("ignored.txt\n"))
+	runTestCommand(t, project, "git", "add", "review.go", "screenshots/staged.png", "security-fixtures.txt", ".mulgaeignore")
+
+	beforeMulgae := snapshotTestTree(t, filepath.Join(project, ".mulgae"))
+	tempRoot := environmentValue(t, environment, "TMPDIR")
+	beforeTemp := snapshotTestTree(t, tempRoot)
+	first := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
+	second := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
+	if first.exitCode != 0 || second.exitCode != 0 || len(first.stderr) != 0 || len(second.stderr) != 0 {
+		t.Fatalf("preflight exits = %d/%d stderr=%q/%q stdout=%q", first.exitCode, second.exitCode, first.stderr, second.stderr, first.stdout)
+	}
+	if got := snapshotTestTree(t, filepath.Join(project, ".mulgae")); !reflect.DeepEqual(got, beforeMulgae) {
+		t.Fatalf("preflight mutated .mulgae: before=%v after=%v", beforeMulgae, got)
+	}
+	if got := snapshotTestTree(t, tempRoot); !reflect.DeepEqual(got, beforeTemp) {
+		t.Fatalf("preflight leaked temporary workspace: before=%v after=%v", beforeTemp, got)
+	}
+	for _, logPath := range []string{zcodeLog, agyLog} {
+		if observed, readErr := os.ReadFile(logPath); readErr == nil && len(bytes.TrimSpace(observed)) != 0 {
+			t.Fatalf("preflight invoked provider %s: %s", logPath, observed)
+		} else if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			t.Fatal(readErr)
+		}
+	}
+
+	type preflightEnvelope struct {
+		Result struct {
+			Kind      string                            `json:"kind"`
+			Preflight mulgaeentry.ReviewPreflightResult `json:"preflight"`
+		} `json:"result"`
+	}
+	decode := func(raw []byte) mulgaeentry.ReviewPreflightResult {
+		t.Helper()
+		var envelope preflightEnvelope
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Result.Kind != "review_preflight" {
+			t.Fatalf("result kind = %q", envelope.Result.Kind)
+		}
+		return envelope.Result.Preflight
+	}
+	firstResult, secondResult := decode(first.stdout), decode(second.stdout)
+	if !reflect.DeepEqual(firstResult, secondResult) {
+		t.Fatalf("preflight projection is nondeterministic:\n%#v\n%#v", firstResult, secondResult)
+	}
+	if firstResult.AGYPermissionMode != "dangerously-skip-permissions" || len(firstResult.Transmissions) != 2 ||
+		firstResult.Transmissions[0].ProviderFamily != "zcode" || firstResult.Transmissions[0].ConfiguredTimeout != "30m" ||
+		firstResult.Transmissions[1].ProviderFamily != "agy" || firstResult.Transmissions[1].ConfiguredTimeout != "15m" {
+		t.Fatalf("preflight routes = mode %q %#v", firstResult.AGYPermissionMode, firstResult.Transmissions)
+	}
+	wantPNGHash := sha256.Sum256(pngBytes)
+	wantPNG := "sha256:" + hex.EncodeToString(wantPNGHash[:])
+	seenPNG, seenIgnored := false, false
+	paths := make([]string, 0, len(firstResult.FileSets[0].Files))
+	for _, file := range firstResult.FileSets[0].Files {
+		paths = append(paths, file.Path)
+		if file.Path == "ignored.txt" {
+			seenIgnored = true
+		}
+		if file.Path == "screenshots/staged.png" {
+			seenPNG = file.MediaType == "image/png" && file.Disposition == "binary_preserved" && file.Size == int64(len(pngBytes)) && file.SHA256 == wantPNG
+		}
+	}
+	if !seenPNG || seenIgnored {
+		t.Fatalf("preflight file catalog PNG/ignored = %t/%t: %#v", seenPNG, seenIgnored, firstResult.FileSets)
+	}
+	wantPaths := []string{".mulgaeignore", "docs/linked.md", "review.go", "roadmap.md", "screenshots/staged.png", "security-fixtures.txt"}
+	if !slices.Equal(paths, wantPaths) {
+		t.Fatalf("exact transmitted source paths = %v, want %v", paths, wantPaths)
+	}
+
+	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), []byte("not-a-png"))
+	runTestCommand(t, project, "git", "add", "screenshots/staged.png")
+	failed := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
+	if failed.exitCode != int(app.ExitCodeArtifact) || !bytes.Contains(failed.stdout, []byte(`"kind":"review_preflight_failed"`)) ||
+		!bytes.Contains(failed.stdout, []byte(`"code":"unsupported_content"`)) {
+		t.Fatalf("capture failure = exit %d stdout=%q stderr=%q", failed.exitCode, failed.stdout, failed.stderr)
+	}
+	if got := snapshotTestTree(t, tempRoot); !reflect.DeepEqual(got, beforeTemp) {
+		t.Fatalf("capture failure leaked temporary workspace: before=%v after=%v", beforeTemp, got)
+	}
+	if got := snapshotTestTree(t, filepath.Join(project, ".mulgae")); !reflect.DeepEqual(got, beforeMulgae) {
+		t.Fatalf("capture failure mutated .mulgae: before=%v after=%v", beforeMulgae, got)
+	}
+	runTestCommand(t, project, "git", "reset")
+	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
+	noChange := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--stage", "--roles", "security", "--preflight", "--output", "json")
+	if noChange.exitCode != 0 {
+		t.Fatalf("no-change preflight = exit %d stdout=%q stderr=%q", noChange.exitCode, noChange.stdout, noChange.stderr)
+	}
+	noChangeResult := decode(noChange.stdout)
+	if noChangeResult.Status != "no_change" || len(noChangeResult.Transmissions) != 0 || noChangeResult.Budget.TotalInvocations != 0 || len(noChangeResult.Budget.Lanes) != 0 {
+		t.Fatalf("no-change projection = %#v", noChangeResult)
+	}
+	if got := snapshotTestTree(t, tempRoot); !reflect.DeepEqual(got, beforeTemp) {
+		t.Fatalf("no-change preflight leaked temporary workspace: before=%v after=%v", beforeTemp, got)
+	}
+}
+
+func snapshotTestTree(t *testing.T, root string) []string {
+	t.Helper()
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func environmentValue(t *testing.T, environment []string, name string) string {
+	t.Helper()
+	prefix := name + "="
+	for _, value := range environment {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	t.Fatalf("environment omits %s", name)
+	return ""
 }
 
 func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {

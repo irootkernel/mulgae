@@ -109,6 +109,21 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
+Before spending provider time, inspect the exact staged snapshot and configured
+routing envelope:
+
+```bash
+mulgae review --stage --preflight --output json
+```
+
+Preflight uses the real bounded capture path but does not discover, qualify, or
+invoke providers and does not create a session, run, diagnostic, or publication.
+It reports `qualification: not_run`, the exact source files sent to each role,
+PNG/JPEG/WebP binary metadata, primary and fallback routes, effective timeouts,
+AGY's permission mode, and enclosing lane/run budgets. The generated workspace
+manifest is declared separately as `generated_at_execution`. AGY safe mode is
+explicitly warned because headless permission requests may be denied.
+
 Automatic initialization configures ZCode as the primary reviewer and AGY as
 its fallback for logic, security, maintainability, product, and testing. The
 documentation role uses AGY with ZCode fallback.

@@ -21,6 +21,7 @@ Draft 2020-12 and a canonical
 | `mulgae-repair-patch.v1` | `../examples/repair-patch.json` |
 | `mulgae-repair-request.v1` | `../examples/repair-request.json` |
 | `mulgae-review-artifact.v1` | `../examples/review-artifact.v1.valid.json` |
+| `mulgae-review-preflight.v1` | `../examples/review-preflight.v1.valid.json` |
 | `mulgae-run-manifest.v1` | `../examples/run-manifest.v1.valid.json` |
 | `mulgae-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` |
 | `mulgae-validation-result.v1` | `../examples/validation-result.v1.valid.json` |

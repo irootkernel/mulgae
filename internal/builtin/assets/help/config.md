@@ -41,6 +41,9 @@ providers:
 `mulgae config --mode effective` reports every configured provider family's
 effective timeout. Provenance reports the field as `defaulted` when omitted and
 `configured` when a non-default value is present.
+`mulgae review --stage --preflight --output json` reports the same effective
+timeouts on each projected primary/fallback transmission and proves that the
+derived lane and run budgets can accommodate them, without launching providers.
 
 AGY's effective `permission_mode` defaults to
 `dangerously-skip-permissions` for headless reviews. The flag does not expand

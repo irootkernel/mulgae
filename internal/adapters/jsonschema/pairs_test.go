@@ -88,6 +88,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json", "example:repair-patch.json"},
 	{"https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json", "example:repair-request.json"},
 	{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "example:review-artifact.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json", "example:review-preflight.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "example:run-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "example:validation-result.v1.valid.json"},

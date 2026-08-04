@@ -343,6 +343,13 @@ func TestParseReviewRequests(t *testing.T) {
 	}
 	assertRequestJSON(t, review, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"patch","value":"changes.patch"},"objective":"Review changes.","roles":["logic","testing"],"role_selection":"explicit","artist_brief":null,"artist_design_specs":[],"session_id":"s_019f596a-cf80-7c67-b265-f37053d51ccf","output_format":"json"}`)
 
+	preflight := mustParse(t, []string{"review", "--stage", "--preflight", "--output", "json"})
+	preflightRequest, ok := preflight.Review()
+	if !ok || !preflightRequest.Preflight() {
+		t.Fatalf("preflight review request = %#v, %t", preflightRequest, ok)
+	}
+	assertRequestJSON(t, preflight, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"review","target":{"kind":"stage","value":"stage"},"objective":null,"roles":["logic","security","maintainability","product","documentation","testing"],"role_selection":"project_default","artist_brief":null,"artist_design_specs":[],"session_id":null,"preflight":true,"output_format":"json"}`)
+
 	artist := mustParse(t, []string{"review", "--dirty", "--roles", "product,artist", "--artist-brief", "docs/roadmap.md", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.webp"})
 	artistRequest, ok := artist.Review()
 	brief, present := artistRequest.ArtistBrief()
@@ -359,6 +366,7 @@ func TestParseReviewRequests(t *testing.T) {
 		{"review", "--dirty", "--roles", "logic", "--artist-brief", "brief.md"},
 		{"review", "--dirty", "--roles", "artist", "--artist-brief", "../brief.md"},
 		{"review", "--dirty", "--roles", "artist", "--artist-design-specs", "design-specs/**/*.png,design-specs/**/*.png"},
+		{"review", "--stage", "--preflight", "--session", testSessionID},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)

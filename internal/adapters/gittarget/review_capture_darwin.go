@@ -517,7 +517,9 @@ func (adapter *ReviewTargetAdapter) materialize(bytes []byte, files []ports.Work
 
 func (adapter *ReviewTargetAdapter) clean(ctx context.Context, channel ports.ReviewInputChannel, name string, bytes []byte) error {
 	limit := int64(ports.ReviewTargetMaxBytes)
-	allowEmpty := false
+	// An empty Git diff is a valid no-change target. Patch and stdin capture
+	// reject empty input before reaching this detector boundary.
+	allowEmpty := channel == ports.ReviewInputTarget
 	diagnosticPath := ""
 	if channel == ports.ReviewInputReference {
 		limit = ports.WorkspaceSnapshotMaxFileBytes

@@ -15,6 +15,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
+// WorkspaceSnapshotManifestName is the generated provider-visible manifest
+// added beside captured source files in every materialized review snapshot.
+const WorkspaceSnapshotManifestName = "._mulgae_workspace_manifest.json"
+
 const (
 	// WorkspaceSnapshotMaxFiles is the maximum number of captured files in one snapshot.
 	WorkspaceSnapshotMaxFiles = 10_000
@@ -617,6 +621,7 @@ type WorkspaceAbortReason string
 
 const (
 	WorkspaceAbortCaptureFailure     WorkspaceAbortReason = "capture_failure"
+	WorkspaceAbortPreflightComplete  WorkspaceAbortReason = "preflight_complete"
 	WorkspaceAbortPlanningFailure    WorkspaceAbortReason = "planning_failure"
 	WorkspaceAbortExecutionFailure   WorkspaceAbortReason = "execution_failure"
 	WorkspaceAbortPublicationFailure WorkspaceAbortReason = "publication_failure"
@@ -627,7 +632,7 @@ const (
 
 func (reason WorkspaceAbortReason) Valid() bool {
 	switch reason {
-	case WorkspaceAbortCaptureFailure, WorkspaceAbortPlanningFailure, WorkspaceAbortExecutionFailure,
+	case WorkspaceAbortCaptureFailure, WorkspaceAbortPreflightComplete, WorkspaceAbortPlanningFailure, WorkspaceAbortExecutionFailure,
 		WorkspaceAbortPublicationFailure, WorkspaceAbortCancellation, WorkspaceAbortSecurityViolation,
 		WorkspaceAbortInternalFailure:
 		return true

@@ -20,6 +20,26 @@ mulgae findings --run r_... --severity high
 mulgae report --run r_... --output-path reports/review.md
 ```
 
+Inspect the capture and configured execution envelope without running providers:
+
+```bash
+mulgae review --stage --preflight --output json
+```
+
+Preflight performs the real bounded capture and snapshot admission, then reports
+the exact source file set transmitted to every selected role, primary/fallback
+routes, effective provider timeouts, AGY permission mode, and enclosing lane/run
+budgets. `qualification` is `not_run`: preflight does not discover, qualify,
+repair, invoke, or fall back to a provider, and it creates no session, run,
+diagnostics, publication, or durable review artifact. The workspace manifest is
+listed separately as `generated_at_execution`; its ephemeral filesystem identity
+is not represented as source evidence.
+
+An explicit AGY `safe` mode produces a warning because headless tool requests
+may be denied. A no-change target reports `status: no_change` with no
+transmissions or execution budget. `--preflight` cannot be combined with
+`--session`.
+
 Child workflows create new immutable runs:
 
 ```bash

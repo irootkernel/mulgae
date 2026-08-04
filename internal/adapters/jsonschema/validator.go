@@ -23,7 +23,7 @@ import (
 const (
 	draft2020URI           = "https://json-schema.org/draft/2020-12/schema"
 	fileCatalogExampleID   = "example:file-catalog.v1.valid.json"
-	authoritativePairCount = 16
+	authoritativePairCount = 17
 	regexpMatchTimeout     = 100 * time.Millisecond
 	maxJSONDepth           = 256
 )

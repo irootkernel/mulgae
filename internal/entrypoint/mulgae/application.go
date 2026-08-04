@@ -417,19 +417,46 @@ func (service policyReviewRunService) StartReviewRun(
 	request ReviewRequest,
 	root ports.AnchoredRoot,
 ) (ReviewRunResult, error) {
+	request, err := ResolveReviewPolicyRequest(request, service.enabled, service.artistInputs, service.hasArtistInputs)
+	if err != nil {
+		reason := "requested role is not enabled by production policy"
+		switch {
+		case errors.Is(err, errArtistInputsRequired):
+			reason = "artist review inputs are required"
+		case errors.Is(err, errArtistRoleRequired):
+			reason = "artist inputs require the artist role"
+		}
+		failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, reason, err)
+		return ReviewRunResult{}, failure
+	}
+	return service.service.StartReviewRun(ctx, request, root)
+}
+
+var (
+	errRoleNotEnabled       = errors.New("requested role is not enabled by production policy")
+	errArtistInputsRequired = errors.New("artist review inputs are required")
+	errArtistRoleRequired   = errors.New("artist inputs require the artist role")
+)
+
+// ResolveReviewPolicyRequest is the shared normal-run and preflight authority
+// for enabled-role selection plus Config v1 artist defaults and request-scoped
+// overrides. The returned request is canonical and explicitly selected.
+func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) (ReviewRequest, error) {
+	if hasArtistInputs && !artistInputs.Valid() {
+		return ReviewRequest{}, errors.New("production artist defaults are invalid")
+	}
 	selected := make(map[domain.Role]bool, len(request.roles))
 	if request.rolesExplicit {
 		for _, raw := range request.roles {
 			role := domain.Role(raw)
-			if !role.Valid() || !service.enabled[role] {
-				failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "requested role is not enabled by production policy", nil)
-				return ReviewRunResult{}, failure
+			if !role.Valid() || !enabled[role] {
+				return ReviewRequest{}, errRoleNotEnabled
 			}
 			selected[role] = true
 		}
 	} else {
 		for _, role := range domain.FixedRoleOrder() {
-			if service.enabled[role] {
+			if enabled[role] {
 				selected[role] = true
 			}
 		}
@@ -443,9 +470,9 @@ func (service policyReviewRunService) StartReviewRun(
 	if selected[domain.RoleArtist] {
 		briefPath := ""
 		var designGlobs []string
-		if service.hasArtistInputs {
-			briefPath = service.artistInputs.BriefPath()
-			designGlobs = service.artistInputs.DesignSpecGlobs()
+		if hasArtistInputs {
+			briefPath = artistInputs.BriefPath()
+			designGlobs = artistInputs.DesignSpecGlobs()
 		}
 		if request.hasArtistBrief {
 			briefPath = request.artistBriefPath
@@ -455,17 +482,15 @@ func (service policyReviewRunService) StartReviewRun(
 		}
 		resolved, err := ports.NewArtistReviewInputs(briefPath, designGlobs)
 		if err != nil {
-			failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "artist review inputs are required", err)
-			return ReviewRunResult{}, failure
+			return ReviewRequest{}, errors.Join(errArtistInputsRequired, err)
 		}
 		request.artistBriefPath, request.hasArtistBrief = resolved.BriefPath(), true
 		request.artistDesignGlobs = resolved.DesignSpecGlobs()
 	} else if request.hasArtistBrief || len(request.artistDesignGlobs) != 0 {
-		failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, "artist inputs require the artist role", nil)
-		return ReviewRunResult{}, failure
+		return ReviewRequest{}, errArtistRoleRequired
 	}
 	request.rolesExplicit = true
-	return service.service.StartReviewRun(ctx, request, root)
+	return request, nil
 }
 
 type reviewRunAdapter struct {
@@ -1238,6 +1263,9 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			Roles []any  `json:"roles"`
 		}{"roles_listed", []any{}})
 	case app.CommandReview:
+		if request, available := invocation.Review(); available && request.Preflight() {
+			return reviewPreflightFailureJSON(), nil
+		}
 		return json.Marshal(struct {
 			Kind              string  `json:"kind"`
 			SessionID         *string `json:"session_id"`

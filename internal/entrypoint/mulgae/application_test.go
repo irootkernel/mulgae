@@ -105,13 +105,15 @@ func (inspector *doctorIdentityInspector) ObservePermission(ctx context.Context,
 }
 
 type receiptCapturingFoundationWriter struct {
-	delegate   ports.SecureFileWriter
-	requests   []ports.SecureWriteRequest
-	receipts   []ports.SecureWriteReceipt
-	afterWrite func()
+	delegate    ports.SecureFileWriter
+	requests    []ports.SecureWriteRequest
+	receipts    []ports.SecureWriteReceipt
+	afterWrite  func()
+	ensureCalls int
 }
 
 func (writer *receiptCapturingFoundationWriter) EnsurePrivateDir(root ports.AnchoredRoot, directory ports.SafeRelativePath) error {
+	writer.ensureCalls++
 	return writer.delegate.EnsurePrivateDir(root, directory)
 }
 
@@ -1609,12 +1611,15 @@ func TestApplicationReviewFailsClosedAndPromptIsNotACommand(t *testing.T) {
 }
 
 type reviewRunFake struct {
-	result  ReviewRunResult
-	err     error
-	calls   int
-	ctx     context.Context
-	request ReviewRequest
-	root    ports.AnchoredRoot
+	result          ReviewRunResult
+	err             error
+	calls           int
+	preflightResult ReviewPreflightResult
+	preflightErr    error
+	preflightCalls  int
+	ctx             context.Context
+	request         ReviewRequest
+	root            ports.AnchoredRoot
 }
 
 func (fake *reviewRunFake) StartReviewRun(ctx context.Context, request ReviewRequest, root ports.AnchoredRoot) (ReviewRunResult, error) {
@@ -1626,6 +1631,14 @@ func (fake *reviewRunFake) StartReviewRun(ctx context.Context, request ReviewReq
 		return ReviewRunResult{}, fake.err
 	}
 	return fake.result, nil
+}
+
+func (fake *reviewRunFake) PreflightReview(ctx context.Context, request ReviewRequest, root ports.AnchoredRoot) (ReviewPreflightResult, error) {
+	fake.preflightCalls++
+	fake.ctx = ctx
+	fake.request = request
+	fake.root = root
+	return fake.preflightResult, fake.preflightErr
 }
 
 type reviewRunInputSourceFactoryFake struct {
@@ -1910,6 +1923,27 @@ func TestApplicationReviewRunServiceSeam(t *testing.T) {
 				return
 			}
 		})
+	}
+}
+
+func TestApplicationReviewPreflightUsesOnlyExecutionFreeService(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	fake := &reviewRunFake{preflightResult: loadReviewPreflightExample(t)}
+	fixture.application.reviewRuns = fake
+	beforeEnsures, beforeWrites := fixture.writer.ensureCalls, len(fixture.writer.requests)
+	result := fixture.application.Run(context.Background(), []string{"review", "--stage", "--preflight", "--output", "json"}, testAnchoredRoot(t))
+	if result.ExitCode() != app.ExitCodeSuccess {
+		t.Fatalf("exit = %d stderr = %q", result.ExitCode(), result.Stderr())
+	}
+	if fake.preflightCalls != 1 || fake.calls != 0 || !fake.request.Preflight() {
+		t.Fatalf("service calls preflight/start/request = %d/%d/%t", fake.preflightCalls, fake.calls, fake.request.Preflight())
+	}
+	if fixture.writer.ensureCalls != beforeEnsures || len(fixture.writer.requests) != beforeWrites {
+		t.Fatalf("preflight mutated writer: ensure %d->%d writes %d->%d", beforeEnsures, fixture.writer.ensureCalls, beforeWrites, len(fixture.writer.requests))
+	}
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	if !bytes.Contains(result.Stdout(), []byte(`"kind":"review_preflight"`)) || bytes.Contains(result.Stdout(), []byte(`"kind":"review_started"`)) {
+		t.Fatalf("preflight result = %s", result.Stdout())
 	}
 }
 

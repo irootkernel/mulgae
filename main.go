@@ -124,11 +124,13 @@ func main() {
 	}
 	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
 	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), startupKimiCodeHome, root)
-	reviewRuns := newDeferredReviewRunService(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewRunService, error) {
+	reviewRuns := newDeferredReviewRunServiceWithPreflight(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewRunService, error) {
 		if buildErr != nil {
 			return nil, unavailableBuildMetadata(buildErr)
 		}
 		return composeReviewRuns(reviewContext, build, reviewRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
+	}, func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewPreflightService, error) {
+		return composeReviewPreflight(reviewContext, reviewRoot, gitAdapter, requestResolver)
 	})
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
 		Clock:                clock,

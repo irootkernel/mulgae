@@ -22,7 +22,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const manifestName = "._mulgae_workspace_manifest.json"
+const manifestName = ports.WorkspaceSnapshotManifestName
 
 var errIdentityDrift = ports.ErrWorkspaceSnapshotDrift
 

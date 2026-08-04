@@ -256,20 +256,16 @@ func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[F
 	}
 	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-1)
 	for _, family := range Families() {
-		limits, limitsErr := review.NewInvocationLimits(providerTimeouts[family], productionOutputCap, productionOutputCap)
-		if limitsErr != nil {
-			return nil, limitsErr
-		}
 		for _, role := range productionRolesForFamily(family) {
-			instance := string(family) + "-" + string(role)
-			key, keyErr := ports.ParseConcurrencyKey(instance)
-			if keyErr != nil {
-				return nil, keyErr
+			route, limits, routeErr := productionRouteAndLimits(family, role, providerTimeouts)
+			if routeErr != nil {
+				return nil, routeErr
 			}
+			instance := route.ProviderInstance()
 			template := productionCandidateTemplate{
 				family: family, instance: instance, profileID: instance,
 				runtimeSafetyPolicyIdentity: identities[family], transportChannel: ports.ProviderPacketChannelArgvLiteral,
-				concurrencyKey: key, limits: limits, supportedRoles: []domain.Role{role},
+				concurrencyKey: route.ConcurrencyKey(), limits: limits, supportedRoles: []domain.Role{role},
 			}
 			switch family {
 			case FamilyKimi:
@@ -284,6 +280,26 @@ func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[F
 		}
 	}
 	return templates, nil
+}
+
+func productionRouteAndLimits(family Family, role domain.Role, providerTimeouts map[Family]time.Duration) (ports.ProviderRoute, review.InvocationLimits, error) {
+	if !family.Valid() || !role.Valid() {
+		return ports.ProviderRoute{}, review.InvocationLimits{}, fmt.Errorf("review run: invalid production route")
+	}
+	instance := string(family) + "-" + string(role)
+	key, err := ports.ParseConcurrencyKey(instance)
+	if err != nil {
+		return ports.ProviderRoute{}, review.InvocationLimits{}, err
+	}
+	route, err := ports.NewProviderRoute(instance, key)
+	if err != nil {
+		return ports.ProviderRoute{}, review.InvocationLimits{}, err
+	}
+	limits, err := review.NewInvocationLimits(providerTimeouts[family], productionOutputCap, productionOutputCap)
+	if err != nil {
+		return ports.ProviderRoute{}, review.InvocationLimits{}, err
+	}
+	return route, limits, nil
 }
 
 func defaultProductionProviderTimeouts() map[Family]time.Duration {

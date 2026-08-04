@@ -1,0 +1,94 @@
+{
+  "schema_version": "mulgae-review-preflight.v1",
+  "status": "eligible",
+  "qualification": "not_run",
+  "target": {
+    "requested_kind": "stage",
+    "captured_kind": "git",
+    "git_mode": "stage",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128
+  },
+  "agy_permission_mode": "dangerously-skip-permissions",
+  "warnings": [],
+  "file_sets": [{
+    "id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+    "policy_identity": "index;git=canonical-v1",
+    "files": [
+      {
+        "path": "client/e2e/screenshots/example.png",
+        "media_type": "image/png",
+        "size": 68,
+        "sha256": "sha256:431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "disposition": "binary_preserved"
+      },
+      {
+        "path": "src/main.go",
+        "media_type": "text/plain",
+        "size": 20,
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "disposition": "text"
+      }
+    ]
+  }],
+  "generated_files": [{
+    "path": "._mulgae_workspace_manifest.json",
+    "media_type": "application/json",
+    "disposition": "generated_at_execution"
+  }],
+  "transmissions": [
+    {
+      "role": "logic",
+      "route_kind": "primary",
+      "provider_instance": "zcode-logic",
+      "provider_family": "zcode",
+      "configured_timeout": "30m",
+      "permission_mode": "not_applicable",
+      "target_channel": "prompt",
+      "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e"
+    },
+    {
+      "role": "logic",
+      "route_kind": "fallback",
+      "provider_instance": "agy-logic",
+      "provider_family": "agy",
+      "configured_timeout": "15m",
+      "permission_mode": "dangerously-skip-permissions",
+      "target_channel": "prompt",
+      "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e"
+    }
+  ],
+  "budget": {
+    "eligible": true,
+    "reason_code": "eligible",
+    "max_active_lanes": 2,
+    "total_invocations": 4,
+    "total_output_cap_bytes": 2097152,
+    "critical_path_deadline": "1h30m6s",
+    "run_deadline": "1h30m11s",
+    "ceilings": {
+      "provider_timeout": "60m",
+      "lane_deadline": "28h42s",
+      "run_deadline": "28h47s",
+      "max_invocations_per_role": 4,
+      "max_invocations_per_run": 28,
+      "max_total_output_bytes": 67108864
+    },
+    "lanes": [
+      {
+        "concurrency_key": "agy-logic",
+        "invocation_count": 2,
+        "transition_count": 1,
+        "invocation_timeouts": "30m0s",
+        "deadline": "30m2s"
+      },
+      {
+        "concurrency_key": "zcode-logic",
+        "invocation_count": 2,
+        "transition_count": 2,
+        "invocation_timeouts": "1h0m0s",
+        "deadline": "1h0m4s"
+      }
+    ]
+  }
+}

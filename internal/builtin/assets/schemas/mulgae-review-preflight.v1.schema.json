@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json",
+  "title": "Mulgae Review Preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","status","qualification","target","agy_permission_mode","warnings","file_sets","generated_files","transmissions","budget"],
+  "properties": {
+    "schema_version": {"const": "mulgae-review-preflight.v1"},
+    "status": {"enum": ["eligible","no_change"]},
+    "qualification": {"const": "not_run"},
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested_kind","captured_kind","git_mode","sha256","size"],
+      "properties": {
+        "requested_kind": {"enum": ["workspace","stage","dirty","diff","patch","stdin"]},
+        "captured_kind": {"enum": ["git","workspace","patch","stdin"]},
+        "git_mode": {"enum": ["","diff","stage","dirty"]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size": {"type": "integer","minimum": 0,"maximum": 180000}
+      }
+    },
+    "agy_permission_mode": {"enum": ["safe","dangerously-skip-permissions"]},
+    "warnings": {"type": "array","maxItems": 1,"items": {"type": "string","minLength": 1,"maxLength": 256}},
+    "file_sets": {
+      "type": "array","minItems": 1,"maxItems": 1,
+      "items": {
+        "type": "object","additionalProperties": false,
+        "required": ["id","policy_identity","files"],
+        "properties": {
+          "id": {"$ref": "#/$defs/sha256"},
+          "policy_identity": {"type":"string","minLength":1,"maxLength":1024},
+          "files": {
+            "type":"array","maxItems":10000,
+            "items": {
+              "type":"object","additionalProperties":false,
+              "required":["path","media_type","size","sha256","disposition"],
+              "properties":{
+                "path":{"$ref":"#/$defs/path"},
+                "media_type":{"enum":["text/plain","image/png","image/jpeg","image/webp"]},
+                "size":{"type":"integer","minimum":0,"maximum":4194304},
+                "sha256":{"$ref":"#/$defs/sha256"},
+                "disposition":{"enum":["text","binary_preserved"]}
+              }
+            }
+          }
+        }
+      }
+    },
+    "generated_files": {
+      "type":"array","minItems":1,"maxItems":1,
+      "prefixItems":[{
+        "type":"object","additionalProperties":false,
+        "required":["path","media_type","disposition"],
+        "properties":{
+          "path":{"const":"._mulgae_workspace_manifest.json"},
+          "media_type":{"const":"application/json"},
+          "disposition":{"const":"generated_at_execution"}
+        }
+      }],
+      "items":false
+    },
+    "transmissions": {
+      "type":"array","maxItems":14,
+      "items":{
+        "type":"object","additionalProperties":false,
+        "required":["role","route_kind","provider_instance","provider_family","configured_timeout","permission_mode","target_channel","file_set_id"],
+        "properties":{
+          "role":{"$ref":"#/$defs/role"},
+          "route_kind":{"enum":["primary","fallback"]},
+          "provider_instance":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
+          "provider_family":{"enum":["kimi","zcode","agy"]},
+          "configured_timeout":{"$ref":"#/$defs/duration"},
+          "permission_mode":{"enum":["not_applicable","safe","dangerously-skip-permissions"]},
+          "target_channel":{"const":"prompt"},
+          "file_set_id":{"$ref":"#/$defs/sha256"}
+        }
+      }
+    },
+    "budget": {
+      "type":"object","additionalProperties":false,
+      "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","lanes"],
+      "properties":{
+        "eligible":{"const":true},
+        "reason_code":{"enum":["eligible","no_change"]},
+        "max_active_lanes":{"type":"integer","minimum":0,"maximum":28},
+        "total_invocations":{"type":"integer","minimum":0,"maximum":28},
+        "total_output_cap_bytes":{"type":"integer","minimum":0,"maximum":67108864},
+        "critical_path_deadline":{"$ref":"#/$defs/duration"},
+        "run_deadline":{"$ref":"#/$defs/duration"},
+        "ceilings":{
+          "type":"object","additionalProperties":false,
+          "required":["provider_timeout","lane_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
+          "properties":{
+            "provider_timeout":{"$ref":"#/$defs/duration"},
+            "lane_deadline":{"$ref":"#/$defs/duration"},
+            "run_deadline":{"$ref":"#/$defs/duration"},
+            "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":4},
+            "max_invocations_per_run":{"type":"integer","minimum":1,"maximum":28},
+            "max_total_output_bytes":{"type":"integer","minimum":1,"maximum":67108864}
+          }
+        },
+        "lanes":{
+          "type":"array","maxItems":14,
+          "items":{
+            "type":"object","additionalProperties":false,
+            "required":["concurrency_key","invocation_count","transition_count","invocation_timeouts","deadline"],
+            "properties":{
+              "concurrency_key":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
+              "invocation_count":{"type":"integer","minimum":1,"maximum":28},
+              "transition_count":{"type":"integer","minimum":0,"maximum":27},
+              "invocation_timeouts":{"$ref":"#/$defs/duration"},
+              "deadline":{"$ref":"#/$defs/duration"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+    "path":{"type":"string","minLength":1,"maxLength":4096,"pattern":"^[^\\u0000\\r\\n]+$"},
+    "role":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]},
+    "duration":{"type":"string","pattern":"^(?:0s|[1-9][0-9]*(?:\\.[0-9]+)?(?:ns|us|µs|ms|s|m|h)(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|ms|s|m))*)$"}
+  }
+}
