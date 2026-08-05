@@ -579,13 +579,14 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	}
 	frame, frameOK := lifecycle.OutputFrame()
 	permissionDeniedWithoutOutput := definition.Family() == FamilyAgy && observation.Succeeded() && agyPermissionDenied(observation.Stderr())
-	if (!observation.Succeeded() || permissionDeniedWithoutOutput) && !frameOK {
-		if len(lifecycle.SignalRequests()) != 0 {
-			return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "failed launch carried post-output signal receipts without a frame")
+	requests := lifecycle.SignalRequests()
+	if !frameOK {
+		if !observation.Succeeded() || permissionDeniedWithoutOutput {
+			return nil
 		}
-		return nil
+		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMissing, "missing valid post-output frame receipt")
 	}
-	if !frameOK || !frame.Valid() {
+	if !frame.Valid() {
 		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMissing, "missing valid post-output frame receipt")
 	}
 	if frame.Framing() != lifecyclePolicy.Framing() || lifecyclePolicy.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
@@ -604,7 +605,25 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	if frame.SHA256() != hex.EncodeToString(sum.Sum(nil)) {
 		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMismatch, "trailing or mismatched post-output stdout")
 	}
-	requests := lifecycle.SignalRequests()
+	hasPostOutput, hasNonPostOutput := false, false
+	for _, request := range requests {
+		switch request.Reason() {
+		case ports.ProcessGroupSignalRequestPostOutput, ports.ProcessGroupSignalRequestPostOutputEscalation:
+			hasPostOutput = true
+		default:
+			hasNonPostOutput = true
+		}
+	}
+	if hasPostOutput && hasNonPostOutput {
+		return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "mixed post-output and failure signal receipts")
+	}
+	// Timeout, cancellation, capture limits, and other process failures may
+	// retain a valid frame observed before their internal teardown signal. That
+	// signal is not a post-output success claim; leave its typed process cause to
+	// qualificationProcessFailure instead of relabeling it as a receipt mismatch.
+	if hasNonPostOutput || ((!observation.Succeeded() || permissionDeniedWithoutOutput) && !hasPostOutput) {
+		return nil
+	}
 	if len(requests) == 0 {
 		final := lifecycle.FinalTermination()
 		exitCode, exited := final.ExitCode()

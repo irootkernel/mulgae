@@ -770,21 +770,43 @@ func TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionInternalInvariant {
-		t.Fatalf("unobserved spawn failure condition = %q, want internal invariant", got)
+	if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionProviderSpawnFailed {
+		t.Fatalf("unobserved spawn failure condition = %q, want provider spawn failure", got)
 	}
 }
 
 func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {
-	if got := initialValidationFailureCondition(nil); got != AttemptConditionUnrepairableProviderOutput {
+	if got := initialValidationFailureCondition(nil, errors.New("unclassified")); got != AttemptConditionUnrepairableProviderOutput {
 		t.Fatalf("planless validation failure condition = %q", got)
 	}
 	plan, err := validation.NewExactEvidenceRepairPlan([]byte(`{"schema_version":"mulgae-provider-review-output.v1"}`), []string{"/findings/0/evidence/0/current/quote"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := initialValidationFailureCondition(plan); got != AttemptConditionInvalidProviderOutput {
+	if got := initialValidationFailureCondition(plan, errors.New("repairable")); got != AttemptConditionInvalidProviderOutput {
 		t.Fatalf("planned validation failure condition = %q", got)
+	}
+}
+
+func TestRuntimeCauseConditionPreservesValidationAndSpawnStages(t *testing.T) {
+	tests := []struct {
+		cause domain.RuntimeDiagnosticCause
+		want  AttemptCondition
+	}{
+		{domain.DiagnosticCauseOutputDecodeFailed, AttemptConditionProviderOutputDecodeFailed},
+		{domain.DiagnosticCauseCandidateValidationFailed, AttemptConditionSemanticContradiction},
+		{domain.DiagnosticCauseCandidateRepairPlanInvalid, AttemptConditionSemanticContradiction},
+		{domain.DiagnosticCauseProviderSpawnFailed, AttemptConditionProviderSpawnFailed},
+		{domain.DiagnosticCauseAuthenticationFailed, AttemptConditionAuthentication},
+		{domain.DiagnosticCausePermissionDenied, AttemptConditionProviderPermissionDenied},
+	}
+	for _, test := range tests {
+		if got := runtimeCauseCondition(test.cause); got != test.want {
+			t.Fatalf("runtime cause %q condition = %q, want %q", test.cause, got, test.want)
+		}
+	}
+	if got := diagnosticCauseForCondition(AttemptConditionSemanticContradiction); got != domain.DiagnosticCauseCandidateValidationFailed {
+		t.Fatalf("semantic diagnostic cause = %q", got)
 	}
 }
 

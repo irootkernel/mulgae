@@ -233,19 +233,34 @@ func diagnosticCauseForCondition(condition AttemptCondition) domain.RuntimeDiagn
 		return domain.DiagnosticCauseRateLimited
 	case AttemptConditionTimeout:
 		return domain.DiagnosticCauseTimedOut
+	case AttemptConditionProviderTimeout:
+		return domain.DiagnosticCauseTimedOut
+	case AttemptConditionProviderPermissionDenied:
+		return domain.DiagnosticCausePermissionDenied
 	case AttemptConditionArtifactFailure:
 		return domain.DiagnosticCausePersistenceFailed
-	case AttemptConditionInvalidProviderOutput, AttemptConditionUnrepairableProviderOutput:
+	case AttemptConditionProviderOutputMissing:
+		return domain.DiagnosticCauseOutputMissing
+	case AttemptConditionProviderOutputDecodeFailed:
 		return domain.DiagnosticCauseOutputDecodeFailed
-	case AttemptConditionInvalidEvidenceClaim, AttemptConditionUnrepairableEvidence, AttemptConditionSemanticContradiction:
+	case AttemptConditionInvalidProviderOutput, AttemptConditionUnrepairableProviderOutput,
+		AttemptConditionInvalidEvidenceClaim, AttemptConditionUnrepairableEvidence, AttemptConditionSemanticContradiction:
 		return domain.DiagnosticCauseCandidateValidationFailed
 	case AttemptConditionSecurityViolation, AttemptConditionMutationViolation:
 		return domain.DiagnosticCauseObservationMismatch
 	case AttemptConditionProviderUnavailable:
 		return domain.DiagnosticCauseProviderExecutionFailed
+	case AttemptConditionProviderSpawnFailed:
+		return domain.DiagnosticCauseProviderSpawnFailed
 	default:
 		return ""
 	}
+}
+
+// DiagnosticCauseForCondition projects one closed attempt condition to the
+// safe runtime cause shared by review and specialized child-run diagnostics.
+func DiagnosticCauseForCondition(condition AttemptCondition) domain.RuntimeDiagnosticCause {
+	return diagnosticCauseForCondition(condition)
 }
 
 func coordinatorDiagnosticFailure(cause error) error {

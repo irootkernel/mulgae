@@ -189,7 +189,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
-		t.Fatal("INCONCLUSIVE: installed AGY current probe failed")
+		t.Fatalf("INCONCLUSIVE: installed AGY current probe failed: %v", err)
 	}
 	if len(recordingRunner.observations) != 2 || len(recordingRunner.requests) != 2 {
 		t.Fatalf("INCONCLUSIVE: descriptor-bound AGY launches = observations:%d requests:%d, want version and capability launches", len(recordingRunner.observations), len(recordingRunner.requests))

@@ -110,6 +110,42 @@ func TestDiagnosticStoreOpenCreatesPrivateInstalledRun(t *testing.T) {
 	}
 }
 
+func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	completed := fixture.request.StartedAt().Add(time.Second)
+	terminal, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunFailed,
+		StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true,
+		SelectedRoles: []domain.Role{domain.RoleTesting}, LaneTotal: 1, LaneFailed: 1,
+		TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, domain.DiagnosticCauseProviderSpawnFailed, terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.Finalize(context.Background(), finalize); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := NewDiagnosticStatusReader().ReadRunStatus(context.Background(), root, fixture.request.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SessionID() != fixture.request.SessionID() || status.RunID() != fixture.request.RunID() || status.State() != domain.RunFailed || status.TerminalCause() != domain.DiagnosticCauseProviderSpawnFailed {
+		t.Fatalf("diagnostic status = session %s run %s state %s", status.SessionID(), status.RunID(), status.State())
+	}
+	missing, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
+	if _, err := NewDiagnosticStatusReader().ReadRunStatus(context.Background(), root, missing); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
+		t.Fatalf("missing diagnostic error = %v", err)
+	}
+}
+
 func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.T) {
 	fixture := newDiagnosticStoreFixture(t)
 	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))

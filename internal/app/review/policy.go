@@ -19,6 +19,7 @@ const (
 	AttemptConditionUnrepairableEvidence       AttemptCondition = "unrepairable_evidence_claim"
 	AttemptConditionSemanticContradiction      AttemptCondition = "semantic_contradiction"
 	AttemptConditionProviderUnavailable        AttemptCondition = "provider_unavailable"
+	AttemptConditionProviderSpawnFailed        AttemptCondition = "provider_spawn_failed"
 	AttemptConditionTimeout                    AttemptCondition = "timeout"
 	AttemptConditionAuthentication             AttemptCondition = "auth"
 	AttemptConditionLoginRequired              AttemptCondition = "login_required"
@@ -219,6 +220,14 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionFallbackOnly,
 		reasonCode:         string(AttemptConditionProviderUnavailable),
+	},
+	{
+		condition:          AttemptConditionProviderSpawnFailed,
+		precedence:         conditionPrecedenceProviderFailure,
+		terminalClass:      domain.FailureProviderUnavailable,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFallbackOnly,
+		reasonCode:         string(AttemptConditionProviderSpawnFailed),
 	},
 	{
 		condition:          AttemptConditionTimeout,

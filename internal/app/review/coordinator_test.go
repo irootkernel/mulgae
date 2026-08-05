@@ -159,6 +159,33 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("decoded-planless-validation-failure-falls-back-without-invariant", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false, true)
+		fallbackStarted := false
+		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+				return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
+			}
+			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
+				fallbackStarted = true
+			}
+			return coordinatorSuccessOutcome(t, job)
+		}}
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
+		if !fallbackStarted || !logic.FallbackScheduled() || logic.State() != domain.RoleTaskSucceeded || result.RunState() != domain.RunCompleted {
+			t.Fatalf("decoded validation fallback = started:%t role:%#v run:%q", fallbackStarted, logic, result.RunState())
+		}
+		if primary := logic.Attempts()[0]; primary.ReasonCode() != string(AttemptConditionSemanticContradiction) || primary.FailureClass() != domain.FailureInvalidOutput {
+			t.Fatalf("decoded validation primary classification = %#v", primary)
+		}
+		for _, summary := range logic.Attempts() {
+			if summary.ReasonCode() == string(AttemptConditionInternalInvariant) {
+				t.Fatalf("ordinary fallback path reported internal invariant: %#v", summary)
+			}
+		}
+	})
+
 	t.Run("repair-exhaustion-one-fallback", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, false, true)
 		var mu sync.Mutex
@@ -449,8 +476,11 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionProviderUnavailable,
+		AttemptConditionProviderSpawnFailed,
 		AttemptConditionTimeout,
+		AttemptConditionProviderTimeout,
 		AttemptConditionAuthentication,
+		AttemptConditionProviderPermissionDenied,
 		AttemptConditionQuota,
 		AttemptConditionRateLimit,
 	} {
@@ -491,6 +521,54 @@ func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 			}
 			if position != len(want) {
 				t.Fatalf("%s fallback diagnostic order = %v, missing suffix %v", condition, diagnostics.events, want[position:])
+			}
+		})
+	}
+}
+
+func TestCoordinatorFallbackFailuresRemainTypedAndActionable(t *testing.T) {
+	tests := []AttemptCondition{
+		AttemptConditionProviderPermissionDenied,
+		AttemptConditionAuthentication,
+		AttemptConditionProviderSpawnFailed,
+		AttemptConditionInvalidProviderOutput,
+		AttemptConditionProviderTimeout,
+		AttemptConditionCancelled,
+		AttemptConditionConfigurationViolation,
+	}
+	for _, fallbackCondition := range tests {
+		t.Run(string(fallbackCondition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false, true)
+			fallbackCalls := 0
+			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() != domain.RoleLogic {
+					return coordinatorSuccessOutcome(t, job)
+				}
+				if job.AttemptKind() == AttemptKindPrimary {
+					return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
+				}
+				fallbackCalls++
+				return coordinatorConditionOutcome(t, job, fallbackCondition)
+			}}
+			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
+			if fallbackCalls == 0 || !logic.FallbackScheduled() || len(logic.Attempts()) != 2 {
+				t.Fatalf("fallback execution = calls:%d summary:%#v", fallbackCalls, logic)
+			}
+			primary := logic.Attempts()[0]
+			if primary.ReasonCode() != string(AttemptConditionSemanticContradiction) {
+				t.Fatalf("primary classification changed to %q", primary.ReasonCode())
+			}
+			fallback := logic.Attempts()[1]
+			if fallback.ReasonCode() == string(AttemptConditionInternalInvariant) || logic.ReasonCode() == string(AttemptConditionInternalInvariant) {
+				t.Fatalf("ordinary fallback failure collapsed to invariant: %#v", logic)
+			}
+			if fallbackCondition == AttemptConditionInvalidProviderOutput {
+				if fallbackCalls != 2 || fallback.ReasonCode() != string(AttemptConditionInvalidProviderOutput) {
+					t.Fatalf("invalid fallback repair exhaustion = calls:%d summary:%#v", fallbackCalls, fallback)
+				}
+			} else if fallback.ReasonCode() != string(fallbackCondition) {
+				t.Fatalf("fallback reason = %q, want %q", fallback.ReasonCode(), fallbackCondition)
 			}
 		})
 	}

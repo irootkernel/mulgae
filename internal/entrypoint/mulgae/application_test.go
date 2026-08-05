@@ -1445,7 +1445,7 @@ func TestApplicationDoctorKeepsConfiguredProvidersUnverifiedWithoutAuthorityEvid
 	}
 	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" ||
 		envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeReadiness) ||
-		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_admission_unverified" {
+		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_static_admission_unverified" {
 		t.Fatalf("doctor result = %#v, want explicit unverified authority", envelope.Result.Doctor)
 	}
 }
@@ -2337,6 +2337,8 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
 		{name: "provider output missing", code: "provider_output_missing", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputMissing, domain.FailureInvalidOutput), provider: true},
 		{name: "provider output decode failed", code: "provider_output_decode_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputDecodeFailed, domain.FailureInvalidOutput), provider: true},
+		{name: "candidate validation failed", code: "candidate_validation_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionSemanticContradiction, domain.FailureInvalidOutput), provider: true},
+		{name: "provider spawn failed", code: "provider_spawn_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderSpawnFailed, domain.FailureProviderUnavailable), provider: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2495,6 +2497,15 @@ type g006QueryFake struct {
 	excerptErr   error
 	resolveErr   error
 	resolveRoots []ports.AnchoredRoot
+}
+
+type diagnosticQueryFake struct {
+	status ports.RuntimeDiagnosticRunStatus
+	err    error
+}
+
+func (fake diagnosticQueryFake) ReadRunStatus(context.Context, ports.AnchoredRoot, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	return fake.status, fake.err
 }
 
 type g008FollowupFake struct{}
@@ -2868,6 +2879,41 @@ func TestApplicationG006CommandsHumanAndJSON(t *testing.T) {
 		if got, want := artifactRoot.String(), filepath.Join(root, ".mulgae"); got != want {
 			t.Fatalf("publication root = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testing.T) {
+	query := &g006QueryFake{resolveErr: ports.ErrPublicationRunNotFound}
+	fixture := newG006Fixture(t, query, &g006ReportFake{})
+	sessionID, _ := domain.ParseSessionID(g006SessionID)
+	runID, _ := domain.ParseRunID(testRunID)
+	now := time.Date(2026, time.July, 23, 6, 0, 0, 0, time.UTC)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
+		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
+		LaneTotal: 1, LaneFailed: 1, LastSequence: 12, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application.diagnosticQueries = diagnosticQueryFake{status: status}
+	result := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID, "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	if got := commandResultKind(t, result.Stdout()); got != "diagnostic_status_read" {
+		t.Fatalf("diagnostic status kind = %q", got)
+	}
+	var envelope struct {
+		Result struct {
+			DiagnosticOnly       bool    `json:"diagnostic_only"`
+			PublicationAuthority bool    `json:"publication_authority"`
+			TerminalCause        *string `json:"terminal_cause"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.Result.DiagnosticOnly || envelope.Result.PublicationAuthority || envelope.Result.TerminalCause == nil || *envelope.Result.TerminalCause != string(domain.DiagnosticCauseProviderSpawnFailed) {
+		t.Fatalf("diagnostic status envelope = %#v", envelope.Result)
 	}
 }
 
@@ -3869,7 +3915,7 @@ func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
 			wantCode := "provider_execution_failed"
 			switch test.condition {
 			case review.AttemptConditionInvalidProviderOutput:
-				wantCode = "provider_output_decode_failed"
+				wantCode = "candidate_validation_failed"
 			case review.AttemptConditionTimeout:
 				wantCode = "execution_timeout"
 			}

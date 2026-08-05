@@ -73,6 +73,53 @@ func TestReducePublicationEvidenceUsesTotalAuthorityReducer(t *testing.T) {
 	}
 }
 
+func TestReducePublicationEvidenceDropsOptionalNonAuthoritativeFinding(t *testing.T) {
+	t.Parallel()
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetWorkspace, SHA256: strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+		TargetSHA256: "sha256:" + target.SHA256(), Side: evidence.SideWorktree,
+		Path: "internal/example.go", LineStart: 1, LineEnd: 1, Quote: "line one\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := evidence.NewVerifier(publicationEvidenceReader{availability: evidence.ImmutableTargetUnavailable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := verifier.VerifyCurrent(context.Background(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newFinding := func(severity domain.Severity) domain.Finding {
+		finding, findingErr := domain.NewFinding(domain.FindingInput{
+			Severity: severity, Path: "internal/example.go", LineStart: 1,
+			Role: domain.RoleLogic, ProviderInstance: "logic-provider", Title: "finding",
+			Description: "description", Recommendation: "recommendation", Confidence: domain.ConfidenceLow,
+			Lifecycle: domain.FindingOpen, EvidenceState: domain.EvidenceUnverified,
+			NormalizedRuleCategory: "finding", NormalizedEvidenceRegion: "line one",
+		})
+		if findingErr != nil {
+			t.Fatal(findingErr)
+		}
+		return finding
+	}
+	items, authoritative, err := reducePublicationEvidence(
+		[]evidence.CurrentReceipt{receipt}, make([]validation.VerifiedVisualReference, 1), newFinding(domain.SeverityMedium), target, "F001",
+	)
+	if err != nil || authoritative || len(items) != 0 {
+		t.Fatalf("optional non-authoritative finding = (%#v, %t, %v), want omission", items, authoritative, err)
+	}
+	if _, _, err := reducePublicationEvidence(
+		[]evidence.CurrentReceipt{receipt}, make([]validation.VerifiedVisualReference, 1), newFinding(domain.SeverityHigh), target, "F001",
+	); err == nil {
+		t.Fatal("required high-severity non-authoritative evidence was accepted")
+	}
+}
+
 type publicationEvidenceReader struct {
 	availability evidence.ImmutableTargetAvailability
 	bytes        []byte

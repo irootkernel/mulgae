@@ -21,7 +21,16 @@ const (
 	RuntimeDiagnosticInvocationStatusSchema       = "mulgae-runtime-invocation-status.v1"
 )
 
-var ErrRuntimeDiagnosticEventDropped = errors.New("runtime diagnostic ordinary event dropped at cap")
+var (
+	ErrRuntimeDiagnosticEventDropped = errors.New("runtime diagnostic ordinary event dropped at cap")
+	ErrRuntimeDiagnosticRunNotFound  = errors.New("runtime diagnostic run not found")
+)
+
+// RuntimeDiagnosticQuery reads only the bounded safe run-status projection.
+// It never exposes the runtime event stream or raw provider transcripts.
+type RuntimeDiagnosticQuery interface {
+	ReadRunStatus(context.Context, AnchoredRoot, domain.RunID) (RuntimeDiagnosticRunStatus, error)
+}
 
 type RuntimeDiagnosticOpenRequest struct {
 	root      AnchoredRoot

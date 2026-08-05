@@ -743,7 +743,7 @@ func (r *Registry) QualificationNamespace(instance string) (QualificationNamespa
 
 func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	if r == nil || nilRunner(r.runner) {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: nil process runner")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: nil process runner"))
 	}
 	if ctx == nil {
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: nil context")
@@ -751,7 +751,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	r.stateMu.Lock()
 	if r.closed {
 		r.stateMu.Unlock()
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: terminally drained")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: terminally drained"))
 	}
 	if r.active == 0 {
 		r.activeZero = make(chan struct{})
@@ -761,19 +761,19 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	defer r.observeDone()
 	definition, ok := r.definitions[invocation.ProviderInstance()]
 	if !ok {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: unregistered provider instance %q", invocation.ProviderInstance())
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: unregistered provider instance %q", invocation.ProviderInstance()))
 	}
 	if err := definition.validate(); err != nil {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: invalid registered definition: %w", err)
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: invalid registered definition: %w", err))
 	}
 	packet := invocation.Packet()
 	namespace := r.namespaces[definition.instance]
 	if nilProviderNamespaceLease(namespace) || namespace.Generation() != r.namespaceGenerations[definition.instance] {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: namespace generation drift")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
 	}
 	lane := r.lanes[definition.concurrencyKey]
 	if lane == nil {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: missing concurrency lane")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing concurrency lane"))
 	}
 	if err := acquireLane(ctx, lane); err != nil {
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: acquire concurrency lane: %w", err)
@@ -782,10 +782,10 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		<-lane
 	}()
 	if namespace.Generation() != r.namespaceGenerations[definition.instance] {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: namespace generation drift")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
 	}
 	if err := namespace.ValidateForSpawn(); err != nil {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: namespace lease validation: %w", err)
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace lease validation: %w", err))
 	}
 
 	var processObservation ports.ProcessObservation
@@ -794,7 +794,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		processObservation, runErr = r.runInWorkspace(ctx, definition, invocation, workspace, packet, namespace, namespace.Environment())
 	} else {
 		if definition.requiresWorkspaceAuthority {
-			return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: production definition requires workspace authority")
+			return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: production definition requires workspace authority"))
 		}
 		processObservation, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment())
 	}
@@ -832,7 +832,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		)
 	}
 	if !processObservation.Valid() {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: process runner returned invalid observation")
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("provider registry: process runner returned invalid observation"))
 	}
 	if definition.family == FamilyAgy && agyPermissionDenied(processObservation.Stderr()) {
 		return ports.NewFailedProviderExecutionObservationWithCause(
@@ -873,6 +873,14 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		status, invocation, processObservation, diagnostic, cause, "",
 		definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
+}
+
+func providerRuntimeFailure(cause domain.RuntimeDiagnosticCause, err error) error {
+	failure, constructionErr := ports.NewProviderRuntimeError(cause, err)
+	if constructionErr != nil {
+		return constructionErr
+	}
+	return failure
 }
 
 func (r *Registry) runLegacy(
@@ -1188,7 +1196,10 @@ func providerRunCauses(err error) (domain.RuntimeDiagnosticCause, domain.Runtime
 	if errors.Is(err, context.DeadlineExceeded) {
 		return domain.DiagnosticCauseTimedOut, ""
 	}
-	return domain.DiagnosticCauseObservationInvalid, ""
+	// Every error reaching this point occurred before a valid process
+	// observation existed. Preserve that boundary as a spawn failure instead of
+	// allowing an ordinary preparation failure to collapse into an invariant.
+	return domain.DiagnosticCauseProviderSpawnFailed, ""
 }
 
 func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.ProviderExecutionStatus, string) {
@@ -1354,15 +1365,23 @@ func zcodeContent(stdout []byte) ([]byte, error) {
 	}
 	result, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, []byte(response))
 	if err != nil {
-		result, err = extractUniqueFencedJSONObject([]byte(response))
+		result, err = extractUniqueFencedPayload([]byte(response))
 		if err != nil {
+			candidate := bytes.TrimSpace([]byte(response))
+			if len(candidate) != 0 && candidate[0] == '{' {
+				return append([]byte(nil), candidate...), nil
+			}
 			return nil, errInvalidZcodeEnvelope
 		}
 	}
 	return result, nil
 }
 
-func extractUniqueFencedJSONObject(output []byte) ([]byte, error) {
+// extractUniqueFencedPayload unwraps one complete JSON fence without deciding
+// whether the provider-owned payload is valid JSON. Payload parsing and repair
+// authority belong to the application validation layer, while this adapter
+// remains responsible for rejecting ambiguous transport framing.
+func extractUniqueFencedPayload(output []byte) ([]byte, error) {
 	const (
 		fenceStart = "```json\n"
 		fenceEnd   = "\n```"
@@ -1379,9 +1398,8 @@ func extractUniqueFencedJSONObject(output []byte) ([]byte, error) {
 	if endOffset < 0 {
 		return nil, errProviderOutputFrameMissing
 	}
-	candidate := output[contentStart : contentStart+endOffset]
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(candidate, &object); err != nil || object == nil {
+	candidate := bytes.TrimSpace(output[contentStart : contentStart+endOffset])
+	if len(candidate) == 0 {
 		return nil, errProviderOutputFrameMissing
 	}
 	return append([]byte(nil), candidate...), nil

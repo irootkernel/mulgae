@@ -149,6 +149,7 @@ func main() {
 		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
 		Reruns:             deferredRerunService{composer: childComposer},
 		PublicationQueries: mulgae.NewPublicationQueryService(queryService),
+		DiagnosticQueries:  filesystem.NewDiagnosticStatusReader(),
 		PublicationReports: mulgae.NewPublicationReportService(reportService),
 		Retention:          g008Dependencies.Retention,
 		Exports:            g008Dependencies.Exports,

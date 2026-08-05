@@ -333,9 +333,7 @@
         "properties": {
           "result": {
             "properties": {
-              "kind": { "const": "status_read" },
-              "publication_status": { "type": "string" },
-              "recovery_action": { "type": "string" }
+              "kind": { "enum": ["status_read", "diagnostic_status_read"] }
             }
           }
         }
@@ -3478,7 +3476,7 @@
         "additionalProperties": false,
         "required": ["kind", "run_id", "run_state", "publication_status", "recovery_action", "final_artifact_uri"],
         "properties": {
-          "kind": { "type": "string", "enum": ["status_read", "status_failed"] },
+          "kind": { "type": "string", "enum": ["status_read", "diagnostic_status_read", "status_failed"] },
           "run_id": { "$ref": "#/$defs/run_id" },
           "run_state": {
             "type": ["string", "null"],
@@ -3504,9 +3502,45 @@
           "final_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
           "content_verdict": { "type": "string", "enum": ["no_findings", "findings_present", "request_changes"] },
           "coverage_status": { "type": "string", "enum": ["complete", "degraded", "incomplete"] },
-          "ci_decision": { "type": "string", "enum": ["pass", "fail"] }
+          "ci_decision": { "type": "string", "enum": ["pass", "fail"] },
+          "session_id": { "$ref": "#/$defs/session_id" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": ["string", "null"], "format": "date-time" },
+          "selected_roles": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["logic", "security", "maintainability", "product", "documentation", "testing", "artist"] },
+            "uniqueItems": true
+          },
+          "lane_total": { "type": "integer", "minimum": 0 },
+          "lane_completed": { "type": "integer", "minimum": 0 },
+          "lane_failed": { "type": "integer", "minimum": 0 },
+          "last_seq": { "type": "integer", "minimum": 0 },
+          "terminal_cause": { "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9_]+$" },
+          "dropped_events": { "type": "integer", "minimum": 0 },
+          "diagnostic_only": { "type": "boolean" },
+          "publication_authority": { "type": "boolean" }
         },
         "oneOf": [
+          {
+            "required": ["session_id", "started_at", "updated_at", "completed_at", "selected_roles", "lane_total", "lane_completed", "lane_failed", "last_seq", "terminal_cause", "dropped_events", "diagnostic_only", "publication_authority"],
+            "properties": {
+              "kind": { "const": "diagnostic_status_read" },
+              "run_state": { "type": "string" },
+              "publication_status": { "type": "null" },
+              "recovery_action": { "type": "null" },
+              "final_artifact_uri": { "type": "null" },
+              "diagnostic_only": { "const": true },
+              "publication_authority": { "const": false }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["content_verdict"] },
+                { "required": ["coverage_status"] },
+                { "required": ["ci_decision"] }
+              ]
+            }
+          },
           {
             "properties": {
               "kind": { "const": "status_failed" },

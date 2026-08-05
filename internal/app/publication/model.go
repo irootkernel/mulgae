@@ -1537,6 +1537,9 @@ func reducePublicationEvidence(
 		return nil, false, fmt.Errorf("publication candidate: finding %q evidence counts do not partition receipts", findingID)
 	}
 	if rejected != 0 {
+		if finding.Severity().Rank() < domain.SeverityHigh.Rank() {
+			return nil, false, nil
+		}
 		return nil, false, fmt.Errorf("publication candidate: finding %q has non-authoritative evidence", findingID)
 	}
 	if verified != 0 && allowedException != 0 {

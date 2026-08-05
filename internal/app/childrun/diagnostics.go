@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -90,52 +91,74 @@ func (lifecycle *childDiagnosticLifecycle) emit(ctx context.Context, level domai
 	return nil
 }
 
-func (lifecycle *childDiagnosticLifecycle) persistObservation(ctx context.Context, observation ports.ProviderExecutionObservation, ordinal uint64) error {
+type childDiagnosticObservation struct {
+	stdoutSecurityDropped bool
+	stderrSecurityDropped bool
+}
+
+func (lifecycle *childDiagnosticLifecycle) persistObservation(ctx context.Context, observation ports.ProviderExecutionObservation, ordinal uint64) (childDiagnosticObservation, error) {
 	if lifecycle == nil {
-		return nil
+		return childDiagnosticObservation{}, nil
 	}
 	invocation := observation.Invocation()
-	persist := func(stream domain.RuntimeDiagnosticStream, content []byte, maximum int64) error {
+	persist := func(stream domain.RuntimeDiagnosticStream, content []byte, maximum int64) (bool, error) {
 		if len(content) == 0 {
-			return nil
+			return false, nil
 		}
 		request, err := ports.NewRuntimeDiagnosticRawRequest(invocation.AttemptID(), invocation.SourceInvocationID(), ordinal, invocation.Purpose(), stream, bytes.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) {})
 		if err != nil {
-			return childDiagnosticArtifactFailure(err)
+			return false, childDiagnosticArtifactFailure(err)
 		}
-		if _, err := lifecycle.sink.PersistRaw(context.WithoutCancel(ctx), request); err != nil {
-			return childDiagnosticArtifactFailure(err)
+		result, err := lifecycle.sink.PersistRaw(context.WithoutCancel(ctx), request)
+		if err != nil {
+			var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+			drop, dropped := result.Drop()
+			if !errors.As(err, &rejection) || !result.ValidFor(stream) || !dropped || !sameChildDiagnosticDrop(*drop, rejection.Drop()) {
+				return false, childDiagnosticArtifactFailure(err)
+			}
+			return true, nil
 		}
-		return nil
+		if !result.ValidFor(stream) {
+			return false, childDiagnosticArtifactFailure(fmt.Errorf("diagnostic sink returned an invalid raw result"))
+		}
+		if _, dropped := result.Drop(); dropped {
+			return false, childDiagnosticArtifactFailure(fmt.Errorf("diagnostic sink returned an unclassified raw drop"))
+		}
+		return false, nil
 	}
-	if err := persist(domain.DiagnosticStdout, observation.Stdout(), observation.StdoutLimit()); err != nil {
-		return err
+	stdoutDropped, err := persist(domain.DiagnosticStdout, observation.Stdout(), observation.StdoutLimit())
+	if err != nil {
+		return childDiagnosticObservation{}, err
 	}
-	return persist(domain.DiagnosticStderr, observation.Stderr(), observation.StderrLimit())
+	stderrDropped, err := persist(domain.DiagnosticStderr, observation.Stderr(), observation.StderrLimit())
+	if err != nil {
+		return childDiagnosticObservation{}, err
+	}
+	return childDiagnosticObservation{stdoutSecurityDropped: stdoutDropped, stderrSecurityDropped: stderrDropped}, nil
+}
+
+func sameChildDiagnosticDrop(left, right ports.DropMetadata) bool {
+	if left.Channel() != right.Channel() || left.Detector() != right.Detector() || left.Count() != right.Count() {
+		return false
+	}
+	leftSources, rightSources := left.SourceIDs(), right.SourceIDs()
+	if len(leftSources) != len(rightSources) {
+		return false
+	}
+	for index := range leftSources {
+		if leftSources[index] != rightSources[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (lifecycle *childDiagnosticLifecycle) finish(ctx context.Context, terminalErr error, p2 ports.SafeRelativePath) error {
 	if lifecycle == nil {
 		return terminalErr
 	}
-	state, cause := domain.RunCompleted, domain.RuntimeDiagnosticCause("")
+	state, cause := childDiagnosticTerminalDecision(terminalErr)
 	if terminalErr != nil {
-		state, cause = domain.RunFailed, domain.DiagnosticCauseObservationInvalid
-		var failure *domain.Failure
-		if errors.As(terminalErr, &failure) {
-			switch failure.Class() {
-			case domain.FailureTimeout:
-				cause = domain.DiagnosticCauseTimedOut
-			case domain.FailureAuthentication:
-				cause = domain.DiagnosticCauseAuthenticationFailed
-			case domain.FailureQuota:
-				cause = domain.DiagnosticCauseQuotaExceeded
-			case domain.FailureRateLimit:
-				cause = domain.DiagnosticCauseRateLimited
-			case domain.FailureArtifact:
-				cause = domain.DiagnosticCausePersistenceFailed
-			}
-		}
 		_ = lifecycle.emit(ctx, domain.RuntimeDiagnosticError, domain.DiagnosticRunStopped, "childrun", "finalize", cause)
 	} else {
 		_ = lifecycle.emit(ctx, domain.RuntimeDiagnosticInfo, domain.DiagnosticRunCompleted, "childrun", "finalize", "")
@@ -163,6 +186,57 @@ func (lifecycle *childDiagnosticLifecycle) finish(ctx context.Context, terminalE
 		return reviewrun.NewRuntimeDiagnosticReferenceError(finalized.URI(), terminalErr)
 	}
 	return nil
+}
+
+func childDiagnosticTerminalDecision(terminalErr error) (domain.RunState, domain.RuntimeDiagnosticCause) {
+	if terminalErr == nil {
+		return domain.RunCompleted, ""
+	}
+	if failures, ok := reviewrun.ProviderExecutionFailuresFromError(terminalErr); ok {
+		var selected domain.RuntimeDiagnosticCause
+		for _, failure := range failures {
+			condition := review.AttemptCondition(failure.ReasonCode())
+			if condition == review.AttemptConditionCancelled {
+				return domain.RunCancelled, ""
+			}
+			cause := domain.DiagnosticCauseObservationInvalid
+			if condition != review.AttemptConditionArtifactFailure {
+				cause = review.DiagnosticCauseForCondition(condition)
+			}
+			if !cause.Valid() || selected != "" && selected != cause {
+				return domain.RunFailed, domain.DiagnosticCauseObservationInvalid
+			}
+			selected = cause
+		}
+		if selected.Valid() {
+			return domain.RunFailed, selected
+		}
+	}
+	var failure *domain.Failure
+	if errors.As(terminalErr, &failure) {
+		switch failure.Class() {
+		case domain.FailureTimeout:
+			return domain.RunFailed, domain.DiagnosticCauseTimedOut
+		case domain.FailureAuthentication:
+			return domain.RunFailed, domain.DiagnosticCauseAuthenticationFailed
+		case domain.FailureQuota:
+			return domain.RunFailed, domain.DiagnosticCauseQuotaExceeded
+		case domain.FailureRateLimit:
+			return domain.RunFailed, domain.DiagnosticCauseRateLimited
+		case domain.FailureInvalidOutput:
+			return domain.RunFailed, domain.DiagnosticCauseCandidateValidationFailed
+		case domain.FailureArtifact:
+			if failure.Stage() == "childrun.diagnostics" {
+				return domain.RunFailed, domain.DiagnosticCausePersistenceFailed
+			}
+		case domain.FailureCancelled:
+			return domain.RunCancelled, ""
+		}
+	}
+	if errors.Is(terminalErr, context.Canceled) || errors.Is(terminalErr, context.DeadlineExceeded) {
+		return domain.RunCancelled, ""
+	}
+	return domain.RunFailed, domain.DiagnosticCauseObservationInvalid
 }
 
 func boolCount(value bool) int {

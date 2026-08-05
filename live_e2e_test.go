@@ -1147,7 +1147,7 @@ func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	}
 	unverified := map[string]bool{}
 	for _, row := range doctor.ProviderInventory {
-		if row.State == "unavailable" && row.Reason == "provider_admission_unverified" {
+		if row.State == "unavailable" && row.Reason == "provider_static_admission_unverified" {
 			unverified[row.Family] = true
 		}
 	}

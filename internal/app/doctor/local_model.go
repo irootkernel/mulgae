@@ -157,7 +157,7 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 			}
 			eligible++
 		case "unavailable":
-			if row.Reason != "configured_identity_unavailable" && row.Reason != "provider_admission_unverified" && row.Reason != "provider_security_admission_failed" {
+			if row.Reason != "configured_identity_unavailable" && row.Reason != "provider_static_admission_unverified" && row.Reason != "provider_security_admission_failed" {
 				return fmt.Errorf("local doctor result: invalid unavailable provider")
 			}
 			unsafe = unsafe || row.Reason == "provider_security_admission_failed"
@@ -169,7 +169,7 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 	case unsafe:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unsafe", 8, []string{"provider_security_admission_failed"})
 	case eligible == 0:
-		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_unavailable"})
+		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_static_admission_unverified"})
 	case eligible == 1:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"}, "degraded", 0, []string{"provider_resilience_degraded"})
 	default:

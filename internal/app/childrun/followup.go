@@ -158,7 +158,8 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if err != nil {
 		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionProviderUnavailable, domain.FailureProviderUnavailable, err)
 	}
-	if err := lifecycle.persistObservation(ctx, observation, 1); err != nil {
+	diagnosticDrop, err := lifecycle.persistObservation(ctx, observation, 1)
+	if err != nil {
 		return appfollowup.ExecutionResult{}, err
 	}
 	if err := validateFollowupObservation(observation, invocation); err != nil {
@@ -173,6 +174,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	validated, repairable, validationErr := executor.validator.ValidateWithRepairAuthority(ctx, initialRaw, scope)
 	observations := []ports.ProviderExecutionObservation{observation}
 	runtimes := []publication.FollowupRuntimeArtifactInput{runtime}
+	diagnosticDrops := []childDiagnosticObservation{diagnosticDrop}
 	repaired := false
 	if validationErr != nil && repairable {
 		repairPrompts, repairAuthorized := executor.prompts.(FollowupRepairPromptSource)
@@ -194,7 +196,8 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		if observeErr != nil {
 			return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionProviderUnavailable, domain.FailureProviderUnavailable, observeErr)
 		}
-		if persistErr := lifecycle.persistObservation(ctx, repairObservation, 2); persistErr != nil {
+		repairDiagnosticDrop, persistErr := lifecycle.persistObservation(ctx, repairObservation, 2)
+		if persistErr != nil {
 			return appfollowup.ExecutionResult{}, persistErr
 		}
 		if observeErr = validateFollowupObservation(repairObservation, repairInvocation); observeErr != nil {
@@ -207,6 +210,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		validated, _, validationErr = executor.validator.ValidateWithRepairAuthority(ctx, repairResult.Stdout(), scope)
 		observations = append(observations, repairObservation)
 		runtimes = append(runtimes, repairRuntime)
+		diagnosticDrops = append(diagnosticDrops, repairDiagnosticDrop)
 		repaired = true
 	}
 	if validationErr != nil {
@@ -229,15 +233,20 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 		for _, capture := range []struct {
 			kind  ports.AttemptArtifactKind
 			bytes []byte
+			drop  bool
 		}{
-			{candidateKind, candidate},
-			{ports.AttemptArtifactStdout, observations[index].Stdout()},
-			{ports.AttemptArtifactStderr, observations[index].Stderr()},
+			{candidateKind, candidate, diagnosticDrops[index].stdoutSecurityDropped},
+			{ports.AttemptArtifactStdout, observations[index].Stdout(), diagnosticDrops[index].stdoutSecurityDropped},
+			{ports.AttemptArtifactStderr, observations[index].Stderr(), diagnosticDrops[index].stderrSecurityDropped},
 		} {
-			if len(capture.bytes) == 0 {
+			if len(capture.bytes) == 0 && !capture.drop {
 				continue
 			}
-			artifact, artifactErr := ports.NewCapturedAttemptArtifact(capture.kind, capture.bytes, false)
+			content := capture.bytes
+			if capture.drop {
+				content = nil
+			}
+			artifact, artifactErr := ports.NewCapturedAttemptArtifact(capture.kind, content, capture.drop)
 			if artifactErr != nil {
 				return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: capture %s: %w", capture.kind, artifactErr)
 			}
@@ -282,6 +291,23 @@ func validateFollowupObservation(observation ports.ProviderExecutionObservation,
 func followupObservationFailure(provider string, role domain.Role, observation ports.ProviderExecutionObservation, cause error) error {
 	class := observation.FailureClass()
 	condition := review.AttemptConditionProviderUnavailable
+	switch observation.PrimaryCause() {
+	case domain.DiagnosticCauseOutputMissing:
+		class = domain.FailureInvalidOutput
+		condition = review.AttemptConditionProviderOutputMissing
+	case domain.DiagnosticCauseOutputFrameMissing,
+		domain.DiagnosticCauseOutputEnvelopeInvalid,
+		domain.DiagnosticCauseOutputDecodeFailed,
+		domain.DiagnosticCauseResultBindingFailed:
+		class = domain.FailureInvalidOutput
+		condition = review.AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCausePermissionDenied:
+		class = domain.FailureAuthentication
+		condition = review.AttemptConditionProviderPermissionDenied
+	}
+	if condition != review.AttemptConditionProviderUnavailable {
+		return followupExecutionFailure(provider, role, condition, class, cause)
+	}
 	switch class {
 	case domain.FailureTimeout:
 		condition = review.AttemptConditionTimeout

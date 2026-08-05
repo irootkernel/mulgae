@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
@@ -1197,14 +1198,14 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 			continue
 		}
 		if nilApplicationDependency(application.evidenceReader) {
-			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: "provider_admission_unverified"})
+			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "unavailable", Reason: "provider_static_admission_unverified"})
 			continue
 		}
 		evidence, evidenceErr := application.evidenceReader.ProviderEvidence(ctx, family)
 		admitted, unsafe := localProviderAdmission(evidence, family)
 		if evidenceErr != nil || !admitted {
 			unsafeAdmission = unsafeAdmission || unsafe
-			reason := "provider_admission_unverified"
+			reason := "provider_static_admission_unverified"
 			if unsafe {
 				reason = "provider_security_admission_failed"
 			}
@@ -1234,8 +1235,8 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_security_admission_failed", Category: "security", Message: "A configured provider failed security admission.", Redacted: true}}
 	case eligible == 0:
 		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
-		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_unavailable"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_unavailable", Category: "readiness", Message: "A configured provider is unavailable.", Redacted: true}}
+		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_static_admission_unverified"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_static_admission_unverified", Category: "readiness", Message: "Configured provider identity is present, static admission evidence is unverified, and live qualification was not evaluated by doctor.", Redacted: true}}
 	case eligible == 1:
 		base.Assignment = doctor.LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"}
 		base.Readiness = doctor.LocalReadiness{State: "degraded", ExitCode: 0, ReasonCodes: []string{"provider_resilience_degraded"}}
@@ -1426,6 +1427,23 @@ func (application *Application) handleStatus(ctx context.Context, invocation Inv
 	}
 	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
 	if err != nil {
+		if errors.Is(err, ports.ErrPublicationRunNotFound) && !nilApplicationDependency(application.diagnosticQueries) {
+			_, artifactRoot, rootErr := publicationRoots(canonicalProjectRoot)
+			runID, idErr := domain.ParseRunID(request.RunID())
+			if rootErr == nil && idErr == nil {
+				diagnosticStatus, diagnosticErr := application.diagnosticQueries.ReadRunStatus(ctx, artifactRoot, runID)
+				if diagnosticErr == nil {
+					data, projectionErr := diagnosticStatusResultData(request, diagnosticStatus)
+					if projectionErr != nil {
+						return execution{failure: executionFailureFor(invocation.Command(), projectionErr, domain.FailureArtifact)}
+					}
+					return execution{human: diagnosticStatusHumanOutput(diagnosticStatus), data: data}
+				}
+				if !errors.Is(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound) {
+					return execution{failure: executionFailureFor(invocation.Command(), diagnosticErr, domain.FailureArtifact)}
+				}
+			}
+		}
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
 	status, err := application.publicationQueries.ReadRunStatus(ctx, run)
@@ -1702,6 +1720,64 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 		CoverageStatus:    coverageStatus,
 		CIDecision:        ciDecision,
 	})
+}
+
+func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagnosticRunStatus) ([]byte, error) {
+	if status.RunID().String() != request.RunID() || !status.State().Valid() {
+		return nil, errors.New("diagnostic status projection is invalid")
+	}
+	total, completed, failed := status.LaneCounts()
+	completedAt, hasCompletedAt := status.CompletedAt()
+	var completedAtValue *string
+	if hasCompletedAt {
+		value := completedAt.Format(time.RFC3339Nano)
+		completedAtValue = &value
+	}
+	terminalCause := string(status.TerminalCause())
+	var terminalCauseValue *string
+	if terminalCause != "" {
+		terminalCauseValue = &terminalCause
+	}
+	return json.Marshal(struct {
+		Kind                 string   `json:"kind"`
+		SessionID            string   `json:"session_id"`
+		RunID                string   `json:"run_id"`
+		RunState             string   `json:"run_state"`
+		PublicationStatus    *string  `json:"publication_status"`
+		RecoveryAction       *string  `json:"recovery_action"`
+		FinalArtifactURI     *string  `json:"final_artifact_uri"`
+		StartedAt            string   `json:"started_at"`
+		UpdatedAt            string   `json:"updated_at"`
+		CompletedAt          *string  `json:"completed_at"`
+		SelectedRoles        []string `json:"selected_roles"`
+		LaneTotal            int      `json:"lane_total"`
+		LaneCompleted        int      `json:"lane_completed"`
+		LaneFailed           int      `json:"lane_failed"`
+		LastSequence         uint64   `json:"last_seq"`
+		TerminalCause        *string  `json:"terminal_cause"`
+		DroppedEvents        uint64   `json:"dropped_events"`
+		DiagnosticOnly       bool     `json:"diagnostic_only"`
+		PublicationAuthority bool     `json:"publication_authority"`
+	}{
+		Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
+		RunState: string(status.State()), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano),
+		CompletedAt: completedAtValue, SelectedRoles: roleStrings(status.SelectedRoles()), LaneTotal: total,
+		LaneCompleted: completed, LaneFailed: failed, LastSequence: status.LastSequence(), TerminalCause: terminalCauseValue,
+		DroppedEvents: status.DroppedEvents(), DiagnosticOnly: true, PublicationAuthority: false,
+	})
+}
+
+func diagnosticStatusHumanOutput(status ports.RuntimeDiagnosticRunStatus) []byte {
+	total, completed, failed := status.LaneCounts()
+	return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
+}
+
+func roleStrings(roles []domain.Role) []string {
+	values := make([]string, len(roles))
+	for index, role := range roles {
+		values[index] = string(role)
+	}
+	return values
 }
 
 func statusHumanOutput(status RunStatusView) []byte {

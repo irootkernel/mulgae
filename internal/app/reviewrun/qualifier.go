@@ -706,11 +706,13 @@ func (registry *qualifiedRunRegistryComposite) QualificationNamespace(instance s
 
 func (registry *qualifiedRunRegistryComposite) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	if registry == nil {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: admitted registry unavailable")
+		failure, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("review run: admitted registry unavailable"))
+		return ports.ProviderExecutionObservation{}, failure
 	}
 	child, ok := registry.registries[invocation.ProviderInstance()]
 	if !ok {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: provider instance %q was not admitted", invocation.ProviderInstance())
+		failure, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("review run: provider instance %q was not admitted", invocation.ProviderInstance()))
+		return ports.ProviderExecutionObservation{}, failure
 	}
 	return child.Observe(ctx, invocation)
 }

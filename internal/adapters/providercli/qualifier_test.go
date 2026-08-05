@@ -532,7 +532,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 		{name: "natural exit"},
 		{name: "term", signals: []signalSpec{term}},
 		{name: "term then kill", signals: []signalSpec{term, kill}},
-		{name: "failed natural exit", exitCode: 1, wantValidationFailure: true, wantCause: domain.DiagnosticCauseLifecycleReceiptInvalid},
+		{name: "failed natural exit", exitCode: 1},
 		{name: "lone kill", signals: []signalSpec{kill}, wantLifecycleFailure: true},
 		{name: "reverse", signals: []signalSpec{kill, term}, wantLifecycleFailure: true},
 		{name: "duplicate term", signals: []signalSpec{term, term}, wantLifecycleFailure: true},
@@ -689,6 +689,85 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 		validateProbeTransportAndLifecycle(definition, packet, testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0)),
 		domain.DiagnosticCauseTransportReceiptMismatch,
 	)
+}
+
+func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T) {
+	key, err := ports.ParseConcurrencyKey("agy-lifecycle-timeout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecyclePolicy, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
+		FamilyAgy, "agy_lifecycle_timeout", "", "/private/bin/agy", "", key, "agy-lifecycle-timeout",
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("expected packet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelPromptFile, packet.Identity(), "@fixture.md", "/private/work", packet.Identity(), packet.Identity(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kill, err := ports.NewProcessSignal(9, "SIGKILL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teardown, err := ports.NewAcceptedProcessGroupSignalRequestReceipt(ports.ProcessGroupSignalRequestInternalTeardown, kill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewSignaledProcessFinalTermination(kill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := []byte(`{"partial":true}`)
+	frame, err := ports.NewProcessOutputFrameReceipt(lifecyclePolicy.Framing(), output, lifecyclePolicy.StabilityGrace())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		output []byte
+		frame  []ports.ProcessOutputFrameReceipt
+	}{
+		{name: "before frame"},
+		{name: "after frame", output: output, frame: []ports.ProcessOutputFrameReceipt{frame}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lifecycle, lifecycleErr := ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{teardown}, test.frame...)
+			if lifecycleErr != nil {
+				t.Fatal(lifecycleErr)
+			}
+			observation, observationErr := ports.NewStartedProviderProcessObservation(
+				test.output, nil, ports.ProcessTerminationTimedOut, stdin, transport, lifecycle,
+				time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+			)
+			if observationErr != nil {
+				t.Fatal(observationErr)
+			}
+			if validationErr := validateProbeTransportAndLifecycle(definition, packet, observation); validationErr != nil {
+				t.Fatalf("typed process failure was relabeled as lifecycle evidence failure: %v", validationErr)
+			}
+			requireProviderDiagnosticCause(t, qualificationProcessFailure(FamilyAgy, observation, context.DeadlineExceeded), domain.DiagnosticCauseTimedOut)
+		})
+	}
 }
 
 func TestAGYPermissionDiagnosticCannotMaskInvalidTransportEvidence(t *testing.T) {

@@ -58,6 +58,12 @@ may change only explicitly allowed provider-owned paths.
 
 ```text
 .mulgae/
+  diagnostics/
+    s_<uuidv7>/
+      r_<uuidv7>/
+        status.json
+        mulgae-runtime.jsonl
+        attempts/
   s_<uuidv7>/
     r_<uuidv7>/
       manifest.json
@@ -70,6 +76,12 @@ may change only explicitly allowed provider-owned paths.
 `manifest.json` is the run index and integrity record. A completed run has at
 most one top-level final review. Failed or repaired candidates remain beneath
 `attempts/`.
+
+Diagnostic-only failed runs have no publication authority. `mulgae status
+--run <id> --output json` first resolves the publication namespace and, only
+when that run is absent, returns the bounded `diagnostic_status_read`
+projection from `diagnostics/.../status.json`. The command never exposes raw
+provider streams or the runtime JSONL through this fallback.
 
 `review`, `followup`, `delta`, and `rerun` create distinct runs. They
 respectively start a review, check one prior finding, review a delta, or repeat
@@ -94,3 +106,9 @@ exits:
 
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
+
+`mulgae doctor` reports static admission evidence only. A configured identity
+with missing static evidence uses `provider_static_admission_unverified`; this
+does not claim that a live review qualification failed. Per-run live
+qualification remains observable through that run's diagnostic status and
+runtime diagnostics.

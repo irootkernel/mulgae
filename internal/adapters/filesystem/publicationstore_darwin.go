@@ -221,7 +221,7 @@ func (store *PublicationStore) ResolveRun(ctx context.Context, request ports.Res
 			}
 		}
 		if len(matches) == 0 {
-			return errors.New("resolve publication run: no matching run")
+			return fmt.Errorf("resolve publication run: %w", ports.ErrPublicationRunNotFound)
 		}
 		if len(matches) != 1 {
 			return errors.New("resolve publication run: multiple matching runs")

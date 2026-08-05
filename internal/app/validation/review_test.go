@@ -550,6 +550,24 @@ func TestReviewValidatorAcceptsValidNegativeReview(t *testing.T) {
 	}
 }
 
+func TestReviewValidatorRejectsCompleteReviewWithUnreadableMaterialScopeWithoutRepair(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	raw := providerReviewWith(t, func(document map[string]any) {
+		document["completeness"] = "complete"
+		document["limitations"] = []any{"The material scope could not be read, so testing contracts were not inspected."}
+	})
+	_, plan, err := validator.Validate(context.Background(), raw, testScope())
+	if err == nil || plan != nil {
+		t.Fatalf("unreadable complete scope = err:%v plan:%#v", err, plan)
+	}
+	if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+		t.Fatalf("unreadable complete scope cause = %q, present=%t", cause, ok)
+	}
+	if !errorChainContains(err, "complete review cannot state that material scope was unreadable") {
+		t.Fatalf("unreadable complete scope lost semantic reason: %v", err)
+	}
+}
+
 func TestReviewValidatorOnlyRepairsDocumentViolations(t *testing.T) {
 	operationalCause := errors.New("schema compiler unavailable")
 	schema := &recordingSchemaValidator{err: operationalCause}

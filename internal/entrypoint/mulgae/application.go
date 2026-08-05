@@ -813,6 +813,7 @@ type Dependencies struct {
 	TrustedProjectReader ports.TrustedProjectReader
 	EnvironmentInspector ports.EnvironmentInspector
 	PublicationQueries   PublicationQueryService
+	DiagnosticQueries    ports.RuntimeDiagnosticQuery
 	PublicationReports   PublicationReportService
 	FollowupRuns         FollowupRunService
 	ReviewRuns           ReviewRunService
@@ -836,6 +837,7 @@ type Application struct {
 	projectReader      ports.TrustedProjectReader
 	inspector          ports.EnvironmentInspector
 	publicationQueries PublicationQueryService
+	diagnosticQueries  ports.RuntimeDiagnosticQuery
 	publicationReports PublicationReportService
 	followupRuns       FollowupRunService
 	reviewRuns         ReviewRunService
@@ -960,6 +962,7 @@ func newApplication(
 		projectReader:      dependencies.TrustedProjectReader,
 		inspector:          dependencies.EnvironmentInspector,
 		publicationQueries: dependencies.PublicationQueries,
+		diagnosticQueries:  dependencies.DiagnosticQueries,
 		publicationReports: dependencies.PublicationReports,
 		followupRuns:       dependencies.FollowupRuns,
 		reviewRuns:         dependencies.ReviewRuns,
@@ -1582,14 +1585,20 @@ func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) st
 		return "provider_permission_denied"
 	case string(review.AttemptConditionProviderTimeout):
 		return "provider_timeout"
+	case string(review.AttemptConditionProviderSpawnFailed):
+		return "provider_spawn_failed"
 	case string(review.AttemptConditionTimeout):
 		return "execution_timeout"
 	case string(review.AttemptConditionProviderOutputMissing):
 		return "provider_output_missing"
-	case string(review.AttemptConditionProviderOutputDecodeFailed),
-		string(review.AttemptConditionInvalidProviderOutput),
-		string(review.AttemptConditionUnrepairableProviderOutput):
+	case string(review.AttemptConditionProviderOutputDecodeFailed):
 		return "provider_output_decode_failed"
+	case string(review.AttemptConditionInvalidProviderOutput),
+		string(review.AttemptConditionUnrepairableProviderOutput),
+		string(review.AttemptConditionSemanticContradiction),
+		string(review.AttemptConditionInvalidEvidenceClaim),
+		string(review.AttemptConditionUnrepairableEvidence):
+		return "candidate_validation_failed"
 	}
 	return "provider_execution_failed"
 }

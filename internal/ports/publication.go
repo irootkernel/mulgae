@@ -12,6 +12,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
+// ErrPublicationRunNotFound distinguishes an absent manifest-backed run from
+// a corrupt or unsafe publication namespace.
+var ErrPublicationRunNotFound = errors.New("publication run not found")
+
 // PublicationRun identifies one run beneath an approved artifact root.
 type PublicationRun struct {
 	root      AnchoredRoot

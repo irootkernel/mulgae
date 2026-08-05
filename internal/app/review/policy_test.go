@@ -253,6 +253,7 @@ func TestAttemptConditionsAreExactAndExhaustivelyValidated(t *testing.T) {
 		AttemptConditionUnrepairableEvidence,
 		AttemptConditionSemanticContradiction,
 		AttemptConditionProviderUnavailable,
+		AttemptConditionProviderSpawnFailed,
 		AttemptConditionTimeout,
 		AttemptConditionProviderTimeout,
 		AttemptConditionAuthentication,
@@ -327,6 +328,7 @@ func policyExpectations() []policyExpectation {
 		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, fallbackOnly: true},
+		{condition: AttemptConditionProviderSpawnFailed, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionProviderTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed, fallbackOnly: true},
 		{condition: AttemptConditionAuthentication, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed, fallbackOnly: true},
@@ -419,7 +421,8 @@ func expectedConditionPrecedence(condition AttemptCondition) int {
 		AttemptConditionRateLimit,
 		AttemptConditionTimeout,
 		AttemptConditionProviderTimeout,
-		AttemptConditionProviderUnavailable:
+		AttemptConditionProviderUnavailable,
+		AttemptConditionProviderSpawnFailed:
 		return 7
 	case AttemptConditionValidReview:
 		return 8

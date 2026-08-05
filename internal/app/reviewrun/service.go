@@ -930,7 +930,8 @@ type packetScreeningProvider struct {
 
 func (provider *packetScreeningProvider) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	if provider == nil || nilInterface(provider.provider) || nilInterface(provider.detector) {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: packet screening provider is unavailable")
+		failure, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("review run: packet screening provider is unavailable"))
+		return ports.ProviderExecutionObservation{}, failure
 	}
 	packet := invocation.PacketBytes()
 	defer clear(packet)
@@ -942,20 +943,21 @@ func (provider *packetScreeningProvider) Observe(ctx context.Context, invocation
 		provider.mu.Lock()
 		provider.detectorErr = err
 		provider.mu.Unlock()
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: detect provider packet: %w", err)
+		failure, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("review run: detect provider packet: %w", err))
+		return ports.ProviderExecutionObservation{}, failure
 	}
 	if !detection.Valid() {
 		invalid := fmt.Errorf("review run: detector returned invalid packet detection")
 		provider.mu.Lock()
 		provider.detectorErr = invalid
 		provider.mu.Unlock()
-		return ports.ProviderExecutionObservation{}, invalid
+		return ports.ProviderExecutionObservation{}, errors.Join(ports.ErrProviderPacketSecurity, invalid)
 	}
 	if detection.Verdict() != ports.ReviewInputClean {
 		provider.mu.Lock()
 		provider.blocked = true
 		provider.mu.Unlock()
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("review run: provider packet rejected")
+		return ports.ProviderExecutionObservation{}, ports.ErrProviderPacketSecurity
 	}
 	return provider.provider.Observe(ctx, invocation)
 }

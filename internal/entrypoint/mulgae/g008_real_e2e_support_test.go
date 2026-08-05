@@ -17,6 +17,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	adapterjsonschema "github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/childrun"
+	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
@@ -46,6 +47,7 @@ type g008RealE2EFixture struct {
 	provider         *g008RealE2EProvider
 	assignments      []review.Assignment
 	target           domain.TargetIdentity
+	deltaTarget      appdelta.ImmutableTarget
 	childExecutor    *childrun.Executor
 	followupExecutor *childrun.FollowupExecutor
 }
@@ -208,7 +210,13 @@ func (source *g008RealE2EPromptSource) ExactReplayPrompt(_ context.Context, job 
 type g008RealE2EImmutableTarget struct{}
 
 func (g008RealE2EImmutableTarget) ReadImmutableTarget(_ context.Context, _ string, side evidence.Side, path ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
+	if side == evidence.SideWorktree && path.String() == "internal/app/coordinator.go" {
+		return evidence.ImmutableTargetUnavailable, nil, nil
+	}
 	if side != evidence.SideHead || path.String() != "internal/app/coordinator.go" {
+		if side == evidence.SideHead && path.String() == "report.go" {
+			return evidence.ImmutableTargetAvailable, []byte("package report\n\nfunc ReadReport(base, name string) ([]byte, error) {\n\treturn nil, nil\n}\n"), nil
+		}
 		return "", nil, fmt.Errorf("unexpected immutable target %s %s", side, path)
 	}
 	return evidence.ImmutableTargetAvailable, append(bytes.Repeat([]byte("\n"), 119), []byte("queueFallback(task)")...), nil
@@ -218,30 +226,55 @@ type g008RealE2EFollowupPromptSource struct{ provider *g008RealE2EProvider }
 
 func (source g008RealE2EFollowupPromptSource) BuildFollowupInvocation(_ context.Context, execution appfollowup.Execution, _ domain.Run, attemptID domain.AttemptID) (ports.ProviderInvocation, error) {
 	stdin := []byte("followup:" + execution.Source.RunID.String() + ":" + execution.Source.Finding.ID)
+	source.provider.mu.Lock()
+	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[],"new_findings":[],"limitations":[]}]}`)
+	source.provider.mu.Unlock()
+	return g008RealFollowupInvocation(execution, attemptID, ports.ProviderInvocationInitial, stdin,
+		"i_019f5a09-5eed-7001-8001-000000000001", "019f5a09-5eed-7002-8002-000000000002")
+}
+
+func (source g008RealE2EFollowupPromptSource) BuildFollowupRepairInvocation(_ context.Context, execution appfollowup.Execution, _ domain.Run, attemptID domain.AttemptID, prior []byte) (ports.ProviderInvocation, error) {
+	if len(prior) == 0 {
+		return ports.ProviderInvocation{}, fmt.Errorf("g008 followup repair requires prior output")
+	}
+	stdin := []byte("followup-repair:" + execution.Source.RunID.String() + ":" + execution.Source.Finding.ID)
+	source.provider.mu.Lock()
+	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[],"limitations":[]}`)
+	source.provider.mu.Unlock()
+	return g008RealFollowupInvocation(execution, attemptID, ports.ProviderInvocationRepair, stdin,
+		"i_019f5a09-5eed-7003-8003-000000000003", "019f5a09-5eed-7004-8004-000000000004")
+}
+
+func g008RealFollowupInvocation(execution appfollowup.Execution, attemptID domain.AttemptID, purpose ports.ProviderInvocationPurpose, stdin []byte, sourceInvocationID, executionInvocationID string) (ports.ProviderInvocation, error) {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(stdin)
-	source.provider.mu.Lock()
-	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[],"limitations":[]}`)
-	source.provider.mu.Unlock()
-	return ports.NewProviderInvocation(execution.Source.Finding.Role, "g008.logic", attemptID, ports.ProviderInvocationInitial, stdin, "i_019f5a09-5eed-7001-8001-000000000001", "019f5a09-5eed-7002-8002-000000000002", hex.EncodeToString(hash.Sum(nil)))
+	return ports.NewProviderInvocation(execution.Source.Finding.Role, "g008.logic", attemptID, purpose, stdin, sourceInvocationID, executionInvocationID, hex.EncodeToString(hash.Sum(nil)))
 }
 
 func (source g008RealE2EFollowupPromptSource) BuildFollowupRuntimeArtifact(_ context.Context, execution appfollowup.Execution, run domain.Run, invocation ports.ProviderInvocation) (publication.FollowupRuntimeArtifactInput, error) {
+	sequence := uint64(1)
+	purpose := domain.InvocationInitial
+	templateID := "g008-followup"
+	if invocation.Purpose() == ports.ProviderInvocationRepair {
+		sequence = 2
+		purpose = domain.InvocationRepair
+		templateID = "g008-followup-repair"
+	}
 	return publication.FollowupRuntimeArtifactInput{
 		RuntimeRunID:                 run.ID(),
 		RuntimeAttemptID:             invocation.AttemptID(),
-		RuntimeSequence:              1,
-		RuntimePurpose:               domain.InvocationInitial,
+		RuntimeSequence:              sequence,
+		RuntimePurpose:               purpose,
 		RuntimeRole:                  invocation.Role(),
 		RuntimeTarget:                append([]byte(nil), execution.Current.Bytes...),
 		RuntimeTargetIdentity:        execution.Current.Identity,
 		RuntimeStdin:                 invocation.Stdin(),
 		RuntimeStdinSHA256:           invocation.CompleteStdinSHA256(),
-		RuntimeTemplateID:            "g008-followup",
+		RuntimeTemplateID:            templateID,
 		RuntimeTemplateVersion:       "v1",
-		RuntimeTemplateSHA256:        g008RealTargetHash([]byte("g008-followup-template-v1")),
+		RuntimeTemplateSHA256:        g008RealTargetHash([]byte(templateID + "-template-v1")),
 		RuntimeSourceInvocationID:    invocation.SourceInvocationID(),
 		RuntimeExecutionInvocationID: invocation.ExecutionInvocationID(),
 		RuntimeScope:                 run.SessionID().String() + "/" + run.ID().String() + "/" + invocation.AttemptID().String(),
@@ -256,10 +289,11 @@ type g008RealE2EProviderCall struct {
 	StdinSHA256 string
 }
 type g008RealE2EProvider struct {
-	mu              sync.Mutex
-	calls           []g008RealE2EProviderCall
-	followup        []byte
-	logicNoFindings bool
+	mu                 sync.Mutex
+	calls              []g008RealE2EProviderCall
+	followup           []byte
+	logicNoFindings    bool
+	securityLowFinding bool
 }
 
 func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
@@ -268,11 +302,13 @@ func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports
 	provider.calls = append(provider.calls, g008RealE2EProviderCall{AttemptID: invocation.AttemptID(), Purpose: invocation.Purpose(), StdinSHA256: invocation.CompleteStdinSHA256()})
 	var stdout []byte
 	switch {
-	case provider.followup != nil && bytes.HasPrefix(invocation.Stdin(), []byte("followup:")):
+	case provider.followup != nil && (bytes.HasPrefix(invocation.Stdin(), []byte("followup:")) || bytes.HasPrefix(invocation.Stdin(), []byte("followup-repair:"))):
 		stdout = append([]byte(nil), provider.followup...)
 		provider.followup = nil
 	case provider.logicNoFindings && invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
 		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
+	case provider.securityLowFinding && invocation.Role() == domain.RoleSecurity && invocation.Purpose() == ports.ProviderInvocationInitial:
+		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"One optional low finding.","completeness":"complete","limitations":[],"findings":[{"severity":"low","title":"Optional finding","description":"The current target may contain a conditional issue.","evidence":[{"current":{"path":"report.go","side":"head","line_start":11,"line_end":15,"quote":"clean := filepath.Clean(name)\nif clean == \".\" || filepath.IsAbs(clean) || clean == \"..\" || strings.HasPrefix(clean, \"..\"+string(os.PathSeparator)) {\nreturn nil, errors.New(\"invalid report path\")\n}\nreturn os.ReadFile(filepath.Join(base, clean))\n"}}],"recommendation":"Verify the condition.","confidence":"low"}]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationInitial:
 		stdout = []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"F001: one high finding.","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"F001","description":"Fallback must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Preserve the valid result.","confidence":"high"}]}`)
 	case invocation.Role() == domain.RoleLogic && invocation.Purpose() == ports.ProviderInvocationRepair:
@@ -357,6 +393,16 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	deltaHead, _ := ports.ParseGitObjectID("4444444444444444444444444444444444444444")
+	deltaTree, _ := ports.ParseGitObjectID("5555555555555555555555555555555555555555")
+	deltaCaptured, err := ports.NewCapturedGitTarget("g008-fixture", head, deltaHead, deltaTree, nil, []byte("diff --git a/report.go b/report.go\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltaTarget, err := appdelta.NewGitImmutableTargetForKind(appdelta.TargetDirty, "dirty", deltaCaptured)
+	if err != nil {
+		t.Fatal(err)
+	}
 	schema, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
 	reviewValidator, err := validation.NewReviewValidator(validator, schema)
 	if err != nil {
@@ -421,7 +467,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := &g008RealE2EFixture{root: root, clock: clock, ids: ids, validator: validator, writer: writer, store: store, queries: queries, publisher: publisher, coordinator: coordinator, runtime: runtime, provider: provider, assignments: assignments, target: target}
+	fixture := &g008RealE2EFixture{root: root, clock: clock, ids: ids, validator: validator, writer: writer, store: store, queries: queries, publisher: publisher, coordinator: coordinator, runtime: runtime, provider: provider, assignments: assignments, target: target, deltaTarget: deltaTarget}
 	fixture.followupPrompts = g008RealE2EFollowupPromptSource{provider: provider}
 	fixture.childExecutor, err = childrun.NewExecutor(coordinator, runtime, publisher, root, childrun.ExecutorConfig{Assignments: fixture.assignments, SeverityThreshold: domain.SeverityHigh, MulgaeVersion: "g008-test", MulgaeCommit: "g008-test"})
 	if err != nil {

@@ -645,7 +645,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 				runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: append([]byte(nil), stdout...), plan: *plan}
 				runtime.mu.Unlock()
 			}
-			return runtimeCondition(job, initialValidationFailureCondition(plan))
+			return runtimeCondition(job, initialValidationFailureCondition(plan, validationErr))
 		}
 		if plan != nil {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
@@ -1315,10 +1315,17 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
-		domain.DiagnosticCauseResultBindingFailed,
-		domain.DiagnosticCauseCandidateValidationFailed,
-		domain.DiagnosticCauseCandidateRepairPlanInvalid:
+		domain.DiagnosticCauseResultBindingFailed:
 		return AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCauseCandidateValidationFailed,
+		domain.DiagnosticCauseCandidateRepairPlanInvalid:
+		return AttemptConditionSemanticContradiction
+	case domain.DiagnosticCauseProviderSpawnFailed:
+		return AttemptConditionProviderSpawnFailed
+	case domain.DiagnosticCauseProviderExecutionFailed,
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseObservationInvalid:
+		return AttemptConditionProviderUnavailable
 	default:
 		return AttemptConditionInternalInvariant
 	}
@@ -1395,8 +1402,11 @@ func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.
 	}
 }
 
-func initialValidationFailureCondition(plan *validation.RepairPlan) AttemptCondition {
+func initialValidationFailureCondition(plan *validation.RepairPlan, err error) AttemptCondition {
 	if plan == nil {
+		if cause, ok := validation.RuntimeCause(err); ok && cause == domain.DiagnosticCauseCandidateValidationFailed {
+			return AttemptConditionSemanticContradiction
+		}
 		return AttemptConditionUnrepairableProviderOutput
 	}
 	return AttemptConditionInvalidProviderOutput

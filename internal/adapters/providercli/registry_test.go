@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"reflect"
@@ -129,6 +130,31 @@ func TestProviderResultStrictness(t *testing.T) {
 	got, isolated, err = providerResult(FamilyZcode, zcodeTrailingNarrationEnvelope)
 	if err != nil || !isolated || !bytes.Equal(got, want) {
 		t.Fatalf("ZCode trailing narration envelope result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	malformed := []byte(`{"schema_version":"mulgae-provider-followup-output.v1","limitations":[]}]}`)
+	zcodeMalformedFencedEnvelope, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  "```json\n" + string(malformed) + "\n```",
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedFencedEnvelope)
+	if err != nil || !isolated || !bytes.Equal(got, malformed) {
+		t.Fatalf("ZCode malformed fenced payload = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	zcodeMalformedDirectEnvelope, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  string(malformed),
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedDirectEnvelope)
+	if err != nil || !isolated || !bytes.Equal(got, malformed) {
+		t.Fatalf("ZCode malformed direct payload = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	zcodeAmbiguousEnvelope := []byte(`{"sessionId":"session","response":"` + "```json\\n{\\\"findings\\\":[]}\\n```\\n```json\\n{\\\"findings\\\":[]}\\n```\\ntrailing" + `","usage":{"inputTokens":1}}`)
 	if _, _, err := providerResult(FamilyZcode, zcodeAmbiguousEnvelope); err == nil {
@@ -1091,7 +1117,7 @@ func TestRegistryObserveStrictDefinitionRejectsMissingWorkspaceAuthority(t *test
 		t.Fatal(err)
 	}
 
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseProviderSpawnFailed {
 		t.Fatal("strict definition accepted authority-free invocation")
 	}
 	if runner.calls != 0 {
@@ -1142,8 +1168,8 @@ func TestRegistryNamespaceBlocksHostHomeDriftAndTerminalReuse(t *testing.T) {
 	if err := os.Remove(cache); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
-		t.Fatal("namespace drift reached runner")
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseWorkspaceRevalidationFailed {
+		t.Fatalf("namespace drift cause = %q", providerRuntimeCause(err))
 	}
 	if runner.calls != 1 {
 		t.Fatalf("runner calls = %d, want 1", runner.calls)
@@ -1154,9 +1180,17 @@ func TestRegistryNamespaceBlocksHostHomeDriftAndTerminalReuse(t *testing.T) {
 	if _, err := registry.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err == nil {
-		t.Fatal("terminally drained registry reached runner")
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseProviderSpawnFailed {
+		t.Fatalf("terminally drained cause = %q", providerRuntimeCause(err))
 	}
+}
+
+func providerRuntimeCause(err error) domain.RuntimeDiagnosticCause {
+	var failure *ports.ProviderRuntimeError
+	if !errors.As(err, &failure) {
+		return ""
+	}
+	return failure.Cause()
 }
 
 type workspaceAuthorityFake struct {

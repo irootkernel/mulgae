@@ -101,7 +101,7 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		Root: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids, PublicationAuthority: fixture.store,
 		ExportInstaller: mustG008RealExportInstaller(t, fixture),
 		Online: &G008OnlineAuthority{
-			FollowupTargetCapturer: g008RealFollowupCapturer{}, DeltaTargetCapturer: g008RealDeltaCapturer{}, DeltaComparator: g008RealComparator{},
+			FollowupTargetCapturer: g008RealFollowupCapturer{}, DeltaTargetCapturer: g008RealDeltaCapturer{target: fixture.deltaTarget}, DeltaComparator: g008RealComparator{},
 			ChildExecutor: fixture.childExecutor, FollowupExecutor: fixture.followupExecutor, RerunAssignments: fixture.assignments[:1],
 		},
 	})
@@ -128,10 +128,13 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		exit app.ExitCode
 	}{
 		{name: "followup", argv: []string{"followup", "--run", root.RunID.String(), "--finding", "F001", "--patch", "current.patch"}, exit: app.ExitCodePolicy},
-		{name: "delta", argv: []string{"delta", "--since-run", root.RunID.String(), "--patch", "current.patch", "--roles", "logic,security"}, exit: app.ExitCodePolicy},
+		{name: "delta", argv: []string{"delta", "--since-run", root.RunID.String(), "--dirty", "--roles", "logic,security"}, exit: app.ExitCodePolicy},
 		{name: "exact rerun", argv: []string{"rerun", "--run", root.RunID.String(), "--attempt", root.AttemptID.String(), "--replay", "exact"}, exit: app.ExitCodePolicy},
 		{name: "recomposed rerun", argv: []string{"rerun", "--run", root.RunID.String(), "--attempt", root.AttemptID.String(), "--replay", "recompose"}, exit: app.ExitCodePolicy},
 	} {
+		fixture.provider.mu.Lock()
+		fixture.provider.securityLowFinding = test.name == "delta"
+		fixture.provider.mu.Unlock()
 		result := application.Run(context.Background(), test.argv, fixture.root.String())
 		if result.ExitCode() != test.exit {
 			t.Fatalf("%v exit=%d, want %d; stdout=%q stderr=%q", test.argv, result.ExitCode(), test.exit, result.Stdout(), result.Stderr())
@@ -173,12 +176,12 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		}
 	}
 	transcript := fixture.provider.Transcript()
-	if len(transcript) != 11 {
-		t.Fatalf("provider calls=%d, want root(6), followup(1), delta(2), exact rerun(1), recompose rerun(1)", len(transcript))
+	if len(transcript) != 12 {
+		t.Fatalf("provider calls=%d, want root(6), followup initial/repair(2), delta(2), exact rerun(1), recompose rerun(1)", len(transcript))
 	}
 	wantPurposes := []string{
 		"initial", "initial", "initial", "initial", "initial", "initial",
-		"initial",
+		"initial", "repair",
 		"initial", "initial",
 		"initial", "initial",
 	}
@@ -188,13 +191,16 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		}
 	}
 	if transcript[1].AttemptID == root.AttemptID || transcript[6].AttemptID == root.AttemptID ||
-		transcript[9].AttemptID == root.AttemptID || transcript[10].AttemptID == root.AttemptID {
+		transcript[10].AttemptID == root.AttemptID || transcript[11].AttemptID == root.AttemptID {
 		t.Fatal("security, followup, exact replay child, or recomposed replay child reused the root logic attempt identity")
 	}
-	if transcript[9].StdinSHA256 != transcript[0].StdinSHA256 {
+	if transcript[6].AttemptID != transcript[7].AttemptID {
+		t.Fatal("followup repair did not retain its initial attempt identity")
+	}
+	if transcript[10].StdinSHA256 != transcript[0].StdinSHA256 {
 		t.Fatal("exact replay child did not invoke the persisted source prompt exactly once")
 	}
-	if transcript[10].StdinSHA256 == transcript[0].StdinSHA256 {
+	if transcript[11].StdinSHA256 == transcript[0].StdinSHA256 {
 		t.Fatal("recomposed replay child reused the persisted source prompt")
 	}
 
@@ -306,6 +312,9 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 					strings.TrimPrefix(committed.TargetSHA256(), "sha256:") == rootTarget.Identity().SHA256() {
 					t.Fatalf("delta child semantics = committed=%#v lineage=%#v", committed, lineage)
 				}
+				if len(committed.Findings()) != 1 || committed.Findings()[0].Role() != domain.RoleLogic {
+					t.Fatalf("delta retained non-authoritative optional finding: %#v", committed.Findings())
+				}
 				if _, hasFinding := lineage.SourceFindingRef(); hasFinding {
 					t.Fatalf("delta lineage unexpectedly has a finding: %#v", lineage)
 				}
@@ -389,10 +398,10 @@ func (g008RealFollowupCapturer) CaptureFollowupTarget(context.Context, appfollow
 	return appfollowup.CurrentTarget{Identity: identity, Bytes: []byte("queueFallback(task)")}, nil
 }
 
-type g008RealDeltaCapturer struct{}
+type g008RealDeltaCapturer struct{ target appdelta.ImmutableTarget }
 
-func (g008RealDeltaCapturer) CaptureTarget(context.Context, appdelta.TargetRequest) (appdelta.ImmutableTarget, error) {
-	return appdelta.NewByteImmutableTarget(appdelta.TargetPatch, "current.patch", []byte("queueFallback(task)"))
+func (capturer g008RealDeltaCapturer) CaptureTarget(context.Context, appdelta.TargetRequest) (appdelta.ImmutableTarget, error) {
+	return capturer.target, nil
 }
 
 type g008RealComparator struct{}
