@@ -30,6 +30,7 @@ tests enforce this direction.
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
 | `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
 | `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |
+| `internal/app/childrun` | Child-run execution and publication engine |
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
 | `internal/domain` | IDs, findings, failures, states, roles, immutable values |
 | `internal/ports` | Interfaces and safe values crossing application boundaries |
