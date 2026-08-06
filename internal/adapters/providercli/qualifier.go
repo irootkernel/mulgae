@@ -147,6 +147,171 @@ func newCurrentProbeDirectExecutionAuthorityReceiptForDefinition(
 	return receipt, nil
 }
 
+func currentProbeDirectExecutionAuthorityReceiptFrom(
+	source ports.ProviderDirectExecutionAuthority,
+) (CurrentProbeDirectExecutionAuthorityReceipt, bool) {
+	if source == nil {
+		return CurrentProbeDirectExecutionAuthorityReceipt{}, false
+	}
+	if receipt, ok := source.(CurrentProbeDirectExecutionAuthorityReceipt); ok {
+		return receipt, true
+	}
+	if receipt, ok := source.(*CurrentProbeDirectExecutionAuthorityReceipt); ok && receipt != nil {
+		return *receipt, true
+	}
+	return CurrentProbeDirectExecutionAuthorityReceipt{}, false
+}
+
+// DeriveEquivalentRouteDirectExecutionAuthority mints a new exact-runtime
+// authority for one sibling definition after proving shareable family-profile
+// equivalence with the live source authority. It never reuses the source
+// authority ID. Destination proofs are rewritten to the destination role set so
+// Matches binds those roles, not the source-proved roles alone.
+func DeriveEquivalentRouteDirectExecutionAuthority(
+	source ports.ProviderDirectExecutionAuthority,
+	sourceDefinition ports.ProviderRuntimeDefinition,
+	destinationDefinition ports.ProviderRuntimeDefinition,
+	observedVersion string,
+	sourceNamespaceGeneration string,
+	destinationNamespaceGeneration string,
+	sourceProvedRoles []domain.Role,
+	destinationRoles []domain.Role,
+) (ports.ProviderDirectExecutionAuthority, error) {
+	sourceReceipt, ok := currentProbeDirectExecutionAuthorityReceiptFrom(source)
+	if !ok || !sourceReceipt.Valid() {
+		return nil, fmt.Errorf("equivalent route authority: source authority unavailable")
+	}
+	sourceRuntime, ok := sourceDefinition.(RuntimeDefinition)
+	if !ok {
+		return nil, fmt.Errorf("equivalent route authority: source runtime unavailable")
+	}
+	destinationRuntime, ok := destinationDefinition.(RuntimeDefinition)
+	if !ok {
+		return nil, fmt.Errorf("equivalent route authority: destination runtime unavailable")
+	}
+	if len(sourceProvedRoles) == 0 || len(destinationRoles) == 0 {
+		return nil, fmt.Errorf("equivalent route authority: source and destination roles are required")
+	}
+	if !sourceReceipt.Matches(sourceRuntime, observedVersion, sourceNamespaceGeneration, sourceProvedRoles) {
+		return nil, fmt.Errorf("equivalent route authority: source authority does not match source runtime")
+	}
+	if sourceRuntime.Family() == FamilyAgy && sourceRuntime.Instance() != destinationRuntime.Instance() {
+		return nil, fmt.Errorf("equivalent route authority: AGY cross-instance derivation is not permitted")
+	}
+	if !equivalentFamilyRuntimeProfiles(sourceRuntime, destinationRuntime) {
+		return nil, fmt.Errorf("equivalent route authority: family runtime profiles are not shareable")
+	}
+	if destinationNamespaceGeneration == "" {
+		return nil, fmt.Errorf("equivalent route authority: destination namespace generation required")
+	}
+	baseProof := sourceReceipt.proofs[0]
+	rewritten := make([]currentProbeDirectExecutionRoleProof, 0, len(destinationRoles))
+	seen := make(map[domain.Role]struct{}, len(destinationRoles))
+	for _, role := range destinationRoles {
+		if !role.Valid() {
+			return nil, fmt.Errorf("equivalent route authority: invalid destination role")
+		}
+		if _, exists := seen[role]; exists {
+			return nil, fmt.Errorf("equivalent route authority: duplicate destination role")
+		}
+		seen[role] = struct{}{}
+		proof := baseProof
+		proof.ProviderInstance = destinationRuntime.Instance()
+		proof.ProviderVersion = destinationRuntime.Version()
+		proof.ProfileID = destinationRuntime.ProfileID()
+		proof.NamespaceGeneration = destinationNamespaceGeneration
+		proof.Role = string(role)
+		rewritten = append(rewritten, proof)
+	}
+	derived, err := newCurrentProbeDirectExecutionAuthorityReceiptForDefinition(rewritten, sourceReceipt.ExpiresAt(), destinationRuntime)
+	if err != nil {
+		return nil, fmt.Errorf("equivalent route authority: %w", err)
+	}
+	if derived.AuthorityID() == sourceReceipt.AuthorityID() {
+		return nil, fmt.Errorf("equivalent route authority: destination authority must not reuse source authority id")
+	}
+	if !derived.Matches(destinationRuntime, observedVersion, destinationNamespaceGeneration, destinationRoles) {
+		return nil, fmt.Errorf("equivalent route authority: derived authority does not match destination runtime")
+	}
+	if !sameRoleSet(sourceProvedRoles, destinationRoles) &&
+		derived.Matches(destinationRuntime, observedVersion, destinationNamespaceGeneration, sourceProvedRoles) {
+		return nil, fmt.Errorf("equivalent route authority: derived authority still matches source-only roles")
+	}
+	return derived, nil
+}
+
+func sameRoleSet(left, right []domain.Role) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[domain.Role]int, len(left))
+	for _, role := range left {
+		counts[role]++
+	}
+	for _, role := range right {
+		counts[role]--
+		if counts[role] < 0 {
+			return false
+		}
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
+	if left.Family() != right.Family() ||
+		left.Executable() != right.Executable() ||
+		left.ExecutableSHA256() != right.ExecutableSHA256() ||
+		left.Launcher() != right.Launcher() ||
+		left.LauncherSHA256() != right.LauncherSHA256() ||
+		left.ProfileGeneration() != right.ProfileGeneration() ||
+		left.RuntimeSafetyPolicyIdentity() != right.RuntimeSafetyPolicyIdentity() ||
+		left.KimiModel() != right.KimiModel() ||
+		left.WorkingDirectory() != right.WorkingDirectory() ||
+		left.MaxStdoutBytes() != right.MaxStdoutBytes() ||
+		left.MaxStderrBytes() != right.MaxStderrBytes() ||
+		left.TransportChannel() != right.TransportChannel() ||
+		left.TransportArgvIndex() != right.TransportArgvIndex() ||
+		left.TransportReference() != right.TransportReference() {
+		return false
+	}
+	if !reflect.DeepEqual(left.BaseArgv(), right.BaseArgv()) {
+		return false
+	}
+	leftEnv := environmentIdentityValues(left.Environment())
+	rightEnv := environmentIdentityValues(right.Environment())
+	if leftEnv == nil || rightEnv == nil || !reflect.DeepEqual(leftEnv, rightEnv) {
+		return false
+	}
+	leftLifecycle, leftHas := left.PostOutputLifecycle()
+	rightLifecycle, rightHas := right.PostOutputLifecycle()
+	if leftHas != rightHas {
+		return false
+	}
+	if leftHas && (leftLifecycle.Framing() != rightLifecycle.Framing() ||
+		leftLifecycle.StabilityGrace() != rightLifecycle.StabilityGrace() ||
+		leftLifecycle.TerminationGrace() != rightLifecycle.TerminationGrace()) {
+		return false
+	}
+	return true
+}
+
+func environmentIdentityValues(environment []ports.EnvironmentVariable) []string {
+	values := make([]string, len(environment))
+	for index, variable := range environment {
+		if !variable.Valid() {
+			return nil
+		}
+		values[index] = variable.Name() + "=" + variable.Value()
+	}
+	sort.Strings(values)
+	return values
+}
+
 type CurrentProbeReceipt struct {
 	Kind                     string
 	EvidenceID               string
@@ -179,8 +344,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if namespace.ProviderInstance() != definition.Instance() || namespace.Generation() == "" || namespace.RuntimeSafetyPolicyIdentity() != definition.RuntimeSafetyPolicyIdentity() {
 		return CurrentProbeResult{}, securityProbeFailure("namespace", "namespace binding drift", nil)
 	}
-	fixtures, err := validateCurrentProbeFixtures(fixture, request.RoleFixtures)
-	if err != nil {
+	if _, err := validateCurrentProbeFixtures(fixture, request.RoleFixtures); err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("fixture", "role fixtures are not independently bound", err)
 	}
 	namespaceEnvironment := namespace.Environment()
@@ -202,96 +366,71 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), err, versionObservation.Stderr(), versionObservation.Stdout())
 	}
 	expires := request.Now.Add(request.TTL)
-	directExecutionProofs := make([]currentProbeDirectExecutionRoleProof, 0, len(fixtures))
-	transportEvidence := make([]string, 0, len(fixtures))
-	for _, roleFixture := range fixtures {
-		packet, packetErr := ports.NewProviderPacketFromBytes(roleFixture.Packet())
-		if packetErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("fixture", "invalid immutable fixture packet", packetErr)
-		}
-		argv, invokeErr := request.Invocation.CapabilityArgv(definition, roleFixture)
-		if invokeErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation unavailable", invokeErr)
-		}
-		if invokeErr := request.Invocation.Validate(definition, roleFixture, argv); invokeErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation rejected", invokeErr)
-		}
-		var executionPolicy *AGYExecutionPolicy
-		if definition.Family() == FamilyAgy {
-			policy, policyErr := NewAGYExecutionPolicy(definition, roleFixture.WorkspaceSnapshotIdentity(), argv, roleFixture.Reference())
-			if policyErr != nil {
-				return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "AGY execution policy unavailable", policyErr)
-			}
-			executionPolicy = &policy
-		}
-		capabilityObservation, runErr := probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
-		if runErr != nil {
-			return CurrentProbeResult{}, runErr
-		}
-		if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
-		}
-		if definition.Family() == FamilyAgy && agyPermissionDenied(capabilityObservation.Stderr()) {
-			return CurrentProbeResult{}, classifyProbeFailure(
-				ctx,
-				definition.Family(),
-				errors.New("AGY capability probe permission denied"),
-				capabilityObservation.Stderr(),
-				capabilityObservation.Stdout(),
-			)
-		}
-		if !capabilityObservation.Succeeded() {
-			processErr := qualificationProcessFailure(definition.Family(), capabilityObservation, fmt.Errorf("capability probe failed"))
-			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
-		}
-		output := capabilityObservation.Stdout()
-		if definition.Family() == FamilyKimi {
-			output, runErr = kimiContent(output)
-			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid Kimi stream JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyKimi, runErr), runErr))
-			}
-		} else if definition.Family() == FamilyAgy {
-			output, runErr = agyContent(output)
-			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid AGY terminal JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyAgy, runErr), runErr))
-			}
-		} else if definition.Family() == FamilyZcode {
-			output, runErr = zcodeContent(output)
-			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid ZCode terminal JSON", newProviderOutputFailure(qualificationFamilyOutputCause(FamilyZcode, runErr), runErr))
-			}
-		}
-		if definition.Family() != FamilyAgy {
-			output, runErr = controlledProbeJSON(output)
-			if runErr != nil {
-				return CurrentProbeResult{}, probeFailure("capability", domain.FailureInvalidOutput, "invalid controlled JSON envelope", newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, runErr))
-			}
-		}
-		if runErr := validateProbeEvidence(output, roleFixture); runErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("capability", "controlled evidence mismatch", newProviderOutputFailure(domain.DiagnosticCauseObservationMismatch, runErr))
-		}
-		transport, _ := capabilityObservation.ProviderPacketTransportReceipt()
-		transportIdentity := transport.PacketIdentity()
-		preStart := transport.PreStartIdentity()
-		postEnd := transport.PostTerminationIdentity()
-		transportEvidence = append(transportEvidence, fmt.Sprintf("%s|%s|%s|%s|%d|%s|%d|%s|%d",
-			transport.Channel(), transport.PromptFileReference(), transport.SnapshotCWD(),
-			transportIdentity.CompleteSHA256(), transportIdentity.ByteLength(),
-			preStart.CompleteSHA256(), preStart.ByteLength(), postEnd.CompleteSHA256(), postEnd.ByteLength()))
-		proof, proofErr := newCurrentProbeDirectExecutionRoleProof(definition, version, namespace.Generation(), namespace, namespaceEnvironment, environment, roleFixture, argv, packet, capabilityObservation, executionPolicy)
-		if proofErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "direct role execution proof invalid", proofErr)
-		}
-		directExecutionProofs = append(directExecutionProofs, proof)
+	// Family/runtime readiness uses one capability probe on the base fixture.
+	// Additional requested roles are admitted by derivation from that proof.
+	roleFixture := fixture
+	packet, packetErr := ports.NewProviderPacketFromBytes(roleFixture.Packet())
+	if packetErr != nil {
+		return CurrentProbeResult{}, securityProbeFailure("fixture", "invalid immutable fixture packet", packetErr)
 	}
-	if err := validateCurrentProbeDirectExecutionProofSnapshots(directExecutionProofs); err != nil {
-		return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "direct-execution role workspaces are not independent", err)
+	argv, invokeErr := request.Invocation.CapabilityArgv(definition, roleFixture)
+	if invokeErr != nil {
+		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation unavailable", invokeErr)
 	}
+	if invokeErr := request.Invocation.Validate(definition, roleFixture, argv); invokeErr != nil {
+		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation rejected", invokeErr)
+	}
+	var executionPolicy *AGYExecutionPolicy
+	if definition.Family() == FamilyAgy {
+		policy, policyErr := NewAGYExecutionPolicy(definition, roleFixture.WorkspaceSnapshotIdentity(), argv, roleFixture.Reference())
+		if policyErr != nil {
+			return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "AGY execution policy unavailable", policyErr)
+		}
+		executionPolicy = &policy
+	}
+	capabilityObservation, runErr := probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
+	if runErr != nil {
+		return CurrentProbeResult{}, runErr
+	}
+	if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
+		return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
+	}
+	if definition.Family() == FamilyAgy && agyPermissionDenied(capabilityObservation.Stderr()) {
+		return CurrentProbeResult{}, classifyProbeFailure(
+			ctx,
+			definition.Family(),
+			errors.New("AGY capability probe permission denied"),
+			capabilityObservation.Stderr(),
+			capabilityObservation.Stdout(),
+		)
+	}
+	if !capabilityObservation.Succeeded() {
+		processErr := qualificationProcessFailure(definition.Family(), capabilityObservation, fmt.Errorf("capability probe failed"))
+		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
+	}
+	output := capabilityObservation.Stdout()
+	if evidenceErr := acceptCapabilityEvidence(definition.Family(), output, roleFixture); evidenceErr != nil {
+		return CurrentProbeResult{}, evidenceErr
+	}
+	transport, _ := capabilityObservation.ProviderPacketTransportReceipt()
+	transportIdentity := transport.PacketIdentity()
+	preStart := transport.PreStartIdentity()
+	postEnd := transport.PostTerminationIdentity()
+	transportEvidence := []string{fmt.Sprintf("%s|%s|%s|%s|%d|%s|%d|%s|%d",
+		transport.Channel(), transport.PromptFileReference(), transport.SnapshotCWD(),
+		transportIdentity.CompleteSHA256(), transportIdentity.ByteLength(),
+		preStart.CompleteSHA256(), preStart.ByteLength(), postEnd.CompleteSHA256(), postEnd.ByteLength())}
+	proof, proofErr := newCurrentProbeDirectExecutionRoleProof(definition, version, namespace.Generation(), namespace, namespaceEnvironment, environment, roleFixture, argv, packet, capabilityObservation, executionPolicy)
+	if proofErr != nil {
+		return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "direct role execution proof invalid", proofErr)
+	}
+	directExecutionProofs := []currentProbeDirectExecutionRoleProof{proof}
+	capabilityFixtures := []ProbeFixtureLease{roleFixture}
 	receipt, receiptErr := newCurrentProbeDirectExecutionAuthorityReceiptForDefinition(directExecutionProofs, expires, definition)
 	if receiptErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "direct-execution authority receipt invalid", receiptErr)
 	}
-	receipts, receiptErr := currentProbeValidatedReceipts(definition, fixtures, version, directExecutionProofs, transportEvidence, environment, namespace.Generation(), expires)
+	receipts, receiptErr := currentProbeValidatedReceipts(definition, capabilityFixtures, version, directExecutionProofs, transportEvidence, environment, namespace.Generation(), expires)
 	if receiptErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("receipt", "qualification receipt evidence unavailable", receiptErr)
 	}
@@ -388,7 +527,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		return observation, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
-		return observation, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), nil)
+		return observation, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
 	return observation, nil
 }
@@ -581,10 +720,12 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	permissionDeniedWithoutOutput := definition.Family() == FamilyAgy && observation.Succeeded() && agyPermissionDenied(observation.Stderr())
 	requests := lifecycle.SignalRequests()
 	if !frameOK {
-		if !observation.Succeeded() || permissionDeniedWithoutOutput {
-			return nil
-		}
-		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMissing, "missing valid post-output frame receipt")
+		// A terminal JSON frame is optional metadata, not the result transport.
+		// With no frame there is no frame-integrity claim to verify, so capability
+		// acceptance is decided by bound fixture evidence instead. This cannot hide
+		// a forged post-output signal claim: ProcessLifecycleReceipt.Valid rejects
+		// any post-output signal receipt that is not bound to a present frame.
+		return nil
 	}
 	if !frame.Valid() {
 		return probeEvidenceFailure(domain.DiagnosticCauseOutputFrameMissing, "missing valid post-output frame receipt")
@@ -828,7 +969,185 @@ func strictKimiProbeContent(stdout []byte) ([]byte, error) {
 	}
 	return []byte(content), nil
 }
+func acceptCapabilityEvidence(family string, output []byte, fixture ProbeFixtureLease) error {
+	candidates, err := capabilityEvidenceCandidates(family, output)
+	if err != nil {
+		return probeFailure("capability", domain.FailureInvalidOutput, "capability evidence unavailable", newProviderOutputFailure(qualificationFamilyOutputCause(family, err), err))
+	}
+	var mismatch error
+	for _, candidate := range candidates {
+		if err := validateProbeEvidence(candidate, fixture); err == nil {
+			return nil
+		} else {
+			mismatch = err
+		}
+	}
+	if mismatch == nil {
+		mismatch = fmt.Errorf("invalid controlled probe evidence")
+	}
+	// Fixture-binding failure is an operational capability rejection. Security
+	// classification stays reserved for transport, lifecycle, and frame-integrity
+	// receipt violations, which are proved before this point.
+	return probeFailure("capability", domain.FailureInvalidOutput, "controlled evidence mismatch", newProviderOutputFailure(domain.DiagnosticCauseObservationMismatch, mismatch))
+}
+
+func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error) {
+	trimmed := bytes.TrimSpace(output)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("empty capability output")
+	}
+	candidates := make([][]byte, 0, 4)
+	switch family {
+	case FamilyKimi:
+		if content, err := kimiContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
+			candidates = append(candidates, content)
+		}
+	case FamilyAgy:
+		if content, err := agyContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
+			candidates = append(candidates, content)
+			if nested := agyResultText(content); len(bytes.TrimSpace(nested)) > 0 {
+				candidates = append(candidates, nested)
+			}
+		}
+	case FamilyZcode:
+		if content, err := zcodeContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
+			candidates = append(candidates, content)
+		}
+		if response := zcodeResponseText(trimmed); len(bytes.TrimSpace(response)) > 0 {
+			candidates = append(candidates, response)
+		}
+	}
+	if content, err := controlledProbeJSON(trimmed); err == nil {
+		candidates = append(candidates, content)
+	}
+	candidates = append(candidates, trimmed)
+	return candidates, nil
+}
+
+// capabilityEvidencePayload remains for tests that inspect joined candidate text.
+func capabilityEvidencePayload(family string, output []byte) ([]byte, error) {
+	candidates, err := capabilityEvidenceCandidates(family, output)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.Join(candidates, []byte{'\n'}), nil
+}
+
+func zcodeResponseText(stdout []byte) []byte {
+	frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
+	if err != nil {
+		return nil
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(frame, &envelope); err != nil {
+		return nil
+	}
+	rawResponse, present := envelope["response"]
+	if !present {
+		return nil
+	}
+	var response string
+	if err := json.Unmarshal(rawResponse, &response); err != nil {
+		return append([]byte(nil), rawResponse...)
+	}
+	return []byte(response)
+}
+
+func agyResultText(frame []byte) []byte {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(frame), &envelope); err != nil {
+		return nil
+	}
+	for _, key := range []string{"result", "message", "content", "text", "response", "output"} {
+		raw, present := envelope[key]
+		if !present {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
+			return []byte(text)
+		}
+		if nested := bytes.TrimSpace(raw); looksLikeJSONObject(nested) || looksLikeJSONArray(nested) {
+			if text := agyResultText(nested); len(bytes.TrimSpace(text)) > 0 {
+				return text
+			}
+			return append([]byte(nil), nested...)
+		}
+	}
+	return nil
+}
+
 func validateProbeEvidence(output []byte, fixture ProbeFixtureLease) error {
+	if fixture == nil {
+		return fmt.Errorf("invalid controlled probe evidence")
+	}
+	nonce, link, role := fixture.Nonce(), fixture.Link(), string(fixture.Role())
+	if nonce == "" || link == "" || role == "" || nonce == link || nonce == role || link == role {
+		return fmt.Errorf("invalid controlled probe evidence")
+	}
+	trimmed := bytes.TrimSpace(output)
+	if len(trimmed) == 0 {
+		return fmt.Errorf("invalid controlled probe evidence")
+	}
+	packet := bytes.TrimSpace(fixture.Packet())
+	if len(packet) > 0 && bytes.Equal(trimmed, packet) {
+		return fmt.Errorf("capability evidence is prompt echo")
+	}
+	if looksLikeJSONObject(trimmed) {
+		if evidence, err := parseStrictProbeEvidenceJSON(trimmed); err == nil {
+			if evidence.Root == nonce && evidence.Link == link && evidence.Role == role {
+				return nil
+			}
+			return fmt.Errorf("invalid controlled probe evidence")
+		}
+		var loose map[string]json.RawMessage
+		if json.Unmarshal(trimmed, &loose) == nil {
+			// JSON object with unknown/extra shape is not narrated proof.
+			return fmt.Errorf("invalid controlled probe evidence")
+		}
+	}
+	for _, candidate := range bytes.Split(trimmed, []byte{'\n'}) {
+		candidate = bytes.TrimSpace(candidate)
+		if !looksLikeJSONObject(candidate) {
+			continue
+		}
+		if evidence, err := parseStrictProbeEvidenceJSON(candidate); err == nil {
+			if evidence.Root == nonce && evidence.Link == link && evidence.Role == role {
+				return nil
+			}
+		}
+	}
+	// Narrated proof must bind values outside a pure prompt copy.
+	remainder := trimmed
+	if len(packet) > 0 {
+		remainder = bytes.ReplaceAll(remainder, packet, nil)
+	}
+	remainder = bytes.TrimSpace(remainder)
+	if len(remainder) == 0 {
+		return fmt.Errorf("capability evidence is prompt echo")
+	}
+	text := string(remainder)
+	if containsDistinctBinding(text, nonce) && containsDistinctBinding(text, link) && containsDistinctBinding(text, role) {
+		return nil
+	}
+	return fmt.Errorf("invalid controlled probe evidence")
+}
+
+func looksLikeJSONArray(output []byte) bool {
+	trimmed := bytes.TrimSpace(output)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+func looksLikeJSONObject(output []byte) bool {
+	trimmed := bytes.TrimSpace(output)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+func parseStrictProbeEvidenceJSON(output []byte) (struct {
+	Root string `json:"root"`
+	Link string `json:"link"`
+	Role string `json:"role"`
+}, error) {
 	var evidence struct {
 		Root string `json:"root"`
 		Link string `json:"link"`
@@ -837,14 +1156,19 @@ func validateProbeEvidence(output []byte, fixture ProbeFixtureLease) error {
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&evidence); err != nil {
-		return fmt.Errorf("invalid controlled probe evidence")
+		return evidence, err
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF ||
-		evidence.Root != fixture.Nonce() || evidence.Link != fixture.Link() ||
-		evidence.Role != string(fixture.Role()) {
-		return fmt.Errorf("invalid controlled probe evidence")
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return evidence, fmt.Errorf("trailing probe evidence")
 	}
-	return nil
+	return evidence, nil
+}
+
+func containsDistinctBinding(text, value string) bool {
+	if value == "" || !strings.Contains(text, value) {
+		return false
+	}
+	return true
 }
 
 func controlledProbeJSON(output []byte) ([]byte, error) {
@@ -886,6 +1210,8 @@ func classifyProbeFailure(ctx context.Context, family string, err error, stderr 
 			return probeFailure("capability", domain.FailureQuota, "provider quota unavailable", err)
 		case ports.ProviderExecutionStatusRateLimit:
 			return probeFailure("capability", domain.FailureRateLimit, "provider rate limited", err)
+		case ports.ProviderExecutionStatusUnavailable:
+			return probeFailure("capability", domain.FailureProviderUnavailable, "provider unavailable", err)
 		}
 	}
 	message := strings.ToLower(string(stderr))

@@ -15,6 +15,13 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
+// RoleReportURI is one trusted project-relative role-report identity projected
+// from a committed PublicationResult support inventory by childrun.
+type RoleReportURI struct {
+	Role string
+	URI  string
+}
+
 // TargetKind is the literal target selector accepted by a followup request.
 type TargetKind string
 
@@ -113,20 +120,28 @@ type ChildExecutor interface {
 }
 
 // ExecutionResult identifies one published child run, its validator-owned
-// followup material, and its verified P2 terminal exit decision.
+// followup material, verified committed role-report URIs, and its verified P2
+// terminal exit decision.
 type ExecutionResult struct {
 	SessionID           domain.SessionID
 	RunID               domain.RunID
 	FollowupArtifactURI string
 	ValidatedOutput     validation.ValidatedFollowup
+	RoleReportURIs      []RoleReportURI
 	terminalExit        *domain.OperationalExitDecision
 }
 
 // NewExecutionResult validates and binds the verified P2 terminal exit to one
 // published followup child run.
-func NewExecutionResult(sessionID domain.SessionID, runID domain.RunID, followupArtifactURI string, validatedOutput validation.ValidatedFollowup, terminalExit domain.OperationalExitDecision) (ExecutionResult, error) {
-	result := ExecutionResult{SessionID: sessionID, RunID: runID, FollowupArtifactURI: followupArtifactURI, ValidatedOutput: validatedOutput, terminalExit: &terminalExit}
+func NewExecutionResult(sessionID domain.SessionID, runID domain.RunID, followupArtifactURI string, validatedOutput validation.ValidatedFollowup, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (ExecutionResult, error) {
+	result := ExecutionResult{
+		SessionID: sessionID, RunID: runID, FollowupArtifactURI: followupArtifactURI, ValidatedOutput: validatedOutput,
+		RoleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
+	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return ExecutionResult{}, fmt.Errorf("followup execution result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.RoleReportURIs); err != nil {
 		return ExecutionResult{}, fmt.Errorf("followup execution result: %w", err)
 	}
 	return result, nil
@@ -151,6 +166,7 @@ type Result struct {
 	runID               domain.RunID
 	followupArtifactURI string
 	validatedOutput     validation.ValidatedFollowup
+	roleReportURIs      []RoleReportURI
 	terminalExit        *domain.OperationalExitDecision
 }
 
@@ -158,12 +174,21 @@ func (result Result) SessionID() domain.SessionID                   { return res
 func (result Result) RunID() domain.RunID                           { return result.runID }
 func (result Result) FollowupArtifactURI() string                   { return result.followupArtifactURI }
 func (result Result) ValidatedOutput() validation.ValidatedFollowup { return result.validatedOutput }
+func (result Result) RoleReportURIs() []RoleReportURI {
+	return append([]RoleReportURI(nil), result.roleReportURIs...)
+}
 
 // NewResult validates and binds the verified P2 terminal exit to the bounded
 // followup application result.
-func NewResult(sessionID domain.SessionID, runID domain.RunID, followupArtifactURI string, validatedOutput validation.ValidatedFollowup, terminalExit domain.OperationalExitDecision) (Result, error) {
-	result := Result{sessionID: sessionID, runID: runID, followupArtifactURI: followupArtifactURI, validatedOutput: validatedOutput, terminalExit: &terminalExit}
+func NewResult(sessionID domain.SessionID, runID domain.RunID, followupArtifactURI string, validatedOutput validation.ValidatedFollowup, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (Result, error) {
+	result := Result{
+		sessionID: sessionID, runID: runID, followupArtifactURI: followupArtifactURI, validatedOutput: validatedOutput,
+		roleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
+	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return Result{}, fmt.Errorf("followup result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.roleReportURIs); err != nil {
 		return Result{}, fmt.Errorf("followup result: %w", err)
 	}
 	return result, nil
@@ -280,4 +305,21 @@ func validURI(value string) bool {
 	}
 	uri, err := url.Parse(value)
 	return err == nil && uri.String() == value
+}
+
+func validateRoleReportURIs(sessionID domain.SessionID, runID domain.RunID, reports []RoleReportURI) error {
+	if len(reports) != 1 {
+		return fmt.Errorf("followup requires exactly one role report URI")
+	}
+	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/"
+	report := reports[0]
+	if !domain.Role(report.Role).Valid() || report.URI != prefix+report.Role+".md" || !validRoleReportURI(report.URI) {
+		return fmt.Errorf("role report URI is invalid")
+	}
+	return nil
+}
+
+func validRoleReportURI(value string) bool {
+	return strings.TrimSpace(value) != "" && utf8.ValidString(value) && !strings.ContainsAny(value, "\x00\r\n") &&
+		strings.HasPrefix(value, ".mulgae/")
 }

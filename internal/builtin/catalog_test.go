@@ -399,7 +399,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 		"`FAMILY := kimi | zcode | agy`",
 		"`execution.workspace_access` is required",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
-		"`dangerously-skip-permissions` by default",
+		"defaults to `safe` for workspace-first",
 		"`provider_permission_denied`, not as output decode failures",
 		"unconditional project-root\ndurability barrier",
 		"output delivery failure never rolls back a committed\nconfiguration",

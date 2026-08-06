@@ -61,7 +61,7 @@ func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	result.AGYPermissionMode = "safe"
-	result.Warnings = []string{"AGY safe mode is opt-in; headless tool requests may be denied."}
+	result.Warnings = nil
 	for index := range result.Transmissions {
 		if result.Transmissions[index].ProviderFamily == "agy" {
 			result.Transmissions[index].PermissionMode = "safe"
@@ -69,6 +69,24 @@ func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("safe mode result: %v", err)
+	}
+
+	result.AGYPermissionMode = "dangerously-skip-permissions"
+	result.Warnings = []string{"AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary."}
+	for index := range result.Transmissions {
+		if result.Transmissions[index].ProviderFamily == "agy" {
+			result.Transmissions[index].PermissionMode = "dangerously-skip-permissions"
+		}
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("headless mode result: %v", err)
+	}
+	result.AGYPermissionMode = "safe"
+	result.Warnings = nil
+	for index := range result.Transmissions {
+		if result.Transmissions[index].ProviderFamily == "agy" {
+			result.Transmissions[index].PermissionMode = "safe"
+		}
 	}
 
 	result.Status = "no_change"

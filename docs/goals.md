@@ -18,8 +18,11 @@ result, evidence status, lineage, and a durable publication record.
    common application ports.
 4. **Reproducible inputs.** Mulgae captures an immutable target and records
    prompts, provider identity, attempts, and hashes needed to understand it.
-5. **Fail-closed contracts.** Untrusted output must pass parsing, schema,
-   semantic, and evidence checks before publication.
+5. **Fail-closed contracts.** Untrusted provider output is admitted only as
+   bounded UTF-8. Markdown/free-form role reports are primary; optional exact
+   JSON structured extraction requires parsing, schema, semantic, and evidence
+   checks. Prose does not invent findings. Security, configuration, and
+   integrity failures never authorize publication.
 6. **Local ownership.** Configuration and artifacts remain in `.mulgae/`.
 7. **Inspectable automation.** Human output is convenient; `--output json`
    provides stable v1 envelopes and typed exits.

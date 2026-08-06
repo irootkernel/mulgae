@@ -110,12 +110,13 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 	}
 
 	config.Providers.AGY.PermissionMode = SafeAGYPermissionMode
+	config.Providers.AGY.PermissionModeExplicit = true
 	safe, err := EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(safe, []byte(`permission_mode: "safe"`)) {
-		t.Fatalf("explicit safe opt-in was omitted:\n%s", safe)
+		t.Fatalf("explicit safe mode was omitted:\n%s", safe)
 	}
 }
 

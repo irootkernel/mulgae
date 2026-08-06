@@ -1267,7 +1267,8 @@ func providerExecutionTestStatusMatchesTermination(status ProviderExecutionStatu
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusUnavailable:
 		return termination == ProcessTerminationStartUnavailable ||
-			termination == ProcessTerminationLockUnavailable
+			termination == ProcessTerminationLockUnavailable ||
+			termination == ProcessTerminationExited
 	case ProviderExecutionStatusSecurityViolation:
 		return termination == ProcessTerminationStartSecurity ||
 			termination == ProcessTerminationLockSecurity ||

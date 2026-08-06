@@ -109,7 +109,7 @@ func (service *Service) StartFollowupRun(ctx context.Context, request Request) (
 	if !ok {
 		return Result{}, fail(ErrorInvariant, "execute", "terminal exit is absent", nil)
 	}
-	bounded, err := NewResult(result.SessionID, result.RunID, result.FollowupArtifactURI, result.ValidatedOutput, terminalExit)
+	bounded, err := NewResult(result.SessionID, result.RunID, result.FollowupArtifactURI, result.ValidatedOutput, result.RoleReportURIs, terminalExit)
 	if err != nil {
 		return Result{}, fail(ErrorInvariant, "execute", err.Error(), nil)
 	}
@@ -209,14 +209,24 @@ func validateExecutionResult(result ExecutionResult, source VerifiedSource) erro
 	if err := result.ValidateTerminalExit(); err != nil {
 		return err
 	}
-	providerRaw := result.ValidatedOutput.ProviderRaw()
-	normalizedRaw := result.ValidatedOutput.NormalizedRaw()
-	if len(providerRaw) == 0 || len(normalizedRaw) == 0 ||
-		result.ValidatedOutput.ProviderSHA256() != digest(providerRaw) ||
-		!result.ValidatedOutput.Resolution().Valid() ||
-		!result.ValidatedOutput.Role().Valid() ||
-		strings.TrimSpace(result.ValidatedOutput.ProviderInstance()) == "" {
+	output := result.ValidatedOutput
+	providerRaw := output.ProviderRaw()
+	if len(providerRaw) == 0 ||
+		output.ProviderSHA256() != digest(providerRaw) ||
+		!output.Role().Valid() ||
+		strings.TrimSpace(output.ProviderInstance()) == "" {
 		return fmt.Errorf("missing or invalid validated followup output")
+	}
+	if output.ReportsOnly() {
+		if output.Resolution().Valid() || len(output.NormalizedRaw()) != 0 ||
+			output.StructuredExtractionStatus() != domain.StructuredExtractionReportsOnly {
+			return fmt.Errorf("reports-only followup output is inconsistent")
+		}
+		return nil
+	}
+	if len(output.NormalizedRaw()) == 0 || !output.Resolution().Valid() ||
+		output.StructuredExtractionStatus() != domain.StructuredExtractionStructured {
+		return fmt.Errorf("missing or invalid structured followup output")
 	}
 	return nil
 }

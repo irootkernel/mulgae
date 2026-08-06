@@ -39,14 +39,55 @@ type CommittedReview struct {
 	targetSHA256    string
 	content         domain.ContentVerdict
 	coverage        domain.CoverageStatus
+	extraction      domain.StructuredExtractionStatus
 	publication     domain.PublicationStatus
 	ci              domain.CIDecision
 	followupOutcome *FollowupOutcome
 	roles           []Role
+	roleReports     []RoleReport
 	findings        []Finding
 	finalBytes      []byte
 	manifestBytes   []byte
 	lineage         CommittedLineage
+}
+
+// RoleReport is one verified committed free-form role-report inventory entry.
+type RoleReport struct {
+	role             string
+	path             string
+	sha256           string
+	byteLength       int
+	providerInstance string
+	attemptID        string
+	contentType      string
+}
+
+// Role returns the selected Mulgae role for this report.
+func (report RoleReport) Role() string { return report.role }
+
+// Path returns the run-relative role-report path.
+func (report RoleReport) Path() string { return report.path }
+
+// SHA256 returns the committed report digest.
+func (report RoleReport) SHA256() string { return report.sha256 }
+
+// ByteLength returns the committed report byte length.
+func (report RoleReport) ByteLength() int { return report.byteLength }
+
+// ProviderInstance returns the selected provider instance.
+func (report RoleReport) ProviderInstance() string { return report.providerInstance }
+
+// AttemptID returns the selected attempt identity.
+func (report RoleReport) AttemptID() string { return report.attemptID }
+
+// ContentType returns the committed report media type.
+func (report RoleReport) ContentType() string { return report.contentType }
+
+// RoleReportURI is one project-relative role-report identity exposed only after
+// independent P2 support-index and artifact verification.
+type RoleReportURI struct {
+	Role string
+	URI  string
 }
 
 // SessionID returns the committed review's session identity.
@@ -94,6 +135,11 @@ func (review CommittedReview) ContentVerdict() domain.ContentVerdict { return re
 // CoverageStatus returns the independent committed coverage axis.
 func (review CommittedReview) CoverageStatus() domain.CoverageStatus { return review.coverage }
 
+// StructuredExtractionStatus returns the independent committed extraction axis.
+func (review CommittedReview) StructuredExtractionStatus() domain.StructuredExtractionStatus {
+	return review.extraction
+}
+
 // PublicationStatus returns the committed publication axis.
 func (review CommittedReview) PublicationStatus() domain.PublicationStatus { return review.publication }
 
@@ -111,6 +157,11 @@ func (review CommittedReview) FollowupOutcome() (FollowupOutcome, bool) {
 
 // Roles returns caller-owned role views in final artifact order.
 func (review CommittedReview) Roles() []Role { return cloneRoles(review.roles) }
+
+// RoleReports returns caller-owned committed role-report inventory entries.
+func (review CommittedReview) RoleReports() []RoleReport {
+	return append([]RoleReport(nil), review.roleReports...)
+}
 
 // Findings returns caller-owned finding views in final artifact order.
 func (review CommittedReview) Findings() []Finding { return cloneFindings(review.findings) }
@@ -405,6 +456,7 @@ type Role struct {
 	findingIDs       []string
 	failureReason    string
 	limitations      []string
+	reportsOnly      bool
 }
 
 // Name returns the fixed Mulgae role.
@@ -441,6 +493,10 @@ func (role Role) FailureReason() (string, bool) { return role.failureReason, rol
 
 // Limitations returns a caller-owned copy of the role limitations.
 func (role Role) Limitations() []string { return append([]string(nil), role.limitations...) }
+
+// ReportsOnly reports whether the selected terminal attempt was free-form
+// reports-only rather than validated structured extraction.
+func (role Role) ReportsOnly() bool { return role.reportsOnly }
 
 // Finding is one immutable report-facing finding. Evidence carries claims only;
 // callers must use RenderExcerpt to obtain freshly verified bytes.
@@ -550,20 +606,22 @@ func (item Evidence) Verification() evidence.ReceiptStatus { return item.verific
 
 // RunStatus is the safe status projection of one observed run. Content and final
 // artifact details are present only after an independent P2 committed read.
+// RoleReportURIs are present only after support-indexed artifact verification.
 type RunStatus struct {
-	sessionID    domain.SessionID
-	runID        domain.RunID
-	publication  domain.PublicationStatus
-	authority    domain.PublicationAuthority
-	action       domain.RecoveryAction
-	runState     domain.RunState
-	hasRunState  bool
-	content      domain.ContentVerdict
-	coverage     domain.CoverageStatus
-	ci           domain.CIDecision
-	hasAxes      bool
-	finalPath    ports.SafeRelativePath
-	hasFinalPath bool
+	sessionID      domain.SessionID
+	runID          domain.RunID
+	publication    domain.PublicationStatus
+	authority      domain.PublicationAuthority
+	action         domain.RecoveryAction
+	runState       domain.RunState
+	hasRunState    bool
+	content        domain.ContentVerdict
+	coverage       domain.CoverageStatus
+	ci             domain.CIDecision
+	hasAxes        bool
+	finalPath      ports.SafeRelativePath
+	hasFinalPath   bool
+	roleReportURIs []RoleReportURI
 }
 
 // Status is the report-facing alias for one safe run status projection.
@@ -609,28 +667,36 @@ func (status RunStatus) FinalPath() (ports.SafeRelativePath, bool) {
 	return status.finalPath, status.hasFinalPath
 }
 
+// RoleReportURIs returns caller-owned project-relative role-report identities
+// only after independent P2 support verification. Non-P2 and corrupt status
+// always return none.
+func (status RunStatus) RoleReportURIs() []RoleReportURI {
+	return append([]RoleReportURI(nil), status.roleReportURIs...)
+}
+
 type finalDTO struct {
-	SchemaVersion     string               `json:"schema_version"`
-	SessionID         string               `json:"session_id"`
-	RunID             string               `json:"run_id"`
-	ReviewID          string               `json:"review_id"`
-	RunType           string               `json:"run_type"`
-	CreatedAt         string               `json:"created_at"`
-	Mulgae            finalMulgaeDTO       `json:"mulgae"`
-	ImmutableLineage  lineageDTO           `json:"immutable_lineage"`
-	FollowupOutcome   *followupOutcomeDTO  `json:"followup_outcome"`
-	Target            finalTargetDTO       `json:"target"`
-	Validation        finalValidationDTO   `json:"validation"`
-	ContentVerdict    string               `json:"content_verdict"`
-	CoverageStatus    string               `json:"coverage_status"`
-	PublicationStatus string               `json:"publication_status"`
-	CIDecision        string               `json:"ci_decision"`
-	CIReasonCodes     []string             `json:"ci_reason_codes"`
-	SeverityThreshold severityThresholdDTO `json:"severity_threshold"`
-	RoleOutcomes      []finalRoleDTO       `json:"role_outcomes"`
-	Findings          []finalFindingDTO    `json:"findings"`
-	Limitations       []string             `json:"limitations"`
-	Provenance        provenanceDTO        `json:"provenance"`
+	SchemaVersion              string               `json:"schema_version"`
+	SessionID                  string               `json:"session_id"`
+	RunID                      string               `json:"run_id"`
+	ReviewID                   string               `json:"review_id"`
+	RunType                    string               `json:"run_type"`
+	CreatedAt                  string               `json:"created_at"`
+	Mulgae                     finalMulgaeDTO       `json:"mulgae"`
+	ImmutableLineage           lineageDTO           `json:"immutable_lineage"`
+	FollowupOutcome            *followupOutcomeDTO  `json:"followup_outcome"`
+	Target                     finalTargetDTO       `json:"target"`
+	Validation                 finalValidationDTO   `json:"validation"`
+	ContentVerdict             string               `json:"content_verdict"`
+	CoverageStatus             string               `json:"coverage_status"`
+	StructuredExtractionStatus string               `json:"structured_extraction_status"`
+	PublicationStatus          string               `json:"publication_status"`
+	CIDecision                 string               `json:"ci_decision"`
+	CIReasonCodes              []string             `json:"ci_reason_codes"`
+	SeverityThreshold          severityThresholdDTO `json:"severity_threshold"`
+	RoleOutcomes               []finalRoleDTO       `json:"role_outcomes"`
+	Findings                   []finalFindingDTO    `json:"findings"`
+	Limitations                []string             `json:"limitations"`
+	Provenance                 provenanceDTO        `json:"provenance"`
 }
 
 type followupOutcomeDTO struct {
@@ -773,38 +839,50 @@ type productionProviderDTO struct {
 }
 
 type manifestDTO struct {
-	SchemaVersion            string               `json:"schema_version"`
-	SessionID                string               `json:"session_id"`
-	RunID                    string               `json:"run_id"`
-	RunType                  string               `json:"run_type"`
-	State                    string               `json:"state"`
-	Sealed                   bool                 `json:"sealed"`
-	CreatedAt                string               `json:"created_at"`
-	StartedAt                *string              `json:"started_at"`
-	CompletedAt              *string              `json:"completed_at"`
-	MulgaeVersion            string               `json:"mulgae_version"`
-	ImmutableLineage         lineageDTO           `json:"immutable_lineage"`
-	FollowupOutcome          *followupOutcomeDTO  `json:"followup_outcome"`
-	Target                   manifestTargetDTO    `json:"target"`
-	SelectedRoles            []string             `json:"selected_roles"`
-	RequiredRoles            []string             `json:"required_roles"`
-	Attempts                 []manifestAttemptDTO `json:"attempts"`
-	ContentVerdict           string               `json:"content_verdict"`
-	CoverageStatus           string               `json:"coverage_status"`
-	PublicationStatus        string               `json:"publication_status"`
-	CIDecision               string               `json:"ci_decision"`
-	CIReasonCodes            []string             `json:"ci_reason_codes"`
-	PersistedJournalState    string               `json:"persisted_journal_state"`
-	DurableObservationClass  string               `json:"durable_observation_class"`
-	DerivedPublicationStatus string               `json:"derived_publication_status"`
-	PublicationAuthority     string               `json:"publication_authority"`
-	RecoveryJournal          recoveryJournalDTO   `json:"recovery_journal"`
-	CompositeIdentity        compositeIdentityDTO `json:"composite_identity"`
-	RecoveryAction           string               `json:"recovery_action"`
-	FinalReview              *finalReviewDTO      `json:"final_review"`
-	Failures                 []manifestFailureDTO `json:"failures"`
-	Warnings                 []string             `json:"warnings"`
-	ExitCode                 int                  `json:"exit_code"`
+	SchemaVersion              string                  `json:"schema_version"`
+	SessionID                  string                  `json:"session_id"`
+	RunID                      string                  `json:"run_id"`
+	RunType                    string                  `json:"run_type"`
+	State                      string                  `json:"state"`
+	Sealed                     bool                    `json:"sealed"`
+	CreatedAt                  string                  `json:"created_at"`
+	StartedAt                  *string                 `json:"started_at"`
+	CompletedAt                *string                 `json:"completed_at"`
+	MulgaeVersion              string                  `json:"mulgae_version"`
+	ImmutableLineage           lineageDTO              `json:"immutable_lineage"`
+	FollowupOutcome            *followupOutcomeDTO     `json:"followup_outcome"`
+	Target                     manifestTargetDTO       `json:"target"`
+	SelectedRoles              []string                `json:"selected_roles"`
+	RequiredRoles              []string                `json:"required_roles"`
+	Attempts                   []manifestAttemptDTO    `json:"attempts"`
+	ContentVerdict             string                  `json:"content_verdict"`
+	CoverageStatus             string                  `json:"coverage_status"`
+	StructuredExtractionStatus string                  `json:"structured_extraction_status"`
+	PublicationStatus          string                  `json:"publication_status"`
+	CIDecision                 string                  `json:"ci_decision"`
+	CIReasonCodes              []string                `json:"ci_reason_codes"`
+	PersistedJournalState      string                  `json:"persisted_journal_state"`
+	DurableObservationClass    string                  `json:"durable_observation_class"`
+	DerivedPublicationStatus   string                  `json:"derived_publication_status"`
+	PublicationAuthority       string                  `json:"publication_authority"`
+	RecoveryJournal            recoveryJournalDTO      `json:"recovery_journal"`
+	CompositeIdentity          compositeIdentityDTO    `json:"composite_identity"`
+	RecoveryAction             string                  `json:"recovery_action"`
+	FinalReview                *finalReviewDTO         `json:"final_review"`
+	RoleReports                []manifestRoleReportDTO `json:"role_reports"`
+	Failures                   []manifestFailureDTO    `json:"failures"`
+	Warnings                   []string                `json:"warnings"`
+	ExitCode                   int                     `json:"exit_code"`
+}
+
+type manifestRoleReportDTO struct {
+	Role             string `json:"role"`
+	Path             string `json:"path"`
+	SHA256           string `json:"sha256"`
+	ByteLength       int    `json:"byte_length"`
+	ProviderInstance string `json:"provider_instance"`
+	AttemptID        string `json:"attempt_id"`
+	ContentType      string `json:"content_type"`
 }
 
 type manifestTargetDTO struct {
@@ -986,7 +1064,7 @@ func cloneRoles(source []Role) []Role {
 			role: role.role, required: role.required, outcome: role.outcome, attemptID: role.attemptID,
 			providerInstance: role.providerInstance, selectedVia: role.selectedVia,
 			findingIDs: append([]string(nil), role.findingIDs...), failureReason: role.failureReason,
-			limitations: append([]string(nil), role.limitations...),
+			limitations: append([]string(nil), role.limitations...), reportsOnly: role.reportsOnly,
 		}
 	}
 	return result

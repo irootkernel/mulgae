@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	coreapp "github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
@@ -18,6 +19,10 @@ import (
 )
 
 const (
+	// maxRoleReportBytes matches review.normalizeRoleReportMarkdown / the
+	// report-command markdown cap so status reopen stays producer-consistent.
+	maxRoleReportBytes = 8 << 20
+
 	resolveRunStage        = "query.resolve_run"
 	readCommittedStage     = "query.read_committed"
 	readStatusStage        = "query.read_run_status"
@@ -258,9 +263,10 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) == 0 {
+	if index.SchemaVersion != "mulgae-run-support-index.v1" {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
+	// Empty artifacts is schema-valid for provider-free no-change publications.
 	identities := make(map[string]string, len(index.Artifacts))
 	for _, item := range index.Artifacts {
 		path, pathErr := ports.NewSafeRelativePath(item.Path)
@@ -525,6 +531,11 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 	status.hasAxes = true
 	status.finalPath = review.FinalPath()
 	status.hasFinalPath = true
+	roleReportURIs, err := service.projectStatusRoleReportURIs(ctx, run, review, observation)
+	if err != nil {
+		return corruptStatus(run), err
+	}
+	status.roleReportURIs = roleReportURIs
 	return status, nil
 }
 
@@ -1211,8 +1222,11 @@ func buildCommittedReview(
 	coverage := domain.CoverageStatus(final.CoverageStatus)
 	publication := domain.PublicationStatus(final.PublicationStatus)
 	ci := domain.CIDecision(final.CIDecision)
+	extraction := domain.StructuredExtractionStatus(final.StructuredExtractionStatus)
 	if !content.Valid() || !coverage.Valid() || publication != domain.PublicationCommitted || !ci.Valid() ||
+		!extraction.Valid() ||
 		manifest.ContentVerdict != final.ContentVerdict || manifest.CoverageStatus != final.CoverageStatus ||
+		manifest.StructuredExtractionStatus != final.StructuredExtractionStatus ||
 		manifest.PublicationStatus != final.PublicationStatus || manifest.CIDecision != final.CIDecision {
 		return CommittedReview{}, fmt.Errorf("independent outcome axes are invalid")
 	}
@@ -1244,13 +1258,17 @@ func buildCommittedReview(
 	if err := validateManifestRoleAttemptBindings(manifest.Attempts, roles); err != nil {
 		return CommittedReview{}, err
 	}
+	roleReports, err := validateManifestRoleReports(manifest, roles)
+	if err != nil {
+		return CommittedReview{}, err
+	}
 	if err := validateManifestFailures(manifest.Failures, manifest.Attempts, roles); err != nil {
 		return CommittedReview{}, err
 	}
 	if !consistentCommittedRunState(domain.RunState(manifest.State), roles, coverage) {
 		return CommittedReview{}, fmt.Errorf("committed run state does not match role outcomes")
 	}
-	if err := validateOutcomeProjection(final, manifest, roles, findings, content, coverage, ci, decision); err != nil {
+	if err := validateOutcomeProjection(final, manifest, roles, findings, content, coverage, extraction, ci, decision); err != nil {
 		return CommittedReview{}, err
 	}
 	lineage, err := buildCommittedLineage(domain.RunType(final.RunType), runID, final.ImmutableLineage)
@@ -1263,10 +1281,11 @@ func buildCommittedReview(
 		manifestPath: manifestArtifact.Path(), manifestSHA256: manifestArtifact.SHA256(),
 		lineageEdgePath: lineageArtifact.Path(), lineageEdgeSHA: lineageArtifact.SHA256(),
 		epoch: epoch.Value(), epochPath: epoch.Record().Path(), targetSHA256: final.Target.ContentSHA256,
-		content: content, coverage: coverage, publication: publication, ci: ci,
+		content: content, coverage: coverage, extraction: extraction, publication: publication, ci: ci,
 		followupOutcome: followupOutcome,
 		lineage:         lineage,
-		roles:           cloneRoles(roles), findings: cloneFindings(findings),
+		roles:           cloneRoles(roles), roleReports: append([]RoleReport(nil), roleReports...),
+		findings:   cloneFindings(findings),
 		finalBytes: finalArtifact.Bytes(), manifestBytes: manifestArtifact.Bytes(),
 	}, nil
 }
@@ -1431,9 +1450,23 @@ func validateFollowupOutcome(final finalDTO, manifest manifestDTO) error {
 		}
 		return nil
 	}
+	reportsOnly := domain.StructuredExtractionStatus(final.StructuredExtractionStatus) == domain.StructuredExtractionReportsOnly
+	if reportsOnly {
+		if final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
+			return fmt.Errorf("reports-only followup must not claim structured outcome")
+		}
+		if domain.StructuredExtractionStatus(manifest.StructuredExtractionStatus) != domain.StructuredExtractionReportsOnly {
+			return fmt.Errorf("reports-only followup extraction status is inconsistent")
+		}
+		return nil
+	}
 	if final.FollowupOutcome == nil || manifest.FollowupOutcome == nil ||
 		!reflect.DeepEqual(final.FollowupOutcome, manifest.FollowupOutcome) {
 		return fmt.Errorf("followup outcome is missing or differs between final and manifest")
+	}
+	if domain.StructuredExtractionStatus(final.StructuredExtractionStatus) != domain.StructuredExtractionStructured ||
+		domain.StructuredExtractionStatus(manifest.StructuredExtractionStatus) != domain.StructuredExtractionStructured {
+		return fmt.Errorf("structured followup extraction status is inconsistent")
 	}
 	outcome := final.FollowupOutcome
 	if !domain.FollowupResolution(outcome.Resolution).Valid() || strings.TrimSpace(outcome.Rationale) == "" ||
@@ -1540,7 +1573,7 @@ func buildRolesForRun(values []finalRoleDTO, _ domain.RunType, _ *string) ([]Rol
 			return nil, nil, fmt.Errorf("required role floor is missing")
 		}
 		switch value.Outcome {
-		case "completed", "degraded", "failed", "skipped":
+		case "completed", "degraded", "failed", "skipped", "not_applicable":
 		default:
 			return nil, nil, fmt.Errorf("final role outcome is invalid")
 		}
@@ -1558,15 +1591,15 @@ func buildRolesForRun(values []finalRoleDTO, _ domain.RunType, _ *string) ([]Rol
 		attemptID := ""
 		providerInstance := ""
 		selectedVia := ""
-		if value.Outcome == "skipped" {
+		if value.Outcome == "skipped" || value.Outcome == "not_applicable" {
 			if value.AttemptID != nil || value.ProviderInstance != nil || value.SelectedVia != nil {
-				return nil, nil, fmt.Errorf("skipped role has an attempt binding")
+				return nil, nil, fmt.Errorf("%s role has an attempt binding", value.Outcome)
 			}
 			if len(ids) != 0 {
-				return nil, nil, fmt.Errorf("skipped role has findings")
+				return nil, nil, fmt.Errorf("%s role has findings", value.Outcome)
 			}
 			if value.FailureReason != nil && *value.FailureReason == "" {
-				return nil, nil, fmt.Errorf("skipped role failure reason is invalid")
+				return nil, nil, fmt.Errorf("%s role failure reason is invalid", value.Outcome)
 			}
 		} else {
 			if value.AttemptID == nil || value.ProviderInstance == nil || value.SelectedVia == nil ||
@@ -1657,9 +1690,9 @@ func validateManifestRoleAttemptBindings(attempts []manifestAttemptDTO, roles []
 	}
 	for _, role := range roles {
 		roleAttempts := attemptsByRole[role.Name()]
-		if role.Outcome() == "skipped" {
+		if role.Outcome() == "skipped" || role.Outcome() == "not_applicable" {
 			if len(roleAttempts) != 0 {
-				return fmt.Errorf("skipped role has a selected manifest attempt")
+				return fmt.Errorf("%s role has a selected manifest attempt", role.Outcome())
 			}
 			continue
 		}
@@ -1680,11 +1713,15 @@ func validateManifestRoleAttemptBindings(attempts []manifestAttemptDTO, roles []
 			selected.State != string(domain.AttemptSucceeded) {
 			return fmt.Errorf("successful role has a non-successful manifest attempt")
 		}
-		if (role.Outcome() == "completed" || role.Outcome() == "degraded") &&
-			(selected.ParseState != string(domain.ParseValid) ||
-				(selected.ValidationState != string(domain.ValidationValid) &&
-					selected.ValidationState != string(domain.ValidationRepairedValid))) {
-			return fmt.Errorf("successful role has an invalid manifest attempt result")
+		if role.Outcome() == "completed" || role.Outcome() == "degraded" {
+			reportsOnly, ok := domain.ClassifySuccessfulAttemptExtraction(
+				domain.ParseState(selected.ParseState),
+				domain.ValidationState(selected.ValidationState),
+			)
+			if !ok {
+				return fmt.Errorf("successful role has an invalid manifest attempt result")
+			}
+			roles[roleIndexes[role.Name()]].reportsOnly = reportsOnly
 		}
 		if role.Outcome() == "failed" && selected.State == string(domain.AttemptSucceeded) {
 			return fmt.Errorf("failed role has a successful deterministic terminal attempt")
@@ -1977,12 +2014,18 @@ func validateOutcomeProjection(
 	findings []Finding,
 	content domain.ContentVerdict,
 	coverage domain.CoverageStatus,
+	extraction domain.StructuredExtractionStatus,
 	ci domain.CIDecision,
 	decision domain.PublicationDecision,
 ) error {
 	threshold := domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove)
 	if !threshold.Valid() || final.SeverityThreshold.PolicySource != "project_local" {
 		return fmt.Errorf("severity threshold is invalid")
+	}
+	expectedExtraction := deriveStructuredExtractionStatus(roles)
+	if extraction != expectedExtraction ||
+		domain.StructuredExtractionStatus(manifest.StructuredExtractionStatus) != expectedExtraction {
+		return fmt.Errorf("structured extraction status does not match attempt facts")
 	}
 	expectedContent := domain.ContentNoFindings
 	if len(findings) > 0 {
@@ -1997,6 +2040,11 @@ func validateOutcomeProjection(
 		final.FollowupOutcome.Resolution == string(domain.FollowupStillOpen) &&
 		len(findings) == 0 {
 		expectedContent = domain.ContentRequestChanges
+	}
+	if expectedContent == domain.ContentNoFindings &&
+		(expectedExtraction == domain.StructuredExtractionReportsOnly ||
+			expectedExtraction == domain.StructuredExtractionMixed) {
+		expectedContent = domain.ContentReportsOnly
 	}
 	if content != expectedContent {
 		return fmt.Errorf("content axis does not match findings")
@@ -2059,6 +2107,26 @@ func sameRoles(values []string, roles []Role, requiredOnly bool) bool {
 	}
 	return sameStrings(values, expected)
 }
+
+// deriveStructuredExtractionStatus recomputes SES from committed role attempt
+// facts (ReportsOnly set during manifest attempt binding) rather than trusting
+// the stored final/manifest string alone.
+func deriveStructuredExtractionStatus(roles []Role) domain.StructuredExtractionStatus {
+	summaries := make([]domain.RoleResultSummary, 0, len(roles))
+	for _, role := range roles {
+		outcome := role.Outcome()
+		summaries = append(summaries, domain.RoleResultSummary{
+			Role:        role.Name(),
+			Selected:    true,
+			Required:    role.Required(),
+			Valid:       outcome == "completed" || outcome == "degraded" || outcome == "not_applicable",
+			Degraded:    outcome == "degraded",
+			ReportsOnly: role.ReportsOnly(),
+		})
+	}
+	return domain.ComputeStructuredExtractionStatus(summaries)
+}
+
 func consistentCommittedRunState(state domain.RunState, roles []Role, coverage domain.CoverageStatus) bool {
 	failedAny := false
 	for _, role := range roles {
@@ -2123,6 +2191,176 @@ func roleOrdinal(role domain.Role) int {
 		}
 	}
 	return -1
+}
+
+func validateManifestRoleReports(manifest manifestDTO, roles []Role) ([]RoleReport, error) {
+	expectedRoles := make([]string, 0, len(roles))
+	rolesByName := make(map[string]Role, len(roles))
+	for _, role := range roles {
+		rolesByName[string(role.Name())] = role
+		if role.Outcome() == "completed" || role.Outcome() == "degraded" {
+			expectedRoles = append(expectedRoles, string(role.Name()))
+		}
+	}
+	if len(manifest.RoleReports) != len(expectedRoles) {
+		return nil, fmt.Errorf("manifest role reports do not match successful selected roles")
+	}
+	attemptsByID := make(map[string]manifestAttemptDTO, len(manifest.Attempts))
+	for _, attempt := range manifest.Attempts {
+		attemptsByID[attempt.AttemptID] = attempt
+	}
+	reports := make([]RoleReport, 0, len(manifest.RoleReports))
+	seen := make(map[string]struct{}, len(manifest.RoleReports))
+	for index, report := range manifest.RoleReports {
+		if report.Role != expectedRoles[index] ||
+			report.Path != "role-reports/"+report.Role+".md" ||
+			report.ContentType != "text/markdown" ||
+			!domain.Role(report.Role).Valid() ||
+			!validSHA256(report.SHA256) ||
+			report.ByteLength <= 0 ||
+			!validProviderInstance(report.ProviderInstance) {
+			return nil, fmt.Errorf("manifest role report %q is invalid", report.Role)
+		}
+		if _, err := domain.ParseAttemptID(report.AttemptID); err != nil {
+			return nil, fmt.Errorf("manifest role report %q has invalid attempt_id", report.Role)
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return nil, fmt.Errorf("manifest role report %q is duplicated", report.Role)
+		}
+		seen[report.Role] = struct{}{}
+		role, ok := rolesByName[report.Role]
+		if !ok {
+			return nil, fmt.Errorf("manifest role report %q lacks role outcome", report.Role)
+		}
+		attemptID, hasAttempt := role.AttemptID()
+		provider, hasProvider := role.ProviderInstance()
+		if !hasAttempt || !hasProvider ||
+			attemptID.String() != report.AttemptID ||
+			provider != report.ProviderInstance {
+			return nil, fmt.Errorf("manifest role report %q does not match role outcome authority", report.Role)
+		}
+		attempt, ok := attemptsByID[report.AttemptID]
+		if !ok || attempt.Role != report.Role ||
+			attempt.ProviderInstance != report.ProviderInstance ||
+			attempt.State != string(domain.AttemptSucceeded) {
+			return nil, fmt.Errorf("manifest role report %q does not match attempt authority", report.Role)
+		}
+		reports = append(reports, RoleReport{
+			role: report.Role, path: report.Path, sha256: report.SHA256, byteLength: report.ByteLength,
+			providerInstance: report.ProviderInstance, attemptID: report.AttemptID, contentType: report.ContentType,
+		})
+	}
+	return reports, nil
+}
+
+func (service *Service) projectStatusRoleReportURIs(
+	ctx context.Context,
+	run ports.PublicationRun,
+	review CommittedReview,
+	observation observedRun,
+) ([]RoleReportURI, error) {
+	reports := review.RoleReports()
+	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	if err != nil {
+		return nil, err
+	}
+	roleReportIndex := make(map[string]string)
+	for pathValue, digest := range index {
+		path, pathErr := ports.NewSafeRelativePath(pathValue)
+		if pathErr != nil {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index path is invalid", pathErr)
+		}
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if classifyErr != nil {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index path is not canonical", classifyErr)
+		}
+		if kind != ports.RunSupportArtifactRoleReport {
+			continue
+		}
+		roleReportIndex[pathValue] = digest
+	}
+	if len(reports) == 0 {
+		if len(roleReportIndex) != 0 {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index has unbound role reports", nil)
+		}
+		if err := service.confirmStableP2Observation(ctx, run, observation, readStatusStage); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	uris := make([]RoleReportURI, 0, len(reports))
+	for _, report := range reports {
+		pathValue := run.SessionID().String() + "/" + run.RunID().String() + "/" + report.Path()
+		path, pathErr := ports.NewSafeRelativePath(pathValue)
+		if pathErr != nil {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report path is invalid", pathErr)
+		}
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if classifyErr != nil || kind != ports.RunSupportArtifactRoleReport {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report path is not canonical", classifyErr)
+		}
+		digest, ok := roleReportIndex[path.String()]
+		if !ok || digest != report.SHA256() {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report is absent from support index", nil)
+		}
+		artifact, readErr := service.readBoundRuntimeArtifact(ctx, run, review, path, digest)
+		if readErr != nil {
+			return nil, readErr
+		}
+		content := artifact.Bytes()
+		if artifact.SHA256() != report.SHA256() || len(content) != report.ByteLength() {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report artifact identity mismatch", nil)
+		}
+		if !validRoleReportMarkdown(content) {
+			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report markdown is invalid", nil)
+		}
+		delete(roleReportIndex, path.String())
+		uris = append(uris, RoleReportURI{
+			Role: report.Role(),
+			URI:  ".mulgae/" + path.String(),
+		})
+	}
+	if len(roleReportIndex) != 0 {
+		return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index has unbound role reports", nil)
+	}
+	if err := service.confirmStableP2Observation(ctx, run, observation, readStatusStage); err != nil {
+		return nil, err
+	}
+	return uris, nil
+}
+
+// validRoleReportMarkdown mirrors review.normalizeRoleReportMarkdown acceptance:
+// nonempty, <= 8 MiB, UTF-8, and not whitespace-only.
+func validRoleReportMarkdown(content []byte) bool {
+	return len(content) > 0 &&
+		len(content) <= maxRoleReportBytes &&
+		utf8.Valid(content) &&
+		len(strings.TrimSpace(string(content))) > 0
+}
+
+func (service *Service) confirmStableP2Observation(
+	ctx context.Context,
+	run ports.PublicationRun,
+	observation observedRun,
+	stage string,
+) error {
+	confirmation, err := service.observe(ctx, run, stage)
+	if err != nil {
+		return err
+	}
+	if confirmation.decision.Status() != domain.PublicationCommitted ||
+		confirmation.decision.Authority() != domain.PublicationAuthorityP2 ||
+		!samePublicationDecision(confirmation.decision, observation.decision) ||
+		confirmation.storeEpoch != observation.storeEpoch ||
+		!sameCommittedSnapshot(confirmation.snapshot, observation.snapshot) {
+		return typedFailure(
+			stage,
+			domain.FailureArtifact,
+			"committed snapshot is not stable under P2 re-observation",
+			nil,
+		)
+	}
+	return nil
 }
 
 func statusFromDecision(run ports.PublicationRun, decision domain.PublicationDecision) RunStatus {

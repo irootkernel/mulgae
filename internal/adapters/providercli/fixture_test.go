@@ -95,6 +95,38 @@ func fixtureTestLease(t *testing.T) *fixtureTestWorkspaceLease {
 	return lease.(*fixtureTestWorkspaceLease)
 }
 
+func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.T) {
+	t.Parallel()
+	fixture, request, err := newProbeFixture(domain.RoleSecurity, "root-nonce", "link-nonce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := string(fixture.packet)
+	for _, forbidden := range []string{
+		"._mulgae_workspace_manifest.json",
+		"selectively read",
+		"read-only tools",
+		"During later reviews",
+		"workspace files",
+		"admitted workspace",
+		"--allowed-tools",
+		"WebFetch",
+		"WebSearch",
+	} {
+		if strings.Contains(packet, forbidden) {
+			t.Fatalf("capability packet induces workspace/tool reads via %q: %q", forbidden, packet)
+		}
+	}
+	if !strings.Contains(packet, "root=root-nonce") ||
+		!strings.Contains(packet, "link=link-nonce") ||
+		!strings.Contains(packet, "role=security") {
+		t.Fatalf("capability packet lost embedded fixture bindings: %q", packet)
+	}
+	if request.PolicyIdentity() != "current-qualification-fixture-v2" {
+		t.Fatalf("capability fixture policy = %q", request.PolicyIdentity())
+	}
+}
+
 func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 	lease := fixtureTestLease(t)
 	factory := &fixtureTestWorkspaceFactory{lease: lease}
@@ -129,6 +161,16 @@ func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 			}
 			if strings.Contains(contents, "missing") || strings.Contains(contents, "denied") || strings.Contains(contents, "command") {
 				t.Fatalf("roadmap requested denial-shaped evidence: %q", contents)
+			}
+			for _, forbidden := range []string{
+				"._mulgae_workspace_manifest.json",
+				"selectively read",
+				"read-only tools",
+				"During later reviews",
+			} {
+				if strings.Contains(contents, forbidden) {
+					t.Fatalf("capability roadmap induces workspace/tool reads via %q: %q", forbidden, contents)
+				}
 			}
 		case "docs/linked.md":
 			if contents != first.Link() || strings.Contains(contents, first.Nonce()) {

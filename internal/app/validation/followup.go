@@ -34,9 +34,11 @@ type FollowupValidationScope struct {
 	ProviderInstance    string
 }
 
-// ValidatedFollowup is the defensive, publication-ready normalized provider
-// result. Raw is the exact provider output; NormalizedRaw is the schema-valid
-// document after trusted lineage and current-target values are injected.
+// ValidatedFollowup is the defensive, publication-ready provider result.
+// ProviderRaw is the Mulgae-owned role-report body (full assistant content).
+// When structured extraction succeeds, NormalizedRaw is the schema-valid
+// document after trusted lineage injection and Resolution is set. Reports-only
+// acceptance leaves Resolution empty and NormalizedRaw empty.
 type ValidatedFollowup struct {
 	resolution       domain.FollowupResolution
 	role             domain.Role
@@ -44,6 +46,9 @@ type ValidatedFollowup struct {
 	providerRaw      []byte
 	normalizedRaw    []byte
 	providerSHA256   string
+	reportsOnly      bool
+	parseState       domain.ParseState
+	validationState  domain.ValidationState
 }
 
 func (result ValidatedFollowup) Resolution() domain.FollowupResolution { return result.resolution }
@@ -56,6 +61,120 @@ func (result ValidatedFollowup) NormalizedRaw() []byte {
 	return append([]byte(nil), result.normalizedRaw...)
 }
 func (result ValidatedFollowup) ProviderSHA256() string { return result.providerSHA256 }
+
+// ReportsOnly reports whether Mulgae accepted free-form assistant content
+// without a trusted structured followup resolution.
+func (result ValidatedFollowup) ReportsOnly() bool { return result.reportsOnly }
+
+// StructuredExtractionStatus returns Mulgae-owned structured extraction coverage
+// for this single-role followup result.
+func (result ValidatedFollowup) StructuredExtractionStatus() domain.StructuredExtractionStatus {
+	if result.reportsOnly {
+		return domain.StructuredExtractionReportsOnly
+	}
+	return domain.StructuredExtractionStructured
+}
+
+// ParseState returns Mulgae-owned parse coverage for the accepted attempt.
+func (result ValidatedFollowup) ParseState() domain.ParseState {
+	if result.parseState == "" {
+		if result.reportsOnly {
+			return domain.ParseNotStarted
+		}
+		return domain.ParseValid
+	}
+	return result.parseState
+}
+
+// ValidationState returns Mulgae-owned validation coverage for the accepted attempt.
+func (result ValidatedFollowup) ValidationState() domain.ValidationState {
+	if result.validationState == "" {
+		if result.reportsOnly {
+			return domain.ValidationNotStarted
+		}
+		if result.resolution.Valid() {
+			return domain.ValidationValid
+		}
+		return domain.ValidationNotStarted
+	}
+	return result.validationState
+}
+
+const maxFollowupRoleReportBytes = 8 << 20
+
+// NewReportsOnlyValidatedFollowup accepts one bounded free-form followup role
+// report without a trusted structured resolution. Prose remains untrusted;
+// Mulgae owns identity and publication.
+func NewReportsOnlyValidatedFollowup(
+	role domain.Role,
+	providerInstance string,
+	reportMarkdown []byte,
+	parse domain.ParseState,
+	validationState domain.ValidationState,
+) (ValidatedFollowup, error) {
+	if !role.Valid() {
+		return ValidatedFollowup{}, fmt.Errorf("followup validation: invalid trusted role %q", role)
+	}
+	if strings.TrimSpace(providerInstance) == "" || !utf8.ValidString(providerInstance) {
+		return ValidatedFollowup{}, fmt.Errorf("followup validation: trusted provider instance is required")
+	}
+	reportsOnly, ok := domain.ClassifySuccessfulAttemptExtraction(parse, validationState)
+	if !ok || !reportsOnly {
+		return ValidatedFollowup{}, fmt.Errorf("followup validation: extraction states are not reports-only")
+	}
+	report, err := normalizeFollowupRoleReport(reportMarkdown)
+	if err != nil {
+		return ValidatedFollowup{}, err
+	}
+	sum := sha256.Sum256(report)
+	return ValidatedFollowup{
+		role:             role,
+		providerInstance: providerInstance,
+		providerRaw:      report,
+		providerSHA256:   hex.EncodeToString(sum[:]),
+		reportsOnly:      true,
+		parseState:       parse,
+		validationState:  validationState,
+	}, nil
+}
+
+// WithReportBody rebinds the published role-report body to the full assistant
+// content while preserving a successful structured normalized document.
+func (result ValidatedFollowup) WithReportBody(reportMarkdown []byte, repaired bool) (ValidatedFollowup, error) {
+	if result.reportsOnly || !result.resolution.Valid() || len(result.normalizedRaw) == 0 {
+		return ValidatedFollowup{}, fmt.Errorf("followup validation: structured result required to rebind report body")
+	}
+	report, err := normalizeFollowupRoleReport(reportMarkdown)
+	if err != nil {
+		return ValidatedFollowup{}, err
+	}
+	sum := sha256.Sum256(report)
+	result.providerRaw = report
+	result.providerSHA256 = hex.EncodeToString(sum[:])
+	result.parseState = domain.ParseValid
+	if repaired {
+		result.validationState = domain.ValidationRepairedValid
+	} else {
+		result.validationState = domain.ValidationValid
+	}
+	return result, nil
+}
+
+func normalizeFollowupRoleReport(report []byte) ([]byte, error) {
+	if len(report) == 0 {
+		return nil, fmt.Errorf("followup validation: role report is empty")
+	}
+	if len(report) > maxFollowupRoleReportBytes {
+		return nil, fmt.Errorf("followup validation: role report exceeds %d bytes", maxFollowupRoleReportBytes)
+	}
+	if !utf8.Valid(report) {
+		return nil, fmt.Errorf("followup validation: role report is not valid UTF-8")
+	}
+	if len(strings.TrimSpace(string(report))) == 0 {
+		return nil, fmt.Errorf("followup validation: role report is whitespace-only")
+	}
+	return append([]byte(nil), report...), nil
+}
 
 // FollowupValidator validates the provider-owned subset of the followup
 // contract. Unlike ReviewValidator, it deliberately accepts no source-bearing
@@ -105,7 +224,9 @@ func (validator *FollowupValidator) ValidateWithRepairAuthority(ctx context.Cont
 		return ValidatedFollowup{}, true, err
 	}
 	if err := guardFollowupProvider(provider); err != nil {
-		return ValidatedFollowup{}, false, err
+		// Ownership violations are observation_mismatch and never repairable,
+		// matching root-review trusted-field rejection.
+		return ValidatedFollowup{}, false, wrapRuntimeError(err, domain.DiagnosticCauseObservationMismatch)
 	}
 	candidate, err := injectFollowupTrust(provider, trusted)
 	if err != nil {
@@ -127,6 +248,7 @@ func (validator *FollowupValidator) ValidateWithRepairAuthority(ctx context.Cont
 		resolution: domain.FollowupResolution(resolution), role: scope.Role,
 		providerInstance: scope.ProviderInstance, providerRaw: append([]byte(nil), raw...),
 		normalizedRaw: append([]byte(nil), normalized...), providerSHA256: hex.EncodeToString(sum[:]),
+		parseState: domain.ParseValid, validationState: domain.ValidationValid,
 	}, false, nil
 }
 
@@ -214,12 +336,12 @@ func guardFollowupProvider(provider map[string]any) error {
 func guardFollowupObject(object map[string]any, allowed map[string]struct{}, path string, evidence bool) error {
 	for key := range object {
 		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("followup validation: provider supplied forbidden or unknown field %s.%s", path, key)
+			return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied forbidden or unknown field %s.%s", path, key)}
 		}
 	}
 	if evidence {
 		if _, present := object["source"]; present {
-			return fmt.Errorf("followup validation: provider supplied source identity at %s", path)
+			return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied source identity at %s", path)}
 		}
 		current, ok := object["current"].(map[string]any)
 		if !ok {
@@ -227,7 +349,7 @@ func guardFollowupObject(object map[string]any, allowed map[string]struct{}, pat
 		}
 		for _, key := range []string{"target_sha256", "verification", "session_id", "run_id", "review_id", "finding_id", "source_target_sha256", "source_excerpt_sha256"} {
 			if _, present := current[key]; present {
-				return fmt.Errorf("followup validation: provider supplied system identity at %s.current.%s", path, key)
+				return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied system identity at %s.current.%s", path, key)}
 			}
 		}
 		return guardFollowupObject(current, map[string]struct{}{"path": {}, "line_start": {}, "line_end": {}, "side": {}, "quote": {}}, path+".current", false)

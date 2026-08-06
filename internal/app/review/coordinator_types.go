@@ -222,6 +222,10 @@ type ValidatedRoleOutput struct {
 	evidence         []VerifiedFindingEvidence
 	completeness     string
 	limitations      []string
+	reportMarkdown   []byte
+	reportsOnly      bool
+	parseState       domain.ParseState
+	validationState  domain.ValidationState
 }
 
 // NewValidatedRoleOutput records a zero-finding validated role output. Finding
@@ -251,6 +255,11 @@ func NewValidatedRoleOutput(
 		target:           canonicalTarget,
 		completeness:     completeness,
 		limitations:      append([]string(nil), limitations...),
+		parseState:       domain.ParseValid,
+		validationState:  domain.ValidationValid,
+	}
+	if err := output.bindReportMarkdown([]byte("# "+string(role)+" review\n\nStructured provider review accepted.\n"), false); err != nil {
+		return ValidatedRoleOutput{}, err
 	}
 	if err := output.validate(); err != nil {
 		return ValidatedRoleOutput{}, err
@@ -288,6 +297,11 @@ func NewEvidenceValidatedRoleOutput(
 		evidence:         cloneVerifiedFindingEvidence(evidenceGroups),
 		completeness:     completeness,
 		limitations:      append([]string(nil), limitations...),
+		parseState:       domain.ParseValid,
+		validationState:  domain.ValidationValid,
+	}
+	if err := output.bindReportMarkdown([]byte("# "+string(role)+" review\n\nStructured provider review accepted.\n"), false); err != nil {
+		return ValidatedRoleOutput{}, err
 	}
 	if err := output.validate(); err != nil {
 		return ValidatedRoleOutput{}, err
@@ -362,6 +376,18 @@ func (output ValidatedRoleOutput) validate() error {
 	if duplicateCoordinatorFinding(output.findings) {
 		return fmt.Errorf("review coordinator role output: duplicate normalized finding")
 	}
+	if _, err := normalizeRoleReportMarkdown(output.reportMarkdown); err != nil {
+		return fmt.Errorf("review coordinator role output: %w", err)
+	}
+	if !output.parseState.Valid() || !output.validationState.Valid() {
+		return fmt.Errorf("review coordinator role output: extraction states are invalid")
+	}
+	if output.reportsOnly {
+		if len(output.findings) != 0 || len(output.evidence) != 0 {
+			return fmt.Errorf("review coordinator role output: reports-only output cannot retain structured findings")
+		}
+		return nil
+	}
 	if len(output.findings) == 0 {
 		if len(output.evidence) != 0 {
 			return fmt.Errorf("review coordinator role output: zero-finding output cannot retain evidence receipts")
@@ -390,6 +416,10 @@ func (output ValidatedRoleOutput) clone() ValidatedRoleOutput {
 		evidence:         cloneVerifiedFindingEvidence(output.evidence),
 		completeness:     output.completeness,
 		limitations:      append([]string(nil), output.limitations...),
+		reportMarkdown:   append([]byte(nil), output.reportMarkdown...),
+		reportsOnly:      output.reportsOnly,
+		parseState:       output.parseState,
+		validationState:  output.validationState,
 	}
 }
 

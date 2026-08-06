@@ -213,6 +213,51 @@ func TestStateDomainsRemainDistinctAndValidate(t *testing.T) {
 	}
 }
 
+func TestClassifySuccessfulAttemptExtractionClosedPairs(t *testing.T) {
+	t.Parallel()
+
+	parses := []ParseState{
+		ParseNotStarted, ParseValid, ParseInvalidJSON, ParseEmptyOutput, ParseOutputTooLarge,
+	}
+	validations := []ValidationState{
+		ValidationNotStarted, ValidationValid, ValidationRepairedValid,
+		ValidationInvalid, ValidationRepairExhausted, ValidationInternalError,
+	}
+	want := map[string]struct {
+		reportsOnly bool
+		ok          bool
+	}{
+		"not_started/not_started":           {reportsOnly: true, ok: true},
+		"valid/valid":                       {reportsOnly: false, ok: true},
+		"valid/repaired_valid":              {reportsOnly: false, ok: true},
+		"valid/invalid":                     {reportsOnly: true, ok: true},
+		"valid/repair_exhausted":            {reportsOnly: true, ok: true},
+		"invalid_json/invalid":              {reportsOnly: true, ok: true},
+		"invalid_json/repair_exhausted":     {reportsOnly: true, ok: true},
+		"output_too_large/invalid":          {reportsOnly: true, ok: true},
+		"output_too_large/repair_exhausted": {reportsOnly: true, ok: true},
+	}
+	for _, parse := range parses {
+		for _, validation := range validations {
+			key := string(parse) + "/" + string(validation)
+			reportsOnly, ok := ClassifySuccessfulAttemptExtraction(parse, validation)
+			expected, allowed := want[key]
+			if !allowed {
+				expected = struct {
+					reportsOnly bool
+					ok          bool
+				}{}
+			}
+			if reportsOnly != expected.reportsOnly || ok != expected.ok {
+				t.Fatalf(
+					"ClassifySuccessfulAttemptExtraction(%q, %q) = (%t, %t), want (%t, %t)",
+					parse, validation, reportsOnly, ok, expected.reportsOnly, expected.ok,
+				)
+			}
+		}
+	}
+}
+
 func TestEveryStateVocabularyValidatesExactly(t *testing.T) {
 	t.Parallel()
 

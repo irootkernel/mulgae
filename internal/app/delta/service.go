@@ -180,7 +180,7 @@ func (service *Service) StartDeltaRun(ctx context.Context, request StartRequest)
 		!bytes.Equal(after.Target.Bytes(), source.Target.Bytes()) {
 		return Result{}, deltaSourceMutationFailure("source changed during child execution", nil)
 	}
-	return NewResult(execution.SessionID, execution.RunID, execution.ReviewArtifactURI, terminalExit)
+	return NewResult(execution.SessionID, execution.RunID, execution.ReviewArtifactURI, execution.RoleReportURIs, terminalExit)
 }
 
 func deltaSourceMutationFailure(reason string, cause error) error {

@@ -22,6 +22,7 @@
     "attempts",
     "content_verdict",
     "coverage_status",
+    "structured_extraction_status",
     "publication_status",
     "ci_decision",
     "ci_reason_codes",
@@ -33,6 +34,7 @@
     "composite_identity",
     "recovery_action",
     "final_review",
+    "role_reports",
     "failures",
     "warnings",
     "exit_code"
@@ -215,6 +217,17 @@
         9,
         10
       ]
+    },
+    "structured_extraction_status": {
+      "$ref": "#/$defs/structured_extraction_status"
+    },
+    "role_reports": {
+      "type": "array",
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/role_report"
+      }
     }
   },
   "$defs": {
@@ -245,7 +258,15 @@
     },
     "role": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      "enum": [
+        "logic",
+        "security",
+        "maintainability",
+        "product",
+        "documentation",
+        "testing",
+        "artist"
+      ]
     },
     "run_type": {
       "type": "string",
@@ -261,7 +282,8 @@
       "enum": [
         "no_findings",
         "findings_present",
-        "request_changes"
+        "request_changes",
+        "reports_only"
       ]
     },
     "coverage_status": {
@@ -643,6 +665,56 @@
               "$ref": "#/$defs/attempt_id"
             }
           ]
+        }
+      }
+    },
+    "structured_extraction_status": {
+      "type": "string",
+      "enum": [
+        "structured",
+        "mixed",
+        "reports_only"
+      ]
+    },
+    "role_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "path",
+        "sha256",
+        "byte_length",
+        "provider_instance",
+        "attempt_id",
+        "content_type"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^role-reports/[a-z][a-z0-9_-]{0,63}\\.md$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "provider_instance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/attempt_id"
+        },
+        "content_type": {
+          "type": "string",
+          "const": "text/markdown"
         }
       }
     }

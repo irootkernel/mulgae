@@ -83,6 +83,9 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 	if !DiagnosticCausePersistenceFailed.Valid() || RuntimeDiagnosticCause("native text").Valid() {
 		t.Fatal("cause set is not closed")
 	}
+	if !DiagnosticCausePublicationInstallationFailed.Valid() || !DiagnosticPhasePublicationInstallation.Valid() || RuntimeDiagnosticPhase("native_path").Valid() {
+		t.Fatal("publication diagnostic cause/phase sets are not closed")
+	}
 	for _, cause := range []RuntimeDiagnosticCause{
 		DiagnosticCausePromptFilePreStartFailed,
 		DiagnosticCausePromptFilePostEndFailed,

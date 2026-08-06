@@ -56,6 +56,7 @@
   ],
   "content_verdict": "request_changes",
   "coverage_status": "incomplete",
+  "structured_extraction_status": "structured",
   "publication_status": "committed",
   "ci_decision": "fail",
   "ci_reason_codes": [
@@ -96,6 +97,17 @@
     "path": "review_019f596a-d174-7321-b920-c2d312c82cc2.json",
     "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   },
+  "role_reports": [
+    {
+      "role": "logic",
+      "path": "role-reports/logic.md",
+      "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "byte_length": 42,
+      "provider_instance": "kimi-logic",
+      "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+      "content_type": "text/markdown"
+    }
+  ],
   "failures": [
     {
       "class": "provider_timeout",

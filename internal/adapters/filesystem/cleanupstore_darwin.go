@@ -496,7 +496,7 @@ func decodeCleanupDiagnosticStatus(data []byte, sessionID domain.SessionID, runI
 			return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: invalid diagnostic P2 URI")
 		}
 	}
-	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, CompletedAt: completedAt, HasCompletedAt: wire.CompletedAt != "", SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, P2URI: p2URI, HasP2URI: wire.P2URI != "", DroppedEvents: wire.DroppedEvents})
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, CompletedAt: completedAt, HasCompletedAt: wire.CompletedAt != "", SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, P2URI: p2URI, HasP2URI: wire.P2URI != "", DroppedEvents: wire.DroppedEvents})
 	if err != nil {
 		return ports.RuntimeDiagnosticRunStatus{}, err
 	}

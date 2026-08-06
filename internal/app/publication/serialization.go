@@ -31,7 +31,7 @@ func (candidate PreparedCandidate) Build(
 		return PublicationBundle{}, fmt.Errorf("publication build: schema validator is required")
 	}
 	if err := candidate.validate(); err != nil {
-		return PublicationBundle{}, fmt.Errorf("publication build: candidate is not prevalidated: %w", err)
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, fmt.Errorf("publication build: candidate is not prevalidated: %w", err))
 	}
 	if _, err := domain.ParseReviewID(reviewID.String()); err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: review ID: %w", err)
@@ -46,7 +46,7 @@ func (candidate PreparedCandidate) Build(
 
 	paths, err := publicationPaths(candidate.sessionID, candidate.runID, reviewID, epoch)
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationStaging, domain.DiagnosticCausePublicationPathFailed, err)
 	}
 	lineage := candidate.publicationLineage()
 	edgeBytes, err := marshalCanonical(lineageEdgeWire{
@@ -64,7 +64,7 @@ func (candidate PreparedCandidate) Build(
 		ReplayMode:       lineageReplayMode(lineage.replayMode),
 	})
 	if err != nil {
-		return PublicationBundle{}, fmt.Errorf("publication build: serialize lineage edge: %w", err)
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, fmt.Errorf("publication build: serialize lineage edge: %w", err))
 	}
 	lineageEdge, err := immutableArtifact(paths.lineageEdge, edgeBytes)
 	if err != nil {
@@ -73,33 +73,38 @@ func (candidate PreparedCandidate) Build(
 
 	excerpts, err := candidate.buildExcerpts(paths, reviewID)
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	attemptArtifacts, err := candidate.buildAttemptArtifacts()
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	runtimeArtifacts, err := candidate.buildRuntimeArtifacts()
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
+	}
+	roleReports, err := candidate.buildRoleReports()
+	if err != nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	excerpts = append(excerpts, attemptArtifacts...)
 	excerpts = append(excerpts, runtimeArtifacts...)
+	excerpts = append(excerpts, roleReports...)
 	supportIndex, err := buildRunSupportIndex(paths.supportIndex, excerpts)
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	excerpts = append(excerpts, supportIndex)
 	finalBytes, err := candidate.buildFinalBytes(reviewID, createdAtText, lineageEdge)
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	finalSchema, err := ports.ParseAssetID(finalReviewSchemaAsset)
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: final schema asset: %w", err)
 	}
 	if err := validator.Validate(ctx, finalSchema, cloneBytes(finalBytes)); err != nil {
-		return PublicationBundle{}, fmt.Errorf("publication build: final review schema validation: %w", err)
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSchemaFailed, fmt.Errorf("publication build: final review schema validation: %w", err))
 	}
 	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, paths.final, sha256Identifier(finalBytes))
 	if err != nil {
@@ -116,14 +121,14 @@ func (candidate PreparedCandidate) Build(
 
 	manifestBytes, err := candidate.buildManifestBytes(reviewID, createdAtText, epoch, paths, final, lineageEdge, supportIndex)
 	if err != nil {
-		return PublicationBundle{}, err
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	manifestSchema, err := ports.ParseAssetID(runManifestSchemaAsset)
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: manifest schema asset: %w", err)
 	}
 	if err := validator.Validate(ctx, manifestSchema, cloneBytes(manifestBytes)); err != nil {
-		return PublicationBundle{}, fmt.Errorf("publication build: run manifest schema validation: %w", err)
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSchemaFailed, fmt.Errorf("publication build: run manifest schema validation: %w", err))
 	}
 	manifest, err := immutableArtifact(paths.manifest, manifestBytes)
 	if err != nil {
@@ -684,11 +689,12 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		Validation: validationWire{
 			Status: status, SchemaValidation: "passed", SemanticValidation: "passed", EvidenceValidation: "passed",
 		},
-		ContentVerdict:    string(candidate.axes.content),
-		CoverageStatus:    string(candidate.axes.coverage),
-		PublicationStatus: string(domain.PublicationCommitted),
-		CIDecision:        string(candidate.axes.ci),
-		CIReasonCodes:     append([]string{}, candidate.reasons...),
+		ContentVerdict:             string(candidate.axes.content),
+		CoverageStatus:             string(candidate.axes.coverage),
+		StructuredExtractionStatus: string(candidate.axes.structuredExtraction),
+		PublicationStatus:          string(domain.PublicationCommitted),
+		CIDecision:                 string(candidate.axes.ci),
+		CIReasonCodes:              append([]string{}, candidate.reasons...),
 		SeverityThreshold: severityThresholdWire{
 			RequestChangesAtOrAbove: string(candidate.threshold), PolicySource: "project_local",
 		},
@@ -712,31 +718,32 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	supportIndex ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:            "mulgae-run-manifest.v1",
-		SessionID:                candidate.sessionID.String(),
-		RunID:                    candidate.runID.String(),
-		RunType:                  string(candidate.publicationLineage().runType),
-		State:                    string(candidate.runState),
-		Sealed:                   true,
-		CreatedAt:                createdAt,
-		StartedAt:                optionalString(createdAt),
-		CompletedAt:              optionalString(createdAt),
-		MulgaeVersion:            candidate.mulgae.version,
-		ImmutableLineage:         candidate.immutableLineageWire(lineageEdge),
-		FollowupOutcome:          candidate.followupOutcomeWire(),
-		Target:                   manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: candidate.target.sha256},
-		SelectedRoles:            candidate.selectedRoles(),
-		RequiredRoles:            candidate.requiredRoles(),
-		Attempts:                 candidate.manifestAttempts(),
-		ContentVerdict:           string(candidate.axes.content),
-		CoverageStatus:           string(candidate.axes.coverage),
-		PublicationStatus:        string(domain.PublicationCommitted),
-		CIDecision:               string(candidate.axes.ci),
-		CIReasonCodes:            append([]string{}, candidate.reasons...),
-		PersistedJournalState:    string(domain.JournalManifestCommitted),
-		DurableObservationClass:  string(domain.DurableObservationP2Committed),
-		DerivedPublicationStatus: string(domain.PublicationCommitted),
-		PublicationAuthority:     string(domain.PublicationAuthorityP2),
+		SchemaVersion:              "mulgae-run-manifest.v1",
+		SessionID:                  candidate.sessionID.String(),
+		RunID:                      candidate.runID.String(),
+		RunType:                    string(candidate.publicationLineage().runType),
+		State:                      string(candidate.runState),
+		Sealed:                     true,
+		CreatedAt:                  createdAt,
+		StartedAt:                  optionalString(createdAt),
+		CompletedAt:                optionalString(createdAt),
+		MulgaeVersion:              candidate.mulgae.version,
+		ImmutableLineage:           candidate.immutableLineageWire(lineageEdge),
+		FollowupOutcome:            candidate.followupOutcomeWire(),
+		Target:                     manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: candidate.target.sha256},
+		SelectedRoles:              candidate.selectedRoles(),
+		RequiredRoles:              candidate.requiredRoles(),
+		Attempts:                   candidate.manifestAttempts(),
+		ContentVerdict:             string(candidate.axes.content),
+		CoverageStatus:             string(candidate.axes.coverage),
+		StructuredExtractionStatus: string(candidate.axes.structuredExtraction),
+		PublicationStatus:          string(domain.PublicationCommitted),
+		CIDecision:                 string(candidate.axes.ci),
+		CIReasonCodes:              append([]string{}, candidate.reasons...),
+		PersistedJournalState:      string(domain.JournalManifestCommitted),
+		DurableObservationClass:    string(domain.DurableObservationP2Committed),
+		DerivedPublicationStatus:   string(domain.PublicationCommitted),
+		PublicationAuthority:       string(domain.PublicationAuthorityP2),
 		RecoveryJournal: recoveryJournalWire{
 			ExpectedStaged:           artifactIdentityWire{Path: paths.staged.String(), SHA256: final.Identity().SHA256()},
 			ExpectedFinal:            artifactIdentityWire{Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256()},
@@ -752,10 +759,54 @@ func (candidate PreparedCandidate) buildManifestBytes(
 		FinalReview: finalReviewIdentityWire{
 			ReviewID: reviewID.String(), Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256(),
 		},
-		Failures: candidate.manifestFailures(),
-		Warnings: []string{},
-		ExitCode: candidate.exitCode,
+		RoleReports: candidate.manifestRoleReports(),
+		Failures:    candidate.manifestFailures(),
+		Warnings:    []string{},
+		ExitCode:    candidate.exitCode,
 	})
+}
+
+func (candidate PreparedCandidate) buildRoleReports() ([]ports.ImmutablePublicationArtifact, error) {
+	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/role-reports"
+	reports := make([]ports.ImmutablePublicationArtifact, 0)
+	for _, role := range candidate.roles {
+		if !role.valid || len(role.reportMarkdown) == 0 {
+			continue
+		}
+		path, err := ports.NewSafeRelativePath(prefix + "/" + string(role.role) + ".md")
+		if err != nil {
+			return nil, fmt.Errorf("publication build: role report path: %w", err)
+		}
+		artifact, err := immutableArtifact(path, role.reportMarkdown)
+		if err != nil {
+			return nil, fmt.Errorf("publication build: role report %s: %w", role.role, err)
+		}
+		reports = append(reports, artifact)
+	}
+	return reports, nil
+}
+
+func (candidate PreparedCandidate) manifestRoleReports() []manifestRoleReportWire {
+	reports := make([]manifestRoleReportWire, 0)
+	for _, role := range candidate.roles {
+		if !role.valid || len(role.reportMarkdown) == 0 {
+			continue
+		}
+		if len(role.attempts) == 0 {
+			continue
+		}
+		finalAttempt := role.attempts[len(role.attempts)-1]
+		reports = append(reports, manifestRoleReportWire{
+			Role:             string(role.role),
+			Path:             "role-reports/" + string(role.role) + ".md",
+			SHA256:           sha256Identifier(role.reportMarkdown),
+			ByteLength:       len(role.reportMarkdown),
+			ProviderInstance: finalAttempt.provider,
+			AttemptID:        finalAttempt.id.String(),
+			ContentType:      "text/markdown",
+		})
+	}
+	return reports
 }
 
 func (candidate PreparedCandidate) productionProvenanceWire() *productionProvenanceWire {
@@ -869,19 +920,16 @@ func (candidate PreparedCandidate) manifestAttempts() []manifestAttemptWire {
 	attempts := make([]manifestAttemptWire, 0)
 	for _, role := range candidate.roles {
 		for _, attempt := range role.attempts {
-			parseState := "not_started"
-			validationState := "not_started"
+			parseState := domain.ParseNotStarted
+			validationState := domain.ValidationNotStarted
 			if attempt.state == domain.AttemptSucceeded {
-				parseState = "valid"
-				validationState = "valid"
-				if role.repaired {
-					validationState = "repaired_valid"
-				}
+				parseState = attempt.parseState
+				validationState = attempt.validationState
 			}
 			attempts = append(attempts, manifestAttemptWire{
 				AttemptID: attempt.id.String(), Role: string(role.role), ProviderInstance: attempt.provider,
-				SelectedAs: string(attempt.kind), State: string(attempt.state), ParseState: parseState,
-				ValidationState: validationState, Path: "attempts/" + attempt.id.String() + "/status.json",
+				SelectedAs: string(attempt.kind), State: string(attempt.state), ParseState: string(parseState),
+				ValidationState: string(validationState), Path: "attempts/" + attempt.id.String() + "/status.json",
 				InvocationCount: len(attempt.invocations),
 			})
 		}
@@ -1141,27 +1189,38 @@ type followupOutcomeWire struct {
 }
 
 type finalReviewWire struct {
-	SchemaVersion     string                `json:"schema_version"`
-	SessionID         string                `json:"session_id"`
-	RunID             string                `json:"run_id"`
-	ReviewID          string                `json:"review_id"`
-	RunType           string                `json:"run_type"`
-	CreatedAt         string                `json:"created_at"`
-	Mulgae            mulgaeWire            `json:"mulgae"`
-	ImmutableLineage  immutableLineageWire  `json:"immutable_lineage"`
-	FollowupOutcome   *followupOutcomeWire  `json:"followup_outcome,omitempty"`
-	Target            finalTargetWire       `json:"target"`
-	Validation        validationWire        `json:"validation"`
-	ContentVerdict    string                `json:"content_verdict"`
-	CoverageStatus    string                `json:"coverage_status"`
-	PublicationStatus string                `json:"publication_status"`
-	CIDecision        string                `json:"ci_decision"`
-	CIReasonCodes     []string              `json:"ci_reason_codes"`
-	SeverityThreshold severityThresholdWire `json:"severity_threshold"`
-	RoleOutcomes      []roleOutcomeWire     `json:"role_outcomes"`
-	Findings          []finalFindingWire    `json:"findings"`
-	Limitations       []string              `json:"limitations"`
-	Provenance        provenanceWire        `json:"provenance"`
+	SchemaVersion              string                `json:"schema_version"`
+	SessionID                  string                `json:"session_id"`
+	RunID                      string                `json:"run_id"`
+	ReviewID                   string                `json:"review_id"`
+	RunType                    string                `json:"run_type"`
+	CreatedAt                  string                `json:"created_at"`
+	Mulgae                     mulgaeWire            `json:"mulgae"`
+	ImmutableLineage           immutableLineageWire  `json:"immutable_lineage"`
+	FollowupOutcome            *followupOutcomeWire  `json:"followup_outcome,omitempty"`
+	Target                     finalTargetWire       `json:"target"`
+	Validation                 validationWire        `json:"validation"`
+	ContentVerdict             string                `json:"content_verdict"`
+	CoverageStatus             string                `json:"coverage_status"`
+	StructuredExtractionStatus string                `json:"structured_extraction_status"`
+	PublicationStatus          string                `json:"publication_status"`
+	CIDecision                 string                `json:"ci_decision"`
+	CIReasonCodes              []string              `json:"ci_reason_codes"`
+	SeverityThreshold          severityThresholdWire `json:"severity_threshold"`
+	RoleOutcomes               []roleOutcomeWire     `json:"role_outcomes"`
+	Findings                   []finalFindingWire    `json:"findings"`
+	Limitations                []string              `json:"limitations"`
+	Provenance                 provenanceWire        `json:"provenance"`
+}
+
+type manifestRoleReportWire struct {
+	Role             string `json:"role"`
+	Path             string `json:"path"`
+	SHA256           string `json:"sha256"`
+	ByteLength       int    `json:"byte_length"`
+	ProviderInstance string `json:"provider_instance"`
+	AttemptID        string `json:"attempt_id"`
+	ContentType      string `json:"content_type"`
 }
 
 type manifestAttemptWire struct {
@@ -1212,38 +1271,40 @@ type manifestFailureWire struct {
 }
 
 type runManifestWire struct {
-	SchemaVersion            string                  `json:"schema_version"`
-	SessionID                string                  `json:"session_id"`
-	RunID                    string                  `json:"run_id"`
-	RunType                  string                  `json:"run_type"`
-	State                    string                  `json:"state"`
-	Sealed                   bool                    `json:"sealed"`
-	CreatedAt                string                  `json:"created_at"`
-	StartedAt                *string                 `json:"started_at"`
-	CompletedAt              *string                 `json:"completed_at"`
-	MulgaeVersion            string                  `json:"mulgae_version"`
-	ImmutableLineage         immutableLineageWire    `json:"immutable_lineage"`
-	FollowupOutcome          *followupOutcomeWire    `json:"followup_outcome,omitempty"`
-	Target                   manifestTargetWire      `json:"target"`
-	SelectedRoles            []string                `json:"selected_roles"`
-	RequiredRoles            []string                `json:"required_roles"`
-	Attempts                 []manifestAttemptWire   `json:"attempts"`
-	ContentVerdict           string                  `json:"content_verdict"`
-	CoverageStatus           string                  `json:"coverage_status"`
-	PublicationStatus        string                  `json:"publication_status"`
-	CIDecision               string                  `json:"ci_decision"`
-	CIReasonCodes            []string                `json:"ci_reason_codes"`
-	PersistedJournalState    string                  `json:"persisted_journal_state"`
-	DurableObservationClass  string                  `json:"durable_observation_class"`
-	DerivedPublicationStatus string                  `json:"derived_publication_status"`
-	PublicationAuthority     string                  `json:"publication_authority"`
-	RecoveryJournal          recoveryJournalWire     `json:"recovery_journal"`
-	CompositeIdentity        compositeIdentityWire   `json:"composite_identity"`
-	RecoveryAction           string                  `json:"recovery_action"`
-	FinalReview              finalReviewIdentityWire `json:"final_review"`
-	Failures                 []manifestFailureWire   `json:"failures"`
-	Warnings                 []string                `json:"warnings"`
-	ExitCode                 int                     `json:"exit_code"`
+	SchemaVersion              string                   `json:"schema_version"`
+	SessionID                  string                   `json:"session_id"`
+	RunID                      string                   `json:"run_id"`
+	RunType                    string                   `json:"run_type"`
+	State                      string                   `json:"state"`
+	Sealed                     bool                     `json:"sealed"`
+	CreatedAt                  string                   `json:"created_at"`
+	StartedAt                  *string                  `json:"started_at"`
+	CompletedAt                *string                  `json:"completed_at"`
+	MulgaeVersion              string                   `json:"mulgae_version"`
+	ImmutableLineage           immutableLineageWire     `json:"immutable_lineage"`
+	FollowupOutcome            *followupOutcomeWire     `json:"followup_outcome,omitempty"`
+	Target                     manifestTargetWire       `json:"target"`
+	SelectedRoles              []string                 `json:"selected_roles"`
+	RequiredRoles              []string                 `json:"required_roles"`
+	Attempts                   []manifestAttemptWire    `json:"attempts"`
+	ContentVerdict             string                   `json:"content_verdict"`
+	CoverageStatus             string                   `json:"coverage_status"`
+	StructuredExtractionStatus string                   `json:"structured_extraction_status"`
+	PublicationStatus          string                   `json:"publication_status"`
+	CIDecision                 string                   `json:"ci_decision"`
+	CIReasonCodes              []string                 `json:"ci_reason_codes"`
+	PersistedJournalState      string                   `json:"persisted_journal_state"`
+	DurableObservationClass    string                   `json:"durable_observation_class"`
+	DerivedPublicationStatus   string                   `json:"derived_publication_status"`
+	PublicationAuthority       string                   `json:"publication_authority"`
+	RecoveryJournal            recoveryJournalWire      `json:"recovery_journal"`
+	CompositeIdentity          compositeIdentityWire    `json:"composite_identity"`
+	RecoveryAction             string                   `json:"recovery_action"`
+	FinalReview                finalReviewIdentityWire  `json:"final_review"`
+	RoleReports                []manifestRoleReportWire `json:"role_reports"`
+	Failures                   []manifestFailureWire    `json:"failures"`
+	Warnings                   []string                 `json:"warnings"`
+	ExitCode                   int                      `json:"exit_code"`
 }
 
 type lineageChildWire struct {

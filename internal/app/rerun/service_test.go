@@ -487,7 +487,7 @@ func mustChildReplayResult(child ChildReplay, resultID domain.RunID, code domain
 	result, err := NewChildReplayResult(
 		child.SessionID, resultID, child.ParentRunID, child.SourceRunID, child.SourceReviewID, child.SourceAttemptID,
 		"exec-child", "prompt-child", "mulgae://prompt/child", rerunDigest([]byte("child")), child.Mode, child.Mode == ExactReplay,
-		mustRerunCommittedExit(code),
+		nil, mustRerunCommittedExit(code),
 	)
 	if err != nil {
 		panic(err)

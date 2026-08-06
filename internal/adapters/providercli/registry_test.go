@@ -25,8 +25,8 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 		want   []string
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
-		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"}},
-		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}},
+		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools}},
+		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -55,8 +55,8 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	}
 }
 
-func TestBuildArgvOmitsAGYPermissionBypassOnlyForExplicitSafeTransport(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +66,9 @@ func TestBuildArgvOmitsAGYPermissionBypassOnlyForExplicitSafeTransport(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
+	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
 	if !equalStrings(got, want) {
-		t.Fatalf("safe AGY argv = %q, want %q", got, want)
+		t.Fatalf("headless AGY argv = %q, want %q", got, want)
 	}
 }
 
@@ -109,8 +109,8 @@ func TestProviderResultStrictness(t *testing.T) {
 	want := []byte("{\"findings\":[]}")
 	zcodeRaw := []byte("```json\n{\"findings\":[]}\n```")
 	got, isolated, err := providerResult(FamilyZcode, zcodeRaw)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
-		t.Fatalf("ZCode result = %q, isolated=%t, err=%v", got, isolated, err)
+	if err != nil || isolated || !bytes.Equal(got, zcodeRaw) {
+		t.Fatalf("ZCode bare fence result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	got, isolated, err = providerResult(FamilyZcode, want)
 	if err != nil || !isolated || !bytes.Equal(got, want) {
@@ -121,65 +121,102 @@ func TestProviderResultStrictness(t *testing.T) {
 	if err != nil || !isolated || !bytes.Equal(got, want) {
 		t.Fatalf("ZCode envelope result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	zcodeNarratedEnvelope := []byte(`{"sessionId":"session","response":"The review is complete.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```" + `","usage":{"inputTokens":1}}`)
+	zcodeNarratedResponse := "The review is complete.\n\n```json\n{\"findings\":[]}\n```"
+	zcodeNarratedEnvelope, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  zcodeNarratedResponse,
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, isolated, err = providerResult(FamilyZcode, zcodeNarratedEnvelope)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
+	if err != nil || !isolated || string(got) != zcodeNarratedResponse {
 		t.Fatalf("ZCode narrated envelope result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	zcodeTrailingNarrationEnvelope := []byte(`{"sessionId":"session","response":"Analysis before the result.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe requested review is complete." + `","usage":{"inputTokens":1}}`)
+	zcodeTrailingResponse := "Analysis before the result.\n\n```json\n{\"findings\":[]}\n```\n\nThe requested review is complete."
+	zcodeTrailingNarrationEnvelope, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  zcodeTrailingResponse,
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, isolated, err = providerResult(FamilyZcode, zcodeTrailingNarrationEnvelope)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
+	if err != nil || !isolated || string(got) != zcodeTrailingResponse {
 		t.Fatalf("ZCode trailing narration envelope result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	malformed := []byte(`{"schema_version":"mulgae-provider-followup-output.v1","limitations":[]}]}`)
+	malformed := `{"schema_version":"mulgae-provider-followup-output.v1","limitations":[]}]}`
+	malformedFenced := "```json\n" + malformed + "\n```"
 	zcodeMalformedFencedEnvelope, err := json.Marshal(map[string]any{
 		"sessionId": "session",
-		"response":  "```json\n" + string(malformed) + "\n```",
+		"response":  malformedFenced,
 		"usage":     map[string]any{"inputTokens": 1},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedFencedEnvelope)
-	if err != nil || !isolated || !bytes.Equal(got, malformed) {
+	if err != nil || !isolated || string(got) != malformedFenced {
 		t.Fatalf("ZCode malformed fenced payload = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	zcodeMalformedDirectEnvelope, err := json.Marshal(map[string]any{
 		"sessionId": "session",
-		"response":  string(malformed),
+		"response":  malformed,
 		"usage":     map[string]any{"inputTokens": 1},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedDirectEnvelope)
-	if err != nil || !isolated || !bytes.Equal(got, malformed) {
+	if err != nil || !isolated || string(got) != malformed {
 		t.Fatalf("ZCode malformed direct payload = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	zcodeAmbiguousEnvelope := []byte(`{"sessionId":"session","response":"` + "```json\\n{\\\"findings\\\":[]}\\n```\\n```json\\n{\\\"findings\\\":[]}\\n```\\ntrailing" + `","usage":{"inputTokens":1}}`)
-	if _, _, err := providerResult(FamilyZcode, zcodeAmbiguousEnvelope); err == nil {
-		t.Fatal("ZCode accepted multiple nonterminal JSON fences")
+	ambiguousResponse := "```json\n{\"findings\":[]}\n```\n```json\n{\"findings\":[]}\n```\ntrailing"
+	zcodeAmbiguousEnvelope, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  ambiguousResponse,
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isolated, err = providerResult(FamilyZcode, zcodeAmbiguousEnvelope)
+	if err != nil || !isolated || string(got) != ambiguousResponse {
+		t.Fatalf("ZCode multi-fence assistant response = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":""}`)); err == nil {
 		t.Fatal("ZCode accepted an empty headless response")
 	}
-	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":"narration without terminal JSON"}`)); err == nil {
-		t.Fatal("ZCode accepted a headless response without terminal JSON")
-	}
-	zcodeNarrated := []byte("I inspected the snapshot.\n{\"findings\":[]}\n")
-	got, isolated, err = providerResult(FamilyZcode, zcodeNarrated)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
-		t.Fatalf("ZCode narrated result = %q, isolated=%t, err=%v", got, isolated, err)
+	got, isolated, err = providerResult(FamilyZcode, []byte(`{"response":"narration without terminal JSON"}`))
+	if err != nil || !isolated || string(got) != "narration without terminal JSON" {
+		t.Fatalf("ZCode fence-free prose = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	agyStdout := []byte("I inspected the immutable snapshot.\n{\"findings\":[]}\n")
 	got, isolated, err = providerResult(FamilyAgy, agyStdout)
 	if err != nil || !isolated || !bytes.Equal(got, want) {
 		t.Fatalf("AGY result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	for index, invalid := range [][]byte{[]byte("same-line {\"findings\":[]}"), []byte("{\"findings\":[]}\ntrailing")} {
-		if _, _, err := providerResult(FamilyAgy, invalid); err == nil {
-			t.Fatalf("AGY accepted nonterminal fixture %d", index)
-		}
+	agyProse := []byte("  # AGY prose review\n\nLooks fine.\n  ")
+	got, isolated, err = providerResult(FamilyAgy, agyProse)
+	if err != nil || !isolated || !bytes.Equal(got, agyProse) {
+		t.Fatalf("AGY pure Markdown = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	zcodeSpaced, err := json.Marshal(map[string]any{
+		"sessionId": "session",
+		"response":  "  narration with spaces  \n",
+		"usage":     map[string]any{"inputTokens": 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isolated, err = providerResult(FamilyZcode, zcodeSpaced)
+	if err != nil || !isolated || string(got) != "  narration with spaces  \n" {
+		t.Fatalf("ZCode whitespace preservation = %q, isolated=%t, err=%v", got, isolated, err)
+	}
+	if _, _, err := providerResult(FamilyAgy, []byte("{\"findings\":[]}\ntrailing")); err == nil {
+		t.Fatal("AGY accepted trailing malformed JSON envelope")
 	}
 }
 
@@ -657,15 +694,15 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 		{
 			family:       FamilyZcode,
 			stdout:       []byte(`{"sessionId":"session","response":"I inspected the snapshot.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe review is complete.\\n\\n```go\\nfunc checked() {}\\n```" + `","usage":{"inputTokens":1}}`),
-			wantResult:   []byte("{\"findings\":[]}"),
+			wantResult:   []byte("I inspected the snapshot.\n\n```json\n{\"findings\":[]}\n```\n\nThe review is complete.\n\n```go\nfunc checked() {}\n```"),
 			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", "*"},
+			wantArgv:     []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools},
 		},
 		{
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "review bytes"},
+			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "review bytes"},
 		},
 	}
 	for _, test := range tests {
@@ -888,6 +925,11 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed, "provider_auth"},
 		{"quota", FamilyZcode, "zcode_default", []byte("quota_exceeded"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded, "provider_quota"},
 		{"rate limit", FamilyAgy, "agy_default", []byte("too many requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
+		{"agy overloaded", FamilyAgy, "agy_default", []byte("Error: model is overloaded"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderExecutionFailed, "provider_overloaded"},
+		{"agy http rate limit", FamilyAgy, "agy_default", []byte("HTTP 429 Too Many Requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
+		{"agy service unavailable", FamilyAgy, "agy_default", []byte("503 Service Unavailable"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderExecutionFailed, "provider_overloaded"},
+		{"agy usage limit", FamilyAgy, "agy_default", []byte("usage limit reached for this billing cycle"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded, "provider_quota"},
+		{"agy request timed out", FamilyAgy, "agy_default", []byte("Error: request timed out"), ports.ProviderExecutionStatusTimedOut, domain.DiagnosticCauseTimedOut, "provider_timeout"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -905,6 +947,18 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 				t.Fatalf("status = %q, cause = %q, diagnostic = %q; want %q, %q, %q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode(), test.wantStatus, test.wantCause, test.wantDiagnostic)
 			}
 		})
+	}
+}
+
+func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T) {
+	reviewProse := []byte("the service is overloaded and running at capacity, returning 503 to callers")
+	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyAgy, reviewProse, nil); ok {
+		t.Fatalf("review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+	}
+	argvEcho := []byte("Error: unknown flag --print-timeout\n")
+	status, diagnostic, _, ok := nativeProviderOutcome(FamilyAgy, nil, argvEcho)
+	if ok || status == ports.ProviderExecutionStatusTimedOut || diagnostic == "provider_timeout" {
+		t.Fatalf("argv echo classified as native timeout: status = %q, diagnostic = %q, ok = %t", status, diagnostic, ok)
 	}
 }
 
@@ -1045,13 +1099,13 @@ func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *tes
 		t.Fatal(err)
 	}
 
-	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", string(invocation.PacketBytes())}
+	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", string(invocation.PacketBytes())}
 	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
 		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
 	}
 	binding, ok := runner.request.ProviderPacketBinding()
 	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-		binding.ArgvIndex() != len(profile.baseArgv)+12 ||
+		binding.ArgvIndex() != len(profile.baseArgv)+11 ||
 		runner.request.Argv()[binding.ArgvIndex()] != string(invocation.PacketBytes()) {
 		t.Fatalf("packet binding = %#v, argv=%q", binding, runner.request.Argv())
 	}

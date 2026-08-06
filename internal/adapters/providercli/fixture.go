@@ -147,9 +147,15 @@ type probeFixtureLease struct {
 }
 
 func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, ports.WorkspaceSnapshotRequest, error) {
-	roadmap := []byte("Return only one strict JSON object and no other text.\n" +
-		"The object must contain exactly root, link, and role string fields.\n" +
-		"root must be " + nonce + "; link must be " + link + "; role must be " + string(role) + ".\n")
+	// Capability stays prompt-bound and tool-denied: root/link/role are embedded
+	// here. Do not instruct workspace or tool reads; review prompts own that.
+	roadmap := []byte("Prove readiness by binding the immutable fixture values below.\n" +
+		"Prefer one JSON object with exactly root, link, and role string fields.\n" +
+		"Plain-text answers that clearly bind all three values are also accepted.\n" +
+		"Do not merely echo this prompt.\n" +
+		"root=" + nonce + "\n" +
+		"link=" + link + "\n" +
+		"role=" + string(role) + "\n")
 	linked := []byte(link)
 	files, err := probeFixtureFiles(roadmap, linked)
 	if err != nil {

@@ -25,6 +25,13 @@
     "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
     "run_id": "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e",
     "followup_artifact_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e/followup.json",
-    "resolution": "resolved"
+    "resolution": "resolved",
+    "structured_extraction_status": "structured",
+    "role_report_uris": [
+      {
+        "role": "logic",
+        "uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e/role-reports/logic.md"
+      }
+    ]
   }
 }

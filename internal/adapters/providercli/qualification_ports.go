@@ -12,6 +12,7 @@ var _ ports.ProviderRuntimeDefinition = RuntimeDefinition{}
 var _ ports.ProviderRuntimeBuilder = RuntimeBuilder{}
 var _ ports.ProviderDirectExecutionAuthority = CurrentProbeDirectExecutionAuthorityReceipt{}
 var _ ports.ProviderCurrentProbe = (*QualificationProbeAdapter)(nil)
+var _ ports.ProviderEquivalentRouteAuthorityDeriver = (*QualificationProbeAdapter)(nil)
 var _ ports.ProviderQualificationFixtureFactory = (*QualificationFixtureFactoryAdapter)(nil)
 var _ ports.ProviderQualificationRegistry = (*Registry)(nil)
 var _ ports.ProviderQualificationRegistryFactory = (*QualificationRegistryFactory)(nil)
@@ -115,12 +116,34 @@ func (adapter *QualificationProbeAdapter) QualifyProviderCurrent(ctx context.Con
 	for index, receipt := range result.Receipts {
 		receipts[index] = ports.ProviderCurrentProbeReceipt{Kind: receipt.Kind, EvidenceID: receipt.EvidenceID, ExpiresAt: receipt.ExpiresAt}
 		if receipt.DirectExecutionAuthority != nil {
-			receipts[index].DirectExecutionAuthority = receipt.DirectExecutionAuthority
+			// Store the value concrete type so adapter derivation can assert
+			// CurrentProbeDirectExecutionAuthorityReceipt without pointer mismatch.
+			authority := *receipt.DirectExecutionAuthority
+			receipts[index].DirectExecutionAuthority = authority
 		}
 	}
 	return ports.ProviderCurrentProbeResult{
 		VersionArgv: append([]string(nil), result.VersionArgv...), Version: result.Version, Receipts: receipts,
 	}, nil
+}
+
+func (adapter *QualificationProbeAdapter) DeriveEquivalentRouteDirectExecutionAuthority(
+	source ports.ProviderDirectExecutionAuthority,
+	sourceDefinition ports.ProviderRuntimeDefinition,
+	destinationDefinition ports.ProviderRuntimeDefinition,
+	observedVersion string,
+	sourceNamespaceGeneration string,
+	destinationNamespaceGeneration string,
+	sourceProvedRoles []domain.Role,
+	destinationRoles []domain.Role,
+) (ports.ProviderDirectExecutionAuthority, error) {
+	if adapter == nil {
+		return nil, fmt.Errorf("provider qualification probe adapter: unavailable")
+	}
+	return DeriveEquivalentRouteDirectExecutionAuthority(
+		source, sourceDefinition, destinationDefinition, observedVersion,
+		sourceNamespaceGeneration, destinationNamespaceGeneration, sourceProvedRoles, destinationRoles,
+	)
 }
 
 // QualificationFixtureFactoryAdapter narrows adapter fixture leases to the

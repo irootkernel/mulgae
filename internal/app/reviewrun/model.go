@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/publication"
@@ -330,25 +331,41 @@ type Dependencies struct {
 	Diagnostics         ports.RuntimeDiagnosticSinkFactory
 }
 
-// Result exposes only the coherent P2 authority returned by publication.
-type Result struct {
-	sessionID   domain.SessionID
-	runID       domain.RunID
-	coordinator review.CoordinatorResult
-	final       ports.FinalReviewIdentity
-	snapshot    ports.CommittedPublicationSnapshot
-	exit        domain.OperationalExitDecision
-	diagnostic  ports.SafeRelativePath
+// RoleReportURI is one trusted project-relative role-report identity projected
+// from a PublicationResult verified support inventory before Result is built.
+type RoleReportURI struct {
+	Role       string
+	URI        string
+	SHA256     string
+	ByteLength int
 }
 
-func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator review.CoordinatorResult, final ports.FinalReviewIdentity, snapshot ports.CommittedPublicationSnapshot, exit domain.OperationalExitDecision) (Result, error) {
+// Result exposes only the coherent P2 authority returned by publication.
+type Result struct {
+	sessionID      domain.SessionID
+	runID          domain.RunID
+	coordinator    review.CoordinatorResult
+	final          ports.FinalReviewIdentity
+	snapshot       ports.CommittedPublicationSnapshot
+	exit           domain.OperationalExitDecision
+	roleReportURIs []RoleReportURI
+	diagnostic     ports.SafeRelativePath
+}
+
+func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator review.CoordinatorResult, final ports.FinalReviewIdentity, snapshot ports.CommittedPublicationSnapshot, roleReportURIs []RoleReportURI, exit domain.OperationalExitDecision) (Result, error) {
 	if _, err := domain.ParseSessionID(sessionID.String()); err != nil {
 		return Result{}, fmt.Errorf("review run: invalid result session ID")
 	}
 	if _, err := domain.ParseRunID(runID.String()); err != nil {
 		return Result{}, fmt.Errorf("review run: invalid result run ID")
 	}
-	return Result{sessionID: sessionID, runID: runID, coordinator: coordinator, final: final, snapshot: snapshot, exit: exit}, nil
+	if err := validateRoleReportURIs(sessionID, runID, roleReportURIs); err != nil {
+		return Result{}, fmt.Errorf("review run: %w", err)
+	}
+	return Result{
+		sessionID: sessionID, runID: runID, coordinator: coordinator, final: final, snapshot: snapshot,
+		exit: exit, roleReportURIs: append([]RoleReportURI(nil), roleReportURIs...),
+	}, nil
 }
 
 func (result Result) SessionID() domain.SessionID                  { return result.sessionID }
@@ -357,8 +374,61 @@ func (result Result) Coordinator() review.CoordinatorResult        { return resu
 func (result Result) Final() ports.FinalReviewIdentity             { return result.final }
 func (result Result) Snapshot() ports.CommittedPublicationSnapshot { return result.snapshot }
 func (result Result) TerminalExit() domain.OperationalExitDecision { return result.exit }
+func (result Result) RoleReportURIs() []RoleReportURI {
+	return append([]RoleReportURI(nil), result.roleReportURIs...)
+}
 func (result Result) RuntimeDiagnosticURI() (ports.SafeRelativePath, bool) {
 	return result.diagnostic, result.diagnostic.Valid()
+}
+
+// projectRoleReportURIs maps PublicationResult support-inventory authority into
+// app-neutral Result fields. Callers must not invent paths from manifests alone.
+func projectRoleReportURIs(published publication.PublicationResult) ([]RoleReportURI, error) {
+	projected, err := publication.ProjectRoleReportURIs(published)
+	if err != nil {
+		return nil, err
+	}
+	uris := make([]RoleReportURI, 0, len(projected))
+	for _, report := range projected {
+		uris = append(uris, RoleReportURI{
+			Role:       report.Role,
+			URI:        report.URI,
+			SHA256:     report.SHA256,
+			ByteLength: report.ByteLength,
+		})
+	}
+	return uris, nil
+}
+
+func validateRoleReportURIs(sessionID domain.SessionID, runID domain.RunID, reports []RoleReportURI) error {
+	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/"
+	seen := make(map[string]struct{}, len(reports))
+	for _, report := range reports {
+		if !domain.Role(report.Role).Valid() ||
+			report.URI != prefix+report.Role+".md" ||
+			!validRoleReportDigest(report.SHA256) ||
+			report.ByteLength <= 0 {
+			return fmt.Errorf("role report identity is invalid")
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return fmt.Errorf("role report identity is duplicated")
+		}
+		seen[report.Role] = struct{}{}
+	}
+	return nil
+}
+
+func validRoleReportDigest(value string) bool {
+	const prefix = "sha256:"
+	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
+		return false
+	}
+	for _, character := range value[len(prefix):] {
+		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func nilInterface(value any) bool {

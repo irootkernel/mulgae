@@ -184,13 +184,27 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 	}
 	result, err := reviewRuns.StartReviewRun(ctx, request, projectRoot)
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
+		failureData, dataErr := reviewFailureResultJSON(err)
+		if dataErr != nil {
+			return execution{failure: executionFailureFor(invocation.Command(), dataErr, domain.FailureInternal)}
+		}
+		return execution{failureData: failureData, failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
 	}
 	if err := result.Validate(); err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 	sessionID, runID := result.SessionID(), result.RunID()
 	runManifestURI, reviewArtifactURI := result.RunManifestURI(), result.ReviewArtifactURI()
+	roleReportURIs := make([]struct {
+		Role string `json:"role"`
+		URI  string `json:"uri"`
+	}, 0, len(result.RoleReportURIs()))
+	for _, report := range result.RoleReportURIs() {
+		roleReportURIs = append(roleReportURIs, struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		}{Role: report.Role, URI: report.URI})
+	}
 	exit, reasons, err := committedTerminalOutcome(result.TerminalExit())
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
@@ -209,7 +223,11 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		RunID             string `json:"run_id"`
 		RunManifestURI    string `json:"run_manifest_uri"`
 		ReviewArtifactURI string `json:"review_artifact_uri"`
-	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI})
+		RoleReportURIs    []struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		} `json:"role_report_uris"`
+	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI, roleReportURIs})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
@@ -220,6 +238,21 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		committedReasons:       reasons,
 		committedReasonDetails: reasonDetails,
 	}
+}
+
+func reviewFailureResultJSON(err error) ([]byte, error) {
+	var sessionID, runID *string
+	if session, run, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
+		sessionValue, runValue := session.String(), run.String()
+		sessionID, runID = &sessionValue, &runValue
+	}
+	return json.Marshal(struct {
+		Kind              string  `json:"kind"`
+		SessionID         *string `json:"session_id"`
+		RunID             *string `json:"run_id"`
+		RunManifestURI    *string `json:"run_manifest_uri"`
+		ReviewArtifactURI *string `json:"review_artifact_uri"`
+	}{"review_started", sessionID, runID, nil, nil})
 }
 
 func preflightFailureData(request ReviewRequest) []byte {
@@ -325,26 +358,57 @@ func (application *Application) handleFollowup(ctx context.Context, invocation I
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
-	sessionID, runID, artifact, resolution := result.SessionID, result.RunID, result.ArtifactURI, result.FollowupResolution
-	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(artifact) ||
-		!resolution.Valid() {
+	sessionID, runID, artifact := result.SessionID, result.RunID, result.ArtifactURI
+	status := result.StructuredExtractionStatus
+	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	if !validCommandRunID(runID) || !validCommandURI(artifact) || !status.Valid() {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid followup result"), domain.FailureInternal)}
+	}
+	var resolutionValue *string
+	switch status {
+	case domain.StructuredExtractionStructured:
+		if result.FollowupResolution == nil || !result.FollowupResolution.Valid() {
+			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid structured followup resolution"), domain.FailureInternal)}
+		}
+		value := string(*result.FollowupResolution)
+		resolutionValue = &value
+	case domain.StructuredExtractionReportsOnly:
+		if result.FollowupResolution != nil {
+			return execution{failure: executionFailureFor(invocation.Command(), errors.New("reports-only followup must leave resolution null"), domain.FailureInternal)}
+		}
+	default:
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid followup extraction status"), domain.FailureInternal)}
 	}
 	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 	data, err := json.Marshal(struct {
-		Kind                string `json:"kind"`
-		SessionID           string `json:"session_id"`
-		RunID               string `json:"run_id"`
-		FollowupArtifactURI string `json:"followup_artifact_uri"`
-		Resolution          string `json:"resolution"`
-	}{"followup_started", sessionID, runID, artifact, string(resolution)})
+		Kind                       string  `json:"kind"`
+		SessionID                  string  `json:"session_id"`
+		RunID                      string  `json:"run_id"`
+		FollowupArtifactURI        string  `json:"followup_artifact_uri"`
+		Resolution                 *string `json:"resolution"`
+		StructuredExtractionStatus string  `json:"structured_extraction_status"`
+		RoleReportURIs             []struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		} `json:"role_report_uris"`
+	}{"followup_started", sessionID, runID, artifact, resolutionValue, string(status), roleReportURIs})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
-	return execution{human: []byte("followup started: " + runID + "\nresolution: " + string(resolution)), data: data, exit: exit, committedReasons: reasons}
+	humanResolution := "null"
+	if resolutionValue != nil {
+		humanResolution = *resolutionValue
+	}
+	return execution{
+		human: []byte("followup started: " + runID + "\nresolution: " + humanResolution + "\nstructured_extraction_status: " + string(status)),
+		data:  data, exit: exit, committedReasons: reasons,
+	}
 }
 
 func (application *Application) handleDelta(ctx context.Context, invocation Invocation) execution {
@@ -375,7 +439,11 @@ func (application *Application) handleDelta(ctx context.Context, invocation Invo
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
 	sessionID, runID, artifact := result.SessionID, result.RunID, result.ArtifactURI
-	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(artifact) {
+	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	if !validCommandRunID(runID) || !validCommandURI(artifact) {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid delta result"), domain.FailureInternal)}
 	}
 	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
@@ -387,7 +455,11 @@ func (application *Application) handleDelta(ctx context.Context, invocation Invo
 		SessionID         string `json:"session_id"`
 		RunID             string `json:"run_id"`
 		ReviewArtifactURI string `json:"review_artifact_uri"`
-	}{"delta_started", sessionID, runID, artifact})
+		RoleReportURIs    []struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		} `json:"role_report_uris"`
+	}{"delta_started", sessionID, runID, artifact, roleReportURIs})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
@@ -416,7 +488,11 @@ func (application *Application) handleRerun(ctx context.Context, invocation Invo
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
 	sessionID, runID, manifest := result.SessionID, result.RunID, result.ArtifactURI
-	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) || !validCommandURI(manifest) {
+	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	if !validCommandRunID(runID) || !validCommandURI(manifest) {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid rerun result"), domain.FailureInternal)}
 	}
 	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
@@ -428,7 +504,11 @@ func (application *Application) handleRerun(ctx context.Context, invocation Invo
 		SessionID         string `json:"session_id"`
 		RunID             string `json:"run_id"`
 		PromptManifestURI string `json:"prompt_manifest_uri"`
-	}{"rerun_started", sessionID, runID, manifest})
+		RoleReportURIs    []struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		} `json:"role_report_uris"`
+	}{"rerun_started", sessionID, runID, manifest, roleReportURIs})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
@@ -546,6 +626,36 @@ func deltaTarget(request TargetRequest) (appdelta.TargetRequest, error) {
 func validCommandURI(value string) bool {
 	return strings.TrimSpace(value) != "" && !strings.ContainsAny(value, "\x00\r\n")
 }
+
+func commandRoleReportURIs(sessionID, runID string, reports []RoleReportURI) ([]struct {
+	Role string `json:"role"`
+	URI  string `json:"uri"`
+}, error) {
+	if _, err := domain.ParseSessionID(sessionID); err != nil || !validCommandRunID(runID) {
+		return nil, errors.New("invalid role report identity scope")
+	}
+	prefix := ".mulgae/" + sessionID + "/" + runID + "/role-reports/"
+	uris := make([]struct {
+		Role string `json:"role"`
+		URI  string `json:"uri"`
+	}, 0, len(reports))
+	seen := make(map[string]struct{}, len(reports))
+	for _, report := range reports {
+		if !validRole(report.Role) || !validCommandURI(report.URI) || report.URI != prefix+report.Role+".md" {
+			return nil, errors.New("invalid role report URI")
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return nil, errors.New("duplicate role report URI")
+		}
+		seen[report.Role] = struct{}{}
+		uris = append(uris, struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		}{Role: report.Role, URI: report.URI})
+	}
+	return uris, nil
+}
+
 func validCleanExplainRows(rows []string) bool {
 	if len(rows) == 0 || len(rows) > 4096 {
 		return false
@@ -1635,7 +1745,8 @@ func validateStatusPublicationPair(status RunStatusView) error {
 	}
 	if status.HasRunState || status.RunState != "" || status.HasFinalArtifact ||
 		status.FinalArtifactURI != "" || status.HasAxes ||
-		status.ContentVerdict != "" || status.CoverageStatus != "" || status.CIDecision != "" {
+		status.ContentVerdict != "" || status.CoverageStatus != "" || status.CIDecision != "" ||
+		len(status.RoleReportURIs) != 0 {
 		return errors.New("non-P2 status exposed committed authority fields")
 	}
 	return nil
@@ -1699,6 +1810,31 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 	if status.HasFinalArtifact {
 		finalArtifactURI = &status.FinalArtifactURI
 	}
+	if status.PublicationState != domain.PublicationCommitted {
+		if len(status.RoleReportURIs) != 0 {
+			return nil, errors.New("non-P2 status exposed role report URIs")
+		}
+		return json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			RunID             string  `json:"run_id"`
+			RunState          *string `json:"run_state"`
+			PublicationStatus string  `json:"publication_status"`
+			RecoveryAction    string  `json:"recovery_action"`
+			FinalArtifactURI  *string `json:"final_artifact_uri"`
+			ContentVerdict    *string `json:"content_verdict,omitempty"`
+			CoverageStatus    *string `json:"coverage_status,omitempty"`
+			CIDecision        *string `json:"ci_decision,omitempty"`
+		}{
+			Kind: "status_read", RunID: status.RunID, RunState: runState,
+			PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
+			FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
+			CoverageStatus: coverageStatus, CIDecision: ciDecision,
+		})
+	}
+	roleReportURIs, err := commandRoleReportURIs(status.SessionID, status.RunID, status.RoleReportURIs)
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(struct {
 		Kind              string  `json:"kind"`
 		RunID             string  `json:"run_id"`
@@ -1709,16 +1845,15 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 		ContentVerdict    *string `json:"content_verdict,omitempty"`
 		CoverageStatus    *string `json:"coverage_status,omitempty"`
 		CIDecision        *string `json:"ci_decision,omitempty"`
+		RoleReportURIs    []struct {
+			Role string `json:"role"`
+			URI  string `json:"uri"`
+		} `json:"role_report_uris"`
 	}{
-		Kind:              "status_read",
-		RunID:             status.RunID,
-		RunState:          runState,
-		PublicationStatus: string(status.PublicationState),
-		RecoveryAction:    recoveryAction,
-		FinalArtifactURI:  finalArtifactURI,
-		ContentVerdict:    contentVerdict,
-		CoverageStatus:    coverageStatus,
-		CIDecision:        ciDecision,
+		Kind: "status_read", RunID: status.RunID, RunState: runState,
+		PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
+		FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
+		CoverageStatus: coverageStatus, CIDecision: ciDecision, RoleReportURIs: roleReportURIs,
 	})
 }
 
@@ -1738,6 +1873,12 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 	if terminalCause != "" {
 		terminalCauseValue = &terminalCause
 	}
+	terminalPhase := string(status.TerminalPhase())
+	var terminalPhaseValue *string
+	if terminalPhase != "" {
+		terminalPhaseValue = &terminalPhase
+	}
+	recoveryAction := "rerun_review"
 	return json.Marshal(struct {
 		Kind                 string   `json:"kind"`
 		SessionID            string   `json:"session_id"`
@@ -1755,21 +1896,28 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 		LaneFailed           int      `json:"lane_failed"`
 		LastSequence         uint64   `json:"last_seq"`
 		TerminalCause        *string  `json:"terminal_cause"`
+		TerminalPhase        *string  `json:"terminal_phase"`
 		DroppedEvents        uint64   `json:"dropped_events"`
 		DiagnosticOnly       bool     `json:"diagnostic_only"`
 		PublicationAuthority bool     `json:"publication_authority"`
 	}{
 		Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
-		RunState: string(status.State()), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano),
+		RecoveryAction: &recoveryAction,
+		RunState:       string(status.State()), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano),
 		CompletedAt: completedAtValue, SelectedRoles: roleStrings(status.SelectedRoles()), LaneTotal: total,
 		LaneCompleted: completed, LaneFailed: failed, LastSequence: status.LastSequence(), TerminalCause: terminalCauseValue,
+		TerminalPhase: terminalPhaseValue,
 		DroppedEvents: status.DroppedEvents(), DiagnosticOnly: true, PublicationAuthority: false,
 	})
 }
 
 func diagnosticStatusHumanOutput(status ports.RuntimeDiagnosticRunStatus) []byte {
 	total, completed, failed := status.LaneCounts()
-	return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
+	phase := status.TerminalPhase()
+	if phase.Valid() {
+		return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed, phase))
+	}
+	return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
 }
 
 func roleStrings(roles []domain.Role) []string {

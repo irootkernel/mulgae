@@ -29,7 +29,23 @@ func (event LifecycleEvent) Valid() bool {
 }
 
 type LifecycleObserver interface {
-	ObservePublicationLifecycle(context.Context, LifecycleEvent) error
+	ObservePublicationLifecycle(context.Context, LifecycleObservation) error
+}
+
+// LifecycleObservation carries either a normal publication transition or a
+// redacted failure classification. Failure details are present only for the
+// failed transition.
+type LifecycleObservation struct {
+	event      LifecycleEvent
+	diagnostic FailureDiagnostic
+}
+
+func (observation LifecycleObservation) Event() LifecycleEvent { return observation.event }
+func (observation LifecycleObservation) FailureDiagnostic() (FailureDiagnostic, bool) {
+	if observation.event != LifecycleFailed || !observation.diagnostic.Valid() {
+		return FailureDiagnostic{}, false
+	}
+	return observation.diagnostic, true
 }
 
 type ObservedPublicationCommitter interface {
@@ -76,11 +92,15 @@ func CommittedPublicationManifestPathFromError(err error) (ports.SafeRelativePat
 	return snapshot.Manifest().Path(), true
 }
 
-func observePublicationLifecycle(ctx context.Context, observer LifecycleObserver, event LifecycleEvent) error {
+func observePublicationLifecycle(ctx context.Context, observer LifecycleObserver, event LifecycleEvent, terminalErr error) error {
 	if observer == nil || !event.Valid() {
 		return nil
 	}
-	if err := observer.ObservePublicationLifecycle(context.WithoutCancel(ctx), event); err != nil {
+	observation := LifecycleObservation{event: event}
+	if event == LifecycleFailed {
+		observation.diagnostic, _ = FailureDiagnosticFromError(terminalErr)
+	}
+	if err := observer.ObservePublicationLifecycle(context.WithoutCancel(ctx), observation); err != nil {
 		failure, failureErr := domain.NewFailure("publication.diagnostics", domain.FailureArtifact, "runtime diagnostics persistence failed", err)
 		if failureErr != nil {
 			return fmt.Errorf("publication lifecycle observer: %w", failureErr)

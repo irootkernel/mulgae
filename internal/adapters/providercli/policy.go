@@ -399,7 +399,7 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 	}
 	transport, _ := observation.ProviderPacketTransportReceipt()
 	lifecycle, _ := observation.LifecycleReceipt()
-	frame, _ := lifecycle.OutputFrame()
+	frame, frameOK := lifecycle.OutputFrame()
 	identity := transport.PacketIdentity()
 	proof.TransportChannel = string(transport.Channel())
 	proof.TransportPacketSHA256 = identity.CompleteSHA256()
@@ -412,9 +412,15 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 	proof.TransportPostEndLength = postEnd.ByteLength()
 	proof.TransportReference = transport.PromptFileReference()
 	proof.TransportSnapshotCWD = transport.SnapshotCWD()
-	proof.LifecycleFrameSHA256 = frame.SHA256()
-	proof.LifecycleFrameLength = frame.ByteLength()
-	proof.LifecycleFraming = string(frame.Framing())
+	// Every frame-derived field is sourced from the frame receipt itself, never
+	// from the definition's lifecycle policy. A terminal JSON frame is optional
+	// metadata, so a frameless observation binds no frame claim and leaves all
+	// three fields at exactly their zero values.
+	if frameOK {
+		proof.LifecycleFrameSHA256 = frame.SHA256()
+		proof.LifecycleFrameLength = frame.ByteLength()
+		proof.LifecycleFraming = string(frame.Framing())
+	}
 	proof.LifecycleProcessGroupAbsent = lifecycle.ProcessGroupAbsent()
 	proof.AGYExecutionPolicy = executionPolicy.Identity()
 	namespaceEnvironmentID, environmentErr := disposableNamespaceEnvironmentID(namespaceEnvironment)
@@ -466,6 +472,23 @@ func effectiveEnvironmentIdentity(environment []ports.EnvironmentVariable) (stri
 	sum := sha256.Sum256(bytes)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
+
+// wholeAGYProofFrameEvidence reports whether one AGY proof carries frame
+// evidence that is either wholly absent or wholly complete. A terminal JSON
+// frame is optional metadata, not the result transport, so a frameless probe
+// binds no frame claim at all; forgery resistance then rests on the fixture
+// nonce evidence, the prompt-file transport receipt, the workspace guard, and
+// the process-group-absent lifecycle receipt, every one of which stays
+// mandatory. Partial frame evidence is never a real observation, so a proof
+// that sets some frame-derived fields and zeroes others is always rejected.
+func wholeAGYProofFrameEvidence(proof currentProbeDirectExecutionRoleProof) bool {
+	if proof.LifecycleFrameSHA256 == "" && proof.LifecycleFrameLength == 0 && proof.LifecycleFraming == "" {
+		return true
+	}
+	return proof.LifecycleFrameSHA256 != "" && proof.LifecycleFrameLength > 0 &&
+		proof.LifecycleFraming == string(ports.ProcessOutputFramingTerminalJSONObject)
+}
+
 func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecutionRoleProof, expiresAt time.Time) (string, error) {
 	if expiresAt.IsZero() || len(proofs) == 0 {
 		return "", fmt.Errorf("current probe direct-execution authority: missing expiry or proofs")
@@ -488,8 +511,8 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			proof.TransportPacketSHA256 == "" || proof.TransportPacketLength <= 0 || proof.TransportPreStartSHA256 == "" ||
 			proof.TransportPreStartLength <= 0 || proof.TransportPostEndSHA256 == "" || proof.TransportPostEndLength <= 0 ||
 			proof.TransportReference != proof.NativeReference ||
-			proof.TransportSnapshotCWD != proof.SnapshotPath || proof.LifecycleFrameSHA256 == "" || proof.LifecycleFrameLength <= 0 ||
-			proof.LifecycleFraming != string(ports.ProcessOutputFramingTerminalJSONObject) || !proof.LifecycleProcessGroupAbsent) {
+			proof.TransportSnapshotCWD != proof.SnapshotPath || !proof.LifecycleProcessGroupAbsent ||
+			!wholeAGYProofFrameEvidence(proof)) {
 			return "", fmt.Errorf("current probe direct-execution authority: incomplete AGY proof")
 		}
 		if proof.Family != FamilyAgy && proof.AGYExecutionPolicy != "" {

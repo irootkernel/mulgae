@@ -198,6 +198,30 @@ func (value ValidationState) Valid() bool {
 	return oneOf(string(value), string(ValidationNotStarted), string(ValidationValid), string(ValidationRepairedValid), string(ValidationInvalid), string(ValidationRepairExhausted), string(ValidationInternalError))
 }
 
+// ClassifySuccessfulAttemptExtraction classifies a successful attempt's closed
+// parse/validation pair. reportsOnly is true for not_started/not_started and for
+// invalid or repair_exhausted validation with parse valid, invalid_json, or
+// output_too_large; false for valid/(valid|repaired_valid). ok is false for any
+// other pair, including empty_output with failed structured validation — empty
+// assistant content cannot yield the required nonempty report body.
+func ClassifySuccessfulAttemptExtraction(parse ParseState, validation ValidationState) (reportsOnly bool, ok bool) {
+	switch {
+	case parse == ParseNotStarted && validation == ValidationNotStarted:
+		return true, true
+	case parse == ParseValid && (validation == ValidationValid || validation == ValidationRepairedValid):
+		return false, true
+	case validation == ValidationInvalid || validation == ValidationRepairExhausted:
+		switch parse {
+		case ParseValid, ParseInvalidJSON, ParseOutputTooLarge:
+			return true, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
 type EvidenceState string
 
 const (

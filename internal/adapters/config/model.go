@@ -25,18 +25,19 @@ type ResourcesConfig = appconfig.ResourcesConfig
 type CIConfig = appconfig.CIConfig
 
 const (
-	ConfigVersion            = appconfig.ConfigVersion
-	DefaultKimiModel         = appconfig.DefaultKimiModel
-	DefaultAGYPermissionMode = appconfig.DefaultAGYPermissionMode
-	SafeAGYPermissionMode    = appconfig.SafeAGYPermissionMode
-	DefaultProviderTimeout   = appconfig.DefaultProviderTimeout
-	MinimumProviderTimeout   = appconfig.MinimumProviderTimeout
-	MaximumProviderTimeout   = appconfig.MaximumProviderTimeout
-	ConfigRelativePath       = appconfig.ConfigRelativePath
-	MaximumConfigBytes       = appconfig.MaximumConfigBytes
-	ProjectKindNonUI         = appconfig.ProjectKindNonUI
-	ProjectKindUI            = appconfig.ProjectKindUI
-	DefaultArtistBriefPath   = appconfig.DefaultArtistBriefPath
+	ConfigVersion             = appconfig.ConfigVersion
+	DefaultKimiModel          = appconfig.DefaultKimiModel
+	DefaultAGYPermissionMode  = appconfig.DefaultAGYPermissionMode
+	SafeAGYPermissionMode     = appconfig.SafeAGYPermissionMode
+	HeadlessAGYPermissionMode = appconfig.HeadlessAGYPermissionMode
+	DefaultProviderTimeout    = appconfig.DefaultProviderTimeout
+	MinimumProviderTimeout    = appconfig.MinimumProviderTimeout
+	MaximumProviderTimeout    = appconfig.MaximumProviderTimeout
+	ConfigRelativePath        = appconfig.ConfigRelativePath
+	MaximumConfigBytes        = appconfig.MaximumConfigBytes
+	ProjectKindNonUI          = appconfig.ProjectKindNonUI
+	ProjectKindUI             = appconfig.ProjectKindUI
+	DefaultArtistBriefPath    = appconfig.DefaultArtistBriefPath
 )
 
 var DefaultArtistDesignSpecGlobs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)

@@ -41,8 +41,8 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 		{Family: "agy", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
 			{JSONName: "native_home_source", Values: []string{"os_account", "verified_equal_input", "not_selected"}},
-			// safe_default remains admitted for command-result v1 readers even
-			// though new init results emit headless_default.
+			// headless_default remains admitted for command-result v1 readers even
+			// though new init results emit safe_default.
 			{JSONName: "permission_mode_source", Values: []string{"explicit", "headless_default", "safe_default", "not_selected"}},
 		}},
 	}

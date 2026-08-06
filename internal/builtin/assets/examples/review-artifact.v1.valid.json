@@ -32,6 +32,7 @@
   },
   "content_verdict": "request_changes",
   "coverage_status": "incomplete",
+  "structured_extraction_status": "structured",
   "publication_status": "committed",
   "ci_decision": "fail",
   "ci_reason_codes": [

@@ -221,7 +221,7 @@ if [ "$1" = "--version" ]; then printf '1.1.2\n'; exit 0; fi
 [ "$HOME" = "$MULGAE_AGY_EXPECTED_HOME" ] || exit 91
 [ ! -e "$HOME/.mulgae-credential-copy" ] || exit 92
 [ "$PWD" = "$MULGAE_AGY_EXPECTED_CWD" ] || exit 93
-[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--dangerously-skip-permissions" ] && [ "$4" = "--add-dir" ] && [ "$5" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$6" = "--mode" ] && [ "$7" = "plan" ] && [ "$8" = "--effort" ] && [ "$9" = "low" ] && [ "${10}" = "--print-timeout" ] && [ "${11}" = "$MULGAE_AGY_EXPECTED_PRINT_TIMEOUT" ] && [ "${12}" = "--print" ] || exit 94
+[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--add-dir" ] && [ "$4" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$5" = "--mode" ] && [ "$6" = "plan" ] && [ "$7" = "--effort" ] && [ "$8" = "low" ] && [ "$9" = "--print-timeout" ] && [ "${10}" = "$MULGAE_AGY_EXPECTED_PRINT_TIMEOUT" ] && [ "${11}" = "--print" ] || exit 94
 case "$MULGAE_AGY_TEST_MODE" in
 post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$MULGAE_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
@@ -255,7 +255,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
 	if err != nil {
 		t.Fatal(err)
 	}

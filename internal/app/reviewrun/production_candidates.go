@@ -64,7 +64,7 @@ func NewProductionQualifiedRunCandidateSource(builder ports.ProviderRuntimeBuild
 // production candidate source using the exact policies installed into provider
 // credential namespaces for this composition.
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder, profiles, identities, "dangerously-skip-permissions")
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder, profiles, identities, "safe")
 }
 
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode string) (*ProductionQualifiedRunCandidateSource, error) {
@@ -218,7 +218,7 @@ func defaultProductionPolicyIdentities(builder ports.ProviderRuntimeBuilder) (ma
 }
 
 func productionCandidateTemplates(identities map[Family]string) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithAGYPermissionMode(identities, "dangerously-skip-permissions")
+	return productionCandidateTemplatesWithAGYPermissionMode(identities, "safe")
 }
 
 func productionCandidateTemplatesWithAGYPermissionMode(identities map[Family]string, agyPermissionMode string) ([]productionCandidateTemplate, error) {

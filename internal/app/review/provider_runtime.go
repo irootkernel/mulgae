@@ -110,14 +110,34 @@ type RuntimePrompt struct {
 // InvocationRepairInput is trusted state retained from a repair-eligible initial
 // invocation. Its accessors return defensive copies.
 type InvocationRepairInput struct {
-	initial []byte
-	plan    validation.RepairPlan
+	initial         []byte
+	primaryReport   []byte
+	plan            validation.RepairPlan
+	parseState      domain.ParseState
+	validationState domain.ValidationState
 }
 
 func (input InvocationRepairInput) InitialCandidate() []byte {
 	return append([]byte(nil), input.initial...)
 }
+
+// PrimaryReport returns the original full assistant content retained as the
+// Mulgae-owned role report body across structured repair.
+func (input InvocationRepairInput) PrimaryReport() []byte {
+	return append([]byte(nil), input.primaryReport...)
+}
+
 func (input InvocationRepairInput) Plan() validation.RepairPlan { return input.plan }
+
+func cloneInvocationRepairInput(input InvocationRepairInput) InvocationRepairInput {
+	return InvocationRepairInput{
+		initial:         append([]byte(nil), input.initial...),
+		primaryReport:   append([]byte(nil), input.primaryReport...),
+		plan:            input.plan,
+		parseState:      input.parseState,
+		validationState: input.validationState,
+	}
+}
 
 // InvocationPromptSource supplies trusted prompt material keyed by the immutable
 // coordinator job. repair is nil for initial jobs and is present only for the
@@ -505,7 +525,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if !ok {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
-		copy := InvocationRepairInput{initial: append([]byte(nil), input.initial...), plan: input.plan}
+		copy := cloneInvocationRepairInput(input)
 		repair = &copy
 	}
 	material, err := runtime.source.Prompt(invocationCtx, job, repair)
@@ -615,15 +635,32 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			}
 		}
 	}
+	assistantContent := append([]byte(nil), stdout...)
+	contentClass, validateBytes := classifyAssistantContent(assistantContent)
 	if job.Purpose() == domain.InvocationInitial {
+		if contentClass == assistantContentFreeForm {
+			// Pure prose must not enter Validate: decode failures always mint
+			// RepairModeReformatOnly and would incorrectly schedule repair.
+			// Capture streams only — never persist prose as an initial candidate.
+			if outcome, ok := runtime.acceptFreeFormReport(
+				invocationCtx, job, assistantContent, nil, rawStdout, stderr,
+				domain.ParseNotStarted, domain.ValidationNotStarted,
+			); ok {
+				return outcome
+			}
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
+			return runtimeCondition(job, AttemptConditionArtifactFailure)
+		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
-		validated, plan, validationErr := runtime.validator.Validate(invocationCtx, stdout, scope)
-		parseState = diagnosticParseState(validationErr, stdout)
+		validated, plan, validationErr := runtime.validator.Validate(invocationCtx, validateBytes, scope)
+		parseState = diagnosticParseState(validationErr, validateBytes)
 		if validationErr == nil {
 			validationState = domain.ValidationValid
 		} else {
@@ -634,29 +671,71 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		if validationErr != nil {
 			securityRejected := isSecurityValidationError(validationErr)
-			if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, securityRejected); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
-			}
 			if securityRejected {
+				if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, true); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
 				return runtimeCondition(job, AttemptConditionSecurityViolation)
 			}
 			if plan != nil {
+				if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
 				runtime.mu.Lock()
-				runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: append([]byte(nil), stdout...), plan: *plan}
+				runtime.pending[job.AttemptID()] = InvocationRepairInput{
+					initial:         append([]byte(nil), validateBytes...),
+					primaryReport:   assistantContent,
+					plan:            *plan,
+					parseState:      parseState,
+					validationState: domain.ValidationInvalid,
+				}
 				runtime.mu.Unlock()
+				return runtimeCondition(job, initialValidationFailureCondition(plan, validationErr))
+			}
+			// Structured/structured-like validation failure accepted as
+			// reports-only retains validateBytes as the initial candidate.
+			if outcome, ok := runtime.acceptFreeFormReport(
+				invocationCtx, job, assistantContent, validateBytes, rawStdout, stderr,
+				parseState, domain.ValidationInvalid,
+			); ok {
+				return outcome
+			}
+			if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
 			}
 			return runtimeCondition(job, initialValidationFailureCondition(plan, validationErr))
 		}
 		if plan != nil {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
-		if err := runtime.capture(invocationCtx, job, stdout, rawStdout, stderr, false); err != nil {
+		if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
-		return runtime.accept(invocationCtx, job, validated)
+		return runtime.accept(invocationCtx, job, validated, assistantContent)
 	}
-	validated, repairedCandidate, validationErr := runtime.validator.ApplyRepairCandidate(invocationCtx, repair.initial, stdout, scope, repair.plan)
-	parseState = diagnosticParseState(validationErr, stdout)
+	if contentClass == assistantContentFreeForm {
+		// Repair responses without a structured/structured-like candidate cannot
+		// satisfy ApplyRepairCandidate; keep the original primary report and
+		// never store it as a repaired candidate.
+		if outcome, ok := runtime.acceptFreeFormReport(
+			invocationCtx, job, repair.primaryReport, nil, rawStdout, stderr,
+			repair.parseState, domain.ValidationRepairExhausted,
+		); ok {
+			runtime.mu.Lock()
+			delete(runtime.pending, job.AttemptID())
+			runtime.mu.Unlock()
+			return outcome
+		}
+		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		runtime.mu.Lock()
+		delete(runtime.pending, job.AttemptID())
+		runtime.mu.Unlock()
+		return runtimeCondition(job, AttemptConditionArtifactFailure)
+	}
+	validated, repairedCandidate, validationErr := runtime.validator.ApplyRepairCandidate(invocationCtx, repair.initial, validateBytes, scope, repair.plan)
+	parseState = diagnosticParseState(validationErr, validateBytes)
 	if validationErr == nil {
 		validationState = domain.ValidationRepairedValid
 	} else {
@@ -667,22 +746,42 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
 	if validationErr != nil {
-		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, securityRejected); err != nil {
+		if securityRejected {
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, true); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
+			runtime.mu.Lock()
+			delete(runtime.pending, job.AttemptID())
+			runtime.mu.Unlock()
+			return runtimeCondition(job, AttemptConditionSecurityViolation)
+		}
+		// Repair responses must not replace the original primary report and
+		// must not persist that report as a repaired candidate.
+		if outcome, ok := runtime.acceptFreeFormReport(
+			invocationCtx, job, repair.primaryReport, nil, rawStdout, stderr,
+			parseState, domain.ValidationRepairExhausted,
+		); ok {
+			runtime.mu.Lock()
+			delete(runtime.pending, job.AttemptID())
+			runtime.mu.Unlock()
+			return outcome
+		}
+		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
-	} else if err := runtime.capture(invocationCtx, job, repairedCandidate, rawStdout, stderr, false); err != nil {
+		runtime.mu.Lock()
+		delete(runtime.pending, job.AttemptID())
+		runtime.mu.Unlock()
+		return runtimeCondition(job, runtimeErrorCondition(invocationCtx, validationErr))
+	}
+	if err := runtime.capture(invocationCtx, job, repairedCandidate, rawStdout, stderr, false); err != nil {
 		return runtimeCondition(job, diagnosticConditionForPersistence(err))
 	}
+	primaryReport := append([]byte(nil), repair.primaryReport...)
 	runtime.mu.Lock()
 	delete(runtime.pending, job.AttemptID())
 	runtime.mu.Unlock()
-	if validationErr != nil {
-		if securityRejected {
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
-		}
-		return runtimeCondition(job, runtimeErrorCondition(invocationCtx, validationErr))
-	}
-	return runtime.accept(invocationCtx, job, validated)
+	return runtime.accept(invocationCtx, job, validated, primaryReport)
 }
 
 // InvokeDelta executes a delta-aware invocation through the explicit delta
@@ -709,7 +808,7 @@ func (runtime *ProviderInvocationRuntime) InvokeDelta(ctx context.Context, job I
 		if !exists {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
-		copy := InvocationRepairInput{initial: append([]byte(nil), input.initial...), plan: input.plan}
+		copy := cloneInvocationRepairInput(input)
 		repair = &copy
 	}
 	material, err := source.DeltaPrompt(ctx, job, cloneDeltaInvocationMaterial(input), repair)
@@ -770,10 +869,7 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	runtime.activeExplicit[key] = struct{}{}
 	clonePending := make(map[domain.AttemptID]InvocationRepairInput)
 	if pending, ok := runtime.pending[job.AttemptID()]; ok {
-		clonePending[job.AttemptID()] = InvocationRepairInput{
-			initial: append([]byte(nil), pending.initial...),
-			plan:    pending.plan,
-		}
+		clonePending[job.AttemptID()] = cloneInvocationRepairInput(pending)
 	}
 	runtime.mu.Unlock()
 	clone := &ProviderInvocationRuntime{
@@ -805,10 +901,7 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 		runtime.inventory[key] = cloneRuntimeArtifactInventory(value)
 	}
 	if pendingExists {
-		runtime.pending[job.AttemptID()] = InvocationRepairInput{
-			initial: append([]byte(nil), pending.initial...),
-			plan:    pending.plan,
-		}
+		runtime.pending[job.AttemptID()] = cloneInvocationRepairInput(pending)
 	} else {
 		delete(runtime.pending, job.AttemptID())
 	}
@@ -859,7 +952,7 @@ func sameAdapterParameters(left, right map[string]string) bool {
 	}
 	return true
 }
-func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview) AttemptOutcome {
+func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
@@ -873,7 +966,13 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
 		runtime.mu.Lock()
-		runtime.pending[job.AttemptID()] = InvocationRepairInput{initial: validated.OriginalRaw(), plan: *plan}
+		runtime.pending[job.AttemptID()] = InvocationRepairInput{
+			initial:         validated.OriginalRaw(),
+			primaryReport:   append([]byte(nil), primaryReport...),
+			plan:            *plan,
+			parseState:      domain.ParseValid,
+			validationState: domain.ValidationInvalid,
+		}
 		runtime.mu.Unlock()
 		return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
 	}
@@ -884,11 +983,68 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 	if err != nil {
 		return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
 	}
+	report, reportErr := bindStructuredPrimaryReport(job.Role(), validated, primaryReport)
+	if reportErr != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	if err := output.bindReportMarkdown(report, false); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	validation := domain.ValidationValid
+	if job.Purpose() == domain.InvocationRepair {
+		validation = domain.ValidationRepairedValid
+	}
+	if err := output.bindExtractionStates(domain.ParseValid, validation); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
 	outcome, err := NewAttemptOutcome(job, &output, nil)
 	if err != nil {
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
 	}
 	return outcome
+}
+
+func bindStructuredPrimaryReport(role domain.Role, validated validation.ValidatedReview, primaryReport []byte) ([]byte, error) {
+	// Production primary report is always the full adapter-extracted assistant
+	// content, including pure structured JSON and mixed Markdown+JSON.
+	if len(bytes.TrimSpace(primaryReport)) > 0 {
+		return normalizeRoleReportMarkdown(primaryReport)
+	}
+	// Prefer exact provider raw when callers omit primaryReport (tests / repair
+	// bridges). Synthetic derive is only the last backward fallback.
+	if original := validated.OriginalRaw(); len(bytes.TrimSpace(original)) > 0 {
+		return normalizeRoleReportMarkdown(original)
+	}
+	return deriveStructuredRoleReport(role, validated)
+}
+
+// acceptFreeFormReport accepts a Mulgae-owned free-form role report. reportBody
+// is the published report markdown; candidate is an optional initial structured
+// candidate retained only when an initial structured/structured-like validation
+// failure is accepted reports-only. Pure prose and free-form repair responses
+// pass a nil candidate so only raw stdout/stderr are captured.
+func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
+	ctx context.Context,
+	job InvocationJob,
+	reportBody, candidate, rawStdout, stderr []byte,
+	parse domain.ParseState,
+	validation domain.ValidationState,
+) (AttemptOutcome, bool) {
+	output, err := NewReportsOnlyValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), reportBody)
+	if err != nil {
+		return AttemptOutcome{}, false
+	}
+	if err := output.bindExtractionStates(parse, validation); err != nil {
+		return AttemptOutcome{}, false
+	}
+	if err := runtime.capture(ctx, job, candidate, rawStdout, stderr, false); err != nil {
+		return runtimeCondition(job, diagnosticConditionForPersistence(err)), true
+	}
+	outcome, err := NewAttemptOutcome(job, &output, nil)
+	if err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant), true
+	}
+	return outcome, true
 }
 
 func exactEvidenceRepairPaths(groups []VerifiedFindingEvidence) ([]string, bool) {

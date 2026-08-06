@@ -106,7 +106,7 @@ func (service *Service) StartRerun(ctx context.Context, request Request) (Result
 	if !ok {
 		return Result{}, ErrInvalidChild
 	}
-	return NewResult(childResult.SessionID, childResult.RunID, childResult.PromptManifestURI, terminalExit)
+	return NewResult(childResult.SessionID, childResult.RunID, childResult.PromptManifestURI, childResult.RoleReportURIs, terminalExit)
 }
 
 func rerunSourceMutationFailure(reason string, cause error) error {

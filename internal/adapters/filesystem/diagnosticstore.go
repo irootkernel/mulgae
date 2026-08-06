@@ -129,6 +129,7 @@ type runtimeDiagnosticRunStatusWire struct {
 	LaneFailed           int                           `json:"lane_failed"`
 	LastSequence         uint64                        `json:"last_seq"`
 	TerminalCause        domain.RuntimeDiagnosticCause `json:"terminal_cause,omitempty"`
+	TerminalPhase        domain.RuntimeDiagnosticPhase `json:"terminal_phase,omitempty"`
 	P2URI                string                        `json:"p2_uri,omitempty"`
 	DroppedEvents        uint64                        `json:"dropped_events"`
 	DiagnosticOnly       bool                          `json:"diagnostic_only"`
@@ -147,7 +148,7 @@ func encodeRuntimeDiagnosticRunStatusAt(status ports.RuntimeDiagnosticRunStatus,
 	total, completed, failed := status.LaneCounts()
 	completedAt, hasCompletedAt := status.CompletedAt()
 	p2, hasP2 := status.P2URI()
-	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), LaneTotal: total, LaneCompleted: completed, LaneFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), DroppedEvents: droppedEvents, DiagnosticOnly: true, PublicationAuthority: false}
+	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), LaneTotal: total, LaneCompleted: completed, LaneFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), TerminalPhase: status.TerminalPhase(), DroppedEvents: droppedEvents, DiagnosticOnly: true, PublicationAuthority: false}
 	if hasCompletedAt {
 		wire.CompletedAt = completedAt.Format(time.RFC3339Nano)
 	}

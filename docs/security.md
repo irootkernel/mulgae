@@ -11,8 +11,12 @@ and publication.
 
 Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
-commands, isolated output, explicit credential projection, execution bounds,
-per-instance serialization, cancellation, and terminal process-state checks.
+read-oriented commands against that immutable snapshot, isolated output,
+explicit credential projection, execution bounds, per-instance serialization,
+cancellation, and terminal process-state checks. Prompt packets retain bounded
+patch, stdin, and old/new review-target bytes that a workspace tree alone cannot
+represent; surrounding project content is read selectively from the sealed
+snapshot rather than re-embedded for every role.
 
 Project configuration cannot introduce an executable command.
 
@@ -68,9 +72,13 @@ to use their existing redaction and secret-rejection boundaries.
 
 ## Validation and fail-closed behavior
 
-Provider output must be exactly one JSON value. External schema loading is
-disabled. Mulgae validates the provider wire, injects trusted fields, validates
-the normalized document, and checks semantic and evidence rules.
+Provider assistant output is admitted as bounded UTF-8. Markdown/free-form role
+reports are the primary consumable success form. Exact structured finding JSON
+remains optional: Mulgae may apply one constrained repair, then validate that
+wire with schema checks, trusted-field injection, and semantic/evidence rules.
+Prose is not schema-validated as review JSON. External schema loading is
+disabled. Mulgae owns trusted identity, evidence verification state, and
+publication.
 
 Evidence begins as `claimed`; only Mulgae can mark it verified, stale, invalid,
 or unverifiable. Security, configuration, integrity, cancellation, and internal

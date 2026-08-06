@@ -2018,6 +2018,50 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	}
 }
 
+func TestApplicationReviewFailurePreservesAllocatedRunIdentity(t *testing.T) {
+	cause, err := domain.NewFailure(
+		"publication.install",
+		domain.FailureArtifact,
+		"publication installation failed",
+		errors.New("injected installation failure"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnosticURI, err := ports.NewSafeRelativePath(".mulgae/diagnostics/" + g006SessionID + "/" + testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := domain.ParseSessionID(g006SessionID)
+	runID, _ := domain.ParseRunID(testRunID)
+	terminalErr := reviewrun.NewRuntimeDiagnosticReferenceErrorWithIdentity(diagnosticURI, sessionID, runID, cause)
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
+	result := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--dirty", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+	var envelope struct {
+		Result struct {
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			RunManifestURI    *string `json:"run_manifest_uri"`
+			ReviewArtifactURI *string `json:"review_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.SessionID == nil || *envelope.Result.SessionID != g006SessionID ||
+		envelope.Result.RunID == nil || *envelope.Result.RunID != testRunID ||
+		envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
+		t.Fatalf("failed review identity = %#v", envelope.Result)
+	}
+}
+
 func TestApplicationReviewDoesNotProjectUninstalledRuntimeDiagnosticURI(t *testing.T) {
 	cause, err := domain.NewFailure("reviewrun.current.capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
 	if err != nil {
@@ -2460,6 +2504,7 @@ func TestApplicationReviewCommittedIncompleteCoveragePreservesEveryTerminalProvi
 		g006ReviewArtifactURI,
 		g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage),
 		[]reviewrun.ProviderExecutionFailure{logic, security},
+		nil,
 	)
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{result: result}
@@ -2604,10 +2649,11 @@ func TestApplicationPreservesResolverOperationalFailures(t *testing.T) {
 }
 
 type g008FollowupE2EFake struct {
-	requests     []appfollowup.Request
-	err          error
-	terminalExit domain.OperationalExitDecision
-	resolution   domain.FollowupResolution
+	requests                   []appfollowup.Request
+	err                        error
+	terminalExit               domain.OperationalExitDecision
+	resolution                 *domain.FollowupResolution
+	structuredExtractionStatus domain.StructuredExtractionStatus
 }
 
 func (fake *g008FollowupE2EFake) StartFollowupRun(_ context.Context, request appfollowup.Request) (StartedRun, error) {
@@ -2615,12 +2661,22 @@ func (fake *g008FollowupE2EFake) StartFollowupRun(_ context.Context, request app
 	if fake.err != nil {
 		return StartedRun{}, fake.err
 	}
+	runID := "r_019f596a-d050-79e7-b2b7-59822f012273"
+	status := fake.structuredExtractionStatus
+	if status == "" {
+		status = domain.StructuredExtractionStructured
+	}
 	return StartedRun{
-		SessionID:          g006SessionID,
-		RunID:              "r_019f596a-d050-79e7-b2b7-59822f012273",
-		ArtifactURI:        ".mulgae/followup/new-review.json",
-		FollowupResolution: fake.resolution,
-		TerminalExit:       fake.terminalExit,
+		SessionID:                  g006SessionID,
+		RunID:                      runID,
+		ArtifactURI:                ".mulgae/followup/new-review.json",
+		FollowupResolution:         fake.resolution,
+		StructuredExtractionStatus: status,
+		TerminalExit:               fake.terminalExit,
+		RoleReportURIs: []RoleReportURI{{
+			Role: "logic",
+			URI:  ".mulgae/" + g006SessionID + "/" + runID + "/role-reports/logic.md",
+		}},
 	}, nil
 }
 
@@ -2707,9 +2763,14 @@ type g008WorkflowFakes struct {
 
 func newG008WorkflowFakes(t *testing.T) g008WorkflowFakes {
 	t.Helper()
+	stillOpen := domain.FollowupStillOpen
 	return g008WorkflowFakes{
-		resolver:  &g008ResolverFake{},
-		followup:  &g008FollowupE2EFake{resolution: domain.FollowupStillOpen, terminalExit: g008CommittedTerminalExit(t, domain.ExitCommittedCIRejected)},
+		resolver: &g008ResolverFake{},
+		followup: &g008FollowupE2EFake{
+			resolution:                 &stillOpen,
+			structuredExtractionStatus: domain.StructuredExtractionStructured,
+			terminalExit:               g008CommittedTerminalExit(t, domain.ExitCommittedCIRejected),
+		},
 		delta:     &g008DeltaE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitCommittedPass)},
 		rerun:     &g008RerunE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage)},
 		retention: &g008RetentionE2EFake{},
@@ -2907,12 +2968,16 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 			DiagnosticOnly       bool    `json:"diagnostic_only"`
 			PublicationAuthority bool    `json:"publication_authority"`
 			TerminalCause        *string `json:"terminal_cause"`
+			TerminalPhase        *string `json:"terminal_phase"`
+			RecoveryAction       string  `json:"recovery_action"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if !envelope.Result.DiagnosticOnly || envelope.Result.PublicationAuthority || envelope.Result.TerminalCause == nil || *envelope.Result.TerminalCause != string(domain.DiagnosticCauseProviderSpawnFailed) {
+	if !envelope.Result.DiagnosticOnly || envelope.Result.PublicationAuthority ||
+		envelope.Result.TerminalCause == nil || *envelope.Result.TerminalCause != string(domain.DiagnosticCauseProviderSpawnFailed) ||
+		envelope.Result.TerminalPhase != nil || envelope.Result.RecoveryAction != "rerun_review" {
 		t.Fatalf("diagnostic status envelope = %#v", envelope.Result)
 	}
 }
@@ -3016,6 +3081,52 @@ func TestStatusResultDataRejectsIncoherentPublicationPairs(t *testing.T) {
 				t.Fatal("statusResultData accepted an incoherent publication projection")
 			}
 		})
+	}
+}
+
+func TestStatusResultDataUsesSessionScopedRoleReportURIs(t *testing.T) {
+	t.Parallel()
+	invocation := mustParse(t, []string{"status", "--run", testRunID})
+	request, ok := invocation.Status()
+	if !ok {
+		t.Fatal("parsed invocation omitted status request")
+	}
+	uri := ".mulgae/" + g006SessionID + "/" + testRunID + "/role-reports/logic.md"
+	status := newG006QueryFake().status
+	status.RoleReportURIs = []RoleReportURI{{Role: "logic", URI: uri}}
+	data, err := statusResultData(request, status)
+	if err != nil {
+		t.Fatalf("statusResultData() error = %v", err)
+	}
+	if !bytes.Contains(data, []byte(`"role_report_uris"`)) || !bytes.Contains(data, []byte(uri)) {
+		t.Fatalf("P2 status omitted session-scoped role report URIs: %s", data)
+	}
+	status.SessionID = ""
+	if _, err := statusResultData(request, status); err == nil {
+		t.Fatal("statusResultData accepted P2 role report URIs without SessionID")
+	}
+	status = newG006QueryFake().status
+	status.PublicationState = domain.PublicationStaged
+	status.RecoveryAction = domain.RecoveryActionInstallStagedFinal
+	status.HasRunState = false
+	status.RunState = ""
+	status.HasFinalArtifact = false
+	status.FinalArtifactURI = ""
+	status.HasAxes = false
+	status.ContentVerdict = ""
+	status.CoverageStatus = ""
+	status.CIDecision = ""
+	status.RoleReportURIs = []RoleReportURI{{Role: "logic", URI: uri}}
+	if _, err := statusResultData(request, status); err == nil {
+		t.Fatal("statusResultData accepted role report URIs on non-P2 status")
+	}
+	status.RoleReportURIs = nil
+	data, err = statusResultData(request, status)
+	if err != nil {
+		t.Fatalf("non-P2 statusResultData() error = %v", err)
+	}
+	if bytes.Contains(data, []byte(`"role_report_uris"`)) {
+		t.Fatalf("non-P2 status exposed role_report_uris: %s", data)
 	}
 }
 
@@ -3673,7 +3784,7 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 		json   bool
 		reason string
 	}{
-		{name: "followup human", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}, human: "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: still_open", kind: "followup_started", exit: app.ExitCodePolicy},
+		{name: "followup human", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}, human: "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: still_open\nstructured_extraction_status: structured", kind: "followup_started", exit: app.ExitCodePolicy},
 		{name: "followup JSON", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"}, kind: "followup_started", exit: app.ExitCodePolicy, json: true, reason: "request_changes_threshold"},
 		{name: "delta human", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing"}, human: "delta started: r_019f596a-d051-79e7-b2b7-59822f012273", kind: "delta_started"},
 		{name: "delta JSON", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"}, kind: "delta_started", json: true},
@@ -3720,31 +3831,80 @@ func TestApplicationG008FollowupRendersEveryResolutionExactly(t *testing.T) {
 			for _, output := range []string{"human", "json"} {
 				t.Run(output, func(t *testing.T) {
 					fakes := newG008WorkflowFakes(t)
-					fakes.followup.resolution = resolution
+					value := resolution
+					fakes.followup.resolution = &value
+					fakes.followup.structuredExtractionStatus = domain.StructuredExtractionStructured
 					argv := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}
 					if output == "json" {
 						argv = append(argv, "--output", "json")
 					}
 					result := newG008Fixture(t, fakes).application.Run(context.Background(), argv, testAnchoredRoot(t))
 					if output == "human" {
-						want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: " + string(resolution) + "\n"
-						if result.ExitCode() != app.ExitCodePolicy || !bytes.Equal(result.Stdout(), []byte(want)) || len(result.Stderr()) != 0 {
+						want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: " + string(resolution) + "\nstructured_extraction_status: structured"
+						if result.ExitCode() != app.ExitCodePolicy || !bytes.Equal(result.Stdout(), expectedTextOutput([]byte(want))) || len(result.Stderr()) != 0 {
 							t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 						}
 						return
 					}
 					var envelope struct {
 						Result struct {
-							Resolution string `json:"resolution"`
+							Resolution                 string `json:"resolution"`
+							StructuredExtractionStatus string `json:"structured_extraction_status"`
 						} `json:"result"`
 					}
 					if result.ExitCode() != app.ExitCodePolicy {
 						t.Fatalf("JSON exit = %d, want %d", result.ExitCode(), app.ExitCodePolicy)
 					}
-					if err := json.Unmarshal(result.Stdout(), &envelope); err != nil || envelope.Result.Resolution != string(resolution) {
-						t.Fatalf("JSON result = stdout %q resolution %q error %v", result.Stdout(), envelope.Result.Resolution, err)
+					if err := json.Unmarshal(result.Stdout(), &envelope); err != nil ||
+						envelope.Result.Resolution != string(resolution) ||
+						envelope.Result.StructuredExtractionStatus != "structured" {
+						t.Fatalf("JSON result = stdout %q error %v", result.Stdout(), err)
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestApplicationG008FollowupRendersReportsOnlyWithNullResolution(t *testing.T) {
+	for _, output := range []string{"human", "json"} {
+		t.Run(output, func(t *testing.T) {
+			fakes := newG008WorkflowFakes(t)
+			fakes.followup.resolution = nil
+			fakes.followup.structuredExtractionStatus = domain.StructuredExtractionReportsOnly
+			fakes.followup.terminalExit = g008CommittedTerminalExit(t, domain.ExitCommittedPass)
+			argv := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}
+			if output == "json" {
+				argv = append(argv, "--output", "json")
+			}
+			result := newG008Fixture(t, fakes).application.Run(context.Background(), argv, testAnchoredRoot(t))
+			if output == "human" {
+				want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: null\nstructured_extraction_status: reports_only"
+				if result.ExitCode() != app.ExitCodeSuccess || !bytes.Equal(result.Stdout(), expectedTextOutput([]byte(want))) || len(result.Stderr()) != 0 {
+					t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
+				}
+				return
+			}
+			var envelope struct {
+				Result struct {
+					Resolution                 *string `json:"resolution"`
+					StructuredExtractionStatus string  `json:"structured_extraction_status"`
+					RoleReportURIs             []struct {
+						Role string `json:"role"`
+						URI  string `json:"uri"`
+					} `json:"role_report_uris"`
+				} `json:"result"`
+			}
+			if result.ExitCode() != app.ExitCodeSuccess {
+				t.Fatalf("JSON exit = %d, want %d stdout %q", result.ExitCode(), app.ExitCodeSuccess, result.Stdout())
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Result.Resolution != nil ||
+				envelope.Result.StructuredExtractionStatus != "reports_only" ||
+				len(envelope.Result.RoleReportURIs) != 1 {
+				t.Fatalf("JSON reports-only result = %#v", envelope.Result)
 			}
 		})
 	}
@@ -4264,11 +4424,12 @@ func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejects
 func newG006QueryFake() *g006QueryFake {
 	return &g006QueryFake{
 		status: RunStatusView{
-			RunID: testRunID, RunState: domain.RunCompleted, HasRunState: true, PublicationState: domain.PublicationCommitted,
+			SessionID: g006SessionID, RunID: testRunID, RunState: domain.RunCompleted, HasRunState: true,
+			PublicationState: domain.PublicationCommitted,
 			RecoveryAction:   domain.RecoveryActionReconstructCompletedStatus,
 			FinalArtifactURI: g006ReviewArtifactURI, HasFinalArtifact: true,
 			ContentVerdict: domain.ContentRequestChanges, CoverageStatus: domain.CoverageComplete,
-			CIDecision: domain.CIFail, HasAxes: true,
+			CIDecision: domain.CIFail, HasAxes: true, RoleReportURIs: []RoleReportURI{},
 		},
 		findings: FindingsView{
 			RunID:             testRunID,

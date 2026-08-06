@@ -346,9 +346,10 @@ type preparedMulgae struct {
 }
 
 type preparedAxes struct {
-	content  domain.ContentVerdict
-	coverage domain.CoverageStatus
-	ci       domain.CIDecision
+	content              domain.ContentVerdict
+	coverage             domain.CoverageStatus
+	ci                   domain.CIDecision
+	structuredExtraction domain.StructuredExtractionStatus
 }
 
 type preparedRole struct {
@@ -364,14 +365,18 @@ type preparedRole struct {
 	validFindingIDs []string
 	outcome         string
 	limitations     []string
+	reportsOnly     bool
+	reportMarkdown  []byte
 }
 
 type preparedAttempt struct {
-	id          domain.AttemptID
-	kind        review.AttemptKind
-	provider    string
-	state       domain.AttemptState
-	invocations []preparedInvocation
+	id              domain.AttemptID
+	kind            review.AttemptKind
+	provider        string
+	state           domain.AttemptState
+	parseState      domain.ParseState
+	validationState domain.ValidationState
+	invocations     []preparedInvocation
 }
 
 // AttemptArtifactInput binds one captured provider stream to an immutable
@@ -759,7 +764,10 @@ func PrepareNoChangeCandidate(
 		sessionID: sessionID, runID: runID, runState: domain.RunCompleted,
 		target:    preparedTarget{sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID()},
 		threshold: severityThreshold, mulgae: preparedMulgae{version: provenance.BuildVersion, commit: provenance.BuildCommit},
-		axes:  preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
+		axes: preparedAxes{
+			content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass,
+			structuredExtraction: domain.StructuredExtractionStructured,
+		},
 		roles: roles, findings: []preparedFinding{}, failures: []preparedFailure{}, limits: []string{},
 		reasons: []string{"policy_evaluated"}, exitCode: int(domain.ExitCommittedPass),
 		lineage: rootPublicationContext().lineage, noChange: true, noChangeProvenance: &copied,
@@ -800,11 +808,11 @@ func PrepareCandidateWithContext(
 
 	roles, failures, err := prepareRoles(result.RoleSummaries())
 	if err != nil {
-		return PreparedCandidate{}, err
+		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
 	}
 	findings, err := prepareFindings(result.Findings(), result.Evidence(), target, roles)
 	if err != nil {
-		return PreparedCandidate{}, err
+		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationEvidenceFailed, err)
 	}
 	bindFindingIDs(roles, findings)
 	for index := range roles {
@@ -846,7 +854,7 @@ func PrepareCandidateWithContext(
 		production: context.immutableProductionProvenance(),
 	}
 	if err := candidate.validate(); err != nil {
-		return PreparedCandidate{}, err
+		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
 	}
 	return candidate, nil
 }
@@ -874,7 +882,7 @@ func PrepareCandidateWithRuntimeArtifacts(
 		runtimeInputs[index] = inputs[index]
 	}
 	if err := candidate.bindRuntimeArtifactInventories(runtimeInputs); err != nil {
-		return PreparedCandidate{}, err
+		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
 	}
 	return candidate, nil
 }
@@ -1139,6 +1147,7 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 	write(string(candidate.axes.content))
 	write(string(candidate.axes.coverage))
 	write(string(candidate.axes.ci))
+	write(string(candidate.axes.structuredExtraction))
 	for _, role := range candidate.roles {
 		write(string(role.role))
 		write(fmt.Sprintf("%t", role.required))
@@ -1149,11 +1158,15 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		write(role.outcome)
 		write(string(role.failureClass))
 		write(role.failureReason)
+		write(fmt.Sprintf("%t", role.reportsOnly))
+		write(string(role.reportMarkdown))
 		for _, attempt := range role.attempts {
 			write(attempt.id.String())
 			write(string(attempt.kind))
 			write(attempt.provider)
 			write(string(attempt.state))
+			write(string(attempt.parseState))
+			write(string(attempt.validationState))
 			for _, invocation := range attempt.invocations {
 				write(fmt.Sprintf("%d", invocation.sequence))
 				write(string(invocation.purpose))
@@ -1277,17 +1290,31 @@ func (candidate PreparedCandidate) validate() error {
 	if err := validateBuildMetadata(candidate.mulgae.version, candidate.mulgae.commit); err != nil {
 		return err
 	}
-	if !candidate.axes.content.Valid() || !candidate.axes.coverage.Valid() || !candidate.axes.ci.Valid() {
+	if !candidate.axes.content.Valid() || !candidate.axes.coverage.Valid() || !candidate.axes.ci.Valid() ||
+		!candidate.axes.structuredExtraction.Valid() {
 		return fmt.Errorf("outcome axes are invalid")
 	}
 	if candidate.lineage.runType == domain.RunTypeFollowup {
-		if candidate.followup == nil || !candidate.followup.resolution.Valid() ||
-			!safeText(candidate.followup.rationale, 12000, false) ||
-			len(candidate.followup.evidence) == 0 {
-			return fmt.Errorf("followup outcome is incomplete")
-		}
-		if err := validatePreparedEvidence(candidate.followup.evidence, candidate.target.sha256); err != nil {
-			return fmt.Errorf("followup outcome evidence: %w", err)
+		reportsOnlyFollowup := len(candidate.roles) == 1 && candidate.roles[0].reportsOnly
+		if reportsOnlyFollowup {
+			if candidate.followup != nil {
+				return fmt.Errorf("reports-only followup must not claim structured outcome")
+			}
+			if candidate.axes.structuredExtraction != domain.StructuredExtractionReportsOnly {
+				return fmt.Errorf("reports-only followup extraction status is inconsistent")
+			}
+		} else {
+			if candidate.followup == nil || !candidate.followup.resolution.Valid() ||
+				!safeText(candidate.followup.rationale, 12000, false) ||
+				len(candidate.followup.evidence) == 0 {
+				return fmt.Errorf("followup outcome is incomplete")
+			}
+			if err := validatePreparedEvidence(candidate.followup.evidence, candidate.target.sha256); err != nil {
+				return fmt.Errorf("followup outcome evidence: %w", err)
+			}
+			if candidate.axes.structuredExtraction != domain.StructuredExtractionStructured {
+				return fmt.Errorf("structured followup extraction status is inconsistent")
+			}
 		}
 	} else if candidate.followup != nil {
 		return fmt.Errorf("non-followup candidate has followup outcome")
@@ -1337,6 +1364,16 @@ func (candidate PreparedCandidate) validate() error {
 	}
 	if err := validateTerminalRun(candidate.runState, candidate.roles, candidate.axes.coverage); err != nil {
 		return err
+	}
+	summaries := make([]domain.RoleResultSummary, len(candidate.roles))
+	for index, role := range candidate.roles {
+		summaries[index] = domain.RoleResultSummary{
+			Role: role.role, Selected: true, Required: role.required, Valid: role.valid,
+			Degraded: role.degraded, ReportsOnly: role.reportsOnly,
+		}
+	}
+	if candidate.axes.structuredExtraction != domain.ComputeStructuredExtractionStatus(summaries) {
+		return fmt.Errorf("structured extraction status does not match role extraction facts")
 	}
 	return nil
 }
@@ -1394,7 +1431,9 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 				}
 			}
 			preparedAttempts[attemptIndex] = preparedAttempt{
-				id: attempt.ID(), kind: attempt.Kind(), provider: attempt.Route().ProviderInstance(), state: attempt.State(), invocations: preparedInvocations,
+				id: attempt.ID(), kind: attempt.Kind(), provider: attempt.Route().ProviderInstance(), state: attempt.State(),
+				parseState: attempt.ParseState(), validationState: attempt.ValidationState(),
+				invocations: preparedInvocations,
 			}
 			if attempt.State() == domain.AttemptSucceeded {
 				if attempt.FailureClass() != "" || attempt.ReasonCode() != "" {
@@ -1415,20 +1454,25 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 
 		finalAttempt := preparedAttempts[len(preparedAttempts)-1]
 		roleResult := preparedRole{
-			role:          role,
-			required:      summary.Required() || role == domain.RoleLogic,
-			state:         summary.State(),
-			valid:         summary.Valid(),
-			degraded:      summary.Degraded(),
-			repaired:      summary.Repaired(),
-			failureClass:  summary.FailureClass(),
-			failureReason: summary.ReasonCode(),
-			attempts:      preparedAttempts,
+			role:           role,
+			required:       summary.Required() || role == domain.RoleLogic,
+			state:          summary.State(),
+			valid:          summary.Valid(),
+			degraded:       summary.Degraded(),
+			repaired:       summary.Repaired(),
+			failureClass:   summary.FailureClass(),
+			failureReason:  summary.ReasonCode(),
+			attempts:       preparedAttempts,
+			reportsOnly:    summary.ReportsOnly(),
+			reportMarkdown: summary.ReportMarkdown(),
 		}
 		if summary.Valid() {
 			if summary.State() != domain.RoleTaskSucceeded || finalAttempt.state != domain.AttemptSucceeded ||
 				summary.FailureClass() != "" || summary.ReasonCode() != "" {
 				return nil, nil, fmt.Errorf("publication candidate: successful role %q is inconsistent", role)
+			}
+			if len(bytes.TrimSpace(roleResult.reportMarkdown)) == 0 {
+				return nil, nil, fmt.Errorf("publication candidate: successful role %q is missing its role report", role)
 			}
 			if summary.Degraded() {
 				roleResult.outcome = "degraded"
@@ -1659,6 +1703,7 @@ func validateOutcomeAxes(
 	for index, role := range roles {
 		roleResults[index] = domain.RoleResultSummary{
 			Role: role.role, Selected: true, Required: role.required, Valid: role.valid, Degraded: role.degraded,
+			ReportsOnly: role.reportsOnly,
 		}
 	}
 	domainFindings := result.Findings()
@@ -1684,6 +1729,7 @@ func validateOutcomeAxes(
 	content := expected.ContentVerdict()
 	coverage := expectedCoverage
 	ci := expectedCI
+	structuredExtraction := review.ComputeStructuredExtractionStatus(roleResults)
 	reasons := make([]string, 0, 2)
 	if content == domain.ContentRequestChanges {
 		reasons = append(reasons, "request_changes_threshold")
@@ -1709,7 +1755,9 @@ func validateOutcomeAxes(
 	} else if coverage == domain.CoverageDegraded {
 		limits = append(limits, "Review coverage is degraded.")
 	}
-	return preparedAxes{content: content, coverage: coverage, ci: ci}, reasons, exitCode, limits, nil
+	return preparedAxes{
+		content: content, coverage: coverage, ci: ci, structuredExtraction: structuredExtraction,
+	}, reasons, exitCode, limits, nil
 }
 
 func coverageForSelectedPreparedRoles(roles []preparedRole) domain.CoverageStatus {
@@ -1779,7 +1827,10 @@ func (candidate PreparedCandidate) validateNoChange() error {
 		candidate.mulgae.commit != candidate.noChangeProvenance.BuildCommit ||
 		candidate.lineage.runType != domain.RunTypeReview || candidate.runState != domain.RunCompleted ||
 		candidate.target.sha256 != "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ||
-		candidate.axes != (preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass}) ||
+		candidate.axes != (preparedAxes{
+			content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass,
+			structuredExtraction: domain.StructuredExtractionStructured,
+		}) ||
 		len(candidate.findings) != 0 || len(candidate.failures) != 0 || len(candidate.limits) != 0 ||
 		!reflect.DeepEqual(candidate.reasons, []string{"policy_evaluated"}) || candidate.exitCode != int(domain.ExitCommittedPass) {
 		return fmt.Errorf("no-change values are inconsistent")
@@ -1838,6 +1889,17 @@ func validatePreparedRole(role preparedRole) error {
 		if !attempt.kind.Valid() || !validProviderInstance(attempt.provider) || !terminalAttemptState(attempt.state) || len(attempt.invocations) == 0 {
 			return fmt.Errorf("attempt %q is invalid", attempt.id)
 		}
+		if attempt.state == domain.AttemptSucceeded {
+			if !validSuccessfulAttemptExtractionStates(string(attempt.parseState), string(attempt.validationState)) {
+				return fmt.Errorf("attempt %q has invalid extraction states", attempt.id)
+			}
+		} else {
+			parseOK := attempt.parseState == "" || attempt.parseState == domain.ParseNotStarted
+			validationOK := attempt.validationState == "" || attempt.validationState == domain.ValidationNotStarted
+			if !parseOK || !validationOK {
+				return fmt.Errorf("attempt %q has invalid failed extraction states", attempt.id)
+			}
+		}
 		for invocationIndex, invocation := range attempt.invocations {
 			if invocation.sequence != uint64(invocationIndex+1) || !invocation.purpose.Valid() || !terminalInvocationState(invocation.state) {
 				return fmt.Errorf("attempt %q invocation %d is invalid", attempt.id, invocationIndex)
@@ -1876,10 +1938,22 @@ func validatePreparedRole(role preparedRole) error {
 		if role.outcome == "degraded" && !role.degraded {
 			return fmt.Errorf("degraded role is not marked degraded")
 		}
+		if len(bytes.TrimSpace(role.reportMarkdown)) == 0 || !utf8.Valid(role.reportMarkdown) {
+			return fmt.Errorf("successful role report is missing or invalid")
+		}
+		expectedReportsOnly, ok := domain.ClassifySuccessfulAttemptExtraction(
+			finalAttempt.parseState, finalAttempt.validationState,
+		)
+		if !ok || role.reportsOnly != expectedReportsOnly {
+			return fmt.Errorf("successful role reportsOnly does not match terminal attempt extraction")
+		}
+		if role.reportsOnly && len(role.validFindingIDs) != 0 {
+			return fmt.Errorf("reports-only role cannot retain structured findings")
+		}
 	case "failed":
 		if role.valid || role.degraded || role.state != domain.RoleTaskFailed || !role.failureClass.Valid() ||
 			!validReasonCode(role.failureReason) || finalAttempt.state == domain.AttemptSucceeded ||
-			forbiddenPublicationFailure(role.failureClass) {
+			forbiddenPublicationFailure(role.failureClass) || len(role.reportMarkdown) != 0 || role.reportsOnly {
 			return fmt.Errorf("failed role values are inconsistent")
 		}
 	default:
@@ -2492,6 +2566,7 @@ func validatePublicationCompositeSemantics(
 		!validSHA256(finalWire.Target.ContentSHA256) ||
 		!domain.ContentVerdict(finalWire.ContentVerdict).Valid() ||
 		!domain.CoverageStatus(finalWire.CoverageStatus).Valid() ||
+		!domain.StructuredExtractionStatus(finalWire.StructuredExtractionStatus).Valid() ||
 		!domain.CIDecision(finalWire.CIDecision).Valid() ||
 		finalWire.Provenance.AggregationPath != aggregationPath ||
 		finalWire.Provenance.FinalValidationPath != finalValidationPath ||
@@ -2554,6 +2629,7 @@ func validatePublicationCompositeSemantics(
 		manifest.Target.ContentSHA256 != finalWire.Target.ContentSHA256 ||
 		manifest.ContentVerdict != string(content) ||
 		manifest.CoverageStatus != string(coverage) ||
+		manifest.StructuredExtractionStatus != finalWire.StructuredExtractionStatus ||
 		manifest.PublicationStatus != string(domain.PublicationCommitted) ||
 		manifest.CIDecision != string(ci) ||
 		!reflect.DeepEqual(manifest.CIReasonCodes, finalWire.CIReasonCodes) ||
@@ -2580,6 +2656,12 @@ func validatePublicationCompositeSemantics(
 	}
 	repaired, err := validateManifestRoleBindings(manifest, finalWire)
 	if err != nil {
+		return 0, err
+	}
+	if err := validateCommittedStructuredExtractionStatus(manifest, finalWire); err != nil {
+		return 0, err
+	}
+	if err := validateManifestRoleReports(manifest, finalWire); err != nil {
 		return 0, err
 	}
 	expectedValidationStatus := "valid"
@@ -2748,12 +2830,23 @@ func validateFinalOutcomeSemantics(runType domain.RunType, replayMode *string, f
 		if !severity.Valid() {
 			return "", "", "", fmt.Errorf("final review finding severity is invalid")
 		}
-		if content == domain.ContentNoFindings {
+		if content == domain.ContentNoFindings || content == domain.ContentReportsOnly {
 			content = domain.ContentFindingsPresent
 		}
 		if severity.Rank() >= threshold.Rank() {
 			content = domain.ContentRequestChanges
 		}
+	}
+	extraction := domain.StructuredExtractionStatus(final.StructuredExtractionStatus)
+	if !extraction.Valid() {
+		return "", "", "", fmt.Errorf("final review structured extraction status is invalid")
+	}
+	if content == domain.ContentNoFindings &&
+		(extraction == domain.StructuredExtractionReportsOnly || extraction == domain.StructuredExtractionMixed) {
+		content = domain.ContentReportsOnly
+	}
+	if content == domain.ContentNoFindings && extraction != domain.StructuredExtractionStructured {
+		return "", "", "", fmt.Errorf("final review cannot claim no findings without structured extraction")
 	}
 	if runType == domain.RunTypeFollowup && final.FollowupOutcome != nil &&
 		final.FollowupOutcome.Resolution == string(domain.FollowupStillOpen) {
@@ -2929,6 +3022,115 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 	return nil
 }
 
+func validSuccessfulAttemptExtractionStates(parseState, validationState string) bool {
+	_, ok := domain.ClassifySuccessfulAttemptExtraction(
+		domain.ParseState(parseState),
+		domain.ValidationState(validationState),
+	)
+	return ok
+}
+
+// validateCommittedStructuredExtractionStatus recomputes SES from each selected
+// successful terminal manifest attempt (and provider-free not_applicable roles)
+// and requires both final and manifest structured_extraction_status to match.
+func validateCommittedStructuredExtractionStatus(manifest runManifestWire, final finalReviewWire) error {
+	lastAttemptByRole := make(map[string]manifestAttemptWire, len(manifest.Attempts))
+	for _, attempt := range manifest.Attempts {
+		lastAttemptByRole[attempt.Role] = attempt
+	}
+	summaries := make([]domain.RoleResultSummary, 0, len(final.RoleOutcomes))
+	for _, outcome := range final.RoleOutcomes {
+		parsedRole := domain.Role(outcome.Role)
+		switch outcome.Outcome {
+		case "not_applicable":
+			summaries = append(summaries, domain.RoleResultSummary{
+				Role: parsedRole, Selected: true, Required: outcome.Required, Valid: true,
+			})
+		case "completed", "degraded":
+			attempt, ok := lastAttemptByRole[outcome.Role]
+			if !ok || attempt.State != string(domain.AttemptSucceeded) {
+				return fmt.Errorf("successful role outcome %q lacks a terminal successful attempt", outcome.Role)
+			}
+			reportsOnly, classified := domain.ClassifySuccessfulAttemptExtraction(
+				domain.ParseState(attempt.ParseState),
+				domain.ValidationState(attempt.ValidationState),
+			)
+			if !classified {
+				return fmt.Errorf("successful role outcome %q has unclassified attempt extraction", outcome.Role)
+			}
+			summaries = append(summaries, domain.RoleResultSummary{
+				Role: parsedRole, Selected: true, Required: outcome.Required, Valid: true,
+				Degraded: outcome.Outcome == "degraded", ReportsOnly: reportsOnly,
+			})
+		case "failed", "skipped":
+			summaries = append(summaries, domain.RoleResultSummary{
+				Role: parsedRole, Selected: true, Required: outcome.Required, Valid: false,
+			})
+		default:
+			return fmt.Errorf("role outcome %q is invalid for structured extraction", outcome.Outcome)
+		}
+	}
+	expected := domain.ComputeStructuredExtractionStatus(summaries)
+	if domain.StructuredExtractionStatus(final.StructuredExtractionStatus) != expected ||
+		domain.StructuredExtractionStatus(manifest.StructuredExtractionStatus) != expected {
+		return fmt.Errorf("structured extraction status does not match terminal attempt facts")
+	}
+	return nil
+}
+
+func validateManifestRoleReports(manifest runManifestWire, final finalReviewWire) error {
+	expectedRoles := make([]string, 0, len(final.RoleOutcomes))
+	outcomesByRole := make(map[string]roleOutcomeWire, len(final.RoleOutcomes))
+	for _, role := range final.RoleOutcomes {
+		outcomesByRole[role.Role] = role
+		if role.Outcome == "completed" || role.Outcome == "degraded" || role.Outcome == "not_applicable" {
+			if role.Outcome == "not_applicable" {
+				continue
+			}
+			expectedRoles = append(expectedRoles, role.Role)
+		}
+	}
+	if len(manifest.RoleReports) != len(expectedRoles) {
+		return fmt.Errorf("manifest role reports do not match successful selected roles")
+	}
+	attemptsByID := make(map[string]manifestAttemptWire, len(manifest.Attempts))
+	for _, attempt := range manifest.Attempts {
+		attemptsByID[attempt.AttemptID] = attempt
+	}
+	seen := make(map[string]struct{}, len(manifest.RoleReports))
+	for index, report := range manifest.RoleReports {
+		if report.Role != expectedRoles[index] ||
+			report.Path != "role-reports/"+report.Role+".md" ||
+			report.ContentType != "text/markdown" ||
+			!domain.Role(report.Role).Valid() ||
+			!validSHA256(report.SHA256) ||
+			report.ByteLength <= 0 ||
+			!validProviderInstance(report.ProviderInstance) {
+			return fmt.Errorf("manifest role report %q is invalid", report.Role)
+		}
+		if _, err := domain.ParseAttemptID(report.AttemptID); err != nil {
+			return fmt.Errorf("manifest role report %q has invalid attempt_id", report.Role)
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return fmt.Errorf("manifest role report %q is duplicated", report.Role)
+		}
+		seen[report.Role] = struct{}{}
+		outcome, ok := outcomesByRole[report.Role]
+		if !ok || outcome.AttemptID == nil || outcome.ProviderInstance == nil ||
+			*outcome.AttemptID != report.AttemptID ||
+			*outcome.ProviderInstance != report.ProviderInstance {
+			return fmt.Errorf("manifest role report %q does not match final role outcome authority", report.Role)
+		}
+		attempt, ok := attemptsByID[report.AttemptID]
+		if !ok || attempt.Role != report.Role ||
+			attempt.ProviderInstance != report.ProviderInstance ||
+			attempt.State != string(domain.AttemptSucceeded) {
+			return fmt.Errorf("manifest role report %q does not match attempt authority", report.Role)
+		}
+	}
+	return nil
+}
+
 func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWire) (bool, error) {
 	if len(manifest.SelectedRoles) != len(final.RoleOutcomes) {
 		return false, fmt.Errorf("manifest selected roles do not match final role outcomes")
@@ -2986,8 +3188,8 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 		}
 		attemptCountByRole[attempt.Role]++
 		if attempt.State == string(domain.AttemptSucceeded) {
-			if attempt.ParseState != "valid" ||
-				(attempt.ValidationState != "valid" && attempt.ValidationState != "repaired_valid") {
+			if !domain.ParseState(attempt.ParseState).Valid() || !domain.ValidationState(attempt.ValidationState).Valid() ||
+				!validSuccessfulAttemptExtractionStates(attempt.ParseState, attempt.ValidationState) {
 				return false, fmt.Errorf("successful manifest attempt %q has invalid validation facts", attempt.AttemptID)
 			}
 			repaired = repaired || attempt.ValidationState == "repaired_valid"
@@ -3222,6 +3424,7 @@ func clonePreparedRoles(source []preparedRole) []preparedRole {
 		cloned[index].attempts = clonePreparedAttempts(role.attempts)
 		cloned[index].validFindingIDs = append([]string(nil), role.validFindingIDs...)
 		cloned[index].limitations = append([]string(nil), role.limitations...)
+		cloned[index].reportMarkdown = append([]byte(nil), role.reportMarkdown...)
 	}
 	return cloned
 }

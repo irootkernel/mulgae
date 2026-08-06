@@ -58,6 +58,9 @@ type g008RealE2ERootResult struct {
 	ReviewID          domain.ReviewID
 	AttemptID         domain.AttemptID
 	SecurityAttemptID domain.AttemptID
+	RunManifestURI    string
+	ReviewArtifactURI string
+	TerminalExit      domain.OperationalExitDecision
 	Queries           *appquery.Service
 	Sources           *G008Sources
 	Transcript        []g008RealE2EProviderCall
@@ -222,18 +225,31 @@ func (g008RealE2EImmutableTarget) ReadImmutableTarget(_ context.Context, _ strin
 	return evidence.ImmutableTargetAvailable, append(bytes.Repeat([]byte("\n"), 119), []byte("queueFallback(task)")...), nil
 }
 
-type g008RealE2EFollowupPromptSource struct{ provider *g008RealE2EProvider }
+type g008RealE2EFollowupPromptSource struct {
+	provider      *g008RealE2EProvider
+	fixedStdout   []byte
+	disableRepair bool
+}
 
 func (source g008RealE2EFollowupPromptSource) BuildFollowupInvocation(_ context.Context, execution appfollowup.Execution, _ domain.Run, attemptID domain.AttemptID) (ports.ProviderInvocation, error) {
 	stdin := []byte("followup:" + execution.Source.RunID.String() + ":" + execution.Source.Finding.ID)
 	source.provider.mu.Lock()
-	source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[],"new_findings":[],"limitations":[]}]}`)
+	if len(source.fixedStdout) > 0 {
+		source.provider.followup = append([]byte(nil), source.fixedStdout...)
+	} else {
+		// Intentionally omit required summary so the initial attempt is a
+		// structured, schema-repairable candidate that exercises one repair.
+		source.provider.followup = []byte(`{"schema_version":"mulgae-provider-followup-output.v1","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[],"new_findings":[],"limitations":[]}`)
+	}
 	source.provider.mu.Unlock()
 	return g008RealFollowupInvocation(execution, attemptID, ports.ProviderInvocationInitial, stdin,
 		"i_019f5a09-5eed-7001-8001-000000000001", "019f5a09-5eed-7002-8002-000000000002")
 }
 
 func (source g008RealE2EFollowupPromptSource) BuildFollowupRepairInvocation(_ context.Context, execution appfollowup.Execution, _ domain.Run, attemptID domain.AttemptID, prior []byte) (ports.ProviderInvocation, error) {
+	if source.disableRepair {
+		return ports.ProviderInvocation{}, fmt.Errorf("g008 followup repair disabled")
+	}
 	if len(prior) == 0 {
 		return ports.ProviderInvocation{}, fmt.Errorf("g008 followup repair requires prior output")
 	}
@@ -294,12 +310,16 @@ type g008RealE2EProvider struct {
 	followup           []byte
 	logicNoFindings    bool
 	securityLowFinding bool
+	observeErr         error
 }
 
 func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.calls = append(provider.calls, g008RealE2EProviderCall{AttemptID: invocation.AttemptID(), Purpose: invocation.Purpose(), StdinSHA256: invocation.CompleteStdinSHA256()})
+	if provider.observeErr != nil && (bytes.HasPrefix(invocation.Stdin(), []byte("followup:")) || bytes.HasPrefix(invocation.Stdin(), []byte("followup-repair:"))) {
+		return ports.ProviderExecutionObservation{}, provider.observeErr
+	}
 	var stdout []byte
 	switch {
 	case provider.followup != nil && (bytes.HasPrefix(invocation.Stdin(), []byte("followup:")) || bytes.HasPrefix(invocation.Stdin(), []byte("followup-repair:"))):
@@ -355,7 +375,12 @@ func (provider *g008RealE2EProvider) Transcript() []g008RealE2EProviderCall {
 func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	t.Helper()
 	ctx := context.Background()
-	root, err := ports.NewAnchoredRoot(t.TempDir())
+	projectRoot := t.TempDir()
+	artifactRoot := filepath.Join(projectRoot, ".mulgae")
+	if err := os.Mkdir(artifactRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(artifactRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,6 +529,14 @@ func (fixture *g008RealE2EFixture) executeAndPublishRoot(t *testing.T) g008RealE
 	if !ok {
 		t.Fatal("root publication did not issue a review ID")
 	}
+	snapshot, ok := published.Snapshot()
+	if !ok {
+		t.Fatal("root publication did not return a committed snapshot")
+	}
+	terminalExit, ok := published.TerminalExit()
+	if !ok {
+		t.Fatal("root publication did not return a terminal exit")
+	}
 	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root), strings.NewReader(""))
 	if err != nil {
 		t.Fatal(err)
@@ -512,7 +545,13 @@ func (fixture *g008RealE2EFixture) executeAndPublishRoot(t *testing.T) g008RealE
 	if err != nil {
 		t.Fatal(err)
 	}
-	return g008RealE2ERootResult{SessionID: result.SessionID(), RunID: result.RunID(), ReviewID: issued.ReviewID(), AttemptID: fixture.provider.Transcript()[0].AttemptID, SecurityAttemptID: fixture.provider.Transcript()[1].AttemptID, Queries: fixture.queries, Sources: sources, Transcript: fixture.provider.Transcript()}
+	return g008RealE2ERootResult{
+		SessionID: result.SessionID(), RunID: result.RunID(), ReviewID: issued.ReviewID(),
+		AttemptID: fixture.provider.Transcript()[0].AttemptID, SecurityAttemptID: fixture.provider.Transcript()[1].AttemptID,
+		RunManifestURI:    ".mulgae/" + snapshot.Manifest().Path().String(),
+		ReviewArtifactURI: ".mulgae/" + snapshot.Final().Identity().Path().String(),
+		TerminalExit:      terminalExit, Queries: fixture.queries, Sources: sources, Transcript: fixture.provider.Transcript(),
+	}
 }
 
 type g008RealE2EInventoryEntry struct {

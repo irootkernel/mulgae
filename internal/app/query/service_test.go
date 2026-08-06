@@ -1062,11 +1062,13 @@ func TestValidateOutcomeProjectionCoversPassFailAndIncomplete(t *testing.T) {
 					RequestChangesAtOrAbove: "high",
 					PolicySource:            "project_local",
 				},
-				CIReasonCodes: append([]string(nil), test.reasons...),
+				StructuredExtractionStatus: string(domain.StructuredExtractionStructured),
+				CIReasonCodes:              append([]string(nil), test.reasons...),
 			}
 			manifest := manifestDTO{
-				CIReasonCodes: append([]string(nil), test.reasons...),
-				ExitCode:      int(test.exit),
+				StructuredExtractionStatus: string(domain.StructuredExtractionStructured),
+				CIReasonCodes:              append([]string(nil), test.reasons...),
+				ExitCode:                   int(test.exit),
 			}
 			if err := validateOutcomeProjection(
 				final,
@@ -1075,6 +1077,7 @@ func TestValidateOutcomeProjectionCoversPassFailAndIncomplete(t *testing.T) {
 				test.findings,
 				test.content,
 				test.coverage,
+				domain.StructuredExtractionStructured,
 				test.ci,
 				decision,
 			); err != nil {
@@ -1762,6 +1765,184 @@ func TestReadRunStatusFailsClosedWhenP2EpochChangesDuringSnapshotRead(t *testing
 		t.Fatal("ReadRunStatus exposed a final path from a changed P2 epoch")
 	}
 }
+
+func TestValidRoleReportMarkdownMatchesProducerBoundary(t *testing.T) {
+	t.Parallel()
+	if !validRoleReportMarkdown([]byte("# ok\n")) {
+		t.Fatal("valid markdown rejected")
+	}
+	if !validRoleReportMarkdown([]byte("a\x00b")) {
+		t.Fatal("embedded NUL rejected unlike producer normalizeRoleReportMarkdown")
+	}
+	if validRoleReportMarkdown(nil) || validRoleReportMarkdown([]byte{}) {
+		t.Fatal("empty markdown accepted")
+	}
+	if validRoleReportMarkdown([]byte("   \n\t  ")) {
+		t.Fatal("whitespace-only markdown accepted")
+	}
+	if validRoleReportMarkdown([]byte{0xff, 0xfe, 0xfd}) {
+		t.Fatal("non-UTF-8 markdown accepted")
+	}
+	if !validRoleReportMarkdown([]byte(strings.Repeat("a", maxRoleReportBytes))) {
+		t.Fatal("exact 8 MiB markdown rejected")
+	}
+	if validRoleReportMarkdown([]byte(strings.Repeat("a", maxRoleReportBytes+1))) {
+		t.Fatal("oversized markdown accepted")
+	}
+}
+
+func TestReadRunStatusAcceptsCanonicalEmptySupportIndexForNoChange(t *testing.T) {
+	t.Parallel()
+	// Exact publication marshalCanonical bytes for a provider-free no-change
+	// support index. Keep lockstep with
+	// publication.TestPrepareNoChangeCandidateSerializesZeroAttempts.
+	canonicalEmptySupportIndex := []byte("{\"schema_version\":\"mulgae-run-support-index.v1\",\"artifacts\":[]}\n")
+	run, snapshot, observation, artifacts := queryNoChangeCommittedFixture(t, canonicalEmptySupportIndex)
+	status, err := mustQueryService(t, &queryStore{
+		observation: observation, snapshot: snapshot, auxiliaryArtifacts: artifacts,
+	}, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if err != nil {
+		t.Fatalf("ReadRunStatus() error = %v", err)
+	}
+	content, hasContent := status.ContentVerdict()
+	coverage, hasCoverage := status.CoverageStatus()
+	ci, hasCI := status.CIDecision()
+	if status.PublicationStatus() != domain.PublicationCommitted ||
+		!hasContent || content != domain.ContentNoFindings ||
+		!hasCoverage || coverage != domain.CoverageComplete ||
+		!hasCI || ci != domain.CIPass ||
+		len(status.RoleReportURIs()) != 0 {
+		t.Fatalf("no-change status = %#v", status)
+	}
+}
+
+func TestReadRunStatusRejectsMissingOrCorruptSupportIndexWithZeroRoleReports(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation := queryZeroRoleReportCommittedFixture(t, false, nil)
+	store := &queryStore{observation: observation, snapshot: snapshot}
+	status, err := mustQueryService(t, store, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("missing support index failure class = %q, want artifact", failureClass(t, err))
+	}
+	if status.PublicationStatus() != domain.PublicationCorrupt || len(status.RoleReportURIs()) != 0 {
+		t.Fatalf("missing support index status = %#v", status)
+	}
+
+	run, snapshot, observation, artifacts := queryZeroRoleReportCommittedFixtureWithSupport(t, func(support []byte) []byte {
+		return append([]byte(nil), support[:len(support)/2]...)
+	})
+	store = &queryStore{observation: observation, snapshot: snapshot, auxiliaryArtifacts: artifacts}
+	status, err = mustQueryService(t, store, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("corrupt support index failure class = %q, want artifact", failureClass(t, err))
+	}
+	if status.PublicationStatus() != domain.PublicationCorrupt || len(status.RoleReportURIs()) != 0 {
+		t.Fatalf("corrupt support index status = %#v", status)
+	}
+}
+
+func TestReadRunStatusExposesVerifiedRoleReportURIsAndRejectsTamper(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation, artifacts, wantURIs := queryStatusRoleReportFixture(t)
+	store := &queryStore{observation: observation, snapshot: snapshot, auxiliaryArtifacts: artifacts}
+	status, err := mustQueryService(t, store, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if err != nil {
+		t.Fatalf("ReadRunStatus() error = %v", err)
+	}
+	got := status.RoleReportURIs()
+	if len(got) != len(wantURIs) {
+		t.Fatalf("role report URIs = %#v, want %#v", got, wantURIs)
+	}
+	for index := range wantURIs {
+		if got[index] != wantURIs[index] {
+			t.Fatalf("role report URIs[%d] = %#v, want %#v", index, got[index], wantURIs[index])
+		}
+	}
+
+	p0, err := ports.NewPublicationObservation(domain.JournalCollecting, domain.DurableObservationP0None, nil, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonP2 := &queryStore{observation: p0, snapshot: snapshot, auxiliaryArtifacts: artifacts}
+	nonP2Status, err := mustQueryService(t, nonP2, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if err != nil {
+		t.Fatalf("non-P2 ReadRunStatus() error = %v", err)
+	}
+	if len(nonP2Status.RoleReportURIs()) != 0 || nonP2.snapshotReads != 0 {
+		t.Fatalf("non-P2 exposed role report URIs or read snapshot: %#v reads=%d", nonP2Status, nonP2.snapshotReads)
+	}
+
+	logicPath := run.SessionID().String() + "/" + run.RunID().String() + "/role-reports/logic.md"
+	tampered := mustQueryArtifact(t, mustQueryPath(t, logicPath), []byte("# tampered\n"))
+	artifacts[logicPath] = tampered
+	tamperStore := &queryStore{observation: observation, snapshot: snapshot, auxiliaryArtifacts: artifacts}
+	tamperStatus, err := mustQueryService(t, tamperStore, &queryValidator{}, nil).ReadRunStatus(context.Background(), run)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("tampered report failure class = %q, want artifact", failureClass(t, err))
+	}
+	if len(tamperStatus.RoleReportURIs()) != 0 {
+		t.Fatal("tampered report exposed role report URIs")
+	}
+
+	extraPath := run.SessionID().String() + "/" + run.RunID().String() + "/role-reports/testing.md"
+	extra := mustQueryArtifact(t, mustQueryPath(t, extraPath), []byte("# unbound\n"))
+	run2, snapshot2, observation2, artifacts2, _ := queryStatusRoleReportFixture(t)
+	supportPath := run2.SessionID().String() + "/" + run2.RunID().String() + "/support/index.json"
+	var index runtimeSupportIndexDTO
+	if err := json.Unmarshal(artifacts2[supportPath].Bytes(), &index); err != nil {
+		t.Fatal(err)
+	}
+	index.Artifacts = append(index.Artifacts, artifactIdentityDTO{Path: extraPath, SHA256: extra.SHA256()})
+	rebuilt, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), rebuilt)
+	artifacts2[supportPath] = support
+	artifacts2[extraPath] = extra
+	manifestRecord, err := decodeManifestDTO(snapshot2.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, snapshot2.Manifest().Path(), manifestBytes)
+	snapshot2, err = ports.NewCommittedPublicationSnapshot(snapshot2.Final(), manifest, snapshot2.LineageEdge(), snapshot2.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation2 = queryP2Observation(t, run2, snapshot2, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+	unboundStore := &queryStore{observation: observation2, snapshot: snapshot2, auxiliaryArtifacts: artifacts2}
+	unboundStatus, err := mustQueryService(t, unboundStore, &queryValidator{}, nil).ReadRunStatus(context.Background(), run2)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("unbound support role report failure class = %q, want artifact", failureClass(t, err))
+	}
+	if len(unboundStatus.RoleReportURIs()) != 0 {
+		t.Fatal("unbound support role report exposed URIs")
+	}
+
+	run3, snapshot3, observation3, artifacts3, _ := queryStatusRoleReportFixture(t)
+	reobserveStore := &queryStore{
+		observations: []ports.PublicationObservation{
+			observation3,
+			observation3,
+			queryP2Observation(t, run3, querySnapshotAtEpoch(t, snapshot3, 2), domain.JournalCompleted, domain.ExitCommittedCIRejected, 2),
+		},
+		snapshot:           snapshot3,
+		auxiliaryArtifacts: artifacts3,
+	}
+	reobserveStatus, err := mustQueryService(t, reobserveStore, &queryValidator{}, nil).ReadRunStatus(context.Background(), run3)
+	if failureClass(t, err) != domain.FailureArtifact {
+		t.Fatalf("post-artifact re-observation failure class = %q, want artifact", failureClass(t, err))
+	}
+	if len(reobserveStatus.RoleReportURIs()) != 0 {
+		t.Fatal("unstable post-artifact observation exposed role report URIs")
+	}
+}
+
 func TestQueryArgumentValidationDefersToDependencyAndCancellationPreflight(t *testing.T) {
 	t.Parallel()
 	run, _, observation := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
@@ -2477,7 +2658,7 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 		"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q},
 		"target":{"content_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","manifest_path":"target/target-manifest.json","base_oid":null,"head_oid":null},
 		"validation":{"status":"valid","schema_validation":"passed","semantic_validation":"passed","evidence_validation":"passed"},
-		"content_verdict":"request_changes","coverage_status":"complete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],
+		"content_verdict":"request_changes","coverage_status":"complete","structured_extraction_status":"structured","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],
 		"severity_threshold":{"request_changes_at_or_above":"high","policy_source":"project_local"},
 		"role_outcomes":[
 			{"role":"logic","required":true,"outcome":"completed","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","provider_instance":"logic-provider","selected_via":"primary","valid_finding_ids":["F001"],"failure_reason":null,"limitations":[]},
@@ -2501,10 +2682,15 @@ func queryCommittedFixtureWithSourceExcerptSHA256(
 			{"attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","role":"logic","provider_instance":"logic-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d048-79e7-b2b7-59822f012273/status.json","invocation_count":1},
 			{"attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","role":"security","provider_instance":"security-provider","selected_as":"primary","state":"succeeded","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ac-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1}
 		],
-		"content_verdict":"request_changes","coverage_status":"complete","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
+		"content_verdict":"request_changes","coverage_status":"complete","structured_extraction_status":"structured","publication_status":"committed","ci_decision":"fail","ci_reason_codes":["request_changes_threshold"],"persisted_journal_state":"completed","durable_observation_class":"P2_COMMITTED","derived_publication_status":"committed","publication_authority":"P2",
 		"recovery_journal":{"expected_staged":null,"expected_final":{"path":%q,"sha256":%q},"validated_candidate_sha256":%q},
 		"composite_identity":{"manifest":{"path":%q},"lineage_edge":{"path":%q,"sha256":%q},"epoch":{"path":%q}},"recovery_action":"reconstruct_completed_status",
-		"final_review":{"review_id":%q,"path":%q,"sha256":%q},"failures":[],"warnings":[],"exit_code":1
+		"final_review":{"review_id":%q,"path":%q,"sha256":%q},
+		"role_reports":[
+			{"role":"logic","path":"role-reports/logic.md","sha256":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","byte_length":12,"provider_instance":"logic-provider","attempt_id":"a_019f596a-d048-79e7-b2b7-59822f012273","content_type":"text/markdown"},
+			{"role":"security","path":"role-reports/security.md","sha256":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","byte_length":16,"provider_instance":"security-provider","attempt_id":"a_019f596a-d0ac-7c12-8b68-0bd73e911b2e","content_type":"text/markdown"}
+		],
+		"failures":[],"warnings":[],"exit_code":1
 	}`, sessionID.String(), runID.String(), edgePath.String(), edge.SHA256(), finalPath.String(), finalIdentity.SHA256(), finalIdentity.SHA256(), manifestPath.String(), edgePath.String(), edge.SHA256(), epochPath.String(), reviewID.String(), finalPath.String(), finalIdentity.SHA256()))
 	manifest := mustQueryArtifact(t, manifestPath, manifestBytes)
 	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, edge, epoch)
@@ -2684,6 +2870,245 @@ func queryCurrentExcerptSHA256(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return digest
+}
+
+func queryNoChangeCommittedFixture(
+	t *testing.T,
+	supportIndexBytes []byte,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact) {
+	t.Helper()
+	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedPass)
+	emptyTargetSHA := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	finalRecord, err := decodeFinalDTO(baseSnapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range finalRecord.RoleOutcomes {
+		finalRecord.RoleOutcomes[index].Outcome = "not_applicable"
+		finalRecord.RoleOutcomes[index].AttemptID = nil
+		finalRecord.RoleOutcomes[index].ProviderInstance = nil
+		finalRecord.RoleOutcomes[index].SelectedVia = nil
+		finalRecord.RoleOutcomes[index].ValidFindingIDs = nil
+		finalRecord.RoleOutcomes[index].FailureReason = nil
+		finalRecord.RoleOutcomes[index].Limitations = []string{"No Git changes were captured."}
+	}
+	finalRecord.Findings = nil
+	finalRecord.Target.ContentSHA256 = emptyTargetSHA
+	finalRecord.ContentVerdict = string(domain.ContentNoFindings)
+	finalRecord.CoverageStatus = string(domain.CoverageComplete)
+	finalRecord.StructuredExtractionStatus = string(domain.StructuredExtractionStructured)
+	finalRecord.CIDecision = string(domain.CIPass)
+	finalRecord.CIReasonCodes = []string{"policy_evaluated"}
+	finalBytes, err := json.Marshal(finalRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(baseSnapshot.Final().Identity().ReviewID(), baseSnapshot.Final().Identity().Path(), querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord, err := decodeManifestDTO(baseSnapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.Attempts = nil
+	manifestRecord.RoleReports = []manifestRoleReportDTO{}
+	manifestRecord.Failures = nil
+	manifestRecord.State = string(domain.RunCompleted)
+	manifestRecord.Target.ContentSHA256 = emptyTargetSHA
+	manifestRecord.ContentVerdict = string(domain.ContentNoFindings)
+	manifestRecord.CoverageStatus = string(domain.CoverageComplete)
+	manifestRecord.StructuredExtractionStatus = string(domain.StructuredExtractionStructured)
+	manifestRecord.CIDecision = string(domain.CIPass)
+	manifestRecord.CIReasonCodes = []string{"policy_evaluated"}
+	manifestRecord.ExitCode = int(domain.ExitCommittedPass)
+	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	supportPath := prefix + "/support/index.json"
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), supportIndexBytes)
+	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, baseSnapshot.Manifest().Path(), manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, baseSnapshot.LineageEdge(), baseSnapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedPass, 1)
+	return run, snapshot, observation, map[string]ports.ImmutablePublicationArtifact{supportPath: support}
+}
+
+func queryZeroRoleReportCommittedFixture(
+	t *testing.T,
+	withSupportIndex bool,
+	mutateSupport func([]byte) []byte,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation) {
+	t.Helper()
+	run, snapshot, _ := queryZeroRoleReportCommittedMaterial(t, withSupportIndex, mutateSupport)
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitIncompleteCoverage, 1)
+	return run, snapshot, observation
+}
+
+func queryZeroRoleReportCommittedFixtureWithSupport(
+	t *testing.T,
+	mutateSupport func([]byte) []byte,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact) {
+	t.Helper()
+	run, snapshot, artifacts := queryZeroRoleReportCommittedMaterial(t, true, mutateSupport)
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitIncompleteCoverage, 1)
+	return run, snapshot, observation, artifacts
+}
+
+func queryZeroRoleReportCommittedMaterial(
+	t *testing.T,
+	withSupportIndex bool,
+	mutateSupport func([]byte) []byte,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, map[string]ports.ImmutablePublicationArtifact) {
+	t.Helper()
+	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	finalRecord, err := decodeFinalDTO(baseSnapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := "provider_unavailable"
+	for index := range finalRecord.RoleOutcomes {
+		finalRecord.RoleOutcomes[index].Outcome = "failed"
+		finalRecord.RoleOutcomes[index].FailureReason = &reason
+		finalRecord.RoleOutcomes[index].ValidFindingIDs = nil
+	}
+	finalRecord.Findings = nil
+	finalRecord.ContentVerdict = string(domain.ContentNoFindings)
+	finalRecord.CoverageStatus = string(domain.CoverageIncomplete)
+	finalRecord.CIDecision = string(domain.CIFail)
+	finalRecord.CIReasonCodes = []string{"required_role_incomplete"}
+	finalBytes, err := json.Marshal(finalRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(baseSnapshot.Final().Identity().ReviewID(), baseSnapshot.Final().Identity().Path(), querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord, err := decodeManifestDTO(baseSnapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.RoleReports = nil
+	manifestRecord.State = string(domain.RunFailed)
+	manifestRecord.ContentVerdict = string(domain.ContentNoFindings)
+	manifestRecord.CoverageStatus = string(domain.CoverageIncomplete)
+	manifestRecord.CIDecision = string(domain.CIFail)
+	manifestRecord.CIReasonCodes = []string{"required_role_incomplete"}
+	manifestRecord.ExitCode = int(domain.ExitIncompleteCoverage)
+	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	failures := make([]manifestFailureDTO, 0, len(manifestRecord.Attempts))
+	for index := range manifestRecord.Attempts {
+		manifestRecord.Attempts[index].State = string(domain.AttemptFailed)
+		attemptID := manifestRecord.Attempts[index].AttemptID
+		failures = append(failures, manifestFailureDTO{
+			Class: string(domain.FailureProviderUnavailable), Stage: "review",
+			ReasonCode: "provider_unavailable", AttemptID: &attemptID,
+		})
+	}
+	manifestRecord.Failures = failures
+	artifacts := map[string]ports.ImmutablePublicationArtifact{}
+	if withSupportIndex {
+		prefix := run.SessionID().String() + "/" + run.RunID().String()
+		targetPath := prefix + "/target/target.bytes"
+		target := mustQueryArtifact(t, mustQueryPath(t, targetPath), []byte("zero-report target"))
+		supportPath := prefix + "/support/index.json"
+		supportBytes := []byte(fmt.Sprintf(
+			`{"schema_version":"mulgae-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q}]}`,
+			targetPath, target.SHA256(),
+		))
+		if mutateSupport != nil {
+			supportBytes = mutateSupport(supportBytes)
+		}
+		support := mustQueryArtifact(t, mustQueryPath(t, supportPath), supportBytes)
+		manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
+		artifacts[targetPath] = target
+		artifacts[supportPath] = support
+	} else {
+		manifestRecord.CompositeIdentity.SupportIndex = nil
+	}
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, baseSnapshot.Manifest().Path(), manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, baseSnapshot.LineageEdge(), baseSnapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run, snapshot, artifacts
+}
+
+func queryStatusRoleReportFixture(t *testing.T) (
+	ports.PublicationRun,
+	ports.CommittedPublicationSnapshot,
+	ports.PublicationObservation,
+	map[string]ports.ImmutablePublicationArtifact,
+	[]RoleReportURI,
+) {
+	t.Helper()
+	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	logicPath := prefix + "/role-reports/logic.md"
+	securityPath := prefix + "/role-reports/security.md"
+	logic := mustQueryArtifact(t, mustQueryPath(t, logicPath), []byte("# logic\n\nreport\n"))
+	security := mustQueryArtifact(t, mustQueryPath(t, securityPath), []byte("# security\n\nreport\n"))
+	targetPath := prefix + "/target/target.bytes"
+	target := mustQueryArtifact(t, mustQueryPath(t, targetPath), []byte("status target"))
+	supportPath := prefix + "/support/index.json"
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), []byte(fmt.Sprintf(
+		`{"schema_version":"mulgae-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q}]}`,
+		logicPath, logic.SHA256(), securityPath, security.SHA256(), targetPath, target.SHA256(),
+	)))
+	manifestRecord, err := decodeManifestDTO(baseSnapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.RoleReports = []manifestRoleReportDTO{
+		{
+			Role: "logic", Path: "role-reports/logic.md", SHA256: logic.SHA256(), ByteLength: len(logic.Bytes()),
+			ProviderInstance: "logic-provider", AttemptID: "a_019f596a-d048-79e7-b2b7-59822f012273", ContentType: "text/markdown",
+		},
+		{
+			Role: "security", Path: "role-reports/security.md", SHA256: security.SHA256(), ByteLength: len(security.Bytes()),
+			ProviderInstance: "security-provider", AttemptID: "a_019f596a-d0ac-7c12-8b68-0bd73e911b2e", ContentType: "text/markdown",
+		},
+	}
+	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, baseSnapshot.Manifest().Path(), manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(baseSnapshot.Final(), manifest, baseSnapshot.LineageEdge(), baseSnapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+	artifacts := map[string]ports.ImmutablePublicationArtifact{
+		logicPath: logic, securityPath: security, targetPath: target, supportPath: support,
+	}
+	uris := []RoleReportURI{
+		{Role: "logic", URI: ".mulgae/" + logicPath},
+		{Role: "security", URI: ".mulgae/" + securityPath},
+	}
+	return run, snapshot, observation, artifacts, uris
 }
 
 func mustQueryPath(t *testing.T, value string) ports.SafeRelativePath {

@@ -20,6 +20,7 @@ import (
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	"github.com/irootkernel/mulgae/internal/app/query"
+	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -115,10 +116,41 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 	application, err := NewApplication(Dependencies{
 		Clock: fixture.clock, RequestIDGenerator: fixture.ids, RequestResolver: dependencies.RequestResolver, Catalog: builtin.NewCatalog(), JSONSchemaValidator: fixture.validator,
 		SecureWriter: fixture.writer, TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
+		PublicationQueries: NewPublicationQueryService(fixture.queries), PublicationReports: mustG008RealReportService(t, fixture),
+		ReviewRuns:   &reviewRunFake{result: NewReviewRunResult(root.SessionID.String(), root.RunID.String(), root.RunManifestURI, root.ReviewArtifactURI, root.TerminalExit)},
 		FollowupRuns: dependencies.FollowupRuns, DeltaRuns: dependencies.DeltaRuns, Reruns: dependencies.Reruns, Exports: dependencies.Exports,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	projectRoot := filepath.Dir(fixture.root.String())
+	reviewResult := application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, projectRoot)
+	if reviewResult.ExitCode() != app.ExitCodePolicy {
+		t.Fatalf("six-role review exit=%d, want policy; stdout=%q stderr=%q", reviewResult.ExitCode(), reviewResult.Stdout(), reviewResult.Stderr())
+	}
+	var reviewEnvelope struct {
+		Result struct {
+			SessionID         string `json:"session_id"`
+			RunID             string `json:"run_id"`
+			RunManifestURI    string `json:"run_manifest_uri"`
+			ReviewArtifactURI string `json:"review_artifact_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(reviewResult.Stdout(), &reviewEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if reviewEnvelope.Result.SessionID != root.SessionID.String() || reviewEnvelope.Result.RunID != root.RunID.String() ||
+		reviewEnvelope.Result.RunManifestURI != root.RunManifestURI || reviewEnvelope.Result.ReviewArtifactURI != root.ReviewArtifactURI {
+		t.Fatalf("six-role review projection = %#v", reviewEnvelope.Result)
+	}
+	for _, query := range [][]string{
+		{"status", "--run", root.RunID.String(), "--output", "json"},
+		{"findings", "--run", root.RunID.String(), "--severity", "low", "--output", "json"},
+	} {
+		result := application.Run(context.Background(), query, projectRoot)
+		if result.ExitCode() != app.ExitCodeSuccess {
+			t.Fatalf("%v exit=%d, want success; stdout=%q stderr=%q", query, result.ExitCode(), result.Stdout(), result.Stderr())
+		}
 	}
 	childWorkflows := make(map[string]string, 4)
 	recomposeChildren := make(map[string]struct{})
@@ -135,7 +167,7 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		fixture.provider.mu.Lock()
 		fixture.provider.securityLowFinding = test.name == "delta"
 		fixture.provider.mu.Unlock()
-		result := application.Run(context.Background(), test.argv, fixture.root.String())
+		result := application.Run(context.Background(), test.argv, projectRoot)
 		if result.ExitCode() != test.exit {
 			t.Fatalf("%v exit=%d, want %d; stdout=%q stderr=%q", test.argv, result.ExitCode(), test.exit, result.Stdout(), result.Stderr())
 		}
@@ -377,6 +409,15 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		rootTargetAfter.Identity() != rootTarget.Identity() {
 		t.Fatal("child workflows mutated root committed artifacts or target inventory")
 	}
+}
+
+func mustG008RealReportService(t *testing.T, fixture *g008RealE2EFixture) PublicationReportService {
+	t.Helper()
+	service, err := appreport.NewService(fixture.queries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewPublicationReportService(service)
 }
 
 func mustG008RealExportInstaller(t *testing.T, fixture *g008RealE2EFixture) *filesystem.ExportInstaller {

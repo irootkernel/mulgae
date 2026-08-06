@@ -3,6 +3,8 @@ package mulgae
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
+	apppublication "github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
@@ -45,7 +48,9 @@ type PublicationQueryService interface {
 // RunStatusView is the safe status projection returned by PublicationQueryService.
 // FinalArtifactURI and the independent outcome axes are present only after a P2
 // committed read. HasAxes makes the three axes an all-or-none projection.
+// RoleReportURIs are present only after independently verified P2 support checks.
 type RunStatusView struct {
+	SessionID        string
 	RunID            string
 	RunState         domain.RunState
 	HasRunState      bool
@@ -57,6 +62,7 @@ type RunStatusView struct {
 	CoverageStatus   domain.CoverageStatus
 	CIDecision       domain.CIDecision
 	HasAxes          bool
+	RoleReportURIs   []RoleReportURI
 }
 
 // FindingView is one finding in the query service's preserved final order.
@@ -117,6 +123,7 @@ func (adapter publicationQueryAdapter) ReadRunStatus(
 		return RunStatusView{}, err
 	}
 	view := RunStatusView{
+		SessionID:        status.SessionID().String(),
 		RunID:            status.RunID().String(),
 		PublicationState: status.PublicationStatus(),
 		RecoveryAction:   status.RecoveryAction(),
@@ -138,6 +145,9 @@ func (adapter publicationQueryAdapter) ReadRunStatus(
 			view.CoverageStatus = coverage
 			view.CIDecision = ci
 			view.HasAxes = true
+		}
+		for _, report := range status.RoleReportURIs() {
+			view.RoleReportURIs = append(view.RoleReportURIs, RoleReportURI{Role: report.Role, URI: report.URI})
 		}
 	}
 	return view, nil
@@ -217,11 +227,13 @@ func (adapter publicationReportAdapter) Render(
 
 // StartedRun is the authoritative projection of a newly started child workflow.
 type StartedRun struct {
-	SessionID          string
-	RunID              string
-	ArtifactURI        string
-	FollowupResolution domain.FollowupResolution
-	TerminalExit       domain.OperationalExitDecision
+	SessionID                  string
+	RunID                      string
+	ArtifactURI                string
+	FollowupResolution         *domain.FollowupResolution
+	StructuredExtractionStatus domain.StructuredExtractionStatus
+	RoleReportURIs             []RoleReportURI
+	TerminalExit               domain.OperationalExitDecision
 }
 
 // FollowupRunService is the command-facing followup workflow boundary.
@@ -253,12 +265,19 @@ type ReviewRunServicePreparer interface {
 	PrepareReviewRun(context.Context, ports.AnchoredRoot) (ReviewRunService, error)
 }
 
+// RoleReportURI is one project-relative role-report projection.
+type RoleReportURI struct {
+	Role string
+	URI  string
+}
+
 // ReviewRunResult is the immutable terminal P2 projection returned by ReviewRunService.
 type ReviewRunResult struct {
 	sessionID         string
 	runID             string
 	runManifestURI    string
 	reviewArtifactURI string
+	roleReportURIs    []RoleReportURI
 	terminalExit      domain.OperationalExitDecision
 	terminalFailures  []reviewrun.ProviderExecutionFailure
 }
@@ -284,9 +303,11 @@ func newReviewRunResultWithFailures(
 	sessionID, runID, runManifestURI, reviewArtifactURI string,
 	terminalExit domain.OperationalExitDecision,
 	failures []reviewrun.ProviderExecutionFailure,
+	roleReportURIs []RoleReportURI,
 ) ReviewRunResult {
 	result := NewReviewRunResult(sessionID, runID, runManifestURI, reviewArtifactURI, terminalExit)
 	result.terminalFailures = append([]reviewrun.ProviderExecutionFailure(nil), failures...)
+	result.roleReportURIs = append([]RoleReportURI(nil), roleReportURIs...)
 	return result
 }
 
@@ -301,6 +322,11 @@ func (result ReviewRunResult) RunManifestURI() string { return result.runManifes
 
 // ReviewArtifactURI returns the persisted final review artifact URI.
 func (result ReviewRunResult) ReviewArtifactURI() string { return result.reviewArtifactURI }
+
+// RoleReportURIs returns caller-owned project-relative role report URIs.
+func (result ReviewRunResult) RoleReportURIs() []RoleReportURI {
+	return append([]RoleReportURI(nil), result.roleReportURIs...)
+}
 
 // TerminalExit returns the reduced committed P2 exit authority.
 func (result ReviewRunResult) TerminalExit() domain.OperationalExitDecision {
@@ -318,6 +344,18 @@ func (result ReviewRunResult) Validate() error {
 		!validCommandURI(result.runManifestURI) ||
 		!validCommandURI(result.reviewArtifactURI) {
 		return errors.New("invalid review result")
+	}
+	seenRoles := make(map[string]struct{}, len(result.roleReportURIs))
+	prefix := ".mulgae/" + result.sessionID + "/" + result.runID + "/role-reports/"
+	for _, report := range result.roleReportURIs {
+		if !validRole(report.Role) || !validCommandURI(report.URI) ||
+			report.URI != prefix+report.Role+".md" {
+			return errors.New("invalid review role report URI")
+		}
+		if _, duplicate := seenRoles[report.Role]; duplicate {
+			return errors.New("duplicate review role report URI")
+		}
+		seenRoles[report.Role] = struct{}{}
 	}
 	if _, _, err := committedTerminalOutcome(result.terminalExit); err != nil {
 		return fmt.Errorf("invalid review terminal exit: %w", err)
@@ -624,8 +662,13 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		return ReviewRunResult{}, fmt.Errorf("review run: terminal exit: %w", err)
 	}
 	failures := make([]reviewrun.ProviderExecutionFailure, 0)
+	successful := make(map[string]review.CoordinatorRoleSummary)
 	for _, summary := range result.Coordinator().RoleSummaries() {
 		if summary.Valid() {
+			if len(summary.ReportMarkdown()) == 0 {
+				return ReviewRunResult{}, errors.New("review run: successful role missing report")
+			}
+			successful[string(summary.Role())] = summary
 			continue
 		}
 		attempts := summary.Attempts()
@@ -649,6 +692,10 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		}
 		failures = append(failures, failure)
 	}
+	roleReportURIs, err := projectRoleReportURIsFromReviewRun(result, successful)
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
 	return newReviewRunResultWithFailures(
 		sessionID,
 		runID,
@@ -656,7 +703,79 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		".mulgae/"+reviewPath,
 		terminalExit,
 		failures,
+		roleReportURIs,
 	), nil
+}
+
+// projectRoleReportURIsFromReviewRun copies trusted role-report identities from
+// reviewrun.Result. It may cross-check coordinator report bytes but must not
+// derive paths from the committed manifest or live directories.
+func projectRoleReportURIsFromReviewRun(
+	result reviewrun.Result,
+	successful map[string]review.CoordinatorRoleSummary,
+) ([]RoleReportURI, error) {
+	projected := result.RoleReportURIs()
+	if len(successful) == 0 {
+		if len(projected) != 0 {
+			return nil, errors.New("review run: role report URIs present without successful roles")
+		}
+		return nil, nil
+	}
+	if len(projected) != len(successful) {
+		return nil, errors.New("review run: role report URIs do not match successful roles")
+	}
+	uris := make([]RoleReportURI, 0, len(projected))
+	seen := make(map[string]struct{}, len(projected))
+	for _, report := range projected {
+		summary, ok := successful[report.Role]
+		if !ok {
+			return nil, errors.New("review run: role report URI lacks successful role summary")
+		}
+		markdown := summary.ReportMarkdown()
+		if report.ByteLength != len(markdown) || report.SHA256 != sha256HexDigest(markdown) {
+			return nil, errors.New("review run: role report URI digest mismatch")
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return nil, errors.New("review run: duplicate role report URI")
+		}
+		seen[report.Role] = struct{}{}
+		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
+	}
+	for role := range successful {
+		if _, ok := seen[role]; !ok {
+			return nil, errors.New("review run: successful role missing role report URI")
+		}
+	}
+	return uris, nil
+}
+
+func sha256HexDigest(content []byte) string {
+	sum := sha256.Sum256(content)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func followupRoleReportURIs(reports []appfollowup.RoleReportURI) []RoleReportURI {
+	uris := make([]RoleReportURI, 0, len(reports))
+	for _, report := range reports {
+		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
+	}
+	return uris
+}
+
+func deltaRoleReportURIs(reports []appdelta.RoleReportURI) []RoleReportURI {
+	uris := make([]RoleReportURI, 0, len(reports))
+	for _, report := range reports {
+		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
+	}
+	return uris
+}
+
+func rerunRoleReportURIs(reports []appreplay.RoleReportURI) []RoleReportURI {
+	uris := make([]RoleReportURI, 0, len(reports))
+	for _, report := range reports {
+		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
+	}
+	return uris
 }
 
 // RetentionRequest is the complete schema-backed clean command selection.
@@ -723,15 +842,28 @@ func (adapter followupRunAdapter) StartFollowupRun(ctx context.Context, request 
 	if !available {
 		return StartedRun{}, errors.New("followup result terminal exit is unavailable")
 	}
-	if !result.ValidatedOutput().Resolution().Valid() {
-		return StartedRun{}, errors.New("followup result resolution is unavailable")
+	output := result.ValidatedOutput()
+	status := output.StructuredExtractionStatus()
+	var resolution *domain.FollowupResolution
+	switch {
+	case output.ReportsOnly() && status == domain.StructuredExtractionReportsOnly:
+		if output.Resolution().Valid() {
+			return StartedRun{}, errors.New("reports-only followup must not invent a resolution")
+		}
+	case !output.ReportsOnly() && status == domain.StructuredExtractionStructured && output.Resolution().Valid():
+		value := output.Resolution()
+		resolution = &value
+	default:
+		return StartedRun{}, errors.New("followup result extraction authority is inconsistent")
 	}
 	return StartedRun{
-		SessionID:          result.SessionID().String(),
-		RunID:              result.RunID().String(),
-		ArtifactURI:        result.FollowupArtifactURI(),
-		FollowupResolution: result.ValidatedOutput().Resolution(),
-		TerminalExit:       terminalExit,
+		SessionID:                  result.SessionID().String(),
+		RunID:                      result.RunID().String(),
+		ArtifactURI:                result.FollowupArtifactURI(),
+		FollowupResolution:         resolution,
+		StructuredExtractionStatus: status,
+		RoleReportURIs:             followupRoleReportURIs(result.RoleReportURIs()),
+		TerminalExit:               terminalExit,
 	}, nil
 }
 
@@ -757,7 +889,10 @@ func (adapter deltaRunAdapter) StartDeltaRun(ctx context.Context, request appdel
 	if !available {
 		return StartedRun{}, errors.New("delta result terminal exit is unavailable")
 	}
-	return StartedRun{SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.ReviewArtifactURI, TerminalExit: terminalExit}, nil
+	return StartedRun{
+		SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.ReviewArtifactURI,
+		RoleReportURIs: deltaRoleReportURIs(result.RoleReportURIs), TerminalExit: terminalExit,
+	}, nil
 }
 
 // NewRerunService adapts the rerun application service to command wiring.
@@ -782,7 +917,10 @@ func (adapter rerunAdapter) StartRerun(ctx context.Context, request appreplay.Re
 	if !available {
 		return StartedRun{}, errors.New("rerun result terminal exit is unavailable")
 	}
-	return StartedRun{SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.PromptManifestURI, TerminalExit: terminalExit}, nil
+	return StartedRun{
+		SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.PromptManifestURI,
+		RoleReportURIs: rerunRoleReportURIs(result.RoleReportURIs), TerminalExit: terminalExit,
+	}, nil
 }
 
 // RetentionServiceFunc adapts a command retention function to RetentionService.
@@ -1527,6 +1665,23 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			exit:                   requestedExit(class),
 			role:                   string(first.Role()),
 			provider:               first.ProviderInstance(),
+			recommendedNextCommand: hint,
+		}
+	}
+	if diagnostic, ok := apppublication.FailureDiagnosticFromError(err); ok {
+		hint := "rerun the review"
+		if _, runID, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err); hasIdentity {
+			hint = "mulgae status --run " + runID.String() + " --output json"
+		}
+		return &executionFailure{
+			class:                  domain.FailureArtifact,
+			code:                   string(diagnostic.Cause()),
+			message:                diagnostic.Failure() + " at phase " + string(diagnostic.Phase()) + "; " + diagnostic.Mitigation() + ".",
+			humanMessage:           "mulgae: " + diagnostic.Failure() + " at phase " + string(diagnostic.Phase()),
+			retryable:              false,
+			hasRetryable:           true,
+			stage:                  string(diagnostic.Phase()),
+			exit:                   app.ExitCodeArtifact,
 			recommendedNextCommand: hint,
 		}
 	}

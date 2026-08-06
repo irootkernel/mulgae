@@ -1,15 +1,24 @@
 package publication
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+// ErrFollowupStructuredRejected marks structured followup material that failed
+// schema/semantic/evidence checks and may demote to reports-only publication.
+// Inventory, lineage, identity, and other publication integrity failures must
+// not wrap this sentinel.
+var ErrFollowupStructuredRejected = errors.New("followup structured material rejected")
 
 // FollowupCandidateInput is the complete trusted input for a one-role followup
 // publication. Provider output is accepted only after FollowupValidator has
@@ -37,8 +46,9 @@ type FollowupCandidateInput struct {
 }
 
 // PrepareFollowupCandidate builds the regular P2 candidate shape for the
-// specialized single-role followup execution. It reduces only normalized
-// provider findings with verifier-owned current-evidence receipts.
+// specialized single-role followup execution. Structured findings/resolution
+// are optional; reports-only acceptance still publishes the role report with
+// lineage and inventory digests.
 func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, error) {
 	observations, runtimes, err := followupInvocationInventory(input)
 	if err != nil {
@@ -73,8 +83,24 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 	if !threshold.Valid() {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: invalid severity threshold")
 	}
+	reportsOnly := input.Output.ReportsOnly()
+	if reportsOnly == input.Output.Resolution().Valid() {
+		return PreparedCandidate{}, fmt.Errorf("followup publication: structured and reports-only authority conflict")
+	}
 	for index := range observations {
-		candidate := input.Output.NormalizedRaw()
+		var candidate []byte
+		switch {
+		case index == 1:
+			// Repair inventory captures a repaired structured candidate only when
+			// structured extraction succeeded. Reports-only keeps stdout/stderr.
+			if !reportsOnly {
+				candidate = input.Output.NormalizedRaw()
+			}
+		case reportsOnly:
+			candidate = input.InitialCandidate
+		default:
+			candidate = input.Output.NormalizedRaw()
+		}
 		if input.Repaired && index == 0 {
 			candidate = input.InitialCandidate
 		}
@@ -83,27 +109,66 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 		}
 	}
 	input.Observation, input.Runtime = terminalObservation, terminalRuntime
-	findings, followup, err := prepareFollowupFindings(input, "sha256:"+input.Run.Target().SHA256())
-	if err != nil {
-		return PreparedCandidate{}, err
+	reportMarkdown := input.Output.ProviderRaw()
+	if len(bytes.TrimSpace(reportMarkdown)) == 0 || !utf8.Valid(reportMarkdown) {
+		return PreparedCandidate{}, fmt.Errorf("followup publication: provider assistant content is missing or invalid")
 	}
 	preparedInvocations := make([]preparedInvocation, len(observations))
 	for index, observation := range observations {
 		preparedInvocations[index] = preparedInvocation{sequence: uint64(index + 1), purpose: domain.InvocationPurpose(observation.Invocation().Purpose()), state: domain.InvocationSucceeded}
 	}
-	role := preparedRole{role: input.Output.Role(), required: true, state: domain.RoleTaskSucceeded, valid: true, repaired: input.Repaired, outcome: "completed", limitations: []string{}, attempts: []preparedAttempt{{id: input.AttemptID, kind: "primary", provider: input.Provider, state: domain.AttemptSucceeded, invocations: preparedInvocations}}}
+	var (
+		findings []preparedFinding
+		followup *preparedFollowupOutcome
+		axes     preparedAxes
+		reasons  []string
+		exitCode int
+		limits   []string
+	)
+	if reportsOnly {
+		axes, reasons, exitCode, limits, err = reduceFollowupReportsOnlyAxes(input.Output.Role(), threshold)
+		if err != nil {
+			return PreparedCandidate{}, err
+		}
+	} else {
+		var outcome preparedFollowupOutcome
+		findings, outcome, err = prepareFollowupFindings(input, "sha256:"+input.Run.Target().SHA256())
+		if err != nil {
+			return PreparedCandidate{}, fmt.Errorf("%w: %v", ErrFollowupStructuredRejected, err)
+		}
+		followup = &outcome
+		axes, reasons, exitCode, limits, err = reduceFollowupAxes(findings, input.Output.Resolution(), input.Output.Role(), threshold)
+		if err != nil {
+			return PreparedCandidate{}, err
+		}
+		axes.structuredExtraction = domain.StructuredExtractionStructured
+	}
+	parseState := input.Output.ParseState()
+	validationState := input.Output.ValidationState()
+	if !reportsOnly && input.Repaired && validationState == domain.ValidationValid {
+		validationState = domain.ValidationRepairedValid
+	}
+	if reportsOnly, ok := domain.ClassifySuccessfulAttemptExtraction(parseState, validationState); !ok || reportsOnly != input.Output.ReportsOnly() {
+		return PreparedCandidate{}, fmt.Errorf("followup publication: extraction states disagree with output authority")
+	}
+	role := preparedRole{
+		role: input.Output.Role(), required: true, state: domain.RoleTaskSucceeded, valid: true, repaired: input.Repaired && !reportsOnly,
+		outcome: "completed", limitations: []string{}, reportsOnly: reportsOnly,
+		attempts: []preparedAttempt{{
+			id: input.AttemptID, kind: "primary", provider: input.Provider, state: domain.AttemptSucceeded,
+			parseState: parseState, validationState: validationState,
+			invocations: preparedInvocations,
+		}},
+		reportMarkdown: append([]byte(nil), reportMarkdown...),
+	}
 	for _, finding := range findings {
 		role.validFindingIDs = append(role.validFindingIDs, finding.id)
-	}
-	axes, reasons, exitCode, limits, err := reduceFollowupAxes(findings, input.Output.Resolution(), input.Output.Role(), threshold)
-	if err != nil {
-		return PreparedCandidate{}, err
 	}
 	candidate := PreparedCandidate{
 		sessionID: input.Run.SessionID(), runID: input.Run.ID(), runState: domain.RunCompleted,
 		target:    preparedTarget{sha256: "sha256:" + input.Run.Target().SHA256(), baseOID: input.Run.Target().BaseObjectID(), headOID: input.Run.Target().HeadObjectID()},
 		threshold: threshold, mulgae: preparedMulgae{version: input.MulgaeVersion, commit: input.MulgaeCommit}, axes: axes,
-		roles: []preparedRole{role}, findings: findings, failures: []preparedFailure{}, limits: limits, reasons: reasons, exitCode: exitCode, lineage: context.immutableLineage(), followup: &followup,
+		roles: []preparedRole{role}, findings: findings, failures: []preparedFailure{}, limits: limits, reasons: reasons, exitCode: exitCode, lineage: context.immutableLineage(), followup: followup,
 	}
 	inventories := make([]runtimeArtifactInventory, len(runtimes))
 	for index := range runtimes {
@@ -272,6 +337,24 @@ func reduceFollowupAxes(findings []preparedFinding, resolution domain.FollowupRe
 		exitCode = int(domain.ExitCommittedCIRejected)
 	}
 	return preparedAxes{content: content, coverage: domain.CoverageComplete, ci: ci}, reasons, exitCode, []string{}, nil
+}
+
+func reduceFollowupReportsOnlyAxes(role domain.Role, threshold domain.Severity) (preparedAxes, []string, int, []string, error) {
+	outcomes, err := domain.ComputeOutcomeAxes(nil, []domain.RoleResultSummary{{
+		Role: role, Selected: true, Required: true, Valid: true, ReportsOnly: true,
+	}}, threshold, domain.PublicationNotPublished, nil)
+	if err != nil {
+		return preparedAxes{}, nil, 0, nil, err
+	}
+	if outcomes.ContentVerdict() != domain.ContentReportsOnly || outcomes.CIDecision() != domain.CIPass {
+		return preparedAxes{}, nil, 0, nil, fmt.Errorf("followup publication: reports-only axes are inconsistent")
+	}
+	return preparedAxes{
+		content:              domain.ContentReportsOnly,
+		coverage:             domain.CoverageComplete,
+		ci:                   domain.CIPass,
+		structuredExtraction: domain.StructuredExtractionReportsOnly,
+	}, []string{"policy_evaluated"}, int(domain.ExitCommittedPass), []string{}, nil
 }
 
 type followupCurrentTargetReader struct {

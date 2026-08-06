@@ -263,6 +263,22 @@ func TestFailingCoveragePolicyPreservesOtherAxes(t *testing.T) {
 	}
 }
 
+func TestReportsOnlyContentVerdictDoesNotInventFindingsOrFailCI(t *testing.T) {
+	t.Parallel()
+
+	results := []RoleResultSummary{
+		{Role: RoleLogic, Selected: true, Required: true, Valid: true, ReportsOnly: true},
+		{Role: RoleSecurity, Selected: true, Required: true, Valid: true, ReportsOnly: true},
+	}
+	axes, err := ComputeOutcomeAxes(nil, results, SeverityHigh, PublicationNotPublished, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if axes.ContentVerdict() != ContentReportsOnly || axes.CoverageStatus() != CoverageComplete || axes.CIDecision() != CIPass {
+		t.Fatalf("reports-only axes = %#v", axes)
+	}
+}
+
 func TestCIPolicyMatrix(t *testing.T) {
 	t.Parallel()
 

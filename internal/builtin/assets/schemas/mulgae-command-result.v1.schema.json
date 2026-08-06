@@ -349,7 +349,8 @@
                 "publication_status": { "type": "null" },
                 "recovery_action": { "type": "null" },
                 "final_artifact_uri": { "type": "null" }
-              }
+              },
+              "not": { "required": ["role_report_uris"] }
             }
           }
         }
@@ -515,6 +516,20 @@
       "type": "string",
       "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
+    "role_report_uris": {
+      "type": "array",
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "uri"],
+        "properties": {
+          "role": { "$ref": "#/$defs/role" },
+          "uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
+        }
+      }
+    },
     "attempt_id": {
       "type": "string",
       "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -609,7 +624,15 @@
     },
     "role": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      "enum": [
+        "logic",
+        "security",
+        "maintainability",
+        "product",
+        "documentation",
+        "testing",
+        "artist"
+      ]
     },
     "role_inventory_logic": {
       "type": "object", "additionalProperties": false, "required": ["id", "mandatory", "availability"],
@@ -3404,72 +3427,169 @@
         }
       },
       "review": {
-		"oneOf": [
-		  {
-		    "type": "object", "additionalProperties": false,
-		    "required": ["kind", "session_id", "run_id", "run_manifest_uri", "review_artifact_uri"],
-		    "properties": {
-		      "kind": { "const": "review_started" },
-		      "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
-		      "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
-		      "run_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-		      "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
-		    }
-		  },
-		  {
-		    "type": "object", "additionalProperties": false,
-		    "required": ["kind", "preflight"],
-		    "properties": { "kind": { "const": "review_preflight" }, "preflight": { "$ref": "#/$defs/review_preflight" } }
-		  },
-		  {
-		    "type": "object", "additionalProperties": false,
-		    "required": ["kind", "schema_version", "eligible"],
-		    "properties": {
-		      "kind": { "const": "review_preflight_failed" },
-		      "schema_version": { "const": "mulgae-review-preflight.v1" },
-		      "eligible": { "const": false }
-		    }
-		  }
-		]
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "run_manifest_uri", "review_artifact_uri", "role_report_uris"],
+            "properties": {
+              "kind": { "const": "review_started" },
+              "session_id": { "$ref": "#/$defs/session_id" },
+              "run_id": { "$ref": "#/$defs/run_id" },
+              "run_manifest_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "review_artifact_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "role_report_uris": { "$ref": "#/$defs/role_report_uris" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "run_manifest_uri", "review_artifact_uri"],
+            "properties": {
+              "kind": { "const": "review_started" },
+              "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
+              "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
+              "run_manifest_uri": { "type": "null" },
+              "review_artifact_uri": { "type": "null" }
+            },
+            "not": { "required": ["role_report_uris"] }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "preflight"],
+            "properties": {
+              "kind": { "const": "review_preflight" },
+              "preflight": { "$ref": "#/$defs/review_preflight" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "schema_version", "eligible"],
+            "properties": {
+              "kind": { "const": "review_preflight_failed" },
+              "schema_version": { "const": "mulgae-review-preflight.v1" },
+              "eligible": { "const": false }
+            }
+          }
+        ]
       },
       "followup": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution"],
-        "properties": {
-          "kind": { "const": "followup_started" },
-          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
-          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
-          "followup_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "resolution": {
-            "oneOf": [
-              { "type": "null" },
-              { "enum": ["resolved", "partially_resolved", "still_open", "unclear"] }
-            ]
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution", "structured_extraction_status", "role_report_uris"],
+            "properties": {
+              "kind": { "const": "followup_started" },
+              "session_id": { "$ref": "#/$defs/session_id" },
+              "run_id": { "$ref": "#/$defs/run_id" },
+              "followup_artifact_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "resolution": { "enum": ["resolved", "partially_resolved", "still_open", "unclear"] },
+              "structured_extraction_status": { "const": "structured" },
+              "role_report_uris": {
+                "allOf": [
+                  { "$ref": "#/$defs/role_report_uris" },
+                  { "minItems": 1, "maxItems": 1 }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution", "structured_extraction_status", "role_report_uris"],
+            "properties": {
+              "kind": { "const": "followup_started" },
+              "session_id": { "$ref": "#/$defs/session_id" },
+              "run_id": { "$ref": "#/$defs/run_id" },
+              "followup_artifact_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "resolution": { "type": "null" },
+              "structured_extraction_status": { "const": "reports_only" },
+              "role_report_uris": {
+                "allOf": [
+                  { "$ref": "#/$defs/role_report_uris" },
+                  { "minItems": 1, "maxItems": 1 }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "followup_artifact_uri", "resolution"],
+            "properties": {
+              "kind": { "const": "followup_started" },
+              "session_id": { "type": "null" },
+              "run_id": { "type": "null" },
+              "followup_artifact_uri": { "type": "null" },
+              "resolution": { "type": "null" }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["role_report_uris"] },
+                { "required": ["structured_extraction_status"] }
+              ]
+            }
           }
-        }
+        ]
       },
       "delta": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "session_id", "run_id", "review_artifact_uri"],
-        "properties": {
-          "kind": { "const": "delta_started" },
-          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
-          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
-          "review_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
-        }
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "review_artifact_uri", "role_report_uris"],
+            "properties": {
+              "kind": { "const": "delta_started" },
+              "session_id": { "$ref": "#/$defs/session_id" },
+              "run_id": { "$ref": "#/$defs/run_id" },
+              "review_artifact_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "role_report_uris": { "$ref": "#/$defs/role_report_uris" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "review_artifact_uri"],
+            "properties": {
+              "kind": { "const": "delta_started" },
+              "session_id": { "type": "null" },
+              "run_id": { "type": "null" },
+              "review_artifact_uri": { "type": "null" }
+            },
+            "not": { "required": ["role_report_uris"] }
+          }
+        ]
       },
       "rerun": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["kind", "session_id", "run_id", "prompt_manifest_uri"],
-        "properties": {
-          "kind": { "const": "rerun_started" },
-          "session_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/session_id" }] },
-          "run_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/run_id" }] },
-          "prompt_manifest_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" }
-        }
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "prompt_manifest_uri", "role_report_uris"],
+            "properties": {
+              "kind": { "const": "rerun_started" },
+              "session_id": { "$ref": "#/$defs/session_id" },
+              "run_id": { "$ref": "#/$defs/run_id" },
+              "prompt_manifest_uri": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
+              "role_report_uris": { "$ref": "#/$defs/role_report_uris" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "session_id", "run_id", "prompt_manifest_uri"],
+            "properties": {
+              "kind": { "const": "rerun_started" },
+              "session_id": { "type": "null" },
+              "run_id": { "type": "null" },
+              "prompt_manifest_uri": { "type": "null" }
+            },
+            "not": { "required": ["role_report_uris"] }
+          }
+        ]
       },
       "status": {
         "type": "object",
@@ -3496,13 +3616,15 @@
               "commit_composite_epoch",
               "reconstruct_completed_status",
               "emit_immutable_corruption_diagnostic",
+              "rerun_review",
               null
             ]
           },
           "final_artifact_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "content_verdict": { "type": "string", "enum": ["no_findings", "findings_present", "request_changes"] },
+          "content_verdict": { "type": "string", "enum": ["no_findings", "findings_present", "request_changes", "reports_only"] },
           "coverage_status": { "type": "string", "enum": ["complete", "degraded", "incomplete"] },
           "ci_decision": { "type": "string", "enum": ["pass", "fail"] },
+          "role_report_uris": { "$ref": "#/$defs/role_report_uris" },
           "session_id": { "$ref": "#/$defs/session_id" },
           "started_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
@@ -3517,18 +3639,33 @@
           "lane_failed": { "type": "integer", "minimum": 0 },
           "last_seq": { "type": "integer", "minimum": 0 },
           "terminal_cause": { "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9_]+$" },
+          "terminal_phase": {
+            "type": ["string", "null"],
+            "enum": [
+              "publication_candidate",
+              "publication_final_review",
+              "publication_manifest",
+              "publication_store_lock",
+              "publication_persistence",
+              "publication_staging",
+              "publication_installation",
+              "publication_commit",
+              "diagnostics",
+              null
+            ]
+          },
           "dropped_events": { "type": "integer", "minimum": 0 },
           "diagnostic_only": { "type": "boolean" },
           "publication_authority": { "type": "boolean" }
         },
         "oneOf": [
           {
-            "required": ["session_id", "started_at", "updated_at", "completed_at", "selected_roles", "lane_total", "lane_completed", "lane_failed", "last_seq", "terminal_cause", "dropped_events", "diagnostic_only", "publication_authority"],
+            "required": ["session_id", "started_at", "updated_at", "completed_at", "selected_roles", "lane_total", "lane_completed", "lane_failed", "last_seq", "terminal_cause", "terminal_phase", "dropped_events", "diagnostic_only", "publication_authority"],
             "properties": {
               "kind": { "const": "diagnostic_status_read" },
               "run_state": { "type": "string" },
               "publication_status": { "type": "null" },
-              "recovery_action": { "type": "null" },
+              "recovery_action": { "const": "rerun_review" },
               "final_artifact_uri": { "type": "null" },
               "diagnostic_only": { "const": true },
               "publication_authority": { "const": false }
@@ -3537,7 +3674,8 @@
               "anyOf": [
                 { "required": ["content_verdict"] },
                 { "required": ["coverage_status"] },
-                { "required": ["ci_decision"] }
+                { "required": ["ci_decision"] },
+                { "required": ["role_report_uris"] }
               ]
             }
           },
@@ -3553,7 +3691,8 @@
               "anyOf": [
                 { "required": ["content_verdict"] },
                 { "required": ["coverage_status"] },
-                { "required": ["ci_decision"] }
+                { "required": ["ci_decision"] },
+                { "required": ["role_report_uris"] }
               ]
             }
           },
@@ -3588,18 +3727,20 @@
               "anyOf": [
                 { "required": ["content_verdict"] },
                 { "required": ["coverage_status"] },
-                { "required": ["ci_decision"] }
+                { "required": ["ci_decision"] },
+                { "required": ["role_report_uris"] }
               ]
             }
           },
           {
-            "required": ["content_verdict", "coverage_status", "ci_decision"],
+            "required": ["content_verdict", "coverage_status", "ci_decision", "role_report_uris"],
             "properties": {
               "kind": { "const": "status_read" },
               "run_state": { "type": "string", "enum": ["completed", "degraded", "failed"] },
               "publication_status": { "const": "committed" },
               "recovery_action": { "const": "reconstruct_completed_status" },
-              "final_artifact_uri": { "type": "string" }
+              "final_artifact_uri": { "type": "string" },
+              "role_report_uris": { "$ref": "#/$defs/role_report_uris" }
             }
           }
         ]

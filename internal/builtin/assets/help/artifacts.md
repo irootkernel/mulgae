@@ -11,12 +11,16 @@ A published run has the form:
       runtime.jsonl
       attempts/
       validation/
+      role-reports/
+        <role>.md
       review_<uuidv7>.json
 ```
 
-`manifest.json` records lineage, target identity, attempts, outcome axes, and
-artifact hashes. A completed run has at most one top-level final review.
-Invalid and repaired candidates remain under `attempts/`.
+`manifest.json` records lineage, target identity, attempts, outcome axes,
+role-report inventory, and artifact hashes. Successful selected roles also
+publish Mulgae-owned free-form role reports under `role-reports/`. A completed
+run has at most one top-level final review. Invalid and repaired candidates
+remain under `attempts/`.
 
 Failed runs without publication authority retain a bounded status under
 `.mulgae/diagnostics/`. `status --run <id>` checks published artifacts first and

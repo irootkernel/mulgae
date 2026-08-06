@@ -552,6 +552,7 @@ const (
 	RunSupportArtifactPromptStdin       RunSupportArtifactKind = "prompt_stdin"
 	RunSupportArtifactPromptManifest    RunSupportArtifactKind = "prompt_manifest"
 	RunSupportArtifactSupportIndex      RunSupportArtifactKind = "support_index"
+	RunSupportArtifactRoleReport        RunSupportArtifactKind = "role_report"
 )
 
 // Valid reports whether kind is a closed run-support artifact kind.
@@ -563,7 +564,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
-		RunSupportArtifactSupportIndex:
+		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport:
 		return true
 	default:
 		return false
@@ -828,7 +829,22 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	if name, ok := strings.CutPrefix(relative, "prompts/"); ok {
 		return classifyCanonicalPromptSupportPath(name)
 	}
+	if name, ok := strings.CutPrefix(relative, "role-reports/"); ok {
+		if canonicalRoleReportName(name) {
+			return RunSupportArtifactRoleReport, nil
+		}
+		return "", fmt.Errorf("role report path %q is not canonical", value)
+	}
 	return "", fmt.Errorf("artifact path %q is not an allowed run-support path", value)
+}
+
+func canonicalRoleReportName(name string) bool {
+	if strings.Contains(name, "/") || !strings.HasSuffix(name, ".md") {
+		return false
+	}
+	roleName := strings.TrimSuffix(name, ".md")
+	role := domain.Role(roleName)
+	return role.Valid()
 }
 
 func canonicalExcerptName(name string) bool {

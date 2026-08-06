@@ -63,9 +63,14 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	}
 	switch definition.Family() {
 	case FamilyKimi:
+		// Kimi has no adapter-owned workspace read tools; capability remains
+		// prompt-bound to the fixture packet while the process cwd stays the
+		// immutable snapshot.
 		return appendKimiInvocation(baseArgv, definition.KimiModel(), string(packet)), nil
 	case FamilyZcode:
-		return appendZcodeInvocation(baseArgv, string(packet)), nil
+		// Capability stays tool-denied so qualification remains bounded. Review
+		// invocations use appendZcodeInvocation's read-oriented denylist.
+		return appendZcodeCapabilityInvocation(baseArgv, string(packet)), nil
 	case FamilyAgy:
 		return canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), fixture.Reference())
 	default:
@@ -73,9 +78,23 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	}
 }
 
+// zcodeWorkspaceReadOnlyDisallowedTools is the adapter-owned ZCode denylist for
+// workspace-first reviews. Local ZCode 0.16.1 rejects --allowed-tools at
+// runtime, so Mulgae uses plan mode plus an explicit write/shell/network denylist.
+const zcodeWorkspaceReadOnlyDisallowedTools = "Bash,Edit,Write,NotebookEdit,WebSearch,WebFetch"
+
+// zcodeCapabilityDisallowedTools keeps qualification prompt-bound and latency
+// bounded. Workspace-selective read is exercised on review invocations.
+const zcodeCapabilityDisallowedTools = "*"
+
 func appendZcodeInvocation(argv []string, prompt string) []string {
 	result := append([]string(nil), argv...)
-	return append(result, "--mode", "build", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", "*")
+	return append(result, "--mode", "plan", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools)
+}
+
+func appendZcodeCapabilityInvocation(argv []string, prompt string) []string {
+	result := append([]string(nil), argv...)
+	return append(result, "--mode", "plan", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools)
 }
 
 func appendKimiInvocation(argv []string, model, prompt string) []string {
@@ -119,11 +138,15 @@ func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.Work
 		return nil, err
 	}
 	controls := []string{"--new-project", "--sandbox"}
-	if definition.Transport().ArgvIndex() == 13 {
+	if agyPermissionBypassEnabled(definition.BaseArgv(), definition.Transport()) {
 		controls = append(controls, "--dangerously-skip-permissions")
 	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.Timeout()).String(), "--print", "@"+nativeReference)
+	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--print", "@"+nativeReference)
 	return append(baseArgv, controls...), nil
+}
+
+func agyPermissionBypassEnabled(baseArgv []string, transport RuntimeTransport) bool {
+	return transport.ArgvIndex() == len(baseArgv)+12
 }
 
 func agyPrintTimeout(runtimeTimeout time.Duration) time.Duration {
@@ -131,6 +154,14 @@ func agyPrintTimeout(runtimeTimeout time.Duration) time.Duration {
 	// retains time to collect output and complete bounded lifecycle cleanup.
 	grace := min(agyPrintTimeoutCleanupGrace, runtimeTimeout/2)
 	return runtimeTimeout - grace
+}
+
+// agyProbePrintTimeout keeps AGY's own print deadline inside the bounded
+// qualification process deadline. canonicalAGYExecutionArgv builds capability
+// probe argv only; review invocations keep deriving their print deadline from
+// the full configured runtime timeout in buildArgv.
+func agyProbePrintTimeout(runtimeTimeout time.Duration) time.Duration {
+	return agyPrintTimeout(boundedProbeTimeout(runtimeTimeout))
 }
 
 func immutableSnapshotPath(identity ports.WorkspaceSnapshotIdentity) (string, error) {

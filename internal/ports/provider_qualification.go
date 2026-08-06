@@ -107,6 +107,23 @@ type ProviderDirectExecutionAuthority interface {
 	AGYControlAuthorityID() (string, bool)
 }
 
+// ProviderEquivalentRouteAuthorityDeriver mints a new exact-runtime direct
+// execution authority for one sibling route after validating shareable family
+// profile equivalence against a live family capability proof. Application code
+// must not manufacture destination authority by rewriting identity fields.
+type ProviderEquivalentRouteAuthorityDeriver interface {
+	DeriveEquivalentRouteDirectExecutionAuthority(
+		source ProviderDirectExecutionAuthority,
+		sourceDefinition ProviderRuntimeDefinition,
+		destinationDefinition ProviderRuntimeDefinition,
+		observedVersion string,
+		sourceNamespaceGeneration string,
+		destinationNamespaceGeneration string,
+		sourceProvedRoles []domain.Role,
+		destinationRoles []domain.Role,
+	) (ProviderDirectExecutionAuthority, error)
+}
+
 // ProviderCurrentProbeReceipt is one adapter observation translated into a
 // provider-independent receipt boundary.
 type ProviderCurrentProbeReceipt struct {

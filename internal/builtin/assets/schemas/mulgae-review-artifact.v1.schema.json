@@ -17,6 +17,7 @@
     "validation",
     "content_verdict",
     "coverage_status",
+    "structured_extraction_status",
     "publication_status",
     "ci_decision",
     "ci_reason_codes",
@@ -137,6 +138,9 @@
     },
     "provenance": {
       "$ref": "#/$defs/provenance"
+    },
+    "structured_extraction_status": {
+      "$ref": "#/$defs/structured_extraction_status"
     }
   },
   "$defs": {
@@ -167,7 +171,15 @@
     },
     "role": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      "enum": [
+        "logic",
+        "security",
+        "maintainability",
+        "product",
+        "documentation",
+        "testing",
+        "artist"
+      ]
     },
     "path": {
       "type": "string",
@@ -188,7 +200,8 @@
       "enum": [
         "no_findings",
         "findings_present",
-        "request_changes"
+        "request_changes",
+        "reports_only"
       ]
     },
     "coverage_status": {
@@ -561,27 +574,55 @@
         }
       }
     },
-	"visual_evidence": {
-	  "type": "object",
-	  "additionalProperties": false,
-	  "required": ["path", "sha256", "bbox", "verification"],
-	  "properties": {
-	    "path": {"$ref": "#/$defs/path"},
-	    "sha256": {"$ref": "#/$defs/sha256"},
-	    "bbox": {
-	      "type": "object",
-	      "additionalProperties": false,
-	      "required": ["x", "y", "width", "height"],
-	      "properties": {
-	        "x": {"type": "integer", "minimum": 0},
-	        "y": {"type": "integer", "minimum": 0},
-	        "width": {"type": "integer", "minimum": 1},
-	        "height": {"type": "integer", "minimum": 1}
-	      }
-	    },
-	    "verification": {"const": "verified"}
-	  }
-	},
+    "visual_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bbox",
+        "verification"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "verification": {
+          "const": "verified"
+        }
+      }
+    },
     "source_evidence": {
       "type": "object",
       "additionalProperties": false,
@@ -919,6 +960,14 @@
           "$ref": "#/$defs/production_provenance"
         }
       }
+    },
+    "structured_extraction_status": {
+      "type": "string",
+      "enum": [
+        "structured",
+        "mixed",
+        "reports_only"
+      ]
     }
   }
 }

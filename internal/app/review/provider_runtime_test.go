@@ -567,6 +567,44 @@ func TestProviderInvocationWorkspaceAuthorityIdentity(t *testing.T) {
 	}
 }
 
+func TestProviderInvocationWorkspaceSharedAcrossRoles(t *testing.T) {
+	packet, err := ports.NewProviderPacket([]byte("packet"), providerRuntimePacketDigest([]byte("packet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := providerRuntimeWorkspaceAuthority{identity: providerRuntimeWorkspaceIdentity(t, "c")}
+	logicAttempt, err := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	securityAttempt, err := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logic, err := ports.NewProviderInvocationWithPacketInWorkspace(
+		domain.RoleLogic, "fake.logic", logicAttempt, ports.ProviderInvocationInitial, packet,
+		"i_019f5a09-5eec-7001-8001-000000000013", "019f5a09-5eec-7001-8001-000000000014", shared,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	security, err := ports.NewProviderInvocationWithPacketInWorkspace(
+		domain.RoleSecurity, "fake.security", securityAttempt, ports.ProviderInvocationInitial, packet,
+		"i_019f5a09-5eec-7001-8001-000000000015", "019f5a09-5eec-7001-8001-000000000016", shared,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logicIdentity, logicOK := logic.WorkspaceSnapshotIdentity()
+	securityIdentity, securityOK := security.WorkspaceSnapshotIdentity()
+	if !logicOK || !securityOK || !sameWorkspaceSnapshotIdentity(logicIdentity, securityIdentity) {
+		t.Fatal("roles did not share the immutable workspace snapshot identity")
+	}
+	if sameProviderInvocation(logic, security) {
+		t.Fatal("distinct role invocations collapsed into one invocation identity")
+	}
+}
+
 func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testing.T) {
 	if got := runtimeProviderErrorCondition(context.Background(), errors.Join(ports.ErrWorkspaceSnapshotDrift, errors.New("provider unavailable"))); got != AttemptConditionSecurityViolation {
 		t.Fatalf("workspace drift condition = %q, want security violation", got)
@@ -842,7 +880,7 @@ func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-			outcome := runtime.accept(context.Background(), job, validated)
+			outcome := runtime.accept(context.Background(), job, validated, nil)
 			if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
 				t.Fatalf("quote mismatch outcome = %#v", outcome)
 			}
@@ -871,7 +909,7 @@ func TestRepairQuoteMismatchIsUnrepairableForOptionalSeverity(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-	outcome := runtime.accept(context.Background(), job, validated)
+	outcome := runtime.accept(context.Background(), job, validated, nil)
 	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionUnrepairableEvidence || len(runtime.pending) != 0 {
 		t.Fatalf("repair quote mismatch outcome = %#v, pending=%#v", outcome, runtime.pending)
 	}
@@ -892,7 +930,7 @@ func TestRepairCorrectedOptionalQuoteMismatchSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-	outcome := runtime.accept(context.Background(), job, validated)
+	outcome := runtime.accept(context.Background(), job, validated, nil)
 	if !outcome.Succeeded() || len(runtime.pending) != 0 {
 		t.Fatalf("corrected repair outcome = %#v, pending=%#v", outcome, runtime.pending)
 	}
@@ -900,6 +938,191 @@ func TestRepairCorrectedOptionalQuoteMismatchSucceeds(t *testing.T) {
 	if !ok || len(output.Findings()) != 1 || output.Findings()[0].EvidenceState() != domain.EvidenceVerified {
 		t.Fatalf("corrected repair output = %#v, present=%t", output, ok)
 	}
+}
+
+func TestProviderRuntimePureProseAcceptsWithoutRepair(t *testing.T) {
+	prose := []byte("  # logic review\n\nLooks fine.\n  ")
+	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: prose}}}
+	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
+	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	if !outcome.Succeeded() || len(provider.invocations) != 1 || len(runtime.pending) != 0 {
+		t.Fatalf("prose outcome=%#v invocations=%d pending=%d", outcome, len(provider.invocations), len(runtime.pending))
+	}
+	output, ok := outcome.Output()
+	if !ok || !output.ReportsOnly() || !bytes.Equal(output.ReportMarkdown(), prose) {
+		t.Fatalf("prose report = reportsOnly=%t markdown=%q present=%t", output.ReportsOnly(), output.ReportMarkdown(), ok)
+	}
+}
+
+func TestProviderRuntimeMalformedStructuredLikeSchedulesAtMostOneRepair(t *testing.T) {
+	malformed := []byte("```json\n{\"findings\":\n```")
+	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: malformed}}}
+	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
+	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	if outcome.Succeeded() || len(provider.invocations) != 1 {
+		t.Fatalf("malformed structured-like outcome=%#v invocations=%d", outcome, len(provider.invocations))
+	}
+	pending, ok := runtime.pending[job.AttemptID()]
+	if !ok || pending.Plan().Mode() != validation.RepairModeReformatOnly ||
+		!bytes.Equal(pending.InitialCandidate(), []byte(`{"findings":`)) ||
+		!bytes.Equal(pending.PrimaryReport(), malformed) {
+		t.Fatalf("repair pending = %#v present=%t", pending, ok)
+	}
+	decision, err := DecideTransition(TransitionInput{
+		Condition:          coordinatorOutcomeCondition(outcome),
+		RepairUsed:         false,
+		FallbackConfigured: false,
+		FallbackEligible:   false,
+	})
+	if err != nil || !decision.ScheduleRepair() || decision.ScheduleFallback() {
+		t.Fatalf("malformed structured-like decision = %#v err=%v", decision, err)
+	}
+}
+
+func TestProviderRuntimeTrailingJSONIsFreeFormNotRepair(t *testing.T) {
+	trailing := []byte("{\"findings\":[]}\ntrailing")
+	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: trailing}}}
+	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
+	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	if !outcome.Succeeded() || len(provider.invocations) != 1 || len(runtime.pending) != 0 {
+		t.Fatalf("trailing JSON outcome=%#v invocations=%d pending=%d", outcome, len(provider.invocations), len(runtime.pending))
+	}
+	output, ok := outcome.Output()
+	if !ok || !output.ReportsOnly() || !bytes.Equal(output.ReportMarkdown(), trailing) {
+		t.Fatalf("trailing JSON report = %#v present=%t", output, ok)
+	}
+}
+
+func TestProviderRuntimeMalformedThenFreeFormRepairPublishesReportsOnly(t *testing.T) {
+	malformed := []byte("```json\n{\"findings\":\n```")
+	repairProse := []byte("# repair response\n\nFree-form prose after exhausted structured repair.\n")
+	provider := &recordingReviewProvider{responses: []reviewProviderResponse{
+		{stdout: malformed},
+		{stdout: repairProse},
+	}}
+	runtime, initialJob, material := providerRuntimeExplicitFixture(t, provider)
+	initial := runtime.invokeExplicitMaterial(context.Background(), initialJob, material, false)
+	if initial.Succeeded() || len(provider.invocations) != 1 {
+		t.Fatalf("initial malformed outcome=%#v invocations=%d", initial, len(provider.invocations))
+	}
+	pending, ok := runtime.pending[initialJob.AttemptID()]
+	if !ok || pending.Plan().Mode() != validation.RepairModeReformatOnly ||
+		!bytes.Equal(pending.PrimaryReport(), malformed) {
+		t.Fatalf("initial pending = %#v present=%t", pending, ok)
+	}
+	decision, err := DecideTransition(TransitionInput{
+		Condition:          coordinatorOutcomeCondition(initial),
+		RepairUsed:         false,
+		FallbackConfigured: false,
+		FallbackEligible:   false,
+	})
+	if err != nil || !decision.ScheduleRepair() {
+		t.Fatalf("initial decision = %#v err=%v", decision, err)
+	}
+
+	repairJob, err := newCoordinatorInvocationJob(
+		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+		initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
+		domain.InvocationRepair, 2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repaired := runtime.invokeExplicitMaterial(context.Background(), repairJob, material, false)
+	if !repaired.Succeeded() || len(provider.invocations) != 2 || len(runtime.pending) != 0 {
+		t.Fatalf("repair outcome=%#v invocations=%d pending=%d", repaired, len(provider.invocations), len(runtime.pending))
+	}
+	output, ok := repaired.Output()
+	if !ok || !output.ReportsOnly() ||
+		!bytes.Equal(output.ReportMarkdown(), malformed) ||
+		output.ParseState() != domain.ParseInvalidJSON ||
+		output.ValidationState() != domain.ValidationRepairExhausted {
+		t.Fatalf("repair reports-only output = reportsOnly=%t markdown=%q parse=%q validation=%q present=%t",
+			output.ReportsOnly(), output.ReportMarkdown(), output.ParseState(), output.ValidationState(), ok)
+	}
+	capture, present := runtime.Capture(repairJob.AttemptID(), invocationSequence(domain.InvocationRepair))
+	if !present {
+		t.Fatal("repair capture is absent")
+	}
+	for _, artifact := range capture.Artifacts() {
+		if artifact.Kind() == ports.AttemptArtifactRepairedCandidate {
+			t.Fatalf("primary report persisted as repaired candidate: %#v", artifact)
+		}
+	}
+}
+
+func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider) (*ProviderInvocationRuntime, InvocationJob, RuntimePrompt) {
+	t.Helper()
+	targetBytes := []byte("immutable target")
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetStdin, SHA256: strings.TrimPrefix(sha256Identifier(targetBytes), "sha256:"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := domain.ParseSessionID("s_019f5a09-5eec-7001-8001-000000000010")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := coordinatorTypesAttemptID(t, 21)
+	limits, err := NewInvocationLimits(time.Second, 1<<20, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := newCoordinatorInvocationJob(
+		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		coordinatorTypesRoute(t, "fake.logic", "logic-lane"), target,
+		limits, attemptID, domain.InvocationInitial, 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer, err := prompt.NewTrustedLayer("explicit-runtime-logic", "v1", []byte("Return a review."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := prompt.ComposeTrustedTemplate("explicit-runtime-logic", "v1", layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleTaskID, err := prompt.ParseRoleTaskID("rt_019f5a09-5eec-7001-8001-000000000020")
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinates, err := prompt.NewScopeCoordinates(sessionID, runID, roleTaskID, attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceID, err := prompt.ParseSourceInvocationID("i_019f5a09-5eec-7001-8001-000000000030")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionID, err := prompt.ParseExecutionInvocationID("019f5a09-5eec-7001-8001-000000000040")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler, err := prompt.NewCompiler(template, explicitRuntimeTestIssuer{source: sourceID, execution: executionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(prompt.CompileInput{Scope: coordinates, ReviewTarget: prompt.NewPayload(targetBytes)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := evidence.NewVerifier(&reviewTestEvidenceReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{
+		provider: provider, validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
+		pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture),
+		inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{}),
+	}
+	return runtime, job, RuntimePrompt{Prompt: compiled, Target: targetBytes, AdapterProfile: "test-profile"}
 }
 
 func providerRuntimeWorkspaceIdentity(t *testing.T, suffix string) ports.WorkspaceSnapshotIdentity {

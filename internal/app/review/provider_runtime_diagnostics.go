@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/irootkernel/mulgae/internal/app/validation"
@@ -212,6 +213,12 @@ func diagnosticParseState(err error, output []byte) domain.ParseState {
 	}
 	cause, _ := validation.RuntimeCause(err)
 	if cause == domain.DiagnosticCauseOutputDecodeFailed || cause == domain.DiagnosticCauseOutputEnvelopeInvalid || cause == domain.DiagnosticCauseOutputFrameMissing {
+		return domain.ParseInvalidJSON
+	}
+	// Validate wraps decode failures as CandidateValidationFailed. Incomplete
+	// structured-like JSON must still classify as invalid_json so free-form
+	// repair acceptance retains the closed reports-only pair.
+	if cause == domain.DiagnosticCauseCandidateValidationFailed && !json.Valid(output) {
 		return domain.ParseInvalidJSON
 	}
 	return domain.ParseValid

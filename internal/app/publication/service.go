@@ -209,9 +209,9 @@ func (service *Service) publishNext(
 		if err == nil || observer == nil || p2Committed {
 			return
 		}
-		if observationErr := observePublicationLifecycle(ctx, observer, LifecycleFailed); observationErr != nil {
+		if observationErr := observePublicationLifecycle(ctx, observer, LifecycleFailed, err); observationErr != nil {
 			result = PublicationResult{}
-			err = observationErr
+			err = errors.Join(err, observationErr)
 		}
 	}()
 	if service == nil {
@@ -248,6 +248,10 @@ func (service *Service) publishNext(
 		return nil
 	})
 	if err != nil {
+		var classified *domain.Failure
+		if !errors.As(err, &classified) {
+			err = service.storeFailure(ctx, "publish-next.lock", "publication store lock failed", err)
+		}
 		return PublicationResult{}, fmt.Errorf("publish next: %w", err)
 	}
 	if !called {
@@ -255,7 +259,7 @@ func (service *Service) publishNext(
 	}
 	if result.Decision().Authority() == domain.PublicationAuthorityP2 {
 		p2Committed = true
-		if err := observePublicationLifecycle(ctx, observer, LifecycleCommitted); err != nil {
+		if err := observePublicationLifecycle(ctx, observer, LifecycleCommitted, nil); err != nil {
 			return PublicationResult{}, newCommittedDiagnosticFailure(result, err)
 		}
 	}
@@ -295,7 +299,7 @@ func (service *Service) publish(
 	if candidateHash == "" {
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
 	}
-	if err := observePublicationLifecycle(ctx, observer, LifecyclePreparationStarted); err != nil {
+	if err := observePublicationLifecycle(ctx, observer, LifecyclePreparationStarted, nil); err != nil {
 		return PublicationResult{}, err
 	}
 	if err := service.checkpoint(ctx, "publish.preflight"); err != nil {
@@ -461,7 +465,7 @@ func (service *Service) publish(
 	if recovered {
 		return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
 	}
-	if err := observePublicationLifecycle(ctx, observer, LifecycleStaged); err != nil {
+	if err := observePublicationLifecycle(ctx, observer, LifecycleStaged, nil); err != nil {
 		return PublicationResult{}, err
 	}
 	journal, err = journalForState(bundle.Journal(), domain.JournalFinalStaged)
@@ -490,7 +494,7 @@ func (service *Service) publish(
 		!installedFinalMatches(installed, run, bundle.Final()) {
 		return PublicationResult{}, publicationFailure("publish.install_final", domain.FailureArtifact, "store returned inconsistent final receipt", nil)
 	}
-	if err := observePublicationLifecycle(ctx, observer, LifecycleInstalled); err != nil {
+	if err := observePublicationLifecycle(ctx, observer, LifecycleInstalled, nil); err != nil {
 		return PublicationResult{}, err
 	}
 	journal, err = journalForState(bundle.Journal(), domain.JournalFinalFileInstalled)
@@ -1817,6 +1821,7 @@ func publicationFailureFromCause(
 	reason string,
 	cause error,
 ) error {
+	cause = annotateFailure(stage, reason, cause)
 	classes := publicationFailureClasses(cause)
 	if len(classes) == 0 {
 		classes = []domain.FailureClass{fallback}
@@ -1964,6 +1969,7 @@ func (service *Service) classifyBuildFailure(ctx context.Context, cause error) e
 }
 
 func publicationFailure(stage string, class domain.FailureClass, reason string, cause error) error {
+	cause = annotateFailure(stage, reason, cause)
 	failure, err := domain.NewFailure(stage, class, reason, cause)
 	if err != nil {
 		return fmt.Errorf("publication failure construction: %w", err)

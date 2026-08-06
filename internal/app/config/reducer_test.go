@@ -55,8 +55,8 @@ func TestRedactedPolicyReportsAGYHeadlessModeAndSafeWarning(t *testing.T) {
 		mode         string
 		wantWarnings int
 	}{
-		{name: "headless default", mode: appconfig.DefaultAGYPermissionMode},
-		{name: "safe opt-in", mode: appconfig.SafeAGYPermissionMode, wantWarnings: 1},
+		{name: "safe default", mode: appconfig.DefaultAGYPermissionMode},
+		{name: "headless opt-in", mode: appconfig.HeadlessAGYPermissionMode, wantWarnings: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			resolved, err := appconfig.ResolveConfiguration(adapterconfig.Config{
@@ -70,8 +70,8 @@ func TestRedactedPolicyReportsAGYHeadlessModeAndSafeWarning(t *testing.T) {
 			if policy.AGYPermissionMode != test.mode || len(policy.Warnings) != test.wantWarnings {
 				t.Fatalf("effective AGY policy = mode %q warnings %#v", policy.AGYPermissionMode, policy.Warnings)
 			}
-			if test.wantWarnings != 0 && !strings.Contains(policy.Warnings[0], "headless tool requests may be denied") {
-				t.Fatalf("safe warning = %q", policy.Warnings[0])
+			if test.wantWarnings != 0 && !strings.Contains(policy.Warnings[0], "dangerously-skip-permissions is opt-in") {
+				t.Fatalf("headless warning = %q", policy.Warnings[0])
 			}
 		})
 	}

@@ -22,6 +22,23 @@ type CurrentQualifier interface {
 	QualifyCurrent(context.Context, CurrentQualificationRequest) (CurrentQualificationResult, error)
 }
 
+// FamilyRouteDeriver derives exact sibling-route admission from one live family
+// qualification without copying the representative authority identity.
+type FamilyRouteDeriver interface {
+	DeriveEquivalentFamilyRoute(context.Context, FamilyRouteDerivationRequest) (CurrentQualificationResult, error)
+}
+
+// FamilyRouteDerivationRequest binds one live family result to a sibling route.
+type FamilyRouteDerivationRequest struct {
+	Source               CurrentQualificationResult
+	SourceDefinition     ports.ProviderRuntimeDefinition
+	SourceNamespaceGen   string
+	Destination          QualifiedRunCandidate
+	DestinationIdentity  Identity
+	DestinationNamespace ports.ProviderQualificationNamespace
+	Now                  time.Time
+}
+
 // CurrentQualifierFunc adapts a function for injection in tests and composition.
 type CurrentQualifierFunc func(context.Context, CurrentQualificationRequest) (CurrentQualificationResult, error)
 
@@ -43,7 +60,9 @@ type CurrentQualificationRequest struct {
 
 // CurrentQualificationResult is immutable current evidence bound to exactly the
 // supplied request identity. SupportedRoles must exactly match the canonical
-// receipt-backed role authority.
+// receipt-backed role authority. familyAuthority is the adapter-minted exact
+// direct-execution authority for the probed definition and is never remapped by
+// rewriting app-layer identity fields.
 type CurrentQualificationResult struct {
 	VersionArgv       []string
 	Version           string
@@ -53,6 +72,11 @@ type CurrentQualificationResult struct {
 	RoleReceipts      []CurrentRoleReceipt
 	BaseRole          domain.Role
 	Observations      []ProviderQualificationObservation
+
+	familyAuthority           ports.ProviderDirectExecutionAuthority
+	familyDefinition          ports.ProviderRuntimeDefinition
+	familyNamespaceGeneration string
+	familyProvedRoles         []domain.Role
 }
 
 // CurrentRoleReceipt is explicit current evidence for one role.
@@ -228,51 +252,23 @@ func (factory *QualifiedRunFactory) newQualifiedRunAttempt(ctx context.Context, 
 	if now.IsZero() {
 		return nil, fmt.Errorf("review run: current qualifier clock returned zero time")
 	}
-	admitted := make(map[string]QualifiedRunRegistry, len(candidates))
-	admittedGenerations := make(map[string]string, len(candidates))
-	admittedInstances := make([]string, 0, len(candidates))
-	admittedEvidence := make([]qualifiedProviderEvidence, 0, len(candidates))
-	qualificationFailures := make([]ProviderQualificationFailure, 0, len(candidates))
-	qualificationObservations := make([]ProviderQualificationObservation, 0, len(candidates))
-	closedReceipts := make(map[string]ports.ProviderRunTerminalReceipt, len(candidates))
+	groups, err := groupCandidatesByFamilyRuntimeProfile(candidates)
+	if err != nil {
+		return nil, err
+	}
+	batches := scheduleFamilyQualificationGroups(groups)
+	admission, admitErr := runFamilyQualificationBatches(ctx, batches, func(ctx context.Context, group familyQualificationGroup) (familyGroupAdmission, error) {
+		return factory.admitFamilyQualificationGroup(ctx, group, now)
+	})
 	cleanupFailures := 0
-	release := func(ctx context.Context, instance string) error {
-		registry, ok := admitted[instance]
-		if !ok {
-			return nil
-		}
-		receipt, err := closeQualifiedRunRegistry(ctx, registry, instance, admittedGenerations[instance])
-		if err != nil {
-			cleanupFailures++
-			return err
-		}
-		closedReceipts[instance] = receipt
-		delete(admitted, instance)
-		delete(admittedGenerations, instance)
-		return nil
-	}
-	cleanupRegistry := func() *qualifiedRunRegistryComposite {
-		registries := make(map[string]QualifiedRunRegistry, len(admitted))
-		for instance, registry := range admitted {
-			registries[instance] = registry
-		}
-		generations := make(map[string]string, len(admittedGenerations))
-		for instance, generation := range admittedGenerations {
-			generations[instance] = generation
-		}
-		closed := make(map[string]ports.ProviderRunTerminalReceipt, len(closedReceipts))
-		for instance, receipt := range closedReceipts {
-			closed[instance] = receipt
-		}
-		return &qualifiedRunRegistryComposite{
-			registries: registries, generations: generations, instances: append([]string(nil), admittedInstances...), closed: closed,
-		}
-	}
 	closeAdmitted := func(parent context.Context) (ports.ProviderRunTerminalReceipt, QualifiedRunRegistry, error) {
-		if len(admittedInstances) == 0 {
+		if len(admission.admitted) == 0 {
 			return ports.NewEmptyProviderRunTerminalReceipt(), nil, nil
 		}
-		registry := cleanupRegistry()
+		registry := &qualifiedRunRegistryComposite{
+			registries: admission.admitted, generations: admission.generations,
+			instances: append([]string(nil), admission.instances...), closed: admission.closedReceipt,
+		}
 		var lastErr error
 		for attempt := cleanupFailures; attempt < 2; attempt++ {
 			cleanupCtx, cancel := context.WithTimeout(parent, time.Minute)
@@ -289,148 +285,239 @@ func (factory *QualifiedRunFactory) newQualifiedRunAttempt(ctx context.Context, 
 		}
 		return ports.ProviderRunTerminalReceipt{}, registry, fmt.Errorf("review run: terminal drain: %w", lastErr)
 	}
-	fail := func(cause error) (*QualifiedRun, error) {
+	if admitErr != nil {
 		receipt, registry, err := closeAdmitted(ctx)
 		if err != nil {
-			return nil, newQualifiedRunConstructionError(cause, ports.ProviderRunTerminalReceipt{}, registry)
+			return nil, newQualifiedRunConstructionError(admitErr, ports.ProviderRunTerminalReceipt{}, registry)
 		}
-		return nil, newQualifiedRunConstructionError(cause, receipt)
+		return nil, newQualifiedRunConstructionError(admitErr, receipt)
 	}
+	if len(admission.routes) == 0 {
+		receipt, registry, err := closeAdmitted(ctx)
+		failure := providerQualificationReadinessError(admission.failures)
+		if err != nil {
+			return nil, newQualifiedRunConstructionError(failure, ports.ProviderRunTerminalReceipt{}, registry)
+		}
+		return nil, newQualifiedRunConstructionError(failure, receipt)
+	}
+	retainedInstances := make([]string, 0, len(admission.routes))
+	for _, instance := range admission.instances {
+		if _, ok := admission.admitted[instance]; ok {
+			retainedInstances = append(retainedInstances, instance)
+		}
+	}
+	return &QualifiedRun{
+		routes: admission.routes, registry: &qualifiedRunRegistryComposite{
+			registries: admission.admitted, generations: admission.generations, instances: retainedInstances,
+		},
+		admitted: admission.evidence, qualificationFailures: append([]ProviderQualificationFailure(nil), admission.failures...),
+		qualificationObservations: append([]ProviderQualificationObservation(nil), admission.observations...),
+	}, nil
+}
 
-	routes := make([]QualifiedRoute, 0, len(candidates))
-	for _, candidate := range candidates {
+func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Context, group familyQualificationGroup, now time.Time) (familyGroupAdmission, error) {
+	admission := familyGroupAdmission{
+		admitted:      make(map[string]QualifiedRunRegistry, len(group.candidates)),
+		generations:   make(map[string]string, len(group.candidates)),
+		closedReceipt: make(map[string]ports.ProviderRunTerminalReceipt, len(group.candidates)),
+	}
+	release := func(instance string) error {
+		registry, ok := admission.admitted[instance]
+		if !ok {
+			return nil
+		}
+		receipt, err := closeQualifiedRunRegistry(ctx, registry, instance, admission.generations[instance])
+		if err != nil {
+			return err
+		}
+		admission.closedReceipt[instance] = receipt
+		delete(admission.admitted, instance)
+		delete(admission.generations, instance)
+		return nil
+	}
+	releaseAll := func() {
+		for _, instance := range append([]string(nil), admission.instances...) {
+			_ = release(instance)
+		}
+	}
+	for _, candidate := range group.candidates {
 		definition := candidate.Definition
 		registry, err := factory.registries.NewProviderQualificationRegistry(ctx, []ports.ProviderRuntimeDefinition{definition})
 		if err != nil {
 			if currentQualificationUnavailable(err) {
 				failure, failureErr := newOperationalQualificationFailure(definition, err)
 				if failureErr != nil {
-					return fail(failureErr)
+					releaseAll()
+					return admission, failureErr
 				}
-				qualificationFailures = append(qualificationFailures, failure)
+				admission.failures = append(admission.failures, failure)
 				continue
 			}
 			if retained, ok := factory.registries.RegistryFromConstructionError(err); ok {
-				admitted[definition.Instance()] = retained
-				admittedInstances = append(admittedInstances, definition.Instance())
-				if namespace, retained := retained.QualificationNamespace(definition.Instance()); retained {
-					admittedGenerations[definition.Instance()] = namespace.Generation()
+				admission.admitted[definition.Instance()] = retained
+				admission.instances = append(admission.instances, definition.Instance())
+				if namespace, retainedNS := retained.QualificationNamespace(definition.Instance()); retainedNS {
+					admission.generations[definition.Instance()] = namespace.Generation()
 				}
 			}
-			return fail(providerQualificationBoundaryError(definition, err, qualificationReasonCode(err, "qualification_failed")))
+			releaseAll()
+			return admission, providerQualificationBoundaryError(definition, err, qualificationReasonCode(err, "qualification_failed"))
 		}
-		admitted[definition.Instance()] = registry
-		admittedInstances = append(admittedInstances, definition.Instance())
+		admission.admitted[definition.Instance()] = registry
+		admission.instances = append(admission.instances, definition.Instance())
 		namespace, ok := registry.QualificationNamespace(definition.Instance())
 		if !ok || namespace == nil || namespace.ProviderInstance() != definition.Instance() || namespace.Generation() == "" ||
 			namespace.RuntimeSafetyPolicyIdentity() != definition.RuntimeSafetyPolicyIdentity() {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: production registry namespace for %q: terminal drain: %w", definition.Instance(), closeErr))
-			}
-			return fail(fmt.Errorf("review run: production registry did not retain namespace for %q", definition.Instance()))
+			_ = release(definition.Instance())
+			releaseAll()
+			return admission, fmt.Errorf("review run: production registry did not retain namespace for %q", definition.Instance())
 		}
-		admittedGenerations[definition.Instance()] = namespace.Generation()
-		requestIdentity := qualificationIdentity(candidate, definition, namespace.Generation())
-		result, qualificationErr := factory.qualifier.QualifyCurrent(ctx, CurrentQualificationRequest{
-			Profile: candidate.Profile, Definition: definition, Identity: requestIdentity, Namespace: namespace,
-			RequestedRoles: append([]domain.Role(nil), candidate.SupportedRoles...), BaseRole: candidate.BaseRole, Now: now,
-		})
-		if qualificationErr != nil {
-			qualificationObservations = append(qualificationObservations, qualificationObservationsFromError(qualificationErr)...)
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: current qualification for %q: %w; terminal drain: %v", definition.Instance(), qualificationErr, closeErr))
+		admission.generations[definition.Instance()] = namespace.Generation()
+	}
+	if len(admission.admitted) == 0 {
+		return admission, nil
+	}
+	representative := group.candidates[group.representative]
+	repDefinition := representative.Definition
+	if _, retained := admission.admitted[repDefinition.Instance()]; !retained {
+		for index, candidate := range group.candidates {
+			if _, ok := admission.admitted[candidate.Definition.Instance()]; ok {
+				representative = candidate
+				group.representative = index
+				repDefinition = candidate.Definition
+				break
 			}
-			if _, loginRequired := ProviderLoginRequiredProvidersFromError(qualificationErr); loginRequired {
-				return fail(fmt.Errorf("review run: current qualification for %q: %w", definition.Instance(), qualificationErr))
-			}
-			if currentQualificationUnavailable(qualificationErr) {
-				failure, failureErr := newOperationalQualificationFailure(definition, qualificationErr)
-				if failureErr != nil {
-					return fail(failureErr)
+		}
+	}
+	repRegistry, ok := admission.admitted[repDefinition.Instance()]
+	if !ok {
+		releaseAll()
+		return admission, fmt.Errorf("review run: representative namespace unavailable for %q", repDefinition.Instance())
+	}
+	repNamespace, ok := repRegistry.QualificationNamespace(repDefinition.Instance())
+	if !ok {
+		releaseAll()
+		return admission, fmt.Errorf("review run: representative namespace unavailable for %q", repDefinition.Instance())
+	}
+	requestIdentity := qualificationIdentity(representative, repDefinition, repNamespace.Generation())
+	familyResult, qualificationErr := factory.qualifier.QualifyCurrent(ctx, CurrentQualificationRequest{
+		Profile: representative.Profile, Definition: repDefinition, Identity: requestIdentity, Namespace: repNamespace,
+		RequestedRoles: append([]domain.Role(nil), group.roles...), BaseRole: group.baseRole, Now: now,
+	})
+	if qualificationErr != nil {
+		admission.observations = append(admission.observations, qualificationObservationsFromError(qualificationErr)...)
+		if _, loginRequired := ProviderLoginRequiredProvidersFromError(qualificationErr); loginRequired {
+			// Leave namespaces admitted so the factory-level drain owns cleanup proof.
+			return admission, fmt.Errorf("review run: current qualification for %q: %w", repDefinition.Instance(), qualificationErr)
+		}
+		if currentQualificationUnavailable(qualificationErr) {
+			failedCandidates := make([]QualifiedRunCandidate, 0, len(group.candidates))
+			for _, candidate := range group.candidates {
+				if _, retained := admission.admitted[candidate.Definition.Instance()]; retained {
+					failedCandidates = append(failedCandidates, candidate)
 				}
-				qualificationFailures = append(qualificationFailures, failure)
-				continue
 			}
-			return fail(providerQualificationBoundaryError(definition, qualificationErr, qualificationReasonCode(qualificationErr, "qualification_failed")))
+			releaseAll()
+			for _, candidate := range failedCandidates {
+				failure, failureErr := newOperationalQualificationFailure(candidate.Definition, qualificationErr)
+				if failureErr != nil {
+					return admission, failureErr
+				}
+				admission.failures = append(admission.failures, failure)
+			}
+			return admission, nil
 		}
-		qualificationObservations = append(qualificationObservations, result.Observations...)
-		identity := requestIdentity
+		// Leave namespaces admitted so construction cleanup can retain or prove drain.
+		return admission, providerQualificationBoundaryError(repDefinition, qualificationErr, qualificationReasonCode(qualificationErr, "qualification_failed"))
+	}
+	// Attempt-1 rejections survive a successful bounded retry so runtime
+	// diagnostics still record the transient probe failure.
+	for _, observation := range familyResult.Observations {
+		if observation.Outcome() == qualificationOutcomeRejected {
+			admission.observations = append(admission.observations, observation)
+		}
+	}
+	deriver, hasDeriver := factory.qualifier.(FamilyRouteDeriver)
+	for _, candidate := range group.candidates {
+		definition := candidate.Definition
+		if _, retained := admission.admitted[definition.Instance()]; !retained {
+			continue
+		}
+		namespaceGeneration := admission.generations[definition.Instance()]
+		identity := qualificationIdentity(candidate, definition, namespaceGeneration)
+		var result CurrentQualificationResult
+		var routeErr error
+		if definition.Instance() == repDefinition.Instance() &&
+			namespaceGeneration == admission.generations[repDefinition.Instance()] {
+			result, routeErr = remapCurrentQualificationResult(familyResult, identity, candidate.SupportedRoles, candidate.BaseRole)
+		} else if hasDeriver {
+			namespace, ok := admission.admitted[definition.Instance()].QualificationNamespace(definition.Instance())
+			if !ok {
+				releaseAll()
+				return admission, fmt.Errorf("review run: destination namespace unavailable for %q", definition.Instance())
+			}
+			result, routeErr = deriver.DeriveEquivalentFamilyRoute(ctx, FamilyRouteDerivationRequest{
+				Source: familyResult, SourceDefinition: repDefinition,
+				SourceNamespaceGen: admission.generations[repDefinition.Instance()],
+				Destination:        candidate, DestinationIdentity: identity, DestinationNamespace: namespace, Now: now,
+			})
+		} else {
+			routeErr = fmt.Errorf("family route derivation unavailable for sibling instance %q", definition.Instance())
+		}
+		if routeErr != nil {
+			releaseAll()
+			return admission, fmt.Errorf("review run: derive family qualification for %q: %w", definition.Instance(), routeErr)
+		}
 		identity.Version = result.Version
 		profile := candidate.Profile.WithQualifiedVersion(result.VersionArgv, result.Version)
 		qualification := ValidateQualification(QualificationInput{Identity: identity, Version: result.Version, KnownIncompatible: result.KnownIncompatible, Receipts: result.Receipts, Now: now})
 		supportedRoles, roleErr := qualifiedSupportedRoles(candidate, result, identity)
 		if profile.Classification() == VersionRed {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: below-minimum provider %q: terminal drain: %w", definition.Instance(), closeErr))
-			}
+			_ = release(definition.Instance())
 			cause, causeErr := domain.NewFailure("reviewrun.qualification", domain.FailureConfiguration, "provider version is incompatible", nil)
 			if causeErr != nil {
-				return fail(causeErr)
+				releaseAll()
+				return admission, causeErr
 			}
 			failure, failureErr := NewProviderQualificationFailure(definition.Instance(), Family(definition.Family()), "version_incompatible", cause)
 			if failureErr != nil {
-				return fail(failureErr)
+				releaseAll()
+				return admission, failureErr
 			}
-			qualificationFailures = append(qualificationFailures, failure)
+			admission.failures = append(admission.failures, failure)
 			continue
 		}
 		if !profile.Available() || (definition.Version() != "" && profile.Version() != definition.Version()) || !qualification.Available() || roleErr != nil {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: invalid current qualification for %q: terminal drain: %w", definition.Instance(), closeErr))
-			}
+			releaseAll()
 			cause, causeErr := domain.NewFailure("reviewrun.qualification", domain.FailureProviderUnavailable, "current qualification is invalid", nil)
 			if causeErr != nil {
-				return fail(causeErr)
+				return admission, causeErr
 			}
-			return fail(providerQualificationBoundaryError(definition, cause, "qualification_invalid"))
+			return admission, providerQualificationBoundaryError(definition, cause, "qualification_invalid")
 		}
 		route, err := ports.NewProviderRoute(definition.Instance(), definition.ConcurrencyKey())
 		if err != nil {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: provider route for %q: %w; terminal drain: %v", definition.Instance(), err, closeErr))
-			}
-			return fail(fmt.Errorf("review run: provider route for %q: %w", definition.Instance(), err))
+			releaseAll()
+			return admission, fmt.Errorf("review run: provider route for %q: %w", definition.Instance(), err)
 		}
 		ordinal, _ := familyOrdinal(identity.Family)
 		qualified, err := NewQualifiedRoute(qualification, route, candidate.Limits, supportedRoles, result.BaseRole, ordinal)
 		if err != nil {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: qualified route for %q: %w; terminal drain: %v", definition.Instance(), err, closeErr))
-			}
-			return fail(fmt.Errorf("review run: qualified route for %q: %w", definition.Instance(), err))
+			releaseAll()
+			return admission, fmt.Errorf("review run: qualified route for %q: %w", definition.Instance(), err)
 		}
 		evidence, err := admittedEvidenceFromQualification(identity, result)
 		if err != nil {
-			if closeErr := release(ctx, definition.Instance()); closeErr != nil {
-				return fail(fmt.Errorf("review run: retain admitted evidence for %q: %w; terminal drain: %v", definition.Instance(), err, closeErr))
-			}
-			return fail(fmt.Errorf("review run: retain admitted evidence for %q: %w", definition.Instance(), err))
+			releaseAll()
+			return admission, fmt.Errorf("review run: retain admitted evidence for %q: %w", definition.Instance(), err)
 		}
-		routes = append(routes, qualified)
-		admittedEvidence = append(admittedEvidence, evidence)
+		admission.routes = append(admission.routes, qualified)
+		admission.evidence = append(admission.evidence, evidence)
+		// Emit one candidate-checked observation per admitted route, including
+		// siblings that inherit readiness from a shared family probe.
+		admission.observations = append(admission.observations, qualifiedQualificationObservation(definition.Instance()))
 	}
-	if len(routes) == 0 {
-		receipt, registry, err := closeAdmitted(ctx)
-		if err != nil {
-			failure := providerQualificationReadinessError(qualificationFailures)
-			return nil, newQualifiedRunConstructionError(failure, ports.ProviderRunTerminalReceipt{}, registry)
-		}
-		failure := providerQualificationReadinessError(qualificationFailures)
-		return nil, newQualifiedRunConstructionError(failure, receipt)
-	}
-	retainedInstances := make([]string, 0, len(routes))
-	for _, instance := range admittedInstances {
-		if _, ok := admitted[instance]; ok {
-			retainedInstances = append(retainedInstances, instance)
-		}
-	}
-	return &QualifiedRun{
-		routes: routes, registry: &qualifiedRunRegistryComposite{
-			registries: admitted, generations: admittedGenerations, instances: retainedInstances,
-		},
-		admitted: admittedEvidence, qualificationFailures: append([]ProviderQualificationFailure(nil), qualificationFailures...),
-		qualificationObservations: append([]ProviderQualificationObservation(nil), qualificationObservations...),
-	}, nil
+	return admission, nil
 }
 
 func validateQualifiedRunCandidate(candidate QualifiedRunCandidate, seen map[string]struct{}) error {

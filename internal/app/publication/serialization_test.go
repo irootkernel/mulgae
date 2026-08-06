@@ -80,8 +80,8 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	if got, want := first.Epoch().Record().Path().String(), "store/epochs/epoch_00000000000000000042.json"; got != want {
 		t.Fatalf("epoch path = %q, want %q", got, want)
 	}
-	if got := len(first.Excerpts()); got != 3 {
-		t.Fatalf("support artifact count = %d, want excerpt, normalized finding, and support index", got)
+	if got := len(first.Excerpts()); got != 5 {
+		t.Fatalf("support artifact count = %d, want excerpt, normalized finding, role reports, and support index", got)
 	} else {
 		if got, want := first.Excerpts()[0].Path().String(), prefix+"/excerpts/F001_1.md"; got != want {
 			t.Fatalf("excerpt path = %q, want %q", got, want)
@@ -89,7 +89,13 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 		if got, want := first.Excerpts()[1].Path().String(), prefix+"/excerpts/F001.json"; got != want {
 			t.Fatalf("normalized finding path = %q, want %q", got, want)
 		}
-		if got, want := first.Excerpts()[2].Path().String(), prefix+"/support/index.json"; got != want {
+		if got, want := first.Excerpts()[2].Path().String(), prefix+"/role-reports/logic.md"; got != want {
+			t.Fatalf("logic role report path = %q, want %q", got, want)
+		}
+		if got, want := first.Excerpts()[3].Path().String(), prefix+"/role-reports/security.md"; got != want {
+			t.Fatalf("security role report path = %q, want %q", got, want)
+		}
+		if got, want := first.Excerpts()[4].Path().String(), prefix+"/support/index.json"; got != want {
 			t.Fatalf("support index path = %q, want %q", got, want)
 		}
 	}
@@ -97,6 +103,9 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	var final finalReviewWire
 	if err := unmarshalExact(first.Final().Bytes(), &final); err != nil {
 		t.Fatal(err)
+	}
+	if final.StructuredExtractionStatus != string(domain.StructuredExtractionStructured) {
+		t.Fatalf("structured_extraction_status = %q", final.StructuredExtractionStatus)
 	}
 	if final.PublicationStatus != "committed" || final.ImmutableLineage.ParentRunID != nil || final.ImmutableLineage.SourceRunID != nil ||
 		final.ImmutableLineage.SourceReviewID != nil || final.ImmutableLineage.SourceFindingRef != nil || final.ImmutableLineage.ReplayMode != nil {
@@ -141,6 +150,17 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	if manifest.PersistedJournalState != "manifest_committed" || manifest.DurableObservationClass != "P2_COMMITTED" ||
 		manifest.DerivedPublicationStatus != "committed" || manifest.PublicationAuthority != "P2" || manifest.ExitCode != 1 {
 		t.Fatalf("manifest P2 state is inconsistent: %#v", manifest)
+	}
+	if manifest.StructuredExtractionStatus != string(domain.StructuredExtractionStructured) || len(manifest.RoleReports) != 2 {
+		t.Fatalf("manifest role reports = %#v structured=%q", manifest.RoleReports, manifest.StructuredExtractionStatus)
+	}
+	if manifest.RoleReports[0].Role != "logic" || manifest.RoleReports[0].Path != "role-reports/logic.md" ||
+		manifest.RoleReports[0].ContentType != "text/markdown" ||
+		manifest.RoleReports[0].ProviderInstance == "" || manifest.RoleReports[0].AttemptID == "" ||
+		manifest.RoleReports[1].Role != "security" || manifest.RoleReports[1].Path != "role-reports/security.md" ||
+		manifest.RoleReports[1].ContentType != "text/markdown" ||
+		manifest.RoleReports[1].ProviderInstance == "" || manifest.RoleReports[1].AttemptID == "" {
+		t.Fatalf("manifest role report identities = %#v", manifest.RoleReports)
 	}
 	if manifest.FinalReview.SHA256 != first.Final().Identity().SHA256() || manifest.CompositeIdentity.LineageEdge.SHA256 != first.LineageEdge().SHA256() ||
 		manifest.CompositeIdentity.Epoch.Path != first.Epoch().Record().Path().String() {

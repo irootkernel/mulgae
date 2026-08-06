@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,9 +24,13 @@ type runtimeDiagnosticLifecycle struct {
 	finalized bool
 }
 
-func (lifecycle *runtimeDiagnosticLifecycle) ObservePublicationLifecycle(ctx context.Context, event publication.LifecycleEvent) error {
+func (lifecycle *runtimeDiagnosticLifecycle) ObservePublicationLifecycle(ctx context.Context, observation publication.LifecycleObservation) error {
+	event := observation.Event()
 	code := domain.RuntimeDiagnosticEventCode("")
 	level := domain.RuntimeDiagnosticInfo
+	operation := "commit"
+	var cause domain.RuntimeDiagnosticCause
+	var failure, mitigation string
 	switch event {
 	case publication.LifecyclePreparationStarted:
 		code = domain.DiagnosticPublicationPreparationStarted
@@ -38,12 +43,19 @@ func (lifecycle *runtimeDiagnosticLifecycle) ObservePublicationLifecycle(ctx con
 	case publication.LifecycleFailed:
 		code = domain.DiagnosticPublicationFailed
 		level = domain.RuntimeDiagnosticError
+		if diagnostic, ok := observation.FailureDiagnostic(); ok {
+			operation = string(diagnostic.Phase())
+			cause = diagnostic.Cause()
+			failure = diagnostic.Failure()
+			mitigation = diagnostic.Mitigation()
+		}
 	default:
 		return diagnosticArtifactFailure("reviewrun.diagnostics.publication", fmt.Errorf("unknown publication lifecycle event %q", event))
 	}
 	_, err := lifecycle.emit(ctx, domain.RuntimeDiagnosticEventInput{
-		Level: level, Component: "publication", Operation: "commit", Event: code,
+		Level: level, Component: "publication", Operation: operation, Event: code,
 		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID,
+		Cause: cause, Failure: failure, Mitigation: mitigation,
 	})
 	return err
 }
@@ -150,6 +162,7 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	parent context.Context,
 	state domain.RunState,
 	cause domain.RuntimeDiagnosticCause,
+	phase domain.RuntimeDiagnosticPhase,
 	p2URI ports.SafeRelativePath,
 	coordinator review.CoordinatorResult,
 ) (ports.RuntimeDiagnosticFinalizeResult, error) {
@@ -180,7 +193,7 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID, State: state,
 		StartedAt: lifecycle.identity.startedAt, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true,
 		SelectedRoles: lifecycle.roles, LaneTotal: len(lifecycle.roles), LaneCompleted: laneCompleted, LaneFailed: laneFailed,
-		LastSequence: lastSequence, TerminalCause: cause, P2URI: p2URI, HasP2URI: p2URI.Valid(),
+		LastSequence: lastSequence, TerminalCause: cause, TerminalPhase: phase, P2URI: p2URI, HasP2URI: p2URI.Valid(),
 	})
 	if err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", err)
@@ -222,38 +235,44 @@ func runtimeDiagnosticP2URI(result Result, terminalErr error) (ports.SafeRelativ
 	return p2URI, nil
 }
 
-func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, err error) (domain.RunState, domain.RuntimeDiagnosticCause) {
+func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, err error) (domain.RunState, domain.RuntimeDiagnosticCause, domain.RuntimeDiagnosticPhase) {
 	if err == nil {
 		state := result.Coordinator().RunState()
 		if state == domain.RunCompleted || state == domain.RunDegraded {
-			return state, ""
+			return state, "", ""
 		}
-		return domain.RunCompleted, ""
+		return domain.RunCompleted, "", ""
+	}
+	if diagnostic, ok := publication.FailureDiagnosticFromError(err); ok {
+		return domain.RunFailed, diagnostic.Cause(), diagnostic.Phase()
 	}
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
-		return domain.RunFailed, domain.DiagnosticCauseLoginRequired
+		return domain.RunFailed, domain.DiagnosticCauseLoginRequired, ""
 	}
 	if cause := qualificationTerminalCause(err); cause.Valid() {
-		return domain.RunFailed, cause
+		return domain.RunFailed, cause, ""
 	}
 	var failure *domain.Failure
 	if errors.As(err, &failure) {
 		switch failure.Class() {
 		case domain.FailureArtifact:
-			return domain.RunFailed, domain.DiagnosticCausePersistenceFailed
+			if strings.HasPrefix(failure.Stage(), "reviewrun.diagnostics") || failure.Stage() == "publication.diagnostics" {
+				return domain.RunFailed, domain.DiagnosticCausePersistenceFailed, domain.DiagnosticPhaseDiagnostics
+			}
+			return domain.RunFailed, "", ""
 		case domain.FailureAuthentication:
-			return domain.RunFailed, domain.DiagnosticCauseAuthenticationFailed
+			return domain.RunFailed, domain.DiagnosticCauseAuthenticationFailed, ""
 		case domain.FailureTimeout:
-			return domain.RunFailed, domain.DiagnosticCauseTimedOut
+			return domain.RunFailed, domain.DiagnosticCauseTimedOut, ""
 		case domain.FailureCancelled:
-			return domain.RunCancelled, ""
+			return domain.RunCancelled, "", ""
 		}
-		return domain.RunFailed, ""
+		return domain.RunFailed, "", ""
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || parent != nil && parent.Err() != nil {
-		return domain.RunCancelled, ""
+		return domain.RunCancelled, "", ""
 	}
-	return domain.RunFailed, ""
+	return domain.RunFailed, "", ""
 }
 
 func qualificationTerminalCause(err error) domain.RuntimeDiagnosticCause {
@@ -299,8 +318,40 @@ func diagnosticArtifactFailure(stage string, cause error) error {
 }
 
 type RuntimeDiagnosticReferenceError struct {
-	uri   ports.SafeRelativePath
-	cause error
+	uri                  ports.SafeRelativePath
+	sessionID            domain.SessionID
+	runID                domain.RunID
+	hasAllocatedIdentity bool
+	cause                error
+}
+
+// AllocatedRunIdentityError retains recovery identity without claiming that a
+// diagnostic or publication artifact was installed.
+type AllocatedRunIdentityError struct {
+	sessionID domain.SessionID
+	runID     domain.RunID
+	cause     error
+}
+
+func (err *AllocatedRunIdentityError) Error() string {
+	return "review run: terminal failure retains allocated run identity"
+}
+
+func (err *AllocatedRunIdentityError) Unwrap() error { return err.cause }
+
+// NewAllocatedRunIdentityError retains an identity even when runtime
+// diagnostics could not be installed or finalized.
+func NewAllocatedRunIdentityError(sessionID domain.SessionID, runID domain.RunID, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	if _, err := domain.ParseSessionID(sessionID.String()); err != nil {
+		return cause
+	}
+	if _, err := domain.ParseRunID(runID.String()); err != nil {
+		return cause
+	}
+	return &AllocatedRunIdentityError{sessionID: sessionID, runID: runID, cause: cause}
 }
 
 func (err *RuntimeDiagnosticReferenceError) Error() string {
@@ -320,6 +371,49 @@ func NewRuntimeDiagnosticReferenceError(uri ports.SafeRelativePath, cause error)
 		return cause
 	}
 	return &RuntimeDiagnosticReferenceError{uri: uri, cause: cause}
+}
+
+// NewRuntimeDiagnosticReferenceErrorWithIdentity attaches an installed runtime
+// diagnostic URI and the already allocated run identity to a terminal error.
+// Command projections use the identity for recovery without treating the
+// diagnostic as publication authority.
+func NewRuntimeDiagnosticReferenceErrorWithIdentity(
+	uri ports.SafeRelativePath,
+	sessionID domain.SessionID,
+	runID domain.RunID,
+	cause error,
+) error {
+	if cause == nil || !uri.Valid() || sessionID.String() == "" || runID.String() == "" {
+		return cause
+	}
+	return &RuntimeDiagnosticReferenceError{
+		uri: uri, sessionID: sessionID, runID: runID,
+		hasAllocatedIdentity: true, cause: cause,
+	}
+}
+
+// RuntimeDiagnosticIdentityFromError returns an allocated identity retained by
+// a failed review after diagnostics were installed.
+func RuntimeDiagnosticIdentityFromError(err error) (domain.SessionID, domain.RunID, bool) {
+	var referenced *RuntimeDiagnosticReferenceError
+	if errors.As(err, &referenced) && referenced != nil && referenced.hasAllocatedIdentity {
+		return validRuntimeDiagnosticIdentity(referenced.sessionID, referenced.runID)
+	}
+	var allocated *AllocatedRunIdentityError
+	if errors.As(err, &allocated) && allocated != nil {
+		return validRuntimeDiagnosticIdentity(allocated.sessionID, allocated.runID)
+	}
+	return domain.SessionID{}, domain.RunID{}, false
+}
+
+func validRuntimeDiagnosticIdentity(sessionID domain.SessionID, runID domain.RunID) (domain.SessionID, domain.RunID, bool) {
+	if _, parseErr := domain.ParseSessionID(sessionID.String()); parseErr != nil {
+		return domain.SessionID{}, domain.RunID{}, false
+	}
+	if _, parseErr := domain.ParseRunID(runID.String()); parseErr != nil {
+		return domain.SessionID{}, domain.RunID{}, false
+	}
+	return sessionID, runID, true
 }
 
 func RuntimeDiagnosticURIFromError(err error) (ports.SafeRelativePath, bool) {

@@ -159,7 +159,7 @@ func decodeDiagnosticRunStatus(data []byte, sessionID domain.SessionID, runID do
 		SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt,
 		CompletedAt: completedAt, HasCompletedAt: hasCompletedAt, SelectedRoles: wire.SelectedRoles,
 		LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed,
-		LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, P2URI: p2URI,
+		LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, P2URI: p2URI,
 		HasP2URI: hasP2URI, DroppedEvents: wire.DroppedEvents,
 	})
 	if err != nil {

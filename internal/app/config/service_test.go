@@ -19,7 +19,7 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 	roles, _ := adapterconfig.CanonicalRolesConfig([]string{"agy"})
-	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", PermissionModeExplicit: true}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 	data, err := adapterconfig.EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 		t.Fatalf("safe permission provenance = %#v", permissionProvenance)
 	}
 	policy := resolution.Config().Redacted().Policy
-	if policy.AGYPermissionMode != appconfig.SafeAGYPermissionMode || len(policy.Warnings) != 1 {
+	if policy.AGYPermissionMode != appconfig.SafeAGYPermissionMode || len(policy.Warnings) != 0 {
 		t.Fatalf("safe effective policy = %#v", policy)
 	}
 	configPath := filepath.Join(rootPath, ".mulgae", "config.yaml")

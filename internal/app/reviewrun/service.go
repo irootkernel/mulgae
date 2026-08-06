@@ -70,15 +70,19 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		if diagnostics == nil {
 			return
 		}
-		state, cause := runtimeDiagnosticTerminalDecision(ctx, result, err)
+		state, cause, phase := runtimeDiagnosticTerminalDecision(ctx, result, err)
 		p2URI, p2Err := runtimeDiagnosticP2URI(result, err)
 		if p2Err != nil {
 			err = errors.Join(err, p2Err)
 		}
-		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, p2URI, terminalCoordinator)
+		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, phase, p2URI, terminalCoordinator)
 		if finalizeErr != nil {
 			result = Result{}
-			err = errors.Join(err, finalizeErr)
+			err = NewAllocatedRunIdentityError(
+				diagnostics.identity.sessionID,
+				diagnostics.identity.runID,
+				errors.Join(err, finalizeErr),
+			)
 			return
 		}
 		if err != nil {
@@ -88,7 +92,12 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 				err = errors.Join(err, diagnosticArtifactFailure("reviewrun.diagnostics.project_uri", uriErr))
 				return
 			}
-			err = runtimeDiagnosticReferenceError(projectURI, err)
+			err = NewRuntimeDiagnosticReferenceErrorWithIdentity(
+				projectURI,
+				diagnostics.identity.sessionID,
+				diagnostics.identity.runID,
+				err,
+			)
 			return
 		}
 		result.diagnostic = finalized.URI()
@@ -114,7 +123,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	diagnostics, err = openRuntimeDiagnosticLifecycle(ctx, service.dependencies.Diagnostics, request.ArtifactRoot, identity, request.Selection.Roles(), service.dependencies.Clock)
 	if err != nil {
-		return Result{}, err
+		return Result{}, NewAllocatedRunIdentityError(identity.sessionID, identity.runID, err)
 	}
 	cleanup.setDiagnostics(diagnostics)
 	if input.Target().NoChange() {
@@ -317,7 +326,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(coordinatorResult, target, plan.Threshold, qualified.BuildIdentity().Version, qualified.BuildIdentity().ImmutableReference(), publicationContext, inventory)
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: prepare publication candidate: %w", err)
+		return Result{}, publicationCandidateFailure(err)
 	}
 	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
@@ -332,7 +341,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if !hasFinal || !hasSnapshot || !hasExit {
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
-	return newResult(coordinatorResult.SessionID(), coordinatorResult.RunID(), coordinatorResult, final, snapshot, exit)
+	roleReportURIs, err := projectRoleReportURIs(published)
+	if err != nil {
+		return Result{}, fmt.Errorf("review run: role report identities: %w", err)
+	}
+	return newResult(coordinatorResult.SessionID(), coordinatorResult.RunID(), coordinatorResult, final, snapshot, roleReportURIs, exit)
 }
 
 // CoordinatorExecutionFailure applies the shared pre-publication terminal
@@ -825,7 +838,7 @@ func (service *Service) publishNoChange(
 		},
 	)
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: prepare no-change publication candidate: %w", err)
+		return Result{}, publicationCandidateFailure(err)
 	}
 	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
@@ -840,7 +853,19 @@ func (service *Service) publishNoChange(
 	if !hasFinal || !hasSnapshot || !hasExit {
 		return Result{}, fmt.Errorf("review run: incomplete P2 publication authority")
 	}
-	return newResult(sessionID, runID, review.CoordinatorResult{}, final, snapshot, exit)
+	roleReportURIs, err := projectRoleReportURIs(published)
+	if err != nil {
+		return Result{}, fmt.Errorf("review run: role report identities: %w", err)
+	}
+	return newResult(sessionID, runID, review.CoordinatorResult{}, final, snapshot, roleReportURIs, exit)
+}
+
+func publicationCandidateFailure(cause error) error {
+	failure, err := domain.NewFailure("publication.candidate", domain.FailureArtifact, "publication candidate preparation failed", cause)
+	if err != nil {
+		return fmt.Errorf("review run: construct publication candidate failure: %w", err)
+	}
+	return failure
 }
 
 func (service *Service) publishNext(

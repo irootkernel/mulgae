@@ -5,10 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
+
+// RoleReportURI is one trusted project-relative role-report identity projected
+// from a committed PublicationResult support inventory by childrun.
+type RoleReportURI struct {
+	Role string
+	URI  string
+}
 
 var (
 	// ErrInvalidRequest identifies an invalid rerun request.
@@ -151,8 +159,8 @@ type ChildReplayExecutor interface {
 	ExecuteChildReplay(context.Context, ChildReplay) (ChildReplayResult, error)
 }
 
-// ChildReplayResult is the child identity, persisted prompt-manifest view, and
-// verified P2 terminal exit decision.
+// ChildReplayResult is the child identity, persisted prompt-manifest view,
+// verified committed role-report URIs, and verified P2 terminal exit decision.
 type ChildReplayResult struct {
 	SessionID             domain.SessionID
 	RunID                 domain.RunID
@@ -166,20 +174,25 @@ type ChildReplayResult struct {
 	PromptManifestSHA256  string
 	ReplayMode            ReplayMode
 	ExactReplay           bool
+	RoleReportURIs        []RoleReportURI
 	terminalExit          *domain.OperationalExitDecision
 }
 
 // NewChildReplayResult validates and binds the verified P2 terminal exit to
 // one published rerun child.
-func NewChildReplayResult(sessionID domain.SessionID, runID, parentRunID, sourceRunID domain.RunID, sourceReviewID domain.ReviewID, sourceAttemptID domain.AttemptID, executionInvocationID, promptIdentity, promptManifestURI, promptManifestSHA256 string, replayMode ReplayMode, exactReplay bool, terminalExit domain.OperationalExitDecision) (ChildReplayResult, error) {
+func NewChildReplayResult(sessionID domain.SessionID, runID, parentRunID, sourceRunID domain.RunID, sourceReviewID domain.ReviewID, sourceAttemptID domain.AttemptID, executionInvocationID, promptIdentity, promptManifestURI, promptManifestSHA256 string, replayMode ReplayMode, exactReplay bool, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (ChildReplayResult, error) {
 	result := ChildReplayResult{
 		SessionID: sessionID, RunID: runID, ParentRunID: parentRunID, SourceRunID: sourceRunID,
 		SourceReviewID: sourceReviewID, SourceAttemptID: sourceAttemptID,
 		ExecutionInvocationID: executionInvocationID, PromptIdentity: promptIdentity,
 		PromptManifestURI: promptManifestURI, PromptManifestSHA256: promptManifestSHA256,
-		ReplayMode: replayMode, ExactReplay: exactReplay, terminalExit: &terminalExit,
+		ReplayMode: replayMode, ExactReplay: exactReplay,
+		RoleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
 	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return ChildReplayResult{}, fmt.Errorf("rerun child result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.RoleReportURIs); err != nil {
 		return ChildReplayResult{}, fmt.Errorf("rerun child result: %w", err)
 	}
 	return result, nil
@@ -199,19 +212,26 @@ func (result ChildReplayResult) ValidateTerminalExit() error {
 }
 
 // Result is the bounded application result exposed to command wiring, including
-// the verified P2 terminal exit decision.
+// verified committed role-report URIs and the verified P2 terminal exit.
 type Result struct {
 	SessionID         domain.SessionID
 	RunID             domain.RunID
 	PromptManifestURI string
+	RoleReportURIs    []RoleReportURI
 	terminalExit      *domain.OperationalExitDecision
 }
 
 // NewResult validates and binds the verified P2 terminal exit to the bounded
 // rerun application result.
-func NewResult(sessionID domain.SessionID, runID domain.RunID, promptManifestURI string, terminalExit domain.OperationalExitDecision) (Result, error) {
-	result := Result{SessionID: sessionID, RunID: runID, PromptManifestURI: promptManifestURI, terminalExit: &terminalExit}
+func NewResult(sessionID domain.SessionID, runID domain.RunID, promptManifestURI string, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (Result, error) {
+	result := Result{
+		SessionID: sessionID, RunID: runID, PromptManifestURI: promptManifestURI,
+		RoleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
+	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return Result{}, fmt.Errorf("rerun result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.RoleReportURIs); err != nil {
 		return Result{}, fmt.Errorf("rerun result: %w", err)
 	}
 	return result, nil
@@ -252,4 +272,20 @@ func validateCommittedTerminalExit(exit *domain.OperationalExitDecision) error {
 	default:
 		return fmt.Errorf("terminal exit %d is not a committed P2 outcome", exit.Code())
 	}
+}
+
+func validateRoleReportURIs(sessionID domain.SessionID, runID domain.RunID, reports []RoleReportURI) error {
+	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/"
+	seen := make(map[string]struct{}, len(reports))
+	for _, report := range reports {
+		if !domain.Role(report.Role).Valid() || report.URI != prefix+report.Role+".md" ||
+			strings.TrimSpace(report.URI) == "" || strings.ContainsAny(report.URI, "\x00\r\n") {
+			return fmt.Errorf("role report URI is invalid")
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return fmt.Errorf("role report URI is duplicated")
+		}
+		seen[report.Role] = struct{}{}
+	}
+	return nil
 }

@@ -77,6 +77,7 @@ type RuntimeDiagnosticRunStatus struct {
 	laneTotal, laneCompleted, laneFailed int
 	lastSequence                         uint64
 	terminalCause                        domain.RuntimeDiagnosticCause
+	terminalPhase                        domain.RuntimeDiagnosticPhase
 	p2URI                                SafeRelativePath
 	hasP2URI                             bool
 	droppedEvents                        uint64
@@ -92,6 +93,7 @@ type RuntimeDiagnosticRunStatusInput struct {
 	LaneTotal, LaneCompleted, LaneFailed int
 	LastSequence                         uint64
 	TerminalCause                        domain.RuntimeDiagnosticCause
+	TerminalPhase                        domain.RuntimeDiagnosticPhase
 	P2URI                                SafeRelativePath
 	HasP2URI                             bool
 	DroppedEvents                        uint64
@@ -114,12 +116,16 @@ func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (Runti
 	if input.TerminalCause != "" && !input.TerminalCause.Valid() {
 		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid terminal cause")
 	}
+	if input.TerminalPhase != "" && (!input.TerminalPhase.Valid() || input.TerminalCause == "") {
+		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid terminal phase")
+	}
 	if input.HasP2URI != input.P2URI.Valid() {
 		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: inconsistent P2 URI")
 	}
 	return RuntimeDiagnosticRunStatus{sessionID: input.SessionID, runID: input.RunID, state: input.State, startedAt: input.StartedAt, updatedAt: input.UpdatedAt,
 		completedAt: input.CompletedAt, hasCompletedAt: input.HasCompletedAt, selectedRoles: roles, laneTotal: input.LaneTotal, laneCompleted: input.LaneCompleted,
-		laneFailed: input.LaneFailed, lastSequence: input.LastSequence, terminalCause: input.TerminalCause, p2URI: input.P2URI, hasP2URI: input.HasP2URI, droppedEvents: input.DroppedEvents}, nil
+		laneFailed: input.LaneFailed, lastSequence: input.LastSequence, terminalCause: input.TerminalCause, terminalPhase: input.TerminalPhase,
+		p2URI: input.P2URI, hasP2URI: input.HasP2URI, droppedEvents: input.DroppedEvents}, nil
 }
 
 func (status RuntimeDiagnosticRunStatus) SchemaVersion() string {
@@ -142,6 +148,9 @@ func (status RuntimeDiagnosticRunStatus) LaneCounts() (int, int, int) {
 func (status RuntimeDiagnosticRunStatus) LastSequence() uint64 { return status.lastSequence }
 func (status RuntimeDiagnosticRunStatus) TerminalCause() domain.RuntimeDiagnosticCause {
 	return status.terminalCause
+}
+func (status RuntimeDiagnosticRunStatus) TerminalPhase() domain.RuntimeDiagnosticPhase {
+	return status.terminalPhase
 }
 func (status RuntimeDiagnosticRunStatus) P2URI() (SafeRelativePath, bool) {
 	return status.p2URI, status.hasP2URI

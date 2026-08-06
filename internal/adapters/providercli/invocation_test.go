@@ -34,7 +34,7 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "14m55s", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md")
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -66,15 +66,62 @@ func TestAGYPrintTimeoutPreservesBoundedLifecycleGrace(t *testing.T) {
 	}
 }
 
-func TestNativeProbeInvocationAgySafeOptInKeepsSandboxAndSnapshot(t *testing.T) {
+func TestAGYProbePrintTimeoutStaysInsideBoundedProbeDeadline(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		runtimeTimeout time.Duration
+		want           time.Duration
+	}{
+		{name: "production runtime timeout", runtimeTimeout: 15 * time.Minute, want: 25 * time.Second},
+		{name: "long runtime timeout", runtimeTimeout: 30 * time.Minute, want: 25 * time.Second},
+		{name: "bounded probe deadline", runtimeTimeout: 30 * time.Second, want: 25 * time.Second},
+		{name: "short runtime timeout", runtimeTimeout: 3 * time.Second, want: 1500 * time.Millisecond},
+		{name: "very short runtime timeout", runtimeTimeout: time.Second, want: 500 * time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := agyProbePrintTimeout(test.runtimeTimeout)
+			if got != test.want {
+				t.Fatalf("AGY probe print timeout = %s, want %s", got, test.want)
+			}
+			if bound := boundedProbeTimeout(test.runtimeTimeout); got >= bound {
+				t.Fatalf("AGY probe print timeout = %s, want less than the bounded probe deadline %s", got, bound)
+			}
+		})
+	}
+}
+
+func TestAGYReviewPrintTimeoutKeepsConfiguredRuntimeDeadline(t *testing.T) {
+	transport, err := defaultRuntimeTransport(FamilyAgy, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := buildArgv(definition{
+		family:    FamilyAgy,
+		baseArgv:  []string{"/private/bin/agy"},
+		transport: transport,
+		timeout:   30 * time.Minute,
+	}, "/private/work", []byte("review bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
+	if !reflect.DeepEqual(argv, want) {
+		t.Fatalf("review AGY argv = %#v, want %#v", argv, want)
+	}
+	if got := agyPrintTimeout(30 * time.Minute); got.String() != "29m55s" {
+		t.Fatalf("review AGY print timeout = %s, want 29m55s", got)
+	}
+}
+
+func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing.T) {
 	identity := nativeInvocationIdentity(t, t.TempDir())
 	fixture := nativeInvocationFixture{identity: identity}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	definition, err := newTestProfileWithTransport(
-		t, FamilyAgy, "agy-safe", "agy-safe", []string{"/private/bin/agy"}, transport,
+		t, FamilyAgy, "agy-headless", "agy-headless", []string{"/private/bin/agy"}, transport,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -84,12 +131,12 @@ func TestNativeProbeInvocationAgySafeOptInKeepsSandboxAndSnapshot(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "14m55s", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md")
 	if !reflect.DeepEqual(argv, want) {
-		t.Fatalf("safe AGY probe argv = %#v, want %#v", argv, want)
+		t.Fatalf("headless AGY probe argv = %#v, want %#v", argv, want)
 	}
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
-		t.Fatalf("validate safe AGY argv: %v", err)
+		t.Fatalf("validate headless AGY argv: %v", err)
 	}
 }
 
@@ -112,7 +159,7 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "fixture-packet", "--output-format", "stream-json"},
-		FamilyZcode: {"/private/bin/zcode", "--mode", "build", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", "*"},
+		FamilyZcode: {"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
 	} {
 		definition := testProfile(t, family, "provider_current", "provider-current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
@@ -148,7 +195,7 @@ func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
 	definition.baseArgv = []string{definition.executable, definition.launcher}
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{definition.executable, definition.launcher, "--mode", "build", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", "*"}
+	want := []string{definition.executable, definition.launcher, "--mode", "plan", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode launcher argv = %#v, err = %v, want %#v", argv, err, want)
 	}

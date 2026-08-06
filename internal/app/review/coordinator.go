@@ -239,6 +239,8 @@ type CoordinatorAttemptSummary struct {
 	reasonCode      string
 	timeoutFacts    ProviderTimeoutFacts
 	hasTimeoutFacts bool
+	parseState      domain.ParseState
+	validationState domain.ValidationState
 	invocations     []CoordinatorInvocationSummary
 }
 
@@ -266,6 +268,14 @@ func (summary CoordinatorAttemptSummary) ProviderTimeoutFacts() (ProviderTimeout
 	return summary.timeoutFacts, summary.hasTimeoutFacts
 }
 
+// ParseState returns Mulgae-owned parse coverage retained for this attempt.
+func (summary CoordinatorAttemptSummary) ParseState() domain.ParseState { return summary.parseState }
+
+// ValidationState returns Mulgae-owned validation coverage retained for this attempt.
+func (summary CoordinatorAttemptSummary) ValidationState() domain.ValidationState {
+	return summary.validationState
+}
+
 // Invocations returns caller-owned immutable invocation summaries.
 func (summary CoordinatorAttemptSummary) Invocations() []CoordinatorInvocationSummary {
 	return append([]CoordinatorInvocationSummary(nil), summary.invocations...)
@@ -285,6 +295,8 @@ type CoordinatorRoleSummary struct {
 	failureClass      domain.FailureClass
 	reasonCode        string
 	attempts          []CoordinatorAttemptSummary
+	reportsOnly       bool
+	reportMarkdown    []byte
 }
 
 // Role returns the selected role.
@@ -317,6 +329,15 @@ func (summary CoordinatorRoleSummary) ReasonCode() string { return summary.reaso
 // Attempts returns caller-owned attempt summaries in creation order.
 func (summary CoordinatorRoleSummary) Attempts() []CoordinatorAttemptSummary {
 	return cloneCoordinatorAttemptSummaries(summary.attempts)
+}
+
+// ReportsOnly reports whether accepted role output was free-form report content
+// without a validated structured finding document.
+func (summary CoordinatorRoleSummary) ReportsOnly() bool { return summary.reportsOnly }
+
+// ReportMarkdown returns a caller-owned copy of the Mulgae-owned role report body.
+func (summary CoordinatorRoleSummary) ReportMarkdown() []byte {
+	return append([]byte(nil), summary.reportMarkdown...)
 }
 
 // CoordinatorResult is the immutable terminal snapshot of one coordinator run.
@@ -382,6 +403,7 @@ func cloneCoordinatorRoleSummaries(source []CoordinatorRoleSummary) []Coordinato
 	for index := range source {
 		copied[index] = source[index]
 		copied[index].attempts = cloneCoordinatorAttemptSummaries(source[index].attempts)
+		copied[index].reportMarkdown = append([]byte(nil), source[index].reportMarkdown...)
 	}
 	return copied
 }
@@ -490,6 +512,8 @@ type coordinatorAttempt struct {
 	reasonCode      string
 	timeoutFacts    ProviderTimeoutFacts
 	hasTimeoutFacts bool
+	parseState      domain.ParseState
+	validationState domain.ValidationState
 }
 
 type coordinatorRole struct {
@@ -1588,7 +1612,12 @@ func (execution *coordinatorExecution) commitOutcome(
 		}
 		copied := output.clone()
 		state.output = &copied
-		state.repaired = job.Purpose() == domain.InvocationRepair
+		// Only structured repaired_valid acceptance marks the role repaired.
+		// A failed repair accepted reports-only keeps validation_state=
+		// repair_exhausted and must leave final validation.status=valid.
+		state.repaired = output.ValidationState() == domain.ValidationRepairedValid
+		attempt.parseState = output.ParseState()
+		attempt.validationState = output.ValidationState()
 	case TerminalProjectionFailed:
 		if err := execution.run.TransitionRole(job.Role(), domain.RoleTaskFailed); err != nil {
 			return nil, fmt.Errorf("review coordinator: fail role: %w", err)
@@ -1952,6 +1981,8 @@ func (execution *coordinatorExecution) snapshot(
 		roleState := coordinatorRoleState(execution.run, role)
 		valid := roleState == domain.RoleTaskSucceeded && state.output != nil
 		degraded := valid && coordinatorOutputDegraded(state.output)
+		reportsOnly := false
+		var reportMarkdown []byte
 		if valid {
 			roleFindings := state.output.Findings()
 			roleEvidence := state.output.Evidence()
@@ -1961,6 +1992,8 @@ func (execution *coordinatorExecution) snapshot(
 			}
 			findings = append(findings, roleFindings...)
 			evidenceAssociations = append(evidenceAssociations, associations...)
+			reportsOnly = state.output.ReportsOnly()
+			reportMarkdown = state.output.ReportMarkdown()
 		}
 		roles = append(roles, CoordinatorRoleSummary{
 			role:              role,
@@ -1973,13 +2006,16 @@ func (execution *coordinatorExecution) snapshot(
 			failureClass:      state.failureClass,
 			reasonCode:        state.reasonCode,
 			attempts:          coordinatorAttemptSnapshots(state.attempts),
+			reportsOnly:       reportsOnly,
+			reportMarkdown:    reportMarkdown,
 		})
 		roleResults = append(roleResults, domain.RoleResultSummary{
-			Role:     role,
-			Selected: true,
-			Required: state.assignment.Required(),
-			Valid:    valid,
-			Degraded: degraded,
+			Role:        role,
+			Selected:    true,
+			Required:    state.assignment.Required(),
+			Valid:       valid,
+			Degraded:    degraded,
+			ReportsOnly: reportsOnly,
 		})
 		fallbackScheduled = fallbackScheduled || state.fallbackScheduled
 	}
@@ -2009,6 +2045,10 @@ func (execution *coordinatorExecution) snapshot(
 }
 func coordinatorOutputDegraded(output *ValidatedRoleOutput) bool {
 	if output == nil {
+		return false
+	}
+	// Free-form Markdown role reports are normal success, not degraded coverage.
+	if output.ReportsOnly() {
 		return false
 	}
 	if output.Completeness() == "incomplete" || len(output.Limitations()) != 0 {
@@ -2105,6 +2145,12 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 	snapshots := make([]CoordinatorAttemptSummary, len(attempts))
 	for index, attempt := range attempts {
 		invocations := attempt.attempt.Invocations()
+		parseState := domain.ParseNotStarted
+		validationState := domain.ValidationNotStarted
+		if attempt.attempt.State() == domain.AttemptSucceeded {
+			parseState = attempt.parseState
+			validationState = attempt.validationState
+		}
 		snapshots[index] = CoordinatorAttemptSummary{
 			id:              attempt.attempt.ID(),
 			kind:            attempt.kind,
@@ -2114,6 +2160,8 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 			reasonCode:      attempt.reasonCode,
 			timeoutFacts:    attempt.timeoutFacts,
 			hasTimeoutFacts: attempt.hasTimeoutFacts,
+			parseState:      parseState,
+			validationState: validationState,
 			invocations:     make([]CoordinatorInvocationSummary, len(invocations)),
 		}
 		for invocationIndex, invocation := range invocations {

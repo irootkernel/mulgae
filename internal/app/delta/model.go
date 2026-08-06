@@ -13,6 +13,13 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+// RoleReportURI is one trusted project-relative role-report identity projected
+// from a committed PublicationResult support inventory by childrun.
+type RoleReportURI struct {
+	Role string
+	URI  string
+}
+
 const (
 	// MaxTargetBytes is the fixed review-target cap. Targets are rejected rather
 	// than truncated so their identity always describes the exact captured bytes.
@@ -366,20 +373,27 @@ func (request ChildRequest) clone() ChildRequest {
 	return request
 }
 
-// ExecutionResult binds the published artifact to the child run identity and
-// retains the verified P2 terminal exit decision.
+// ExecutionResult binds the published artifact to the child run identity,
+// verified committed role-report URIs, and the verified P2 terminal exit.
 type ExecutionResult struct {
 	SessionID         domain.SessionID
 	RunID             domain.RunID
 	ReviewArtifactURI string
+	RoleReportURIs    []RoleReportURI
 	terminalExit      *domain.OperationalExitDecision
 }
 
 // NewExecutionResult validates and binds the verified P2 terminal exit to one
 // published delta child run.
-func NewExecutionResult(sessionID domain.SessionID, runID domain.RunID, reviewArtifactURI string, terminalExit domain.OperationalExitDecision) (ExecutionResult, error) {
-	result := ExecutionResult{SessionID: sessionID, RunID: runID, ReviewArtifactURI: reviewArtifactURI, terminalExit: &terminalExit}
+func NewExecutionResult(sessionID domain.SessionID, runID domain.RunID, reviewArtifactURI string, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (ExecutionResult, error) {
+	result := ExecutionResult{
+		SessionID: sessionID, RunID: runID, ReviewArtifactURI: reviewArtifactURI,
+		RoleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
+	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return ExecutionResult{}, fmt.Errorf("delta execution result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.RoleReportURIs); err != nil {
 		return ExecutionResult{}, fmt.Errorf("delta execution result: %w", err)
 	}
 	return result, nil
@@ -405,20 +419,27 @@ type StartRequest struct {
 	Roles       []domain.Role
 }
 
-// Result is the exact child identity, published review artifact, and verified
-// P2 terminal exit decision.
+// Result is the exact child identity, published review artifact, verified
+// committed role-report URIs, and verified P2 terminal exit decision.
 type Result struct {
 	SessionID         domain.SessionID
 	RunID             domain.RunID
 	ReviewArtifactURI string
+	RoleReportURIs    []RoleReportURI
 	terminalExit      *domain.OperationalExitDecision
 }
 
 // NewResult validates and binds the verified P2 terminal exit to the bounded
 // delta application result.
-func NewResult(sessionID domain.SessionID, runID domain.RunID, reviewArtifactURI string, terminalExit domain.OperationalExitDecision) (Result, error) {
-	result := Result{SessionID: sessionID, RunID: runID, ReviewArtifactURI: reviewArtifactURI, terminalExit: &terminalExit}
+func NewResult(sessionID domain.SessionID, runID domain.RunID, reviewArtifactURI string, roleReportURIs []RoleReportURI, terminalExit domain.OperationalExitDecision) (Result, error) {
+	result := Result{
+		SessionID: sessionID, RunID: runID, ReviewArtifactURI: reviewArtifactURI,
+		RoleReportURIs: append([]RoleReportURI(nil), roleReportURIs...), terminalExit: &terminalExit,
+	}
 	if err := result.ValidateTerminalExit(); err != nil {
+		return Result{}, fmt.Errorf("delta result: %w", err)
+	}
+	if err := validateRoleReportURIs(sessionID, runID, result.RoleReportURIs); err != nil {
 		return Result{}, fmt.Errorf("delta result: %w", err)
 	}
 	return result, nil
@@ -459,4 +480,20 @@ func validateCommittedTerminalExit(exit *domain.OperationalExitDecision) error {
 	default:
 		return fmt.Errorf("terminal exit %d is not a committed P2 outcome", exit.Code())
 	}
+}
+
+func validateRoleReportURIs(sessionID domain.SessionID, runID domain.RunID, reports []RoleReportURI) error {
+	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/"
+	seen := make(map[string]struct{}, len(reports))
+	for _, report := range reports {
+		if !domain.Role(report.Role).Valid() || report.URI != prefix+report.Role+".md" ||
+			strings.TrimSpace(report.URI) == "" || strings.ContainsAny(report.URI, "\x00\r\n") {
+			return fmt.Errorf("role report URI is invalid")
+		}
+		if _, duplicate := seen[report.Role]; duplicate {
+			return fmt.Errorf("role report URI is duplicated")
+		}
+		seen[report.Role] = struct{}{}
+	}
+	return nil
 }

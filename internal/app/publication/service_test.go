@@ -537,10 +537,8 @@ func TestPublishPersistsAndPublishesInDurableOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{
-		"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal", "install",
-		"journal", "commit", "journal", "status", "journal", "observe",
-	}) {
+	if !publicationServiceCallsEqual(store.calls, publicationServiceExpectedPersistCalls(fixture, "prepare", "journal", "stage", "journal", "install",
+		"journal", "commit", "journal", "status", "journal", "observe")) {
 		t.Fatalf("publication calls = %#v", store.calls)
 	}
 	if len(store.candidateRequests) != 1 ||
@@ -593,7 +591,11 @@ func TestPublishP2ExitRetainsAllTerminalRoleAndPolicyReasons(t *testing.T) {
 		role.failureClass = failure.class
 		role.failureReason = failure.reason
 		role.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
+		role.reportsOnly = false
+		role.reportMarkdown = nil
 		role.attempts[0].state = domain.AttemptFailed
+		role.attempts[0].parseState = domain.ParseNotStarted
+		role.attempts[0].validationState = domain.ValidationNotStarted
 		role.attempts[0].invocations[0].state = domain.InvocationFailed
 		attemptID := role.attempts[0].id
 		candidate.failures = append(candidate.failures, preparedFailure{
@@ -601,7 +603,10 @@ func TestPublishP2ExitRetainsAllTerminalRoleAndPolicyReasons(t *testing.T) {
 		})
 	}
 	candidate.runState = domain.RunFailed
-	candidate.axes = preparedAxes{content: domain.ContentRequestChanges, coverage: domain.CoverageIncomplete, ci: domain.CIFail}
+	candidate.axes = preparedAxes{
+		content: domain.ContentRequestChanges, coverage: domain.CoverageIncomplete, ci: domain.CIFail,
+		structuredExtraction: domain.StructuredExtractionStructured,
+	}
 	candidate.reasons = []string{"request_changes_threshold", "required_role_incomplete"}
 	candidate.exitCode = int(domain.ExitIncompleteCoverage)
 	candidate.limits = []string{"Required review coverage is incomplete."}
@@ -692,10 +697,9 @@ func TestPublishNextUsesRootBoundEpochTransaction(t *testing.T) {
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{
-		"next_epoch", "issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal", "install",
-		"journal", "commit", "journal", "status", "journal", "observe",
-	}) {
+	want := append([]string{"next_epoch"}, publicationServiceExpectedPersistCalls(fixture, "prepare", "journal", "stage", "journal", "install",
+		"journal", "commit", "journal", "status", "journal", "observe")...)
+	if !publicationServiceCallsEqual(store.calls, want) {
 		t.Fatalf("publication calls = %#v", store.calls)
 	}
 }
@@ -743,6 +747,9 @@ func TestPublishNextObservedPersistenceFailureStopsBeforeInstall(t *testing.T) {
 		t.Fatal("PublishNextObserved succeeded after lifecycle persistence failure")
 	}
 	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+	if diagnostic, ok := FailureDiagnosticFromError(err); ok {
+		t.Fatalf("diagnostic persistence failure was misclassified as publication failure: %#v", diagnostic)
+	}
 	if returned.Decision().Authority() != "" {
 		t.Fatalf("returned authority = %q, want no successful result alongside error", returned.Decision().Authority())
 	}
@@ -751,6 +758,95 @@ func TestPublishNextObservedPersistenceFailureStopsBeforeInstall(t *testing.T) {
 		if call == "install" {
 			t.Fatal("publication installed a final after staged lifecycle persistence failed")
 		}
+	}
+}
+
+func TestPublishNextObservedClassifiesPreflightFailure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{}
+
+	if _, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer); err == nil {
+		t.Fatal("PublishNextObserved succeeded with an undersized publication limit")
+	}
+	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleFailed)
+	if len(observer.diagnostics) != 1 {
+		t.Fatalf("failure diagnostics = %#v, want one", observer.diagnostics)
+	}
+	diagnostic := observer.diagnostics[0]
+	if diagnostic.Phase() != domain.DiagnosticPhasePublicationFinalReview ||
+		diagnostic.Cause() != domain.DiagnosticCausePublicationSerializationFailed {
+		t.Fatalf("failure diagnostic = (%q, %q), want final_review/serialization", diagnostic.Phase(), diagnostic.Cause())
+	}
+}
+
+func TestPublishNextObservedClassifiesStoreLockFailure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(context.Context, ports.AnchoredRoot, func(context.Context, uint64) error) error {
+		return errors.New("lock unavailable at /private/store")
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{}
+
+	if _, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer); err == nil {
+		t.Fatal("PublishNextObserved succeeded after store lock failure")
+	}
+	observer.requireEvents(t, LifecycleFailed)
+	if len(observer.diagnostics) != 1 {
+		t.Fatalf("failure diagnostics = %#v, want one", observer.diagnostics)
+	}
+	diagnostic := observer.diagnostics[0]
+	if diagnostic.Phase() != domain.DiagnosticPhasePublicationStoreLock ||
+		diagnostic.Cause() != domain.DiagnosticCausePublicationStoreLockFailed ||
+		strings.Contains(diagnostic.Failure(), "/private/store") {
+		t.Fatalf("failure diagnostic = %#v, want redacted store-lock classification", diagnostic)
+	}
+}
+
+func TestPublishNextObservedClassifiesInstallationFailure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPublicationServiceFixture(t)
+	store := newPublicationServiceHappyStore(t, fixture)
+	store.withNextEpoch = func(ctx context.Context, root ports.AnchoredRoot, publish func(context.Context, uint64) error) error {
+		return publish(ctx, fixture.bundle.Epoch().Value())
+	}
+	store.install = func(ports.InstallFinalRequest) (ports.InstallFinalResult, error) {
+		return ports.InstallFinalResult{}, errors.New("installation failed at /private/store")
+	}
+	service, err := NewService(store, publicationServiceValidator{}, publicationServiceClock{now: publicationTestTime()}, publicationServiceTestMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &publicationLifecycleRecorder{}
+
+	if _, err := service.PublishNextObserved(context.Background(), fixture.root, fixture.candidate, observer); err == nil {
+		t.Fatal("PublishNextObserved succeeded after installation failure")
+	}
+	observer.requireEvents(t, LifecyclePreparationStarted, LifecycleStaged, LifecycleFailed)
+	if len(observer.diagnostics) != 1 {
+		t.Fatalf("failure diagnostics = %#v, want one", observer.diagnostics)
+	}
+	diagnostic := observer.diagnostics[0]
+	if diagnostic.Phase() != domain.DiagnosticPhasePublicationInstallation ||
+		diagnostic.Cause() != domain.DiagnosticCausePublicationInstallationFailed ||
+		strings.Contains(diagnostic.Failure(), "/private/store") {
+		t.Fatalf("failure diagnostic = %#v, want redacted installation classification", diagnostic)
 	}
 }
 
@@ -1213,7 +1309,7 @@ func TestPublishReconcilesValidIssuedIDReturnedWithError(t *testing.T) {
 		t.Fatalf("reconciled issued ID = (%#v, %t), want (%#v, true)", issued, ok, fixture.issued)
 	}
 	if len(store.issueRequests) != 1 || len(store.candidateRequests) != 0 ||
-		!publicationServiceCallsEqual(store.calls, []string{"issue", "observe", "read_auxiliary"}) {
+		!publicationServiceCallsEqual(store.calls, publicationServiceObserveReadCalls(fixture, "issue", "observe")) {
 		t.Fatalf("ambiguous issuance calls = %#v, issue requests = %d, candidate requests = %d", store.calls, len(store.issueRequests), len(store.candidateRequests))
 	}
 }
@@ -1387,7 +1483,7 @@ func TestPublishReobservesValidMismatchedCandidateResultWithError(t *testing.T) 
 		t.Fatal(err)
 	}
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 ||
-		!publicationServiceCallsEqual(store.calls, []string{"issue", "candidate", "observe", "read_auxiliary"}) {
+		!publicationServiceCallsEqual(store.calls, publicationServiceObserveReadCalls(fixture, "issue", "candidate", "observe")) {
 		t.Fatalf("mismatched candidate reconciliation = (%q, %#v)", result.Decision().Authority(), store.calls)
 	}
 }
@@ -1426,9 +1522,10 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		inject    func(*publicationServiceScriptedStore)
-		wantCalls []string
+		name       string
+		inject     func(*publicationServiceScriptedStore)
+		wantCalls  []string
+		wantSuffix []string
 	}{
 		{
 			name: "validated candidate",
@@ -1456,7 +1553,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("prepare post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "observe"},
+			wantSuffix: []string{"prepare", "observe"},
 		},
 		{
 			name: "journal replacement",
@@ -1470,7 +1567,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("journal post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "observe"},
+			wantSuffix: []string{"prepare", "journal", "observe"},
 		},
 		{
 			name: "staged final",
@@ -1484,7 +1581,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("stage post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "observe"},
+			wantSuffix: []string{"prepare", "journal", "stage", "observe"},
 		},
 		{
 			name: "installed final",
@@ -1498,10 +1595,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("install post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{
-				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
-				"install", "observe",
-			},
+			wantSuffix: []string{"prepare", "journal", "stage", "journal", "install", "observe"},
 		},
 		{
 			name: "composite commit",
@@ -1515,10 +1609,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("commit post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{
-				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
-				"install", "journal", "commit", "observe",
-			},
+			wantSuffix: []string{"prepare", "journal", "stage", "journal", "install", "journal", "commit", "observe"},
 		},
 		{
 			name: "status replacement",
@@ -1532,10 +1623,7 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 					return result, errors.New("status post-effect uncertainty")
 				}
 			},
-			wantCalls: []string{
-				"issue", "candidate", "auxiliary", "read_auxiliary", "prepare", "journal", "stage", "journal",
-				"install", "journal", "commit", "journal", "status", "observe",
-			},
+			wantSuffix: []string{"prepare", "journal", "stage", "journal", "install", "journal", "commit", "journal", "status", "observe"},
 		},
 	}
 	for _, test := range tests {
@@ -1564,7 +1652,13 @@ func TestPublishReobservesEveryValidPostEffectResult(t *testing.T) {
 			if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 				t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 			}
-			wantCalls := append(append([]string(nil), test.wantCalls...), "read_auxiliary")
+			wantCalls := append([]string(nil), test.wantCalls...)
+			if len(test.wantSuffix) != 0 {
+				wantCalls = publicationServiceExpectedPersistCalls(fixture, test.wantSuffix...)
+			}
+			for range fixture.bundle.SupportArtifacts() {
+				wantCalls = append(wantCalls, "read_auxiliary")
+			}
 			if !publicationServiceCallsEqual(store.calls, wantCalls) {
 				t.Fatalf("calls = %#v, want %#v", store.calls, wantCalls)
 			}
@@ -1826,7 +1920,7 @@ func TestPublishRecoveredRejectsIssuedCandidateBindingMismatch(t *testing.T) {
 	if exit := result.Exit(); exit == nil || exit.Code() != domain.ExitArtifactFailure {
 		t.Fatalf("recovery binding mismatch exit = %#v, want artifact exit 7", exit)
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{"observe", "read_auxiliary"}) {
+	if !publicationServiceCallsEqual(store.calls, publicationServiceObserveReadCalls(fixture, "observe")) {
 		t.Fatalf("recovery binding mismatch calls = %#v", store.calls)
 	}
 }
@@ -1892,7 +1986,9 @@ func TestRecoverP2ReconstructionErrorOverridesStoredNormalExit(t *testing.T) {
 	if exit == nil || exit.Code() != domain.ExitArtifactFailure {
 		t.Fatalf("errored P2 recovery exit = %#v, want artifact exit 7", exit)
 	}
-	if !publicationServiceCallsEqual(store.calls, []string{"observe", "read_auxiliary", "status"}) {
+	if !publicationServiceCallsEqual(store.calls, []string{
+		"observe", "read_auxiliary", "read_auxiliary", "read_auxiliary", "status",
+	}) {
 		t.Fatalf("errored P2 recovery calls = %#v", store.calls)
 	}
 }
@@ -2217,7 +2313,10 @@ func TestRecoverCommitsExactPreparedCompositeFromP1Installed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 || commitCalls != 1 ||
-		!publicationServiceCallsEqual(store.calls, []string{"observe", "commit", "journal", "observe", "read_auxiliary"}) {
+		!publicationServiceCallsEqual(store.calls, []string{
+			"observe", "commit", "journal", "observe",
+			"read_auxiliary", "read_auxiliary", "read_auxiliary",
+		}) {
 		t.Fatalf("P1 recovery = authority %q, commit calls %d, calls %#v", result.Decision().Authority(), commitCalls, store.calls)
 	}
 }
@@ -2300,7 +2399,10 @@ func TestRecoverReobservesValidAdoptionPostEffectResult(t *testing.T) {
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("authority = %q, want P2", result.Decision().Authority())
 	}
-	want := []string{"observe", "adopt", "observe", "adopt", "install", "observe", "read_auxiliary"}
+	want := []string{
+		"observe", "adopt", "observe", "adopt", "install", "observe",
+		"read_auxiliary", "read_auxiliary", "read_auxiliary",
+	}
 	if !publicationServiceCallsEqual(store.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", store.calls, want)
 	}
@@ -2711,12 +2813,17 @@ type publicationServiceScriptedStore struct {
 }
 
 type publicationLifecycleRecorder struct {
-	events []LifecycleEvent
-	failOn LifecycleEvent
+	events      []LifecycleEvent
+	failOn      LifecycleEvent
+	diagnostics []FailureDiagnostic
 }
 
-func (recorder *publicationLifecycleRecorder) ObservePublicationLifecycle(_ context.Context, event LifecycleEvent) error {
+func (recorder *publicationLifecycleRecorder) ObservePublicationLifecycle(_ context.Context, observation LifecycleObservation) error {
+	event := observation.Event()
 	recorder.events = append(recorder.events, event)
+	if diagnostic, ok := observation.FailureDiagnostic(); ok {
+		recorder.diagnostics = append(recorder.diagnostics, diagnostic)
+	}
 	if event == recorder.failOn {
 		return errors.New("diagnostic persistence unavailable")
 	}
@@ -3279,6 +3386,27 @@ func publicationServiceCallsEqual(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+// publicationServiceExpectedPersistCalls builds the durable publish call prefix
+// for a fixture: issue, candidate, then one auxiliary/read pair per support
+// artifact, then any caller-owned suffix.
+func publicationServiceExpectedPersistCalls(fixture publicationServiceFixture, suffix ...string) []string {
+	calls := []string{"issue", "candidate"}
+	for range fixture.bundle.SupportArtifacts() {
+		calls = append(calls, "auxiliary", "read_auxiliary")
+	}
+	return append(calls, suffix...)
+}
+
+// publicationServiceObserveReadCalls appends one read_auxiliary call per support
+// artifact after a recovery observe sequence.
+func publicationServiceObserveReadCalls(fixture publicationServiceFixture, prefix ...string) []string {
+	calls := append([]string(nil), prefix...)
+	for range fixture.bundle.SupportArtifacts() {
+		calls = append(calls, "read_auxiliary")
+	}
+	return calls
 }
 
 func publicationServiceAssertJournalCAS(t *testing.T, replacements []ports.MutableReplaceRequest) {

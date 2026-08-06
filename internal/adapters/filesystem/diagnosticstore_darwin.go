@@ -110,7 +110,7 @@ func (store *DiagnosticStore) validateExistingRunStatus() (bool, error) {
 	if wire.State != domain.RunRunning {
 		return false, fmt.Errorf("existing diagnostic run is terminal")
 	}
-	if _, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, DroppedEvents: wire.DroppedEvents}); err != nil || wire.CompletedAt != "" || wire.P2URI != "" {
+	if _, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, DroppedEvents: wire.DroppedEvents}); err != nil || wire.CompletedAt != "" || wire.P2URI != "" {
 		return false, fmt.Errorf("existing run status is invalid")
 	}
 	store.droppedEvents = wire.DroppedEvents

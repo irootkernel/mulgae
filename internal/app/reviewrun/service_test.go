@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,6 +138,46 @@ func TestDefaultTemplateSetContainsProductionReviewRoles(t *testing.T) {
 		t.Fatal("default template versions are not explicit")
 	}
 }
+
+func TestProviderReviewWirePromptRetainsOptionalJSONNestedContract(t *testing.T) {
+	t.Parallel()
+	assetID, err := ports.ParseAssetID("sot:prompts/root-review/output-provider-review-wire.v1.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, raw, err := builtin.NewCatalog().Read(context.Background(), assetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) == 0 || raw[len(raw)-1] == '\n' {
+		t.Fatalf("wire prompt trailing byte = %q, want non-empty without EOF LF", raw[len(raw)-1:])
+	}
+	text := string(raw)
+	if !strings.Contains(text, "Markdown is the primary success form") ||
+		!strings.Contains(text, "Optional exact JSON compatibility branch:") ||
+		!strings.Contains(text, "Otherwise return Markdown only") {
+		t.Fatal("wire prompt lost Markdown-primary / optional JSON branch framing")
+	}
+	for _, required := range []string{
+		`schema_version: exactly "mulgae-provider-review-output.v1"`,
+		"Top level: exactly schema_version, summary, completeness, limitations, findings.",
+		"Each finding has exactly severity, title, description, evidence, recommendation, confidence.",
+		"evidence: array of 1..20 objects; each has current and may include visual.",
+		"current has exactly path, line_start, line_end, side, quote.",
+		"side: exactly base, head, worktree, or index.",
+		`quote: meaningful exact target bytes for that inclusive range, represented as a JSON string; include every selected line's terminating LF as \n when the target line has one, including the final selected line.`,
+		"For artist findings, visual has path, sha256, and bbox with non-negative x and y plus positive width and height.",
+		`Do not emit target_sha256, verification, source, any session/run/attempt/review/finding ID, role/provider identity, lifecycle/evidence state, verdict/coverage/CI/publication state, hashes, or any other field.`,
+		`Mulgae injects target_sha256 and verification="claimed"`,
+		"Before returning, silently perform this final output check:",
+		"every evidence quote exactly matches the selected target lines and includes each terminating LF as \\n",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("optional JSON branch omitted nested requirement %q", required)
+		}
+	}
+}
+
 func TestRootReviewLayerProvenanceOrderAndRepair(t *testing.T) {
 	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
 	if err != nil {

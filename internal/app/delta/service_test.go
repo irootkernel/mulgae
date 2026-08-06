@@ -526,7 +526,7 @@ func mustDeltaExecutionResult(request ChildRequest, code domain.OperationalExitC
 	if err != nil {
 		panic(err)
 	}
-	result, err := NewExecutionResult(request.Run.SessionID(), request.Run.ID(), "reviews/child.json", exit)
+	result, err := NewExecutionResult(request.Run.SessionID(), request.Run.ID(), "reviews/child.json", nil, exit)
 	if err != nil {
 		panic(err)
 	}

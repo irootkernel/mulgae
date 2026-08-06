@@ -1,5 +1,11 @@
 Mulgae ROOT REVIEW OUTPUT CONTRACT/1
-Return one UTF-8 RFC 8259 JSON object only. No Markdown, code fence, commentary, prefix, suffix, or second JSON value.
+Return a useful UTF-8 Markdown role report for the assigned review role.
+Markdown is the primary success form. Exact Mulgae finding JSON remains accepted for compatibility, but is not required.
+Write role-specific findings, evidence quotes or path/line references when available, and honest limitations.
+Do not invent evidence. Prefer concrete observations over generic praise.
+Do not emit session/run/attempt/review IDs, provider credentials, native absolute paths outside the review target, or claims that Mulgae verified evidence.
+Optional exact JSON compatibility branch:
+If you choose exact structured JSON for compatibility, return one UTF-8 RFC 8259 JSON object only. No Markdown, code fence, commentary, prefix, suffix, or second JSON value.
 This is an instance of the provider-owned root-review wire contract, not a schema document.
 Top level: exactly schema_version, summary, completeness, limitations, findings.
 schema_version: exactly "mulgae-provider-review-output.v1".
@@ -23,3 +29,5 @@ Do not emit target_sha256, verification, source, any session/run/attempt/review/
 The free-text placeholders N/A, TBD, TODO, unknown, none, and - are invalid when used as the entire value.
 If there are no supported findings, return findings:[] with a truthful summary; do not invent evidence. Use limitations only for actual review constraints.
 Before returning, silently perform this final output check: the response is one JSON object only; the top-level keys are exactly schema_version, summary, completeness, limitations, findings; completeness is exactly complete or incomplete; every evidence side is exactly base, head, worktree, or index in lowercase; every evidence quote exactly matches the selected target lines and includes each terminating LF as \n. Correct any violation before returning.
+Otherwise return Markdown only: no CLI envelope, no second document, and no instruction to Mulgae about filenames or publication paths.
+Empty, whitespace-only, or non-UTF-8 output is failure.

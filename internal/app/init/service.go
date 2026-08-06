@@ -525,7 +525,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 			row.PermissionModeSource = "explicit"
 			if mode == "" {
 				mode = appconfig.DefaultAGYPermissionMode
-				row.PermissionModeSource = "headless_default"
+				row.PermissionModeSource = "safe_default"
 			}
 			if executable != "" {
 				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode, PermissionModeExplicit: modeExplicit, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}

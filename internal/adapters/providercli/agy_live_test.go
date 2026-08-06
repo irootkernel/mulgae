@@ -225,27 +225,45 @@ func TestLiveAgyCapability(t *testing.T) {
 		t.Fatal("FAIL: AGY requested interactive approval")
 	}
 	liveAgyRequirePostOutputLifecycle(t, capability, binding.PacketIdentity())
-	var evidence struct {
-		Root string `json:"root"`
-		Link string `json:"link"`
-		Role string `json:"role"`
-	}
-	capabilityFrame, err := ports.ExtractProcessOutputJSONFrame(
+	// A terminal JSON frame is optional metadata, not the result transport. When the
+	// installed AGY emits one this gate keeps its exact strict-frame contract; when it
+	// narrates instead, capability acceptance is decided by the same bound fixture
+	// evidence QualifyCurrent already proved above, so the gate stays no stricter than
+	// the product it certifies.
+	capabilityFrame, frameErr := ports.ExtractProcessOutputJSONFrame(
 		ports.ProcessOutputFramingTerminalJSONObject,
 		capability.Stdout(),
 	)
-	if err != nil {
-		t.Fatal("FAIL: AGY capability output omitted its terminal JSON frame")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(capabilityFrame))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&evidence); err != nil {
-		t.Fatal("FAIL: AGY capability terminal frame is not strict JSON")
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF ||
-		evidence.Root != fixture.Nonce() || evidence.Link != fixture.Link() ||
-		evidence.Role != string(fixture.Role()) {
-		t.Fatal("FAIL: AGY capability evidence did not contain the exact descriptor-bound positive evidence")
+	if frameErr == nil {
+		var evidence struct {
+			Root string `json:"root"`
+			Link string `json:"link"`
+			Role string `json:"role"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(capabilityFrame))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&evidence); err != nil {
+			t.Fatal("FAIL: AGY capability terminal frame is not strict JSON")
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF ||
+			evidence.Root != fixture.Nonce() || evidence.Link != fixture.Link() ||
+			evidence.Role != string(fixture.Role()) {
+			t.Fatal("FAIL: AGY capability evidence did not contain the exact descriptor-bound positive evidence")
+		}
+	} else {
+		stdout := capability.Stdout()
+		if len(bytes.TrimSpace(stdout)) == 0 {
+			t.Fatal("FAIL: AGY frameless capability output carried no evidence at all")
+		}
+		if bytes.Equal(stdout, fixture.Packet()) {
+			t.Fatal("FAIL: AGY frameless capability output is a bare prompt echo")
+		}
+		for _, bound := range []string{fixture.Nonce(), fixture.Link(), string(fixture.Role())} {
+			if !bytes.Contains(stdout, []byte(bound)) {
+				t.Fatal("FAIL: AGY narrated capability evidence omitted its descriptor-bound values")
+			}
+		}
+		t.Logf("PASS: AGY capability evidence accepted as narrated output bound to the descriptor fixture")
 	}
 	if !providercli.VersionAtLeast(result.Version, 1, 1, 4) {
 		t.Fatal("FAIL: installed AGY version is below required 1.1.4")
@@ -339,8 +357,20 @@ func liveAgyRequirePostOutputLifecycle(t *testing.T, observation ports.ProcessOb
 	if !ok || !receipt.Valid() || !receipt.ProcessGroupAbsent() {
 		t.Fatal("FAIL: AGY capability launch omitted a terminal process-group lifecycle receipt")
 	}
-	frame, ok := receipt.OutputFrame()
-	if !ok || !frame.Valid() || frame.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
+	frame, framed := receipt.OutputFrame()
+	if !framed {
+		// Without a frame there is no post-output signal claim to bind: a valid
+		// lifecycle receipt can only describe natural completion, and any post-output
+		// signal receipt would already have been rejected as unbound.
+		if len(receipt.SignalRequests()) != 0 {
+			t.Fatal("FAIL: AGY frameless capability launch recorded post-output signal receipts")
+		}
+		if code, exited := receipt.FinalTermination().ExitCode(); !exited || code != 0 {
+			t.Fatal("FAIL: AGY frameless natural completion omitted a successful terminal receipt")
+		}
+		return
+	}
+	if !frame.Valid() || frame.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
 		t.Fatal("FAIL: AGY capability launch omitted a strict-JSON output-frame receipt")
 	}
 	requests := receipt.SignalRequests()

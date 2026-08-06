@@ -9,7 +9,7 @@
     "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "size": 128
   },
-  "agy_permission_mode": "dangerously-skip-permissions",
+  "agy_permission_mode": "safe",
   "warnings": [],
   "file_sets": [{
     "id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
@@ -53,7 +53,7 @@
       "provider_instance": "agy-logic",
       "provider_family": "agy",
       "configured_timeout": "15m",
-      "permission_mode": "dangerously-skip-permissions",
+      "permission_mode": "safe",
       "target_channel": "prompt",
       "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e"
     }

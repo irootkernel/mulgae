@@ -98,7 +98,7 @@ func TestIntegrationArtistHomepageWorkspaceReview(t *testing.T) {
 
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
 		"init", "--providers", "agy,zcode", "--project-kind", "ui", "--roles", "artist",
-		"--agy-executable", agyExecutable, "--agy-permission-mode", "dangerously-skip-permissions",
+		"--agy-executable", agyExecutable,
 		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher, "--output", "json")
 	if initialized.exitCode != 0 || len(initialized.stderr) != 0 {
 		t.Fatalf("initialize UI fixture: exit=%d stdout=%s stderr=%s", initialized.exitCode, initialized.stdout, initialized.stderr)

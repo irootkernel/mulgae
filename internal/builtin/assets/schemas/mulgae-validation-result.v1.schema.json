@@ -89,7 +89,8 @@
       "enum": [
         "no_findings",
         "findings_present",
-        "request_changes"
+        "request_changes",
+        "reports_only"
       ]
     },
     "coverage_status": {

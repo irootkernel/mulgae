@@ -1119,6 +1119,42 @@ func TestClassifyRunSupportArtifactPathAcceptsCanonicalArtistInputs(t *testing.T
 	}
 }
 
+func TestClassifyRunSupportArtifactPathAcceptsCanonicalRoleReports(t *testing.T) {
+	t.Parallel()
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/role-reports/"
+	for _, test := range []struct {
+		path     string
+		wantOK   bool
+		wantKind RunSupportArtifactKind
+	}{
+		{prefix + "logic.md", true, RunSupportArtifactRoleReport},
+		{prefix + "security.md", true, RunSupportArtifactRoleReport},
+		{prefix + "LOGIC.md", false, ""},
+		{prefix + "logic.txt", false, ""},
+		{prefix + "nested/logic.md", false, ""},
+		{prefix + "../logic.md", false, ""},
+	} {
+		path, err := NewSafeRelativePath(test.path)
+		if err != nil {
+			if test.wantOK {
+				t.Fatalf("NewSafeRelativePath(%q) error = %v", test.path, err)
+			}
+			continue
+		}
+		kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if test.wantOK {
+			if err != nil || kind != test.wantKind {
+				t.Fatalf("ClassifyRunSupportArtifactPath(%q) = %q, %v", test.path, kind, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("ClassifyRunSupportArtifactPath(%q) accepted %q", test.path, kind)
+		}
+	}
+}
+
 type publicationStoreContractFake struct{}
 
 func (publicationStoreContractFake) IssueReviewID(context.Context, IssueReviewIDRequest) (IssuedReviewID, error) {

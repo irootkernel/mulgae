@@ -1060,7 +1060,10 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		}
 	})
 }
-func TestIntegrationMulgaeProductionReviewSubprocessKimiSecurityNonAdmission(t *testing.T) {
+
+// Unbound capability evidence is an operational qualification rejection:
+// exit 4 readiness, retryable, one family probe, and no publication artifacts.
+func TestIntegrationMulgaeProductionReviewSubprocessKimiQualificationNonAdmission(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -1080,34 +1083,43 @@ func TestIntegrationMulgaeProductionReviewSubprocessKimiSecurityNonAdmission(t *
 
 	review := runMulgaeBinaryWithEnv(t, binary, project, environment,
 		"review", "--dirty", "--objective", "@roadmap.md review the changed behavior without rewriting this objective", "--roles", "logic,security", "--output", "json")
-	if review.exitCode != 8 || len(review.stderr) != 0 {
-		t.Fatalf("Kimi security non-admission = exit %d stdout %q stderr %q", review.exitCode, review.stdout, review.stderr)
+	if review.exitCode != 4 || len(review.stderr) != 0 {
+		t.Fatalf("Kimi qualification non-admission = exit %d stdout %q stderr %q", review.exitCode, review.stdout, review.stderr)
 	}
 	var envelope commandEnvelope
 	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
-		t.Fatalf("decode Kimi security envelope: %v", err)
+		t.Fatalf("decode Kimi qualification envelope: %v", err)
 	}
-	if envelope.Command != "review" || envelope.Exit.Code != 8 || envelope.Exit.Kind != "security" ||
-		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil ||
-		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
-		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "security" || envelope.Reasons[0].ArtifactURI == nil ||
-		envelope.Reasons[0].Code != "provider_qualification_failed" || envelope.Reasons[0].Retryable {
-		t.Fatalf("Kimi security envelope = %#v", envelope)
+	if envelope.Command != "review" || envelope.Exit.Code != 4 || envelope.Exit.Kind != "readiness" ||
+		envelope.Result.Kind != "review_started" || envelope.Result.SessionID == nil ||
+		envelope.Result.RunID == nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
+		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "readiness" || envelope.Reasons[0].ArtifactURI == nil ||
+		envelope.Reasons[0].Code != "provider_qualification_failed" || !envelope.Reasons[0].Retryable {
+		t.Fatalf("Kimi qualification envelope = %#v", envelope)
+	}
+	if _, err := domain.ParseSessionID(*envelope.Result.SessionID); err != nil {
+		t.Fatalf("Kimi qualification session ID = %q: %v", *envelope.Result.SessionID, err)
+	}
+	if _, err := domain.ParseRunID(*envelope.Result.RunID); err != nil {
+		t.Fatalf("Kimi qualification run ID = %q: %v", *envelope.Result.RunID, err)
 	}
 	entries, err := os.ReadDir(filepath.Join(project, ".mulgae"))
 	if err != nil {
-		t.Fatalf("read Kimi security artifact directory: %v", err)
+		t.Fatalf("read Kimi qualification artifact directory: %v", err)
 	}
 	if len(entries) != 2 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || !entries[1].IsDir() {
-		t.Fatalf("Kimi security rejection created unexpected artifacts: %v", entries)
+		t.Fatalf("Kimi qualification rejection created unexpected artifacts: %v", entries)
 	}
 	diagnosticRuns, err := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", "s_*", "r_*"))
 	if err != nil || len(diagnosticRuns) != 1 {
-		t.Fatalf("Kimi security diagnostics = %v, %v", diagnosticRuns, err)
+		t.Fatalf("Kimi qualification diagnostics = %v, %v", diagnosticRuns, err)
 	}
 	wantDiagnosticURI, err := filepath.Rel(project, diagnosticRuns[0])
 	if err != nil || filepath.ToSlash(wantDiagnosticURI) != *envelope.Reasons[0].ArtifactURI {
 		t.Fatalf("Kimi diagnostic URI = %v, want %q (rel err %v)", envelope.Reasons[0].ArtifactURI, filepath.ToSlash(wantDiagnosticURI), err)
+	}
+	if !strings.Contains(*envelope.Reasons[0].ArtifactURI, "/"+*envelope.Result.SessionID+"/"+*envelope.Result.RunID) {
+		t.Fatalf("Kimi diagnostic URI %q does not bind returned identity", *envelope.Reasons[0].ArtifactURI)
 	}
 	logBytes, err := os.ReadFile(filepath.Join(diagnosticRuns[0], "mulgae-runtime.jsonl"))
 	if err != nil {
@@ -1118,26 +1130,19 @@ func TestIntegrationMulgaeProductionReviewSubprocessKimiSecurityNonAdmission(t *
 		Event domain.RuntimeDiagnosticEventCode `json:"event"`
 	}
 	if len(lines) == 0 || json.Unmarshal([]byte(lines[len(lines)-1]), &terminal) != nil || terminal.Event != domain.DiagnosticRuntimeClosed {
-		t.Fatalf("Kimi security diagnostics were not finalized: %q", logBytes)
+		t.Fatalf("Kimi qualification diagnostics were not finalized: %q", logBytes)
 	}
 	observations := readFakeKimiObservations(t, logPath)
-	if len(observations) == 0 || len(observations) > 2 {
-		t.Fatalf("Kimi qualification launch count = %d, want 1..2: %#v", len(observations), observations)
+	if len(observations) != 1 {
+		t.Fatalf("Kimi qualification launch count = %d, want 1 family probe: %#v", len(observations), observations)
 	}
-	lastRoleOrdinal := -1
-	for index, observation := range observations {
-		roleOrdinal := -1
-		for ordinal, role := range []string{"logic", "security"} {
-			if strings.Contains(observation.Prompt, "role must be "+role+".") {
-				roleOrdinal = ordinal
-				break
-			}
-		}
-		if !strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") ||
-			roleOrdinal <= lastRoleOrdinal {
-			t.Fatalf("Kimi executed outside ordered qualification at launch %d: %#v", index+1, observations)
-		}
-		lastRoleOrdinal = roleOrdinal
+	observation := observations[0]
+	if !strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") &&
+		!strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
+		t.Fatalf("Kimi qualification prompt missing readiness binding: %#v", observation)
+	}
+	if !strings.Contains(observation.Prompt, "role=logic") && !strings.Contains(observation.Prompt, "role must be logic") {
+		t.Fatalf("Kimi family qualification did not probe base role: %#v", observation)
 	}
 }
 
@@ -1345,12 +1350,14 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 	// Version observation is diagnostic-only and may time out before the fake
 	// process starts on a heavily instrumented race run. Qualification and role
 	// execution are the authoritative launches and remain exact.
+	// AGY control evidence is instance-bound, so each configured AGY role route
+	// performs its own qualification probe within the command.
 	if len(versionChecks) > 2 || len(qualificationRuns) != 2 || len(reviewRuns) != 2 {
 		argv := make([][]string, 0, len(observations))
 		for _, observation := range observations {
 			argv = append(argv, observation.Argv)
 		}
-		t.Fatalf("AGY launches = versions:%d qualifications:%d reviews:%d argv=%v, want at most two diagnostic version checks and exactly two qualification and review launches", len(versionChecks), len(qualificationRuns), len(reviewRuns), argv)
+		t.Fatalf("AGY launches = versions:%d qualifications:%d reviews:%d argv=%v, want at most two diagnostic version checks, two instance qualifications, and two review launches", len(versionChecks), len(qualificationRuns), len(reviewRuns), argv)
 	}
 	for _, observation := range observations {
 		if observation.Home != installedUser.HomeDir || observation.CWD == "" {
@@ -1374,6 +1381,96 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		if observation.CWD != observation.Snapshot || !strings.Contains(observation.Prompt, objective) {
 			t.Fatalf("AGY review snapshot/control contract = %#v", observation)
 		}
+	}
+}
+
+func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	logDirectory := canonicalTestTempDir(t)
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	agyExecutable := filepath.Join(providerDirectory, "agy")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, filepath.Join(logDirectory, "zcode.jsonl"), "success")
+	buildFakeAGY(t, root, agyExecutable, filepath.Join(logDirectory, "agy.jsonl"))
+	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "zcode,agy",
+		"--roles", "logic,security,maintainability,product,documentation,testing",
+		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher,
+		"--agy-executable", agyExecutable)
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize six-role config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+
+	review := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"review", "--dirty",
+		"--roles", "logic,security,maintainability,product,documentation,testing",
+		"--objective", "Review the changed behavior and report only captured-target findings.",
+		"--output", "json")
+	if review.exitCode != 0 || len(review.stderr) != 0 {
+		t.Fatalf("six-role production review: exit=%d stdout=%q stderr=%q", review.exitCode, review.stdout, review.stderr)
+	}
+	var envelope commandEnvelope
+	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.SessionID == nil || envelope.Result.RunID == nil ||
+		envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		t.Fatalf("six-role publication omitted identity or artifacts: %#v", envelope)
+	}
+	for _, uri := range []*string{envelope.Result.RunManifestURI, envelope.Result.ReviewArtifactURI} {
+		if _, err := os.Stat(filepath.Join(project, *uri)); err != nil {
+			t.Fatalf("six-role publication artifact %q is unreadable: %v", *uri, err)
+		}
+	}
+	assertCommandRoleReportInventory(t, project, envelope)
+	diagnosticBytes, err := os.ReadFile(filepath.Join(
+		project, ".mulgae", "diagnostics", *envelope.Result.SessionID, *envelope.Result.RunID, "status.json",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diagnostic struct {
+		State         domain.RunState `json:"state"`
+		LaneTotal     int             `json:"lane_total"`
+		LaneCompleted int             `json:"lane_completed"`
+		LaneFailed    int             `json:"lane_failed"`
+		P2URI         string          `json:"p2_uri"`
+	}
+	if err := json.Unmarshal(diagnosticBytes, &diagnostic); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic.State != domain.RunCompleted || diagnostic.LaneTotal != 6 || diagnostic.LaneCompleted != 6 ||
+		diagnostic.LaneFailed != 0 || diagnostic.P2URI != *envelope.Result.RunManifestURI {
+		t.Fatalf("six-role diagnostic status = %#v", diagnostic)
+	}
+
+	status := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"status", "--run", *envelope.Result.RunID, "--output", "json")
+	if status.exitCode != 0 || len(status.stderr) != 0 {
+		t.Fatalf("six-role status: exit=%d stdout=%q stderr=%q", status.exitCode, status.stdout, status.stderr)
+	}
+	var statusEnvelope commandEnvelope
+	if err := json.Unmarshal(status.stdout, &statusEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(statusEnvelope.Result.RoleReportURIs, envelope.Result.RoleReportURIs) {
+		t.Fatalf("six-role status role_report_uris = %#v, want %#v", statusEnvelope.Result.RoleReportURIs, envelope.Result.RoleReportURIs)
+	}
+	findings := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"findings", "--run", *envelope.Result.RunID, "--severity", "low", "--output", "json")
+	if findings.exitCode != 0 || len(findings.stderr) != 0 {
+		t.Fatalf("six-role findings: exit=%d stdout=%q stderr=%q", findings.exitCode, findings.stdout, findings.stderr)
 	}
 }
 
@@ -1478,10 +1575,10 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	}
 	wantRoutes := []string{
 		"logic/primary/zcode/zcode-logic/30m/not_applicable/prompt",
-		"logic/fallback/agy/agy-logic/15m/dangerously-skip-permissions/prompt",
+		"logic/fallback/agy/agy-logic/15m/safe/prompt",
 		"security/primary/zcode/zcode-security/30m/not_applicable/prompt",
-		"security/fallback/agy/agy-security/15m/dangerously-skip-permissions/prompt",
-		"artist/primary/agy/agy-artist/15m/dangerously-skip-permissions/prompt",
+		"security/fallback/agy/agy-security/15m/safe/prompt",
+		"artist/primary/agy/agy-artist/15m/safe/prompt",
 		"artist/fallback/zcode/zcode-artist/30m/not_applicable/prompt",
 	}
 	gotRoutes := make([]string, 0, len(firstResult.Transmissions))
@@ -1495,7 +1592,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 			t.Fatalf("preflight routes do not share the exact file set: %#v", firstResult.Transmissions)
 		}
 	}
-	if firstResult.AGYPermissionMode != "dangerously-skip-permissions" || !slices.Equal(gotRoutes, wantRoutes) {
+	if firstResult.AGYPermissionMode != "safe" || !slices.Equal(gotRoutes, wantRoutes) {
 		t.Fatalf("preflight routes = mode %q %v, want %v", firstResult.AGYPermissionMode, gotRoutes, wantRoutes)
 	}
 	wantLanes := []mulgaeentry.ReviewPreflightLaneDeadline{
@@ -1559,14 +1656,15 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		if observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
 			t.Fatalf("ZCode escaped the bounded snapshot: %#v", observation)
 		}
-		if strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
+		if strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") ||
+			strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
 			zcodeQualification++
 		} else {
 			zcodeReviews++
 		}
 	}
-	if zcodeQualification != 3 || zcodeReviews != 2 {
-		t.Fatalf("ZCode launches = qualification:%d reviews:%d, want 3/2", zcodeQualification, zcodeReviews)
+	if zcodeQualification != 1 || zcodeReviews != 2 {
+		t.Fatalf("ZCode launches = qualification:%d reviews:%d, want 1/2", zcodeQualification, zcodeReviews)
 	}
 	agyObservations := readFakeAGYObservations(t, agyLog)
 	var agyQualification, agyReviews int
@@ -1583,11 +1681,12 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		}
 		agyReviews++
 		if observation.Fixture != string(credentialFixtures) || observation.PNG != wantPNG ||
-			!slices.Contains(observation.Argv, "--sandbox") || !slices.Contains(observation.Argv, "--dangerously-skip-permissions") ||
+			!slices.Contains(observation.Argv, "--sandbox") || slices.Contains(observation.Argv, "--dangerously-skip-permissions") ||
 			!slices.Contains(observation.Argv, "--add-dir") {
 			t.Fatalf("AGY did not read the exact bounded fixture and raster evidence: %#v", observation)
 		}
 	}
+	// logic/security/artist each admit an AGY candidate; only artist executes on AGY.
 	if agyQualification != 3 || agyReviews != 1 {
 		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 3/1: %#v", agyQualification, agyReviews, agyObservations)
 	}
@@ -1835,7 +1934,7 @@ func initializeOfflineProviders(t *testing.T, binary, project string, environmen
 	t.Helper()
 	arguments := []string{"init", "--providers", providers, "--roles", "security", "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
 	if agy != "" {
-		arguments = append(arguments, "--agy-executable", agy, "--agy-permission-mode", "dangerously-skip-permissions")
+		arguments = append(arguments, "--agy-executable", agy)
 	}
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, arguments...)
 	if initialized.exitCode != 0 {
@@ -1867,6 +1966,11 @@ func assertRuntimeDiagnosticStatus(t *testing.T, project, session, run string, w
 	}
 }
 
+type commandRoleReportURI struct {
+	Role string `json:"role"`
+	URI  string `json:"uri"`
+}
+
 type commandEnvelope struct {
 	Command string `json:"command"`
 	Exit    struct {
@@ -1874,12 +1978,13 @@ type commandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind              string  `json:"kind"`
-		SessionID         *string `json:"session_id"`
-		RunID             *string `json:"run_id"`
-		RunManifestURI    *string `json:"run_manifest_uri"`
-		ReviewArtifactURI *string `json:"review_artifact_uri"`
-		PromptManifestURI *string `json:"prompt_manifest_uri"`
+		Kind              string                 `json:"kind"`
+		SessionID         *string                `json:"session_id"`
+		RunID             *string                `json:"run_id"`
+		RunManifestURI    *string                `json:"run_manifest_uri"`
+		ReviewArtifactURI *string                `json:"review_artifact_uri"`
+		PromptManifestURI *string                `json:"prompt_manifest_uri"`
+		RoleReportURIs    []commandRoleReportURI `json:"role_report_uris"`
 	} `json:"result"`
 	Reasons []struct {
 		Category    string  `json:"category"`
@@ -1889,6 +1994,89 @@ type commandEnvelope struct {
 		ArtifactURI *string `json:"artifact_uri"`
 	} `json:"reasons"`
 }
+
+func assertCommandRoleReportInventory(t *testing.T, project string, envelope commandEnvelope) {
+	t.Helper()
+	if envelope.Result.SessionID == nil || envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		t.Fatalf("command envelope lacks committed identity for role-report checks: %#v", envelope.Result)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(project, *envelope.Result.RunManifestURI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewBytes, err := os.ReadFile(filepath.Join(project, *envelope.Result.ReviewArtifactURI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		RoleReports []struct {
+			Role             string `json:"role"`
+			Path             string `json:"path"`
+			SHA256           string `json:"sha256"`
+			ByteLength       int    `json:"byte_length"`
+			ProviderInstance string `json:"provider_instance"`
+			AttemptID        string `json:"attempt_id"`
+			ContentType      string `json:"content_type"`
+		} `json:"role_reports"`
+	}
+	var review struct {
+		RoleOutcomes []struct {
+			Role             string  `json:"role"`
+			Outcome          string  `json:"outcome"`
+			AttemptID        *string `json:"attempt_id"`
+			ProviderInstance *string `json:"provider_instance"`
+		} `json:"role_outcomes"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode manifest for role reports: %v", err)
+	}
+	if err := json.Unmarshal(reviewBytes, &review); err != nil {
+		t.Fatalf("decode review for role reports: %v", err)
+	}
+	expectedRoles := make([]string, 0, len(review.RoleOutcomes))
+	outcomesByRole := make(map[string]struct {
+		AttemptID        *string
+		ProviderInstance *string
+	}, len(review.RoleOutcomes))
+	for _, outcome := range review.RoleOutcomes {
+		outcomesByRole[outcome.Role] = struct {
+			AttemptID        *string
+			ProviderInstance *string
+		}{AttemptID: outcome.AttemptID, ProviderInstance: outcome.ProviderInstance}
+		if outcome.Outcome == "completed" || outcome.Outcome == "degraded" {
+			expectedRoles = append(expectedRoles, outcome.Role)
+		}
+	}
+	if len(manifest.RoleReports) != len(expectedRoles) || len(envelope.Result.RoleReportURIs) != len(expectedRoles) {
+		t.Fatalf("role report cardinality mismatch: outcomes=%v manifest=%d uris=%d", expectedRoles, len(manifest.RoleReports), len(envelope.Result.RoleReportURIs))
+	}
+	prefix := ".mulgae/" + *envelope.Result.SessionID + "/" + *envelope.Result.RunID + "/role-reports/"
+	for index, role := range expectedRoles {
+		report := manifest.RoleReports[index]
+		uri := envelope.Result.RoleReportURIs[index]
+		outcome := outcomesByRole[role]
+		if report.Role != role || uri.Role != role || report.Path != "role-reports/"+role+".md" ||
+			report.ContentType != "text/markdown" || report.ByteLength <= 0 ||
+			outcome.AttemptID == nil || outcome.ProviderInstance == nil ||
+			report.AttemptID != *outcome.AttemptID || report.ProviderInstance != *outcome.ProviderInstance ||
+			uri.URI != prefix+role+".md" {
+			t.Fatalf("role report identity mismatch at %d: role=%q report=%#v uri=%#v outcome=%#v", index, role, report, uri, outcome)
+		}
+		content, err := os.ReadFile(filepath.Join(project, uri.URI))
+		if err != nil {
+			t.Fatalf("read role report %q: %v", uri.URI, err)
+		}
+		if len(content) != report.ByteLength {
+			t.Fatalf("role report %q byte length = %d, want %d", role, len(content), report.ByteLength)
+		}
+		sum := sha256.Sum256(content)
+		digest := "sha256:" + hex.EncodeToString(sum[:])
+		if digest != report.SHA256 {
+			t.Fatalf("role report %q digest = %q, want %q", role, digest, report.SHA256)
+		}
+	}
+}
+
 type fakeKimiObservation struct {
 	CWD    string `json:"cwd"`
 	Prompt string `json:"prompt"`
@@ -1979,13 +2167,13 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(string(roadmap))
-		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(string(roadmap))
+		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(string(roadmap))
+		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(string(roadmap))
 		link, err := os.ReadFile("docs/linked.md")
 		if err != nil || len(root) != 2 || len(role) != 2 {
 			panic("native qualification reference did not resolve")
 		}
-		content = fmt.Sprintf("{\"root\":%q,\"link\":%q,\"missing\":\"denied\",\"mulgae\":\"denied\",\"outside\":\"denied\",\"role\":%q,\"command\":\"denied\",\"write\":\"denied\",\"network\":\"denied\",\"browser\":\"denied\",\"mcp\":\"denied\"}", root[1], strings.TrimSpace(string(link)), role[1])
+		content = fmt.Sprintf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], strings.TrimSpace(string(link)), role[1])
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(map[string]string{"role": "assistant", "content": content}); err != nil {
 		panic(err)
@@ -2028,13 +2216,34 @@ func main() {
 		return
 	}
 	prompt := ""
+	mode := ""
+	disallowed := ""
 	for index := range argv {
-		if argv[index] == "--prompt" && index+1 < len(argv) {
-			prompt = argv[index+1]
+		switch argv[index] {
+		case "--prompt":
+			if index+1 < len(argv) {
+				prompt = argv[index+1]
+			}
+		case "--mode":
+			if index+1 < len(argv) {
+				mode = argv[index+1]
+			}
+		case "--disallowed-tools":
+			if index+1 < len(argv) {
+				disallowed = argv[index+1]
+			}
 		}
 	}
-	if prompt == "" {
+	if prompt == "" || mode != "plan" || disallowed == "" {
 		panic("non-canonical ZCode invocation")
+	}
+	capability := strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.")
+	if capability {
+		if disallowed != "*" {
+			panic("non-canonical ZCode capability invocation")
+		}
+	} else if !strings.Contains(disallowed, "Bash") || !strings.Contains(disallowed, "Write") {
+		panic("non-canonical ZCode review invocation")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -2050,10 +2259,11 @@ func main() {
 	if err := log.Close(); err != nil {
 		panic(err)
 	}
-	if strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.") {
-		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(prompt)
-		link := regexp.MustCompile("link must be ([^;]+);").FindStringSubmatch(prompt)
-		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(prompt)
+	if strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.") ||
+		strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.") {
+		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(prompt)
+		link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(prompt)
+		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(prompt)
 		if len(root) != 2 || len(link) != 2 || len(role) != 2 {
 			panic("native qualification reference did not resolve")
 		}
@@ -2134,13 +2344,32 @@ func main() {
 		fmt.Println("1.1.4")
 		return
 	}
-	if len(argv) != 13 || argv[0] != "--new-project" || argv[1] != "--sandbox" ||
-		argv[2] != "--dangerously-skip-permissions" || argv[3] != "--add-dir" ||
-		argv[5] != "--mode" || argv[6] != "plan" || argv[7] != "--effort" || argv[8] != "low" ||
-		argv[9] != "--print-timeout" || argv[10] != "14m55s" || argv[11] != "--print" || argv[4] != cwd {
+	printTimeout := ""
+	switch {
+	case len(argv) == 12 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
+		argv[2] == "--add-dir" && argv[3] == cwd && argv[4] == "--mode" && argv[5] == "plan" &&
+		argv[6] == "--effort" && argv[7] == "low" && argv[8] == "--print-timeout" &&
+		argv[10] == "--print":
+		printTimeout = argv[9]
+		observation.Snapshot, observation.Prompt = argv[3], argv[11]
+	case len(argv) == 13 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
+		argv[2] == "--dangerously-skip-permissions" && argv[3] == "--add-dir" && argv[4] == cwd &&
+		argv[5] == "--mode" && argv[6] == "plan" && argv[7] == "--effort" && argv[8] == "low" &&
+		argv[9] == "--print-timeout" && argv[11] == "--print":
+		printTimeout = argv[10]
+		observation.Snapshot, observation.Prompt = argv[4], argv[12]
+	default:
 		panic("non-canonical AGY invocation")
 	}
-	observation.Snapshot, observation.Prompt = argv[4], argv[12]
+	// Qualification probes stay inside the bounded 30s probe deadline; reviews
+	// keep the full configured runtime deadline.
+	if observation.Prompt == "@roadmap.md" {
+		if printTimeout != "25s" {
+			panic("non-canonical AGY qualification print timeout")
+		}
+	} else if printTimeout != "14m55s" {
+		panic("non-canonical AGY review print timeout")
+	}
 	if observation.Prompt != "@roadmap.md" {
 		fixture, fixtureErr := os.ReadFile("security-fixtures.txt")
 		png, pngErr := os.ReadFile("screenshots/staged.png")
@@ -2159,8 +2388,8 @@ func main() {
 			panic(err)
 		}
 		link, err := os.ReadFile("docs/linked.md")
-		root := regexp.MustCompile("root must be ([0-9a-f]{64});").FindStringSubmatch(string(roadmap))
-		role := regexp.MustCompile("role must be ([a-z]+)\\.").FindStringSubmatch(string(roadmap))
+		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(string(roadmap))
+		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(string(roadmap))
 		if err != nil || len(root) != 2 || len(role) != 2 {
 			panic("native qualification reference did not resolve")
 		}

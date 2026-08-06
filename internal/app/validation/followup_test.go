@@ -71,6 +71,51 @@ func TestFollowupValidatorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestFollowupValidatorRejectsOwnershipViolationsAsObservationMismatch(t *testing.T) {
+	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"top-level session_id", func(document map[string]any) {
+			document["session_id"] = "s_00000000-0000-7000-8000-000000000000"
+		}},
+		{"top-level provider", func(document map[string]any) {
+			document["provider"] = "spoof"
+		}},
+		{"nested evidence source", func(document map[string]any) {
+			document["evidence"].([]any)[0].(map[string]any)["source"] = map[string]any{
+				"finding_id": "F001",
+			}
+		}},
+		{"nested current target_sha256", func(document map[string]any) {
+			document["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["target_sha256"] =
+				"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		}},
+		{"nested current verification", func(document map[string]any) {
+			document["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"
+		}},
+		{"nested current session_id", func(document map[string]any) {
+			document["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["session_id"] =
+				"s_00000000-0000-7000-8000-000000000000"
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			document := followupTestDocument("resolved", "The issue was removed by the current change.")
+			test.mutate(document)
+			_, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, document), followupTestScope(t))
+			if err == nil || repairable {
+				t.Fatalf("ownership violation repairable=%t err=%v", repairable, err)
+			}
+			cause, ok := RuntimeCause(err)
+			if !ok || cause != domain.DiagnosticCauseObservationMismatch {
+				t.Fatalf("ownership cause = %q present=%t, want observation_mismatch", cause, ok)
+			}
+		})
+	}
+}
+
 func TestFollowupValidatorRepairAuthorityIsStructuralOnly(t *testing.T) {
 	valid := followupTestDocument("resolved", "The issue was removed by the current change.")
 	schema := followupSchemaFunc(func(_ context.Context, _ ports.AssetID, raw []byte) error {

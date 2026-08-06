@@ -11,6 +11,63 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+func TestStartFollowupRunAcceptsReportsOnlyValidatedOutput(t *testing.T) {
+	t.Parallel()
+	source := testVerifiedSource(t)
+	runID := testRunIDForResult()
+	role := string(source.Finding.Role)
+	output, err := validation.NewReportsOnlyValidatedFollowup(
+		source.Finding.Role, "fake.followup",
+		[]byte("# followup\n\nStill needs a human look.\n"),
+		domain.ParseNotStarted, domain.ValidationNotStarted,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewExecutionResult(
+		source.SessionID, runID, "https://mulgae.local/followup/review.json",
+		output, []RoleReportURI{{
+			Role: role,
+			URI:  ".mulgae/" + source.SessionID.String() + "/" + runID.String() + "/role-reports/" + role + ".md",
+		}}, mustFollowupCommittedExit(domain.ExitCommittedPass),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &followupTestExecutor{result: result}
+	service := mustFollowupService(t, &followupTestSourceReader{source: source}, &followupTestCapturer{target: testCurrentTarget(t, []byte("current"))}, executor)
+	started, err := service.StartFollowupRun(context.Background(), testRequest(source.RunID))
+	if err != nil {
+		t.Fatalf("StartFollowupRun() error = %v", err)
+	}
+	if !started.ValidatedOutput().ReportsOnly() || started.ValidatedOutput().Resolution().Valid() {
+		t.Fatalf("started reports-only output = reportsOnly=%t resolution=%q",
+			started.ValidatedOutput().ReportsOnly(), started.ValidatedOutput().Resolution())
+	}
+}
+
+func TestFollowupResultRequiresExactlyOneRoleReportURI(t *testing.T) {
+	t.Parallel()
+	source := testVerifiedSource(t)
+	runID := testRunIDForResult()
+	role := string(source.Finding.Role)
+	valid := []RoleReportURI{{
+		Role: role,
+		URI:  ".mulgae/" + source.SessionID.String() + "/" + runID.String() + "/role-reports/" + role + ".md",
+	}}
+	output := validExecutionResult(source).ValidatedOutput
+	exit := mustFollowupCommittedExit(domain.ExitCommittedPass)
+	if _, err := NewExecutionResult(source.SessionID, runID, "https://mulgae.local/followup/review.json", output, nil, exit); err == nil {
+		t.Fatal("NewExecutionResult accepted zero role report URIs")
+	}
+	if _, err := NewExecutionResult(source.SessionID, runID, "https://mulgae.local/followup/review.json", output, append(valid, valid[0]), exit); err == nil {
+		t.Fatal("NewExecutionResult accepted two role report URIs")
+	}
+	if _, err := NewResult(source.SessionID, runID, "https://mulgae.local/followup/review.json", output, valid, exit); err != nil {
+		t.Fatalf("NewResult rejected a single valid role report URI: %v", err)
+	}
+}
+
 func TestStartFollowupRunPreservesSourceBytesAndUsesDefensiveCopies(t *testing.T) {
 	source := testVerifiedSource(t)
 	originalFinal := append([]byte(nil), source.Final...)
@@ -404,9 +461,14 @@ func validExecutionResultWithExit(source VerifiedSource, code domain.Operational
 	if err != nil {
 		panic(err)
 	}
+	runID := testRunIDForResult()
+	role := string(source.Finding.Role)
 	result, err := NewExecutionResult(
-		source.SessionID, testRunIDForResult(), "https://mulgae.local/followup/review.json",
-		output, mustFollowupCommittedExit(code),
+		source.SessionID, runID, "https://mulgae.local/followup/review.json",
+		output, []RoleReportURI{{
+			Role: role,
+			URI:  ".mulgae/" + source.SessionID.String() + "/" + runID.String() + "/role-reports/" + role + ".md",
+		}}, mustFollowupCommittedExit(code),
 	)
 	if err != nil {
 		panic(err)

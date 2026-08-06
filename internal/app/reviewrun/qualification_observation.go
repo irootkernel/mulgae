@@ -97,12 +97,22 @@ func qualificationObservationsFromError(err error) []ProviderQualificationObserv
 	return source.QualificationObservations()
 }
 
-func qualificationDiagnosticCause(err error) domain.RuntimeDiagnosticCause {
+// typedQualificationDiagnosticCause reports the exact cause carried by the
+// error chain. It never derives a cause from the failure class, so callers that
+// must distinguish a typed operational cause from a class default can do so.
+func typedQualificationDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
 	var source interface {
 		Cause() domain.RuntimeDiagnosticCause
 	}
 	if errors.As(err, &source) && source.Cause().Valid() {
-		return source.Cause()
+		return source.Cause(), true
+	}
+	return "", false
+}
+
+func qualificationDiagnosticCause(err error) domain.RuntimeDiagnosticCause {
+	if cause, ok := typedQualificationDiagnosticCause(err); ok {
+		return cause
 	}
 	var failure *domain.Failure
 	if errors.As(err, &failure) && failure != nil {

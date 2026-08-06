@@ -106,19 +106,21 @@ type CIConfig struct {
 const (
 	ConfigVersion    = 1
 	DefaultKimiModel = "kimi-code/kimi-for-coding"
-	// DefaultAGYPermissionMode is the non-interactive review default. Mulgae's
-	// sandbox and bounded snapshot remain the authority boundary; AGY cannot
-	// service interactive permission prompts in this execution mode.
-	DefaultAGYPermissionMode = "dangerously-skip-permissions"
-	SafeAGYPermissionMode    = "safe"
-	DefaultProviderTimeout   = 15 * time.Minute
-	MinimumProviderTimeout   = time.Minute
-	MaximumProviderTimeout   = 60 * time.Minute
-	ConfigRelativePath       = ".mulgae/config.yaml"
-	MaximumConfigBytes       = 1 << 20
-	ProjectKindNonUI         = "non_ui"
-	ProjectKindUI            = "ui"
-	DefaultArtistBriefPath   = "ux-ui-info.md"
+	// DefaultAGYPermissionMode keeps AGY headless reviews inside Mulgae's
+	// read-oriented permission boundary. The bounded snapshot and --sandbox
+	// remain the workspace authority; write/shell requests stay soft-denied.
+	// Explicit permission_mode: "dangerously-skip-permissions" remains opt-in.
+	DefaultAGYPermissionMode  = "safe"
+	SafeAGYPermissionMode     = "safe"
+	HeadlessAGYPermissionMode = "dangerously-skip-permissions"
+	DefaultProviderTimeout    = 15 * time.Minute
+	MinimumProviderTimeout    = time.Minute
+	MaximumProviderTimeout    = 60 * time.Minute
+	ConfigRelativePath        = ".mulgae/config.yaml"
+	MaximumConfigBytes        = 1 << 20
+	ProjectKindNonUI          = "non_ui"
+	ProjectKindUI             = "ui"
+	DefaultArtistBriefPath    = "ux-ui-info.md"
 )
 
 // ParseProviderTimeout resolves an optional Config v1 provider timeout. An

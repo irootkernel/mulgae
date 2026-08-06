@@ -183,7 +183,11 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication terminal exit: %w", err)
 	}
-	execution, err := delta.NewExecutionResult(run.SessionID(), run.ID(), receiptURI(executor.artifactRoot, final), terminalExit)
+	roleReportURIs, err := projectDeltaRoleReportURIs(published)
+	if err != nil {
+		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta role report identities: %w", err)
+	}
+	execution, err := delta.NewExecutionResult(run.SessionID(), run.ID(), receiptURI(executor.artifactRoot, final), roleReportURIs, terminalExit)
 	if err != nil {
 		return delta.ExecutionResult{}, err
 	}
@@ -321,11 +325,15 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun publication terminal exit: %w", err)
 	}
+	roleReportURIs, err := projectRerunRoleReportURIs(published)
+	if err != nil {
+		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun role report identities: %w", err)
+	}
 	execution, err := rerun.NewChildReplayResult(
 		run.SessionID(), run.ID(), parent, source, child.SourceReviewID, child.SourceAttemptID,
 		executionID, selectedInventory.TemplateSHA256(),
 		supportURI(executor.artifactRoot, promptManifest.Path()), strings.TrimPrefix(promptManifest.SHA256(), "sha256:"),
-		child.Mode, child.Mode == rerun.ExactReplay, terminalExit,
+		child.Mode, child.Mode == rerun.ExactReplay, roleReportURIs, terminalExit,
 	)
 	if err != nil {
 		return rerun.ChildReplayResult{}, err

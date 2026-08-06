@@ -125,7 +125,7 @@ func NewReviewPreflightResult(
 	if err := validatePreflightSnapshotBinding(material.Snapshot(), workspaceReceipt); err != nil {
 		return ReviewPreflightResult{}, err
 	}
-	if agyPermissionMode != appconfig.DefaultAGYPermissionMode && agyPermissionMode != appconfig.SafeAGYPermissionMode {
+	if agyPermissionMode != appconfig.SafeAGYPermissionMode && agyPermissionMode != appconfig.HeadlessAGYPermissionMode {
 		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid AGY permission mode")
 	}
 	files := workspaceReceipt.Files()
@@ -169,8 +169,8 @@ func NewReviewPreflightResult(
 		}
 	}
 	warnings := []string{}
-	if agyPermissionMode == appconfig.SafeAGYPermissionMode {
-		warnings = append(warnings, "AGY safe mode is opt-in; headless tool requests may be denied.")
+	if agyPermissionMode == appconfig.HeadlessAGYPermissionMode {
+		warnings = append(warnings, "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary.")
 	}
 	targetBytes := material.Target().Bytes()
 	status := "eligible"
@@ -236,15 +236,15 @@ func validatePreflightSnapshotBinding(snapshot ports.WorkspaceSnapshotRequest, r
 func (result ReviewPreflightResult) Validate() error {
 	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" ||
 		(result.Status != "eligible" && result.Status != "no_change") || !validPreflightTarget(result.Target) ||
-		(result.AGYPermissionMode != appconfig.DefaultAGYPermissionMode && result.AGYPermissionMode != appconfig.SafeAGYPermissionMode) ||
+		(result.AGYPermissionMode != appconfig.SafeAGYPermissionMode && result.AGYPermissionMode != appconfig.HeadlessAGYPermissionMode) ||
 		len(result.FileSets) != 1 || len(result.GeneratedFiles) != 1 || !result.Budget.Eligible {
 		return fmt.Errorf("review preflight: invalid result")
 	}
 	wantWarnings := 0
-	if result.AGYPermissionMode == appconfig.SafeAGYPermissionMode {
+	if result.AGYPermissionMode == appconfig.HeadlessAGYPermissionMode {
 		wantWarnings = 1
 	}
-	if len(result.Warnings) != wantWarnings || wantWarnings == 1 && result.Warnings[0] != "AGY safe mode is opt-in; headless tool requests may be denied." {
+	if len(result.Warnings) != wantWarnings || wantWarnings == 1 && result.Warnings[0] != "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary." {
 		return fmt.Errorf("review preflight: invalid warnings")
 	}
 	fileSet := result.FileSets[0]

@@ -8,10 +8,53 @@ const (
 	ContentNoFindings      ContentVerdict = "no_findings"
 	ContentFindingsPresent ContentVerdict = "findings_present"
 	ContentRequestChanges  ContentVerdict = "request_changes"
+	// ContentReportsOnly means Mulgae published role reports without claiming a
+	// structured finding set was extracted for the run.
+	ContentReportsOnly ContentVerdict = "reports_only"
 )
 
 func (value ContentVerdict) Valid() bool {
-	return oneOf(string(value), string(ContentNoFindings), string(ContentFindingsPresent), string(ContentRequestChanges))
+	return oneOf(string(value), string(ContentNoFindings), string(ContentFindingsPresent), string(ContentRequestChanges), string(ContentReportsOnly))
+}
+
+// StructuredExtractionStatus is Mulgae-owned coverage of structured finding
+// extraction across selected roles. It is independent of provider degraded
+// failure and of role-report delivery.
+type StructuredExtractionStatus string
+
+const (
+	StructuredExtractionStructured  StructuredExtractionStatus = "structured"
+	StructuredExtractionMixed       StructuredExtractionStatus = "mixed"
+	StructuredExtractionReportsOnly StructuredExtractionStatus = "reports_only"
+)
+
+func (value StructuredExtractionStatus) Valid() bool {
+	return oneOf(string(value), string(StructuredExtractionStructured), string(StructuredExtractionMixed), string(StructuredExtractionReportsOnly))
+}
+
+// ComputeStructuredExtractionStatus derives Mulgae-owned structured-extraction
+// coverage across selected role summaries.
+func ComputeStructuredExtractionStatus(results []RoleResultSummary) StructuredExtractionStatus {
+	structured := 0
+	reportsOnly := 0
+	for _, result := range results {
+		if !result.Selected || !result.Valid {
+			continue
+		}
+		if result.ReportsOnly {
+			reportsOnly++
+		} else {
+			structured++
+		}
+	}
+	switch {
+	case structured > 0 && reportsOnly > 0:
+		return StructuredExtractionMixed
+	case reportsOnly > 0:
+		return StructuredExtractionReportsOnly
+	default:
+		return StructuredExtractionStructured
+	}
 }
 
 type CoverageStatus string
@@ -41,6 +84,9 @@ type RoleResultSummary struct {
 	Required bool
 	Valid    bool
 	Degraded bool
+	// ReportsOnly is true when the role delivered a Mulgae-owned free-form
+	// report without a validated structured finding document.
+	ReportsOnly bool
 }
 
 type CIPolicy struct {
@@ -85,6 +131,13 @@ func ComputeOutcomeAxes(findings []Finding, results []RoleResultSummary, thresho
 		for _, finding := range findings {
 			if finding.Severity().Rank() >= threshold.Rank() {
 				content = ContentRequestChanges
+			}
+		}
+	} else {
+		for _, result := range results {
+			if result.Selected && result.Valid && result.ReportsOnly {
+				content = ContentReportsOnly
+				break
 			}
 		}
 	}

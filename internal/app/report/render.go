@@ -28,27 +28,28 @@ const (
 )
 
 type reportFinalDTO struct {
-	SchemaVersion     string                    `json:"schema_version"`
-	SessionID         string                    `json:"session_id"`
-	RunID             string                    `json:"run_id"`
-	ReviewID          string                    `json:"review_id"`
-	RunType           string                    `json:"run_type"`
-	CreatedAt         string                    `json:"created_at"`
-	Mulgae            reportMulgaeDTO           `json:"mulgae"`
-	ImmutableLineage  reportLineageDTO          `json:"immutable_lineage"`
-	FollowupOutcome   *reportFollowupOutcomeDTO `json:"followup_outcome"`
-	Target            reportTargetDTO           `json:"target"`
-	Validation        reportValidationDTO       `json:"validation"`
-	ContentVerdict    string                    `json:"content_verdict"`
-	CoverageStatus    string                    `json:"coverage_status"`
-	PublicationStatus string                    `json:"publication_status"`
-	CIDecision        string                    `json:"ci_decision"`
-	CIReasonCodes     []string                  `json:"ci_reason_codes"`
-	SeverityThreshold reportSeverityDTO         `json:"severity_threshold"`
-	RoleOutcomes      []reportRoleDTO           `json:"role_outcomes"`
-	Findings          []reportFindingDTO        `json:"findings"`
-	Limitations       []string                  `json:"limitations"`
-	Provenance        reportProvenanceDTO       `json:"provenance"`
+	SchemaVersion              string                    `json:"schema_version"`
+	SessionID                  string                    `json:"session_id"`
+	RunID                      string                    `json:"run_id"`
+	ReviewID                   string                    `json:"review_id"`
+	RunType                    string                    `json:"run_type"`
+	CreatedAt                  string                    `json:"created_at"`
+	Mulgae                     reportMulgaeDTO           `json:"mulgae"`
+	ImmutableLineage           reportLineageDTO          `json:"immutable_lineage"`
+	FollowupOutcome            *reportFollowupOutcomeDTO `json:"followup_outcome"`
+	Target                     reportTargetDTO           `json:"target"`
+	Validation                 reportValidationDTO       `json:"validation"`
+	ContentVerdict             string                    `json:"content_verdict"`
+	CoverageStatus             string                    `json:"coverage_status"`
+	StructuredExtractionStatus string                    `json:"structured_extraction_status"`
+	PublicationStatus          string                    `json:"publication_status"`
+	CIDecision                 string                    `json:"ci_decision"`
+	CIReasonCodes              []string                  `json:"ci_reason_codes"`
+	SeverityThreshold          reportSeverityDTO         `json:"severity_threshold"`
+	RoleOutcomes               []reportRoleDTO           `json:"role_outcomes"`
+	Findings                   []reportFindingDTO        `json:"findings"`
+	Limitations                []string                  `json:"limitations"`
+	Provenance                 reportProvenanceDTO       `json:"provenance"`
 }
 type reportFollowupOutcomeDTO struct {
 	Resolution string              `json:"resolution"`
@@ -306,6 +307,7 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 		final.ImmutableLineage.LineageEdgeSHA != review.LineageEdgeSHA256() ||
 		final.ContentVerdict != string(review.ContentVerdict()) ||
 		final.CoverageStatus != string(review.CoverageStatus()) ||
+		final.StructuredExtractionStatus != string(review.StructuredExtractionStatus()) ||
 		final.PublicationStatus != string(review.PublicationStatus()) ||
 		final.CIDecision != string(review.CIDecision()) {
 		return fmt.Errorf("final fields do not match the committed query view")
@@ -641,6 +643,7 @@ func renderMarkdown(
 	writeHeading(&output, "Outcome axes")
 	writeField(&output, "Content verdict", string(review.ContentVerdict()))
 	writeField(&output, "Coverage status", string(review.CoverageStatus()))
+	writeField(&output, "Structured extraction status", string(review.StructuredExtractionStatus()))
 	writeField(&output, "Publication status", string(review.PublicationStatus()))
 	writeField(&output, "CI decision", string(review.CIDecision()))
 	writeBlankLine(&output)

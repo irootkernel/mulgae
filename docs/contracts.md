@@ -70,6 +70,8 @@ may change only explicitly allowed provider-owned paths.
       runtime.jsonl
       attempts/
       validation/
+      role-reports/
+        <role>.md
       review_<uuidv7>.json
 ```
 
@@ -77,11 +79,50 @@ may change only explicitly allowed provider-owned paths.
 most one top-level final review. Failed or repaired candidates remain beneath
 `attempts/`.
 
+Successful selected roles also publish exactly one Mulgae-owned free-form role
+report under `role-reports/<role>.md`. Mulgae captures bounded provider
+assistant content through the existing process boundary and writes those bytes;
+providers never write directly into trusted publication state. Additive
+`manifest.role_reports[]` records role, path, digest, byte length,
+`provider_instance`, selected `attempt_id`, and `content_type` (`text/markdown`).
+It never invents `source_invocation_id`. CLI success envelopes expose
+project-relative `role_report_uris` derived from the verified committed
+manifest inventory. Attempt `stdout.raw` remains private capture evidence and
+is never the primary report URI.
+
+Markdown/prose is normal success. Mulgae records
+`structured_extraction_status` as `structured`, `mixed`, or `reports_only`.
+Legacy exact provider-review JSON remains accepted: Mulgae preserves the exact
+adapter-extracted assistant bytes as the role report and, when structured
+validation succeeds, also retains validated findings. Findings listing and
+followup-by-finding admission remain structured-path only; prose-only roles do
+not invent findings. Followup output is free-form primary: a successfully
+published followup always exposes exactly one `role_report_uris` entry. Optional
+structured followup resolution is extracted only when schema, semantic, and
+evidence checks succeed (`resolution` enum +
+`structured_extraction_status=structured`). When structured extraction is
+absent or invalid, Mulgae still commits the role report with
+`resolution=null` and `structured_extraction_status=reports_only` and does not
+invent `unclear`. `content_verdict` may be `reports_only` when no structured
+findings were extracted. Severity thresholds and CI `request_changes` continue
+to use only validated structured findings and structured followup resolution.
+
 Diagnostic-only failed runs have no publication authority. `mulgae status
 --run <id> --output json` first resolves the publication namespace and, only
 when that run is absent, returns the bounded `diagnostic_status_read`
 projection from `diagnostics/.../status.json`. The command never exposes raw
 provider streams or the runtime JSONL through this fallback.
+
+Diagnostic-only status reports `recovery_action: rerun_review`. Runtime
+diagnostics and provider streams are not validated publication material, so an
+unpublished run cannot be resumed or queried through `findings`. Publication
+failures additionally report a stable `terminal_cause` and redacted
+`terminal_phase`; installed artifact paths remain absent until P2 commits.
+Publication causes distinguish candidate, evidence, schema, serialization,
+store-lock, path-preparation, persistence, installation, and commit failures.
+`diagnostic_persistence_failed` is reserved for failure to write or finalize
+the diagnostic record itself; it does not replace an earlier publication
+cause.
 
 `review`, `followup`, `delta`, and `rerun` create distinct runs. They
 respectively start a review, check one prior finding, review a delta, or repeat
@@ -112,3 +153,47 @@ with missing static evidence uses `provider_static_admission_unverified`; this
 does not claim that a live review qualification failed. Per-run live
 qualification remains observable through that run's diagnostic status and
 runtime diagnostics.
+
+## Provider qualification readiness
+
+Current qualification is family/runtime-profile scoped within one command:
+Mulgae performs one version-plus-capability probe per distinct provider family
+profile, with at most one bounded operational retry, then derives role admission
+for configured primary and fallback routes that share that profile. Shareable
+profiles are equivalent across base argv, transport channel/reference/index,
+environment, working directory, output bounds, lifecycle, model,
+executable/launcher identity, and runtime safety policy identity. ZCode may
+share one probe across sibling role instances only when that full shareable
+profile matches; AGY profiles also include provider instance because AGY control
+evidence is instance-bound. Direct-execution authority construction and Matches
+bind currentProbeRuntimeDefinitionIdentity for the exact destination runtime,
+including instance. Sibling routes receive a new authority only through an
+adapter-owned derivation that revalidates shareable equivalence and exact
+destination Matches. Application-layer identity rewriting cannot copy authority.
+ZCode and AGY family probes run concurrently when both are required. Capability
+readiness is decided by bound immutable fixture evidence: free-form or narrated
+provider output is accepted when it proves immutable fixture nonce/input binding
+together with transport, lifecycle, authentication, version, and required
+process behavior, and mere prompt echo is rejected. A terminal JSON stdout frame
+is optional metadata, never a required result transport; when a frame is
+present, its integrity (framing policy, byte length, stdout digest, stability
+and termination timing, and packet-bound post-output signal receipts) is
+enforced fail-closed. Packet-transport, lifecycle, signal-receipt, and
+frame-integrity violations remain security-policy violations, while missing
+fixture binding or prompt echo is instead an operational invalid-provider-output
+capability rejection, not a security-policy violation. Capability packets embed
+those root/link/role bindings and must not induce workspace or tool reads;
+review prompts own workspace-selective guidance. Invalid capability formatting,
+unbound fixture evidence, security-policy violations, and login-required
+responses are never retried; one transient operational probe failure (rate
+limit, quota, timeout, provider unavailable, or a typed provider execution
+failure) admits at most one additional probe on a freshly materialized fixture.
+Every acquired fixture is still drained exactly once, sibling role routes still
+derive from a single successful family probe, and the retried attempt is
+recorded as a rejected qualification observation carrying a retry mitigation.
+There is no durable project-local qualification cache and no path that mints
+direct-execution or AGY-control authority from project-local JSON; durable
+cross-process reuse is intentionally deferred because a forgeable self-hashed
+cache would weaken trust boundaries. Structured review JSON extraction remains
+optional: Mulgae may apply one constrained repair, then accept free-form primary
+role reports when structured validation does not succeed.

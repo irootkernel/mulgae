@@ -120,34 +120,43 @@ func (code RuntimeDiagnosticEventCode) SafeMessage() string { return runtimeDiag
 type RuntimeDiagnosticCause string
 
 const (
-	DiagnosticCauseProviderSpawnFailed         RuntimeDiagnosticCause = "provider_spawn_failed"
-	DiagnosticCauseProviderExecutionFailed     RuntimeDiagnosticCause = "provider_execution_failed"
-	DiagnosticCauseProviderProcessWaitFailed   RuntimeDiagnosticCause = "provider_process_wait_failed"
-	DiagnosticCauseProcessGroupCleanupFailed   RuntimeDiagnosticCause = "provider_process_group_cleanup_failed"
-	DiagnosticCauseTransportVerificationFailed RuntimeDiagnosticCause = "provider_transport_verification_failed"
-	DiagnosticCausePromptFilePreStartFailed    RuntimeDiagnosticCause = "provider_prompt_file_prestart_identity_failed"
-	DiagnosticCausePromptFilePostEndFailed     RuntimeDiagnosticCause = "provider_prompt_file_posttermination_identity_failed"
-	DiagnosticCauseTransportReceiptMismatch    RuntimeDiagnosticCause = "provider_transport_receipt_mismatch"
-	DiagnosticCauseLifecycleReceiptInvalid     RuntimeDiagnosticCause = "provider_lifecycle_receipt_invalid"
-	DiagnosticCauseOutputFrameMissing          RuntimeDiagnosticCause = "provider_output_frame_missing"
-	DiagnosticCauseOutputMissing               RuntimeDiagnosticCause = "provider_output_missing"
-	DiagnosticCauseOutputFrameMismatch         RuntimeDiagnosticCause = "provider_output_frame_mismatch"
-	DiagnosticCauseSignalReceiptMismatch       RuntimeDiagnosticCause = "provider_signal_receipt_mismatch"
-	DiagnosticCauseOutputEnvelopeInvalid       RuntimeDiagnosticCause = "provider_output_envelope_invalid"
-	DiagnosticCauseOutputDecodeFailed          RuntimeDiagnosticCause = "provider_output_decode_failed"
-	DiagnosticCauseResultBindingFailed         RuntimeDiagnosticCause = "provider_result_binding_failed"
-	DiagnosticCauseObservationInvalid          RuntimeDiagnosticCause = "provider_observation_invalid"
-	DiagnosticCauseObservationMismatch         RuntimeDiagnosticCause = "provider_observation_mismatch"
-	DiagnosticCauseCandidateValidationFailed   RuntimeDiagnosticCause = "candidate_validation_failed"
-	DiagnosticCauseCandidateRepairPlanInvalid  RuntimeDiagnosticCause = "candidate_repair_plan_invalid"
-	DiagnosticCauseWorkspaceRevalidationFailed RuntimeDiagnosticCause = "workspace_revalidation_failed"
-	DiagnosticCausePersistenceFailed           RuntimeDiagnosticCause = "diagnostic_persistence_failed"
-	DiagnosticCauseLoginRequired               RuntimeDiagnosticCause = "provider_login_required"
-	DiagnosticCauseAuthenticationFailed        RuntimeDiagnosticCause = "provider_authentication_failed"
-	DiagnosticCauseQuotaExceeded               RuntimeDiagnosticCause = "provider_quota_exceeded"
-	DiagnosticCauseRateLimited                 RuntimeDiagnosticCause = "provider_rate_limited"
-	DiagnosticCauseTimedOut                    RuntimeDiagnosticCause = "provider_timed_out"
-	DiagnosticCausePermissionDenied            RuntimeDiagnosticCause = "provider_permission_denied"
+	DiagnosticCauseProviderSpawnFailed            RuntimeDiagnosticCause = "provider_spawn_failed"
+	DiagnosticCauseProviderExecutionFailed        RuntimeDiagnosticCause = "provider_execution_failed"
+	DiagnosticCauseProviderProcessWaitFailed      RuntimeDiagnosticCause = "provider_process_wait_failed"
+	DiagnosticCauseProcessGroupCleanupFailed      RuntimeDiagnosticCause = "provider_process_group_cleanup_failed"
+	DiagnosticCauseTransportVerificationFailed    RuntimeDiagnosticCause = "provider_transport_verification_failed"
+	DiagnosticCausePromptFilePreStartFailed       RuntimeDiagnosticCause = "provider_prompt_file_prestart_identity_failed"
+	DiagnosticCausePromptFilePostEndFailed        RuntimeDiagnosticCause = "provider_prompt_file_posttermination_identity_failed"
+	DiagnosticCauseTransportReceiptMismatch       RuntimeDiagnosticCause = "provider_transport_receipt_mismatch"
+	DiagnosticCauseLifecycleReceiptInvalid        RuntimeDiagnosticCause = "provider_lifecycle_receipt_invalid"
+	DiagnosticCauseOutputFrameMissing             RuntimeDiagnosticCause = "provider_output_frame_missing"
+	DiagnosticCauseOutputMissing                  RuntimeDiagnosticCause = "provider_output_missing"
+	DiagnosticCauseOutputFrameMismatch            RuntimeDiagnosticCause = "provider_output_frame_mismatch"
+	DiagnosticCauseSignalReceiptMismatch          RuntimeDiagnosticCause = "provider_signal_receipt_mismatch"
+	DiagnosticCauseOutputEnvelopeInvalid          RuntimeDiagnosticCause = "provider_output_envelope_invalid"
+	DiagnosticCauseOutputDecodeFailed             RuntimeDiagnosticCause = "provider_output_decode_failed"
+	DiagnosticCauseResultBindingFailed            RuntimeDiagnosticCause = "provider_result_binding_failed"
+	DiagnosticCauseObservationInvalid             RuntimeDiagnosticCause = "provider_observation_invalid"
+	DiagnosticCauseObservationMismatch            RuntimeDiagnosticCause = "provider_observation_mismatch"
+	DiagnosticCauseCandidateValidationFailed      RuntimeDiagnosticCause = "candidate_validation_failed"
+	DiagnosticCauseCandidateRepairPlanInvalid     RuntimeDiagnosticCause = "candidate_repair_plan_invalid"
+	DiagnosticCauseWorkspaceRevalidationFailed    RuntimeDiagnosticCause = "workspace_revalidation_failed"
+	DiagnosticCausePersistenceFailed              RuntimeDiagnosticCause = "diagnostic_persistence_failed"
+	DiagnosticCausePublicationCandidateInvalid    RuntimeDiagnosticCause = "publication_candidate_invalid"
+	DiagnosticCausePublicationEvidenceFailed      RuntimeDiagnosticCause = "publication_evidence_verification_failed"
+	DiagnosticCausePublicationSchemaFailed        RuntimeDiagnosticCause = "publication_schema_validation_failed"
+	DiagnosticCausePublicationSerializationFailed RuntimeDiagnosticCause = "publication_serialization_failed"
+	DiagnosticCausePublicationStoreLockFailed     RuntimeDiagnosticCause = "publication_store_lock_failed"
+	DiagnosticCausePublicationPathFailed          RuntimeDiagnosticCause = "publication_path_preparation_failed"
+	DiagnosticCausePublicationPersistenceFailed   RuntimeDiagnosticCause = "publication_persistence_failed"
+	DiagnosticCausePublicationInstallationFailed  RuntimeDiagnosticCause = "publication_installation_failed"
+	DiagnosticCausePublicationCommitFailed        RuntimeDiagnosticCause = "publication_commit_failed"
+	DiagnosticCauseLoginRequired                  RuntimeDiagnosticCause = "provider_login_required"
+	DiagnosticCauseAuthenticationFailed           RuntimeDiagnosticCause = "provider_authentication_failed"
+	DiagnosticCauseQuotaExceeded                  RuntimeDiagnosticCause = "provider_quota_exceeded"
+	DiagnosticCauseRateLimited                    RuntimeDiagnosticCause = "provider_rate_limited"
+	DiagnosticCauseTimedOut                       RuntimeDiagnosticCause = "provider_timed_out"
+	DiagnosticCausePermissionDenied               RuntimeDiagnosticCause = "provider_permission_denied"
 )
 
 func (cause RuntimeDiagnosticCause) Valid() bool {
@@ -158,9 +167,43 @@ func (cause RuntimeDiagnosticCause) Valid() bool {
 		DiagnosticCauseOutputFrameMismatch, DiagnosticCauseSignalReceiptMismatch, DiagnosticCauseOutputEnvelopeInvalid,
 		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
 		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,
-		DiagnosticCauseWorkspaceRevalidationFailed, DiagnosticCausePersistenceFailed, DiagnosticCauseLoginRequired,
+		DiagnosticCauseWorkspaceRevalidationFailed, DiagnosticCausePersistenceFailed,
+		DiagnosticCausePublicationCandidateInvalid, DiagnosticCausePublicationEvidenceFailed,
+		DiagnosticCausePublicationSchemaFailed, DiagnosticCausePublicationSerializationFailed,
+		DiagnosticCausePublicationStoreLockFailed, DiagnosticCausePublicationPathFailed,
+		DiagnosticCausePublicationPersistenceFailed, DiagnosticCausePublicationInstallationFailed,
+		DiagnosticCausePublicationCommitFailed, DiagnosticCauseLoginRequired,
 		DiagnosticCauseAuthenticationFailed, DiagnosticCauseQuotaExceeded, DiagnosticCauseRateLimited, DiagnosticCauseTimedOut,
 		DiagnosticCausePermissionDenied:
+		return true
+	default:
+		return false
+	}
+}
+
+// RuntimeDiagnosticPhase is a bounded, path-free machine identifier for the
+// terminal pipeline phase. It is safe to persist and expose through status.
+type RuntimeDiagnosticPhase string
+
+const (
+	DiagnosticPhasePublicationCandidate    RuntimeDiagnosticPhase = "publication_candidate"
+	DiagnosticPhasePublicationFinalReview  RuntimeDiagnosticPhase = "publication_final_review"
+	DiagnosticPhasePublicationManifest     RuntimeDiagnosticPhase = "publication_manifest"
+	DiagnosticPhasePublicationStoreLock    RuntimeDiagnosticPhase = "publication_store_lock"
+	DiagnosticPhasePublicationPersistence  RuntimeDiagnosticPhase = "publication_persistence"
+	DiagnosticPhasePublicationStaging      RuntimeDiagnosticPhase = "publication_staging"
+	DiagnosticPhasePublicationInstallation RuntimeDiagnosticPhase = "publication_installation"
+	DiagnosticPhasePublicationCommit       RuntimeDiagnosticPhase = "publication_commit"
+	DiagnosticPhaseDiagnostics             RuntimeDiagnosticPhase = "diagnostics"
+)
+
+func (phase RuntimeDiagnosticPhase) Valid() bool {
+	switch phase {
+	case DiagnosticPhasePublicationCandidate, DiagnosticPhasePublicationFinalReview,
+		DiagnosticPhasePublicationManifest, DiagnosticPhasePublicationStoreLock,
+		DiagnosticPhasePublicationPersistence, DiagnosticPhasePublicationStaging,
+		DiagnosticPhasePublicationInstallation, DiagnosticPhasePublicationCommit,
+		DiagnosticPhaseDiagnostics:
 		return true
 	default:
 		return false

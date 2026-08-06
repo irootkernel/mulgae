@@ -179,10 +179,45 @@ func TestPrepareNoChangeCandidateSerializesZeroAttempts(t *testing.T) {
 	if len(manifest.Attempts) != 0 || len(final.Findings) != 0 || len(final.RoleOutcomes) != 2 {
 		t.Fatalf("no-change publication retained attempts, findings, or roles: %#v", manifest)
 	}
+	if len(manifest.RoleReports) != 0 {
+		t.Fatalf("no-change publication retained role reports: %#v", manifest.RoleReports)
+	}
+	if final.StructuredExtractionStatus != string(domain.StructuredExtractionStructured) ||
+		manifest.StructuredExtractionStatus != string(domain.StructuredExtractionStructured) ||
+		final.ContentVerdict != string(domain.ContentNoFindings) ||
+		manifest.ContentVerdict != string(domain.ContentNoFindings) {
+		t.Fatalf("no-change structured axes drifted: final=%#v manifest=%#v", final, manifest)
+	}
 	for _, role := range final.RoleOutcomes {
 		if role.Outcome != "not_applicable" || role.AttemptID != nil || role.ProviderInstance != nil || role.SelectedVia != nil {
 			t.Fatalf("role outcome is not provider-free: %#v", role)
 		}
+	}
+	if manifest.CompositeIdentity.SupportIndex.Path == "" || !validSHA256(manifest.CompositeIdentity.SupportIndex.SHA256) {
+		t.Fatal("no-change publication omitted support index binding")
+	}
+	var support ports.ImmutablePublicationArtifact
+	for _, excerpt := range bundle.Excerpts() {
+		if excerpt.Path().String() == manifest.CompositeIdentity.SupportIndex.Path {
+			support = excerpt
+			break
+		}
+	}
+	if !support.Valid() {
+		t.Fatal("no-change support index artifact is absent from excerpts")
+	}
+	// Exact marshalCanonical bytes for artifacts:[]; keep lockstep with
+	// query.TestReadRunStatusAcceptsCanonicalEmptySupportIndexForNoChange.
+	wantIndex := []byte("{\"schema_version\":\"mulgae-run-support-index.v1\",\"artifacts\":[]}\n")
+	if string(support.Bytes()) != string(wantIndex) || support.SHA256() != manifest.CompositeIdentity.SupportIndex.SHA256 {
+		t.Fatalf("no-change support index = %q digest=%q, want exact empty inventory", support.Bytes(), support.SHA256())
+	}
+	var index runSupportIndexWire
+	if err := json.Unmarshal(support.Bytes(), &index); err != nil {
+		t.Fatal(err)
+	}
+	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) != 0 {
+		t.Fatalf("no-change support index inventory drifted: %#v", index)
 	}
 }
 
@@ -248,12 +283,16 @@ func TestRecoveredFallbackManifestRetainsFailedPrimary(t *testing.T) {
 	}
 	primary := &candidate.roles[0].attempts[0]
 	primary.state = domain.AttemptFailed
+	primary.parseState = domain.ParseNotStarted
+	primary.validationState = domain.ValidationNotStarted
 	primary.invocations[0].state = domain.InvocationFailed
 	fallback := *primary
 	fallback.id = fallbackID
 	fallback.kind = review.AttemptKindFallback
 	fallback.provider = "zcode-logic"
 	fallback.state = domain.AttemptSucceeded
+	fallback.parseState = domain.ParseValid
+	fallback.validationState = domain.ValidationValid
 	fallback.invocations = []preparedInvocation{{
 		sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded,
 	}}
@@ -361,11 +400,185 @@ func TestPublicationBundleRejectsFinalManifestOutcomeMismatch(t *testing.T) {
 		t.Fatal("bundle accepted a manifest whose CI axis differs from the final review")
 	}
 }
+
+func TestPreparedCandidateRejectsReportsOnlyFlagMismatch(t *testing.T) {
+	t.Parallel()
+	candidate := publicationTestCandidate(t, false)
+	candidate.roles[0].reportsOnly = true
+	candidate.axes.structuredExtraction = domain.StructuredExtractionMixed
+	if candidate.Valid() {
+		t.Fatal("candidate accepted reportsOnly that disagrees with terminal attempt extraction")
+	}
+}
+
+func TestPublicationBundleRejectsStructuredExtractionStatusMismatch(t *testing.T) {
+	t.Parallel()
+	candidate := publicationTestCandidate(t, false)
+	bundle, err := candidate.Build(
+		context.Background(),
+		&publicationTestValidator{},
+		publicationTestReviewID(t),
+		publicationTestTime(),
+		1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final finalReviewWire
+	if err := json.Unmarshal(bundle.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	final.StructuredExtractionStatus = string(domain.StructuredExtractionReportsOnly)
+	final.ContentVerdict = string(domain.ContentReportsOnly)
+	finalBytes, err := marshalCanonical(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(
+		bundle.Final().Identity().ReviewID(),
+		bundle.Final().Identity().Path(),
+		sha256Identifier(finalBytes),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalArtifact, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var manifest runManifestWire
+	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.StructuredExtractionStatus = string(domain.StructuredExtractionReportsOnly)
+	manifest.ContentVerdict = string(domain.ContentReportsOnly)
+	manifest.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifest.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	manifest.RecoveryJournal.ExpectedStaged.SHA256 = finalIdentity.SHA256()
+	manifestBytes, err := marshalCanonical(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestArtifact, err := ports.NewImmutablePublicationArtifact(
+		bundle.Manifest().Path(), sha256Identifier(manifestBytes), manifestBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epochBytes, err := marshalCanonical(publicationEpochWire{
+		SchemaVersion: publicationEpochV1,
+		StoreEpoch:    bundle.Epoch().Value(),
+		Manifest:      artifactIdentityWire{Path: manifestArtifact.Path().String(), SHA256: manifestArtifact.SHA256()},
+		LineageEdge: artifactIdentityWire{
+			Path: bundle.LineageEdge().Path().String(), SHA256: bundle.LineageEdge().SHA256(),
+		},
+		FinalReview: artifactIdentityWire{
+			Path: finalIdentity.Path().String(), SHA256: finalIdentity.SHA256(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	epochRecord, err := ports.NewImmutablePublicationArtifact(
+		bundle.Epoch().Record().Path(), sha256Identifier(epochBytes), epochBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch, err := ports.NewPublicationEpoch(bundle.Epoch().Value(), epochRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validatePublicationCompositeSemantics(
+		finalArtifact, manifestArtifact, bundle.LineageEdge(), epoch,
+	); err == nil {
+		t.Fatal("composite reopen accepted top-level SES that disagrees with terminal attempt extraction")
+	}
+}
+
+func TestPrepareReportsOnlyRepairExhaustedCandidatePublishes(t *testing.T) {
+	t.Parallel()
+	candidate := publicationTestCandidate(t, false)
+	primaryReport := []byte("# logic\n\nOriginal free-form assistant report.\n")
+	for index := range candidate.roles {
+		role := &candidate.roles[index]
+		role.reportsOnly = true
+		role.validFindingIDs = nil
+		role.reportMarkdown = append([]byte(nil), primaryReport...)
+		role.attempts[0].parseState = domain.ParseInvalidJSON
+		role.attempts[0].validationState = domain.ValidationRepairExhausted
+		role.attempts[0].invocations = []preparedInvocation{
+			{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded},
+			{sequence: 2, purpose: domain.InvocationRepair, state: domain.InvocationSucceeded},
+		}
+	}
+	candidate.findings = nil
+	candidate.axes = preparedAxes{
+		content: domain.ContentReportsOnly, coverage: domain.CoverageComplete, ci: domain.CIPass,
+		structuredExtraction: domain.StructuredExtractionReportsOnly,
+	}
+	candidate.reasons = []string{"policy_evaluated"}
+	candidate.exitCode = int(domain.ExitCommittedPass)
+	if !candidate.Valid() {
+		t.Fatal("reports-only repair-exhausted candidate is invalid")
+	}
+	bundle, err := candidate.Build(
+		context.Background(),
+		&publicationTestValidator{},
+		publicationTestReviewID(t),
+		publicationTestTime(),
+		1,
+	)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !bundle.Valid() {
+		t.Fatal("reports-only repair-exhausted bundle failed semantic reopen")
+	}
+	var final finalReviewWire
+	var manifest runManifestWire
+	if err := json.Unmarshal(bundle.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if final.Validation.Status != "valid" {
+		t.Fatalf("final validation status = %q, want valid", final.Validation.Status)
+	}
+	if final.StructuredExtractionStatus != string(domain.StructuredExtractionReportsOnly) ||
+		manifest.StructuredExtractionStatus != string(domain.StructuredExtractionReportsOnly) ||
+		final.ContentVerdict != string(domain.ContentReportsOnly) {
+		t.Fatalf("reports-only axes drifted: final=%#v manifest=%#v", final, manifest)
+	}
+	for _, attempt := range manifest.Attempts {
+		if attempt.ValidationState != string(domain.ValidationRepairExhausted) ||
+			attempt.ParseState != string(domain.ParseInvalidJSON) {
+			t.Fatalf("attempt extraction facts drifted: %#v", attempt)
+		}
+	}
+	for _, report := range manifest.RoleReports {
+		if report.ByteLength != len(primaryReport) {
+			t.Fatalf("role report did not preserve original assistant bytes: %#v", report)
+		}
+	}
+	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/role-reports/"
+	for _, excerpt := range bundle.Excerpts() {
+		path := excerpt.Path().String()
+		if len(path) > len(prefix) && path[:len(prefix)] == prefix {
+			if string(excerpt.Bytes()) != string(primaryReport) {
+				t.Fatalf("published role report bytes = %q, want original assistant content", excerpt.Bytes())
+			}
+		}
+	}
+}
 func TestPublicationBundleDerivesValidationStatusFromRepairedAttempts(t *testing.T) {
 	t.Parallel()
 
 	repaired := publicationTestCandidate(t, false)
 	repaired.roles[0].repaired = true
+	repaired.roles[0].attempts[0].validationState = domain.ValidationRepairedValid
 	repairedBundle, err := repaired.Build(
 		context.Background(),
 		&publicationTestValidator{},
@@ -844,17 +1057,21 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 			role: domain.RoleLogic, required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed",
 			attempts: []preparedAttempt{{
 				id: logicAttempt, kind: review.AttemptKindPrimary, provider: "kimi-logic", state: domain.AttemptSucceeded,
+				parseState: domain.ParseValid, validationState: domain.ValidationValid,
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
 			validFindingIDs: []string{}, limitations: []string{},
+			reportMarkdown: []byte("# logic review\n\nStructured provider review accepted.\n"),
 		},
 		{
 			role: domain.RoleSecurity, required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed",
 			attempts: []preparedAttempt{{
 				id: securityAttempt, kind: review.AttemptKindPrimary, provider: "agy-security", state: domain.AttemptSucceeded,
+				parseState: domain.ParseValid, validationState: domain.ValidationValid,
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
 			validFindingIDs: []string{}, limitations: []string{},
+			reportMarkdown: []byte("# security review\n\nStructured provider review accepted.\n"),
 		},
 	}
 	candidate := PreparedCandidate{
@@ -876,7 +1093,10 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 				{Family: "kimi", Instance: "kimi-logic", Version: "0.23.6", Executable: "/private/bin/kimi", ExecutableSHA256: sha256Identifier([]byte("kimi")), Launcher: "/private/bin/kimi", LauncherSHA256: sha256Identifier([]byte("kimi")), ProfileGeneration: "generation-1", AdapterProfile: "kimi-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("kimi-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("kimi-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("kimi-terminal"))},
 			},
 		},
-		axes:     preparedAxes{content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass},
+		axes: preparedAxes{
+			content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass,
+			structuredExtraction: domain.StructuredExtractionStructured,
+		},
 		roles:    roles,
 		findings: []preparedFinding{},
 		failures: []preparedFailure{},
@@ -885,7 +1105,10 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 		exitCode: int(domain.ExitCommittedPass),
 	}
 	if withFinding {
-		candidate.axes = preparedAxes{content: domain.ContentRequestChanges, coverage: domain.CoverageComplete, ci: domain.CIFail}
+		candidate.axes = preparedAxes{
+			content: domain.ContentRequestChanges, coverage: domain.CoverageComplete, ci: domain.CIFail,
+			structuredExtraction: domain.StructuredExtractionStructured,
+		}
 		candidate.reasons = []string{"request_changes_threshold"}
 		candidate.exitCode = int(domain.ExitCommittedCIRejected)
 		candidate.roles[0].validFindingIDs = []string{"F001"}

@@ -3604,6 +3604,13 @@ func coordinatorSuccessOutcome(_ *testing.T, job InvocationJob) AttemptOutcome {
 	if err != nil {
 		return coordinatorInternalInvariantOutcome(job)
 	}
+	validation := domain.ValidationValid
+	if job.Purpose() == domain.InvocationRepair {
+		validation = domain.ValidationRepairedValid
+	}
+	if err := output.bindExtractionStates(domain.ParseValid, validation); err != nil {
+		return coordinatorInternalInvariantOutcome(job)
+	}
 	return coordinatorOutputOutcome(job, output)
 }
 

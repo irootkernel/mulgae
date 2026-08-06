@@ -440,7 +440,8 @@ func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 		ports.RunSupportArtifactArtistBrief,
 		ports.RunSupportArtifactArtistVisuals,
 		ports.RunSupportArtifactPromptStdin,
-		ports.RunSupportArtifactPromptManifest:
+		ports.RunSupportArtifactPromptManifest,
+		ports.RunSupportArtifactRoleReport:
 		return true
 	default:
 		return false

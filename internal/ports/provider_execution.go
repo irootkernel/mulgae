@@ -776,8 +776,13 @@ func providerExecutionStatusMatchesProcessObservation(
 			return false
 		}
 	case ProviderExecutionStatusUnavailable:
+		// A transient provider-side outcome (overloaded, capacity, 5xx) is
+		// reported by a process that ran and exited after a complete stdin
+		// write, the same shape as authentication, quota and rate limit.
 		return processObservation.Termination() == ProcessTerminationStartUnavailable ||
-			processObservation.Termination() == ProcessTerminationLockUnavailable
+			processObservation.Termination() == ProcessTerminationLockUnavailable ||
+			(processObservation.Termination() == ProcessTerminationExited &&
+				processObservation.StdinWriteReceipt().Complete())
 	case ProviderExecutionStatusSecurityViolation:
 		switch processObservation.Termination() {
 		case ProcessTerminationStartSecurity,

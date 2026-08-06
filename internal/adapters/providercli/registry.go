@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -1297,7 +1298,7 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 		return appendZcodeInvocation(argv, value), nil
 	case FamilyAgy:
 		controls := []string{"--new-project", "--sandbox"}
-		if definition.transport.ArgvIndex() == 13 {
+		if agyPermissionBypassEnabled(definition.baseArgv, definition.transport) {
 			controls = append(controls, "--dangerously-skip-permissions")
 		}
 		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--print", value)
@@ -1343,7 +1344,24 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 }
 
 func agyContent(stdout []byte) ([]byte, error) {
-	return ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
+	frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
+	if err != nil {
+		trimmed := bytes.TrimSpace(stdout)
+		if len(trimmed) == 0 || !utf8.Valid(stdout) {
+			return nil, err
+		}
+		// Malformed native JSON envelopes stay fail-closed. Pure Markdown/prose
+		// may reach application free-form acceptance.
+		if trimmed[0] == '{' || trimmed[0] == '[' {
+			return nil, err
+		}
+		// Trim only for nonempty/shape checks; return exact stdout bytes.
+		return append([]byte(nil), stdout...), nil
+	}
+	if text := agyResultText(frame); len(bytes.TrimSpace(text)) > 0 {
+		return append([]byte(nil), text...), nil
+	}
+	return frame, nil
 }
 
 func zcodeContent(stdout []byte) ([]byte, error) {
@@ -1357,24 +1375,23 @@ func zcodeContent(stdout []byte) ([]byte, error) {
 	}
 	rawResponse, present := envelope["response"]
 	if !present {
+		// Legacy headless payloads may be the review document itself only when
+		// trimmed stdout is exactly that JSON object. Embedded or fenced JSON
+		// inside free-form stdout must keep exact assistant bytes for primary
+		// reports; providerResult maps frame-missing to isolated=false identity.
+		if !bytes.Equal(bytes.TrimSpace(stdout), frame) {
+			return nil, errProviderOutputFrameMissing
+		}
 		return frame, nil
 	}
 	var response string
 	if err := json.Unmarshal(rawResponse, &response); err != nil || strings.TrimSpace(response) == "" {
 		return nil, errInvalidZcodeEnvelope
 	}
-	result, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, []byte(response))
-	if err != nil {
-		result, err = extractUniqueFencedPayload([]byte(response))
-		if err != nil {
-			candidate := bytes.TrimSpace([]byte(response))
-			if len(candidate) != 0 && candidate[0] == '{' {
-				return append([]byte(nil), candidate...), nil
-			}
-			return nil, errInvalidZcodeEnvelope
-		}
-	}
-	return result, nil
+	// Preserve the exact extracted assistant response bytes. TrimSpace is only
+	// used above to reject empty responses; structured candidates are derived
+	// later by the application layer. Never return the raw CLI envelope.
+	return append([]byte(nil), response...), nil
 }
 
 // extractUniqueFencedPayload unwraps one complete JSON fence without deciding
@@ -1475,14 +1492,35 @@ func classifyProviderFailure(
 	}
 }
 
+// nativeProviderOutcome maps a native provider diagnostic to a typed execution
+// outcome. Two constraints bound the token tables and must be preserved:
+//
+//   - No branch may ever match a bare "timeout" token. AGY argv carries
+//     --print-timeout, and an argv echo in stderr must not read as a native
+//     provider timeout. Timeout evidence is either the exact native phrase or a
+//     transport-level phrase such as "timed out".
+//   - Short/numeric tokens (429, 503) and prose tokens (overloaded, try again
+//     later) are matched on stderr only. This function is also reached from
+//     classifyProviderFailure for REVIEW invocations whose stdout is
+//     model-authored review text, so a review discussing capacity planning or
+//     HTTP 503 handling must never classify as a transient provider condition.
 func nativeProviderOutcome(
 	family string,
 	stdout, stderr []byte,
 ) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause, bool) {
 	output := bytes.ToLower(bytes.Join([][]byte{stdout, stderr}, []byte{'\n'}))
+	errorOutput := bytes.ToLower(stderr)
 	containsAny := func(values ...string) bool {
 		for _, value := range values {
 			if bytes.Contains(output, []byte(value)) {
+				return true
+			}
+		}
+		return false
+	}
+	errorContainsAny := func(values ...string) bool {
+		for _, value := range values {
+			if bytes.Contains(errorOutput, []byte(value)) {
 				return true
 			}
 		}
@@ -1504,12 +1542,18 @@ func nativeProviderOutcome(
 		return ports.ProviderExecutionStatusAuthentication, "login_required", domain.DiagnosticCauseLoginRequired, true
 	case family == FamilyAgy && agyPermissionDenied(stderr):
 		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, true
-	case providerNativeTimeout(output):
+	case providerNativeTimeout(output) ||
+		errorContainsAny("timed out", "deadline exceeded", "etimedout", "request timeout", "read timeout", "connection timed out"):
 		return ports.ProviderExecutionStatusTimedOut, "provider_timeout", domain.DiagnosticCauseTimedOut, true
-	case containsAny("quota_exceeded", "insufficient_quota"):
+	case containsAny("quota_exceeded", "insufficient_quota", "quota exceeded",
+		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached"):
 		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
-	case containsAny("rate_limit", "rate limit", "too many requests"):
+	case containsAny("rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit") ||
+		errorContainsAny("429", "http 429", "slow down", "try again later", "please try again", "retry after", "retry-after"):
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
+	case containsAny("service unavailable", "bad gateway", "gateway timeout", "internal server error") ||
+		errorContainsAny("503", "502", "504", "overloaded", "over capacity", "at capacity", "server is busy", "temporarily unavailable"):
+		return ports.ProviderExecutionStatusUnavailable, "provider_overloaded", domain.DiagnosticCauseProviderExecutionFailed, true
 	case containsAny("authentication_failed", "invalid api key", "invalid_api_key"):
 		return ports.ProviderExecutionStatusAuthentication, "provider_auth", domain.DiagnosticCauseAuthenticationFailed, true
 	default:
@@ -1655,7 +1699,9 @@ func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 	case FamilyZcode:
 		return baseArgvLength + 4, nil
 	case FamilyAgy:
-		return baseArgvLength + 12, nil
+		// Safe AGY argv omits --dangerously-skip-permissions; print lands at +11.
+		// Explicit headless bypass uses +12 and remains opt-in only.
+		return baseArgvLength + 11, nil
 	default:
 		return 0, fmt.Errorf("unsupported family")
 	}

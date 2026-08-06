@@ -17,19 +17,25 @@ Provider identity and capability are checked at runtime. An unknown version is
 not rejected solely because it is new, but a missing required capability or a
 known incompatible version fails closed.
 
-Each configured role has a primary provider and may have one explicit fallback.
+Each configured role has a primary provider and may have an explicit fallback.
 Mulgae serializes invocations that share a provider instance or credential
 namespace. Fallback is allowed only for classified provider availability,
 execution, or invalid-output failures; security, configuration, artifact,
 cancellation, and internal failures never trigger it.
 
-AGY reviews run headlessly with `dangerously-skip-permissions` by default so
-AGY can read and inspect the supplied snapshot without an interactive prompt.
-Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to the
-bounded, immutable review snapshot; that snapshot is the review's security
-boundary.
+ZCode and AGY reviews run against Mulgae's immutable captured snapshot with
+adapter-owned read-oriented tool boundaries. Providers may selectively
+read/search that snapshot; they do not receive live project-tree access, write,
+shell, or network authority from Mulgae. AGY keeps `--sandbox` and `--add-dir`
+limited to the bounded snapshot. The default AGY `permission_mode` is `safe` so
+headless write/shell requests remain denied. Set
+`providers.agy.permission_mode: "dangerously-skip-permissions"` only as an
+explicit opt-in; Mulgae reports a warning because that mode may approve write or
+shell tool requests outside the read-oriented boundary. Permission denials under
+`safe` are reported as `provider_permission_denied`, not as output decode failures.
 
-Set `providers.agy.permission_mode: "safe"` only as an explicit opt-in. Mulgae
-reports a warning in effective configuration because headless `read_file` and
-command requests may be denied in safe mode. Permission denials are reported as
-`provider_permission_denied`, not as output decode failures.
+Capability probes stay prompt-bound to the embedded fixture packet and must not
+induce workspace or tool reads. ZCode capability remains tool-denied; selective
+workspace reads apply only to review invocations. Kimi has no adapter-owned
+workspace read tools; its process working directory is still the immutable
+snapshot.

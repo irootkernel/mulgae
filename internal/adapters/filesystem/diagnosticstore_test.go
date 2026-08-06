@@ -117,12 +117,13 @@ func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
 		SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunFailed,
 		StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true,
 		SelectedRoles: []domain.Role{domain.RoleTesting}, LaneTotal: 1, LaneFailed: 1,
-		TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+		TerminalCause: domain.DiagnosticCausePublicationInstallationFailed,
+		TerminalPhase: domain.DiagnosticPhasePublicationInstallation,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	finalize, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, domain.DiagnosticCauseProviderSpawnFailed, terminal)
+	finalize, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, domain.DiagnosticCausePublicationInstallationFailed, terminal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,8 @@ func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.SessionID() != fixture.request.SessionID() || status.RunID() != fixture.request.RunID() || status.State() != domain.RunFailed || status.TerminalCause() != domain.DiagnosticCauseProviderSpawnFailed {
+	if status.SessionID() != fixture.request.SessionID() || status.RunID() != fixture.request.RunID() || status.State() != domain.RunFailed ||
+		status.TerminalCause() != domain.DiagnosticCausePublicationInstallationFailed || status.TerminalPhase() != domain.DiagnosticPhasePublicationInstallation {
 		t.Fatalf("diagnostic status = session %s run %s state %s", status.SessionID(), status.RunID(), status.State())
 	}
 	missing, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")

@@ -86,21 +86,21 @@ func TestAdmissionProbeErrorPreservesTypedFailures(t *testing.T) {
 	}
 }
 
-func TestCapabilityOutputRetryClassificationIsClosed(t *testing.T) {
+func TestCapabilityOutputIsNotRetried(t *testing.T) {
 	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	auth, err := domain.NewFailure("capability", domain.FailureAuthentication, "authentication unavailable", nil)
+	probe := &currentQualifierProbe{failures: []error{invalid, nil}}
+	qualifier, err := NewProviderCurrentQualifier(probe, &currentQualifierFixtures{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !retryableCapabilityOutputFailure(invalid) || !retryableCapabilityOutputFailure(fmt.Errorf("wrapped: %w", invalid)) ||
-		!retryableCapabilityOutputFailure(errors.Join(invalid, invalid)) {
-		t.Fatal("typed invalid-output capability failure was not retryable")
+	if _, err := qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic)); err == nil {
+		t.Fatal("invalid capability output succeeded")
 	}
-	if retryableCapabilityOutputFailure(nil) || retryableCapabilityOutputFailure(auth) || retryableCapabilityOutputFailure(errors.Join(invalid, auth)) {
-		t.Fatal("non-output capability failure became retryable")
+	if len(probe.requests) != 1 {
+		t.Fatalf("probe calls = %d, want 1 (no format retry)", len(probe.requests))
 	}
 }
 
@@ -215,6 +215,7 @@ type currentQualifierProbe struct {
 	dropKind       string
 	duplicateKind  string
 	mismatchExpiry bool
+	authority      bool
 }
 
 func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, request ports.ProviderCurrentProbeRequest) (ports.ProviderCurrentProbeResult, error) {
@@ -225,7 +226,11 @@ func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, re
 	receipts := make([]ports.ProviderCurrentProbeReceipt, 0, len(currentProbeReceiptKinds)+1)
 	for _, kind := range currentProbeReceiptKinds {
 		if kind != probe.dropKind {
-			receipts = append(receipts, ports.ProviderCurrentProbeReceipt{Kind: kind, ExpiresAt: request.Now.Add(time.Minute)})
+			receipt := ports.ProviderCurrentProbeReceipt{Kind: kind, ExpiresAt: request.Now.Add(time.Minute)}
+			if kind == "direct-execution-authority" && probe.authority {
+				receipt.DirectExecutionAuthority = fakeFamilyAuthority{id: "sha256:current-probe-authority", expires: receipt.ExpiresAt}
+			}
+			receipts = append(receipts, receipt)
 		}
 	}
 	if probe.duplicateKind != "" {
@@ -237,7 +242,7 @@ func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, re
 	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.23.6", Receipts: receipts}, nil
 }
 
-func TestProviderCurrentQualifierRetriesOnlyInvalidCapabilityOutputOnce(t *testing.T) {
+func TestProviderCurrentQualifierDoesNotRetryInvalidCapabilityOutput(t *testing.T) {
 	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -247,12 +252,11 @@ func TestProviderCurrentQualifierRetriesOnlyInvalidCapabilityOutputOnce(t *testi
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name      string
-		failures  []error
-		wantCalls int
+		name     string
+		failures []error
 	}{
-		{name: "invalid output once", failures: []error{invalid, invalid}, wantCalls: 2},
-		{name: "authentication", failures: []error{auth}, wantCalls: 1},
+		{name: "invalid output", failures: []error{invalid}},
+		{name: "authentication", failures: []error{auth}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			probe := &currentQualifierProbe{failures: test.failures}
@@ -264,8 +268,8 @@ func TestProviderCurrentQualifierRetriesOnlyInvalidCapabilityOutputOnce(t *testi
 			if _, err := qualifier.QualifyCurrent(context.Background(), request); err == nil {
 				t.Fatal("failing capability probe succeeded")
 			}
-			if len(probe.requests) != test.wantCalls {
-				t.Fatalf("probe calls = %d, want %d", len(probe.requests), test.wantCalls)
+			if len(probe.requests) != 1 {
+				t.Fatalf("probe calls = %d, want 1", len(probe.requests))
 			}
 		})
 	}
@@ -280,7 +284,7 @@ func (err currentQualifierDiagnosticError) Error() string                       
 func (err currentQualifierDiagnosticError) Unwrap() error                        { return err.err }
 func (err currentQualifierDiagnosticError) Cause() domain.RuntimeDiagnosticCause { return err.cause }
 
-func TestQualifyProviderCurrentWithRetryPreservesAttemptChronology(t *testing.T) {
+func TestQualifyProviderCurrentRecordsSingleRejectionWithoutRetryMitigation(t *testing.T) {
 	invalid, err := domain.NewFailure(
 		"capability", domain.FailureInvalidOutput, "invalid output",
 		currentQualifierDiagnosticError{cause: domain.DiagnosticCauseOutputFrameMissing, err: errors.New("missing")},
@@ -288,21 +292,56 @@ func TestQualifyProviderCurrentWithRetryPreservesAttemptChronology(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
-	result, observations, err := qualifyProviderCurrentWithRetry(context.Background(), "kimi-default", func() (ports.ProviderCurrentProbeResult, error) {
-		calls++
-		if calls == 1 {
-			return ports.ProviderCurrentProbeResult{}, invalid
-		}
-		return ports.ProviderCurrentProbeResult{Version: "1.2.3"}, nil
-	})
-	if err != nil || result.Version != "1.2.3" || calls != 2 {
-		t.Fatalf("retry result = %#v, observations=%#v, calls=%d, err=%v", result, observations, calls, err)
+	probe := &currentQualifierProbe{failures: []error{invalid}}
+	qualifier, err := NewProviderCurrentQualifier(probe, &currentQualifierFixtures{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(observations) != 2 || observations[0].Outcome() != qualificationOutcomeRejected ||
-		observations[0].Cause() != domain.DiagnosticCauseOutputFrameMissing || observations[0].Mitigation() != qualificationMitigationRetry ||
-		observations[1].Outcome() != qualificationOutcomeQualified || observations[1].Cause() != "" {
-		t.Fatalf("retry chronology = %#v", observations)
+	_, err = qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic))
+	if err == nil {
+		t.Fatal("expected capability rejection")
+	}
+	observations := qualificationObservationsFromError(err)
+	if len(observations) != 1 || observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Cause() != domain.DiagnosticCauseOutputFrameMissing || observations[0].Mitigation() != "" {
+		t.Fatalf("rejection chronology = %#v", observations)
+	}
+	if len(probe.requests) != 1 {
+		t.Fatalf("probe calls = %d, want 1", len(probe.requests))
+	}
+}
+
+// A capability fixture-evidence mismatch (owner decision D1, part 2) is an
+// operational rejection, not a security failure: qualification treats it like
+// any other invalid-output capability failure so remaining qualification
+// batches continue and readiness reports an operational cause.
+func TestCapabilityEvidenceMismatchIsOperationallyUnavailable(t *testing.T) {
+	mismatch, err := domain.NewFailure(
+		"capability", domain.FailureInvalidOutput, "controlled evidence mismatch",
+		currentQualifierDiagnosticError{cause: domain.DiagnosticCauseObservationMismatch, err: errors.New("controlled evidence mismatch")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &currentQualifierProbe{failures: []error{mismatch}}
+	qualifier, err := NewProviderCurrentQualifier(probe, &currentQualifierFixtures{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic))
+	if err == nil {
+		t.Fatal("capability evidence mismatch was accepted")
+	}
+	if !currentQualificationUnavailable(err) {
+		t.Fatalf("capability evidence mismatch was not treated as operationally unavailable: %v", err)
+	}
+	if len(probe.requests) != 1 {
+		t.Fatalf("probe calls = %d, want 1 (no retry)", len(probe.requests))
+	}
+	observations := qualificationObservationsFromError(err)
+	if len(observations) != 1 || observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Cause() != domain.DiagnosticCauseObservationMismatch {
+		t.Fatalf("rejection chronology = %#v", observations)
 	}
 }
 
@@ -333,8 +372,188 @@ func TestProviderCurrentQualifierAttributesLoginRequiredWithoutRetry(t *testing.
 	}
 }
 
+// currentQualifierProbeFailure builds one typed probe failure. An empty cause
+// leaves the chain without a typed diagnostic cause.
+func currentQualifierProbeFailure(t *testing.T, class domain.FailureClass, cause domain.RuntimeDiagnosticCause) error {
+	t.Helper()
+	var wrapped error
+	if cause != "" {
+		wrapped = currentQualifierDiagnosticError{cause: cause, err: errors.New("probe attempt failed")}
+	}
+	failure, err := domain.NewFailure("capability", class, "provider capability attempt failed", wrapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failure
+}
+
+func TestProviderCurrentQualifierRetriesTransientExecutionFailureOnce(t *testing.T) {
+	transient := currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderExecutionFailed)
+	probe := &currentQualifierProbe{failures: []error{transient, nil}, authority: true}
+	fixtures := &currentQualifierFixtures{}
+	qualifier, err := NewProviderCurrentQualifier(probe, fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic))
+	if err != nil {
+		t.Fatalf("bounded operational retry did not qualify: %v", err)
+	}
+	if len(probe.requests) != 2 {
+		t.Fatalf("probe calls = %d, want 2 (exactly one bounded retry)", len(probe.requests))
+	}
+	if probe.requests[0].Fixture.WorkspaceSnapshotIdentity() == probe.requests[1].Fixture.WorkspaceSnapshotIdentity() {
+		t.Fatal("bounded retry reused the consumed qualification fixture")
+	}
+	if !probe.requests[0].Now.Equal(probe.requests[1].Now) || probe.requests[0].TTL != probe.requests[1].TTL {
+		t.Fatalf("retry changed the expiry basis: now %v/%v ttl %v/%v",
+			probe.requests[0].Now, probe.requests[1].Now, probe.requests[0].TTL, probe.requests[1].TTL)
+	}
+	if !sameRoles(fixtures.acquired, []domain.Role{domain.RoleLogic, domain.RoleLogic}) {
+		t.Fatalf("acquired fixtures = %v, want one fresh base fixture per attempt", fixtures.acquired)
+	}
+	observations := result.Observations
+	if len(observations) != 2 ||
+		observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Mitigation() != qualificationMitigationRetry ||
+		observations[0].Cause() != domain.DiagnosticCauseProviderExecutionFailed ||
+		observations[1].Outcome() != qualificationOutcomeQualified || observations[1].Mitigation() != "" {
+		t.Fatalf("observation chronology = %#v", observations)
+	}
+	if len(fixtures.leased) != 2 {
+		t.Fatalf("leased fixtures = %d, want 2", len(fixtures.leased))
+	}
+	for index, lease := range fixtures.leased {
+		if lease.drains != 1 {
+			t.Fatalf("fixture %d drains = %d, want exactly one terminal drain", index, lease.drains)
+		}
+	}
+}
+
+func TestProviderCurrentQualifierBoundsOperationalRetryToOneAttempt(t *testing.T) {
+	transient := currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderExecutionFailed)
+	probe := &currentQualifierProbe{failures: []error{transient, transient}, authority: true}
+	fixtures := &currentQualifierFixtures{}
+	qualifier, err := NewProviderCurrentQualifier(probe, fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic))
+	if err == nil {
+		t.Fatal("exhausted bounded operational retry qualified")
+	}
+	if len(probe.requests) != 2 {
+		t.Fatalf("probe calls = %d, want 2 (retry is bounded to one attempt)", len(probe.requests))
+	}
+	observations := qualificationObservationsFromError(err)
+	if len(observations) != 2 ||
+		observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Mitigation() != qualificationMitigationRetry ||
+		observations[1].Outcome() != qualificationOutcomeRejected || observations[1].Mitigation() != "" {
+		t.Fatalf("rejection chronology = %#v", observations)
+	}
+	if len(fixtures.leased) != 2 {
+		t.Fatalf("leased fixtures = %d, want 2", len(fixtures.leased))
+	}
+	for index, lease := range fixtures.leased {
+		if lease.drains != 1 {
+			t.Fatalf("fixture %d drains = %d, want exactly one terminal drain", index, lease.drains)
+		}
+	}
+}
+
+func TestProviderCurrentQualifierDoesNotRetryEvidenceOrSecurityFailures(t *testing.T) {
+	loginRequired, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		failure error
+	}{
+		{name: "evidence mismatch", failure: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseObservationMismatch)},
+		{name: "output frame missing", failure: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseOutputFrameMissing)},
+		{name: "transport receipt mismatch", failure: currentQualifierProbeFailure(t, domain.FailureSecurityPolicy, domain.DiagnosticCauseTransportReceiptMismatch)},
+		{name: "security policy", failure: currentQualifierProbeFailure(t, domain.FailureSecurityPolicy, "")},
+		{name: "login required", failure: loginRequired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probe := &currentQualifierProbe{failures: []error{test.failure, test.failure}, authority: true}
+			fixtures := &currentQualifierFixtures{}
+			qualifier, err := NewProviderCurrentQualifier(probe, fixtures)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := qualifier.QualifyCurrent(context.Background(), testCurrentQualificationRequest(t, []domain.Role{domain.RoleLogic}, domain.RoleLogic)); err == nil {
+				t.Fatal("evidence or security probe failure qualified")
+			}
+			if len(probe.requests) != 1 {
+				t.Fatalf("probe calls = %d, want 1 (never retried)", len(probe.requests))
+			}
+			if !sameRoles(fixtures.acquired, []domain.Role{domain.RoleLogic}) {
+				t.Fatalf("acquired fixtures = %v, want one base fixture", fixtures.acquired)
+			}
+		})
+	}
+}
+
+func TestRetryableOperationalProbeFailurePredicate(t *testing.T) {
+	loginRequired, err := domain.NewFailure("capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelledTimeout, err := domain.NewFailure("capability", domain.FailureTimeout, "provider timed out", context.Canceled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		err   error
+		retry bool
+	}{
+		{name: "nil"},
+		{name: "context cancelled", err: context.Canceled},
+		{name: "context deadline exceeded", err: context.DeadlineExceeded},
+		{name: "untyped error", err: errors.New("provider failed")},
+		{name: "typed cause without failure", err: currentQualifierDiagnosticError{cause: domain.DiagnosticCauseProviderExecutionFailed, err: errors.New("spawn")}},
+		{name: "timeout", err: currentQualifierProbeFailure(t, domain.FailureTimeout, ""), retry: true},
+		{name: "quota", err: currentQualifierProbeFailure(t, domain.FailureQuota, ""), retry: true},
+		{name: "rate limit", err: currentQualifierProbeFailure(t, domain.FailureRateLimit, ""), retry: true},
+		{name: "provider unavailable", err: currentQualifierProbeFailure(t, domain.FailureProviderUnavailable, ""), retry: true},
+		{name: "timeout wrapping cancellation", err: cancelledTimeout},
+		{name: "invalid output execution failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderExecutionFailed), retry: true},
+		{name: "invalid output spawn failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderSpawnFailed), retry: true},
+		{name: "invalid output process wait failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderProcessWaitFailed), retry: true},
+		{name: "invalid output process group cleanup failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProcessGroupCleanupFailed), retry: true},
+		{name: "invalid output timed out", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseTimedOut), retry: true},
+		{name: "invalid output rate limited", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseRateLimited), retry: true},
+		{name: "invalid output quota exceeded", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseQuotaExceeded), retry: true},
+		{name: "invalid output without typed cause", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, "")},
+		{name: "invalid output observation mismatch", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseObservationMismatch)},
+		{name: "invalid output frame missing", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseOutputFrameMissing)},
+		{name: "invalid output frame mismatch", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseOutputFrameMismatch)},
+		{name: "invalid output decode failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseOutputDecodeFailed)},
+		{name: "invalid output envelope invalid", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseOutputEnvelopeInvalid)},
+		{name: "invalid output transport receipt mismatch", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseTransportReceiptMismatch)},
+		{name: "invalid output result binding failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseResultBindingFailed)},
+		{name: "authentication", err: currentQualifierProbeFailure(t, domain.FailureAuthentication, domain.DiagnosticCauseAuthenticationFailed)},
+		{name: "login required", err: loginRequired},
+		{name: "security policy violation", err: currentQualifierProbeFailure(t, domain.FailureSecurityPolicy, domain.DiagnosticCauseTransportReceiptMismatch)},
+		{name: "configuration violation", err: currentQualifierProbeFailure(t, domain.FailureConfiguration, "")},
+		{name: "cancelled", err: currentQualifierProbeFailure(t, domain.FailureCancelled, "")},
+		{name: "internal", err: currentQualifierProbeFailure(t, domain.FailureInternal, domain.DiagnosticCauseProviderExecutionFailed)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := retryableOperationalProbeFailure(test.err); got != test.retry {
+				t.Fatalf("retryableOperationalProbeFailure(%v) = %v, want %v", test.err, got, test.retry)
+			}
+		})
+	}
+}
+
 type currentQualifierFixtures struct {
 	acquired []domain.Role
+	leased   []*currentQualifierFixture
 	next     int
 }
 
@@ -354,6 +573,7 @@ func (fixtures *currentQualifierFixtures) Acquire(_ context.Context, role domain
 	if err != nil {
 		return nil, err
 	}
+	fixtures.leased = append(fixtures.leased, fixture)
 	return fixture, nil
 }
 
@@ -391,11 +611,14 @@ func TestProviderCurrentQualifierUsesRequestRolesWithoutAuthorityBleed(t *testin
 	if len(probe.requests) != 2 {
 		t.Fatalf("probe calls = %d", len(probe.requests))
 	}
-	if got := fixtureRoles(probe.requests[0]); !sameRoles(got, []domain.Role{domain.RoleLogic, domain.RoleTesting}) {
-		t.Fatalf("first fixture roles = %v", got)
+	if got := fixtureRoles(probe.requests[0]); !sameRoles(got, []domain.Role{domain.RoleLogic}) {
+		t.Fatalf("first fixture roles = %v, want base role only", got)
 	}
 	if got := fixtureRoles(probe.requests[1]); !sameRoles(got, []domain.Role{domain.RoleSecurity}) {
 		t.Fatalf("second fixture roles = %v", got)
+	}
+	if !sameRoles(fixtures.acquired, []domain.Role{domain.RoleLogic, domain.RoleSecurity}) {
+		t.Fatalf("acquired fixtures = %v, want one base fixture per request", fixtures.acquired)
 	}
 }
 func TestProviderCurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirectEvidence(t *testing.T) {

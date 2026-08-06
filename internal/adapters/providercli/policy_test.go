@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,9 +229,11 @@ func TestCurrentProbeDirectExecutionAuthorityMatchesExactRuntimeAndRoles(t *test
 	if !receipt.Matches(definition, "1.2.3", "namespace", []domain.Role{domain.RoleLogic}) {
 		t.Fatal("direct execution authority did not match its runtime")
 	}
-	if receipt.Matches(definition, "1.2.3", "namespace", []domain.Role{domain.RoleLogic, domain.RoleLogic}) ||
-		receipt.Matches(definition, "1.2.3", "namespace", []domain.Role{domain.RoleSecurity}) {
-		t.Fatal("direct execution authority accepted a non-canonical role set")
+	if receipt.Matches(definition, "1.2.3", "namespace", []domain.Role{domain.RoleLogic, domain.RoleLogic}) {
+		t.Fatal("direct execution authority accepted duplicate roles")
+	}
+	if receipt.Matches(definition, "1.2.3", "namespace", []domain.Role{domain.RoleSecurity}) {
+		t.Fatal("direct execution authority accepted a role set it did not prove")
 	}
 
 	replayedDefinition := definition
@@ -262,6 +265,124 @@ func TestCurrentProbeDirectExecutionAuthorityMatchesExactRuntimeAndRoles(t *test
 		t.Fatal("tampered direct execution authority matched")
 	}
 }
+
+// currentProbeAGYDirectExecutionTestProof returns one complete AGY role proof
+// whose frame-derived fields describe a present terminal JSON frame.
+func currentProbeAGYDirectExecutionTestProof() currentProbeDirectExecutionRoleProof {
+	proof := currentProbeDirectExecutionTestProof()
+	proof.Family = FamilyAgy
+	proof.AGYExecutionPolicy = "sha256:execution"
+	proof.TransportChannel = string(ports.ProviderPacketChannelPromptFile)
+	proof.TransportPacketSHA256 = "sha256:packet"
+	proof.TransportPacketLength = 1
+	proof.TransportPreStartSHA256 = "sha256:pre"
+	proof.TransportPreStartLength = 1
+	proof.TransportPostEndSHA256 = "sha256:post"
+	proof.TransportPostEndLength = 1
+	proof.TransportReference = proof.NativeReference
+	proof.TransportSnapshotCWD = proof.SnapshotPath
+	proof.LifecycleFrameSHA256 = "sha256:frame"
+	proof.LifecycleFrameLength = 1
+	proof.LifecycleFraming = string(ports.ProcessOutputFramingTerminalJSONObject)
+	proof.LifecycleProcessGroupAbsent = true
+	proof.NamespaceEnvironmentSHA256 = "sha256:namespace-environment"
+	proof.NativeHomePath = "/private/home"
+	proof.NativeHomeDevice = 1
+	proof.NativeHomeInode = 1
+	proof.NativeHomeEffectiveUID = 1
+	return proof
+}
+
+// A terminal JSON frame is optional metadata, so an AGY proof that binds no
+// frame at all still mints direct-execution authority once every non-frame
+// control holds.
+func TestAGYDirectExecutionProofAcceptsFramelessLifecycle(t *testing.T) {
+	expires := time.Unix(1_000, 0).UTC()
+	framed := currentProbeAGYDirectExecutionTestProof()
+	frameless := framed
+	frameless.LifecycleFrameSHA256 = ""
+	frameless.LifecycleFrameLength = 0
+	frameless.LifecycleFraming = ""
+	receipt, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{frameless}, expires)
+	if err != nil {
+		t.Fatalf("frameless AGY proof rejected: %v", err)
+	}
+	if !receipt.Valid() || receipt.AuthorityID() == "" {
+		t.Fatalf("frameless AGY authority invalid: %#v", receipt)
+	}
+	controlID, ok := receipt.AGYControlAuthorityID()
+	if !ok || controlID == "" {
+		t.Fatal("frameless AGY authority omitted control authority")
+	}
+	framedReceipt, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{framed}, expires)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The frame is still bound evidence when it is present, so the two
+	// observations must never share one authority identity.
+	if receipt.AuthorityID() == framedReceipt.AuthorityID() {
+		t.Fatal("frameless and framed AGY proofs shared a direct-execution authority ID")
+	}
+	// Every non-frame AGY control stays mandatory.
+	for _, test := range []struct {
+		name   string
+		mutate func(*currentProbeDirectExecutionRoleProof)
+	}{
+		{name: "execution policy", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.AGYExecutionPolicy = "" }},
+		{name: "namespace environment", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NamespaceEnvironmentSHA256 = "" }},
+		{name: "native home path", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeHomePath = "" }},
+		{name: "native home device", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeHomeDevice = 0 }},
+		{name: "native home inode", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeHomeInode = 0 }},
+		{name: "transport channel", mutate: func(p *currentProbeDirectExecutionRoleProof) {
+			p.TransportChannel = string(ports.ProviderPacketChannelArgvLiteral)
+		}},
+		{name: "transport packet sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPacketSHA256 = "" }},
+		{name: "transport packet length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPacketLength = 0 }},
+		{name: "transport pre-start sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartSHA256 = "" }},
+		{name: "transport pre-start length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartLength = 0 }},
+		{name: "transport post-end sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndSHA256 = "" }},
+		{name: "transport post-end length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndLength = 0 }},
+		{name: "transport reference", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportReference = "@other.md" }},
+		{name: "transport snapshot cwd", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportSnapshotCWD = "/other/path" }},
+		{name: "process group absent", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.LifecycleProcessGroupAbsent = false }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := frameless
+			test.mutate(&mutated)
+			if _, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{mutated}, expires); err == nil {
+				t.Fatal("frameless AGY proof accepted a missing non-frame control")
+			}
+		})
+	}
+}
+
+// Frame evidence is all-or-nothing: a proof that sets some frame-derived fields
+// and zeroes others never described a real observation.
+func TestAGYDirectExecutionProofRejectsPartialFrameEvidence(t *testing.T) {
+	expires := time.Unix(1_000, 0).UTC()
+	for _, test := range []struct {
+		name    string
+		sha256  string
+		length  int64
+		framing string
+	}{
+		{name: "sha without length", sha256: "sha256:frame", framing: string(ports.ProcessOutputFramingTerminalJSONObject)},
+		{name: "length without sha", length: 1, framing: string(ports.ProcessOutputFramingTerminalJSONObject)},
+		{name: "sha and length without framing", sha256: "sha256:frame", length: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			proof := currentProbeAGYDirectExecutionTestProof()
+			proof.LifecycleFrameSHA256 = test.sha256
+			proof.LifecycleFrameLength = test.length
+			proof.LifecycleFraming = test.framing
+			_, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{proof}, expires)
+			if err == nil || !strings.Contains(err.Error(), "incomplete AGY proof") {
+				t.Fatalf("partial frame evidence accepted: err=%v", err)
+			}
+		})
+	}
+}
+
 func TestAGYControlAuthorityExcludesOutputAndRequiresAGYControls(t *testing.T) {
 	expires := time.Unix(1_000, 0).UTC()
 	proof := currentProbeDirectExecutionTestProof()

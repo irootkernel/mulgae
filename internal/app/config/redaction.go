@@ -55,8 +55,8 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 	warnings := []string{}
 	if resolved.raw.Providers.AGY != nil {
 		agyPermissionMode = resolved.raw.Providers.AGY.PermissionMode
-		if agyPermissionMode == SafeAGYPermissionMode {
-			warnings = append(warnings, "AGY safe permission mode is opt-in; headless tool requests may be denied")
+		if agyPermissionMode == HeadlessAGYPermissionMode {
+			warnings = append(warnings, "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary")
 		}
 	}
 	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, AGYPermissionMode: agyPermissionMode, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), RunTotalOutputCapBytes: resolved.RunTotalOutputCapBytes(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
