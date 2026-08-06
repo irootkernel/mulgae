@@ -486,6 +486,7 @@ type Registry struct {
 }
 
 var _ ports.ObservedReviewProvider = (*Registry)(nil)
+var _ ports.ProviderOutputStagingLocator = (*Registry)(nil)
 
 // RegistryConstructionError retains a registry whose namespace cleanup failed
 // during construction. The retained registry must be closed with a fresh,
@@ -742,7 +743,114 @@ func (r *Registry) QualificationNamespace(instance string) (QualificationNamespa
 	return retainedQualificationNamespace{lease: lease}, true
 }
 
-func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+// stagedOutputParentDirectoryName is the fixed scratch subdirectory that holds
+// every per-invocation staging directory of one provider instance.
+const stagedOutputParentDirectoryName = "output"
+
+// familyReviewOutputTransport declares how a review invocation of family is
+// expected to deliver its role report. Each grant comes from live capability
+// evidence, never from preference: ZCode reliably writes one regular file at an
+// absolute staging path once it runs outside plan mode with Write removed from
+// the review denylist, headless AGY auto-denies write_file in safe mode
+// whatever its mode, and Kimi is out of scope for provider-written output. Any
+// family without positive evidence keeps the stdout transport.
+func familyReviewOutputTransport(family string) ports.ProviderOutputTransport {
+	if family == FamilyZcode {
+		return ports.ProviderOutputTransportStagedFile
+	}
+	return ports.ProviderOutputTransportStdout
+}
+
+// ProviderOutputStagingDestination resolves the staged-output destination and
+// declared transport of one review invocation. It is pure computation: nothing
+// is created, and no filesystem state is inspected.
+//
+// ok reports whether the returned pair is an authoritative decision for this
+// invocation. It is false for an unregistered instance, a terminally drained
+// registry, a namespace that drifted or cannot name a scratch area, and any
+// purpose this adapter will not stage; every refusal returns the stdout
+// transport, so a caller that ignores ok still stages nothing.
+//
+// The destination lives inside the instance's own disposable namespace scratch
+// area (MULGAE_PROVIDER_SCRATCH). The registry acquires that namespace lease at
+// construction and retains it until Close, so the path is computable before any
+// spawn and is removed with the namespace it belongs to.
+func (r *Registry) ProviderOutputStagingDestination(
+	providerInstance string, attemptID domain.AttemptID, purpose ports.ProviderInvocationPurpose,
+) (ports.StagedOutputDestination, ports.ProviderOutputTransport, bool) {
+	if r == nil {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	r.stateMu.Lock()
+	closed := r.closed
+	definition, registered := r.definitions[providerInstance]
+	namespace := r.namespaces[providerInstance]
+	generation := r.namespaceGenerations[providerInstance]
+	r.stateMu.Unlock()
+	if closed || !registered || nilProviderNamespaceLease(namespace) || namespace.Generation() != generation {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	ordinal, staged := stagedOutputPurposeOrdinal(purpose)
+	if !staged {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	transport := familyReviewOutputTransport(definition.family)
+	if transport != ports.ProviderOutputTransportStagedFile {
+		return ports.StagedOutputDestination{}, transport, true
+	}
+	directory, located := stagedOutputDirectory(namespace.Environment(), attemptID, ordinal)
+	if !located {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	destination, err := ports.NewStagedOutputDestination(directory, stagedOutputFilename)
+	if err != nil {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	return destination, transport, true
+}
+
+// stagedOutputPurposeOrdinal maps the closed review purposes this adapter may
+// stage to their stable per-attempt ordinal, which keeps the initial and repair
+// invocations of one attempt in distinct staging directories. Every other
+// purpose is refused, an exact replay of an earlier invocation in particular:
+// a replay must reproduce the transport its original recorded rather than
+// acquire a fresh write grant here.
+func stagedOutputPurposeOrdinal(purpose ports.ProviderInvocationPurpose) (int, bool) {
+	switch purpose {
+	case ports.ProviderInvocationInitial:
+		return 0, true
+	case ports.ProviderInvocationRepair:
+		return 1, true
+	default:
+		return 0, false
+	}
+}
+
+// stagedOutputDirectory computes the per-invocation staging directory beneath
+// the namespace scratch area. The split it produces is exactly the one
+// createStagedOutputDirectory consumes: parent <scratch>/output, per-invocation
+// directory <attempt>-<ordinal>.
+func stagedOutputDirectory(
+	environment []ports.EnvironmentVariable, attemptID domain.AttemptID, ordinal int,
+) (string, bool) {
+	scratch := ""
+	for _, variable := range environment {
+		if variable.Name() == "MULGAE_PROVIDER_SCRATCH" {
+			scratch = variable.Value()
+			break
+		}
+	}
+	if !validCanonicalAbsolute(scratch) || scratch == string(filepath.Separator) {
+		return "", false
+	}
+	name := fmt.Sprintf("%s-%d", attemptID.String(), ordinal)
+	if !validStagedOutputDirectoryName(name) {
+		return "", false
+	}
+	return filepath.Join(scratch, stagedOutputParentDirectoryName, name), true
+}
+
+func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocation) (observation ports.ProviderExecutionObservation, err error) {
 	if r == nil || nilRunner(r.runner) {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: nil process runner"))
 	}
@@ -787,6 +895,18 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	}
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace lease validation: %w", err))
+	}
+	// The staging lease is acquired before the process starts and released on
+	// every exit path below - success, provider failure, guard failure, timeout
+	// and cancellation alike - exactly as the workspace guard is.
+	staging, stagingErr := r.acquireStagedOutputLease(invocation)
+	if stagingErr != nil {
+		return ports.ProviderExecutionObservation{}, stagingErr
+	}
+	if staging != nil {
+		defer func() {
+			observation, err = releaseStagedOutputLease(staging, definition, invocation, observation, err)
+		}()
 	}
 
 	var processObservation ports.ProcessObservation
@@ -843,6 +963,11 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		)
 	}
 	if processObservation.Succeeded() {
+		if staging != nil {
+			// The workspace guard has already revalidated at this point, so the
+			// staged bytes are read back from a snapshot that never drifted.
+			return stagedFileObservation(definition, invocation, processObservation, staging)
+		}
 		resultBytes, isolated, parseErr := providerResult(definition.family, processObservation.Stdout())
 		if parseErr != nil {
 			cause := domain.DiagnosticCauseOutputDecodeFailed
@@ -874,6 +999,119 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		status, invocation, processObservation, diagnostic, cause, "",
 		definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
+}
+
+// acquireStagedOutputLease creates the single per-invocation staging directory
+// an invocation that declares the staged_file transport is allowed to use. The
+// requested destination must be exactly the destination this registry computes
+// for that invocation: a directory Mulgae did not choose is a staging
+// violation, never a location this adapter creates on request. An invocation
+// without a staged destination keeps the stdout transport and no lease.
+func (r *Registry) acquireStagedOutputLease(invocation ports.ProviderInvocation) (*stagedOutputLease, error) {
+	destination, declared := invocation.StagedOutputDestination()
+	if !declared {
+		return nil, nil
+	}
+	expected, transport, resolved := r.ProviderOutputStagingDestination(
+		invocation.ProviderInstance(), invocation.AttemptID(), invocation.Purpose(),
+	)
+	if !resolved || transport != ports.ProviderOutputTransportStagedFile || expected != destination {
+		return nil, providerRuntimeFailure(
+			domain.DiagnosticCauseProviderOutputStagingViolation,
+			fmt.Errorf("provider registry: staged output destination was not chosen by this registry"),
+		)
+	}
+	lease, err := createStagedOutputDirectory(
+		filepath.Dir(destination.Directory()), filepath.Base(destination.Directory()),
+	)
+	if err != nil {
+		return nil, providerRuntimeFailure(
+			stagedOutputCause(err), fmt.Errorf("provider registry: create staged output: %w", err),
+		)
+	}
+	leased, leasedErr := lease.Destination()
+	if leasedErr == nil && leased == destination {
+		return lease, nil
+	}
+	failure := fmt.Errorf("provider registry: staged output lease does not name the registry destination")
+	if leasedErr != nil {
+		failure = errors.Join(failure, leasedErr)
+	}
+	if cleanupErr := lease.Cleanup(); cleanupErr != nil {
+		failure = errors.Join(failure, cleanupErr)
+	}
+	return nil, providerRuntimeFailure(domain.DiagnosticCauseProviderOutputStagingViolation, failure)
+}
+
+// releaseStagedOutputLease removes the staging directory on every exit path. A
+// cleanup that cannot prove the directory is gone overrides a provider success
+// with a typed artifact failure, exactly as post-execution workspace drift
+// overrides one: staging Mulgae cannot prove it removed is not a reviewable
+// result. An outcome that already failed keeps its own classification, so a
+// provider process failure still wins over the staging it left behind.
+func releaseStagedOutputLease(
+	lease *stagedOutputLease, definition definition, invocation ports.ProviderInvocation,
+	observation ports.ProviderExecutionObservation, err error,
+) (ports.ProviderExecutionObservation, error) {
+	cleanupErr := lease.Cleanup()
+	if cleanupErr == nil || err != nil || !observation.Succeeded() {
+		return observation, err
+	}
+	cause := stagedOutputCause(cleanupErr)
+	status, diagnostic := providerFailureProjection(cause)
+	processObservation, ok := observation.AvailableProcessObservation()
+	if !ok {
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(cause, cleanupErr)
+	}
+	failed, failedErr := ports.NewFailedProviderExecutionObservationWithCause(
+		status, invocation, processObservation, diagnostic, cause, "",
+		definition.maxStdoutBytes, definition.maxStderrBytes,
+	)
+	if failedErr != nil {
+		return ports.ProviderExecutionObservation{}, failedErr
+	}
+	return failed, nil
+}
+
+// stagedFileObservation reads back the single file the provider was allowed to
+// stage and binds those exact bytes as the provider result. Process stdout and
+// stderr stay bounded diagnostic evidence only: a staged invocation never parses
+// stdout, so empty or non-envelope stdout cannot fail it.
+func stagedFileObservation(
+	definition definition, invocation ports.ProviderInvocation,
+	processObservation ports.ProcessObservation, lease *stagedOutputLease,
+) (ports.ProviderExecutionObservation, error) {
+	staged, receipt, validateErr := lease.Validate()
+	if validateErr != nil {
+		cause := stagedOutputCause(validateErr)
+		status, diagnostic := providerFailureProjection(cause)
+		return ports.NewFailedProviderExecutionObservationWithCause(
+			status, invocation, processObservation, diagnostic, cause, "",
+			definition.maxStdoutBytes, definition.maxStderrBytes,
+		)
+	}
+	result, resultErr := ports.NewProviderResultForInput(staged, invocation.InputIdentity())
+	if resultErr != nil {
+		return ports.NewFailedProviderExecutionObservationWithCause(
+			ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
+			"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
+			definition.maxStdoutBytes, definition.maxStderrBytes,
+		)
+	}
+	return ports.NewStagedFileSuccessfulProviderExecutionObservation(
+		invocation, result, processObservation,
+		definition.maxStdoutBytes, definition.maxStderrBytes, receipt,
+	)
+}
+
+// stagedOutputCause returns the typed staging cause carried by a staged output
+// failure. Anything untyped fails closed as a staging violation.
+func stagedOutputCause(err error) domain.RuntimeDiagnosticCause {
+	var failure *providerOutputFailure
+	if errors.As(err, &failure) && failure.Cause().Valid() {
+		return failure.Cause()
+	}
+	return domain.DiagnosticCauseProviderOutputStagingViolation
 }
 
 func providerRuntimeFailure(cause domain.RuntimeDiagnosticCause, err error) error {
@@ -1224,12 +1462,22 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		domain.DiagnosticCauseLifecycleReceiptInvalid,
 		domain.DiagnosticCauseOutputFrameMismatch,
 		domain.DiagnosticCauseSignalReceiptMismatch,
-		domain.DiagnosticCauseWorkspaceRevalidationFailed:
+		domain.DiagnosticCauseWorkspaceRevalidationFailed,
+		// A provider that wrote outside the single file it was granted, or
+		// staging whose identity moved underneath the retained descriptor,
+		// breached a boundary rather than produced poor output.
+		domain.DiagnosticCauseProviderOutputStagingViolation:
 		return ports.ProviderExecutionStatusSecurityViolation, "process_security"
 	case domain.DiagnosticCauseOutputFrameMissing, domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed,
-		domain.DiagnosticCauseOutputMissing:
+		domain.DiagnosticCauseOutputMissing,
+		// A missing or unusable staged file is an ordinary operational output
+		// outcome, so repair and fallback stay available to the application.
+		domain.DiagnosticCauseProviderOutputFileMissing,
+		domain.DiagnosticCauseProviderOutputFileInvalid:
 		return ports.ProviderExecutionStatusArtifactFailure, providerOutputDiagnostic(cause)
+	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
+		return ports.ProviderExecutionStatusArtifactFailure, "provider_output_staging_cleanup_failed"
 	default:
 		return ports.ProviderExecutionStatusInternalFailure, "process_internal"
 	}
@@ -1568,6 +1816,9 @@ func agyPermissionDenied(stderr []byte) bool {
 		[]byte("tool permission was denied"),
 		[]byte("tool permission denied"),
 		[]byte("request denied by permission policy"),
+		// Headless AGY refuses a write tool with its own auto-deny message
+		// ("... was auto-denied ..."), which matches none of the phrases above.
+		[]byte("auto-denied"),
 	} {
 		if bytes.Contains(output, signal) {
 			return true

@@ -3997,3 +3997,44 @@ func coordinatorTraceEventIndex(
 	t.Fatalf("trace has no %q event for role %q", kind, role)
 	return -1
 }
+
+func TestCoordinatorRoleSummaryCarriesProviderOutputTransport(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false, false)
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		if job.Role() != domain.RoleLogic {
+			return coordinatorSuccessOutcome(t, job)
+		}
+		return coordinatorStagedFileSuccessOutcome(job)
+	}}
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	for _, summary := range result.RoleSummaries() {
+		want := ports.ProviderOutputTransportStdout
+		if summary.Role() == domain.RoleLogic {
+			want = ports.ProviderOutputTransportStagedFile
+		}
+		if !summary.Valid() || summary.OutputTransport() != want {
+			t.Fatalf("%q role summary transport = %q valid=%t, want %q", summary.Role(), summary.OutputTransport(), summary.Valid(), want)
+		}
+	}
+}
+
+func coordinatorStagedFileSuccessOutcome(job InvocationJob) AttemptOutcome {
+	output, err := NewValidatedRoleOutput(
+		job.Role(),
+		job.Route().ProviderInstance(),
+		job.Target(),
+		nil,
+		"complete",
+		nil,
+	)
+	if err != nil {
+		return coordinatorInternalInvariantOutcome(job)
+	}
+	if err := output.bindExtractionStates(domain.ParseValid, domain.ValidationValid); err != nil {
+		return coordinatorInternalInvariantOutcome(job)
+	}
+	if err := output.bindOutputTransport(ports.ProviderOutputTransportStagedFile); err != nil {
+		return coordinatorInternalInvariantOutcome(job)
+	}
+	return coordinatorOutputOutcome(job, output)
+}

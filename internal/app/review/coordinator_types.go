@@ -226,6 +226,7 @@ type ValidatedRoleOutput struct {
 	reportsOnly      bool
 	parseState       domain.ParseState
 	validationState  domain.ValidationState
+	outputTransport  ports.ProviderOutputTransport
 }
 
 // NewValidatedRoleOutput records a zero-finding validated role output. Finding
@@ -257,6 +258,7 @@ func NewValidatedRoleOutput(
 		limitations:      append([]string(nil), limitations...),
 		parseState:       domain.ParseValid,
 		validationState:  domain.ValidationValid,
+		outputTransport:  ports.ProviderOutputTransportStdout,
 	}
 	if err := output.bindReportMarkdown([]byte("# "+string(role)+" review\n\nStructured provider review accepted.\n"), false); err != nil {
 		return ValidatedRoleOutput{}, err
@@ -299,6 +301,7 @@ func NewEvidenceValidatedRoleOutput(
 		limitations:      append([]string(nil), limitations...),
 		parseState:       domain.ParseValid,
 		validationState:  domain.ValidationValid,
+		outputTransport:  ports.ProviderOutputTransportStdout,
 	}
 	if err := output.bindReportMarkdown([]byte("# "+string(role)+" review\n\nStructured provider review accepted.\n"), false); err != nil {
 		return ValidatedRoleOutput{}, err
@@ -343,6 +346,27 @@ func (output ValidatedRoleOutput) Limitations() []string {
 	return append([]string(nil), output.limitations...)
 }
 
+// OutputTransport returns the transport that carried the accepted provider
+// content. An output that records no explicit transport was carried by process
+// stdout, which keeps every legacy accept path unchanged.
+func (output ValidatedRoleOutput) OutputTransport() ports.ProviderOutputTransport {
+	if output.outputTransport == "" {
+		return ports.ProviderOutputTransportStdout
+	}
+	return output.outputTransport
+}
+
+func (output *ValidatedRoleOutput) bindOutputTransport(transport ports.ProviderOutputTransport) error {
+	if transport == "" {
+		transport = ports.ProviderOutputTransportStdout
+	}
+	if !transport.Valid() {
+		return fmt.Errorf("invalid provider output transport %q", transport)
+	}
+	output.outputTransport = transport
+	return nil
+}
+
 func (output ValidatedRoleOutput) validate() error {
 	if !output.role.Valid() {
 		return fmt.Errorf("review coordinator role output: invalid role %q", output.role)
@@ -382,6 +406,9 @@ func (output ValidatedRoleOutput) validate() error {
 	if !output.parseState.Valid() || !output.validationState.Valid() {
 		return fmt.Errorf("review coordinator role output: extraction states are invalid")
 	}
+	if !output.OutputTransport().Valid() {
+		return fmt.Errorf("review coordinator role output: invalid provider output transport %q", output.outputTransport)
+	}
 	if output.reportsOnly {
 		if len(output.findings) != 0 || len(output.evidence) != 0 {
 			return fmt.Errorf("review coordinator role output: reports-only output cannot retain structured findings")
@@ -420,6 +447,7 @@ func (output ValidatedRoleOutput) clone() ValidatedRoleOutput {
 		reportsOnly:      output.reportsOnly,
 		parseState:       output.parseState,
 		validationState:  output.validationState,
+		outputTransport:  output.outputTransport,
 	}
 }
 

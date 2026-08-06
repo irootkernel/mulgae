@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -25,7 +26,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 		want   []string
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
-		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools}},
+		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools}},
 		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
@@ -69,6 +70,64 @@ func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t 
 	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
 	if !equalStrings(got, want) {
 		t.Fatalf("headless AGY argv = %q, want %q", got, want)
+	}
+}
+
+// TestZCodeReviewArgvUsesYoloModeAndWriteEnabledDenylist pins the exact review
+// argv that grants ZCode the write authority the staged_file transport needs.
+func TestZCodeReviewArgvUsesYoloModeAndWriteEnabledDenylist(t *testing.T) {
+	transport, err := defaultRuntimeTransport(FamilyZcode, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := buildArgv(definition{
+		family: FamilyZcode, baseArgv: []string{"/private/bin/zcode"}, transport: transport, timeout: 30 * time.Minute,
+	}, "/private/work", []byte("review bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes",
+		"--json", "--disallowed-tools", "Bash,Edit,NotebookEdit,WebSearch,WebFetch",
+	}
+	if !equalStrings(argv, want) {
+		t.Fatalf("ZCode review argv = %q, want %q", argv, want)
+	}
+	// plan to yolo and the denylist swap are both single-token replacements, so
+	// the packet must still land on the pinned zcode transport index.
+	index, err := runtimeTransportArgvIndex(FamilyZcode, 1)
+	if err != nil || index != transport.ArgvIndex() || argv[index] != "review bytes" {
+		t.Fatalf("zcode transport index = %d (err %v), argv = %q", index, err, argv)
+	}
+}
+
+// TestAGYReviewArgvKeepsPlanModeAndSandbox guards the AGY review argv against
+// the ZCode grant: headless AGY auto-denies write tools, so it keeps plan mode,
+// the sandbox and its single --add-dir.
+func TestAGYReviewArgvKeepsPlanModeAndSandbox(t *testing.T) {
+	transport, err := defaultRuntimeTransport(FamilyAgy, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := buildArgv(definition{
+		family: FamilyAgy, baseArgv: []string{"/private/bin/agy"}, transport: transport, timeout: 30 * time.Minute,
+	}, "/private/work", []byte("review bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work",
+		"--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes",
+	}
+	if !equalStrings(argv, want) {
+		t.Fatalf("AGY review argv = %q, want %q", argv, want)
+	}
+	if occurrences := packetOccurrences(argv, "--add-dir"); occurrences != 1 {
+		t.Fatalf("AGY review argv carries %d --add-dir arguments, want 1", occurrences)
+	}
+	index, err := runtimeTransportArgvIndex(FamilyAgy, 1)
+	if err != nil || index != transport.ArgvIndex() || argv[index] != "review bytes" {
+		t.Fatalf("agy transport index = %d (err %v), argv = %q", index, err, argv)
 	}
 }
 
@@ -273,8 +332,18 @@ func TestRegistryObserveClassifiesSuccessfulAgyPermissionDenialBeforeMissingOutp
 }
 
 func TestAgyPermissionDeniedUsesOnlyBoundedStderrSignals(t *testing.T) {
-	if !agyPermissionDenied([]byte("request denied by permission policy")) {
-		t.Fatal("known AGY permission denial was not recognized")
+	for _, denial := range [][]byte{
+		[]byte("permission_denied"),
+		[]byte("tool permission was denied"),
+		[]byte("tool permission denied"),
+		[]byte("request denied by permission policy"),
+		// Headless AGY refuses write_file with its own auto-deny wording, which
+		// none of the phrases above match.
+		[]byte("Tool call write_file was auto-denied by the permission policy"),
+	} {
+		if !agyPermissionDenied(denial) {
+			t.Fatalf("known AGY permission denial %q was not recognized", denial)
+		}
 	}
 	if agyPermissionDenied([]byte("review finding: application returned permission denied")) {
 		t.Fatal("generic review prose was classified as an AGY permission denial")
@@ -696,7 +765,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			stdout:       []byte(`{"sessionId":"session","response":"I inspected the snapshot.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe review is complete.\\n\\n```go\\nfunc checked() {}\\n```" + `","usage":{"inputTokens":1}}`),
 			wantResult:   []byte("I inspected the snapshot.\n\n```json\n{\"findings\":[]}\n```\n\nThe review is complete.\n\n```go\nfunc checked() {}\n```"),
 			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools},
+			wantArgv:     []string{"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools},
 		},
 		{
 			family:     FamilyAgy,
@@ -1841,5 +1910,297 @@ func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing
 	<-observed
 	if _, err := registry.Close(context.Background()); err != nil {
 		t.Fatalf("retry close: %v", err)
+	}
+}
+
+// stagedOutputRunnerFake stages provider-written files at exactly the moment a
+// real provider process would: the staging lease already exists, and the
+// process has not terminated yet.
+type stagedOutputRunnerFake struct {
+	observation ports.ProcessObservation
+	err         error
+	stage       func()
+	request     ports.ProcessRequest
+	calls       int
+}
+
+func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
+	runner.calls++
+	runner.request = request
+	if runner.stage != nil {
+		runner.stage()
+	}
+	return runner.observation, runner.err
+}
+
+// stagedZcodeRegistry builds the ZCode registry together with the staged
+// invocation the registry itself locates, so every staged test drives exactly
+// the destination production would use.
+func stagedZcodeRegistry(
+	t *testing.T, runner ports.ProcessRunner,
+) (*Registry, ports.ProviderInvocation, ports.StagedOutputDestination) {
+	t.Helper()
+	registry, err := NewRegistry(runner, testProfile(t, FamilyZcode, "zcode_default", "zcode_lane", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := testInvocation(t, "zcode_default")
+	destination, transport, ok := registry.ProviderOutputStagingDestination(
+		legacy.ProviderInstance(), legacy.AttemptID(), legacy.Purpose(),
+	)
+	if !ok || transport != ports.ProviderOutputTransportStagedFile {
+		t.Fatalf("staging destination = %q, transport = %q, ok = %t", destination.Directory(), transport, ok)
+	}
+	invocation, err := ports.NewProviderInvocationWithStagedOutput(legacy, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(destination.Directory())) })
+	return registry, invocation, destination
+}
+
+func writeStagedProviderReport(t *testing.T, destination ports.StagedOutputDestination, content []byte) {
+	t.Helper()
+	if err := os.WriteFile(destination.AbsolutePath(), content, 0600); err != nil {
+		t.Fatalf("write staged provider report: %v", err)
+	}
+	if err := os.Chmod(destination.AbsolutePath(), 0600); err != nil {
+		t.Fatalf("chmod staged provider report: %v", err)
+	}
+}
+
+func requireStagingRemoved(t *testing.T, destination ports.StagedOutputDestination) {
+	t.Helper()
+	if _, err := os.Lstat(destination.Directory()); !os.IsNotExist(err) {
+		t.Fatalf("staging directory survived the observation: %v", err)
+	}
+}
+
+func TestRegistryObserveAcceptsStagedFileOutputAsPrimaryResult(t *testing.T) {
+	content := []byte("# Role report\n\nOne bounded finding.\n")
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, nil, []byte("provider diagnostics"), ports.ProcessTerminationExited, 0),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	runner.stage = func() { writeStagedProviderReport(t, destination, content) }
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusSucceeded ||
+		observed.OutputTransport() != ports.ProviderOutputTransportStagedFile {
+		t.Fatalf("status = %q, transport = %q", observed.Status(), observed.OutputTransport())
+	}
+	result, ok := observed.Result()
+	if !ok || !bytes.Equal(result.Stdout(), content) {
+		t.Fatalf("result = %q, present = %t, want staged bytes %q", result.Stdout(), ok, content)
+	}
+	digest := sha256.Sum256(content)
+	receipt, staged := observed.StagedOutputReceipt()
+	if !staged || receipt.SHA256() != "sha256:"+hex.EncodeToString(digest[:]) ||
+		receipt.ByteLength() != int64(len(content)) {
+		t.Fatalf("receipt = %q/%d, present = %t", receipt.SHA256(), receipt.ByteLength(), staged)
+	}
+	// stdout and stderr remain bounded process evidence only.
+	if len(observed.Stdout()) != 0 || !bytes.Equal(observed.Stderr(), []byte("provider diagnostics")) {
+		t.Fatalf("process streams = stdout %q stderr %q", observed.Stdout(), observed.Stderr())
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveIgnoresStdoutWhenStagedFileTransportIsDeclared(t *testing.T) {
+	staged := []byte("# Role report\n\nThe staged bytes are the result.\n")
+	stdout := []byte(`{"sessionId":"session","response":"stdout content that must never win","usage":{"inputTokens":1}}`)
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, stdout, nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	runner.stage = func() { writeStagedProviderReport(t, destination, staged) }
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := observed.Result()
+	if !ok || !bytes.Equal(result.Stdout(), staged) {
+		t.Fatalf("result = %q, present = %t, want staged bytes %q", result.Stdout(), ok, staged)
+	}
+	if !bytes.Equal(observed.Stdout(), stdout) {
+		t.Fatalf("raw stdout evidence = %q, want %q", observed.Stdout(), stdout)
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveFailsClosedWhenStagedFileIsMissing(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The safe external code is the operational invalid-output code, so repair
+	// and fallback stay available; the exact staging fact is the typed cause.
+	if observed.Status() != ports.ProviderExecutionStatusArtifactFailure ||
+		observed.DiagnosticCode() != "invalid_provider_output" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderOutputFileMissing {
+		t.Fatalf("missing staged file = status %q diagnostic %q cause %q",
+			observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+	if _, ok := observed.Result(); ok {
+		t.Fatal("missing staged file produced a provider result")
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveClassifiesStagedSecurityViolation(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("# outside the staging boundary\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	runner.stage = func() {
+		if err := os.Symlink(outside, destination.AbsolutePath()); err != nil {
+			t.Fatalf("stage symlink: %v", err)
+		}
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+		observed.FailureClass() != domain.FailureSecurityPolicy ||
+		observed.DiagnosticCode() != "process_security" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderOutputStagingViolation {
+		t.Fatalf("staged violation = status %q class %q diagnostic %q cause %q",
+			observed.Status(), observed.FailureClass(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+	if _, ok := observed.Result(); ok {
+		t.Fatal("staged boundary breach produced a provider result")
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveStagingCleanupFailureOverridesProviderSuccess(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	renamed := filepath.Join(filepath.Dir(destination.Directory()), "renamed-staging")
+	runner.stage = func() {
+		writeStagedProviderReport(t, destination, []byte("# Role report\n\nOne bounded finding.\n"))
+		// Read-back is descriptor-bound and survives a rename, but cleanup must
+		// prove the parent entry it recorded still names the staging directory.
+		// Removal therefore cannot be proven, while the provider itself succeeded.
+		if err := os.Rename(destination.Directory(), renamed); err != nil {
+			t.Fatalf("rename staging directory: %v", err)
+		}
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusArtifactFailure ||
+		observed.FailureClass() != domain.FailureArtifact ||
+		observed.DiagnosticCode() != "provider_output_staging_cleanup_failed" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderOutputStagingCleanupFailed {
+		t.Fatalf("unproven cleanup = status %q class %q diagnostic %q cause %q",
+			observed.Status(), observed.FailureClass(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+	if _, ok := observed.Result(); ok {
+		t.Fatal("unproven staging cleanup returned a provider result")
+	}
+}
+
+func TestRegistryObserveRemovesStagingOnProviderFailure(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: testProcessObservation(t, nil, []byte("provider process failed"), ports.ProcessTerminationExited, 1),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	runner.stage = func() {
+		writeStagedProviderReport(t, destination, []byte("# Role report\n\nOne bounded finding.\n"))
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The process failure keeps its own classification: a staged file cannot
+	// promote a failed provider process to a reviewable result.
+	if observed.Status() != ports.ProviderExecutionStatusInternalFailure ||
+		observed.DiagnosticCode() != "process_internal" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed {
+		t.Fatalf("provider failure = status %q diagnostic %q cause %q",
+			observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+	if _, ok := observed.Result(); ok {
+		t.Fatal("failed provider process produced a provider result")
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryProviderOutputStagingDestinationFailsClosed(t *testing.T) {
+	registry, err := NewRegistry(&countingRunner{},
+		testProfile(t, FamilyZcode, "zcode_default", "zcode_lane", "", ""),
+		testProfile(t, FamilyAgy, "agy_default", "agy_lane", "", ""),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := testInvocation(t, "zcode_default")
+
+	if _, transport, ok := registry.ProviderOutputStagingDestination(
+		"unregistered_default", invocation.AttemptID(), invocation.Purpose(),
+	); ok || transport != ports.ProviderOutputTransportStdout {
+		t.Fatalf("unregistered instance = transport %q, ok %t", transport, ok)
+	}
+	// Only the closed review purposes are staged. An exact replay must reproduce
+	// the transport its original recorded, never acquire a fresh write grant.
+	if _, transport, ok := registry.ProviderOutputStagingDestination(
+		"zcode_default", invocation.AttemptID(), ports.ProviderInvocationPurpose("exact_replay"),
+	); ok || transport != ports.ProviderOutputTransportStdout {
+		t.Fatalf("exact replay purpose = transport %q, ok %t", transport, ok)
+	}
+	destination, transport, ok := registry.ProviderOutputStagingDestination(
+		"agy_default", invocation.AttemptID(), invocation.Purpose(),
+	)
+	if !ok || transport != ports.ProviderOutputTransportStdout || destination.Valid() {
+		t.Fatalf("AGY = destination %q, transport %q, ok %t", destination.Directory(), transport, ok)
+	}
+
+	scratch := namespaceEnvironmentMap(t, registry.namespaces["zcode_default"].Environment())["MULGAE_PROVIDER_SCRATCH"]
+	for _, test := range []struct {
+		purpose ports.ProviderInvocationPurpose
+		name    string
+	}{
+		{ports.ProviderInvocationInitial, invocation.AttemptID().String() + "-0"},
+		{ports.ProviderInvocationRepair, invocation.AttemptID().String() + "-1"},
+	} {
+		destination, transport, ok := registry.ProviderOutputStagingDestination(
+			"zcode_default", invocation.AttemptID(), test.purpose,
+		)
+		want := filepath.Join(scratch, "output", test.name)
+		if !ok || transport != ports.ProviderOutputTransportStagedFile ||
+			destination.Directory() != want || destination.Filename() != stagedOutputFilename {
+			t.Fatalf("%s destination = %q/%q, transport %q, ok %t; want %q",
+				test.purpose, destination.Directory(), destination.Filename(), transport, ok, want)
+		}
+	}
+
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, transport, ok := registry.ProviderOutputStagingDestination(
+		"zcode_default", invocation.AttemptID(), invocation.Purpose(),
+	); ok || transport != ports.ProviderOutputTransportStdout {
+		t.Fatalf("drained registry = transport %q, ok %t", transport, ok)
 	}
 }

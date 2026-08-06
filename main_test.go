@@ -1434,6 +1434,39 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 		}
 	}
 	assertCommandRoleReportInventory(t, project, envelope)
+	// Documentation prefers AGY and keeps the stdout transport; every other role
+	// runs on ZCode and publishes exactly the body that launch staged. The
+	// deliberately different stdout envelope each ZCode launch printed is never
+	// accepted.
+	wantReports := map[string]publishedRoleReport{
+		"documentation": {
+			transport:        "stdout",
+			providerInstance: "agy-documentation",
+			content:          fakeAGYDefaultReviewOutput,
+		},
+	}
+	for _, role := range []string{"logic", "security", "maintainability", "product", "testing"} {
+		wantReports[role] = publishedRoleReport{
+			transport:        "staged_file",
+			providerInstance: "zcode-" + role,
+			content:          fakeZCodeStagedReport(role),
+		}
+	}
+	assertPublishedRoleReports(t, project, envelope, wantReports)
+	stagedLaunches := fakeZCodeReviewObservations(t, filepath.Join(logDirectory, "zcode.jsonl"))
+	if len(stagedLaunches) != 5 {
+		t.Fatalf("six-role ZCode review launches = %d, want one per ZCode-primary role", len(stagedLaunches))
+	}
+	destinations := make(map[string]bool, len(stagedLaunches))
+	for _, launch := range stagedLaunches {
+		if launch.Destination == "" || destinations[launch.Destination] {
+			t.Fatalf("six-role staged destinations are not one per launch: %q", launch.Destination)
+		}
+		destinations[launch.Destination] = true
+		if _, err := os.Lstat(launch.Destination); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("staging %q survived the run: %v", launch.Destination, err)
+		}
+	}
 	diagnosticBytes, err := os.ReadFile(filepath.Join(
 		project, ".mulgae", "diagnostics", *envelope.Result.SessionID, *envelope.Result.RunID, "status.json",
 	))
@@ -1471,6 +1504,249 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 		"findings", "--run", *envelope.Result.RunID, "--severity", "low", "--output", "json")
 	if findings.exitCode != 0 || len(findings.stderr) != 0 {
 		t.Fatalf("six-role findings: exit=%d stdout=%q stderr=%q", findings.exitCode, findings.stdout, findings.stderr)
+	}
+}
+
+// ZCode roles deliver their report through the staged file Mulgae granted them
+// while the AGY-primary role keeps the stdout transport. The manifest records
+// which transport carried each published report.
+func TestIntegrationStagedFileTransportPublishesRoleReports(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
+	runTestCommand(t, project, "git", "add", "review.go", "screenshots/staged.png")
+
+	providerDirectory := canonicalTestTempDir(t)
+	logDirectory := canonicalTestTempDir(t)
+	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	agyExecutable := filepath.Join(providerDirectory, "agy")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success")
+	buildFakeAGYWithReviewOutput(t, root, agyExecutable, filepath.Join(logDirectory, "agy.jsonl"), fakeAGYDefaultReviewOutput)
+	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "zcode,agy", "--roles", "logic,security,artist", "--project-kind", "ui",
+		"--artist-brief", "roadmap.md", "--artist-design-specs", "screenshots/**/*.png",
+		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher,
+		"--agy-executable", agyExecutable)
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize staged transport config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+
+	review := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"review", "--stage", "--roles", "logic,security,artist", "--output", "json")
+	var envelope commandEnvelope
+	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
+		t.Fatalf("decode staged transport envelope: %v: %q", err, review.stdout)
+	}
+	if review.exitCode != 0 || len(review.stderr) != 0 || envelope.Exit.Kind != "success" ||
+		envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		for _, launch := range fakeZCodeReviewObservations(t, zcodeLog) {
+			t.Logf("ZCode review launch staged destination = %q", launch.Destination)
+		}
+		dumpRuntimeDiagnostics(t, project, envelope)
+		t.Fatalf("staged transport review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
+	}
+	assertCommandRoleReportInventory(t, project, envelope)
+	assertPublishedRoleReports(t, project, envelope, map[string]publishedRoleReport{
+		"logic":    {transport: "staged_file", providerInstance: "zcode-logic", content: fakeZCodeStagedReport("logic")},
+		"security": {transport: "staged_file", providerInstance: "zcode-security", content: fakeZCodeStagedReport("security")},
+		"artist":   {transport: "stdout", providerInstance: "agy-artist", content: fakeAGYDefaultReviewOutput},
+	})
+
+	launches := fakeZCodeReviewObservations(t, zcodeLog)
+	if len(launches) != 2 {
+		t.Fatalf("staged ZCode review launches = %d, want logic and security: %#v", len(launches), launches)
+	}
+	destinations := make(map[string]bool, len(launches))
+	for _, launch := range launches {
+		if launch.Destination == "" || destinations[launch.Destination] {
+			t.Fatalf("staged destinations are not one per launch: %#v", launches)
+		}
+		destinations[launch.Destination] = true
+		if !strings.Contains(launch.Prompt, stagedOutputDestinationMarker+"\n"+launch.Destination+"\n") {
+			t.Fatalf("staged destination is not stated by the trusted layer: %q", launch.Destination)
+		}
+		if _, err := os.Lstat(launch.Destination); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("staging %q survived the run: %v", launch.Destination, err)
+		}
+	}
+}
+
+// A staged file the provider never wrote is operationally missing output: the
+// role completes on its configured fallback and the run still publishes.
+func TestIntegrationStagedFileMissingFallsBackToConfiguredProvider(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	logDirectory := canonicalTestTempDir(t)
+	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
+	agyLog := filepath.Join(logDirectory, "agy.jsonl")
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	agyExecutable := filepath.Join(providerDirectory, "agy")
+	buildFakeZCodeWithStagedOutput(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success", "none")
+	buildFakeAGYWithReviewOutput(t, root, agyExecutable, agyLog, fakeAGYDefaultReviewOutput)
+	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+	environment = append(environment, "MULGAE_FAKE_AGY_LOG="+agyLog)
+	initializeOfflineProviders(t, binary, project, environment, "zcode,agy", zcodeNode, zcodeLauncher, agyExecutable)
+
+	review := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"review", "--dirty", "--roles", "security", "--output", "json")
+	var envelope commandEnvelope
+	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
+		t.Fatalf("decode staged fallback envelope: %v: %q", err, review.stdout)
+	}
+	if review.exitCode != 0 || envelope.Result.RunManifestURI == nil ||
+		envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
+		dumpRuntimeDiagnostics(t, project, envelope)
+		t.Fatalf("staged fallback review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
+	}
+	assertCommandRoleReportInventory(t, project, envelope)
+	assertPublishedRoleReports(t, project, envelope, map[string]publishedRoleReport{
+		"security": {transport: "stdout", providerInstance: "agy-security", content: fakeAGYDefaultReviewOutput},
+	})
+
+	launches := fakeZCodeReviewObservations(t, zcodeLog)
+	if len(launches) != 1 || launches[0].Destination == "" {
+		t.Fatalf("staged primary launches = %#v, want exactly one destination-bound launch", launches)
+	}
+	log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
+	if !bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputFileMissing)+`"`)) {
+		t.Fatalf("staged fallback diagnostics omitted the missing staged file cause:\n%s", log)
+	}
+	for _, event := range []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticAttemptFailed, domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled,
+		domain.DiagnosticFallbackStarted, domain.DiagnosticFallbackCompleted,
+		domain.DiagnosticPublicationCommitted, domain.DiagnosticRuntimeClosed,
+	} {
+		if !bytes.Contains(log, []byte(`"event":"`+string(event)+`"`)) {
+			t.Fatalf("staged fallback diagnostic omitted %s:\n%s", event, log)
+		}
+	}
+	if bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputStagingViolation)+`"`)) {
+		t.Fatalf("a missing staged file was classified as a staging violation:\n%s", log)
+	}
+	assertRuntimeDiagnosticStatus(t, project, *envelope.Result.SessionID, *envelope.Result.RunID, domain.RunCompleted, *envelope.Result.RunManifestURI)
+}
+
+// Staging Mulgae did not authorize is a boundary breach: the role publishes
+// nothing and the run fails closed as a security condition.
+func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		staged   string
+		smuggled bool
+	}{
+		{name: "symbolic link", staged: "symlink", smuggled: true},
+		{name: "extra staged entry", staged: "extra"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			project := canonicalTestTempDir(t)
+			initializeReviewGitRepository(t, project)
+			providerDirectory := canonicalTestTempDir(t)
+			logDirectory := canonicalTestTempDir(t)
+			zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
+			zcodeNode := filepath.Join(providerDirectory, "node")
+			zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+			buildFakeZCodeWithStagedOutput(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success", test.staged)
+			environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher, "")
+
+			review := runMulgaeBinaryWithEnv(t, binary, project, environment,
+				"review", "--dirty", "--roles", "security", "--output", "json")
+			var envelope commandEnvelope
+			if err := json.Unmarshal(review.stdout, &envelope); err != nil {
+				t.Fatalf("decode staging violation envelope: %v: %q", err, review.stdout)
+			}
+			if review.exitCode != int(app.ExitCodeSecurity) || envelope.Exit.Code != int(app.ExitCodeSecurity) ||
+				envelope.Exit.Kind != "security" || len(envelope.Reasons) != 1 ||
+				envelope.Reasons[0].Category != "security" || envelope.Reasons[0].Retryable ||
+				envelope.Reasons[0].ArtifactURI == nil {
+				dumpRuntimeDiagnostics(t, project, envelope)
+				t.Fatalf("staging violation review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
+			}
+			if envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
+				len(envelope.Result.RoleReportURIs) != 0 {
+				t.Fatalf("staging violation published artifacts: %#v", envelope.Result)
+			}
+			entries, err := os.ReadDir(filepath.Join(project, ".mulgae"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 2 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" {
+				t.Fatalf("staging violation created publication artifacts: %v", entries)
+			}
+			diagnosticRoot := filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI))
+			log, err := os.ReadFile(filepath.Join(diagnosticRoot, "mulgae-runtime.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputStagingViolation)+`"`)) {
+				t.Fatalf("staging violation diagnostics omitted the staging violation cause:\n%s", log)
+			}
+			if !bytes.Contains(log, []byte(`"event":"`+string(domain.DiagnosticRuntimeClosed)+`"`)) {
+				t.Fatalf("staging violation diagnostics were not finalized:\n%s", log)
+			}
+			statusBytes, err := os.ReadFile(filepath.Join(diagnosticRoot, "status.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var status struct {
+				State         domain.RunState `json:"state"`
+				LaneCompleted int             `json:"lane_completed"`
+				LaneFailed    int             `json:"lane_failed"`
+				P2URI         string          `json:"p2_uri"`
+			}
+			if err := json.Unmarshal(statusBytes, &status); err != nil {
+				t.Fatal(err)
+			}
+			if status.State == domain.RunCompleted || status.LaneCompleted != 0 || status.LaneFailed != 1 || status.P2URI != "" {
+				t.Fatalf("staging violation diagnostic status = %#v", status)
+			}
+			launches := fakeZCodeReviewObservations(t, zcodeLog)
+			if len(launches) != 1 || launches[0].Destination == "" {
+				t.Fatalf("staging violation launches = %#v, want one destination-bound launch", launches)
+			}
+			if _, err := os.Lstat(launches[0].Destination); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("violating staging %q survived the run: %v", launches[0].Destination, err)
+			}
+			if !test.smuggled {
+				return
+			}
+			smuggled := filepath.Join(logDirectory, "smuggled-role-report.md")
+			body, err := os.ReadFile(smuggled)
+			if err != nil || string(body) != fakeZCodeStagedReport("security") {
+				t.Fatalf("linked report outside staging = %q, %v", body, err)
+			}
+		})
 	}
 }
 
@@ -1942,6 +2218,22 @@ func initializeOfflineProviders(t *testing.T, binary, project string, environmen
 	}
 }
 
+// dumpRuntimeDiagnostics logs the runtime diagnostic stream a review left
+// behind so an integration failure stays inspectable from the test output.
+func dumpRuntimeDiagnostics(t *testing.T, project string, envelope commandEnvelope) {
+	t.Helper()
+	if envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
+		return
+	}
+	log, err := os.ReadFile(filepath.Join(
+		project, ".mulgae", "diagnostics", *envelope.Result.SessionID, *envelope.Result.RunID, "mulgae-runtime.jsonl",
+	))
+	if err != nil {
+		return
+	}
+	t.Logf("runtime diagnostics:\n%s", log)
+}
+
 func readRuntimeDiagnosticLog(t *testing.T, project, session, run string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(project, ".mulgae", "diagnostics", session, run, "mulgae-runtime.jsonl"))
@@ -1995,6 +2287,84 @@ type commandEnvelope struct {
 	} `json:"reasons"`
 }
 
+type manifestRoleReport struct {
+	Role             string `json:"role"`
+	Path             string `json:"path"`
+	SHA256           string `json:"sha256"`
+	ByteLength       int    `json:"byte_length"`
+	ProviderInstance string `json:"provider_instance"`
+	AttemptID        string `json:"attempt_id"`
+	ContentType      string `json:"content_type"`
+	Transport        string `json:"transport"`
+}
+
+// publishedRoleReport is the exact transport, provider instance, and bytes one
+// committed role report must carry.
+type publishedRoleReport struct {
+	transport        string
+	providerInstance string
+	content          string
+}
+
+func readManifestRoleReports(t *testing.T, project string, envelope commandEnvelope) []manifestRoleReport {
+	t.Helper()
+	if envelope.Result.RunManifestURI == nil {
+		t.Fatalf("command envelope lacks a committed run manifest: %#v", envelope.Result)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(project, *envelope.Result.RunManifestURI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		RoleReports []manifestRoleReport `json:"role_reports"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode manifest role reports: %v", err)
+	}
+	return manifest.RoleReports
+}
+
+// assertPublishedRoleReports pins the provider output transport recorded for
+// each committed role report and the exact bytes that transport carried. Under
+// the staged_file transport the published body is the provider-staged file, so
+// a role that stages one body while printing another must publish the staged
+// one.
+func assertPublishedRoleReports(t *testing.T, project string, envelope commandEnvelope, want map[string]publishedRoleReport) {
+	t.Helper()
+	reports := readManifestRoleReports(t, project, envelope)
+	if len(reports) != len(want) {
+		t.Fatalf("published role reports = %d, want %d: %#v", len(reports), len(want), reports)
+	}
+	uris := make(map[string]string, len(envelope.Result.RoleReportURIs))
+	for _, uri := range envelope.Result.RoleReportURIs {
+		uris[uri.Role] = uri.URI
+	}
+	for _, report := range reports {
+		expected, ok := want[report.Role]
+		if !ok {
+			t.Fatalf("unexpected published role report %#v", report)
+		}
+		if report.Transport != expected.transport || report.ProviderInstance != expected.providerInstance {
+			t.Fatalf("role %q published transport/provider = %q/%q, want %q/%q",
+				report.Role, report.Transport, report.ProviderInstance, expected.transport, expected.providerInstance)
+		}
+		uri, ok := uris[report.Role]
+		if !ok {
+			t.Fatalf("role %q has no published report URI: %#v", report.Role, envelope.Result.RoleReportURIs)
+		}
+		content, err := os.ReadFile(filepath.Join(project, uri))
+		if err != nil {
+			t.Fatalf("read published role report %q: %v", uri, err)
+		}
+		if string(content) != expected.content {
+			t.Fatalf("role %q published report = %q, want %q", report.Role, content, expected.content)
+		}
+		if bytes.Contains(content, []byte("Standard output is ignored under the staged file transport.")) {
+			t.Fatalf("role %q published the ignored ZCode stdout envelope: %s", report.Role, content)
+		}
+	}
+}
+
 func assertCommandRoleReportInventory(t *testing.T, project string, envelope commandEnvelope) {
 	t.Helper()
 	if envelope.Result.SessionID == nil || envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
@@ -2009,15 +2379,7 @@ func assertCommandRoleReportInventory(t *testing.T, project string, envelope com
 		t.Fatal(err)
 	}
 	var manifest struct {
-		RoleReports []struct {
-			Role             string `json:"role"`
-			Path             string `json:"path"`
-			SHA256           string `json:"sha256"`
-			ByteLength       int    `json:"byte_length"`
-			ProviderInstance string `json:"provider_instance"`
-			AttemptID        string `json:"attempt_id"`
-			ContentType      string `json:"content_type"`
-		} `json:"role_reports"`
+		RoleReports []manifestRoleReport `json:"role_reports"`
 	}
 	var review struct {
 		RoleOutcomes []struct {
@@ -2057,6 +2419,7 @@ func assertCommandRoleReportInventory(t *testing.T, project string, envelope com
 		outcome := outcomesByRole[role]
 		if report.Role != role || uri.Role != role || report.Path != "role-reports/"+role+".md" ||
 			report.ContentType != "text/markdown" || report.ByteLength <= 0 ||
+			(report.Transport != "staged_file" && report.Transport != "stdout") ||
 			outcome.AttemptID == nil || outcome.ProviderInstance == nil ||
 			report.AttemptID != *outcome.AttemptID || report.ProviderInstance != *outcome.ProviderInstance ||
 			uri.URI != prefix+role+".md" {
@@ -2080,6 +2443,12 @@ func assertCommandRoleReportInventory(t *testing.T, project string, envelope com
 type fakeKimiObservation struct {
 	CWD    string `json:"cwd"`
 	Prompt string `json:"prompt"`
+}
+type fakeZCodeObservation struct {
+	Argv        []string `json:"argv"`
+	CWD         string   `json:"cwd"`
+	Prompt      string   `json:"prompt"`
+	Destination string   `json:"destination"`
 }
 type fakeAGYObservation struct {
 	Argv          []string `json:"argv"`
@@ -2189,7 +2558,52 @@ func main() {
 	}
 }
 
+// stagedOutputDestinationMarker is the exact Mulgae-owned trusted layer line
+// that precedes the single absolute path a staged review launch may write. It
+// is duplicated here on purpose: the fake provider must recognize the shipped
+// contract text, not a constant it shares with the implementation.
+const stagedOutputDestinationMarker = "Write your complete final Markdown role report to this exact absolute file path, creating that one file only:"
+
+// fakeZCodeStagedReportTemplate is the exact Markdown body the fake ZCode
+// stages for one role. The generated fake substitutes __ROLE__ with the role
+// its launch prompt names, so a published role report can be compared byte for
+// byte against fakeZCodeStagedReport.
+const fakeZCodeStagedReportTemplate = "# __ROLE__ role report\n\n" +
+	"Staged file transport carried this __ROLE__ body.\n\n" +
+	"```json\n" +
+	"{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No __ROLE__ findings.\"," +
+	"\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}\n" +
+	"```\n"
+
+// fakeZCodeIgnoredStdout is the session envelope the fake ZCode prints on
+// standard output for every review launch. The staged_file transport ignores
+// standard output for acceptance, so this text must never reach a published
+// role report.
+const fakeZCodeIgnoredStdout = "{\"schema_version\":\"mulgae-provider-review-output.v1\"," +
+	"\"summary\":\"Standard output is ignored under the staged file transport.\"," +
+	"\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+
+// fakeAGYDefaultReviewOutput is the stdout review envelope buildFakeAGY emits.
+// AGY keeps the stdout transport, so its published role report is exactly these
+// bytes.
+const fakeAGYDefaultReviewOutput = "{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
+
+func fakeZCodeStagedReport(role string) string {
+	return strings.ReplaceAll(fakeZCodeStagedReportTemplate, "__ROLE__", role)
+}
+
 func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) {
+	t.Helper()
+	buildFakeZCodeWithStagedOutput(t, root, binary, launcher, logPath, mode, "write")
+}
+
+// buildFakeZCodeWithStagedOutput builds the offline ZCode fake. staged selects
+// how the fake honours the Mulgae-owned staged output destination its review
+// prompt states: "write" stages exactly the one role report Mulgae granted,
+// "none" stages nothing, "symlink" stages a symbolic link to a report the fake
+// also writes outside staging, and "extra" stages a second file beside the
+// report. Every variant still prints the ignored stdout session envelope.
+func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPath, mode, staged string) {
 	t.Helper()
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
 	source := filepath.Join(t.TempDir(), "main.go")
@@ -2199,6 +2613,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -2207,7 +2622,12 @@ type observation struct {
 	Argv []string ` + "`json:\"argv\"`" + `
 	CWD string ` + "`json:\"cwd\"`" + `
 	Prompt string ` + "`json:\"prompt\"`" + `
+	Destination string ` + "`json:\"destination,omitempty\"`" + `
 }
+
+const destinationMarker = "__FAKE_ZCODE_DESTINATION_MARKER__"
+
+var roleGuide = regexp.MustCompile("Mulgae ROOT REVIEW ROLE GUIDE/[0-9]+: ([A-Z]+)")
 
 func main() {
 	argv := append([]string(nil), os.Args[1:]...)
@@ -2234,17 +2654,19 @@ func main() {
 			}
 		}
 	}
-	if prompt == "" || mode != "plan" || disallowed == "" {
+	if prompt == "" || mode == "" || disallowed == "" {
 		panic("non-canonical ZCode invocation")
 	}
-	capability := strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.")
+	capability := strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.") ||
+		strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.")
 	if capability {
-		if disallowed != "*" {
+		if mode != "plan" || disallowed != "*" {
 			panic("non-canonical ZCode capability invocation")
 		}
-	} else if !strings.Contains(disallowed, "Bash") || !strings.Contains(disallowed, "Write") {
+	} else if mode != "yolo" || !strings.Contains(disallowed, "Bash") || strings.Contains(disallowed, "Write") {
 		panic("non-canonical ZCode review invocation")
 	}
+	destination := stagedDestination(prompt)
 	cwd, err := os.Getwd()
 	if err != nil {
 		panic(err)
@@ -2253,14 +2675,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt}); err != nil {
+	if err := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}); err != nil {
 		panic(err)
 	}
 	if err := log.Close(); err != nil {
 		panic(err)
 	}
-	if strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.") ||
-		strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.") {
+	if capability {
+		if destination != "" {
+			panic("ZCode capability invocation carries a staged output destination")
+		}
 		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(prompt)
 		link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(prompt)
 		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(prompt)
@@ -2270,6 +2694,8 @@ func main() {
 		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
 		return
 	}
+	// A provider that fails before it produces output never honours staging, so
+	// the simulated failures below exit ahead of the destination requirement.
 	switch "__FAKE_ZCODE_MODE__" {
 	case "rate_limit_review":
 		fmt.Fprintln(os.Stderr, "rate_limit")
@@ -2281,11 +2707,77 @@ func main() {
 		fmt.Fprintln(os.Stderr, "provider execution failed")
 		os.Exit(1)
 	}
-	fmt.Print("{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}")
+	if destination == "" {
+		panic("ZCode review invocation omits the staged output destination")
+	}
+	stage(destination, report(prompt))
+	fmt.Print(__FAKE_ZCODE_STDOUT__)
+}
+
+// stagedDestination returns the one absolute path the last trusted layer of a
+// staged launch states. A prompt without that layer returns the empty string.
+func stagedDestination(prompt string) string {
+	index := strings.Index(prompt, destinationMarker)
+	if index < 0 {
+		return ""
+	}
+	line := strings.TrimPrefix(prompt[index+len(destinationMarker):], "\n")
+	if end := strings.IndexByte(line, '\n'); end >= 0 {
+		line = line[:end]
+	}
+	destination := strings.TrimSpace(line)
+	if !filepath.IsAbs(destination) || filepath.Clean(destination) != destination ||
+		filepath.Base(destination) != "role-report.md" {
+		panic("staged output destination is not a canonical absolute role report path")
+	}
+	return destination
+}
+
+// report is the Markdown body this fake stages for the role its launch prompt
+// names. Standard output never carries it.
+func report(prompt string) string {
+	role := roleGuide.FindStringSubmatch(prompt)
+	if len(role) != 2 {
+		panic("ZCode review prompt omits the role guide")
+	}
+	return strings.ReplaceAll(__FAKE_ZCODE_STAGED_BODY__, "__ROLE__", strings.ToLower(role[1]))
+}
+
+// stage writes the report exactly as the configured staging behaviour requires.
+// Mulgae created the staging directory before this process started.
+func stage(destination, body string) {
+	switch "__FAKE_ZCODE_STAGED__" {
+	case "none":
+		return
+	case "symlink":
+		outside := filepath.Join(filepath.Dir("__FAKE_ZCODE_LOG__"), "smuggled-role-report.md")
+		if err := os.WriteFile(outside, []byte(body), 0600); err != nil {
+			panic(err)
+		}
+		if err := os.Symlink(outside, destination); err != nil {
+			panic(err)
+		}
+		return
+	case "extra":
+		if err := os.WriteFile(destination, []byte(body), 0600); err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(destination), "extra-notes.md"), []byte(body), 0600); err != nil {
+			panic(err)
+		}
+		return
+	}
+	if err := os.WriteFile(destination, []byte(body), 0600); err != nil {
+		panic(err)
+	}
 }
 `
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_DESTINATION_MARKER__", stagedOutputDestinationMarker)
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED_BODY__", strconv.Quote(fakeZCodeStagedReportTemplate))
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STDOUT__", strconv.Quote(fakeZCodeIgnoredStdout))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_MODE__", mode)
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED__", staged)
 	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
 	build.Dir = root
@@ -2442,6 +2934,40 @@ func readFakeAGYObservations(t *testing.T, path string) []fakeAGYObservation {
 		observations = append(observations, observation)
 	}
 	return observations
+}
+
+func readFakeZCodeObservations(t *testing.T, path string) []fakeZCodeObservation {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fake ZCode observations: %v", err)
+	}
+	var observations []fakeZCodeObservation
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var observation fakeZCodeObservation
+		if err := json.Unmarshal([]byte(line), &observation); err != nil {
+			t.Fatalf("decode fake ZCode observation %q: %v", line, err)
+		}
+		observations = append(observations, observation)
+	}
+	return observations
+}
+
+// fakeZCodeReviewObservations returns only the review launches of the fake
+// ZCode: capability probes carry no staged destination and are excluded.
+func fakeZCodeReviewObservations(t *testing.T, path string) []fakeZCodeObservation {
+	t.Helper()
+	reviews := make([]fakeZCodeObservation, 0, 2)
+	for _, observation := range readFakeZCodeObservations(t, path) {
+		if len(observation.Argv) == 2 && observation.Argv[1] == "--version" {
+			continue
+		}
+		if strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") {
+			continue
+		}
+		reviews = append(reviews, observation)
+	}
+	return reviews
 }
 
 func readFakeKimiObservations(t *testing.T, path string) []fakeKimiObservation {

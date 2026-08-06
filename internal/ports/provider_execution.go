@@ -156,6 +156,38 @@ func (authority NativeHomeLaunchAuthority) Inode() uint64 { return authority.ino
 // EffectiveUID returns the captured installed-user effective UID.
 func (authority NativeHomeLaunchAuthority) EffectiveUID() uint32 { return authority.effectiveUID }
 
+// StagedOutputReceipt is the immutable identity of the bytes Mulgae read back
+// from a provider-written staged output file. It is path-free by design: the
+// native staging path never leaves the adapter, so no execution consumer can
+// re-open, re-read, or publish the provider-owned staged inode.
+type StagedOutputReceipt struct {
+	sha256     string
+	byteLength int64
+}
+
+// NewStagedOutputReceipt validates a complete staged read-back identity.
+func NewStagedOutputReceipt(sha256 string, byteLength int64) (StagedOutputReceipt, error) {
+	if err := validateSHA256(sha256); err != nil {
+		return StagedOutputReceipt{}, fmt.Errorf("staged output receipt: invalid SHA-256: %w", err)
+	}
+	if byteLength <= 0 {
+		return StagedOutputReceipt{}, fmt.Errorf("staged output receipt: byte length must be positive")
+	}
+	return StagedOutputReceipt{sha256: sha256, byteLength: byteLength}, nil
+}
+
+// SHA256 returns the sha256:-prefixed digest of the staged bytes.
+func (receipt StagedOutputReceipt) SHA256() string { return receipt.sha256 }
+
+// ByteLength returns the exact positive length of the staged bytes.
+func (receipt StagedOutputReceipt) ByteLength() int64 { return receipt.byteLength }
+
+// Valid reports whether receipt is a complete staged read-back identity.
+func (receipt StagedOutputReceipt) Valid() bool {
+	_, err := NewStagedOutputReceipt(receipt.sha256, receipt.byteLength)
+	return err == nil
+}
+
 // ProviderExecutionObservation is immutable provider-neutral execution
 // evidence. It binds a validated invocation identity to exactly one validated
 // process observation and either a successful provider result or a classified
@@ -176,6 +208,9 @@ type ProviderExecutionObservation struct {
 	stdoutLimit        int64
 	stderrLimit        int64
 	resultIsolated     bool
+	outputTransport    ProviderOutputTransport
+	stagedOutput       StagedOutputReceipt
+	hasStagedOutput    bool
 }
 
 // NewSuccessfulProviderExecutionObservation records a successful provider
@@ -203,6 +238,33 @@ func NewIsolatedSuccessfulProviderExecutionObservation(
 	return newSuccessfulProviderExecutionObservation(
 		invocation, result, processObservation, stdoutLimit, stderrLimit, true,
 	)
+}
+
+// NewStagedFileSuccessfulProviderExecutionObservation records a successful
+// provider result whose bytes were read back from the provider-written staged
+// output file instead of the process stdout stream. The result is isolated by
+// construction: process stdout and stderr remain bounded diagnostic evidence.
+// The receipt must describe exactly the accepted result bytes.
+func NewStagedFileSuccessfulProviderExecutionObservation(
+	invocation ProviderInvocation,
+	result ProviderResult,
+	processObservation ProcessObservation,
+	stdoutLimit, stderrLimit int64,
+	receipt StagedOutputReceipt,
+) (ProviderExecutionObservation, error) {
+	observation, err := newSuccessfulProviderExecutionObservation(
+		invocation, result, processObservation, stdoutLimit, stderrLimit, true,
+	)
+	if err != nil {
+		return ProviderExecutionObservation{}, err
+	}
+	observation.outputTransport = ProviderOutputTransportStagedFile
+	observation.stagedOutput = receipt
+	observation.hasStagedOutput = true
+	if err := observation.Validate(); err != nil {
+		return ProviderExecutionObservation{}, err
+	}
+	return observation, nil
 }
 
 func newSuccessfulProviderExecutionObservation(
@@ -421,6 +483,22 @@ func (observation ProviderExecutionObservation) Result() (ProviderResult, bool) 
 	return result, err == nil
 }
 
+// OutputTransport returns the transport that carried the provider result. An
+// observation that records no explicit transport carried its result through
+// process stdout.
+func (observation ProviderExecutionObservation) OutputTransport() ProviderOutputTransport {
+	if observation.outputTransport == "" {
+		return ProviderOutputTransportStdout
+	}
+	return observation.outputTransport
+}
+
+// StagedOutputReceipt returns the path-free identity of the staged bytes when
+// the result was carried by the staged_file transport.
+func (observation ProviderExecutionObservation) StagedOutputReceipt() (StagedOutputReceipt, bool) {
+	return observation.stagedOutput, observation.hasStagedOutput
+}
+
 // Stdout returns a caller-owned copy of the stdout captured by the bound
 // process observation.
 func (observation ProviderExecutionObservation) Stdout() []byte {
@@ -504,6 +582,9 @@ func (observation ProviderExecutionObservation) Validate() error {
 	if int64(len(observation.stderr)) > observation.stderrLimit {
 		return fmt.Errorf("provider execution observation: stderr exceeds its limit")
 	}
+	if err := observation.validateOutputTransport(); err != nil {
+		return fmt.Errorf("provider execution observation: %w", err)
+	}
 
 	if observation.Succeeded() {
 		if !observation.hasProcess {
@@ -565,6 +646,47 @@ func (observation ProviderExecutionObservation) Validate() error {
 	return nil
 }
 
+// validateOutputTransport enforces the invariants of the transport that carried
+// the provider result. A staged_file observation must expose an isolated result
+// whose exact bytes are described by a valid staged receipt; every stdout
+// observation must carry no staged receipt at all.
+func (observation ProviderExecutionObservation) validateOutputTransport() error {
+	transport := observation.OutputTransport()
+	if !transport.Valid() {
+		return fmt.Errorf("invalid output transport")
+	}
+	if transport != ProviderOutputTransportStagedFile {
+		if observation.hasStagedOutput || observation.stagedOutput != (StagedOutputReceipt{}) {
+			return fmt.Errorf("stdout transport must not have a staged output receipt")
+		}
+		return nil
+	}
+	if !observation.hasResult {
+		return fmt.Errorf("staged file transport requires a result")
+	}
+	if !observation.resultIsolated {
+		return fmt.Errorf("staged file transport requires an isolated result")
+	}
+	if !observation.hasStagedOutput || !observation.stagedOutput.Valid() {
+		return fmt.Errorf("staged file transport requires a valid staged output receipt")
+	}
+	stdout := observation.result.Stdout()
+	if observation.stagedOutput.ByteLength() != int64(len(stdout)) {
+		return fmt.Errorf("staged output receipt byte length does not match the result")
+	}
+	if observation.stagedOutput.SHA256() != sha256Identifier(stdout) {
+		return fmt.Errorf("staged output receipt digest does not match the result")
+	}
+	return nil
+}
+
+// ProviderOutputStagingLocator resolves the staged-output destination and
+// declared transport for one provider invocation. Pure computation: no
+// filesystem access, fail-closed (ok=false) for unknown instances.
+type ProviderOutputStagingLocator interface {
+	ProviderOutputStagingDestination(providerInstance string, attemptID domain.AttemptID, purpose ProviderInvocationPurpose) (StagedOutputDestination, ProviderOutputTransport, bool)
+}
+
 // ObservedReviewProvider is the provider execution boundary that returns
 // immutable provider-neutral execution facts. An ordinary provider or process
 // failure must be returned as a failed observation with a nil error; error is
@@ -576,7 +698,23 @@ type ObservedReviewProvider interface {
 	Observe(context.Context, ProviderInvocation) (ProviderExecutionObservation, error)
 }
 
+// canonicalProviderInvocation rebuilds an invocation through its validating
+// constructors. A present staged output destination is re-attached afterwards
+// so canonicalization can never silently downgrade a staged_file invocation to
+// the implicit stdout transport.
 func canonicalProviderInvocation(invocation ProviderInvocation) (ProviderInvocation, error) {
+	canonical, err := canonicalProviderInvocationIdentity(invocation)
+	if err != nil {
+		return ProviderInvocation{}, err
+	}
+	destination, ok := invocation.StagedOutputDestination()
+	if !ok {
+		return canonical, nil
+	}
+	return withStagedOutputDestination(canonical, destination)
+}
+
+func canonicalProviderInvocationIdentity(invocation ProviderInvocation) (ProviderInvocation, error) {
 	if workspace, ok := invocation.ExecutionWorkspace(); ok {
 		storedIdentity, hasStoredIdentity := invocation.WorkspaceSnapshotIdentity()
 		if !hasStoredIdentity || workspace.WorkspaceSnapshotIdentity() != storedIdentity {

@@ -11,21 +11,91 @@ and publication.
 
 Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
-read-oriented commands against that immutable snapshot, isolated output,
-explicit credential projection, execution bounds, per-instance serialization,
-cancellation, and terminal process-state checks. Prompt packets retain bounded
-patch, stdin, and old/new review-target bytes that a workspace tree alone cannot
-represent; surrounding project content is read selectively from the sealed
-snapshot rather than re-embedded for every role.
+commands against that immutable snapshot, isolated output, explicit credential
+projection, execution bounds, per-instance serialization, cancellation, and
+terminal process-state checks. Prompt packets retain bounded patch, stdin, and
+old/new review-target bytes that a workspace tree alone cannot represent;
+surrounding project content is read selectively from the sealed snapshot rather
+than re-embedded for every role.
+
+The workspace snapshot is materialized read-only (`0444` files, `0555`
+directories) and is revalidated through retained descriptors before and after
+every invocation. Post-execution drift overrides provider success, so a
+provider that mutates the snapshot cannot produce a publishable result.
 
 Project configuration cannot introduce an executable command.
+
+### Per-family write posture
+
+Write authority is not uniform across families, and it is no longer accurate to
+say that no provider ever holds it.
+
+- ZCode review invocations run with `--mode yolo` and the adapter-owned
+  denylist `Bash,Edit,NotebookEdit,WebSearch,WebFetch`. `Write` is deliberately
+  enabled so ZCode can place its role report at the one absolute path Mulgae
+  chose. ZCode qualification is unchanged: plan mode with all tools denied.
+- AGY review invocations are unchanged: `--new-project --sandbox --add-dir
+  <snapshot> --mode plan` in the default safe permission mode. Headless AGY
+  auto-denies `write_file` in safe mode, so AGY role reports stay on the stdout
+  transport. The dangerous permission bypass remains an explicit opt-in and is
+  not used for role output.
+- Kimi is unchanged and has no adapter-owned workspace tools; its process
+  working directory is still the immutable snapshot.
+
+### Staging boundary
+
+A ZCode review launch receives exactly one write target: a fresh
+per-invocation directory Mulgae creates with `0700` under the provider's
+disposable namespace scratch area, holding the single Mulgae-chosen filename
+`role-report.md`. That directory is outside the sealed snapshot and outside
+`.mulgae`. The exact absolute path is stated only by the prompt's last trusted
+layer; a staged launch whose packet lacks that layer fails closed before the
+process starts, and a staging destination the adapter did not itself choose is
+refused.
+
+After the process has fully terminated, the adapter validates the staged file
+through the directory and parent descriptors it retained at creation, so no
+step re-resolves a path the provider could have replaced. It rejects symbolic
+links, files with more than one hard link, non-regular files, a file on another
+device, any extra directory entry, ownership or mode drift, staging-directory
+identity drift, content that changed while it was read, content over 8 MiB,
+invalid UTF-8, embedded NUL, and empty or whitespace-only content. Accepted
+bytes remain untrusted provider output and enter the same acceptance pipeline
+as stdout bytes; they are then copied into the Mulgae-owned
+`role-reports/<role>.md`, and the provider-owned inode is never published.
+Staging is removed on every exit path, and a cleanup that cannot be proven
+overrides provider success as an artifact failure. Missing or unusable staged
+content is an operational invalid-provider-output outcome that may fall back; a
+boundary violation is a security fail-closed outcome that never authorizes
+fallback or publication.
+
+### ZCode residual risk (owner-accepted)
+
+ZCode exposes no path-scoped write permission, so the `Write` grant above is
+not confined to the staging directory by the provider itself. Its tool controls
+are name-based: local ZCode 0.16.1 rejects `--allowed-tools` at runtime, so
+Mulgae uses an explicit denylist, which can enable or deny `Write` wholesale
+but cannot bind it to one directory. Containment is therefore entirely
+Mulgae-side: the review workspace is a read-only `0444`/`0555` snapshot whose
+post-execution drift check overrides provider success; the process runs in a
+disposable namespace with projected `HOME`, `TMPDIR`, and scratch; only the
+staging directory is ever read back as trusted-path input, and only after full
+process termination; and everything read back is validated and copied rather
+than published in place. Outside those layers, a stray absolute-path write is
+not blocked by Mulgae, and the live project tree is git-managed, so such a
+write remains user-detectable rather than silent. This residual risk is an
+explicit owner decision recorded against live capability evidence, not an
+oversight; it applies to ZCode review invocations only.
 
 ## Credentials and secrets
 
 Credentials remain owned by the installed provider. Mulgae projects only the
 provider-specific files and environment required by the adapter into a
-temporary namespace. Do not commit credentials, provider homes, `.mulgae/`
-artifacts, or exported review bundles.
+temporary namespace. That namespace also supplies the disposable `HOME`,
+`TMPDIR`, and scratch area holding any per-invocation staging directory, so
+staging is removed with the namespace it belongs to and never reaches a
+credential or project location. Do not commit credentials, provider homes,
+`.mulgae/` artifacts, or exported review bundles.
 
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.

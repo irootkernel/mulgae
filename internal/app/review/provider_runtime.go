@@ -168,6 +168,44 @@ func (runtime *ProviderInvocationRuntime) BindRuntimeDiagnostics(resolver Runtim
 	return nil
 }
 
+// BindProviderOutputStaging installs the adapter-owned staging locator before
+// the runtime executes its first invocation. It is intentionally one-shot: the
+// destination of every launch must be resolved by exactly one authority.
+func (runtime *ProviderInvocationRuntime) BindProviderOutputStaging(locator ports.ProviderOutputStagingLocator) error {
+	if runtime == nil || nilInterface(locator) {
+		return fmt.Errorf("provider invocation runtime: invalid provider output staging locator")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if !nilInterface(runtime.staging) || len(runtime.inventory) != 0 || len(runtime.captures) != 0 {
+		return fmt.Errorf("provider invocation runtime: staging locator must be bound before execution")
+	}
+	runtime.staging = locator
+	return nil
+}
+
+// ResolveStagedOutputDestination returns the Mulgae-owned staged destination for
+// exactly one provider launch. It is the single resolution used by both the
+// prompt authority that states the path to the provider and the runtime that
+// binds the same path to the invocation, so the two can never disagree. A nil
+// locator, an unknown instance, or a declared stdout transport all keep the
+// launch on stdout.
+func ResolveStagedOutputDestination(
+	locator ports.ProviderOutputStagingLocator,
+	job InvocationJob,
+) (ports.StagedOutputDestination, bool) {
+	if nilInterface(locator) {
+		return ports.StagedOutputDestination{}, false
+	}
+	destination, transport, ok := locator.ProviderOutputStagingDestination(
+		job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()),
+	)
+	if !ok || transport != ports.ProviderOutputTransportStagedFile || !destination.Valid() {
+		return ports.StagedOutputDestination{}, false
+	}
+	return destination, true
+}
+
 // DeltaInvocationMaterial is the immutable A-to-B input for one delta
 // invocation. Source and current bytes are independently bound to their
 // identities; Delta is comparator-owned material and is never recomputed here.
@@ -241,6 +279,7 @@ type ProviderInvocationRuntime struct {
 	policy            EvidencePolicy
 	allowSourceScope  bool
 	diagnostics       RuntimeDiagnosticSinkResolver
+	staging           ports.ProviderOutputStagingLocator
 
 	mu             sync.Mutex
 	pending        map[domain.AttemptID]InvocationRepairInput
@@ -537,6 +576,13 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		sha256Identifier(material.Target) != "sha256:"+job.Target().SHA256() {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
+	// A staged launch must state its own resolved absolute path to the provider.
+	// The prompt authority appends that layer last; a prompt that does not carry
+	// it would leave the provider writing nowhere Mulgae accepts.
+	if destination, staged := runtime.stagedOutputDestination(job); staged &&
+		!promptDeclaresStagedOutputDestination(material.Prompt, destination) {
+		return runtimeCondition(job, AttemptConditionConfigurationViolation)
+	}
 	if err := runtime.recordRuntimeArtifact(job, material); err != nil {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
@@ -556,6 +602,10 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	defer cancelProvider()
 	var stdout, rawStdout, stderr []byte
+	// Legacy provider results are always carried by process stdout. A staged_file
+	// observation substitutes the staged bytes into its isolated result, so the
+	// assistant content below is the same value in both transports.
+	transport := ports.ProviderOutputTransportStdout
 	if runtime.observed != nil {
 		providerStarted := time.Now()
 		observation, observeErr := runtime.observed.Observe(providerCtx, providerInvocation)
@@ -595,6 +645,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if !ok || result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
 		}
+		transport = observation.OutputTransport()
 		stdout = result.Stdout()
 		if int64(len(stdout)) > job.Limits().MaxStdoutBytes() {
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, true); err != nil {
@@ -644,7 +695,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			// Capture streams only — never persist prose as an initial candidate.
 			if outcome, ok := runtime.acceptFreeFormReport(
 				invocationCtx, job, assistantContent, nil, rawStdout, stderr,
-				domain.ParseNotStarted, domain.ValidationNotStarted,
+				domain.ParseNotStarted, domain.ValidationNotStarted, transport,
 			); ok {
 				return outcome
 			}
@@ -696,7 +747,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			// reports-only retains validateBytes as the initial candidate.
 			if outcome, ok := runtime.acceptFreeFormReport(
 				invocationCtx, job, assistantContent, validateBytes, rawStdout, stderr,
-				parseState, domain.ValidationInvalid,
+				parseState, domain.ValidationInvalid, transport,
 			); ok {
 				return outcome
 			}
@@ -711,7 +762,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
 			return runtimeCondition(job, diagnosticConditionForPersistence(err))
 		}
-		return runtime.accept(invocationCtx, job, validated, assistantContent)
+		return runtime.accept(invocationCtx, job, validated, assistantContent, transport)
 	}
 	if contentClass == assistantContentFreeForm {
 		// Repair responses without a structured/structured-like candidate cannot
@@ -719,7 +770,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		// never store it as a repaired candidate.
 		if outcome, ok := runtime.acceptFreeFormReport(
 			invocationCtx, job, repair.primaryReport, nil, rawStdout, stderr,
-			repair.parseState, domain.ValidationRepairExhausted,
+			repair.parseState, domain.ValidationRepairExhausted, transport,
 		); ok {
 			runtime.mu.Lock()
 			delete(runtime.pending, job.AttemptID())
@@ -759,7 +810,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		// must not persist that report as a repaired candidate.
 		if outcome, ok := runtime.acceptFreeFormReport(
 			invocationCtx, job, repair.primaryReport, nil, rawStdout, stderr,
-			parseState, domain.ValidationRepairExhausted,
+			parseState, domain.ValidationRepairExhausted, transport,
 		); ok {
 			runtime.mu.Lock()
 			delete(runtime.pending, job.AttemptID())
@@ -781,7 +832,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	runtime.mu.Lock()
 	delete(runtime.pending, job.AttemptID())
 	runtime.mu.Unlock()
-	return runtime.accept(invocationCtx, job, validated, primaryReport)
+	return runtime.accept(invocationCtx, job, validated, primaryReport, transport)
 }
 
 // InvokeDelta executes a delta-aware invocation through the explicit delta
@@ -876,7 +927,7 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
 		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
 		workspaceIdentity: runtime.workspaceIdentity, hasWorkspace: runtime.hasWorkspace, policy: runtime.policy,
-		allowSourceScope: allowSourceScope, diagnostics: runtime.diagnostics,
+		allowSourceScope: allowSourceScope, diagnostics: runtime.diagnostics, staging: runtime.staging,
 		pending: clonePending, captures: make(map[captureKey]AttemptCapture),
 		inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
@@ -952,7 +1003,7 @@ func sameAdapterParameters(left, right map[string]string) bool {
 	}
 	return true
 }
-func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte) AttemptOutcome {
+func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte, transport ports.ProviderOutputTransport) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
@@ -988,6 +1039,9 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
 	}
 	if err := output.bindReportMarkdown(report, false); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	if err := output.bindOutputTransport(transport); err != nil {
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
 	}
 	validation := domain.ValidationValid
@@ -1029,12 +1083,16 @@ func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
 	reportBody, candidate, rawStdout, stderr []byte,
 	parse domain.ParseState,
 	validation domain.ValidationState,
+	transport ports.ProviderOutputTransport,
 ) (AttemptOutcome, bool) {
 	output, err := NewReportsOnlyValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), reportBody)
 	if err != nil {
 		return AttemptOutcome{}, false
 	}
 	if err := output.bindExtractionStates(parse, validation); err != nil {
+		return AttemptOutcome{}, false
+	}
+	if err := output.bindOutputTransport(transport); err != nil {
 		return AttemptOutcome{}, false
 	}
 	if err := runtime.capture(ctx, job, candidate, rawStdout, stderr, false); err != nil {
@@ -1277,20 +1335,60 @@ func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, 
 	if err != nil {
 		return ports.ProviderInvocation{}, err
 	}
+	var invocation ports.ProviderInvocation
 	if runtime.hasWorkspace {
 		if !sameWorkspaceSnapshotIdentity(runtime.workspace.WorkspaceSnapshotIdentity(), runtime.workspaceIdentity) {
 			return ports.ProviderInvocation{}, fmt.Errorf("%w: workspace identity changed", ports.ErrWorkspaceSnapshotDrift)
 		}
-		return ports.NewProviderInvocationWithPacketInWorkspace(
+		invocation, err = ports.NewProviderInvocationWithPacketInWorkspace(
 			job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
 			material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
 			runtime.workspace,
 		)
+	} else {
+		invocation, err = ports.NewProviderInvocationWithPacket(
+			job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
+			material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
+		)
 	}
-	return ports.NewProviderInvocationWithPacket(
-		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
-		material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
-	)
+	if err != nil {
+		return ports.ProviderInvocation{}, err
+	}
+	destination, staged := runtime.stagedOutputDestination(job)
+	if !staged {
+		return invocation, nil
+	}
+	return ports.NewProviderInvocationWithStagedOutput(invocation, destination)
+}
+
+// stagedOutputDestination resolves the staged destination for one launch of this
+// runtime. Initial and repair are distinct launches, so the locator returns a
+// distinct per-purpose directory for each and both invocations carry their own.
+// Exact replay reproduces stored provider wire authority and therefore never
+// introduces a destination the replayed launch did not already have.
+func (runtime *ProviderInvocationRuntime) stagedOutputDestination(job InvocationJob) (ports.StagedOutputDestination, bool) {
+	if runtime == nil || runtime.allowSourceScope {
+		return ports.StagedOutputDestination{}, false
+	}
+	return ResolveStagedOutputDestination(runtime.staging, job)
+}
+
+// promptDeclaresStagedOutputDestination reports whether the compiled launch
+// prompt ends with exactly the trusted layer that names destination. A staged
+// launch whose prompt states a different path, or no path at all, would send the
+// provider to a directory the adapter rejects, so the runtime fails it closed
+// instead of executing it.
+func promptDeclaresStagedOutputDestination(compiled prompt.CompiledPrompt, destination ports.StagedOutputDestination) bool {
+	expected, err := OutputDestinationTrustedLayer(destination)
+	if err != nil {
+		return false
+	}
+	manifest := compiled.TrustedTemplate().TrustedLayerManifest()
+	if len(manifest) == 0 {
+		return false
+	}
+	last := manifest[len(manifest)-1]
+	return last.ID() == OutputDestinationTrustedLayerID && last.SHA256() == expected.SHA256()
 }
 
 func runtimePurpose(purpose domain.InvocationPurpose) ports.ProviderInvocationPurpose {
@@ -1464,15 +1562,28 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		domain.DiagnosticCauseLifecycleReceiptInvalid,
 		domain.DiagnosticCauseOutputFrameMismatch,
 		domain.DiagnosticCauseSignalReceiptMismatch,
-		domain.DiagnosticCauseObservationMismatch:
+		domain.DiagnosticCauseObservationMismatch,
+		// A provider that wrote outside the single staged file it was granted
+		// breached a boundary, so staging violations fail the run closed.
+		domain.DiagnosticCauseProviderOutputStagingViolation:
 		return AttemptConditionSecurityViolation
-	case domain.DiagnosticCauseOutputMissing:
+	case domain.DiagnosticCauseOutputMissing,
+		// A staged file the provider never wrote is missing output, exactly like
+		// an empty stdout transport: operational, and fallback stays available.
+		domain.DiagnosticCauseProviderOutputFileMissing:
 		return AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
-		domain.DiagnosticCauseResultBindingFailed:
+		domain.DiagnosticCauseResultBindingFailed,
+		// Staged bytes Mulgae could not read back as usable output are an
+		// ordinary decode failure rather than a boundary breach.
+		domain.DiagnosticCauseProviderOutputFileInvalid:
 		return AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
+		// Staging Mulgae cannot prove it removed is an artifact fact: fail closed
+		// rather than reuse the attempt through repair or fallback.
+		return AttemptConditionArtifactFailure
 	case domain.DiagnosticCauseCandidateValidationFailed,
 		domain.DiagnosticCauseCandidateRepairPlanInvalid:
 		return AttemptConditionSemanticContradiction
@@ -1497,6 +1608,11 @@ func sameProviderInvocation(left, right ports.ProviderInvocation) bool {
 		string(left.Stdin()) != string(right.Stdin()) {
 		return false
 	}
+	leftDestination, leftHasStaged := left.StagedOutputDestination()
+	rightDestination, rightHasStaged := right.StagedOutputDestination()
+	if leftHasStaged != rightHasStaged || (leftHasStaged && leftDestination != rightDestination) {
+		return false
+	}
 	leftIdentity, leftHasWorkspace := left.WorkspaceSnapshotIdentity()
 	rightIdentity, rightHasWorkspace := right.WorkspaceSnapshotIdentity()
 	return leftHasWorkspace == rightHasWorkspace &&
@@ -1517,17 +1633,28 @@ func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) 
 		leftSnapshotInode == rightSnapshotInode
 }
 
+// observedStatusCondition selects the coordinator condition for a failed
+// observation. The typed cause is authoritative and is consulted before the
+// execution status: the adapter projects a missing or unusable staged file onto
+// an artifact-failure status, and only the cause proves those two remain
+// operational invalid-output outcomes that keep fallback available.
 func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.RuntimeDiagnosticCause) AttemptCondition {
 	switch cause {
-	case domain.DiagnosticCauseOutputMissing:
+	case domain.DiagnosticCauseOutputMissing,
+		domain.DiagnosticCauseProviderOutputFileMissing:
 		return AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
-		domain.DiagnosticCauseResultBindingFailed:
+		domain.DiagnosticCauseResultBindingFailed,
+		domain.DiagnosticCauseProviderOutputFileInvalid:
 		return AttemptConditionProviderOutputDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		return AttemptConditionProviderPermissionDenied
+	case domain.DiagnosticCauseProviderOutputStagingViolation:
+		return AttemptConditionSecurityViolation
+	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
+		return AttemptConditionArtifactFailure
 	}
 	switch status {
 	case ports.ProviderExecutionStatusUnavailable:

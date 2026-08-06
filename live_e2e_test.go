@@ -106,6 +106,7 @@ type liveRoleReport struct {
 	ProviderInstance string `json:"provider_instance"`
 	AttemptID        string `json:"attempt_id"`
 	ContentType      string `json:"content_type"`
+	Transport        string `json:"transport"`
 }
 
 type liveManifest struct {
@@ -217,6 +218,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
+	assertLiveRoleReportTransports(t, run, "review", true)
 	assertNoProjectLaneLocks(t, project)
 	securityProvider := requireLiveSelectedProvider(t, run, "security")
 	assertLiveSecurityDefect(t, project, run, securityProvider)
@@ -257,6 +259,7 @@ func runLiveChildProductionWorkflows(
 		)
 		assertLiveSourceLineage(t, followup, root, sourceFinding.ID, "")
 		assertLiveSourceBoundAssignment(t, followup, sourceFinding.Role, sourceFinding.ProviderInstance)
+		assertLiveRoleReportTransports(t, followup, "followup", false)
 	} else {
 		t.Logf("[test-e2e] skipping followup --finding: committed review has zero structured findings bound to successful selected providers")
 	}
@@ -269,6 +272,7 @@ func runLiveChildProductionWorkflows(
 	assertLiveAssignments(t, delta, map[string][2]string{
 		"logic": {"zcode-logic", "agy-logic"}, "security": {"zcode-security", "agy-security"}, "documentation": {"agy-documentation", "zcode-documentation"},
 	})
+	assertLiveRoleReportTransports(t, delta, "delta", false)
 
 	exact := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
 		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
@@ -276,6 +280,7 @@ func runLiveChildProductionWorkflows(
 	)
 	assertLiveSourceLineage(t, exact, root, "", "exact")
 	assertLiveSourceBoundAssignment(t, exact, sourceAttempt.Role, sourceAttempt.ProviderInstance)
+	assertLiveExactReplayRoleReportTransports(t, exact)
 
 	recompose := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
 		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
@@ -283,6 +288,7 @@ func runLiveChildProductionWorkflows(
 	)
 	assertLiveSourceLineage(t, recompose, root, "", "recompose")
 	assertLiveAssignments(t, recompose, map[string][2]string{"logic": {"zcode-logic", "agy-logic"}})
+	assertLiveRoleReportTransports(t, recompose, "recompose", false)
 }
 
 func liveInitArguments(environment liveE2EEnvironment, providers string) []string {
@@ -781,8 +787,8 @@ func TestLiveRoleReportInventoryRequiresCanonicalEquality(t *testing.T) {
 			SessionID: sessionID,
 			RunID:     runID,
 			RoleReports: []liveRoleReport{
-				{Role: "logic", Path: "role-reports/logic.md", SHA256: liveArtifactSHA256(logicBody), ByteLength: len(logicBody), ProviderInstance: "zcode-logic", AttemptID: logicAttempt, ContentType: "text/markdown"},
-				{Role: "security", Path: "role-reports/security.md", SHA256: liveArtifactSHA256(securityBody), ByteLength: len(securityBody), ProviderInstance: "agy-security", AttemptID: securityAttempt, ContentType: "text/markdown"},
+				{Role: "logic", Path: "role-reports/logic.md", SHA256: liveArtifactSHA256(logicBody), ByteLength: len(logicBody), ProviderInstance: "zcode-logic", AttemptID: logicAttempt, ContentType: "text/markdown", Transport: "staged_file"},
+				{Role: "security", Path: "role-reports/security.md", SHA256: liveArtifactSHA256(securityBody), ByteLength: len(securityBody), ProviderInstance: "agy-security", AttemptID: securityAttempt, ContentType: "text/markdown", Transport: "stdout"},
 			},
 		},
 		review: liveReview{
@@ -803,6 +809,41 @@ func TestLiveRoleReportInventoryRequiresCanonicalEquality(t *testing.T) {
 		{Role: "logic", URI: logicURI},
 		{Role: "security", URI: securityURI},
 	})
+	if err := validateLiveRoleReportTransports(run, true); err != nil {
+		t.Fatalf("canonical staged_file/stdout transport inventory was rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name          string
+		requireStaged bool
+		mutate        func(*livePublishedRun)
+	}{
+		{name: "missing transport", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "" }},
+		{name: "unknown transport", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "carrier_pigeon" }},
+		{name: "non-canonical case", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "STDOUT" }},
+		{name: "staged family downgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "stdout" }},
+		{name: "stdout family upgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "staged_file" }},
+		{name: "exact replay staged", mutate: func(value *livePublishedRun) {
+			value.manifest.ImmutableLineage.ReplayMode = strPtr("exact")
+		}},
+		{name: "no staged certification", requireStaged: true, mutate: func(value *livePublishedRun) {
+			value.manifest.RoleReports[0].ProviderInstance = "agy-logic"
+			value.manifest.RoleReports[0].Transport = "stdout"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := copyLiveRoleReportInventory(run)
+			test.mutate(&candidate)
+			if err := validateLiveRoleReportTransports(candidate, test.requireStaged); err == nil {
+				t.Fatalf("invalid role-report transport inventory was accepted: %#v", candidate.manifest.RoleReports)
+			}
+		})
+	}
+}
+
+func copyLiveRoleReportInventory(run livePublishedRun) livePublishedRun {
+	copied := run
+	copied.manifest.RoleReports = append([]liveRoleReport(nil), run.manifest.RoleReports...)
+	return copied
 }
 
 func TestLiveSecurityDefectAcceptance(t *testing.T) {
@@ -834,6 +875,7 @@ func TestLiveSecurityDefectAcceptance(t *testing.T) {
 					ProviderInstance: provider,
 					AttemptID:        attemptID,
 					ContentType:      "text/markdown",
+					Transport:        "staged_file",
 				}},
 			},
 			review: liveReview{
@@ -893,6 +935,7 @@ func TestLiveSecurityDefectAcceptance(t *testing.T) {
 					ProviderInstance: "zcode-logic",
 					AttemptID:        attemptID,
 					ContentType:      "text/markdown",
+					Transport:        "staged_file",
 				}},
 			},
 			review: liveReview{
@@ -917,6 +960,7 @@ func TestLiveSecurityDefectAcceptance(t *testing.T) {
 		t.Parallel()
 		project, run := newSecurityRun(t, defectBody, func(run *livePublishedRun) {
 			run.manifest.RoleReports[0].ProviderInstance = "agy-security"
+			run.manifest.RoleReports[0].Transport = "stdout"
 		})
 		if liveSecurityDefectPresent(project, run, provider) {
 			t.Fatal("security role report bound to a different provider was accepted")
@@ -1217,6 +1261,9 @@ func assertLiveRoleReportInventory(t *testing.T, project string, run livePublish
 			t.Fatalf("role report %q digest = %q, want %q", role, digest, report.SHA256)
 		}
 	}
+	if err := validateLiveRoleReportTransports(run, false); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertLiveRoleReportURIEquality(t *testing.T, left, right []liveRoleReportURI) {
@@ -1224,6 +1271,91 @@ func assertLiveRoleReportURIEquality(t *testing.T, left, right []liveRoleReportU
 	if !reflect.DeepEqual(left, right) {
 		t.Fatalf("role_report_uris mismatch: left=%#v right=%#v", left, right)
 	}
+}
+
+// liveProviderFamily returns the adapter family of a provider instance, which
+// production planning always names "<family>-<role>".
+func liveProviderFamily(providerInstance string) string {
+	if index := strings.Index(providerInstance, "-"); index > 0 {
+		return providerInstance[:index]
+	}
+	return ""
+}
+
+// liveExpectedRoleReportTransport is the adapter-owned transport a committed
+// role report must record. The transport is per provider family and never
+// configurable: ZCode review, followup, delta, and recomposed rerun invocations
+// hold the staged_file write grant, every other family keeps stdout, and an
+// exact replay always reproduces stdout because it acquires no fresh grant.
+func liveExpectedRoleReportTransport(providerInstance, replayMode string) string {
+	if replayMode == "exact" {
+		return "stdout"
+	}
+	if liveProviderFamily(providerInstance) == "zcode" {
+		return "staged_file"
+	}
+	return "stdout"
+}
+
+func liveReplayMode(manifest liveManifest) string {
+	if manifest.ImmutableLineage.ReplayMode == nil {
+		return ""
+	}
+	return *manifest.ImmutableLineage.ReplayMode
+}
+
+// validateLiveRoleReportTransports binds every committed role-report inventory
+// entry to the transport its producing provider family is granted. It is part
+// of the canonical-equality surface: an absent, unknown, downgraded, or
+// upgraded transport is a contract violation, never a transient condition.
+// requireStagedFile additionally certifies that the run actually exercised the
+// staged_file route at least once.
+func validateLiveRoleReportTransports(run livePublishedRun, requireStagedFile bool) error {
+	replayMode := liveReplayMode(run.manifest)
+	staged := 0
+	for _, report := range run.manifest.RoleReports {
+		if report.Transport != "staged_file" && report.Transport != "stdout" {
+			return fmt.Errorf("role report %q recorded transport %q, want the staged_file|stdout enum", report.Role, report.Transport)
+		}
+		want := liveExpectedRoleReportTransport(report.ProviderInstance, replayMode)
+		if report.Transport != want {
+			return fmt.Errorf("role report %q from %q recorded transport %q, want adapter-owned %q (replay_mode=%q)",
+				report.Role, report.ProviderInstance, report.Transport, want, replayMode)
+		}
+		if report.Transport == "staged_file" {
+			staged++
+		}
+	}
+	if requireStagedFile && staged == 0 {
+		return fmt.Errorf("committed role_reports carry no staged_file entry, so this run certified nothing about the provider-written staging transport: %#v", run.manifest.RoleReports)
+	}
+	return nil
+}
+
+func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label string, requireStagedFile bool) {
+	t.Helper()
+	if err := validateLiveRoleReportTransports(run, requireStagedFile); err != nil {
+		t.Fatalf("%s role-report transport inventory is invalid: %v", label, err)
+	}
+}
+
+// assertLiveExactReplayRoleReportTransports keeps byte-exact replay on the
+// stdout transport independently of the family grant: an exact replay must
+// reproduce the recorded transport rather than acquire a staging destination.
+func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRun) {
+	t.Helper()
+	if liveReplayMode(run.manifest) != "exact" {
+		t.Fatalf("exact replay manifest lost its replay lineage: %#v", run.manifest.ImmutableLineage)
+	}
+	if len(run.manifest.RoleReports) == 0 {
+		t.Fatalf("exact replay committed no role_reports inventory: %#v", run.manifest)
+	}
+	for _, report := range run.manifest.RoleReports {
+		if report.Transport != "stdout" {
+			t.Fatalf("exact replay role report %q from %q recorded transport %q, want byte-exact stdout", report.Role, report.ProviderInstance, report.Transport)
+		}
+	}
+	assertLiveRoleReportTransports(t, run, "exact", false)
 }
 
 func liveArtifactSHA256(content []byte) string {

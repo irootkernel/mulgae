@@ -1061,7 +1061,8 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
 			validFindingIDs: []string{}, limitations: []string{},
-			reportMarkdown: []byte("# logic review\n\nStructured provider review accepted.\n"),
+			reportMarkdown:  []byte("# logic review\n\nStructured provider review accepted.\n"),
+			outputTransport: ports.ProviderOutputTransportStdout,
 		},
 		{
 			role: domain.RoleSecurity, required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed",
@@ -1071,7 +1072,8 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
 			validFindingIDs: []string{}, limitations: []string{},
-			reportMarkdown: []byte("# security review\n\nStructured provider review accepted.\n"),
+			reportMarkdown:  []byte("# security review\n\nStructured provider review accepted.\n"),
+			outputTransport: ports.ProviderOutputTransportStdout,
 		},
 	}
 	candidate := PreparedCandidate{

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"reflect"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -22,6 +23,59 @@ const (
 // Valid reports whether purpose is a supported provider invocation purpose.
 func (purpose ProviderInvocationPurpose) Valid() bool {
 	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRepair
+}
+
+// ProviderOutputTransport identifies how one provider invocation is expected to
+// deliver its reviewable output. It records a transport fact only; it grants no
+// finding, validation, or publication authority.
+type ProviderOutputTransport string
+
+const (
+	ProviderOutputTransportStdout     ProviderOutputTransport = "stdout"
+	ProviderOutputTransportStagedFile ProviderOutputTransport = "staged_file"
+)
+
+// Valid reports whether transport is a supported provider output transport.
+func (transport ProviderOutputTransport) Valid() bool {
+	return transport == ProviderOutputTransportStdout || transport == ProviderOutputTransportStagedFile
+}
+
+// StagedOutputDestination is the immutable Mulgae-chosen location of the single
+// file a staged_file provider invocation may write. Both components are owned
+// by Mulgae: provider output never selects the directory or the file name.
+type StagedOutputDestination struct {
+	directory string
+	filename  string
+}
+
+// NewStagedOutputDestination validates a canonical absolute staging directory
+// and the single safe base name Mulgae requires the provider to write.
+func NewStagedOutputDestination(directory, filename string) (StagedOutputDestination, error) {
+	if err := validateStagedOutputDirectory(directory); err != nil {
+		return StagedOutputDestination{}, fmt.Errorf("staged output destination: directory %w", err)
+	}
+	if err := validateStagedOutputFilename(filename); err != nil {
+		return StagedOutputDestination{}, fmt.Errorf("staged output destination: filename %w", err)
+	}
+	return StagedOutputDestination{directory: directory, filename: filename}, nil
+}
+
+// Directory returns the canonical absolute per-invocation staging directory.
+func (destination StagedOutputDestination) Directory() string { return destination.directory }
+
+// Filename returns the safe base name Mulgae requires the provider to write.
+func (destination StagedOutputDestination) Filename() string { return destination.filename }
+
+// AbsolutePath returns the exact absolute path the provider is instructed to
+// write. It is always the join of the canonical directory and the base name.
+func (destination StagedOutputDestination) AbsolutePath() string {
+	return filepath.Join(destination.directory, destination.filename)
+}
+
+// Valid reports whether destination is a complete canonical staging location.
+func (destination StagedOutputDestination) Valid() bool {
+	_, err := NewStagedOutputDestination(destination.directory, destination.filename)
+	return err == nil
 }
 
 // ProviderPacketIdentity is the immutable v1 identity of the complete provider
@@ -93,6 +147,8 @@ type ProviderInvocation struct {
 	workspace             WorkspaceExecutionAuthority
 	workspaceIdentity     WorkspaceSnapshotIdentity
 	hasWorkspace          bool
+	stagedOutput          StagedOutputDestination
+	hasStagedOutput       bool
 }
 
 // NewProviderInvocationWithPacket validates trusted provider invocation identity.
@@ -144,6 +200,28 @@ func NewProviderInvocationWithPacketInWorkspace(
 	return invocation, nil
 }
 
+// NewProviderInvocationWithStagedOutput binds the Mulgae-owned staged output
+// destination to an already validated invocation. Every other constructor
+// leaves the destination absent, which keeps the implicit stdout transport.
+func NewProviderInvocationWithStagedOutput(invocation ProviderInvocation, destination StagedOutputDestination) (ProviderInvocation, error) {
+	canonical, err := canonicalProviderInvocation(invocation)
+	if err != nil {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: %w", err)
+	}
+	return withStagedOutputDestination(canonical, destination)
+}
+
+// withStagedOutputDestination attaches a validated destination without
+// re-canonicalizing, so canonicalization itself can re-attach without recursion.
+func withStagedOutputDestination(invocation ProviderInvocation, destination StagedOutputDestination) (ProviderInvocation, error) {
+	if !destination.Valid() {
+		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid staged output destination")
+	}
+	invocation.stagedOutput = destination
+	invocation.hasStagedOutput = true
+	return invocation, nil
+}
+
 // NewProviderInvocation is the source-compatible stdin-named packet wrapper.
 func NewProviderInvocation(role domain.Role, providerInstance string, attemptID domain.AttemptID, purpose ProviderInvocationPurpose, stdin []byte, sourceInvocationID, executionInvocationID, completeStdinSHA256 string) (ProviderInvocation, error) {
 	packet, err := NewProviderPacket(stdin, completeStdinSHA256)
@@ -185,6 +263,13 @@ func (invocation ProviderInvocation) ExecutionWorkspace() (WorkspaceExecutionAut
 // execution authority, without exposing execution authority through prompt data.
 func (invocation ProviderInvocation) WorkspaceSnapshotIdentity() (WorkspaceSnapshotIdentity, bool) {
 	return invocation.workspaceIdentity, invocation.hasWorkspace
+}
+
+// StagedOutputDestination returns the Mulgae-chosen staged output location when
+// this invocation was created for the staged_file transport. An absent
+// destination means the invocation delivers its output through stdout.
+func (invocation ProviderInvocation) StagedOutputDestination() (StagedOutputDestination, bool) {
+	return invocation.stagedOutput, invocation.hasStagedOutput
 }
 
 // CompleteStdinSHA256 is a deprecated packet identity alias.
@@ -258,6 +343,31 @@ func nilWorkspaceExecutionAuthority(authority WorkspaceExecutionAuthority) bool 
 	default:
 		return false
 	}
+}
+
+// validateStagedOutputDirectory accepts the canonical absolute directory rules
+// already required of an anchored root, and additionally refuses the filesystem
+// root so a per-invocation staging area is always a dedicated subdirectory.
+func validateStagedOutputDirectory(value string) error {
+	if err := validateAnchoredRoot(value); err != nil {
+		return err
+	}
+	if value == string(filepath.Separator) {
+		return fmt.Errorf("must not be the filesystem root")
+	}
+	return nil
+}
+
+// validateStagedOutputFilename accepts exactly one safe, traversal-free base
+// name inside the staging directory.
+func validateStagedOutputFilename(value string) error {
+	if err := validateSafeRelativePath(value); err != nil {
+		return err
+	}
+	if filepath.Base(value) != value {
+		return fmt.Errorf("must be a single base name")
+	}
+	return nil
 }
 
 func validateProviderInvocationID(value, prefix string) error {

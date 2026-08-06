@@ -98,6 +98,16 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 			t.Fatalf("transport/lifecycle subtype %q is not closed", cause)
 		}
 	}
+	for _, cause := range []RuntimeDiagnosticCause{
+		DiagnosticCauseProviderOutputFileMissing,
+		DiagnosticCauseProviderOutputFileInvalid,
+		DiagnosticCauseProviderOutputStagingViolation,
+		DiagnosticCauseProviderOutputStagingCleanupFailed,
+	} {
+		if !cause.Valid() {
+			t.Fatalf("staged-output transport subtype %q is not closed", cause)
+		}
+	}
 	if !DiagnosticStdout.Valid() || RuntimeDiagnosticStream("combined").Valid() {
 		t.Fatal("stream set is not closed")
 	}

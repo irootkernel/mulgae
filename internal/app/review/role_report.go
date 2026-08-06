@@ -7,6 +7,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // maxRoleReportBytes bounds Mulgae-owned free-form role report bodies. It matches
@@ -40,6 +41,7 @@ func NewReportsOnlyValidatedRoleOutput(
 		reportsOnly:      true,
 		parseState:       domain.ParseNotStarted,
 		validationState:  domain.ValidationNotStarted,
+		outputTransport:  ports.ProviderOutputTransportStdout,
 	}
 	if err := output.validate(); err != nil {
 		return ValidatedRoleOutput{}, err

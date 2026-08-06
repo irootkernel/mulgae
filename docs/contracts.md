@@ -80,15 +80,47 @@ most one top-level final review. Failed or repaired candidates remain beneath
 `attempts/`.
 
 Successful selected roles also publish exactly one Mulgae-owned free-form role
-report under `role-reports/<role>.md`. Mulgae captures bounded provider
-assistant content through the existing process boundary and writes those bytes;
-providers never write directly into trusted publication state. Additive
-`manifest.role_reports[]` records role, path, digest, byte length,
-`provider_instance`, selected `attempt_id`, and `content_type` (`text/markdown`).
-It never invents `source_invocation_id`. CLI success envelopes expose
+report under `role-reports/<role>.md`. Mulgae alone writes trusted publication
+state; providers never write into it. Additive `manifest.role_reports[]`
+records role, path, digest, byte length, `provider_instance`, selected
+`attempt_id`, `content_type` (`text/markdown`), and the required `transport`
+(`staged_file` or `stdout`) that carried the accepted bytes for that role. It
+never invents `source_invocation_id`. CLI success envelopes expose
 project-relative `role_report_uris` derived from the verified committed
 manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
+
+`transport` is adapter-owned per provider family, not configurable. ZCode
+review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
+Exact replay (`rerun --exact`) is always `stdout`, because a replay reproduces
+the transport its original recorded rather than acquiring a fresh write grant.
+Followup, delta, recomposed rerun, and rerun record `transport` identically,
+read from the terminal observation of the selected attempt.
+
+On a `staged_file` route the provider writes exactly one untrusted file,
+`role-report.md`, into a fresh per-invocation staging directory Mulgae creates
+under the provider's disposable namespace scratch area, outside the sealed
+snapshot and outside `.mulgae`. The prompt's last trusted layer,
+`review:output-destination`, states that exact absolute path; a staged launch
+whose packet does not carry its own destination layer fails closed before the
+process starts. After the process has fully terminated, the adapter validates
+the staged file through the descriptors it retained at creation, reads those
+exact bytes, and runs the same acceptance pipeline as stdout bytes: free-form
+primary, optional structured extraction, one constrained repair. Accepted bytes
+are copied into the Mulgae-owned `role-reports/<role>.md`; the provider-owned
+inode is never published. Staging is always removed. Process stdout and stderr
+stay bounded private diagnostics for a staged launch, and standard output is
+ignored for acceptance.
+
+Staged-file failures are classified, not merged. A missing, empty,
+whitespace-only, non-UTF-8, NUL-bearing, or oversize (over 8 MiB) staged file
+is an operational invalid-provider-output outcome, so a configured fallback may
+still run. A staging boundary violation is a security fail-closed outcome that
+never authorizes fallback or publication: a symbolic link, an extra hard link,
+a non-regular file, an extra directory entry, ownership, mode, or descriptor
+identity drift, content that changed while it was read, or a staging path this
+adapter did not itself choose. Staging that Mulgae cannot prove it removed is
+an artifact failure that overrides provider success.
 
 Markdown/prose is normal success. Mulgae records
 `structured_extraction_status` as `structured`, `mixed`, or `reports_only`.

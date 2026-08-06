@@ -7,6 +7,7 @@ import (
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -32,13 +33,45 @@ type ProductionFollowupPromptSource struct {
 	roleTask         func() (prompt.RoleTaskID, error)
 	providerInstance string
 	workspace        ports.WorkspaceExecutionAuthority
+	// staging is the adapter-owned locator that decides, per launch, whether the
+	// followup provider must write its report to a Mulgae-chosen staged file. It
+	// is nil for every stdout composition, which leaves the trusted template and
+	// the invocation transport untouched.
+	staging ports.ProviderOutputStagingLocator
 }
 
 func NewProductionFollowupPromptSource(ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error), providerInstance string, workspace ports.WorkspaceExecutionAuthority) (*ProductionFollowupPromptSource, error) {
+	return NewProductionFollowupPromptSourceWithStaging(ids, roleTask, providerInstance, workspace, nil)
+}
+
+// NewProductionFollowupPromptSourceWithStaging binds the adapter-owned staging
+// locator to the followup prompt authority. Each followup launch then states
+// its own resolved absolute destination exactly as root review does, and the
+// invocation it returns carries that same destination.
+func NewProductionFollowupPromptSourceWithStaging(ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error), providerInstance string, workspace ports.WorkspaceExecutionAuthority, staging ports.ProviderOutputStagingLocator) (*ProductionFollowupPromptSource, error) {
 	if ids == nil || roleTask == nil || providerInstance == "" || workspace == nil || !workspace.WorkspaceSnapshotIdentity().Valid() {
 		return nil, fmt.Errorf("followup prompt source: incomplete authority")
 	}
-	return &ProductionFollowupPromptSource{ids: ids, roleTask: roleTask, providerInstance: providerInstance, workspace: workspace}, nil
+	source := &ProductionFollowupPromptSource{ids: ids, roleTask: roleTask, providerInstance: providerInstance, workspace: workspace}
+	if !nilInterface(staging) {
+		source.staging = staging
+	}
+	return source, nil
+}
+
+// stagedOutputDestination resolves the Mulgae-owned destination for exactly one
+// followup launch. It mirrors review.ResolveStagedOutputDestination for a
+// launch that has no coordinator invocation job: initial and repair are
+// distinct launches, so each resolves its own absolute path.
+func (source *ProductionFollowupPromptSource) stagedOutputDestination(attemptID domain.AttemptID, purpose ports.ProviderInvocationPurpose) (ports.StagedOutputDestination, bool) {
+	if source == nil || nilInterface(source.staging) {
+		return ports.StagedOutputDestination{}, false
+	}
+	destination, transport, ok := source.staging.ProviderOutputStagingDestination(source.providerInstance, attemptID, purpose)
+	if !ok || transport != ports.ProviderOutputTransportStagedFile || !destination.Valid() {
+		return ports.StagedOutputDestination{}, false
+	}
+	return destination, true
 }
 
 func (source *ProductionFollowupPromptSource) BuildFollowupInvocation(ctx context.Context, execution appfollowup.Execution, run domain.Run, attemptID domain.AttemptID) (ports.ProviderInvocation, error) {
@@ -66,6 +99,15 @@ func (source *ProductionFollowupPromptSource) buildFollowupInvocation(ctx contex
 	if purpose == ports.ProviderInvocationRepair {
 		template, err = prompt.NewTrustedTemplateWithOpaqueLayer("followup-repair", "v1", []byte(productionFollowupRepairTemplate))
 		if err != nil {
+			return ports.ProviderInvocation{}, err
+		}
+	}
+	// A staged launch must state its own resolved absolute path to the provider.
+	// The destination contract is review-owned, and it is always appended last so
+	// it supersedes every earlier stdout instruction.
+	destination, staged := source.stagedOutputDestination(attemptID, purpose)
+	if staged {
+		if template, err = review.ComposeRootReviewOutputDestination(template, destination); err != nil {
 			return ports.ProviderInvocation{}, err
 		}
 	}
@@ -101,7 +143,11 @@ func (source *ProductionFollowupPromptSource) buildFollowupInvocation(ctx contex
 	if err != nil {
 		return ports.ProviderInvocation{}, err
 	}
-	return ports.NewProviderInvocationWithPacketInWorkspace(execution.Source.Finding.Role, source.providerInstance, attemptID, purpose, packet, compiledScope.SourceInvocationID().String(), compiledScope.ExecutionInvocationID().String(), source.workspace)
+	invocation, err := ports.NewProviderInvocationWithPacketInWorkspace(execution.Source.Finding.Role, source.providerInstance, attemptID, purpose, packet, compiledScope.SourceInvocationID().String(), compiledScope.ExecutionInvocationID().String(), source.workspace)
+	if err != nil || !staged {
+		return invocation, err
+	}
+	return ports.NewProviderInvocationWithStagedOutput(invocation, destination)
 }
 
 func (source *ProductionFollowupPromptSource) BuildFollowupRuntimeArtifact(_ context.Context, execution appfollowup.Execution, run domain.Run, invocation ports.ProviderInvocation) (publication.FollowupRuntimeArtifactInput, error) {
@@ -111,6 +157,13 @@ func (source *ProductionFollowupPromptSource) BuildFollowupRuntimeArtifact(_ con
 	}
 	if err != nil {
 		return publication.FollowupRuntimeArtifactInput{}, err
+	}
+	// A staged launch compiled one extra trusted layer, so the published template
+	// identity must describe that exact composition rather than the base one.
+	if destination, staged := invocation.StagedOutputDestination(); staged {
+		if template, err = review.ComposeRootReviewOutputDestination(template, destination); err != nil {
+			return publication.FollowupRuntimeArtifactInput{}, err
+		}
 	}
 	return publication.FollowupRuntimeArtifactInput{
 		RuntimeRunID: run.ID(), RuntimeAttemptID: invocation.AttemptID(), RuntimeSequence: followupInvocationSequence(invocation.Purpose()),

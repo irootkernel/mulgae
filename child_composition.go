@@ -81,7 +81,10 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 		}
 	}()
 	promptIDs := productionPromptIDs{ids: graph.ids, clock: graph.clock}
-	prompts, err := childrun.NewProductionFollowupPromptSource(promptIDs, promptIDs.newRoleTaskID, sourceProviderForFinding(source), captured.WorkspaceLease())
+	prompts, err := childrun.NewProductionFollowupPromptSourceWithStaging(
+		promptIDs, promptIDs.newRoleTaskID, sourceProviderForFinding(source), captured.WorkspaceLease(),
+		childrun.ProviderOutputStagingLocator(authority.Provider()),
+	)
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
@@ -269,7 +272,11 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 		return nil, nil, err
 	}
 	promptIDs := productionPromptIDs{ids: graph.ids, clock: graph.clock}
-	promptSource, err := reviewrun.NewProductionPromptSource(captured.Input(), graph.templates, promptIDs, promptIDs.newRoleTaskID)
+	// Delta and recomposed rerun compose current templates, so both state their
+	// own staged destination once the locator is bound here. Exact replay
+	// reproduces stored wire bytes and is excluded by the runtime itself.
+	stagingLocator := childrun.ProviderOutputStagingLocator(authority.Provider())
+	promptSource, err := reviewrun.NewProductionPromptSourceWithStaging(captured.Input(), graph.templates, promptIDs, promptIDs.newRoleTaskID, stagingLocator)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -281,6 +288,11 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 	runtime, err := review.NewObservedProviderInvocationRuntimeWithWorkspace(provider, trustedPrompts, captured.WorkspaceLease(), graph.reviewValidator, verifier)
 	if err != nil {
 		return nil, nil, err
+	}
+	if stagingLocator != nil {
+		if err := runtime.BindProviderOutputStaging(stagingLocator); err != nil {
+			return nil, nil, fmt.Errorf("child composition: provider output staging: %w", err)
+		}
 	}
 	coordinator, err := review.NewCoordinator(graph.clock, graph.ids, runtime, graph.locker, plan.MaxLanes, receipt)
 	if err != nil {

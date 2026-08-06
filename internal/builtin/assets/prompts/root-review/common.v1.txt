@@ -11,3 +11,4 @@ When reporting defects, prefer concrete, actionable observations with path/line 
 It is valid to report no defects. Put material uncertainty and coverage limits in the report.
 Severity, when used in structured JSON, is impact, not certainty: info=actionable observation; low=minor real defect; medium=bounded material defect; high=likely major user/security/correctness impact; critical=catastrophic or broadly exploitable impact; blocker=prevents safe use or review. Confidence is independent.
 For an initial invocation follow the final output contract. If a later Mulgae repair contract is present, that later contract selects the repair response form.
+If a later Mulgae output destination contract is present, it grants the single exception to the no-file-modification rule above: write your complete report to exactly the one file it names, and standard output is then ignored for acceptance.

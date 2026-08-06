@@ -539,6 +539,88 @@ func TestFinalProductionProvenanceRejectsEachMutatedField(t *testing.T) {
 	}
 }
 
+func TestManifestRoleReportRecordsTransport(t *testing.T) {
+	t.Parallel()
+
+	stdoutOnly := publicationTestCandidate(t, false).ValidatedCandidateSHA256()
+	candidate := publicationTestCandidate(t, false)
+	candidate.roles[1].outputTransport = ports.ProviderOutputTransportStagedFile
+	if digest := candidate.ValidatedCandidateSHA256(); digest == "" || digest == stdoutOnly {
+		t.Fatalf("validated candidate identity = %q, want a value bound to the role output transport", digest)
+	}
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !bundle.Valid() {
+		t.Fatal("bundle with mixed role-report transports failed its semantic reopen")
+	}
+	var manifest runManifestWire
+	if err := unmarshalExact(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.RoleReports) != 2 ||
+		manifest.RoleReports[0].Transport != string(ports.ProviderOutputTransportStdout) ||
+		manifest.RoleReports[1].Transport != string(ports.ProviderOutputTransportStagedFile) {
+		t.Fatalf("manifest role report transports = %#v", manifest.RoleReports)
+	}
+
+	snapshot, err := ports.NewCommittedPublicationSnapshot(
+		bundle.Final(), bundle.Manifest(), bundle.LineageEdge(), bundle.Epoch(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports, err := ProjectCommittedRoleReports(snapshot)
+	if err != nil {
+		t.Fatalf("ProjectCommittedRoleReports() error = %v", err)
+	}
+	if len(reports) != 2 ||
+		reports[0].Transport != string(ports.ProviderOutputTransportStdout) ||
+		reports[1].Transport != string(ports.ProviderOutputTransportStagedFile) {
+		t.Fatalf("committed role report transports = %#v", reports)
+	}
+}
+
+func TestManifestRoleReportsRejectUnknownTransport(t *testing.T) {
+	t.Parallel()
+
+	candidate := publicationTestCandidate(t, false)
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var manifest runManifestWire
+	if err := unmarshalExact(bundle.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	var final finalReviewWire
+	if err := unmarshalExact(bundle.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManifestRoleReports(manifest, final); err != nil {
+		t.Fatalf("committed role reports rejected before tampering: %v", err)
+	}
+	for _, transport := range []string{"carrier_pigeon", "STDOUT", ""} {
+		tampered := manifest
+		tampered.RoleReports = append([]manifestRoleReportWire(nil), manifest.RoleReports...)
+		tampered.RoleReports[0].Transport = transport
+		if err := validateManifestRoleReports(tampered, final); err == nil {
+			t.Fatalf("reader accepted role report transport %q", transport)
+		}
+	}
+
+	emitted := bundle.Manifest().Bytes()
+	stripped := bytes.Replace(emitted, []byte(`,"transport":"stdout"`), nil, 1)
+	if bytes.Equal(stripped, emitted) {
+		t.Fatal("manifest did not emit a canonical role-report transport")
+	}
+	var decoded runManifestWire
+	if err := unmarshalCanonicalPublicationRecord(stripped, &decoded, "committed manifest"); err == nil {
+		t.Fatal("reader accepted a manifest whose role report omits transport")
+	}
+}
+
 func cloneProductionWire(value *productionProvenanceWire) *productionProvenanceWire {
 	result := *value
 	if value.ObjectiveSHA256 != nil {

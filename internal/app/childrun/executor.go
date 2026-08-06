@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/delta"
@@ -449,6 +450,36 @@ func (executor *Executor) executeReplay(ctx context.Context, run *domain.Run, ch
 		TemplateID:                  child.Exact.TemplateID, TemplateVersion: child.Exact.TemplateVersion, TemplateSHA256: child.Exact.TemplateSHA256,
 		AdapterProfile: child.Exact.AdapterProfile, AdapterParameters: parameters,
 	})
+}
+
+// ProviderOutputStagingLocator returns the adapter-owned staging authority when
+// the qualified provider registry implements it. It is the single assertion
+// idiom every child workflow uses to thread staging into its prompt authority
+// and its review runtime. A provider without that authority resolves no
+// destination, so every child launch keeps the stdout transport and legacy or
+// fake providers are unaffected.
+func ProviderOutputStagingLocator(provider ports.ObservedReviewProvider) ports.ProviderOutputStagingLocator {
+	if nilInterface(provider) {
+		return nil
+	}
+	locator, ok := provider.(ports.ProviderOutputStagingLocator)
+	if !ok || nilInterface(locator) {
+		return nil
+	}
+	return locator
+}
+
+func nilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface, reflect.Func, reflect.Chan:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func supportURI(root ports.AnchoredRoot, path ports.SafeRelativePath) string {

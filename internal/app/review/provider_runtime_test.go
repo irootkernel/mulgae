@@ -837,6 +837,10 @@ func TestRuntimeCauseConditionPreservesValidationAndSpawnStages(t *testing.T) {
 		{domain.DiagnosticCauseProviderSpawnFailed, AttemptConditionProviderSpawnFailed},
 		{domain.DiagnosticCauseAuthenticationFailed, AttemptConditionAuthentication},
 		{domain.DiagnosticCausePermissionDenied, AttemptConditionProviderPermissionDenied},
+		{domain.DiagnosticCauseProviderOutputFileMissing, AttemptConditionProviderOutputMissing},
+		{domain.DiagnosticCauseProviderOutputFileInvalid, AttemptConditionProviderOutputDecodeFailed},
+		{domain.DiagnosticCauseProviderOutputStagingViolation, AttemptConditionSecurityViolation},
+		{domain.DiagnosticCauseProviderOutputStagingCleanupFailed, AttemptConditionArtifactFailure},
 	}
 	for _, test := range tests {
 		if got := runtimeCauseCondition(test.cause); got != test.want {
@@ -880,7 +884,7 @@ func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-			outcome := runtime.accept(context.Background(), job, validated, nil)
+			outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 			if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
 				t.Fatalf("quote mismatch outcome = %#v", outcome)
 			}
@@ -909,7 +913,7 @@ func TestRepairQuoteMismatchIsUnrepairableForOptionalSeverity(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-	outcome := runtime.accept(context.Background(), job, validated, nil)
+	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionUnrepairableEvidence || len(runtime.pending) != 0 {
 		t.Fatalf("repair quote mismatch outcome = %#v, pending=%#v", outcome, runtime.pending)
 	}
@@ -930,7 +934,7 @@ func TestRepairCorrectedOptionalQuoteMismatchSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
-	outcome := runtime.accept(context.Background(), job, validated, nil)
+	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 	if !outcome.Succeeded() || len(runtime.pending) != 0 {
 		t.Fatalf("corrected repair outcome = %#v, pending=%#v", outcome, runtime.pending)
 	}
@@ -1152,4 +1156,629 @@ func repairWorkspaceIdentity(t *testing.T, invocation ports.ProviderInvocation) 
 		t.Fatal("repair invocation has no workspace identity")
 	}
 	return identity
+}
+
+// providerRuntimeStreamLimit matches the explicit fixture stream ceilings so a
+// fake observation is always coherent with the job limits.
+const providerRuntimeStreamLimit = 1 << 20
+
+// providerRuntimeObservation describes one fake provider execution. staged
+// selects the staged_file transport and carries the bytes Mulgae read back from
+// the staged file; stdout alone selects the ordinary stdout transport; cause
+// selects a classified failure; boundary returns an error instead.
+type providerRuntimeObservation struct {
+	staged     []byte
+	stdout     []byte
+	stderr     []byte
+	status     ports.ProviderExecutionStatus
+	diagnostic string
+	cause      domain.RuntimeDiagnosticCause
+	boundary   error
+}
+
+type recordingObservedProvider struct {
+	t           *testing.T
+	responses   []providerRuntimeObservation
+	invocations []ports.ProviderInvocation
+}
+
+func (provider *recordingObservedProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	provider.t.Helper()
+	index := len(provider.invocations)
+	provider.invocations = append(provider.invocations, invocation)
+	if index >= len(provider.responses) {
+		return ports.ProviderExecutionObservation{}, fmt.Errorf("unexpected provider invocation %d", index+1)
+	}
+	response := provider.responses[index]
+	if response.boundary != nil {
+		return ports.ProviderExecutionObservation{}, response.boundary
+	}
+	process := providerRuntimeProcessObservation(provider.t, invocation, response.stdout, response.stderr)
+	if response.cause != "" {
+		observation, err := ports.NewFailedProviderExecutionObservationWithCause(
+			response.status, invocation, process, response.diagnostic, response.cause, "",
+			providerRuntimeStreamLimit, providerRuntimeStreamLimit,
+		)
+		if err != nil {
+			provider.t.Fatal(err)
+		}
+		return observation, nil
+	}
+	if response.staged != nil {
+		result, err := ports.NewProviderResultForInput(response.staged, invocation.InputIdentity())
+		if err != nil {
+			provider.t.Fatal(err)
+		}
+		receipt, err := ports.NewStagedOutputReceipt(sha256Identifier(response.staged), int64(len(response.staged)))
+		if err != nil {
+			provider.t.Fatal(err)
+		}
+		observation, err := ports.NewStagedFileSuccessfulProviderExecutionObservation(
+			invocation, result, process, providerRuntimeStreamLimit, providerRuntimeStreamLimit, receipt,
+		)
+		if err != nil {
+			provider.t.Fatal(err)
+		}
+		return observation, nil
+	}
+	result, err := ports.NewProviderResultForInput(response.stdout, invocation.InputIdentity())
+	if err != nil {
+		provider.t.Fatal(err)
+	}
+	observation, err := ports.NewSuccessfulProviderExecutionObservation(
+		invocation, result, process, providerRuntimeStreamLimit, providerRuntimeStreamLimit,
+	)
+	if err != nil {
+		provider.t.Fatal(err)
+	}
+	return observation, nil
+}
+
+func providerRuntimeProcessObservation(t *testing.T, invocation ports.ProviderInvocation, stdout, stderr []byte) ports.ProcessObservation {
+	t.Helper()
+	packet := invocation.PacketBytes()
+	receipt, err := ports.NewStdinWriteReceipt(
+		int64(len(packet)), int64(len(packet)), providerRuntimePacketDigest(packet), true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitCode := 0
+	started := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	process, err := ports.NewProcessObservation(
+		stdout, stderr, &exitCode, ports.ProcessTerminationExited, receipt, started, started.Add(250*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return process
+}
+
+// providerRuntimeStagingLocator mirrors the adapter locator: one staging
+// directory per attempt and purpose, and a declared stdout transport for every
+// instance that does not stage. It is pure identity; nothing here touches disk.
+type providerRuntimeStagingLocator struct {
+	stagedInstance string
+}
+
+func (locator providerRuntimeStagingLocator) ProviderOutputStagingDestination(
+	providerInstance string,
+	attemptID domain.AttemptID,
+	purpose ports.ProviderInvocationPurpose,
+) (ports.StagedOutputDestination, ports.ProviderOutputTransport, bool) {
+	if providerInstance != locator.stagedInstance {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, true
+	}
+	ordinal := 0
+	if purpose == ports.ProviderInvocationRepair {
+		ordinal = 1
+	}
+	destination, err := ports.NewStagedOutputDestination(
+		fmt.Sprintf("/mulgae/scratch/output/%s-%d", attemptID.String(), ordinal), "role-report.md",
+	)
+	if err != nil {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	return destination, ports.ProviderOutputTransportStagedFile, true
+}
+
+// providerRuntimeStagingPromptSource composes one launch prompt exactly as the
+// production prompt authority does: the repair contract is appended for a repair
+// launch and the Mulgae-owned output destination layer is always appended last.
+type providerRuntimeStagingPromptSource struct {
+	t           *testing.T
+	template    prompt.TrustedTemplate
+	scope       prompt.ScopeCoordinates
+	target      []byte
+	locator     ports.ProviderOutputStagingLocator
+	sourceID    prompt.SourceInvocationID
+	executionID prompt.ExecutionInvocationID
+	prompts     []RuntimePrompt
+}
+
+func (source *providerRuntimeStagingPromptSource) Prompt(_ context.Context, job InvocationJob, repair *InvocationRepairInput) (RuntimePrompt, error) {
+	source.t.Helper()
+	template := source.template
+	if repair != nil {
+		layers, err := trustedLayersForRepair(template)
+		if err != nil {
+			return RuntimePrompt{}, err
+		}
+		repairLayer, err := prompt.NewTrustedLayer(
+			"review:repair-plan", "1", []byte("Mulgae ROOT REVIEW REPAIR PLAN/1\nmode:"+string(repair.Plan().Mode())),
+		)
+		if err != nil {
+			return RuntimePrompt{}, err
+		}
+		template, err = prompt.ComposeTrustedTemplate(template.ID()+"/repair", "1", append(layers, repairLayer)...)
+		if err != nil {
+			return RuntimePrompt{}, err
+		}
+	}
+	if destination, staged := ResolveStagedOutputDestination(source.locator, job); staged {
+		composed, err := ComposeRootReviewOutputDestination(template, destination)
+		if err != nil {
+			return RuntimePrompt{}, err
+		}
+		template = composed
+	}
+	compiler, err := prompt.NewCompiler(template, explicitRuntimeTestIssuer{source: source.sourceID, execution: source.executionID})
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	compiled, err := compiler.Compile(prompt.CompileInput{Scope: source.scope, ReviewTarget: prompt.NewPayload(source.target)})
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	material := RuntimePrompt{
+		Prompt: compiled, Target: append([]byte(nil), source.target...), AdapterProfile: "test-profile",
+	}
+	source.prompts = append(source.prompts, material)
+	return material, nil
+}
+
+// providerRuntimeObservedFixture binds an observation-boundary provider and the
+// launch-aware prompt authority to the explicit fixture, then binds the same
+// locator to the runtime so both resolve every destination identically.
+func providerRuntimeObservedFixture(
+	t *testing.T,
+	provider ports.ObservedReviewProvider,
+	locator ports.ProviderOutputStagingLocator,
+) (*ProviderInvocationRuntime, InvocationJob, *providerRuntimeStagingPromptSource) {
+	t.Helper()
+	runtime, job, material := providerRuntimeExplicitFixture(t, nil)
+	scope := material.Prompt.Scope()
+	source := &providerRuntimeStagingPromptSource{
+		t: t, template: material.Prompt.TrustedTemplate(), scope: scope.Coordinates(),
+		target: material.Target, locator: locator,
+		sourceID: scope.SourceInvocationID(), executionID: scope.ExecutionInvocationID(),
+	}
+	runtime.provider = nil
+	runtime.observed = provider
+	runtime.source = source
+	if !nilInterface(locator) {
+		if err := runtime.BindProviderOutputStaging(locator); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return runtime, job, source
+}
+
+// providerRuntimeStagedLocator stages every launch of the fixture instance.
+func providerRuntimeStagedLocator() providerRuntimeStagingLocator {
+	return providerRuntimeStagingLocator{stagedInstance: "fake.logic"}
+}
+
+func TestInvokeAcceptsStagedFileReportWithEmptyStdout(t *testing.T) {
+	staged := []byte("# logic review\n\nStaged report body.\n")
+	provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{staged: staged}}}
+	runtime, job, _ := providerRuntimeObservedFixture(t, provider, providerRuntimeStagedLocator())
+
+	outcome := runtime.Invoke(context.Background(), job)
+	if !outcome.Succeeded() || len(provider.invocations) != 1 {
+		t.Fatalf("staged outcome = %#v invocations=%d", outcome, len(provider.invocations))
+	}
+	output, ok := outcome.Output()
+	if !ok || !output.ReportsOnly() || !bytes.Equal(output.ReportMarkdown(), staged) {
+		t.Fatalf("staged report = reportsOnly=%t markdown=%q present=%t", output.ReportsOnly(), output.ReportMarkdown(), ok)
+	}
+	capture, present := runtime.Capture(job.AttemptID(), invocationSequence(domain.InvocationInitial))
+	if !present || len(capture.Artifacts()) != 0 {
+		t.Fatalf("empty process streams captured artifacts: %#v present=%t", capture.Artifacts(), present)
+	}
+}
+
+func TestInvokeRecordsStagedFileTransportOnRoleOutput(t *testing.T) {
+	prose := []byte("# logic review\n\nLooks fine.\n")
+	for _, test := range []struct {
+		name     string
+		response providerRuntimeObservation
+		staged   bool
+		want     ports.ProviderOutputTransport
+	}{
+		{name: "staged file", response: providerRuntimeObservation{staged: prose}, staged: true, want: ports.ProviderOutputTransportStagedFile},
+		{name: "stdout", response: providerRuntimeObservation{stdout: prose}, want: ports.ProviderOutputTransportStdout},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{test.response}}
+			var locator ports.ProviderOutputStagingLocator
+			if test.staged {
+				locator = providerRuntimeStagedLocator()
+			}
+			runtime, job, _ := providerRuntimeObservedFixture(t, provider, locator)
+			outcome := runtime.Invoke(context.Background(), job)
+			output, ok := outcome.Output()
+			if !outcome.Succeeded() || !ok {
+				t.Fatalf("outcome = %#v output present=%t", outcome, ok)
+			}
+			if output.OutputTransport() != test.want {
+				t.Fatalf("role output transport = %q, want %q", output.OutputTransport(), test.want)
+			}
+		})
+	}
+}
+
+func TestInvokeStructuredExtractionRunsOnStagedFileBytes(t *testing.T) {
+	staged := []byte("# logic review\n\n```json\n" + string(validNoFindingReview()) + "\n```\n")
+	provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{staged: staged}}}
+	runtime, job, _ := providerRuntimeObservedFixture(t, provider, providerRuntimeStagedLocator())
+
+	outcome := runtime.Invoke(context.Background(), job)
+	output, ok := outcome.Output()
+	if !outcome.Succeeded() || !ok {
+		t.Fatalf("structured staged outcome = %#v output present=%t", outcome, ok)
+	}
+	if output.ReportsOnly() || output.ParseState() != domain.ParseValid || output.ValidationState() != domain.ValidationValid {
+		t.Fatalf("structured extraction did not run on staged bytes: reportsOnly=%t parse=%q validation=%q",
+			output.ReportsOnly(), output.ParseState(), output.ValidationState())
+	}
+	if !bytes.Equal(output.ReportMarkdown(), staged) || output.OutputTransport() != ports.ProviderOutputTransportStagedFile {
+		t.Fatalf("structured staged report = markdown=%q transport=%q", output.ReportMarkdown(), output.OutputTransport())
+	}
+}
+
+func TestInvokeMapsStagedFileMissingToProviderOutputMissing(t *testing.T) {
+	// Exactly what the adapter emits for a staged file the provider never wrote:
+	// an artifact-failure status carrying the typed operational cause.
+	provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{
+		status:     ports.ProviderExecutionStatusArtifactFailure,
+		diagnostic: "invalid_provider_output",
+		cause:      domain.DiagnosticCauseProviderOutputFileMissing,
+		stderr:     []byte("provider staged nothing"),
+	}}}
+	runtime, job, _ := providerRuntimeObservedFixture(t, provider, providerRuntimeStagedLocator())
+
+	outcome := runtime.Invoke(context.Background(), job)
+	condition := coordinatorOutcomeCondition(outcome)
+	if outcome.Succeeded() || condition != AttemptConditionProviderOutputMissing {
+		t.Fatalf("staged missing condition = %q, want %q", condition, AttemptConditionProviderOutputMissing)
+	}
+	decision, err := DecideTransition(TransitionInput{
+		Condition: condition, FallbackConfigured: true, FallbackEligible: true,
+	})
+	if err != nil || !decision.ScheduleFallback() || decision.ScheduleRepair() || decision.CancelRun() ||
+		decision.TerminalClass() != domain.FailureInvalidOutput {
+		t.Fatalf("staged missing decision = %#v err=%v", decision, err)
+	}
+}
+
+func TestInvokeMapsStagingViolationToSecurityViolation(t *testing.T) {
+	stagingViolation, err := ports.NewProviderRuntimeError(
+		domain.DiagnosticCauseProviderOutputStagingViolation, errors.New("closed staging detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		response providerRuntimeObservation
+	}{
+		{name: "observed failure", response: providerRuntimeObservation{
+			status:     ports.ProviderExecutionStatusSecurityViolation,
+			diagnostic: "process_security",
+			cause:      domain.DiagnosticCauseProviderOutputStagingViolation,
+		}},
+		{name: "boundary failure", response: providerRuntimeObservation{boundary: stagingViolation}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{test.response}}
+			runtime, job, _ := providerRuntimeObservedFixture(t, provider, providerRuntimeStagedLocator())
+
+			outcome := runtime.Invoke(context.Background(), job)
+			condition := coordinatorOutcomeCondition(outcome)
+			if outcome.Succeeded() || condition != AttemptConditionSecurityViolation {
+				t.Fatalf("staging violation condition = %q, want %q", condition, AttemptConditionSecurityViolation)
+			}
+			decision, decisionErr := DecideTransition(TransitionInput{
+				Condition: condition, FallbackConfigured: true, FallbackEligible: true,
+			})
+			if decisionErr != nil || !decision.CancelRun() || decision.ScheduleFallback() || decision.ScheduleRepair() {
+				t.Fatalf("staging violation decision = %#v err=%v", decision, decisionErr)
+			}
+		})
+	}
+}
+
+func TestInvokeCleanupFailureIsArtifactCondition(t *testing.T) {
+	cleanupFailure, err := ports.NewProviderRuntimeError(
+		domain.DiagnosticCauseProviderOutputStagingCleanupFailed, errors.New("closed cleanup detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		response providerRuntimeObservation
+	}{
+		{name: "observed failure", response: providerRuntimeObservation{
+			status:     ports.ProviderExecutionStatusArtifactFailure,
+			diagnostic: "provider_output_staging_cleanup_failed",
+			cause:      domain.DiagnosticCauseProviderOutputStagingCleanupFailed,
+		}},
+		{name: "boundary failure", response: providerRuntimeObservation{boundary: cleanupFailure}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{test.response}}
+			runtime, job, _ := providerRuntimeObservedFixture(t, provider, providerRuntimeStagedLocator())
+
+			outcome := runtime.Invoke(context.Background(), job)
+			condition := coordinatorOutcomeCondition(outcome)
+			if outcome.Succeeded() || condition != AttemptConditionArtifactFailure {
+				t.Fatalf("staging cleanup condition = %q, want %q", condition, AttemptConditionArtifactFailure)
+			}
+			decision, decisionErr := DecideTransition(TransitionInput{
+				Condition: condition, FallbackConfigured: true, FallbackEligible: true,
+			})
+			if decisionErr != nil || decision.ScheduleFallback() || decision.ScheduleRepair() ||
+				decision.TerminalProjection() != TerminalProjectionFailed || decision.TerminalClass() != domain.FailureArtifact {
+				t.Fatalf("staging cleanup decision = %#v err=%v", decision, decisionErr)
+			}
+		})
+	}
+}
+
+func TestObservedStagedOutputCausesKeyOnTypedCause(t *testing.T) {
+	// The adapter projects both operational staged causes onto an artifact
+	// failure status. Only the typed cause keeps them fallback-eligible.
+	for _, test := range []struct {
+		cause    domain.RuntimeDiagnosticCause
+		status   ports.ProviderExecutionStatus
+		want     AttemptCondition
+		fallback bool
+	}{
+		{domain.DiagnosticCauseProviderOutputFileMissing, ports.ProviderExecutionStatusArtifactFailure, AttemptConditionProviderOutputMissing, true},
+		{domain.DiagnosticCauseProviderOutputFileInvalid, ports.ProviderExecutionStatusArtifactFailure, AttemptConditionProviderOutputDecodeFailed, true},
+		{domain.DiagnosticCauseProviderOutputStagingViolation, ports.ProviderExecutionStatusSecurityViolation, AttemptConditionSecurityViolation, false},
+		{domain.DiagnosticCauseProviderOutputStagingCleanupFailed, ports.ProviderExecutionStatusArtifactFailure, AttemptConditionArtifactFailure, false},
+	} {
+		t.Run(string(test.cause), func(t *testing.T) {
+			got := observedStatusCondition(test.status, test.cause)
+			if got != test.want {
+				t.Fatalf("observed staged cause condition = %q, want %q", got, test.want)
+			}
+			decision, err := DecideTransition(TransitionInput{
+				Condition: got, FallbackConfigured: true, FallbackEligible: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.ScheduleFallback() != test.fallback || decision.ScheduleRepair() {
+				t.Fatalf("staged cause decision = %#v, want fallback %t", decision, test.fallback)
+			}
+		})
+	}
+}
+
+func TestProviderInvocationCarriesStagedDestinationThroughRepair(t *testing.T) {
+	malformed := []byte("```json\n{\"findings\":\n```")
+	repairProse := []byte("# repair response\n\nFree-form prose after exhausted structured repair.\n")
+	provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{
+		{staged: malformed},
+		{staged: repairProse},
+	}}
+	locator := providerRuntimeStagedLocator()
+	runtime, initialJob, source := providerRuntimeObservedFixture(t, provider, locator)
+
+	initial := runtime.Invoke(context.Background(), initialJob)
+	if initial.Succeeded() || len(runtime.pending) != 1 {
+		t.Fatalf("initial staged outcome = %#v pending=%d", initial, len(runtime.pending))
+	}
+	repairJob, err := newCoordinatorInvocationJob(
+		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+		initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
+		domain.InvocationRepair, 2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repaired := runtime.Invoke(context.Background(), repairJob)
+	if !repaired.Succeeded() || len(provider.invocations) != 2 || len(source.prompts) != 2 {
+		t.Fatalf("repair staged outcome = %#v invocations=%d prompts=%d", repaired, len(provider.invocations), len(source.prompts))
+	}
+	// Each launch carries the destination the locator resolved for its own
+	// purpose, and states that same absolute path in its own last trusted layer.
+	launches := []InvocationJob{initialJob, repairJob}
+	wantPurposes := []ports.ProviderInvocationPurpose{ports.ProviderInvocationInitial, ports.ProviderInvocationRepair}
+	paths := make([]string, 0, len(launches))
+	for index, invocation := range provider.invocations {
+		expected, resolved := ResolveStagedOutputDestination(locator, launches[index])
+		staged, ok := invocation.StagedOutputDestination()
+		if !resolved || !ok || staged != expected {
+			t.Fatalf("invocation %d staged destination = %#v present=%t, want %#v", index, staged, ok, expected)
+		}
+		if invocation.Purpose() != wantPurposes[index] {
+			t.Fatalf("invocation %d purpose = %q, want %q", index, invocation.Purpose(), wantPurposes[index])
+		}
+		assertStagedDestinationLayerLast(t, source.prompts[index], staged)
+		paths = append(paths, staged.AbsolutePath())
+	}
+	if paths[0] == paths[1] {
+		t.Fatalf("initial and repair launches shared the staged path %q", paths[0])
+	}
+
+	staged := provider.invocations[0]
+	bare, err := ports.NewProviderInvocationWithPacket(
+		staged.Role(), staged.ProviderInstance(), staged.AttemptID(), staged.Purpose(), staged.Packet(),
+		staged.SourceInvocationID(), staged.ExecutionInvocationID(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherDestination, err := ports.NewStagedOutputDestination("/mulgae/scratch/output/substitute-0", "role-report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	substituted, err := ports.NewProviderInvocationWithStagedOutput(bare, otherDestination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameProviderInvocation(staged, staged) {
+		t.Fatal("identical staged invocations were not recognized as the same invocation")
+	}
+	if sameProviderInvocation(staged, bare) {
+		t.Fatal("a dropped staged destination was accepted as the same invocation")
+	}
+	if sameProviderInvocation(staged, substituted) {
+		t.Fatal("a substituted staged destination was accepted as the same invocation")
+	}
+
+	// Exact replay reproduces stored provider wire authority: its historical
+	// stdin carries no destination layer and its invocation carries no
+	// destination, even though the same locator is bound.
+	replayProvider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{stdout: repairProse}}}
+	replayRuntime, replayJob, _ := providerRuntimeObservedFixture(t, replayProvider, locator)
+	_, _, replayMaterial := providerRuntimeExplicitFixture(t, nil)
+	if outcome := replayRuntime.invokeExplicitMaterial(context.Background(), replayJob, replayMaterial, true); !outcome.Succeeded() {
+		t.Fatalf("exact replay outcome = %#v", outcome)
+	}
+	if len(replayProvider.invocations) != 1 {
+		t.Fatalf("exact replay invocations = %d", len(replayProvider.invocations))
+	}
+	if _, ok := replayProvider.invocations[0].StagedOutputDestination(); ok {
+		t.Fatal("exact replay invocation carried a staged output destination")
+	}
+	if stdin := replayMaterial.Prompt.Stdin(); bytes.Contains(stdin, []byte("Mulgae ROOT REVIEW OUTPUT DESTINATION/1")) {
+		t.Fatal("exact replay stdin carried the output destination layer")
+	}
+}
+
+func TestInvokeAppendsDestinationLayerLastForStagedRoutes(t *testing.T) {
+	report := []byte("# logic review\n\nStaged report body.\n")
+	malformed := []byte("```json\n{\"findings\":\n```")
+	t.Run("staged route appends the layer last on every launch", func(t *testing.T) {
+		provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{
+			{staged: malformed}, {staged: report},
+		}}
+		locator := providerRuntimeStagedLocator()
+		runtime, initialJob, source := providerRuntimeObservedFixture(t, provider, locator)
+		if outcome := runtime.Invoke(context.Background(), initialJob); outcome.Succeeded() {
+			t.Fatalf("initial malformed outcome = %#v", outcome)
+		}
+		repairJob, err := newCoordinatorInvocationJob(
+			initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+			initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
+			domain.InvocationRepair, 2,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outcome := runtime.Invoke(context.Background(), repairJob); !outcome.Succeeded() {
+			t.Fatalf("repair staged outcome = %#v", outcome)
+		}
+		if len(source.prompts) != 2 {
+			t.Fatalf("composed prompts = %d, want 2", len(source.prompts))
+		}
+		wantLayers := [][]string{
+			{"explicit-runtime-logic", OutputDestinationTrustedLayerID},
+			{"explicit-runtime-logic", "review:repair-plan", OutputDestinationTrustedLayerID},
+		}
+		for index, material := range source.prompts {
+			manifest := material.Prompt.TrustedTemplate().TrustedLayerManifest()
+			if len(manifest) != len(wantLayers[index]) {
+				t.Fatalf("launch %d layers = %d, want %d", index, len(manifest), len(wantLayers[index]))
+			}
+			for position, want := range wantLayers[index] {
+				if manifest[position].ID() != want || manifest[position].Ordinal() != position+1 {
+					t.Fatalf("launch %d layer %d = %q, want %q", index, position, manifest[position].ID(), want)
+				}
+			}
+		}
+	})
+	for _, test := range []struct {
+		name    string
+		locator ports.ProviderOutputStagingLocator
+	}{
+		{name: "stdout transport route", locator: providerRuntimeStagingLocator{stagedInstance: "agy.logic"}},
+		{name: "absent locator", locator: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{stdout: report}}}
+			runtime, job, source := providerRuntimeObservedFixture(t, provider, test.locator)
+			if outcome := runtime.Invoke(context.Background(), job); !outcome.Succeeded() {
+				t.Fatalf("stdout outcome = %#v", outcome)
+			}
+			if len(source.prompts) != 1 {
+				t.Fatalf("composed prompts = %d, want 1", len(source.prompts))
+			}
+			manifest := source.prompts[0].Prompt.TrustedTemplate().TrustedLayerManifest()
+			for _, provenance := range manifest {
+				if provenance.ID() == OutputDestinationTrustedLayerID {
+					t.Fatal("stdout launch carried the output destination layer")
+				}
+			}
+			if bytes.Contains(source.prompts[0].Prompt.Stdin(), []byte("Mulgae ROOT REVIEW OUTPUT DESTINATION/1")) {
+				t.Fatal("stdout launch stdin carried the output destination contract")
+			}
+			if _, ok := provider.invocations[0].StagedOutputDestination(); ok {
+				t.Fatal("stdout launch invocation carried a staged output destination")
+			}
+		})
+	}
+}
+
+func TestInvokeRejectsStagedLaunchWithoutItsDestinationLayer(t *testing.T) {
+	provider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{staged: []byte("# report\n")}}}
+	runtime, job, material := providerRuntimeExplicitFixture(t, nil)
+	runtime.provider = nil
+	runtime.observed = provider
+	runtime.source = explicitRuntimePromptSource{material: material}
+	if err := runtime.BindProviderOutputStaging(providerRuntimeStagedLocator()); err != nil {
+		t.Fatal(err)
+	}
+	outcome := runtime.Invoke(context.Background(), job)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionConfigurationViolation {
+		t.Fatalf("silent staged launch condition = %q, want %q", coordinatorOutcomeCondition(outcome), AttemptConditionConfigurationViolation)
+	}
+	if len(provider.invocations) != 0 {
+		t.Fatalf("provider was launched without stating its staged path: invocations=%d", len(provider.invocations))
+	}
+}
+
+// assertStagedDestinationLayerLast proves the launch prompt ends its trusted
+// template with exactly the destination layer for destination, and that the
+// exact absolute path reached the provider stdin.
+func assertStagedDestinationLayerLast(t *testing.T, material RuntimePrompt, destination ports.StagedOutputDestination) {
+	t.Helper()
+	layer, err := OutputDestinationTrustedLayer(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := material.Prompt.TrustedTemplate()
+	manifest := template.TrustedLayerManifest()
+	if len(manifest) == 0 {
+		t.Fatal("launch template has no trusted layer manifest")
+	}
+	last := manifest[len(manifest)-1]
+	if last.ID() != OutputDestinationTrustedLayerID || last.SHA256() != layer.SHA256() {
+		t.Fatalf("last trusted layer = %q/%s, want %q/%s", last.ID(), last.SHA256(), OutputDestinationTrustedLayerID, layer.SHA256())
+	}
+	if !bytes.HasSuffix(template.Bytes(), layer.Bytes()) {
+		t.Fatal("output destination layer is not the final trusted template content")
+	}
+	if !bytes.Contains(material.Prompt.Stdin(), []byte(destination.AbsolutePath())) {
+		t.Fatalf("launch stdin does not state %q", destination.AbsolutePath())
+	}
+	if !promptDeclaresStagedOutputDestination(material.Prompt, destination) {
+		t.Fatal("runtime did not accept the composed destination layer")
+	}
 }

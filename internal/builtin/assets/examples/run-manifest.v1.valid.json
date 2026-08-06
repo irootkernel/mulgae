@@ -105,7 +105,8 @@
       "byte_length": 42,
       "provider_instance": "kimi-logic",
       "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
-      "content_type": "text/markdown"
+      "content_type": "text/markdown",
+      "transport": "stdout"
     }
   ],
   "failures": [

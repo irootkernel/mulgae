@@ -159,7 +159,8 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 			parseState: parseState, validationState: validationState,
 			invocations: preparedInvocations,
 		}},
-		reportMarkdown: append([]byte(nil), reportMarkdown...),
+		reportMarkdown:  append([]byte(nil), reportMarkdown...),
+		outputTransport: terminalObservation.OutputTransport(),
 	}
 	for _, finding := range findings {
 		role.validFindingIDs = append(role.validFindingIDs, finding.id)

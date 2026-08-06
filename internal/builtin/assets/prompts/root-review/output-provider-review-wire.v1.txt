@@ -31,3 +31,4 @@ If there are no supported findings, return findings:[] with a truthful summary; 
 Before returning, silently perform this final output check: the response is one JSON object only; the top-level keys are exactly schema_version, summary, completeness, limitations, findings; completeness is exactly complete or incomplete; every evidence side is exactly base, head, worktree, or index in lowercase; every evidence quote exactly matches the selected target lines and includes each terminating LF as \n. Correct any violation before returning.
 Otherwise return Markdown only: no CLI envelope, no second document, and no instruction to Mulgae about filenames or publication paths.
 Empty, whitespace-only, or non-UTF-8 output is failure.
+When a later trusted Mulgae contract names an output destination file, write this complete report to exactly that file instead; standard output is then ignored for acceptance.

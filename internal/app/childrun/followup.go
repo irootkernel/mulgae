@@ -135,6 +135,9 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if invocation.AttemptID() != attemptID || invocation.Role() != role || invocation.ProviderInstance() != executor.providerInstance {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: prompt invocation identity mismatch")
 	}
+	if declarationErr := followupStagedOutputDeclaration(invocation); declarationErr != nil {
+		return appfollowup.ExecutionResult{}, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionConfigurationViolation, domain.FailureConfiguration, declarationErr)
+	}
 	runtimeSource, ok := executor.prompts.(FollowupRuntimeInventorySource)
 	if !ok {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: prompt source does not supply runtime inventory")
@@ -279,6 +282,9 @@ func (executor *FollowupExecutor) acceptFollowupOutput(
 		}
 		if repairInvocation.AttemptID() != attemptID || repairInvocation.Role() != role || repairInvocation.ProviderInstance() != executor.providerInstance || repairInvocation.Purpose() != ports.ProviderInvocationRepair {
 			return validation.ValidatedFollowup{}, false, nil, fmt.Errorf("followup executor: repair prompt invocation identity mismatch")
+		}
+		if declarationErr := followupStagedOutputDeclaration(repairInvocation); declarationErr != nil {
+			return validation.ValidatedFollowup{}, false, nil, followupExecutionFailure(executor.providerInstance, role, review.AttemptConditionConfigurationViolation, domain.FailureConfiguration, declarationErr)
 		}
 		repairRuntime, runtimeErr := runtimeSource.BuildFollowupRuntimeArtifact(ctx, execution, run, repairInvocation)
 		if runtimeErr != nil {
@@ -431,6 +437,32 @@ func bindFollowupRuntimeCaptures(
 	return nil
 }
 
+// followupPromptFramesPreamble is the exact boundary the prompt compiler writes
+// between the trusted template and the untrusted frames of one packet.
+const followupPromptFramesPreamble = "\nMulgae-FRAMES/1\n"
+
+// followupStagedOutputDeclaration repeats, for the followup launch path, the
+// fail-closed pre-launch check the review runtime performs for root review. The
+// followup executor invokes its provider directly rather than through that
+// runtime, so a staged invocation whose packet does not end with the exact
+// destination layer would send the provider to a path Mulgae never granted.
+func followupStagedOutputDeclaration(invocation ports.ProviderInvocation) error {
+	destination, staged := invocation.StagedOutputDestination()
+	if !staged {
+		return nil
+	}
+	layer, err := review.OutputDestinationTrustedLayer(destination)
+	if err != nil {
+		return fmt.Errorf("staged output destination is invalid: %w", err)
+	}
+	packet := invocation.PacketBytes()
+	boundary := bytes.Index(packet, []byte(followupPromptFramesPreamble))
+	if boundary <= 0 || !bytes.HasSuffix(packet[:boundary], layer.Bytes()) {
+		return fmt.Errorf("staged launch prompt does not state its output destination")
+	}
+	return nil
+}
+
 func validateFollowupObservation(observation ports.ProviderExecutionObservation, invocation ports.ProviderInvocation) error {
 	if err := observation.Validate(); err != nil {
 		return err
@@ -445,18 +477,34 @@ func followupObservationFailure(provider string, role domain.Role, observation p
 	class := observation.FailureClass()
 	condition := review.AttemptConditionProviderUnavailable
 	switch observation.PrimaryCause() {
-	case domain.DiagnosticCauseOutputMissing:
+	case domain.DiagnosticCauseOutputMissing,
+		// A staged file the provider never wrote is missing output, exactly like
+		// an empty stdout transport: operational, and fallback stays available.
+		domain.DiagnosticCauseProviderOutputFileMissing:
 		class = domain.FailureInvalidOutput
 		condition = review.AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
 		domain.DiagnosticCauseOutputEnvelopeInvalid,
 		domain.DiagnosticCauseOutputDecodeFailed,
-		domain.DiagnosticCauseResultBindingFailed:
+		domain.DiagnosticCauseResultBindingFailed,
+		// Staged bytes Mulgae could not read back as usable output are an
+		// ordinary decode failure rather than a boundary breach.
+		domain.DiagnosticCauseProviderOutputFileInvalid:
 		class = domain.FailureInvalidOutput
 		condition = review.AttemptConditionProviderOutputDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		class = domain.FailureAuthentication
 		condition = review.AttemptConditionProviderPermissionDenied
+	case domain.DiagnosticCauseProviderOutputStagingViolation:
+		// A provider that wrote outside the single staged file it was granted
+		// breached a boundary, so staging violations fail the followup closed.
+		class = domain.FailureSecurityPolicy
+		condition = review.AttemptConditionSecurityViolation
+	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
+		// Staging Mulgae cannot prove it removed is an artifact fact: fail closed
+		// rather than reuse the attempt through repair or fallback.
+		class = domain.FailureArtifact
+		condition = review.AttemptConditionArtifactFailure
 	}
 	if condition != review.AttemptConditionProviderUnavailable {
 		return followupExecutionFailure(provider, role, condition, class, cause)

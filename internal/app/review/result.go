@@ -250,6 +250,65 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	)
 }
 
+// OutputDestinationTrustedLayerID is the fixed identity of the Mulgae-owned
+// staged output destination layer. It is always the last trusted layer of a
+// staged_file launch template, so consumers can recognize it by identity.
+const OutputDestinationTrustedLayerID = "review:output-destination"
+
+const outputDestinationTrustedLayerVersion = "1"
+
+// ComposeRootReviewOutputDestination appends the Mulgae-owned output destination
+// contract as the last trusted layer of original. The destination is chosen by
+// the adapter locator for exactly one launch, so the initial and repair launches
+// of one attempt carry different absolute paths. Provider output never
+// participates in the layer.
+func ComposeRootReviewOutputDestination(
+	original prompt.TrustedTemplate,
+	destination ports.StagedOutputDestination,
+) (prompt.TrustedTemplate, error) {
+	baseLayers, err := trustedLayersForRepair(original)
+	if err != nil {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: output destination base: %w", err)
+	}
+	destinationLayer, err := OutputDestinationTrustedLayer(destination)
+	if err != nil {
+		return prompt.TrustedTemplate{}, err
+	}
+	if original.ID() == "" {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: output destination base template has no identity")
+	}
+	return prompt.ComposeTrustedTemplate(
+		original.ID()+"/output-destination",
+		outputDestinationTrustedLayerVersion,
+		append(baseLayers, destinationLayer)...,
+	)
+}
+
+// OutputDestinationTrustedLayer builds the exact trusted layer that instructs a
+// provider to write its complete role report to the one staged file Mulgae
+// granted it. Callers that resolve a destination and callers that verify one
+// must derive the layer from this single constructor.
+func OutputDestinationTrustedLayer(destination ports.StagedOutputDestination) (prompt.TrustedLayer, error) {
+	if !destination.Valid() {
+		return prompt.TrustedLayer{}, fmt.Errorf("review templates: invalid staged output destination")
+	}
+	lines := []string{
+		"Mulgae ROOT REVIEW OUTPUT DESTINATION/1",
+		"Write your complete final Markdown role report to this exact absolute file path, creating that one file only:",
+		destination.AbsolutePath(),
+		"Write nothing else there, create no other file or directory, and do not create links.",
+		"That directory is outside the review workspace and is not listed in ._mulgae_workspace_manifest.json; do not read, search, or reason about it as review content.",
+		"This contract supersedes any earlier instruction to return the report on standard output. Standard output is ignored for acceptance.",
+	}
+	layer, err := prompt.NewTrustedLayer(
+		OutputDestinationTrustedLayerID, outputDestinationTrustedLayerVersion, []byte(strings.Join(lines, "\n")),
+	)
+	if err != nil {
+		return prompt.TrustedLayer{}, fmt.Errorf("review templates: output destination layer: %w", err)
+	}
+	return layer, nil
+}
+
 func trustedLayersForRepair(original prompt.TrustedTemplate) ([]prompt.TrustedLayer, error) {
 	manifest := original.TrustedLayerManifest()
 	if len(manifest) == 0 {

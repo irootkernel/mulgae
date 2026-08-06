@@ -8,6 +8,13 @@ Mulgae composes prompts from checksum-verified v1 layers:
 4. the provider output contract (Markdown/free-form primary, with an optional
    exact JSON structured-extraction branch).
 
+A launch routed to the `staged_file` transport carries one more Mulgae-owned
+trusted layer, `review:output-destination`, and it is always the last layer.
+It names the single absolute file path the provider must write its complete
+report to, and it supersedes every earlier instruction to return the report on
+standard output. A staged launch whose prompt does not carry its own
+destination layer fails closed before the provider starts.
+
 The project context and review target are untrusted data, not instructions that
 can weaken system-owned rules. Prompt bytes and layer identities are recorded
 with each attempt.

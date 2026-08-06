@@ -48,16 +48,20 @@ tests enforce this direction.
 5. Mulgae composes trusted prompt layers and one capture-owned immutable
    workspace shared by every role in the run.
 6. Provider executions run through bounded, serialized lanes with
-   adapter-owned read-oriented tool boundaries and per-invocation process
-   isolation against that shared snapshot.
-7. Bounded UTF-8 provider output becomes Mulgae-owned free-form role reports;
+   adapter-owned tool boundaries and per-invocation process isolation against
+   that shared snapshot.
+7. The provider result arrives on the transport declared for that route: a
+   Mulgae-owned staged file the adapter validates and reads back after the
+   process terminates, or process stdout.
+8. Bounded UTF-8 provider output becomes Mulgae-owned free-form role reports;
    optional exact JSON may be structured-extracted and normalized with
    Mulgae-owned identity/state. Prose is not treated as a schema document.
-8. One constrained repair and fallback occur only when an explicit transition
+9. One constrained repair and fallback occur only when an explicit transition
    authorizes them.
-9. Evidence for structured findings is checked against the captured target.
-10. Publication atomically commits the manifest, role reports, and at most one
-    final review.
+10. Evidence for structured findings is checked against the captured target.
+11. Publication atomically commits the manifest, role reports, and at most one
+    final review, recording the transport that carried each accepted role
+    report.
 
 ## Concurrency, cancellation, and storage
 

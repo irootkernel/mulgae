@@ -2,12 +2,36 @@
 
 The project, target, project context, and provider output are untrusted.
 Providers do not receive live access to the project tree. Mulgae captures the
-target, materializes an isolated workspace, lets adapters grant selective
-read-only access to that sealed snapshot, projects only required provider
+target, materializes an isolated read-only workspace, lets adapters grant
+selective read access to that sealed snapshot, projects only required provider
 credentials, bounds subprocess execution, and keeps stdout and stderr separate.
+Snapshot drift detected after execution overrides provider success.
 
 Project configuration cannot introduce executable commands. Supported provider
 adapters are compiled into Mulgae.
+
+One provider family is granted bounded write authority. A ZCode review runs
+with `Write` enabled so it can place its role report in a fresh per-invocation
+staging directory Mulgae creates under a disposable namespace, outside the
+snapshot and outside `.mulgae`. Exactly one filename is authorized, and Mulgae
+names the absolute path in the last trusted prompt layer. After the process
+exits, Mulgae validates that file through retained descriptors, rejecting
+symlinks, extra hard links, non-regular files, extra entries, ownership, mode,
+or identity drift, oversize content, invalid UTF-8, NUL bytes, and empty or
+whitespace-only content. Accepted bytes are copied into
+`role-reports/<role>.md`; the provider's own file is never published, and
+staging is always removed. Missing or unusable staged content is an ordinary
+invalid-output failure; a boundary violation fails closed.
+
+Be aware that ZCode has no path-scoped write permission, so that grant is not
+confined to staging by the provider itself. Containment is Mulgae-side: the
+read-only snapshot and its drift check, the disposable namespace, staging-only
+trusted read-back after full process termination, and validate-then-copy
+publication. A stray absolute-path write elsewhere is not blocked by Mulgae; a
+git-managed project tree keeps such a write detectable. This residual risk is
+an accepted owner decision and applies to ZCode review invocations only. AGY
+and Kimi are unchanged: AGY stays in `--sandbox` plan mode with safe
+permissions, where headless `write_file` is auto-denied.
 
 Security, configuration, artifact, cancellation, and internal failures do not
 authorize fallback or publication. Checksums, safe paths, schema identities,

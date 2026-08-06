@@ -10,6 +10,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // ProductionPromptSource is the shared current-template prompt authority for
@@ -17,9 +18,21 @@ import (
 type ProductionPromptSource = promptSource
 
 // NewProductionPromptSource constructs a child-workflow prompt authority from
-// one P2- or capture-bound immutable target.
+// one P2- or capture-bound immutable target. It grants no staging authority, so
+// every launch it composes keeps the stdout transport.
 func NewProductionPromptSource(input ImmutableReviewInput, templates review.TemplateSet, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error)) (*ProductionPromptSource, error) {
-	return newPromptSource(input, templates, ids, roleTask)
+	return newPromptSource(input, templates, ids, roleTask, nil)
+}
+
+// NewProductionPromptSourceWithStaging constructs the same child-workflow
+// prompt authority bound to the adapter-owned staging locator. Delta and
+// recomposed rerun then state their own resolved destination exactly as root
+// review does; exact replay reproduces stored wire bytes and is unaffected.
+func NewProductionPromptSourceWithStaging(input ImmutableReviewInput, templates review.TemplateSet, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error), staging ports.ProviderOutputStagingLocator) (*ProductionPromptSource, error) {
+	if nilInterface(staging) {
+		return newPromptSource(input, templates, ids, roleTask, nil)
+	}
+	return newPromptSource(input, templates, ids, roleTask, staging)
 }
 
 type promptSource struct {
@@ -28,9 +41,13 @@ type promptSource struct {
 	ids       prompt.InvocationIDIssuer
 	roleTask  func() (prompt.RoleTaskID, error)
 	objective *prompt.Objective
+	// staging is the adapter-owned locator that decides, per launch, whether the
+	// provider must write its report to a Mulgae-chosen staged file. It is nil
+	// for every stdout composition, which leaves the trusted template untouched.
+	staging ports.ProviderOutputStagingLocator
 }
 
-func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error)) (*promptSource, error) {
+func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error), staging ports.ProviderOutputStagingLocator) (*promptSource, error) {
 	if nilInterface(ids) || roleTask == nil {
 		return nil, fmt.Errorf("review run: nil prompt identity issuer")
 	}
@@ -47,7 +64,19 @@ func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, i
 	if err != nil {
 		return nil, err
 	}
-	return &promptSource{input: captured, templates: templates, ids: ids, roleTask: roleTask, objective: objective}, nil
+	return &promptSource{input: captured, templates: templates, ids: ids, roleTask: roleTask, objective: objective, staging: staging}, nil
+}
+
+// composeOutputDestination appends the Mulgae-owned output destination layer as
+// the last trusted layer whenever the locator declares the staged_file transport
+// for this exact launch. Initial and repair launches of one attempt resolve to
+// different absolute paths, so each launch states its own.
+func (source *promptSource) composeOutputDestination(template prompt.TrustedTemplate, job review.InvocationJob) (prompt.TrustedTemplate, error) {
+	destination, staged := review.ResolveStagedOutputDestination(source.staging, job)
+	if !staged {
+		return template, nil
+	}
+	return review.ComposeRootReviewOutputDestination(template, destination)
 }
 
 func (source *promptSource) Prompt(ctx context.Context, job review.InvocationJob, repair *review.InvocationRepairInput) (review.RuntimePrompt, error) {
@@ -66,6 +95,9 @@ func (source *promptSource) Prompt(ctx context.Context, job review.InvocationJob
 		if err != nil {
 			return review.RuntimePrompt{}, err
 		}
+	}
+	if template, err = source.composeOutputDestination(template, job); err != nil {
+		return review.RuntimePrompt{}, err
 	}
 	manifest, err := template.TrustedLayerManifestJSON()
 	if err != nil {
@@ -116,6 +148,9 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 		if err != nil {
 			return review.RuntimePrompt{}, err
 		}
+	}
+	if template, err = source.composeOutputDestination(template, job); err != nil {
+		return review.RuntimePrompt{}, err
 	}
 	manifest, err := template.TrustedLayerManifestJSON()
 	if err != nil {

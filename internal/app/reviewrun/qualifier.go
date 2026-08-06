@@ -791,6 +791,27 @@ func (registry *qualifiedRunRegistryComposite) QualificationNamespace(instance s
 	return child.QualificationNamespace(instance)
 }
 
+var _ ports.ProviderOutputStagingLocator = (*qualifiedRunRegistryComposite)(nil)
+
+// ProviderOutputStagingDestination delegates staged-output resolution to the
+// admitted per-instance registry so review and child runtimes reach the
+// adapter's staging authority through the composite. Unknown instances and
+// registries without staging authority fail closed to stdout transport.
+func (registry *qualifiedRunRegistryComposite) ProviderOutputStagingDestination(instance string, attemptID domain.AttemptID, purpose ports.ProviderInvocationPurpose) (ports.StagedOutputDestination, ports.ProviderOutputTransport, bool) {
+	if registry == nil {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	child, ok := registry.registries[instance]
+	if !ok {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	locator, ok := child.(ports.ProviderOutputStagingLocator)
+	if !ok || nilInterface(locator) {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	return locator.ProviderOutputStagingDestination(instance, attemptID, purpose)
+}
+
 func (registry *qualifiedRunRegistryComposite) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	if registry == nil {
 		failure, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("review run: admitted registry unavailable"))

@@ -883,6 +883,10 @@ type manifestRoleReportDTO struct {
 	ProviderInstance string `json:"provider_instance"`
 	AttemptID        string `json:"attempt_id"`
 	ContentType      string `json:"content_type"`
+	// Transport mirrors the required manifest field so the strict decoder keeps
+	// accepting committed manifests. Its enum is enforced by the run-manifest
+	// schema this service validates every snapshot against.
+	Transport string `json:"transport"`
 }
 
 type manifestTargetDTO struct {

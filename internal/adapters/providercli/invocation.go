@@ -80,16 +80,31 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 
 // zcodeWorkspaceReadOnlyDisallowedTools is the adapter-owned ZCode denylist for
 // workspace-first reviews. Local ZCode 0.16.1 rejects --allowed-tools at
-// runtime, so Mulgae uses plan mode plus an explicit write/shell/network denylist.
-const zcodeWorkspaceReadOnlyDisallowedTools = "Bash,Edit,Write,NotebookEdit,WebSearch,WebFetch"
+// runtime, so Mulgae uses an explicit shell/edit/network denylist instead.
+//
+// Write is deliberately absent: it is the single authority a staged_file review
+// needs to place its role report at the Mulgae-chosen staging path. The
+// workspace itself stays read-only regardless, because Bash, Edit and
+// NotebookEdit remain denied, the snapshot the process is launched in is
+// immutable, and post-execution drift detection revalidates it. Every byte the
+// grant produces is bounded by the staged-output validation that reads it back.
+const zcodeWorkspaceReadOnlyDisallowedTools = "Bash,Edit,NotebookEdit,WebSearch,WebFetch"
 
 // zcodeCapabilityDisallowedTools keeps qualification prompt-bound and latency
 // bounded. Workspace-selective read is exercised on review invocations.
 const zcodeCapabilityDisallowedTools = "*"
 
+// appendZcodeInvocation builds the ZCode REVIEW argv only. Qualification keeps
+// its own fully tool-denied plan-mode profile in appendZcodeCapabilityInvocation.
+//
+// yolo is the headless auto-approve mode for the non-denied toolset: plan mode
+// suppresses the write authority the staged_file transport depends on. Write
+// authority is granted deliberately here and bounded by the staged-output
+// validation, snapshot immutability and workspace drift detection (owner
+// decision recorded on live capability evidence).
 func appendZcodeInvocation(argv []string, prompt string) []string {
 	result := append([]string(nil), argv...)
-	return append(result, "--mode", "plan", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools)
+	return append(result, "--mode", "yolo", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools)
 }
 
 func appendZcodeCapabilityInvocation(argv []string, prompt string) []string {

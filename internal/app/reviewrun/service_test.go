@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1081,4 +1082,172 @@ func assertServiceCalls(t *testing.T, got, want []string) {
 			t.Fatalf("call order = %v, want %v", got, want)
 		}
 	}
+}
+
+// stagingObservedProviderFake is a qualified provider registry that also owns
+// per-invocation output staging, exactly as the production CLI registry does.
+type stagingObservedProviderFake struct {
+	observedProviderFake
+}
+
+func (fake *stagingObservedProviderFake) ProviderOutputStagingDestination(
+	providerInstance string,
+	attemptID domain.AttemptID,
+	purpose ports.ProviderInvocationPurpose,
+) (ports.StagedOutputDestination, ports.ProviderOutputTransport, bool) {
+	if providerInstance != "zcode-logic" {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, true
+	}
+	ordinal := 0
+	if purpose == ports.ProviderInvocationRepair {
+		ordinal = 1
+	}
+	destination, err := ports.NewStagedOutputDestination(
+		fmt.Sprintf("/scratch/output/%s-%d", attemptID.String(), ordinal), "role-report.md",
+	)
+	if err != nil {
+		return ports.StagedOutputDestination{}, ports.ProviderOutputTransportStdout, false
+	}
+	return destination, ports.ProviderOutputTransportStagedFile, true
+}
+
+func TestProviderOutputStagingLocatorRequiresRegistryAuthority(t *testing.T) {
+	if locator := providerOutputStagingLocator(nil); locator != nil {
+		t.Fatalf("absent provider produced locator %#v", locator)
+	}
+	if locator := providerOutputStagingLocator(&observedProviderFake{}); locator != nil {
+		t.Fatalf("stdout-only provider produced locator %#v", locator)
+	}
+	var typedNil *stagingObservedProviderFake
+	if locator := providerOutputStagingLocator(typedNil); locator != nil {
+		t.Fatalf("typed-nil registry produced locator %#v", locator)
+	}
+	if locator := providerOutputStagingLocator(&stagingObservedProviderFake{}); locator == nil {
+		t.Fatal("staging registry authority was not detected")
+	}
+}
+
+func TestPromptSourceStatesEachStagedLaunchDestination(t *testing.T) {
+	templates, err := LoadDefaultTemplateSet(context.Background(), builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := templates.ComposeRootReview(domain.RoleLogic, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBase := []string{
+		"builtin:review/common",
+		"builtin:run/review",
+		"builtin:roles/logic",
+		"builtin:output/provider-review-wire",
+	}
+	input, err := NewImmutableReviewInput(reviewRunPatchTarget(t), nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locator := providerOutputStagingLocator(&stagingObservedProviderFake{})
+	staged, err := newPromptSource(input, templates, &reviewRunPromptIssuer{}, reviewRunRoleTask, locator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialJob := reviewRunStagedJob(t, "zcode-logic", domain.InvocationInitial, 1)
+	repairJob := reviewRunStagedJob(t, "zcode-logic", domain.InvocationRepair, 2)
+
+	initialTemplate, err := staged.composeOutputDestination(base, initialJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLayerIDs(t, initialTemplate, append(append([]string(nil), wantBase...), review.OutputDestinationTrustedLayerID))
+	repairBase, err := templates.ComposeRootReviewRepair(base, validation.RepairPlan{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairTemplate, err := staged.composeOutputDestination(repairBase, repairJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLayerIDs(t, repairTemplate, append(append([]string(nil), wantBase...),
+		"builtin:repair/provider-review", "review:repair-plan", review.OutputDestinationTrustedLayerID))
+
+	initialDestination, initialStaged := review.ResolveStagedOutputDestination(locator, initialJob)
+	repairDestination, repairStaged := review.ResolveStagedOutputDestination(locator, repairJob)
+	if !initialStaged || !repairStaged || initialDestination == repairDestination {
+		t.Fatalf("launch destinations = %#v / %#v", initialDestination, repairDestination)
+	}
+	for _, test := range []struct {
+		name     string
+		template prompt.TrustedTemplate
+		want     ports.StagedOutputDestination
+		other    ports.StagedOutputDestination
+	}{
+		{name: "initial", template: initialTemplate, want: initialDestination, other: repairDestination},
+		{name: "repair", template: repairTemplate, want: repairDestination, other: initialDestination},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			layer, layerErr := review.OutputDestinationTrustedLayer(test.want)
+			if layerErr != nil {
+				t.Fatal(layerErr)
+			}
+			if !bytes.HasSuffix(test.template.Bytes(), layer.Bytes()) {
+				t.Fatal("output destination layer is not the last trusted layer")
+			}
+			if !bytes.Contains(test.template.Bytes(), []byte(test.want.AbsolutePath())) ||
+				bytes.Contains(test.template.Bytes(), []byte(test.other.AbsolutePath())) {
+				t.Fatalf("launch template does not state exactly %q", test.want.AbsolutePath())
+			}
+		})
+	}
+
+	// A provider instance the registry keeps on stdout, and a provider without
+	// staging authority at all, both leave the template untouched.
+	stdoutJob := reviewRunStagedJob(t, "agy-logic", domain.InvocationInitial, 1)
+	untouched, err := staged.composeOutputDestination(base, stdoutJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := newPromptSource(input, templates, &reviewRunPromptIssuer{}, reviewRunRoleTask, providerOutputStagingLocator(&observedProviderFake{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	absent, err := plain.composeOutputDestination(base, initialJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untouched.SHA256() != base.SHA256() || absent.SHA256() != base.SHA256() {
+		t.Fatal("stdout transport launches changed the trusted template")
+	}
+}
+
+func reviewRunStagedJob(t *testing.T, instance string, purpose domain.InvocationPurpose, ordinal uint64) review.InvocationJob {
+	t.Helper()
+	key, err := ports.ParseConcurrencyKey(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := ports.NewProviderRoute(instance, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetStdin, SHA256: strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID, err := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := review.NewInvocationJob(
+		domain.RoleLogic, review.AttemptKindPrimary, route, target, limits, attemptID, purpose, ordinal,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return job
 }

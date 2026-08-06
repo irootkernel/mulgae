@@ -297,6 +297,7 @@ type CoordinatorRoleSummary struct {
 	attempts          []CoordinatorAttemptSummary
 	reportsOnly       bool
 	reportMarkdown    []byte
+	outputTransport   ports.ProviderOutputTransport
 }
 
 // Role returns the selected role.
@@ -338,6 +339,16 @@ func (summary CoordinatorRoleSummary) ReportsOnly() bool { return summary.report
 // ReportMarkdown returns a caller-owned copy of the Mulgae-owned role report body.
 func (summary CoordinatorRoleSummary) ReportMarkdown() []byte {
 	return append([]byte(nil), summary.reportMarkdown...)
+}
+
+// OutputTransport returns the transport that carried the accepted provider
+// content for this role. A role without accepted output, and every legacy
+// stdout acceptance, reports the stdout transport.
+func (summary CoordinatorRoleSummary) OutputTransport() ports.ProviderOutputTransport {
+	if summary.outputTransport == "" {
+		return ports.ProviderOutputTransportStdout
+	}
+	return summary.outputTransport
 }
 
 // CoordinatorResult is the immutable terminal snapshot of one coordinator run.
@@ -1983,6 +1994,7 @@ func (execution *coordinatorExecution) snapshot(
 		degraded := valid && coordinatorOutputDegraded(state.output)
 		reportsOnly := false
 		var reportMarkdown []byte
+		outputTransport := ports.ProviderOutputTransportStdout
 		if valid {
 			roleFindings := state.output.Findings()
 			roleEvidence := state.output.Evidence()
@@ -1994,6 +2006,7 @@ func (execution *coordinatorExecution) snapshot(
 			evidenceAssociations = append(evidenceAssociations, associations...)
 			reportsOnly = state.output.ReportsOnly()
 			reportMarkdown = state.output.ReportMarkdown()
+			outputTransport = state.output.OutputTransport()
 		}
 		roles = append(roles, CoordinatorRoleSummary{
 			role:              role,
@@ -2008,6 +2021,7 @@ func (execution *coordinatorExecution) snapshot(
 			attempts:          coordinatorAttemptSnapshots(state.attempts),
 			reportsOnly:       reportsOnly,
 			reportMarkdown:    reportMarkdown,
+			outputTransport:   outputTransport,
 		})
 		roleResults = append(roleResults, domain.RoleResultSummary{
 			Role:        role,

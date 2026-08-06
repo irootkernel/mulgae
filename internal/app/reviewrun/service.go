@@ -233,13 +233,14 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticRunBudgetAccepted, "planning", "budget", ""); err != nil {
 		return Result{}, err
 	}
+	stagingLocator := providerOutputStagingLocator(qualified.Provider())
 	source, err := newPromptSource(input, service.templates, invocationIDs{ids: runIDs, clock: service.dependencies.Clock}, func() (prompt.RoleTaskID, error) {
 		value, err := runIDs.NewRoleTaskID(time.Time{})
 		if err != nil {
 			return prompt.RoleTaskID{}, err
 		}
 		return prompt.ParseRoleTaskID(value)
-	})
+	}, stagingLocator)
 	if err != nil {
 		return Result{}, err
 	}
@@ -248,6 +249,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	runtime, err := review.NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics(screenedProvider, source, lease, service.dependencies.Validator, verifier, diagnostics)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: runtime: %w", err)
+	}
+	if !nilInterface(stagingLocator) {
+		if err := runtime.BindProviderOutputStaging(stagingLocator); err != nil {
+			return Result{}, fmt.Errorf("review run: provider output staging: %w", err)
+		}
 	}
 	var inventory []review.RuntimeArtifactInventory
 	inventoryDrained := false
@@ -1017,4 +1023,19 @@ func (issuer invocationIDs) NewExecutionInvocationID() (prompt.ExecutionInvocati
 		return prompt.ExecutionInvocationID{}, err
 	}
 	return prompt.ParseExecutionInvocationID(value)
+}
+
+// providerOutputStagingLocator returns the adapter-owned staging authority when
+// the qualified provider registry implements it. A provider without that
+// authority resolves no destination, so every launch keeps the stdout transport
+// and legacy or fake providers are unaffected.
+func providerOutputStagingLocator(provider ports.ObservedReviewProvider) ports.ProviderOutputStagingLocator {
+	if nilInterface(provider) {
+		return nil
+	}
+	locator, ok := provider.(ports.ProviderOutputStagingLocator)
+	if !ok || nilInterface(locator) {
+		return nil
+	}
+	return locator
 }

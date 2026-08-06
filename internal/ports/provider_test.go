@@ -15,6 +15,10 @@ const (
 	providerTestSourceID     = "i_019f596a-cf80-7c67-b265-f37053d51ccd"
 	providerTestExecutionID  = "019f596a-cf80-7c67-b265-f37053d51cce"
 	providerTestResultSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	// providerTestStagingDirectory is a canonical absolute per-invocation
+	// staging directory. Destination validation is pure computation, so no
+	// staging directory is ever created on disk by these tests.
+	providerTestStagingDirectory = "/private/tmp/mulgae-staging/019f596a-cf80-7c67-b265-f37053d51cce"
 )
 
 func TestNewProviderInvocationRetainsTrustedIdentityAndCopiesStdin(t *testing.T) {
@@ -151,6 +155,66 @@ func TestNewProviderInvocationRejectsInvalidInputs(t *testing.T) {
 				t.Fatal("NewProviderInvocation() succeeded")
 			}
 		})
+	}
+}
+
+func TestStagedOutputDestinationRejectsUnsafeValues(t *testing.T) {
+	destination, err := NewStagedOutputDestination(providerTestStagingDirectory, "report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if destination.Directory() != providerTestStagingDirectory || destination.Filename() != "report.md" {
+		t.Fatalf("destination = %#v", destination)
+	}
+	if got, want := destination.AbsolutePath(), providerTestStagingDirectory+"/report.md"; got != want {
+		t.Fatalf("AbsolutePath() = %q, want %q", got, want)
+	}
+	if !destination.Valid() {
+		t.Fatal("valid staged output destination reports itself invalid")
+	}
+	if (StagedOutputDestination{}).Valid() {
+		t.Fatal("zero staged output destination is valid")
+	}
+
+	for _, test := range []struct {
+		name      string
+		directory string
+		filename  string
+	}{
+		{name: "relative directory", directory: "mulgae-staging/019f596a", filename: "report.md"},
+		{name: "uncleaned directory", directory: "/a/../b", filename: "report.md"},
+		{name: "filesystem root directory", directory: "/", filename: "report.md"},
+		{name: "empty directory", directory: "", filename: "report.md"},
+		{name: "directory with NUL", directory: providerTestStagingDirectory + "\x00", filename: "report.md"},
+		{name: "absolute filename", directory: providerTestStagingDirectory, filename: "/report.md"},
+		{name: "filename with separator", directory: providerTestStagingDirectory, filename: "reports/report.md"},
+		{name: "nested filename", directory: providerTestStagingDirectory, filename: "a/b"},
+		{name: "dotdot filename", directory: providerTestStagingDirectory, filename: ".."},
+		{name: "dot filename", directory: providerTestStagingDirectory, filename: "."},
+		{name: "empty filename", directory: providerTestStagingDirectory, filename: ""},
+		{name: "filename with NUL", directory: providerTestStagingDirectory, filename: "report.md\x00"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewStagedOutputDestination(test.directory, test.filename); err == nil {
+				t.Fatal("NewStagedOutputDestination() succeeded")
+			}
+		})
+	}
+}
+
+func TestProviderOutputTransportValid(t *testing.T) {
+	for _, transport := range []ProviderOutputTransport{
+		ProviderOutputTransportStdout,
+		ProviderOutputTransportStagedFile,
+	} {
+		if !transport.Valid() {
+			t.Fatalf("transport %q is invalid", transport)
+		}
+	}
+	for _, transport := range []ProviderOutputTransport{"", "staged", "stagedfile", "STDOUT", "file"} {
+		if transport.Valid() {
+			t.Fatalf("transport %q is valid", transport)
+		}
 	}
 }
 

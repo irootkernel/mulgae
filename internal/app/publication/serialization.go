@@ -804,6 +804,7 @@ func (candidate PreparedCandidate) manifestRoleReports() []manifestRoleReportWir
 			ProviderInstance: finalAttempt.provider,
 			AttemptID:        finalAttempt.id.String(),
 			ContentType:      "text/markdown",
+			Transport:        string(role.outputTransport),
 		})
 	}
 	return reports
@@ -1221,6 +1222,7 @@ type manifestRoleReportWire struct {
 	ProviderInstance string `json:"provider_instance"`
 	AttemptID        string `json:"attempt_id"`
 	ContentType      string `json:"content_type"`
+	Transport        string `json:"transport"`
 }
 
 type manifestAttemptWire struct {

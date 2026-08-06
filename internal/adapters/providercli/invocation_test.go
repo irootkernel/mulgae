@@ -177,6 +177,30 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	}
 }
 
+// TestZCodeQualificationDenylistStillFullyToolDenied pins the qualification
+// boundary. The review argv gained yolo mode and a Write grant for the
+// staged_file transport; qualification must keep its plan-mode, fully
+// tool-denied profile so the capability probe stays prompt-bound.
+func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
+	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
+	definition := testProfile(t, FamilyZcode, "zcode_current", "zcode-current", "", "")
+
+	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
+	want := []string{
+		"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "fixture-packet",
+		"--json", "--disallowed-tools", "*",
+	}
+	if err != nil || !reflect.DeepEqual(argv, want) {
+		t.Fatalf("ZCode qualification argv = %#v, err = %v, want %#v", argv, err, want)
+	}
+	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
+		t.Fatalf("validate exact ZCode qualification argv: %v", err)
+	}
+	if zcodeCapabilityDisallowedTools == zcodeWorkspaceReadOnlyDisallowedTools {
+		t.Fatal("qualification shares the review denylist")
+	}
+}
+
 func TestNativeProbeInvocationVersionArgvUsesClosedFamilyBase(t *testing.T) {
 	for _, family := range []string{FamilyKimi, FamilyZcode, FamilyAgy} {
 		definition := testProfile(t, family, family+"_current", family+"-current", "", "")

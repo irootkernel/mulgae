@@ -24,11 +24,30 @@ execution, or invalid-output failures; security, configuration, artifact,
 cancellation, and internal failures never trigger it.
 
 ZCode and AGY reviews run against Mulgae's immutable captured snapshot with
-adapter-owned read-oriented tool boundaries. Providers may selectively
-read/search that snapshot; they do not receive live project-tree access, write,
-shell, or network authority from Mulgae. AGY keeps `--sandbox` and `--add-dir`
-limited to the bounded snapshot. The default AGY `permission_mode` is `safe` so
-headless write/shell requests remain denied. Set
+adapter-owned tool boundaries. Providers may selectively read/search that
+snapshot; they do not receive live project-tree access, shell, or network
+authority from Mulgae, and the snapshot itself is read-only with
+post-execution drift detection overriding provider success.
+
+Role reports reach Mulgae over a per-family transport recorded in
+`manifest.role_reports[].transport`:
+
+- ZCode: `staged_file`. ZCode review runs in `--mode yolo` with the denylist
+  `Bash,Edit,NotebookEdit,WebSearch,WebFetch`, so `Write` is enabled for one
+  purpose only: writing `role-report.md` to the exact absolute staging path
+  Mulgae names in the last trusted prompt layer. That directory sits in a
+  disposable namespace outside the snapshot and outside `.mulgae`. Mulgae
+  validates the file after the process exits, copies the accepted bytes into
+  `role-reports/<role>.md`, and always removes staging. ZCode's write authority
+  is not path-scoped by the provider; containment is Mulgae-side. ZCode
+  qualification is unchanged and remains fully tool-denied.
+- AGY and Kimi: `stdout`, unchanged. Headless AGY auto-denies `write_file` in
+  safe mode.
+- Exact replay (`rerun --exact`) is always `stdout`.
+
+AGY keeps `--new-project --sandbox --add-dir <snapshot> --mode plan` limited to
+the bounded snapshot. The default AGY `permission_mode` is `safe` so headless
+write/shell requests remain denied. Set
 `providers.agy.permission_mode: "dangerously-skip-permissions"` only as an
 explicit opt-in; Mulgae reports a warning because that mode may approve write or
 shell tool requests outside the read-oriented boundary. Permission denials under

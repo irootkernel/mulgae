@@ -301,6 +301,217 @@ func TestIsolatedSuccessfulProviderExecutionObservationRejectsPrimaryValidationF
 	}
 }
 
+func TestProviderInvocationRetainsStagedOutputDestinationThroughCanonicalization(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	if _, ok := invocation.StagedOutputDestination(); ok {
+		t.Fatal("stdout invocation claims a staged output destination")
+	}
+	destination := newProviderExecutionTestStagedDestination(t)
+	staged, err := NewProviderInvocationWithStagedOutput(invocation, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := staged.StagedOutputDestination(); !ok || got != destination {
+		t.Fatalf("StagedOutputDestination() = %#v, %t", got, ok)
+	}
+
+	canonical, err := canonicalProviderInvocation(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := canonical.StagedOutputDestination(); !ok || got != destination {
+		t.Fatalf("canonicalized destination = %#v, %t", got, ok)
+	}
+
+	stagedBytes := []byte("# staged report\n")
+	stagedObservation, err := NewStagedFileSuccessfulProviderExecutionObservation(
+		staged,
+		newProviderExecutionTestResult(t, staged, stagedBytes),
+		newProviderExecutionTestProcess(
+			t,
+			[]byte("bounded diagnostic"),
+			nil,
+			providerExecutionTestExitCode(0),
+			ProcessTerminationExited,
+			completeProviderExecutionReceipt(t, staged),
+			providerExecutionTestStartedAt,
+			providerExecutionTestEndedAt,
+		),
+		1024,
+		1024,
+		newProviderExecutionTestStagedReceipt(t, stagedBytes),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := stagedObservation.Invocation().StagedOutputDestination(); !ok || got != destination {
+		t.Fatalf("observation invocation destination = %#v, %t", got, ok)
+	}
+
+	stdout := []byte(`{"findings":[]}`)
+	stdoutObservation, err := NewSuccessfulProviderExecutionObservation(
+		invocation,
+		newProviderExecutionTestResult(t, invocation, stdout),
+		newProviderExecutionTestProcess(
+			t,
+			stdout,
+			nil,
+			providerExecutionTestExitCode(0),
+			ProcessTerminationExited,
+			completeProviderExecutionReceipt(t, invocation),
+			providerExecutionTestStartedAt,
+			providerExecutionTestEndedAt,
+		),
+		1024,
+		1024,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := stdoutObservation.Invocation().StagedOutputDestination(); ok {
+		t.Fatalf("stdout observation invocation gained destination %#v", got)
+	}
+	if got := stdoutObservation.OutputTransport(); got != ProviderOutputTransportStdout {
+		t.Fatalf("OutputTransport() = %q, want %q", got, ProviderOutputTransportStdout)
+	}
+
+	for _, test := range []struct {
+		name        string
+		invocation  ProviderInvocation
+		destination StagedOutputDestination
+	}{
+		{name: "zero invocation", invocation: ProviderInvocation{}, destination: destination},
+		{name: "invalid destination", invocation: invocation, destination: StagedOutputDestination{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewProviderInvocationWithStagedOutput(test.invocation, test.destination); err == nil {
+				t.Fatal("NewProviderInvocationWithStagedOutput() succeeded")
+			}
+		})
+	}
+}
+
+func TestStagedFileObservationRequiresIsolatedResultMatchingReceipt(t *testing.T) {
+	invocation := newProviderExecutionTestStagedInvocation(t)
+	staged := []byte("# staged report\n\nfree-form provider prose.\n")
+	diagnostic := []byte("bounded diagnostic stream")
+	process := newProviderExecutionTestProcess(
+		t,
+		diagnostic,
+		nil,
+		providerExecutionTestExitCode(0),
+		ProcessTerminationExited,
+		completeProviderExecutionReceipt(t, invocation),
+		providerExecutionTestStartedAt,
+		providerExecutionTestEndedAt,
+	)
+	result := newProviderExecutionTestResult(t, invocation, staged)
+	receipt := newProviderExecutionTestStagedReceipt(t, staged)
+
+	observation, err := NewStagedFileSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observation.Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	if got := observation.OutputTransport(); got != ProviderOutputTransportStagedFile {
+		t.Fatalf("OutputTransport() = %q, want %q", got, ProviderOutputTransportStagedFile)
+	}
+	if got, ok := observation.StagedOutputReceipt(); !ok || got != receipt {
+		t.Fatalf("StagedOutputReceipt() = %#v, %t", got, ok)
+	}
+	if got, ok := observation.Result(); !ok || !bytes.Equal(got.Stdout(), staged) {
+		t.Fatalf("Result() = %#v, %t", got, ok)
+	}
+	if !bytes.Equal(observation.Stdout(), diagnostic) {
+		t.Fatal("staged transport changed raw process evidence")
+	}
+
+	mismatchedDigest, err := NewStagedOutputReceipt(sha256Identifier([]byte("other staged bytes")), int64(len(staged)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchedLength, err := NewStagedOutputReceipt(sha256Identifier(staged), int64(len(staged))+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		receipt StagedOutputReceipt
+	}{
+		{name: "mismatched digest", receipt: mismatchedDigest},
+		{name: "mismatched length", receipt: mismatchedLength},
+		{name: "missing receipt", receipt: StagedOutputReceipt{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewStagedFileSuccessfulProviderExecutionObservation(
+				invocation, result, process, 1024, 1024, test.receipt,
+			); err == nil {
+				t.Fatal("NewStagedFileSuccessfulProviderExecutionObservation() succeeded")
+			}
+		})
+	}
+
+	stdoutObservation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutWithReceipt := stdoutObservation
+	stdoutWithReceipt.stagedOutput = receipt
+	stdoutWithReceipt.hasStagedOutput = true
+	if err := stdoutWithReceipt.Validate(); err == nil {
+		t.Fatal("stdout transport accepted a staged output receipt")
+	}
+
+	stagedWithoutReceipt := observation
+	stagedWithoutReceipt.stagedOutput = StagedOutputReceipt{}
+	stagedWithoutReceipt.hasStagedOutput = false
+	if err := stagedWithoutReceipt.Validate(); err == nil {
+		t.Fatal("staged file transport accepted a missing receipt")
+	}
+
+	stagedWithoutIsolation := observation
+	stagedWithoutIsolation.resultIsolated = false
+	if err := stagedWithoutIsolation.Validate(); err == nil {
+		t.Fatal("staged file transport accepted a non-isolated result")
+	}
+}
+
+func TestStagedOutputReceiptRejectsInvalidValues(t *testing.T) {
+	staged := []byte("# staged report\n")
+	digest := sha256Identifier(staged)
+	receipt, err := NewStagedOutputReceipt(digest, int64(len(staged)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.SHA256() != digest || receipt.ByteLength() != int64(len(staged)) || !receipt.Valid() {
+		t.Fatalf("receipt = %#v", receipt)
+	}
+	if (StagedOutputReceipt{}).Valid() {
+		t.Fatal("zero staged output receipt is valid")
+	}
+
+	for _, test := range []struct {
+		name       string
+		sha256     string
+		byteLength int64
+	}{
+		{name: "unprefixed digest", sha256: strings.TrimPrefix(digest, "sha256:"), byteLength: int64(len(staged))},
+		{name: "wrong prefix", sha256: "sha1:" + strings.TrimPrefix(digest, "sha256:"), byteLength: int64(len(staged))},
+		{name: "uppercase digest", sha256: "sha256:" + strings.ToUpper(strings.TrimPrefix(digest, "sha256:")), byteLength: int64(len(staged))},
+		{name: "short digest", sha256: "sha256:" + strings.Repeat("a", 63), byteLength: int64(len(staged))},
+		{name: "zero byte length", sha256: digest, byteLength: 0},
+		{name: "negative byte length", sha256: digest, byteLength: -1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewStagedOutputReceipt(test.sha256, test.byteLength); err == nil {
+				t.Fatal("NewStagedOutputReceipt() succeeded")
+			}
+		})
+	}
+}
+
 func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)
 	stdout := []byte(`{"findings":[]}`)
@@ -1142,6 +1353,36 @@ func newProviderExecutionTestInvocationWithStdin(t *testing.T, stdin []byte) Pro
 		t.Fatal(err)
 	}
 	return invocation
+}
+
+func newProviderExecutionTestStagedInvocation(t *testing.T) ProviderInvocation {
+	t.Helper()
+	invocation, err := NewProviderInvocationWithStagedOutput(
+		newProviderExecutionTestInvocation(t),
+		newProviderExecutionTestStagedDestination(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return invocation
+}
+
+func newProviderExecutionTestStagedDestination(t *testing.T) StagedOutputDestination {
+	t.Helper()
+	destination, err := NewStagedOutputDestination(providerTestStagingDirectory, "report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return destination
+}
+
+func newProviderExecutionTestStagedReceipt(t *testing.T, staged []byte) StagedOutputReceipt {
+	t.Helper()
+	receipt, err := NewStagedOutputReceipt(sha256Identifier(staged), int64(len(staged)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
 }
 
 func newProviderExecutionTestResult(t *testing.T, invocation ProviderInvocation, stdout []byte) ProviderResult {

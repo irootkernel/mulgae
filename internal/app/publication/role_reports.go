@@ -8,7 +8,8 @@ import (
 )
 
 // CommittedRoleReport is one verified role-report identity from a committed
-// publication manifest. It never invents source_invocation_id.
+// publication manifest. It never invents source_invocation_id. Transport is the
+// provider output transport that carried the accepted content for the role.
 type CommittedRoleReport struct {
 	Role             string
 	Path             string
@@ -17,6 +18,7 @@ type CommittedRoleReport struct {
 	ProviderInstance string
 	AttemptID        string
 	ContentType      string
+	Transport        string
 }
 
 // RoleReportURI is one project-relative role-report identity projected from a

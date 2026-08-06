@@ -22,6 +22,13 @@ publish Mulgae-owned free-form role reports under `role-reports/`. A completed
 run has at most one top-level final review. Invalid and repaired candidates
 remain under `attempts/`.
 
+Each `manifest.role_reports[]` entry carries role, path, sha256, byte length,
+`provider_instance`, `attempt_id`, `content_type`, and a required `transport`
+of `staged_file` or `stdout`, the provider output transport that carried the
+accepted bytes for that role. Mulgae writes every published file itself; a
+`staged_file` route only means the provider first wrote one validated file in
+an isolated staging directory outside `.mulgae`.
+
 Failed runs without publication authority retain a bounded status under
 `.mulgae/diagnostics/`. `status --run <id>` checks published artifacts first and
 then reads that diagnostic-only status when no published run exists. It does

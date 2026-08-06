@@ -82,6 +82,7 @@ func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 			"sha256":      "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 			"byte_length": 12, "provider_instance": "logic-provider",
 			"attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273", "content_type": "text/markdown",
+			"transport": "stdout",
 		},
 	}
 	if err := validateAgainstRef(t, manifestID, manifestDoc, manifestID+"#/properties/role_reports", manifestReports); err != nil {
@@ -101,6 +102,7 @@ func eightManifestRoleReports() []any {
 			"sha256":      "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 			"byte_length": index + 1, "provider_instance": role + "-provider",
 			"attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273", "content_type": "text/markdown",
+			"transport": "staged_file",
 		})
 	}
 	return reports

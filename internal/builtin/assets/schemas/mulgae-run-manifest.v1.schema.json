@@ -686,7 +686,8 @@
         "byte_length",
         "provider_instance",
         "attempt_id",
-        "content_type"
+        "content_type",
+        "transport"
       ],
       "properties": {
         "role": {
@@ -715,6 +716,14 @@
         "content_type": {
           "type": "string",
           "const": "text/markdown"
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "staged_file",
+            "stdout"
+          ],
+          "description": "Provider output transport that carried the accepted content for this role."
         }
       }
     }

@@ -187,7 +187,7 @@ func TestImmutableReviewInputPreservesProjectContextPresence(t *testing.T) {
 					t.Fatalf("ProjectContext() retained accessor mutation: %q", got)
 				}
 			}
-			source, err := newPromptSource(input, review.TemplateSet{}, &reviewRunPromptIssuer{}, reviewRunRoleTask)
+			source, err := newPromptSource(input, review.TemplateSet{}, &reviewRunPromptIssuer{}, reviewRunRoleTask, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

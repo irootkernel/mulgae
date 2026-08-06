@@ -367,6 +367,7 @@ type preparedRole struct {
 	limitations     []string
 	reportsOnly     bool
 	reportMarkdown  []byte
+	outputTransport ports.ProviderOutputTransport
 }
 
 type preparedAttempt struct {
@@ -1160,6 +1161,7 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		write(role.failureReason)
 		write(fmt.Sprintf("%t", role.reportsOnly))
 		write(string(role.reportMarkdown))
+		write(string(role.outputTransport))
 		for _, attempt := range role.attempts {
 			write(attempt.id.String())
 			write(string(attempt.kind))
@@ -1473,6 +1475,10 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 			}
 			if len(bytes.TrimSpace(roleResult.reportMarkdown)) == 0 {
 				return nil, nil, fmt.Errorf("publication candidate: successful role %q is missing its role report", role)
+			}
+			roleResult.outputTransport = summary.OutputTransport()
+			if !roleResult.outputTransport.Valid() {
+				return nil, nil, fmt.Errorf("publication candidate: successful role %q has an invalid output transport", role)
 			}
 			if summary.Degraded() {
 				roleResult.outcome = "degraded"
@@ -1843,7 +1849,7 @@ func (candidate PreparedCandidate) validateNoChange() error {
 		if !role.role.Valid() || role.required != (role.role == domain.RoleLogic) ||
 			role.state != domain.RoleTaskSucceeded || !role.valid || role.degraded || role.repaired ||
 			role.failureClass != "" || role.failureReason != "" || role.outcome != "not_applicable" ||
-			len(role.attempts) != 0 || len(role.validFindingIDs) != 0 ||
+			len(role.attempts) != 0 || len(role.validFindingIDs) != 0 || role.outputTransport != "" ||
 			!reflect.DeepEqual(role.limitations, []string{"No Git changes were captured."}) {
 			return fmt.Errorf("no-change role values are inconsistent")
 		}
@@ -1941,6 +1947,9 @@ func validatePreparedRole(role preparedRole) error {
 		if len(bytes.TrimSpace(role.reportMarkdown)) == 0 || !utf8.Valid(role.reportMarkdown) {
 			return fmt.Errorf("successful role report is missing or invalid")
 		}
+		if !role.outputTransport.Valid() {
+			return fmt.Errorf("successful role output transport is missing or invalid")
+		}
 		expectedReportsOnly, ok := domain.ClassifySuccessfulAttemptExtraction(
 			finalAttempt.parseState, finalAttempt.validationState,
 		)
@@ -1953,7 +1962,8 @@ func validatePreparedRole(role preparedRole) error {
 	case "failed":
 		if role.valid || role.degraded || role.state != domain.RoleTaskFailed || !role.failureClass.Valid() ||
 			!validReasonCode(role.failureReason) || finalAttempt.state == domain.AttemptSucceeded ||
-			forbiddenPublicationFailure(role.failureClass) || len(role.reportMarkdown) != 0 || role.reportsOnly {
+			forbiddenPublicationFailure(role.failureClass) || len(role.reportMarkdown) != 0 || role.reportsOnly ||
+			role.outputTransport != "" {
 			return fmt.Errorf("failed role values are inconsistent")
 		}
 	default:
@@ -3105,6 +3115,7 @@ func validateManifestRoleReports(manifest runManifestWire, final finalReviewWire
 			!domain.Role(report.Role).Valid() ||
 			!validSHA256(report.SHA256) ||
 			report.ByteLength <= 0 ||
+			!ports.ProviderOutputTransport(report.Transport).Valid() ||
 			!validProviderInstance(report.ProviderInstance) {
 			return fmt.Errorf("manifest role report %q is invalid", report.Role)
 		}

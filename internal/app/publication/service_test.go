@@ -593,6 +593,7 @@ func TestPublishP2ExitRetainsAllTerminalRoleAndPolicyReasons(t *testing.T) {
 		role.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
 		role.reportsOnly = false
 		role.reportMarkdown = nil
+		role.outputTransport = ""
 		role.attempts[0].state = domain.AttemptFailed
 		role.attempts[0].parseState = domain.ParseNotStarted
 		role.attempts[0].validationState = domain.ValidationNotStarted
