@@ -7,7 +7,10 @@ import (
 )
 
 func TestRenderConfigYAMLIsCanonicalAndRoundTrips(t *testing.T) {
-	config := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"}, candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}})
+	config, err := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"}, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, err := RenderConfigYAML(adapterconfig.YAMLCodec{}, config)
 	if err != nil {
 		t.Fatal(err)
@@ -23,13 +26,17 @@ func TestRenderConfigYAMLIsCanonicalAndRoundTrips(t *testing.T) {
 }
 
 func TestCandidateConfigDefaultsAutoProviderTimeouts(t *testing.T) {
-	config := candidateConfig(
+	config, err := candidateConfig(
 		InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"},
+		testRoleDefaults(),
 		candidates{
 			zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
 			agy:   &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: adapterconfig.DefaultAGYPermissionMode},
 		},
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rendered, err := adapterconfig.EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)

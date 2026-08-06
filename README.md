@@ -128,6 +128,14 @@ Automatic initialization configures ZCode as the primary reviewer and AGY as
 its fallback for logic, security, maintainability, product, and testing. The
 documentation role uses AGY with ZCode fallback.
 
+These defaults are declared in one place: `assets/roles.yaml` at the repository
+root, which also holds each role's review guidance. Every role lists an ordered
+`provider_preferences`; `mulgae init` intersects that order with the providers it
+actually configured, taking the first match as the primary and the second as the
+fallback. Editing that file and rebuilding changes what `mulgae init` writes. It
+never changes an existing `.mulgae/config.yaml`, which remains the sole authority
+once a project is initialized.
+
 `mulgae init` creates the only configuration authority:
 `.mulgae/config.yaml`. It never overwrites an existing configuration.
 

@@ -38,7 +38,25 @@ tests enforce this direction.
 | `internal/adapters/workspace` | Isolated snapshots and descriptor-bound workspaces |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |
 | `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
-| `internal/builtin` | Embedded schemas, prompts, roles, examples, and help |
+| `internal/builtin` | Embedded schemas, prompts, examples, and help |
+| `assets` | Repository-root human-authored role document, embedded into the binary |
+| `internal/roles` | Role document schema, parsing, and whole-catalog validation |
+| `internal/app/roleassets` | Single application-layer reader of the role document |
+
+## Role catalog
+
+`assets/roles.yaml` is the one human-authored source for the fixed review roles.
+It carries each role's review guidance, its ordered `provider_preferences`, and
+the artist input defaults. `go:embed` patterns cannot escape their own package
+directory, so the root `assets` package embeds the document and `internal/builtin`
+overlays it into the contract catalog under the same checksum inventory as every
+embedded file.
+
+The document is a generation-time authority only. `mulgae init` derives the
+default primary and fallback assignment it writes into a new project from the
+preference order intersected with the providers it configured. Nothing resolves a
+configured value from embedded bytes, and `.mulgae/config.yaml` is never
+re-derived after init.
 
 ## Review flow
 

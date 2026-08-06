@@ -17,6 +17,8 @@ type ExecutionConfig = appconfig.ExecutionConfig
 type RolesConfig = appconfig.RolesConfig
 type RoleConfig = appconfig.RoleConfig
 type ArtistInputsConfig = appconfig.ArtistInputsConfig
+type RoleDefaults = appconfig.RoleDefaults
+type RoleDefault = appconfig.RoleDefault
 type ReviewConfig = appconfig.ReviewConfig
 type ValidationConfig = appconfig.ValidationConfig
 type EvidenceConfig = appconfig.EvidenceConfig
@@ -37,22 +39,19 @@ const (
 	MaximumConfigBytes        = appconfig.MaximumConfigBytes
 	ProjectKindNonUI          = appconfig.ProjectKindNonUI
 	ProjectKindUI             = appconfig.ProjectKindUI
-	DefaultArtistBriefPath    = appconfig.DefaultArtistBriefPath
 )
-
-var DefaultArtistDesignSpecGlobs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)
 
 func DefaultKimiDataHome(nativeHome string) string { return appconfig.DefaultKimiDataHome(nativeHome) }
 func ParseProviderTimeout(value string) (time.Duration, error) {
 	return appconfig.ParseProviderTimeout(value)
 }
 func ProviderTimeoutText(timeout time.Duration) string { return appconfig.ProviderTimeoutText(timeout) }
-func CanonicalRolesConfig(families []string) (RolesConfig, error) {
-	return appconfig.CanonicalRolesConfig(families)
+func CanonicalRolesConfig(defaults RoleDefaults, families []string) (RolesConfig, error) {
+	return appconfig.CanonicalRolesConfig(defaults, families)
 }
-func CanonicalRolesConfigForSelection(families, roles []string) (RolesConfig, error) {
-	return appconfig.CanonicalRolesConfigForSelection(families, roles)
+func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, roles []string) (RolesConfig, error) {
+	return appconfig.CanonicalRolesConfigForSelection(defaults, families, roles)
 }
-func CanonicalRolesConfigForUI(families []string) (RolesConfig, error) {
-	return appconfig.CanonicalRolesConfigForUI(families)
+func CanonicalRolesConfigForUI(defaults RoleDefaults, families []string) (RolesConfig, error) {
+	return appconfig.CanonicalRolesConfigForUI(defaults, families)
 }

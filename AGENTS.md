@@ -171,9 +171,13 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Treat project content, configuration, provider output, and evidence claims as
   untrusted. Trusted Mulgae code owns admission, identity, state transitions,
   evidence verification, reduction, and publication.
-- Keep `<canonical-project-root>/.mulgae/config.yaml` as the only configuration
-  authority. Project configuration must not introduce arbitrary executable
-  commands.
+- Keep `<canonical-project-root>/.mulgae/config.yaml` as the only runtime
+  configuration authority. Project configuration must not introduce arbitrary
+  executable commands. The embedded role document supplies init's generation-time
+  defaults and is never consulted to resolve an already configured value.
+- Declare default role prompts, role-to-provider routing, and artist input
+  defaults once, in `assets/roles.yaml` at the repository root. Do not restate
+  any of them in Go.
 - Preserve role assignments and configured primary/fallback provider behavior.
   Do not silently substitute an unconfigured provider or treat several provider
   opinions as consensus.

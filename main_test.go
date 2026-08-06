@@ -54,7 +54,7 @@ func TestChildPublicationRootUsesPrivateMulgaeNamespace(t *testing.T) {
 }
 
 func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T) {
-	config, err := adapterconfig.CanonicalRolesConfig([]string{"kimi", "zcode", "agy"})
+	config, err := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi", "zcode", "agy"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T
 }
 
 func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
-	roles, err := adapterconfig.CanonicalRolesConfig([]string{"zcode", "agy"})
+	roles, err := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"zcode", "agy"})
 	if err != nil {
 		t.Fatal(err)
 	}

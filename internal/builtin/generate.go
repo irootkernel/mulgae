@@ -18,6 +18,11 @@ import (
 
 const checksumSource = "CHECKSUMS.sha256"
 
+// rootRoleSource is the catalog source name of the repository-root role
+// document. It is embedded by the root assets package rather than the embedded
+// asset tree, so it is read explicitly and held to the same checksum inventory.
+const rootRoleSource = "roles.yaml"
+
 type sourceFile struct {
 	source string
 	bytes  []byte
@@ -31,11 +36,19 @@ func main() {
 }
 
 func generate() error {
-	root := filepath.Join(filepath.Dir(generatorPath()), "assets")
-	files, err := readAssets(root)
+	packageRoot := filepath.Dir(generatorPath())
+	files, err := readAssets(filepath.Join(packageRoot, "assets"))
 	if err != nil {
 		return err
 	}
+	rootRoles, err := readRootRoleDocument(filepath.Join(packageRoot, "..", "..", "assets", rootRoleSource))
+	if err != nil {
+		return err
+	}
+	files = append(files, rootRoles)
+	sort.Slice(files, func(left, right int) bool {
+		return files[left].source < files[right].source
+	})
 	if err := validateRoles(files); err != nil {
 		return err
 	}
@@ -50,7 +63,7 @@ func generate() error {
 	if len(lines) == 0 {
 		return fmt.Errorf("generate checksums: no runtime assets")
 	}
-	return writeFileAtomically(filepath.Join(root, checksumSource), []byte(strings.Join(lines, "")), 0o644)
+	return writeFileAtomically(filepath.Join(packageRoot, "assets", checksumSource), []byte(strings.Join(lines, "")), 0o644)
 }
 
 func readAssets(root string) ([]sourceFile, error) {
@@ -104,25 +117,34 @@ func readAssets(root string) ([]sourceFile, error) {
 	return files, nil
 }
 
+// readRootRoleDocument reads the repository-root role document under the same
+// symlink and regular-file rules the embedded asset walk applies.
+func readRootRoleDocument(filename string) (sourceFile, error) {
+	info, err := os.Lstat(filename)
+	if err != nil {
+		return sourceFile{}, fmt.Errorf("stat root role document: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return sourceFile{}, fmt.Errorf("root role document must be a non-symlink regular file")
+	}
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return sourceFile{}, fmt.Errorf("read root role document: %w", err)
+	}
+	return sourceFile{source: rootRoleSource, bytes: contents}, nil
+}
+
 func validateRoles(files []sourceFile) error {
-	definitions := make([]rolecatalog.Definition, 0)
 	for _, file := range files {
-		if !strings.HasPrefix(file.source, "roles/") {
+		if file.source != rootRoleSource {
 			continue
 		}
-		if filepath.Ext(file.source) != ".yaml" || filepath.ToSlash(filepath.Dir(file.source)) != "roles" {
-			return fmt.Errorf("role catalog contains unsupported source %q", file.source)
-		}
-		definition, err := rolecatalog.Parse(file.bytes)
-		if err != nil {
+		if _, err := rolecatalog.ParseCatalog(file.bytes); err != nil {
 			return fmt.Errorf("parse role source %q: %w", file.source, err)
 		}
-		if filepath.Base(file.source) != definition.ID+".yaml" {
-			return fmt.Errorf("role source %q does not match role %q", file.source, definition.ID)
-		}
-		definitions = append(definitions, definition)
+		return nil
 	}
-	return rolecatalog.ValidateCatalog(definitions)
+	return fmt.Errorf("role catalog has no %s", rootRoleSource)
 }
 
 func writeFileAtomically(filename string, data []byte, mode os.FileMode) error {

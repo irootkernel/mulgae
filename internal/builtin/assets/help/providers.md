@@ -23,6 +23,12 @@ namespace. Fallback is allowed only for classified provider availability,
 execution, or invalid-output failures; security, configuration, artifact,
 cancellation, and internal failures never trigger it.
 
+The initial assignment comes from the build-owned role document, which lists an
+ordered provider preference per role. `mulgae init` intersects that order with
+the providers it configured, taking the first match as the primary and the
+second as the fallback. That is a generation-time default only: after init the
+project configuration is the sole authority and is never re-derived.
+
 ZCode and AGY reviews run against Mulgae's immutable captured snapshot with
 adapter-owned tool boundaries. Providers may selectively read/search that
 snapshot; they do not receive live project-tree access, shell, or network

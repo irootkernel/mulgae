@@ -12,6 +12,7 @@ import (
 
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/app/roleassets"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -135,13 +136,14 @@ type Service struct {
 	clock        ports.Clock
 	sources      ports.ConfigSourceFactory
 	codec        appconfig.Codec
+	catalog      ports.ContractCatalog
 }
 
-func NewService(installer ports.ConfigInstaller, inspector ports.EnvironmentInspector, attestor ports.ConfigLocalityAttestor, prevalidator ResultPrevalidator, clock ports.Clock, sources ports.ConfigSourceFactory, codec appconfig.Codec) (*Service, error) {
-	if nilInterface(installer) || nilInterface(inspector) || nilInterface(attestor) || nilInterface(prevalidator) || nilInterface(clock) || nilInterface(sources) || nilInterface(codec) {
+func NewService(installer ports.ConfigInstaller, inspector ports.EnvironmentInspector, attestor ports.ConfigLocalityAttestor, prevalidator ResultPrevalidator, clock ports.Clock, sources ports.ConfigSourceFactory, codec appconfig.Codec, catalog ports.ContractCatalog) (*Service, error) {
+	if nilInterface(installer) || nilInterface(inspector) || nilInterface(attestor) || nilInterface(prevalidator) || nilInterface(clock) || nilInterface(sources) || nilInterface(codec) || nilInterface(catalog) {
 		return nil, fmt.Errorf("initialize project: missing dependency")
 	}
-	return &Service{installer: installer, inspector: inspector, attestor: attestor, prevalidator: prevalidator, clock: clock, sources: sources, codec: codec}, nil
+	return &Service{installer: installer, inspector: inspector, attestor: attestor, prevalidator: prevalidator, clock: clock, sources: sources, codec: codec, catalog: catalog}, nil
 }
 
 func (service *Service) InitializeProject(ctx context.Context, request InitializeProjectRequest) (InitializeProjectResult, error) {
@@ -165,6 +167,17 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	}
 	if kind != appconfig.ProjectKindNonUI && kind != appconfig.ProjectKindUI || kind != appconfig.ProjectKindUI && contains(roles, "artist") {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, fmt.Errorf("project kind and artist selection disagree"))
+	}
+	// The build-owned role document supplies every default provider assignment
+	// and the artist input defaults. Loading it before any filesystem contact
+	// keeps a corrupt catalog a not_attempted failure that creates nothing.
+	definitions, err := roleassets.Load(ctx, service.catalog)
+	if err != nil {
+		return result, newFailure(domain.FailureInternal, "init_role_catalog_invalid", false, err)
+	}
+	roleDefaults, err := roleassets.Defaults(definitions)
+	if err != nil {
+		return result, newFailure(domain.FailureInternal, "init_role_catalog_invalid", false, err)
 	}
 	source, err := service.sources.OpenConfigSource(request.ProjectRoot, true)
 	if err != nil {
@@ -195,7 +208,10 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		}
 		return result, newFailure(class, discoveryReason(request.Selection, result.CandidateProviderIDs), true, err)
 	}
-	config := candidateConfig(request, candidates)
+	config, err := candidateConfig(request, roleDefaults, candidates)
+	if err != nil {
+		return result, newFailure(domain.FailureInternal, "init_role_catalog_invalid", false, err)
+	}
 	canonical, err := RenderConfigYAML(service.codec, config)
 	if err != nil {
 		return result, newFailure(domain.FailureConfiguration, "config_yaml_invalid", false, err)
@@ -570,29 +586,28 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 	return row
 }
 
-func candidateConfig(request InitializeProjectRequest, value candidates) appconfig.Config {
+func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDefaults, value candidates) (appconfig.Config, error) {
 	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy}
 	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
-	roles, err := appconfig.CanonicalRolesConfigForSelection(providers.Families(), selectedRoles)
+	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, providers.Families(), selectedRoles)
 	if err != nil {
-		return appconfig.Config{}
+		return appconfig.Config{}, err
 	}
 	kind := request.ProjectKind
 	if kind == "" {
 		kind = appconfig.ProjectKindNonUI
 	}
-	if kind == appconfig.ProjectKindUI && contains(selectedRoles, "artist") {
-		briefPath := request.ArtistBriefPath
-		if briefPath == "" {
-			briefPath = appconfig.DefaultArtistBriefPath
+	// The build-owned defaults already seeded artist inputs; only an explicit
+	// request value overrides them.
+	if kind == appconfig.ProjectKindUI && contains(selectedRoles, "artist") && roles.Artist.Inputs != nil {
+		if request.ArtistBriefPath != "" {
+			roles.Artist.Inputs.TaskPath = request.ArtistBriefPath
 		}
-		globs := append([]string(nil), request.ArtistDesignSpecGlobs...)
-		if len(globs) == 0 {
-			globs = append([]string(nil), appconfig.DefaultArtistDesignSpecGlobs...)
+		if len(request.ArtistDesignSpecGlobs) != 0 {
+			roles.Artist.Inputs.DesignSpecGlobs = append([]string(nil), request.ArtistDesignSpecGlobs...)
 		}
-		roles.Artist.Inputs = &appconfig.ArtistInputsConfig{TaskPath: briefPath, DesignSpecGlobs: globs}
 	}
-	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}, nil
 }
 func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig {
 	count := len(candidateIDs(value))
@@ -605,7 +620,10 @@ func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig
 }
 
 func validateRoleSelection(roles []string) ([]string, error) {
-	fixed := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
+	fixed := make([]string, 0, len(domain.FixedRoleOrder()))
+	for _, role := range domain.FixedRoleOrder() {
+		fixed = append(fixed, string(role))
+	}
 	if roles == nil {
 		return []string{"logic"}, nil
 	}
@@ -711,6 +729,8 @@ func initFailureMessage(code string) string {
 	switch code {
 	case "init_selection_invalid":
 		return "The init selection is invalid."
+	case "init_role_catalog_invalid":
+		return "The embedded Mulgae role catalog is invalid."
 	case "init_destination_exists":
 		return "The project-local Mulgae configuration already exists."
 	case "init_discovery_empty":

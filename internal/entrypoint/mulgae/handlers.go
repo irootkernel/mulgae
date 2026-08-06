@@ -919,7 +919,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		_, err = application.renderer.Render(prevalidationContext, commandResult, requestJSON, data)
 		return err
 	})
-	service, err := appinit.NewService(installer, application.inspector, attestor, prevalidator, application.clock, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, err := appinit.NewService(installer, application.inspector, attestor, prevalidator, application.clock, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, application.catalog)
 	if err != nil {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_service_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
 	}

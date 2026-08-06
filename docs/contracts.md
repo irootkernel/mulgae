@@ -24,6 +24,11 @@ resource ceilings, and CI thresholds. It cannot add arbitrary provider
 commands. Use `mulgae config --mode effective` for the admitted value and
 `mulgae config --mode provenance` for its source.
 
+The build-owned role document at `assets/roles.yaml` supplies the *initial*
+role-to-provider assignment and artist input defaults that `mulgae init` writes.
+That is a generation-time default only: once the file exists, it is the sole
+authority and is never re-derived from embedded bytes.
+
 See the complete
 [`local-config.yaml`](../internal/builtin/assets/examples/local-config.yaml)
 example.

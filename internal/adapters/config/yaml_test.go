@@ -9,7 +9,7 @@ import (
 )
 
 func validConfig() Config {
-	roles, err := CanonicalRolesConfig([]string{"kimi"})
+	roles, err := CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
 	if err != nil {
 		panic(err)
 	}
@@ -64,7 +64,7 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy"}}
-	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 
 	canonical, err := EncodeCanonical(config)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
 		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "60m"},
 	}
-	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	config.Resources.RoleMaxInvocations = 4
 	config.Resources.RunMaxInvocations = 24
 	canonical, err := EncodeCanonical(config)
@@ -203,7 +203,7 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		if mask&4 != 0 {
 			config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
 		}
-		config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+		config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 		if config.Providers.Count() >= 2 {
 			config.Resources.RoleMaxInvocations = 4
 			config.Resources.RunMaxInvocations = 24
@@ -226,17 +226,22 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	config := validConfig()
 	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
 	config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
-	config.Roles, _ = CanonicalRolesConfig(config.Providers.Families())
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	config.Resources.RoleMaxInvocations = 4
 	config.Resources.RunMaxInvocations = 24
 	encoded, err := EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every core role is pinned end to end, so a change to any one of them in
+	// assets/roles.yaml is visible here rather than silently shipping.
 	for _, expected := range []string{
 		`logic: {enabled: true, primary_provider: "kimi", fallback_provider: "zcode"}`,
 		`security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
+		`maintainability: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
+		`product: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
 		`documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}`,
+		`testing: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
 	} {
 		if !strings.Contains(string(encoded), expected) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
@@ -257,7 +262,7 @@ func TestConfigV1RoundTripsArtistBriefPath(t *testing.T) {
 	config := validConfig()
 	config.Project.Kind = ProjectKindUI
 	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}}
-	roles, err := CanonicalRolesConfigForUI(config.Providers.Families())
+	roles, err := CanonicalRolesConfigForUI(testRoleDefaults(), config.Providers.Families())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +301,7 @@ func TestConfigV1AllowsUIWithoutArtist(t *testing.T) {
 
 func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.T) {
 	config := validConfig()
-	roles, err := CanonicalRolesConfigForSelection([]string{"kimi"}, []string{"logic", "security", "documentation"})
+	roles, err := CanonicalRolesConfigForSelection(testRoleDefaults(), []string{"kimi"}, []string{"logic", "security", "documentation"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -300,7 +301,7 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 		t.Fatal(err)
 	}
 	installer := &testInstaller{}
-	service, err := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{err: errors.New("schema rejected result")}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, err := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{err: errors.New("schema rejected result")}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +358,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 			ids = append(ids, "agy")
 			overrides.AGYExecutable = "/bin/agy"
 		}
-		service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -376,7 +377,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if err != nil || decoded.Version != adapterconfig.ConfigVersion {
 			t.Fatalf("mask %d decode config: version=%d err=%v", mask, decoded.Version, err)
 		}
-		wantRoles, _ := adapterconfig.CanonicalRolesConfigForSelection(ids, []string{"logic"})
+		wantRoles, _ := adapterconfig.CanonicalRolesConfigForSelection(testRoleDefaults(), ids, []string{"logic"})
 		if !reflect.DeepEqual(decoded.Roles, wantRoles) {
 			t.Fatalf("mask %d roles=%#v, want %#v", mask, decoded.Roles, wantRoles)
 		}
@@ -416,7 +417,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -458,11 +459,25 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 	selectedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
-	configured := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles}, providers)
-	if configured.Roles.Artist.Inputs == nil || configured.Roles.Artist.Inputs.TaskPath != "ux-ui-info.md" {
-		t.Fatalf("default artist inputs = %#v", configured.Roles.Artist.Inputs)
+	defaults := testRoleDefaults()
+	artistDefault, ok := defaults.Role(domain.RoleArtist)
+	if !ok {
+		t.Fatal("artist defaults are absent")
 	}
-	explicit := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles, ArtistBriefPath: "docs/artist-brief.md"}, providers)
+	configured, err := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles}, defaults, providers)
+	if err != nil {
+		t.Fatalf("candidate config: %v", err)
+	}
+	if configured.Roles.Artist.Inputs == nil || configured.Roles.Artist.Inputs.TaskPath != artistDefault.ArtistTaskPath {
+		t.Fatalf("default artist inputs = %#v, want task path %q", configured.Roles.Artist.Inputs, artistDefault.ArtistTaskPath)
+	}
+	if !reflect.DeepEqual(configured.Roles.Artist.Inputs.DesignSpecGlobs, artistDefault.ArtistDesignSpecGlobs) {
+		t.Fatalf("default artist globs = %#v, want %#v", configured.Roles.Artist.Inputs.DesignSpecGlobs, artistDefault.ArtistDesignSpecGlobs)
+	}
+	explicit, err := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI, RoleIDs: selectedRoles, ArtistBriefPath: "docs/artist-brief.md"}, defaults, providers)
+	if err != nil {
+		t.Fatalf("candidate config with explicit brief: %v", err)
+	}
 	if explicit.Roles.Artist.Inputs == nil || explicit.Roles.Artist.Inputs.TaskPath != "docs/artist-brief.md" {
 		t.Fatalf("explicit artist brief path = %#v", explicit.Roles.Artist.Inputs)
 	}
@@ -470,10 +485,13 @@ func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 
 func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
 	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
-	configured := candidateConfig(InitializeProjectRequest{
+	configured, err := candidateConfig(InitializeProjectRequest{
 		ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI,
 		RoleIDs: []string{"logic"},
-	}, providers)
+	}, testRoleDefaults(), providers)
+	if err != nil {
+		t.Fatalf("candidate config: %v", err)
+	}
 	if configured.Roles.Artist.Enabled || configured.Roles.Artist.PrimaryProvider != "" || configured.Roles.Artist.FallbackProvider != "" || configured.Roles.Artist.Inputs != nil {
 		t.Fatalf("unselected UI artist role = %#v", configured.Roles.Artist)
 	}
@@ -492,7 +510,7 @@ func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *
 		},
 		errors: map[string]error{"kimi": errors.New("poisoned unselected Kimi"), "node": errors.New("poisoned unselected ZCode")},
 	}
-	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +576,7 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 			_ = os.Chmod(rootPath, 0o700)
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			inspector := &scopedDiscoveryInspector{observations: test.observations, fileObservations: test.fileObservations, errors: test.errors}
-			service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -582,7 +600,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	inspector := &scopedDiscoveryInspector{errors: map[string]error{"agy": errors.New("injected AGY discovery failure")}}
-	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
 		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
@@ -631,7 +649,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
 		inspector := newInspector(true)
-		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 		result, initErr := service.InitializeProject(context.Background(), request(root))
 		if initErr != nil {
 			t.Fatal(initErr)
@@ -663,7 +681,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
 		inspector := newInspector(false)
-		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 		result, initErr := service.InitializeProject(context.Background(), request(root))
 		var failure *Failure
 		if !errors.As(initErr, &failure) || failure.Code() != "init_auto_provider_topology_unavailable" {
@@ -700,7 +718,7 @@ func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsThreeRows(t *testing.
 		},
 		kimiHomeErr: errors.New("invalid startup KIMI_CODE_HOME"),
 	}
-	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
 		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi"}},
@@ -731,7 +749,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	inspector := kimiHomeInspector{testInspector: testInspector{}, home: "/Users/test/custom-kimi"}
-	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +788,7 @@ func TestInitializeProjectReportsCreatedAndExistingRootBarrierTruthfully(t *test
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installer := &testInstaller{rootError: true, existing: test.existing}
-			service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}})
 			if err == nil || result.WriteState != test.want || result.Committed {
 				t.Fatalf("result=%#v err=%v", result, err)
@@ -828,7 +846,7 @@ func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), []byte("x"), 0o600)
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	service, _ := NewService(&testInstaller{existing: true}, testInspector{absent: true}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(&testInstaller{existing: true}, testInspector{absent: true}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}})
 	if err == nil || result.WriteState != "existing_untouched" || result.DestinationState != ports.ConfigDestinationPresent || len(result.Discovery) != 0 {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -848,7 +866,7 @@ func TestInitializeProjectReportsPostBarrierLocalityFailureByDirectoryOwnership(
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			attestor := &scriptedAttestor{failAttestAt: 2}
-			service, _ := NewService(&testInstaller{existing: test.existing}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			service, _ := NewService(&testInstaller{existing: test.existing}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 			if err == nil || result.WriteState != test.want || result.DestinationState != ports.ConfigDestinationAbsent || result.Committed {
 				t.Fatalf("result=%#v err=%v", result, err)
@@ -871,7 +889,7 @@ func TestInitializeProjectReportsPreparedIdentityDriftByDirectoryOwnership(t *te
 			}
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installError := ports.NewConfigInstallError(ports.ConfigInstallStagePreparedIdentity, test.destination, errors.New("injected identity drift"))
-			service, _ := NewService(&testInstaller{existing: test.existing, installError: installError}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+			service, _ := NewService(&testInstaller{existing: test.existing, installError: installError}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Class() != "security_policy_violation" || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
@@ -896,7 +914,7 @@ func TestInitializeProjectClassifiesReplacementConfigAsLocalityDrift(t *testing.
 		}
 		return os.WriteFile(filepath.Join(original, "config.yaml"), []byte("replacement\n"), 0o600)
 	}}
-	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
@@ -916,7 +934,7 @@ func TestInitializeProjectRejectsSameByteConfigIdentitySubstitution(t *testing.T
 		}
 		return os.WriteFile(path, data, 0o600)
 	}}
-	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Class() != "security_policy_violation" || failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
@@ -931,7 +949,7 @@ func TestInitializeProjectNormalizesInstalledGenericErrorToCommitUnconfirmed(t *
 	installer := &afterInstallTestInstaller{delegate: &testInstaller{}, after: func(ports.AnchoredRoot, []byte) error {
 		return errors.New("injected post-install confirmation failure")
 	}}
-	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Code() != "init_commit_unconfirmed" || failure.Class() != "artifact_failure" || !failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationNotObserved || result.Committed {
@@ -944,7 +962,7 @@ func TestInitializeProjectRequiresTerminalLocalityRevalidation(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	attestor := &scriptedAttestor{failRevalidateAt: 4}
-	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	_, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 	if err == nil || result.WriteState != "installed_unconfirmed" || statErr != nil || result.Committed {
@@ -957,7 +975,7 @@ func TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation(t *testi
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	attestor := &finalConfigMutatingAttestor{path: filepath.Join(rootPath, ".mulgae", "config.yaml")}
-	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	if err == nil || !attestor.mutated || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
 		t.Fatalf("result=%#v mutated=%t err=%v", result, attestor.mutated, err)
@@ -973,7 +991,7 @@ func TestInitializeProjectNormalizesUninstalledPresentFailureToCollision(t *test
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	installer := &testInstaller{installError: ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationPresent, context.Canceled)}
-	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{})
+	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Class() != "configuration_violation" || failure.Code() != "init_destination_exists" || failure.Retryable() {

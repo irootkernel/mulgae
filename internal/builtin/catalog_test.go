@@ -19,6 +19,11 @@ import (
 
 const testSOTRoot = "assets"
 
+// testRootRoleDocument is the repository-root role document. go:embed cannot
+// escape its own package directory, so this source lives outside testSOTRoot and
+// is accounted for explicitly wherever the authoritative inventory is walked.
+const testRootRoleDocument = "../../assets/roles.yaml"
+
 type embeddedManifest struct {
 	Version int
 	Assets  []embeddedAssetInfo
@@ -86,7 +91,22 @@ func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 		{
 			name: "invalid role catalog",
 			mutate: func(t *testing.T, files fstest.MapFS) {
-				files["roles/logic.yaml"] = &fstest.MapFile{Data: []byte("schema_version: invalid\n"), Mode: 0o644}
+				files[rootRoleSource] = &fstest.MapFile{Data: []byte("schema_version: invalid\n"), Mode: 0o644}
+				rewriteTestChecksums(t, files)
+			},
+		},
+		{
+			name: "missing role catalog",
+			mutate: func(t *testing.T, files fstest.MapFS) {
+				delete(files, rootRoleSource)
+				rewriteTestChecksums(t, files)
+			},
+		},
+		{
+			name: "role catalog without artist default inputs",
+			mutate: func(t *testing.T, files fstest.MapFS) {
+				stripped := removeArtistDefaultInputs(t, files[rootRoleSource].Data)
+				files[rootRoleSource] = &fstest.MapFile{Data: stripped, Mode: 0o644}
 				rewriteTestChecksums(t, files)
 			},
 		},
@@ -179,8 +199,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 70 {
-		t.Fatalf("manifest asset count = %d, want 70", len(manifest.Assets))
+	if len(manifest.Assets) != 64 {
+		t.Fatalf("manifest asset count = %d, want 64", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -251,8 +271,16 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk authoritative SOT: %v", err)
 	}
-	if len(authoritativeSources) != 59 {
-		t.Fatalf("authoritative runtime source count = %d, want 59", len(authoritativeSources))
+	rootInfo, err := os.Lstat(testRootRoleDocument)
+	if err != nil {
+		t.Fatalf("stat root role document: %v", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.Mode().IsRegular() {
+		t.Fatalf("root role document must be a non-symlink regular file")
+	}
+	authoritativeSources[rootRoleSource] = struct{}{}
+	if len(authoritativeSources) != 53 {
+		t.Fatalf("authoritative runtime source count = %d, want 53", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -265,7 +293,11 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 			t.Errorf("manifest omits authoritative source %q", source)
 			continue
 		}
-		want, err := os.ReadFile(filepath.Join(testSOTRoot, filepath.FromSlash(source)))
+		authoritativePath := filepath.Join(testSOTRoot, filepath.FromSlash(source))
+		if source == rootRoleSource {
+			authoritativePath = filepath.FromSlash(testRootRoleDocument)
+		}
+		want, err := os.ReadFile(authoritativePath)
 		if err != nil {
 			t.Errorf("read authoritative source %q: %v", source, err)
 			continue
@@ -574,7 +606,42 @@ func embeddedTestFS(t *testing.T) fstest.MapFS {
 	if err != nil {
 		t.Fatalf("copy embedded assets: %v", err)
 	}
+	// NewCatalog overlays the repository-root role document onto the embedded
+	// tree. Fixtures built directly from embeddedAssets must do the same, so a
+	// test filesystem is a faithful stand-in for the production catalog.
+	rootRoles, err := os.ReadFile(testRootRoleDocument)
+	if err != nil {
+		t.Fatalf("read root role document: %v", err)
+	}
+	files[rootRoleSource] = &fstest.MapFile{Data: rootRoles, Mode: 0o644}
 	return files
+}
+
+// removeArtistDefaultInputs drops the artist default_inputs block so the catalog
+// must reject a role document that no longer carries init's artist defaults.
+func removeArtistDefaultInputs(t *testing.T, document []byte) []byte {
+	t.Helper()
+	lines := strings.Split(string(document), "\n")
+	kept := make([]string, 0, len(lines))
+	dropping := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "default_inputs:" {
+			dropping = true
+			continue
+		}
+		if dropping {
+			if strings.HasPrefix(line, "      ") || strings.HasPrefix(line, "        ") {
+				continue
+			}
+			dropping = false
+		}
+		kept = append(kept, line)
+	}
+	stripped := strings.Join(kept, "\n")
+	if !strings.Contains(string(document), "default_inputs:") || strings.Contains(stripped, "default_inputs:") {
+		t.Fatal("artist default inputs were not removed")
+	}
+	return []byte(stripped)
 }
 
 func rewriteTestChecksums(t *testing.T, files fstest.MapFS) {

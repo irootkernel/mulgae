@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // Config is the sole project-local Mulgae configuration authority.
@@ -120,7 +122,6 @@ const (
 	MaximumConfigBytes        = 1 << 20
 	ProjectKindNonUI          = "non_ui"
 	ProjectKindUI             = "ui"
-	DefaultArtistBriefPath    = "ux-ui-info.md"
 )
 
 // ParseProviderTimeout resolves an optional Config v1 provider timeout. An
@@ -150,13 +151,6 @@ func canonicalProviderTimeout(timeout time.Duration) string {
 	return timeout.String()
 }
 
-var DefaultArtistDesignSpecGlobs = []string{
-	"design-specs/**/*.png",
-	"design-specs/**/*.jpg",
-	"design-specs/**/*.jpeg",
-	"design-specs/**/*.webp",
-}
-
 // Ordered returns the role configurations in canonical role order.
 func (roles RolesConfig) Ordered() []RoleConfig {
 	return []RoleConfig{roles.Logic, roles.Security, roles.Maintainability, roles.Product, roles.Documentation, roles.Testing, roles.Artist}
@@ -173,20 +167,42 @@ func (providers ProvidersConfig) HasFamily(family string) bool {
 }
 
 // CanonicalRolesConfig derives init's deterministic role assignments from the
-// selected provider subset. Persisted configs remain explicit; runtime never
-// calls this function to invent an assignment.
-func CanonicalRolesConfig(families []string) (RolesConfig, error) {
-	return CanonicalRolesConfigForSelection(families, []string{"logic", "security", "maintainability", "product", "documentation", "testing"})
+// build-owned role defaults and the selected provider subset. Persisted configs
+// remain explicit; runtime never calls this function to invent an assignment.
+func CanonicalRolesConfig(defaults RoleDefaults, families []string) (RolesConfig, error) {
+	return CanonicalRolesConfigForSelection(defaults, families, coreRoleIDs())
 }
 
-func CanonicalRolesConfigForUI(families []string) (RolesConfig, error) {
-	return CanonicalRolesConfigForSelection(families, []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"})
+func CanonicalRolesConfigForUI(defaults RoleDefaults, families []string) (RolesConfig, error) {
+	return CanonicalRolesConfigForSelection(defaults, families, fixedRoleIDs())
+}
+
+func fixedRoleIDs() []string {
+	roles := make([]string, 0, len(domain.FixedRoleOrder()))
+	for _, role := range domain.FixedRoleOrder() {
+		roles = append(roles, string(role))
+	}
+	return roles
+}
+
+func coreRoleIDs() []string {
+	roles := make([]string, 0, len(domain.CoreRoleOrder()))
+	for _, role := range domain.CoreRoleOrder() {
+		roles = append(roles, string(role))
+	}
+	return roles
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
 // every Config v1 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
-func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesConfig, error) {
+//
+// Each role resolves independently from its own build-owned preference order, so
+// editing one role's defaults never moves another role's assignment.
+func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedRoles []string) (RolesConfig, error) {
+	if !defaults.Valid() {
+		return RolesConfig{}, fmt.Errorf("canonical role assignments: role defaults are required")
+	}
 	configured := make(map[string]struct{}, len(families))
 	lastOrdinal := -1
 	for _, family := range families {
@@ -206,7 +222,7 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 	if len(configured) == 0 {
 		return RolesConfig{}, fmt.Errorf("canonical role assignments: provider families are required")
 	}
-	fixedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
+	fixedRoles := fixedRoleIDs()
 	enabled := make(map[string]bool, len(selectedRoles))
 	lastRole := -1
 	for _, selected := range selectedRoles {
@@ -226,9 +242,15 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 	if !enabled["logic"] {
 		return RolesConfig{}, fmt.Errorf("canonical role assignments: logic is required")
 	}
-	selectRole := func(preferences []string) RoleConfig {
+	// assign resolves one role against its own build-owned preference order. The
+	// first configured family becomes the primary and the second the fallback.
+	assign := func(role domain.Role) (RoleConfig, RoleDefault, error) {
+		preference, exists := defaults.Role(role)
+		if !exists {
+			return RoleConfig{}, RoleDefault{}, fmt.Errorf("canonical role assignments: no default for %q", role)
+		}
 		selected := make([]string, 0, 2)
-		for _, family := range preferences {
+		for _, family := range preference.ProviderPreferences {
 			if _, ok := configured[family]; ok {
 				selected = append(selected, family)
 				if len(selected) == 2 {
@@ -236,51 +258,52 @@ func CanonicalRolesConfigForSelection(families, selectedRoles []string) (RolesCo
 				}
 			}
 		}
-		role := RoleConfig{PrimaryProvider: selected[0]}
-		if len(selected) == 2 {
-			role.FallbackProvider = selected[1]
-		}
-		return role
-	}
-	selectOptionalRole := func(preferences []string) RoleConfig {
-		selected := make([]string, 0, 2)
-		for _, family := range preferences {
-			if _, ok := configured[family]; ok {
-				selected = append(selected, family)
-			}
-		}
 		if len(selected) == 0 {
-			return RoleConfig{}
+			return RoleConfig{}, preference, nil
 		}
-		role := RoleConfig{PrimaryProvider: selected[0]}
-		if len(selected) > 1 {
-			role.FallbackProvider = selected[1]
+		assignment := RoleConfig{PrimaryProvider: selected[0]}
+		if len(selected) == 2 {
+			assignment.FallbackProvider = selected[1]
 		}
-		return role
+		return assignment, preference, nil
 	}
-	logic := selectRole([]string{"kimi", "zcode", "agy"})
-	documentation := selectRole([]string{"agy", "zcode", "kimi"})
-	other := selectRole([]string{"zcode", "agy", "kimi"})
-	logic.Enabled = enabled["logic"]
-	security := other
-	security.Enabled = enabled["security"]
-	maintainability := other
-	maintainability.Enabled = enabled["maintainability"]
-	product := other
-	product.Enabled = enabled["product"]
-	documentation.Enabled = enabled["documentation"]
-	testing := other
-	testing.Enabled = enabled["testing"]
+	core := make(map[domain.Role]RoleConfig, len(domain.CoreRoleOrder()))
+	for _, role := range domain.CoreRoleOrder() {
+		assignment, _, err := assign(role)
+		if err != nil {
+			return RolesConfig{}, err
+		}
+		if assignment.PrimaryProvider == "" {
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: %q has no configured provider", role)
+		}
+		assignment.Enabled = enabled[string(role)]
+		core[role] = assignment
+	}
 	var artist RoleConfig
-	if enabled["artist"] {
-		artist = selectOptionalRole([]string{"agy", "zcode"})
-		if artist.PrimaryProvider == "" {
+	if enabled[string(domain.RoleArtist)] {
+		assignment, preference, err := assign(domain.RoleArtist)
+		if err != nil {
+			return RolesConfig{}, err
+		}
+		if assignment.PrimaryProvider == "" {
 			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy or zcode")
 		}
+		artist = assignment
 		artist.Enabled = true
-		artist.Inputs = &ArtistInputsConfig{TaskPath: DefaultArtistBriefPath, DesignSpecGlobs: append([]string(nil), DefaultArtistDesignSpecGlobs...)}
+		artist.Inputs = &ArtistInputsConfig{
+			TaskPath:        preference.ArtistTaskPath,
+			DesignSpecGlobs: append([]string(nil), preference.ArtistDesignSpecGlobs...),
+		}
 	}
-	return RolesConfig{Logic: logic, Security: security, Maintainability: maintainability, Product: product, Documentation: documentation, Testing: testing, Artist: artist}, nil
+	return RolesConfig{
+		Logic:           core[domain.RoleLogic],
+		Security:        core[domain.RoleSecurity],
+		Maintainability: core[domain.RoleMaintainability],
+		Product:         core[domain.RoleProduct],
+		Documentation:   core[domain.RoleDocumentation],
+		Testing:         core[domain.RoleTesting],
+		Artist:          artist,
+	}, nil
 }
 
 func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }

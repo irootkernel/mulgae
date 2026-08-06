@@ -16,11 +16,17 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	rootassets "github.com/irootkernel/mulgae/assets"
 	"github.com/irootkernel/mulgae/internal/ports"
 	rolecatalog "github.com/irootkernel/mulgae/internal/roles"
 )
 
 const catalogChecksumSource = "CHECKSUMS.sha256"
+
+// rootRoleSource is the catalog source name of the repository-root role
+// document. go:embed patterns cannot escape their own package directory, so the
+// document is embedded by the root assets package and overlaid here.
+const rootRoleSource = "roles.yaml"
 
 // embeddedAssets contains the authoritative runtime catalog as ordinary files.
 // No generated archive or extraction step is involved.
@@ -32,6 +38,10 @@ var embeddedAssets embed.FS
 // checksum inventory and every asset are validated once before reads succeed.
 type Catalog struct {
 	filesystem fs.FS
+	// overlay carries assets that live outside the embedded filesystem. It is
+	// merged before checksum validation, so overlaid bytes are held to the same
+	// inventory as every embedded file.
+	overlay map[string][]byte
 
 	once  sync.Once
 	state catalogState
@@ -50,13 +60,17 @@ type catalogAsset struct {
 
 var _ ports.ContractCatalog = (*Catalog)(nil)
 
-// NewCatalog returns a catalog backed by the directly embedded runtime assets.
+// NewCatalog returns a catalog backed by the directly embedded runtime assets
+// and the repository-root role document.
 func NewCatalog() *Catalog {
-	assets, err := fs.Sub(embeddedAssets, "assets")
+	embedded, err := fs.Sub(embeddedAssets, "assets")
 	if err != nil {
 		return &Catalog{state: failedCatalogState(fmt.Errorf("open embedded assets: %w", err))}
 	}
-	return &Catalog{filesystem: assets}
+	return &Catalog{
+		filesystem: embedded,
+		overlay:    map[string][]byte{rootRoleSource: rootassets.RolesYAML},
+	}
 }
 
 // Read returns validated metadata and a newly allocated caller-owned copy of
@@ -100,19 +114,28 @@ func (catalog *Catalog) List(ctx context.Context) ([]ports.AssetMetadata, error)
 func (catalog *Catalog) initialize() catalogState {
 	catalog.once.Do(func() {
 		if catalog.state.err == nil {
-			catalog.state = loadCatalog(catalog.filesystem)
+			catalog.state = loadCatalog(catalog.filesystem, catalog.overlay)
 		}
 	})
 	return catalog.state
 }
 
-func loadCatalog(filesystem fs.FS) catalogState {
+func loadCatalog(filesystem fs.FS, overlay map[string][]byte) catalogState {
 	if filesystem == nil {
 		return failedCatalogState(fmt.Errorf("asset filesystem is unavailable"))
 	}
 	files, err := readCatalogFiles(filesystem)
 	if err != nil {
 		return failedCatalogState(err)
+	}
+	for source, contents := range overlay {
+		if _, duplicate := files[source]; duplicate {
+			return failedCatalogState(fmt.Errorf("overlaid asset %q collides with an embedded asset", source))
+		}
+		if _, err := validateEmbeddedSource(source); err != nil {
+			return failedCatalogState(fmt.Errorf("invalid overlaid asset path %q: %w", source, err))
+		}
+		files[source] = append([]byte(nil), contents...)
 	}
 	checksumBytes, exists := files[catalogChecksumSource]
 	if !exists {
@@ -226,26 +249,21 @@ func validateChecksums(files map[string][]byte, checksums map[string]string) err
 	return nil
 }
 
+// validateRoleAssets proves the role document parses and describes every fixed
+// role before any asset is served.
+//
+// The role document is a build-owned source-of-truth asset. It supplies the
+// review system prompts, init's generation-time default provider preference
+// order, and the artist input defaults. It is never a runtime configuration
+// authority: no command resolves a configured value from embedded bytes, and
+// .mulgae/config.yaml is never re-derived after init.
 func validateRoleAssets(files map[string][]byte) error {
-	definitions := make([]rolecatalog.Definition, 0)
-	for source, contents := range files {
-		if !strings.HasPrefix(source, "roles/") {
-			continue
-		}
-		if path.Ext(source) != ".yaml" || path.Dir(source) != "roles" {
-			return fmt.Errorf("role catalog contains unsupported source %q", source)
-		}
-		definition, err := rolecatalog.Parse(contents)
-		if err != nil {
-			return fmt.Errorf("parse role source %q: %w", source, err)
-		}
-		if path.Base(source) != definition.ID+".yaml" {
-			return fmt.Errorf("role source %q does not match role %q", source, definition.ID)
-		}
-		definitions = append(definitions, definition)
+	contents, exists := files[rootRoleSource]
+	if !exists {
+		return fmt.Errorf("catalog has no %s", rootRoleSource)
 	}
-	if err := rolecatalog.ValidateCatalog(definitions); err != nil {
-		return err
+	if _, err := rolecatalog.ParseCatalog(contents); err != nil {
+		return fmt.Errorf("parse role source %q: %w", rootRoleSource, err)
 	}
 	return nil
 }

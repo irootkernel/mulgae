@@ -102,7 +102,10 @@ skip a required check because its optional wrapper is unavailable.
 ## Changing embedded assets
 
 Runtime assets live in `internal/builtin/assets` and are embedded directly.
-There is no `assets.zip` build product.
+There is no `assets.zip` build product. The role document is the one exception
+to the location: `assets/roles.yaml` sits at the repository root so the tunable
+role defaults are discoverable, and is embedded by the root `assets` package
+because a `go:embed` pattern cannot escape its own package directory.
 
 ```bash
 go generate ./internal/app/init
@@ -110,7 +113,9 @@ go generate ./internal/builtin
 ```
 
 The first generator maintains init schema sections and golden data. The second
-regenerates `CHECKSUMS.sha256`. Running both twice must leave the worktree
+validates the role document and regenerates `CHECKSUMS.sha256`, which covers the
+embedded tree *and* the root role document. The order matters: the first writes
+into the tree the second checksums. Running both twice must leave the worktree
 unchanged. Every schema needs exactly one paired valid example, plus semantic
 tests in the owning application package.
 
