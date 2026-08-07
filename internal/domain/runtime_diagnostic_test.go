@@ -51,7 +51,7 @@ func TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields(t *testing.T) {
 		{"noncanonical invocation", func(in *RuntimeDiagnosticEventInput) { in.InvocationID = "i_not-a-uuid" }},
 		{"uppercase provider", func(in *RuntimeDiagnosticEventInput) { in.Provider = "ZCode" }},
 		{"terminal failure at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticRunStopped }},
-		{"mitigation at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticFallbackStarted }},
+		{"mitigation at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticRepairStarted }},
 		{"range without stream", func(in *RuntimeDiagnosticEventInput) { in.Length = 1 }},
 		{"escaped artifact", func(in *RuntimeDiagnosticEventInput) { in.ArtifactRef = "../escape" }},
 		{"nul artifact", func(in *RuntimeDiagnosticEventInput) { in.ArtifactRef = "diagnostics/raw\x00.txt" }},

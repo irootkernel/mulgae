@@ -7,7 +7,7 @@
     {
       "severity": "high",
       "title": "Fallback is triggered after a valid negative review",
-      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which can queue a fallback provider and enable result shopping.",
+      "description": "The coordinator appears to treat a valid finding-bearing result as an execution failure, which discards a sound review and reports the role as failed.",
       "evidence": [
         {
           "current": {
@@ -19,7 +19,7 @@
           }
         }
       ],
-      "recommendation": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results.",
+      "recommendation": "Fail a role only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results.",
       "confidence": "high"
     }
   ]

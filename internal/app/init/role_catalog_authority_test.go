@@ -100,14 +100,14 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode installed config: %v", err)
 	}
-	if config.Roles.Testing.PrimaryProvider != "kimi" || config.Roles.Testing.FallbackProvider != "agy" {
-		t.Fatalf("edited testing role = %s/%s, want kimi/agy", config.Roles.Testing.PrimaryProvider, config.Roles.Testing.FallbackProvider)
+	if config.Roles.Testing.PrimaryProvider != "kimi" {
+		t.Fatalf("edited testing role = %s, want kimi", config.Roles.Testing.PrimaryProvider)
 	}
-	if config.Roles.Security.PrimaryProvider != "zcode" || config.Roles.Security.FallbackProvider != "agy" {
-		t.Fatalf("untouched security role = %s/%s, want zcode/agy", config.Roles.Security.PrimaryProvider, config.Roles.Security.FallbackProvider)
+	if config.Roles.Security.PrimaryProvider != "zcode" {
+		t.Fatalf("untouched security role = %s, want zcode", config.Roles.Security.PrimaryProvider)
 	}
-	if config.Roles.Logic.PrimaryProvider != "kimi" || config.Roles.Logic.FallbackProvider != "zcode" {
-		t.Fatalf("untouched logic role = %s/%s, want kimi/zcode", config.Roles.Logic.PrimaryProvider, config.Roles.Logic.FallbackProvider)
+	if config.Roles.Logic.PrimaryProvider != "kimi" {
+		t.Fatalf("untouched logic role = %s, want kimi", config.Roles.Logic.PrimaryProvider)
 	}
 }
 

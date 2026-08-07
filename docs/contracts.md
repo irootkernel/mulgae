@@ -119,9 +119,9 @@ ignored for acceptance.
 
 Staged-file failures are classified, not merged. A missing, empty,
 whitespace-only, non-UTF-8, NUL-bearing, or oversize (over 8 MiB) staged file
-is an operational invalid-provider-output outcome, so a configured fallback may
-still run. A staging boundary violation is a security fail-closed outcome that
-never authorizes fallback or publication: a symbolic link, an extra hard link,
+is an operational invalid-provider-output outcome, so the one constrained repair
+may still run. A staging boundary violation is a security fail-closed outcome
+that never authorizes repair or publication: a symbolic link, an extra hard link,
 a non-regular file, an extra directory entry, ownership, mode, or descriptor
 identity drift, content that changed while it was read, or a staging path this
 adapter did not itself choose. Staging that Mulgae cannot prove it removed is
@@ -148,7 +148,7 @@ Diagnostic-only failed runs have no publication authority. `mulgae status
 --run <id> --output json` first resolves the publication namespace and, only
 when that run is absent, returns the bounded `diagnostic_status_read`
 projection from `diagnostics/.../status.json`. The command never exposes raw
-provider streams or the runtime JSONL through this fallback.
+provider streams or the runtime JSONL through this degraded projection.
 
 Diagnostic-only status reports `recovery_action: rerun_review`. Runtime
 diagnostics and provider streams are not validated publication material, so an
@@ -196,7 +196,7 @@ runtime diagnostics.
 Current qualification is family/runtime-profile scoped within one command:
 Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
-for configured primary and fallback routes that share that profile. Shareable
+for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
 environment, working directory, output bounds, lifecycle, model,
 executable/launcher identity, and runtime safety policy identity. ZCode may

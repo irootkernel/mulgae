@@ -88,13 +88,6 @@
       "ai_owned_invalid"
     ]
   },
-  "fallback": {
-    "eligibility": "allowed",
-    "scheduled": false,
-    "reason_codes": [
-      "fallback_not_needed"
-    ]
-  },
   "publication_eligibility": "allowed",
   "content_verdict": "no_findings",
   "coverage_status": "complete",

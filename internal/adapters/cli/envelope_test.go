@@ -129,8 +129,6 @@ func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 		"security_reviewer",
 		"remote-provider.internal",
 		attemptID,
-		true,
-		true,
 		".mulgae/diagnostics/guard.json",
 		"mulgae doctor --internal-debug",
 	)
@@ -152,8 +150,7 @@ func TestEnvelopeRendererRedactsDiagnosticInternals(t *testing.T) {
 		"remote-provider.internal",
 		attemptID.String(),
 		"mulgae doctor --internal-debug",
-		"fallback_attempted",
-		"fallback_prohibited",
+		"provider_fault",
 	} {
 		if strings.Contains(string(raw), forbidden) {
 			t.Fatalf("envelope leaks diagnostic internals %q: %s", forbidden, raw)
@@ -218,8 +215,6 @@ func TestEnvelopeRendererMapsDiagnosticClassesInInputOrder(t *testing.T) {
 			"",
 			"",
 			domain.AttemptID{},
-			false,
-			false,
 			"",
 			"",
 		)
@@ -436,8 +431,6 @@ func mustCommandFailure(t *testing.T, command app.CommandName, code app.ExitCode
 		"",
 		"",
 		domain.AttemptID{},
-		false,
-		false,
 		"",
 		"",
 	)

@@ -53,4 +53,4 @@ The first public release is intentionally narrow:
 
 New platforms or providers require explicit adapters, capability tests, security
 review, documentation, and release evidence. They are not enabled by a generic
-fallback.
+compatibility shim.

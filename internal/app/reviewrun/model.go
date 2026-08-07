@@ -450,11 +450,6 @@ func validatePlan(plan ExecutionPlan, requestedRoles []domain.Role) (review.RunB
 		if assignment.Role() != requestedRoles[index] || plan.Budgets[index].Role() != requestedRoles[index] || assignment.Role() != plan.Budgets[index].Role() || !assignment.PrimaryRoute().Valid() || assignment.PrimaryRoute() != plan.Budgets[index].Primary().Route() {
 			return review.RunBudgetReceipt{}, fmt.Errorf("review run: assignment and budget mismatch")
 		}
-		budgetFallback, hasBudgetFallback := plan.Budgets[index].Fallback()
-		assignmentFallback, hasAssignmentFallback := assignment.FallbackRoute()
-		if hasBudgetFallback != hasAssignmentFallback || hasBudgetFallback && budgetFallback.Route() != assignmentFallback {
-			return review.RunBudgetReceipt{}, fmt.Errorf("review run: fallback assignment and budget mismatch")
-		}
 	}
 	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
 	if err != nil || !receipt.Eligible() {

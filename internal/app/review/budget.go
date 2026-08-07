@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	maxBudgetInvocationsPerRole = 4
-	maxBudgetInvocationsPerRun  = 28
+	// A role runs its provider once and may repair once on the same provider,
+	// so two invocations bound a role and 2*7 bound a full seven-role run.
+	maxBudgetInvocationsPerRole = 2
+	maxBudgetInvocationsPerRun  = 14
 	maxBudgetTotalOutputBytes   = int64(64 << 20)
 	maxBudgetProviderTimeout    = 60 * time.Minute
 
@@ -78,24 +80,15 @@ func (budget RouteBudget) Limits() InvocationLimits { return budget.limits }
 // Valid reports whether budget has a valid route and positive invocation caps.
 func (budget RouteBudget) Valid() bool { return validateRouteBudget(budget) == nil }
 
-// RoleBudget contains the primary route and optional fallback route for one
-// selected review role.
+// RoleBudget contains the single provider route for one selected review role.
 type RoleBudget struct {
-	role        domain.Role
-	primary     RouteBudget
-	fallback    RouteBudget
-	hasFallback bool
+	role    domain.Role
+	primary RouteBudget
 }
 
-// NewRoleBudget constructs one role's primary and optional fallback operands.
-// A fallback must select a different provider instance from the primary, while
-// retaining the option to share its normalized concurrency lane.
-func NewRoleBudget(role domain.Role, primary RouteBudget, fallback *RouteBudget) (RoleBudget, error) {
+// NewRoleBudget constructs one role's route operand.
+func NewRoleBudget(role domain.Role, primary RouteBudget) (RoleBudget, error) {
 	budget := RoleBudget{role: role, primary: primary}
-	if fallback != nil {
-		budget.fallback = *fallback
-		budget.hasFallback = true
-	}
 	if err := validateRoleBudget(budget); err != nil {
 		return RoleBudget{}, err
 	}
@@ -107,9 +100,6 @@ func (budget RoleBudget) Role() domain.Role { return budget.role }
 
 // Primary returns the immutable primary route budget.
 func (budget RoleBudget) Primary() RouteBudget { return budget.primary }
-
-// Fallback returns a caller-owned fallback route budget when one is configured.
-func (budget RoleBudget) Fallback() (RouteBudget, bool) { return budget.fallback, budget.hasFallback }
 
 // Valid reports whether budget is a complete role selection.
 func (budget RoleBudget) Valid() bool { return validateRoleBudget(budget) == nil }
@@ -212,7 +202,6 @@ const (
 	BudgetReasonInvalidRole           BudgetReasonCode = "invalid_role"
 	BudgetReasonDuplicateRole         BudgetReasonCode = "duplicate_role"
 	BudgetReasonInvalidPrimaryRoute   BudgetReasonCode = "invalid_primary_route"
-	BudgetReasonInvalidFallbackRoute  BudgetReasonCode = "invalid_fallback_route"
 	BudgetReasonDuplicateRoleRoute    BudgetReasonCode = "duplicate_role_route"
 	BudgetReasonInvocationCapExceeded BudgetReasonCode = "invocation_cap_exceeded"
 	BudgetReasonRoleInvocationLimit   BudgetReasonCode = "role_invocation_limit"
@@ -230,7 +219,6 @@ func (code BudgetReasonCode) Valid() bool {
 		BudgetReasonInvalidRole,
 		BudgetReasonDuplicateRole,
 		BudgetReasonInvalidPrimaryRoute,
-		BudgetReasonInvalidFallbackRoute,
 		BudgetReasonDuplicateRoleRoute,
 		BudgetReasonInvocationCapExceeded,
 		BudgetReasonRoleInvocationLimit,
@@ -260,7 +248,7 @@ func (lane LaneDeadline) ConcurrencyKey() ports.ConcurrencyKey { return lane.con
 // InvocationCount returns the number of possible invocations assigned to lane.
 func (lane LaneDeadline) InvocationCount() int { return lane.invocationCount }
 
-// TransitionCount returns the number of possible repair or fallback transitions
+// TransitionCount returns the number of possible repair transitions
 // charged to lane.
 func (lane LaneDeadline) TransitionCount() int { return lane.transitionCount }
 
@@ -299,7 +287,7 @@ func (receipt RunBudgetReceipt) LaneDeadlines() []LaneDeadline {
 }
 
 // TotalInvocations returns the count of every possible initial and repair
-// invocation across primary and fallback routes.
+// invocation across the role's route.
 func (receipt RunBudgetReceipt) TotalInvocations() int { return receipt.totalInvocations }
 
 // TotalOutputCap returns the worst-case stdout-plus-stderr capture total.
@@ -308,7 +296,7 @@ func (receipt RunBudgetReceipt) TotalOutputCap() int64 { return receipt.totalOut
 // RunDeadline returns the capacity-aware execution bound plus run grace.
 func (receipt RunBudgetReceipt) RunDeadline() time.Duration { return receipt.runDeadline }
 
-// CriticalPathDeadline returns the longest serial provider/repair/fallback or
+// CriticalPathDeadline returns the longest serial provider/repair or
 // concurrency-lane path charged by preflight, before run grace.
 func (receipt RunBudgetReceipt) CriticalPathDeadline() time.Duration { return receipt.criticalPath }
 
@@ -322,7 +310,7 @@ func (receipt RunBudgetReceipt) Eligible() bool { return receipt.eligible }
 func (receipt RunBudgetReceipt) ReasonCode() BudgetReasonCode { return receipt.reasonCode }
 
 // PreflightRunBudget evaluates every possible primary, repair, and configured
-// fallback invocation without starting providers, scheduling work, or changing
+// repair invocation without starting providers, scheduling work, or changing
 // runtime state. Rejected inputs still return a receipt containing copied
 // canonical operands and every safely computable result.
 func PreflightRunBudget(roles []RoleBudget, ceilings HarnessCeilings) (RunBudgetReceipt, error) {
@@ -417,17 +405,11 @@ func longestRolePath(roles []RoleBudget) (time.Duration, bool) {
 	longest := time.Duration(0)
 	overflow := false
 	for _, budget := range roles {
+		// One role runs at most two invocations: the provider attempt and its
+		// one allowed repair, separated by a single transition.
 		primary, primaryOverflow := multiplyDuration(budget.primary.limits.timeout, 2)
 		path, pathOverflow := addDuration(primary, budgetTransitionGrace)
 		overflow = overflow || primaryOverflow || pathOverflow
-		if budget.hasFallback {
-			fallback, fallbackOverflow := multiplyDuration(budget.fallback.limits.timeout, 2)
-			var routeOverflow bool
-			path, routeOverflow = addDuration(primary, fallback)
-			transitionBudget, transitionOverflow := multiplyDuration(budgetTransitionGrace, 3)
-			path, pathOverflow = addDuration(path, transitionBudget)
-			overflow = overflow || fallbackOverflow || routeOverflow || pathOverflow || transitionOverflow
-		}
 		if path > longest {
 			longest = path
 		}
@@ -504,15 +486,6 @@ func validateRoleBudget(budget RoleBudget) error {
 	if err := validateRouteBudget(budget.primary); err != nil {
 		return fmt.Errorf("review run budget: primary: %w", err)
 	}
-	if !budget.hasFallback {
-		return nil
-	}
-	if err := validateRouteBudget(budget.fallback); err != nil {
-		return fmt.Errorf("review run budget: fallback: %w", err)
-	}
-	if budget.primary.route.ProviderInstance() == budget.fallback.route.ProviderInstance() {
-		return fmt.Errorf("review run budget: fallback provider must differ from primary")
-	}
 	return nil
 }
 
@@ -559,9 +532,9 @@ func validateHarnessCeilings(ceilings HarnessCeilings) error {
 
 func topologyDeadlineCeiling(timeout time.Duration, invocations int) (time.Duration, bool) {
 	invocationBudget, overflow := multiplyDuration(timeout, invocations)
-	// Every four-invocation primary/repair/fallback/repair chain has three
-	// transitions, which is the densest legal transition topology.
-	maxTransitions := invocations * 3 / maxBudgetInvocationsPerRole
+	// Every two-invocation provider/repair chain has one transition, which is
+	// the densest legal transition topology.
+	maxTransitions := invocations / maxBudgetInvocationsPerRole
 	transitionBudget, transitionOverflow := multiplyDuration(budgetTransitionGrace, maxTransitions)
 	deadline, addOverflow := addDuration(invocationBudget, transitionBudget)
 	return deadline, overflow || transitionOverflow || addOverflow
@@ -579,16 +552,7 @@ func compareRoleBudgets(left, right RoleBudget) int {
 	if leftRank, rightRank := roleRank(left.role), roleRank(right.role); leftRank != rightRank {
 		return leftRank - rightRank
 	}
-	if compared := compareRouteBudgets(left.primary, right.primary); compared != 0 {
-		return compared
-	}
-	if left.hasFallback != right.hasFallback {
-		if !left.hasFallback {
-			return -1
-		}
-		return 1
-	}
-	return compareRouteBudgets(left.fallback, right.fallback)
+	return compareRouteBudgets(left.primary, right.primary)
 }
 
 func compareRouteBudgets(left, right RouteBudget) int {
@@ -655,15 +619,6 @@ func validateRoleSelection(roles []RoleBudget) BudgetReasonCode {
 		if !budget.primary.route.Valid() || !budget.primary.limits.Valid() {
 			return BudgetReasonInvalidPrimaryRoute
 		}
-		if !budget.hasFallback {
-			continue
-		}
-		if !budget.fallback.route.Valid() || !budget.fallback.limits.Valid() {
-			return BudgetReasonInvalidFallbackRoute
-		}
-		if budget.primary.route.ProviderInstance() == budget.fallback.route.ProviderInstance() {
-			return BudgetReasonDuplicateRoleRoute
-		}
 	}
 	return BudgetReasonEligible
 }
@@ -675,10 +630,6 @@ func accumulateRunBudget(roles []RoleBudget) ([]LaneDeadline, int, int64, bool) 
 	overflow := false
 	for _, budget := range roles {
 		overflow = addRouteBudget(lanes, budget.primary, 2, 1, &totalInvocations, &totalOutputCap) || overflow
-		if budget.hasFallback {
-			overflow = addRouteBudget(lanes, budget.primary, 0, 1, &totalInvocations, &totalOutputCap) || overflow
-			overflow = addRouteBudget(lanes, budget.fallback, 2, 1, &totalInvocations, &totalOutputCap) || overflow
-		}
 	}
 
 	canonical := make([]LaneDeadline, 0, len(lanes))
@@ -743,14 +694,8 @@ func validateRouteCaps(roles []RoleBudget, ceilings HarnessCeilings) BudgetReaso
 		if routeCapsExceed(budget.primary, ceilings) {
 			return BudgetReasonInvocationCapExceeded
 		}
-		if budget.hasFallback && routeCapsExceed(budget.fallback, ceilings) {
-			return BudgetReasonInvocationCapExceeded
-		}
-		invocations := 2
-		if budget.hasFallback {
-			invocations += 2
-		}
-		if invocations > ceilings.maxInvocationsPerRole {
+		// Provider attempt plus its one allowed repair.
+		if invocations := 2; invocations > ceilings.maxInvocationsPerRole {
 			return BudgetReasonRoleInvocationLimit
 		}
 	}

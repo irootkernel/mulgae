@@ -440,22 +440,6 @@ func validate(config *Config) error {
 		if role.Enabled {
 			enabledRoleCount++
 		}
-		providerCount := config.Providers.Count()
-		if index == len(configuredRoles)-1 {
-			providerCount = 0
-			for _, family := range []string{"agy", "zcode"} {
-				if config.Providers.HasFamily(family) {
-					providerCount++
-				}
-			}
-		}
-		if providerCount == 1 {
-			if role.FallbackProvider != "" {
-				return fmt.Errorf("role fallback")
-			}
-		} else if role.FallbackProvider == "" || role.FallbackProvider == role.PrimaryProvider || !config.Providers.HasFamily(role.FallbackProvider) {
-			return fmt.Errorf("role fallback")
-		}
 	}
 	if !config.Roles.Logic.Enabled {
 		return fmt.Errorf("role floor")
@@ -471,20 +455,18 @@ func validate(config *Config) error {
 		}
 	}
 	if config.Validation.Repair.Enabled {
-		if config.Validation.Repair.MaxAttempts != 1 || config.Resources.PrimaryRepairAttempts < 0 || config.Resources.PrimaryRepairAttempts > 1 || config.Resources.FallbackRepairAttempts < 0 || config.Resources.FallbackRepairAttempts > 1 || config.Resources.PrimaryRepairAttempts > config.Validation.Repair.MaxAttempts || config.Resources.FallbackRepairAttempts > config.Validation.Repair.MaxAttempts {
+		if config.Validation.Repair.MaxAttempts != 1 || config.Resources.PrimaryRepairAttempts < 0 || config.Resources.PrimaryRepairAttempts > 1 || config.Resources.PrimaryRepairAttempts > config.Validation.Repair.MaxAttempts {
 			return fmt.Errorf("repair")
 		}
-	} else if config.Validation.Repair.MaxAttempts != 0 || config.Resources.PrimaryRepairAttempts != 0 || config.Resources.FallbackRepairAttempts != 0 {
+	} else if config.Validation.Repair.MaxAttempts != 0 || config.Resources.PrimaryRepairAttempts != 0 {
 		return fmt.Errorf("repair disabled")
 	}
 	if config.Resources.MaxActiveLanes < 1 || config.Resources.MaxActiveLanes > 64 {
 		return fmt.Errorf("lanes")
 	}
+	// A role runs its provider once and may repair once on the same provider.
 	roleCost := 1 + config.Resources.PrimaryRepairAttempts
-	if config.Providers.Count() >= 2 {
-		roleCost += 1 + config.Resources.FallbackRepairAttempts
-	}
-	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 4 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 28 {
+	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 2 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 14 {
 		return fmt.Errorf("budgets")
 	}
 	if _, err := parseByteSize(config.Resources.RunTotalOutputCap); err != nil {
@@ -495,18 +477,18 @@ func validate(config *Config) error {
 
 func validateArtistRole(config *Config, role RoleConfig) error {
 	if config.Project.Kind == ProjectKindNonUI {
-		if role.Enabled || role.PrimaryProvider != "" || role.FallbackProvider != "" || role.Inputs != nil {
+		if role.Enabled || role.PrimaryProvider != "" || role.Inputs != nil {
 			return fmt.Errorf("artist is only valid for UI projects")
 		}
 		return nil
 	}
 	if !role.Enabled {
-		if role.PrimaryProvider != "" || role.FallbackProvider != "" || role.Inputs != nil {
+		if role.PrimaryProvider != "" || role.Inputs != nil {
 			return fmt.Errorf("disabled UI artist role has configuration")
 		}
 		return nil
 	}
-	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.FallbackProvider == "kimi" || role.Inputs == nil {
+	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.Inputs == nil {
 		return fmt.Errorf("UI project artist role")
 	}
 	if !safeContext(role.Inputs.TaskPath) || len(role.Inputs.DesignSpecGlobs) == 0 || len(role.Inputs.DesignSpecGlobs) > 16 {
@@ -661,21 +643,14 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		}
 		if role == "artist" {
 			out.WriteString("  artist:\n    enabled: true\n    primary_provider: " + q(configured.PrimaryProvider) + "\n")
-			if configured.FallbackProvider != "" {
-				out.WriteString("    fallback_provider: " + q(configured.FallbackProvider) + "\n")
-			}
 			out.WriteString("    inputs:\n      task_path: " + q(configured.Inputs.TaskPath) + "\n      design_spec_globs: " + quotedList(configured.Inputs.DesignSpecGlobs) + "\n")
 			continue
 		}
-		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider))
-		if configured.FallbackProvider != "" {
-			out.WriteString(", fallback_provider: " + q(configured.FallbackProvider))
-		}
-		out.WriteString("}\n")
+		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider) + "}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
 	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
-	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  fallback_repair_attempts: " + strconv.Itoa(config.Resources.FallbackRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n  run_total_output_cap: " + q(config.Resources.RunTotalOutputCap) + "\n")
+	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n  run_total_output_cap: " + q(config.Resources.RunTotalOutputCap) + "\n")
 	out.WriteString("ci:\n  fail_on_severity: " + quotedList(config.CI.FailOnSeverity) + "\n  degraded_review_fails: " + strconv.FormatBool(config.CI.DegradedReviewFails) + "\n")
 	encoded := []byte(out.String())
 	if _, err := Decode(encoded); err != nil {

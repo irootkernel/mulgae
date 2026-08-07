@@ -492,7 +492,7 @@ func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("candidate config: %v", err)
 	}
-	if configured.Roles.Artist.Enabled || configured.Roles.Artist.PrimaryProvider != "" || configured.Roles.Artist.FallbackProvider != "" || configured.Roles.Artist.Inputs != nil {
+	if configured.Roles.Artist.Enabled || configured.Roles.Artist.PrimaryProvider != "" || configured.Roles.Artist.Inputs != nil {
 		t.Fatalf("unselected UI artist role = %#v", configured.Roles.Artist)
 	}
 	if _, err := RenderConfigYAML(adapterconfig.YAMLCodec{}, configured); err != nil {
@@ -668,7 +668,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		if config.Roles.Logic.PrimaryProvider != "zcode" || config.Roles.Logic.FallbackProvider != "agy" {
+		if config.Roles.Logic.PrimaryProvider != "zcode" {
 			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
 		}
 		if config.Providers.ZCode.Timeout != "15m" || config.Providers.AGY.Timeout != "15m" {

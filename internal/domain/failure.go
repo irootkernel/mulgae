@@ -91,7 +91,12 @@ func (class FailureClass) RepairAllowed() bool {
 	return class == FailureInvalidOutput
 }
 
-func (class FailureClass) FallbackAllowed() bool {
+// ProviderFault reports whether the class attributes the failure to the
+// provider rather than to Mulgae, the captured target, or the operator. These
+// are the classes a different provider could plausibly get past, so they are
+// the ones worth recommending a provider switch for. Security, configuration,
+// artifact, cancellation, and internal failures are never provider faults.
+func (class FailureClass) ProviderFault() bool {
 	switch class {
 	case FailureProviderUnavailable, FailureInvalidOutput, FailureTimeout,
 		FailureAuthentication, FailureQuota, FailureRateLimit:

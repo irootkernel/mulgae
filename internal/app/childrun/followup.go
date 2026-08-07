@@ -110,7 +110,7 @@ func (executor *FollowupExecutor) ExecuteFollowup(ctx context.Context, execution
 	if err != nil {
 		return appfollowup.ExecutionResult{}, fmt.Errorf("followup executor: issue attempt ID: %w", err)
 	}
-	task, err := domain.NewRoleTask(role, true, executor.providerInstance, nil)
+	task, err := domain.NewRoleTask(role, true, executor.providerInstance)
 	if err != nil {
 		return appfollowup.ExecutionResult{}, err
 	}
@@ -479,7 +479,7 @@ func followupObservationFailure(provider string, role domain.Role, observation p
 	switch observation.PrimaryCause() {
 	case domain.DiagnosticCauseOutputMissing,
 		// A staged file the provider never wrote is missing output, exactly like
-		// an empty stdout transport: operational, and fallback stays available.
+		// an empty stdout transport: operational, and repair stays available.
 		domain.DiagnosticCauseProviderOutputFileMissing:
 		class = domain.FailureInvalidOutput
 		condition = review.AttemptConditionProviderOutputMissing
@@ -502,7 +502,7 @@ func followupObservationFailure(provider string, role domain.Role, observation p
 		condition = review.AttemptConditionSecurityViolation
 	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
 		// Staging Mulgae cannot prove it removed is an artifact fact: fail closed
-		// rather than reuse the attempt through repair or fallback.
+		// rather than reuse the attempt through repair.
 		class = domain.FailureArtifact
 		condition = review.AttemptConditionArtifactFailure
 	}

@@ -139,9 +139,9 @@ func (definition Definition) Validate() error {
 	return nil
 }
 
-// validateProviderPreferences keeps the derivation of init's default primary and
-// fallback assignment total. Every core role must name all three families, so
-// the intersection with any non-empty configured family set is never empty.
+// validateProviderPreferences keeps the derivation of init's default provider
+// assignment total. Every core role must name all three families, so the
+// intersection with any non-empty configured family set is never empty.
 func (definition Definition) validateProviderPreferences(role domain.Role) error {
 	allowed := []string{"kimi", "zcode", "agy"}
 	required := len(allowed)

@@ -214,12 +214,7 @@ func deltaRunWithConfiguredAssignments(run domain.Run, assignments []review.Assi
 		if !ok || assignment.Required() != sourceTask.Required() {
 			return domain.Run{}, fmt.Errorf("child executor: delta assignment differs from source-selected role policy")
 		}
-		var fallback *string
-		if route, ok := assignment.FallbackRoute(); ok {
-			value := route.ProviderInstance()
-			fallback = &value
-		}
-		task, err := domain.NewRoleTask(sourceTask.Role(), sourceTask.Required(), assignment.ProviderInstance(), fallback)
+		task, err := domain.NewRoleTask(sourceTask.Role(), sourceTask.Required(), assignment.ProviderInstance())
 		if err != nil {
 			return domain.Run{}, fmt.Errorf("child executor: configure delta role %q: %w", sourceTask.Role(), err)
 		}

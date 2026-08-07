@@ -434,7 +434,7 @@ func TestExportRedactedRunRejectsSecretsBeforeInstallAsSecurityFailure(t *testin
 		t.Fatalf("secret export = %v, writes = %d", err, len(writer.writes))
 	}
 	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy || failure.Class().FallbackAllowed() {
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy || failure.Class().ProviderFault() {
 		t.Fatalf("secret export failure = %#v", failure)
 	}
 }

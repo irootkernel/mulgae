@@ -334,7 +334,7 @@ func runSupportPath(run ports.PublicationRun, value string) (ports.SafeRelativeP
 
 // ReadCommittedAttempt reconstructs one exact-replay source attempt from P2.
 // The only replay authority is the unique persisted initial prompt for that
-// attempt; repair and fallback prompts are deliberately not candidates.
+// attempt; repair prompts are deliberately not candidates.
 func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.PublicationRun, attemptID domain.AttemptID) (CommittedAttempt, error) {
 	review, err := service.ReadCommitted(ctx, run)
 	if err != nil {
@@ -1666,6 +1666,9 @@ func validateManifestRoleAttemptBindings(attempts []manifestAttemptDTO, roles []
 			return fmt.Errorf("manifest attempt identity is duplicated")
 		}
 		roleAttempts := attemptsByRole[role]
+		// Reading, not writing. A role is now bound to one provider, so new runs
+		// record exactly one primary attempt. Runs recorded before that rule can
+		// carry a second attempt on a fallback route, and stay readable.
 		switch len(roleAttempts) {
 		case 0:
 			if attempt.SelectedAs != "primary" {
@@ -1673,16 +1676,16 @@ func validateManifestRoleAttemptBindings(attempts []manifestAttemptDTO, roles []
 			}
 		case 1:
 			if attempt.SelectedAs != "fallback" {
-				return fmt.Errorf("role fallback attempt is invalid")
+				return fmt.Errorf("role second attempt is invalid")
 			}
 			if roleAttempts[0].State == string(domain.AttemptSucceeded) {
 				return fmt.Errorf("role has an attempt after successful primary")
 			}
 			if roleAttempts[0].ProviderInstance == attempt.ProviderInstance {
-				return fmt.Errorf("role fallback provider duplicates primary")
+				return fmt.Errorf("role second attempt duplicates the primary provider")
 			}
 		default:
-			return fmt.Errorf("role has more than primary and fallback attempts")
+			return fmt.Errorf("role has more than two attempts")
 		}
 		seenAttemptIDs[attempt.AttemptID] = struct{}{}
 		attemptsByRole[role] = append(roleAttempts, attempt)

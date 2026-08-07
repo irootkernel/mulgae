@@ -11,8 +11,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// AttemptKind identifies whether an attempt uses the role's primary or fallback
-// provider route.
+// AttemptKind identifies which configured route an attempt used. A role now
+// runs on exactly one provider, so every attempt Mulgae creates is primary.
+// AttemptKindFallback is retained for reading manifests written before
+// cross-provider fallback was removed; nothing writes it.
 type AttemptKind string
 
 const (
@@ -20,7 +22,8 @@ const (
 	AttemptKindFallback AttemptKind = "fallback"
 )
 
-// Valid reports whether kind is a coordinator-defined attempt kind.
+// Valid reports whether kind is a coordinator-defined attempt kind. It accepts
+// the historical fallback kind so stored artifacts stay readable.
 func (kind AttemptKind) Valid() bool {
 	return kind == AttemptKindPrimary || kind == AttemptKindFallback
 }
@@ -29,16 +32,15 @@ func (kind AttemptKind) Valid() bool {
 // coordinator to a provider runtime. It carries no mutable run or attempt
 // aggregate.
 type InvocationJob struct {
-	sessionID   domain.SessionID
-	runID       domain.RunID
-	role        domain.Role
-	attemptKind AttemptKind
-	route       ports.ProviderRoute
-	target      domain.TargetIdentity
-	limits      InvocationLimits
-	attemptID   domain.AttemptID
-	purpose     domain.InvocationPurpose
-	ordinal     uint64
+	sessionID domain.SessionID
+	runID     domain.RunID
+	role      domain.Role
+	route     ports.ProviderRoute
+	target    domain.TargetIdentity
+	limits    InvocationLimits
+	attemptID domain.AttemptID
+	purpose   domain.InvocationPurpose
+	ordinal   uint64
 }
 
 // NewInvocationJob validates and canonicalizes a legacy direct provider
@@ -46,7 +48,6 @@ type InvocationJob struct {
 // and always carry run coordinates.
 func NewInvocationJob(
 	role domain.Role,
-	attemptKind AttemptKind,
 	route ports.ProviderRoute,
 	target domain.TargetIdentity,
 	limits InvocationLimits,
@@ -54,14 +55,13 @@ func NewInvocationJob(
 	purpose domain.InvocationPurpose,
 	ordinal uint64,
 ) (InvocationJob, error) {
-	return newInvocationJob(domain.SessionID{}, domain.RunID{}, role, attemptKind, route, target, limits, attemptID, purpose, ordinal)
+	return newInvocationJob(domain.SessionID{}, domain.RunID{}, role, route, target, limits, attemptID, purpose, ordinal)
 }
 
 func newCoordinatorInvocationJob(
 	sessionID domain.SessionID,
 	runID domain.RunID,
 	role domain.Role,
-	attemptKind AttemptKind,
 	route ports.ProviderRoute,
 	target domain.TargetIdentity,
 	limits InvocationLimits,
@@ -69,14 +69,13 @@ func newCoordinatorInvocationJob(
 	purpose domain.InvocationPurpose,
 	ordinal uint64,
 ) (InvocationJob, error) {
-	return newInvocationJob(sessionID, runID, role, attemptKind, route, target, limits, attemptID, purpose, ordinal)
+	return newInvocationJob(sessionID, runID, role, route, target, limits, attemptID, purpose, ordinal)
 }
 
 func newInvocationJob(
 	sessionID domain.SessionID,
 	runID domain.RunID,
 	role domain.Role,
-	attemptKind AttemptKind,
 	route ports.ProviderRoute,
 	target domain.TargetIdentity,
 	limits InvocationLimits,
@@ -93,16 +92,15 @@ func newInvocationJob(
 		return InvocationJob{}, err
 	}
 	job := InvocationJob{
-		sessionID:   sessionID,
-		runID:       runID,
-		role:        role,
-		attemptKind: attemptKind,
-		route:       canonicalRoute,
-		target:      canonicalTarget,
-		limits:      limits,
-		attemptID:   attemptID,
-		purpose:     purpose,
-		ordinal:     ordinal,
+		sessionID: sessionID,
+		runID:     runID,
+		role:      role,
+		route:     canonicalRoute,
+		target:    canonicalTarget,
+		limits:    limits,
+		attemptID: attemptID,
+		purpose:   purpose,
+		ordinal:   ordinal,
 	}
 	if err := job.validate(); err != nil {
 		return InvocationJob{}, err
@@ -120,9 +118,6 @@ func (job InvocationJob) RunID() domain.RunID { return job.runID }
 
 // Role returns the canonical coordinator-selected role.
 func (job InvocationJob) Role() domain.Role { return job.role }
-
-// AttemptKind returns whether this job uses the primary or fallback route.
-func (job InvocationJob) AttemptKind() AttemptKind { return job.attemptKind }
 
 // Route returns a reconstructed canonical provider route.
 func (job InvocationJob) Route() ports.ProviderRoute {
@@ -168,9 +163,6 @@ func (job InvocationJob) validate() error {
 	}
 	if !job.role.Valid() {
 		return fmt.Errorf("review coordinator invocation job: invalid role %q", job.role)
-	}
-	if !job.attemptKind.Valid() {
-		return fmt.Errorf("review coordinator invocation job: invalid attempt kind %q", job.attemptKind)
 	}
 	if _, err := canonicalCoordinatorRoute(job.route); err != nil {
 		return fmt.Errorf("review coordinator invocation job: invalid provider route: %w", err)

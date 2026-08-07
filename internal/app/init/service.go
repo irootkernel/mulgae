@@ -609,14 +609,13 @@ func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDe
 	}
 	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}, nil
 }
-func resourceDefaults(value candidates, roleCount int) appconfig.ResourcesConfig {
-	count := len(candidateIDs(value))
-	role := 2
-	if count >= 2 {
-		role = 4
-	}
-	run := role * roleCount
-	return appconfig.ResourcesConfig{MaxActiveLanes: roleCount, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: run, RunTotalOutputCap: "64MiB"}
+
+// resourceDefaults sizes the invocation budget. A role runs its provider once
+// and may repair once on that same provider, so two invocations bound a role
+// regardless of how many provider families the project configured.
+func resourceDefaults(_ candidates, roleCount int) appconfig.ResourcesConfig {
+	const role = 2
+	return appconfig.ResourcesConfig{MaxActiveLanes: roleCount, PrimaryRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: role * roleCount, RunTotalOutputCap: "64MiB"}
 }
 
 func validateRoleSelection(roles []string) ([]string, error) {

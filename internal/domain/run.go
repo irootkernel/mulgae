@@ -309,30 +309,9 @@ func (run *Run) TransitionRole(role Role, next RoleTaskState) error {
 	if !role.Valid() {
 		return fmt.Errorf("run: %w: invalid role %q", ErrInvariant, role)
 	}
-	if next == RoleTaskFallbackQueued {
-		return fmt.Errorf("run: %w: fallback queuing requires QueueRoleFallback", ErrInvariant)
-	}
 	for index := range run.roles {
 		if run.roles[index].Role() == role {
 			return run.roles[index].transition(next)
-		}
-	}
-	return fmt.Errorf("run: %w: role %q is not selected", ErrInvariant, role)
-}
-
-func (run *Run) QueueRoleFallback(role Role, failureClass FailureClass) error {
-	if run == nil {
-		return fmt.Errorf("run: %w: nil receiver", ErrInvariant)
-	}
-	if run.state != RunRunning {
-		return fmt.Errorf("run: %w: fallback queuing is allowed only while run is running", ErrInvariant)
-	}
-	if !role.Valid() {
-		return fmt.Errorf("run: %w: invalid role %q", ErrInvariant, role)
-	}
-	for index := range run.roles {
-		if run.roles[index].Role() == role {
-			return run.roles[index].queueFallback(failureClass)
 		}
 	}
 	return fmt.Errorf("run: %w: role %q is not selected", ErrInvariant, role)

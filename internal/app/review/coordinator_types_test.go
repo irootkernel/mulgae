@@ -31,97 +31,79 @@ func TestNewInvocationJobRejectsInvalidFields(t *testing.T) {
 	limits := coordinatorTypesLimits(t)
 	target := coordinatorTypesTarget(t, 1)
 	tests := []struct {
-		name        string
-		role        domain.Role
-		attemptKind AttemptKind
-		route       ports.ProviderRoute
-		attemptID   domain.AttemptID
-		purpose     domain.InvocationPurpose
-		ordinal     uint64
-		limits      InvocationLimits
+		name      string
+		role      domain.Role
+		route     ports.ProviderRoute
+		attemptID domain.AttemptID
+		purpose   domain.InvocationPurpose
+		ordinal   uint64
+		limits    InvocationLimits
 	}{
 		{
-			name:        "role",
-			role:        domain.Role("unknown"),
-			attemptKind: AttemptKindPrimary,
-			route:       route,
-			attemptID:   attemptID,
-			purpose:     domain.InvocationInitial,
-			ordinal:     1,
-			limits:      limits,
+			name:      "role",
+			role:      domain.Role("unknown"),
+			route:     route,
+			attemptID: attemptID,
+			purpose:   domain.InvocationInitial,
+			ordinal:   1,
+			limits:    limits,
 		},
 		{
-			name:        "attempt kind",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKind("unknown"),
-			route:       route,
-			attemptID:   attemptID,
-			purpose:     domain.InvocationInitial,
-			ordinal:     1,
-			limits:      limits,
+			name:      "route",
+			role:      domain.RoleLogic,
+			route:     ports.ProviderRoute{},
+			attemptID: attemptID,
+			purpose:   domain.InvocationInitial,
+			ordinal:   1,
+			limits:    limits,
 		},
 		{
-			name:        "route",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKindPrimary,
-			route:       ports.ProviderRoute{},
-			attemptID:   attemptID,
-			purpose:     domain.InvocationInitial,
-			ordinal:     1,
-			limits:      limits,
+			name:      "attempt identity",
+			role:      domain.RoleLogic,
+			route:     route,
+			attemptID: domain.AttemptID{},
+			purpose:   domain.InvocationInitial,
+			ordinal:   1,
+			limits:    limits,
 		},
 		{
-			name:        "attempt identity",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKindPrimary,
-			route:       route,
-			attemptID:   domain.AttemptID{},
-			purpose:     domain.InvocationInitial,
-			ordinal:     1,
-			limits:      limits,
+			name:      "purpose",
+			role:      domain.RoleLogic,
+			route:     route,
+			attemptID: attemptID,
+			purpose:   domain.InvocationPurpose("unknown"),
+			ordinal:   1,
+			limits:    limits,
 		},
 		{
-			name:        "purpose",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKindPrimary,
-			route:       route,
-			attemptID:   attemptID,
-			purpose:     domain.InvocationPurpose("unknown"),
-			ordinal:     1,
-			limits:      limits,
+			name:      "ordinal",
+			role:      domain.RoleLogic,
+			route:     route,
+			attemptID: attemptID,
+			purpose:   domain.InvocationInitial,
+			ordinal:   0,
+			limits:    limits,
 		},
 		{
-			name:        "ordinal",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKindPrimary,
-			route:       route,
-			attemptID:   attemptID,
-			purpose:     domain.InvocationInitial,
-			ordinal:     0,
-			limits:      limits,
-		},
-		{
-			name:        "repair without an issued attempt identity",
-			role:        domain.RoleLogic,
-			attemptKind: AttemptKindPrimary,
-			route:       route,
-			attemptID:   domain.AttemptID{},
-			purpose:     domain.InvocationRepair,
-			ordinal:     2,
-			limits:      limits,
+			name:      "repair without an issued attempt identity",
+			role:      domain.RoleLogic,
+			route:     route,
+			attemptID: domain.AttemptID{},
+			purpose:   domain.InvocationRepair,
+			ordinal:   2,
+			limits:    limits,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewInvocationJob(test.role, test.attemptKind, test.route, target, test.limits, test.attemptID, test.purpose, test.ordinal); err == nil {
+			if _, err := NewInvocationJob(test.role, test.route, target, test.limits, test.attemptID, test.purpose, test.ordinal); err == nil {
 				t.Fatal("NewInvocationJob() error = nil")
 			}
 		})
 	}
 	if _, err := NewInvocationJob(
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		route,
 		domain.TargetIdentity{},
 		limits,
@@ -137,7 +119,6 @@ func TestNewInvocationJobRejectsMissingLimits(t *testing.T) {
 
 	if _, err := NewInvocationJob(
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		coordinatorTypesRoute(t, "provider", "lane"),
 		coordinatorTypesTarget(t, 1),
 		InvocationLimits{},
@@ -155,14 +136,14 @@ func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 	route := coordinatorTypesRoute(t, "provider", "lane")
 	attemptID := coordinatorTypesAttemptID(t, 2)
 	target := coordinatorTypesTarget(t, 1)
-	job, err := NewInvocationJob(domain.RoleLogic, AttemptKindFallback, route, target, coordinatorTypesLimits(t), attemptID, domain.InvocationRepair, 3)
+	job, err := NewInvocationJob(domain.RoleLogic, route, target, coordinatorTypesLimits(t), attemptID, domain.InvocationRepair, 3)
 	if err != nil {
 		t.Fatalf("NewInvocationJob() error = %v", err)
 	}
 	if job.SessionID().String() != "" || job.RunID().String() != "" {
 		t.Fatalf("legacy job coordinates = %q/%q, want zero values", job.SessionID().String(), job.RunID().String())
 	}
-	if job.Role() != domain.RoleLogic || job.AttemptKind() != AttemptKindFallback ||
+	if job.Role() != domain.RoleLogic ||
 		job.AttemptID() != attemptID || job.Purpose() != domain.InvocationRepair || job.Ordinal() != 3 {
 		t.Fatalf("job accessors = %#v", job)
 	}
@@ -192,7 +173,6 @@ func TestCoordinatorInvocationJobRetainsCoordinates(t *testing.T) {
 		sessionID,
 		runID,
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		coordinatorTypesRoute(t, "provider", "lane"),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),
@@ -218,7 +198,6 @@ func TestCoordinatorInvocationJobRejectsIncompleteCoordinates(t *testing.T) {
 		domain.SessionID{},
 		runID,
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		coordinatorTypesRoute(t, "provider", "lane"),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),
@@ -744,7 +723,6 @@ func coordinatorTypesJob(t *testing.T, role domain.Role, providerInstance string
 
 	job, err := NewInvocationJob(
 		role,
-		AttemptKindPrimary,
 		coordinatorTypesRoute(t, providerInstance, "lane"),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),

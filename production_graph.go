@@ -213,24 +213,19 @@ func composeProductionRuntimeGraph(
 		if !configured.Enabled {
 			continue
 		}
-		families := []string{configured.PrimaryProvider}
-		if configured.FallbackProvider != "" {
-			families = append(families, configured.FallbackProvider)
-		}
-		for _, familyName := range families {
-			family := reviewrun.Family(familyName)
-			instance := familyName + "-" + string(role)
-			switch family {
-			case reviewrun.FamilyKimi:
-				provider := policy.config.Providers.Kimi
-				instanceFamilies[instance], instancePolicies[instance], sourceRoots[instance] = providercli.CredentialSourceKimi, policies[family], provider.DataHome
-			case reviewrun.FamilyZCode:
-				instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
-			case reviewrun.FamilyAGY:
-				instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
-			default:
-				return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
-			}
+		familyName := configured.PrimaryProvider
+		family := reviewrun.Family(familyName)
+		instance := familyName + "-" + string(role)
+		switch family {
+		case reviewrun.FamilyKimi:
+			provider := policy.config.Providers.Kimi
+			instanceFamilies[instance], instancePolicies[instance], sourceRoots[instance] = providercli.CredentialSourceKimi, policies[family], provider.DataHome
+		case reviewrun.FamilyZCode:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
+		case reviewrun.FamilyAGY:
+			instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
+		default:
+			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
 	}
 	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(namespaces, installedUser.HomeDir, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
@@ -332,7 +327,7 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 	policy := graph.policy.planner
 	policy.Assignments = nil
 	for _, configuredRole := range reviewrun.SupportedProductionRoles(family) {
-		assignment, err := reviewrun.NewRoleProviderAssignment(configuredRole, family, "")
+		assignment, err := reviewrun.NewRoleProviderAssignment(configuredRole, family)
 		if err != nil {
 			return nil, err
 		}

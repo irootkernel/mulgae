@@ -213,7 +213,7 @@ type coordinatorLane struct {
 }
 
 // laneScheduler owns worker lifetime only. It has no domain-state, repair,
-// fallback, aggregation, or finalization authority; all of those remain in the
+// aggregation, or finalization authority; all of those remain in the
 // coordinator goroutine.
 type laneScheduler struct {
 	ctx      context.Context
@@ -509,7 +509,7 @@ func (scheduler *laneScheduler) cancelDispatch() {
 	scheduler.cancel()
 }
 
-// close is called only after the coordinator has decided no repair or fallback
+// close is called only after the coordinator has decided no repair
 // can be generated. It joins lanes but intentionally never closes results.
 func (scheduler *laneScheduler) close() {
 	scheduler.mu.Lock()

@@ -3,7 +3,7 @@
   "repairs": [
     {
       "path": "/findings/0/recommendation",
-      "value": "Queue fallback only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results."
+      "value": "Fail a role only for typed provider availability, execution, or invalid-output failures. Preserve valid negative reviews as successful role results."
     }
   ]
 }

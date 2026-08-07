@@ -156,11 +156,11 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 		if budgetErr != nil {
 			t.Fatal(budgetErr)
 		}
-		roleBudget, roleBudgetErr := review.NewRoleBudget(role, budget, nil)
+		roleBudget, roleBudgetErr := review.NewRoleBudget(role, budget)
 		if roleBudgetErr != nil {
 			t.Fatal(roleBudgetErr)
 		}
-		assignment, assignmentErr := review.NewScheduledAssignment(role, false, routes[role], nil)
+		assignment, assignmentErr := review.NewScheduledAssignment(role, false, routes[role])
 		if assignmentErr != nil {
 			t.Fatal(assignmentErr)
 		}

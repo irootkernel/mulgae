@@ -67,7 +67,7 @@
         "required":["role","route_kind","provider_instance","provider_family","configured_timeout","permission_mode","target_channel","file_set_id"],
         "properties":{
           "role":{"$ref":"#/$defs/role"},
-          "route_kind":{"enum":["primary","fallback"]},
+          "route_kind":{"const":"primary"},
           "provider_instance":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
           "provider_family":{"enum":["kimi","zcode","agy"]},
           "configured_timeout":{"$ref":"#/$defs/duration"},

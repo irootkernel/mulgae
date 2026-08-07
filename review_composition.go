@@ -637,7 +637,7 @@ func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []d
 		if !assignment.Enabled {
 			continue
 		}
-		if reviewrun.Family(assignment.PrimaryProvider) != family && reviewrun.Family(assignment.FallbackProvider) != family {
+		if reviewrun.Family(assignment.PrimaryProvider) != family {
 			continue
 		}
 		roles = append(roles, role)
@@ -677,8 +677,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		if !definition.Enabled() {
 			continue
 		}
-		fallback, _ := definition.FallbackProvider()
-		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()), reviewrun.Family(fallback))
+		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()))
 		if err != nil {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role provider assignment is invalid", err)
 		}

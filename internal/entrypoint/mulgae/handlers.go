@@ -28,6 +28,7 @@ import (
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	"github.com/irootkernel/mulgae/internal/app/providers"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	approles "github.com/irootkernel/mulgae/internal/app/roles"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
@@ -276,7 +277,7 @@ func committedProviderFailureReasons(failures []reviewrun.ProviderExecutionFailu
 				appconfig.ProviderTimeoutText(facts.ConfiguredTimeout()), facts.Elapsed(),
 			)
 		} else {
-			message += fmt.Sprintf("; summary terminal provider outcome; hint run %s.", providerFailureHint(code))
+			message += fmt.Sprintf("; summary terminal provider outcome; hint run %s.", providerFailureHint(review.AttemptCondition(failure.ReasonCode())))
 		}
 		parsed, err := app.NewCommittedReason(code, message)
 		if err != nil {
@@ -1347,11 +1348,9 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
 		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_static_admission_unverified"}}
 		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_static_admission_unverified", Category: "readiness", Message: "Configured provider identity is present, static admission evidence is unverified, and live qualification was not evaluated by doctor.", Redacted: true}}
-	case eligible == 1:
-		base.Assignment = doctor.LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"}
-		base.Readiness = doctor.LocalReadiness{State: "degraded", ExitCode: 0, ReasonCodes: []string{"provider_resilience_degraded"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_resilience_degraded", Category: "readiness", Message: "All roles have a primary provider but no fallback provider.", Redacted: true}}
 	default:
+		// Every role runs on exactly one provider, so one eligible family is a
+		// complete configuration, not a degraded one.
 		base.Assignment = doctor.LocalAssignmentProjection{State: "ready", Resilience: "ready"}
 		base.Readiness = doctor.LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}
 		base.Diagnostics = []doctor.LocalDiagnostic{}

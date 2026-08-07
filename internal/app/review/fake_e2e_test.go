@@ -315,8 +315,8 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	if len(provider.Transcript()) != 3 || ids.reviewIDCalls != 0 {
 		t.Fatal("E2E review invoked an unexpected provider count or created final artifact identity")
 	}
-	if result.FallbackScheduled() || result.Outcomes().PublicationStatus() != domain.PublicationNotPublished {
-		t.Fatal("E2E review scheduled fallback or acquired publication authority")
+	if result.Outcomes().PublicationStatus() != domain.PublicationNotPublished {
+		t.Fatal("E2E review acquired publication authority")
 	}
 	findings := result.Findings()
 	if len(findings) != 1 || findings[0].ID() != "F001" || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges || result.Outcomes().CoverageStatus() != domain.CoverageComplete {

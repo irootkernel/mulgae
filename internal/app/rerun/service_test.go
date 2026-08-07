@@ -117,7 +117,7 @@ func TestStartRerunExactSelectsStoredPrimaryProviderRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, primary, nil)
+	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, primary)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,12 +126,16 @@ func TestStartRerunExactSelectsStoredPrimaryProviderRoute(t *testing.T) {
 	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); err != nil {
 		t.Fatal(err)
 	}
-	if assignment := executor.child.Assignments[0]; assignment.ProviderInstance() != source.ProviderInstance || assignment.HasFallback() {
-		t.Fatalf("exact primary assignment = %#v, want sole source provider route", assignment)
+	if assignment := executor.child.Assignments[0]; assignment.ProviderInstance() != source.ProviderInstance {
+		t.Fatalf("exact primary assignment = %#v, want the source provider route", assignment)
 	}
 }
 
-func TestStartRerunExactSelectsStoredFallbackProviderRoute(t *testing.T) {
+// TestStartRerunExactRejectsAnAttemptFromAnotherProvider proves an exact replay
+// of an attempt recorded against a provider the role is no longer configured
+// for is refused rather than silently rerun somewhere else. Runs recorded before
+// each role was bound to one provider can contain such attempts.
+func TestStartRerunExactRejectsAnAttemptFromAnotherProvider(t *testing.T) {
 	source := validRerunSource()
 	reader := &rerunSourceReader{source: source}
 	executor := &rerunExecutor{}
@@ -139,25 +143,14 @@ func TestStartRerunExactSelectsStoredFallbackProviderRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fallbackKey, err := ports.ParseConcurrencyKey("rerun-fallback")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fallback, err := ports.NewProviderRoute(source.ProviderInstance, fallbackKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, primary, &fallback)
+	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, primary)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service := testRerunServiceWithAssignments(t, reader, executor, []review.Assignment{assignment})
 
-	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); err != nil {
-		t.Fatal(err)
-	}
-	if assignment := executor.child.Assignments[0]; assignment.ProviderInstance() != source.ProviderInstance || assignment.HasFallback() || assignment.PrimaryRoute() != fallback {
-		t.Fatalf("exact fallback assignment = %#v, want promoted sole source provider route", assignment)
+	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); err == nil {
+		t.Fatal("exact replay accepted an attempt from an unconfigured provider")
 	}
 }
 
@@ -169,7 +162,7 @@ func TestStartRerunExactRejectsChangedAssignmentProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, route, nil)
+	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, route)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,11 +439,11 @@ func testRerunService(t *testing.T, reader SourceReader, executor ChildReplayExe
 	if err != nil {
 		t.Fatal(err)
 	}
-	logic, err := review.NewScheduledAssignment(domain.RoleLogic, true, route, nil)
+	logic, err := review.NewScheduledAssignment(domain.RoleLogic, true, route)
 	if err != nil {
 		t.Fatal(err)
 	}
-	security, err := review.NewScheduledAssignment(domain.RoleSecurity, true, route, nil)
+	security, err := review.NewScheduledAssignment(domain.RoleSecurity, true, route)
 	if err != nil {
 		t.Fatal(err)
 	}

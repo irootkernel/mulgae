@@ -170,8 +170,6 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unsafe", 8, []string{"provider_security_admission_failed"})
 	case eligible == 0:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_static_admission_unverified"})
-	case eligible == 1:
-		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"}, "degraded", 0, []string{"provider_resilience_degraded"})
 	default:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "ready", Resilience: "ready"}, "ready", 0, []string{})
 	}

@@ -26,9 +26,8 @@ type RedactedProviderTimeout struct {
 	Timeout string `json:"timeout" yaml:"timeout"`
 }
 type RedactedRoleAssignment struct {
-	Role             domain.Role `json:"role" yaml:"role"`
-	PrimaryProvider  string      `json:"primary_provider" yaml:"primary_provider"`
-	FallbackProvider *string     `json:"fallback_provider" yaml:"fallback_provider"`
+	Role            domain.Role `json:"role" yaml:"role"`
+	PrimaryProvider string      `json:"primary_provider" yaml:"primary_provider"`
 }
 
 func Redact(resolved ResolvedConfig) RedactedConfig {
@@ -38,12 +37,7 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 		if !ok {
 			continue
 		}
-		var fallback *string
-		if value, present := resolvedRole.FallbackProvider(); present {
-			copy := value
-			fallback = &copy
-		}
-		assignments = append(assignments, RedactedRoleAssignment{Role: role, PrimaryProvider: resolvedRole.PrimaryProvider(), FallbackProvider: fallback})
+		assignments = append(assignments, RedactedRoleAssignment{Role: role, PrimaryProvider: resolvedRole.PrimaryProvider()})
 	}
 	timeouts := make([]RedactedProviderTimeout, 0, resolved.raw.Providers.Count())
 	for _, family := range resolved.raw.Providers.Families() {

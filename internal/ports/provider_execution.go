@@ -50,7 +50,7 @@ func (failure *ProviderRuntimeError) Cause() domain.RuntimeDiagnosticCause {
 }
 
 // ProviderExecutionStatus is the closed, provider-neutral execution outcome.
-// It records execution facts only; it does not authorize repair, fallback,
+// It records execution facts only; it does not authorize repair,
 // validation, or publication decisions.
 type ProviderExecutionStatus string
 
@@ -191,7 +191,7 @@ func (receipt StagedOutputReceipt) Valid() bool {
 // ProviderExecutionObservation is immutable provider-neutral execution
 // evidence. It binds a validated invocation identity to exactly one validated
 // process observation and either a successful provider result or a classified
-// failure. It intentionally grants no repair, fallback, finding, validation,
+// failure. It intentionally grants no repair, finding, validation,
 // or publication authority.
 type ProviderExecutionObservation struct {
 	status             ProviderExecutionStatus

@@ -366,7 +366,7 @@ func reviewRunPlan(t *testing.T, roles []domain.Role) ExecutionPlan {
 		if err != nil {
 			t.Fatal(err)
 		}
-		budget, err := review.NewRoleBudget(role, routeBudget, nil)
+		budget, err := review.NewRoleBudget(role, routeBudget)
 		if err != nil {
 			t.Fatal(err)
 		}

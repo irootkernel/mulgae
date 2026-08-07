@@ -24,8 +24,8 @@ func TestRoleCatalogDefaultsSurviveThisPackagesValidator(t *testing.T) {
 	}
 	config.Roles = roles
 	config.Resources.MaxActiveLanes = 7
-	config.Resources.RunMaxInvocations = 28
-	config.Resources.RoleMaxInvocations = 4
+	config.Resources.RunMaxInvocations = 14
+	config.Resources.RoleMaxInvocations = 2
 
 	canonical, err := EncodeCanonical(config)
 	if err != nil {

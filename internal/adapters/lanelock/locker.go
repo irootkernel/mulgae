@@ -11,7 +11,7 @@ import (
 
 var (
 	// ErrUnavailable identifies the narrow readiness class whose caller may
-	// consider a separately configured fallback lane.
+	// consider a separately configured secondary lane.
 	ErrUnavailable = errors.New("lane lock unavailable")
 
 	// ErrNilContext reports an invalid acquisition without a cancellation source.

@@ -469,7 +469,7 @@ func childrunStagingExecution(t *testing.T) (appfollowup.Execution, domain.Run, 
 		t.Fatal(err)
 	}
 	target := childrunTarget(t)
-	task, err := domain.NewRoleTask(domain.RoleLogic, true, childrunStagedInstance, nil)
+	task, err := domain.NewRoleTask(domain.RoleLogic, true, childrunStagedInstance)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +510,7 @@ func childrunStagedPublicationFixture(t *testing.T) (*FollowupExecutor, appfollo
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := domain.NewRoleTask(domain.RoleLogic, true, childrunStagedInstance, nil)
+	task, err := domain.NewRoleTask(domain.RoleLogic, true, childrunStagedInstance)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -150,7 +150,7 @@ func TestNewRunAuthorityAdapterRejectsInvalidBuildIdentity(t *testing.T) {
 	}
 }
 
-func TestQualificationCandidatesAreRestrictedToSelectedPrimaryAndFallbackAssignments(t *testing.T) {
+func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T) {
 	selected := []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleDocumentation}
 	selection, err := NewRunSelection(selected, nil)
 	if err != nil {
@@ -169,10 +169,11 @@ func TestQualificationCandidatesAreRestrictedToSelectedPrimaryAndFallbackAssignm
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each role names exactly one family, so the families partition the roles.
 	want := map[Family][]domain.Role{
 		FamilyKimi:  {domain.RoleLogic},
-		FamilyZCode: {domain.RoleLogic, domain.RoleSecurity, domain.RoleDocumentation},
-		FamilyAGY:   {domain.RoleSecurity, domain.RoleDocumentation},
+		FamilyZCode: {domain.RoleSecurity},
+		FamilyAGY:   {domain.RoleDocumentation},
 	}
 	if len(restricted) != len(want) {
 		t.Fatalf("restricted candidate count = %d, want %d", len(restricted), len(want))
@@ -183,9 +184,6 @@ func TestQualificationCandidatesAreRestrictedToSelectedPrimaryAndFallbackAssignm
 			t.Fatalf("%s qualification roles = %v, want %v", family, candidate.SupportedRoles, want[family])
 		}
 		wantBase := candidate.SupportedRoles[0]
-		if family == FamilyKimi || family == FamilyZCode {
-			wantBase = domain.RoleLogic
-		}
 		if candidate.BaseRole != wantBase {
 			t.Fatalf("%s qualification base role = %q, want %q", family, candidate.BaseRole, wantBase)
 		}

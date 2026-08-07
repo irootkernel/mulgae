@@ -20,16 +20,12 @@ func (access WorkspaceAccess) Valid() bool {
 }
 
 type ResolvedRole struct {
-	enabled          bool
-	primaryProvider  string
-	fallbackProvider string
+	enabled         bool
+	primaryProvider string
 }
 
 func (role ResolvedRole) Enabled() bool           { return role.enabled }
 func (role ResolvedRole) PrimaryProvider() string { return role.primaryProvider }
-func (role ResolvedRole) FallbackProvider() (string, bool) {
-	return role.fallbackProvider, role.fallbackProvider != ""
-}
 
 type RuntimePolicy struct{ MaxActiveLanes int }
 
@@ -60,7 +56,7 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 	roles := make(map[domain.Role]ResolvedRole, len(domain.FixedRoleOrder()))
 	for _, role := range domain.FixedRoleOrder() {
 		configured := configuredRole(raw.Roles, role)
-		roles[role] = ResolvedRole{enabled: configured.Enabled, primaryProvider: configured.PrimaryProvider, fallbackProvider: configured.FallbackProvider}
+		roles[role] = ResolvedRole{enabled: configured.Enabled, primaryProvider: configured.PrimaryProvider}
 	}
 	return ResolvedConfig{
 		raw: cloneConfig(raw), roles: roles,

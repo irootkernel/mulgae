@@ -18,7 +18,6 @@
     "trust_validation",
     "publication_validation",
     "repair",
-    "fallback",
     "publication_eligibility",
     "content_verdict",
     "coverage_status",
@@ -73,9 +72,6 @@
     },
     "repair": {
       "$ref": "#/$defs/repair"
-    },
-    "fallback": {
-      "$ref": "#/$defs/fallback"
     },
     "publication_eligibility": {
       "type": "string",
@@ -163,9 +159,6 @@
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
           },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
-          },
           "publication_eligibility": {
             "const": "forbidden"
           },
@@ -196,9 +189,6 @@
           },
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
           },
           "publication_eligibility": {
             "const": "forbidden"
@@ -232,13 +222,6 @@
         "properties": {
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "properties": {
-              "eligibility": {
-                "const": "allowed"
-              }
-            }
           }
         }
       }
@@ -269,13 +252,6 @@
                 "const": 1
               }
             }
-          },
-          "fallback": {
-            "properties": {
-              "eligibility": {
-                "const": "allowed"
-              }
-            }
           }
         }
       }
@@ -295,9 +271,6 @@
         "properties": {
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
           },
           "publication_eligibility": {
             "const": "allowed"
@@ -327,9 +300,6 @@
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
           },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
-          },
           "publication_eligibility": {
             "const": "allowed"
           },
@@ -355,9 +325,6 @@
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
           },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
-          },
           "publication_eligibility": {
             "const": "allowed"
           },
@@ -382,9 +349,6 @@
         "properties": {
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
           },
           "publication_eligibility": {
             "const": "allowed"
@@ -414,9 +378,6 @@
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
           },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
-          },
           "publication_eligibility": {
             "const": "forbidden"
           }
@@ -444,9 +405,6 @@
           },
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
           },
           "publication_eligibility": {
             "const": "forbidden"
@@ -494,9 +452,6 @@
           },
           "repair": {
             "$ref": "#/$defs/forbidden_repair"
-          },
-          "fallback": {
-            "$ref": "#/$defs/forbidden_fallback"
           },
           "publication_eligibility": {
             "const": "forbidden"
@@ -1679,102 +1634,6 @@
         },
         "attempts_used": {
           "const": 0
-        },
-        "reason_codes": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reason_code"
-          }
-        }
-      }
-    },
-    "fallback": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "eligibility",
-        "scheduled",
-        "reason_codes"
-      ],
-      "properties": {
-        "eligibility": {
-          "type": "string",
-          "enum": [
-            "allowed",
-            "forbidden"
-          ]
-        },
-        "scheduled": {
-          "type": "boolean"
-        },
-        "reason_codes": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reason_code"
-          }
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "eligibility": {
-                "const": "forbidden"
-              }
-            },
-            "required": [
-              "eligibility"
-            ]
-          },
-          "then": {
-            "properties": {
-              "scheduled": {
-                "const": false
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "scheduled": {
-                "const": true
-              }
-            },
-            "required": [
-              "scheduled"
-            ]
-          },
-          "then": {
-            "properties": {
-              "eligibility": {
-                "const": "allowed"
-              }
-            }
-          }
-        }
-      ]
-    },
-    "forbidden_fallback": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "eligibility",
-        "scheduled",
-        "reason_codes"
-      ],
-      "properties": {
-        "eligibility": {
-          "const": "forbidden"
-        },
-        "scheduled": {
-          "const": false
         },
         "reason_codes": {
           "type": "array",

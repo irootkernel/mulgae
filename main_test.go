@@ -53,7 +53,11 @@ func TestChildPublicationRootUsesPrivateMulgaeNamespace(t *testing.T) {
 	}
 }
 
-func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T) {
+// TestConfiguredQualificationRolesFollowTheProviderMatrix proves qualification
+// probes only the roles a family actually owns. Each role takes the first
+// configured family from its own preference order, so the families partition the
+// roles rather than overlapping on a primary/fallback pair.
+func TestConfiguredQualificationRolesFollowTheProviderMatrix(t *testing.T) {
 	config, err := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi", "zcode", "agy"})
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +68,8 @@ func TestConfiguredQualificationRolesFollowPrimaryAndFallbackMatrix(t *testing.T
 		base   domain.Role
 	}{
 		{reviewrun.FamilyKimi, []domain.Role{domain.RoleLogic}, domain.RoleLogic},
-		{reviewrun.FamilyZCode, domain.CoreRoleOrder(), domain.RoleSecurity},
-		{reviewrun.FamilyAGY, []domain.Role{domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleDocumentation, domain.RoleTesting}, domain.RoleDocumentation},
+		{reviewrun.FamilyZCode, []domain.Role{domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleTesting}, domain.RoleSecurity},
+		{reviewrun.FamilyAGY, []domain.Role{domain.RoleDocumentation}, domain.RoleDocumentation},
 	}
 	for _, test := range tests {
 		roles, base := configuredQualificationRoles(config, domain.CoreRoleOrder(), test.family)
@@ -99,8 +103,7 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 			Repair:   adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true},
 		},
 		Resources: adapterconfig.ResourcesConfig{
-			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1,
-			RoleMaxInvocations: 4, RunMaxInvocations: 28, RunTotalOutputCap: "64MiB",
+			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14, RunTotalOutputCap: "64MiB",
 		},
 		CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
 	}
@@ -821,7 +824,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 					if err != nil || !slices.Equal(config.Providers.Families(), test.candidates) {
 						t.Fatalf("auto config families = %v err=%v, want %v", config.Providers.Families(), err, test.candidates)
 					}
-					if config.Roles.Logic.PrimaryProvider != "zcode" || config.Roles.Logic.FallbackProvider != "agy" {
+					if config.Roles.Logic.PrimaryProvider != "zcode" {
 						t.Fatalf("auto logic assignment = %#v", config.Roles.Logic)
 					}
 					if format == "json" {
@@ -1588,7 +1591,20 @@ func TestIntegrationStagedFileTransportPublishesRoleReports(t *testing.T) {
 
 // A staged file the provider never wrote is operationally missing output: the
 // role completes on its configured fallback and the run still publishes.
-func TestIntegrationStagedFileMissingFallsBackToConfiguredProvider(t *testing.T) {
+func commandEnvelopeHasReason(envelope commandEnvelope, code string) bool {
+	for _, reason := range envelope.Reasons {
+		if reason.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// TestIntegrationStagedFileMissingIsAnOperationalRoleFailure proves a missing
+// staged output file is classified as an operational invalid-output failure
+// rather than a staging violation, and that the role simply fails: Mulgae does
+// not move it to the other configured provider.
+func TestIntegrationStagedFileMissingIsAnOperationalRoleFailure(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -1615,39 +1631,44 @@ func TestIntegrationStagedFileMissingFallsBackToConfiguredProvider(t *testing.T)
 		"review", "--dirty", "--roles", "security", "--output", "json")
 	var envelope commandEnvelope
 	if err := json.Unmarshal(review.stdout, &envelope); err != nil {
-		t.Fatalf("decode staged fallback envelope: %v: %q", err, review.stdout)
+		t.Fatalf("decode staged failure envelope: %v: %q", err, review.stdout)
 	}
-	if review.exitCode != 0 || envelope.Result.RunManifestURI == nil ||
+	// The role produced no review, so coverage is incomplete. The run still
+	// publishes: the operator needs the report to see what failed and why.
+	if review.exitCode != int(domain.ExitIncompleteCoverage) || envelope.Result.RunManifestURI == nil ||
 		envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
 		dumpRuntimeDiagnostics(t, project, envelope)
-		t.Fatalf("staged fallback review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
+		t.Fatalf("staged failure review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
 	}
-	assertCommandRoleReportInventory(t, project, envelope)
-	assertPublishedRoleReports(t, project, envelope, map[string]publishedRoleReport{
-		"security": {transport: "stdout", providerInstance: "agy-security", content: fakeAGYDefaultReviewOutput},
-	})
+	if !commandEnvelopeHasReason(envelope, "provider_output_missing") ||
+		!commandEnvelopeHasReason(envelope, "required_role_incomplete") {
+		t.Fatalf("staged failure reasons = %#v", envelope.Reasons)
+	}
 
 	launches := fakeZCodeReviewObservations(t, zcodeLog)
 	if len(launches) != 1 || launches[0].Destination == "" {
-		t.Fatalf("staged primary launches = %#v, want exactly one destination-bound launch", launches)
+		t.Fatalf("staged launches = %#v, want exactly one destination-bound launch", launches)
 	}
+	// AGY is configured, but security is bound to ZCode. Mulgae must not run the
+	// role somewhere else just because its own provider failed.
+	if contents, err := os.ReadFile(agyLog); err == nil && bytes.Contains(contents, []byte("security")) {
+		t.Fatalf("a failed ZCode role was rerouted to AGY:\n%s", contents)
+	}
+
 	log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
 	if !bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputFileMissing)+`"`)) {
-		t.Fatalf("staged fallback diagnostics omitted the missing staged file cause:\n%s", log)
+		t.Fatalf("staged failure diagnostics omitted the missing staged file cause:\n%s", log)
 	}
 	for _, event := range []domain.RuntimeDiagnosticEventCode{
-		domain.DiagnosticAttemptFailed, domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled,
-		domain.DiagnosticFallbackStarted, domain.DiagnosticFallbackCompleted,
-		domain.DiagnosticPublicationCommitted, domain.DiagnosticRuntimeClosed,
+		domain.DiagnosticAttemptFailed, domain.DiagnosticRoleExhausted, domain.DiagnosticRuntimeClosed,
 	} {
 		if !bytes.Contains(log, []byte(`"event":"`+string(event)+`"`)) {
-			t.Fatalf("staged fallback diagnostic omitted %s:\n%s", event, log)
+			t.Fatalf("staged failure diagnostic omitted %s:\n%s", event, log)
 		}
 	}
 	if bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputStagingViolation)+`"`)) {
 		t.Fatalf("a missing staged file was classified as a staging violation:\n%s", log)
 	}
-	assertRuntimeDiagnosticStatus(t, project, *envelope.Result.SessionID, *envelope.Result.RunID, domain.RunCompleted, *envelope.Result.RunManifestURI)
 }
 
 // Staging Mulgae did not authorize is a boundary breach: the role publishes
@@ -1849,13 +1870,11 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if !reflect.DeepEqual(firstResult, secondResult) {
 		t.Fatalf("preflight projection is nondeterministic:\n%#v\n%#v", firstResult, secondResult)
 	}
+	// One transmission per role: each role is bound to exactly one provider.
 	wantRoutes := []string{
 		"logic/primary/zcode/zcode-logic/30m/not_applicable/prompt",
-		"logic/fallback/agy/agy-logic/15m/safe/prompt",
 		"security/primary/zcode/zcode-security/30m/not_applicable/prompt",
-		"security/fallback/agy/agy-security/15m/safe/prompt",
 		"artist/primary/agy/agy-artist/15m/safe/prompt",
-		"artist/fallback/zcode/zcode-artist/30m/not_applicable/prompt",
 	}
 	gotRoutes := make([]string, 0, len(firstResult.Transmissions))
 	if len(firstResult.FileSets) != 1 || firstResult.FileSets[0].ID == "" {
@@ -1871,18 +1890,18 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if firstResult.AGYPermissionMode != "safe" || !slices.Equal(gotRoutes, wantRoutes) {
 		t.Fatalf("preflight routes = mode %q %v, want %v", firstResult.AGYPermissionMode, gotRoutes, wantRoutes)
 	}
+	// One lane per role, each carrying its provider call plus its one repair.
 	wantLanes := []mulgaeentry.ReviewPreflightLaneDeadline{
-		{ConcurrencyKey: "agy-artist", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "30m0s", Deadline: "30m4s"},
-		{ConcurrencyKey: "agy-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
-		{ConcurrencyKey: "agy-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
-		{ConcurrencyKey: "zcode-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
-		{ConcurrencyKey: "zcode-logic", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "1h0m0s", Deadline: "1h0m4s"},
-		{ConcurrencyKey: "zcode-security", InvocationCount: 2, TransitionCount: 2, InvocationTimeouts: "1h0m0s", Deadline: "1h0m4s"},
+		{ConcurrencyKey: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
+		{ConcurrencyKey: "zcode-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
+		{ConcurrencyKey: "zcode-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
 	}
-	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 12 ||
-		budget.TotalOutputCapBytes != 6<<20 || budget.CriticalPathDeadline != "1h30m6s" || budget.RunDeadline != "2h30m15s" ||
-		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.LaneDeadline != "28h0m42s" || budget.Ceilings.RunDeadline != "28h0m47s" ||
-		budget.Ceilings.MaxInvocationsPerRole != 4 || budget.Ceilings.MaxInvocationsPerRun != 12 || budget.Ceilings.MaxTotalOutputBytes != 64<<20 ||
+	// Three roles at two invocations each: six invocations and three lanes. The
+	// critical path is one role's provider call plus its repair and transition.
+	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 6 ||
+		budget.TotalOutputCapBytes != 3<<20 || budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
+		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.LaneDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
+		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 || budget.Ceilings.MaxTotalOutputBytes != 64<<20 ||
 		!reflect.DeepEqual(budget.Lanes, wantLanes) {
 		t.Fatalf("preflight budget = %#v, want exact first-project capacity envelope", budget)
 	}
@@ -1962,9 +1981,10 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 			t.Fatalf("AGY did not read the exact bounded fixture and raster evidence: %#v", observation)
 		}
 	}
-	// logic/security/artist each admit an AGY candidate; only artist executes on AGY.
-	if agyQualification != 3 || agyReviews != 1 {
-		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 3/1: %#v", agyQualification, agyReviews, agyObservations)
+	// AGY owns only the artist role, so it is probed and executed exactly once.
+	// Qualification no longer probes a family for roles it does not own.
+	if agyQualification != 1 || agyReviews != 1 {
+		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 1/1: %#v", agyQualification, agyReviews, agyObservations)
 	}
 	archivePath := filepath.Join(project, ".mulgae", *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID, "target", "captured-review.json")
 	archiveBytes, err := os.ReadFile(archivePath)
@@ -2090,7 +2110,9 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 		t.Fatalf("current user unavailable: %#v, %v", installedUser, err)
 	}
 
-	t.Run("primary rate limit falls back and publishes linked diagnostics", func(t *testing.T) {
+	// A rate limit is the provider's fault and may well pass on a later run, but
+	// Mulgae still does not substitute the other configured provider for it.
+	t.Run("rate limit fails its role without substituting another provider", func(t *testing.T) {
 		project := canonicalTestTempDir(t)
 		initializeReviewGitRepository(t, project)
 		providerDirectory := canonicalTestTempDir(t)
@@ -2109,22 +2131,28 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if result.exitCode != 0 || envelope.Result.RunManifestURI == nil || envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
+		if result.exitCode != int(domain.ExitIncompleteCoverage) || envelope.Result.RunManifestURI == nil ||
+			envelope.Result.SessionID == nil || envelope.Result.RunID == nil {
 			observations, _ := os.ReadFile(zcodeLog)
 			agyObservations, _ := os.ReadFile(agyLog)
-			var diagnostics []byte
-			if len(envelope.Reasons) != 0 && envelope.Reasons[0].ArtifactURI != nil {
-				diagnostics, _ = os.ReadFile(filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI), "mulgae-runtime.jsonl"))
-			}
-			t.Fatalf("fallback review = exit %d envelope %#v stderr %q zcode observations %s agy observations %s diagnostics %s", result.exitCode, envelope, result.stderr, observations, agyObservations, diagnostics)
+			t.Fatalf("rate-limited review = exit %d envelope %#v stderr %q zcode observations %s agy observations %s", result.exitCode, envelope, result.stderr, observations, agyObservations)
+		}
+		if !commandEnvelopeHasReason(envelope, "rate_limit") || !commandEnvelopeHasReason(envelope, "required_role_incomplete") {
+			t.Fatalf("rate-limited reasons = %#v", envelope.Reasons)
+		}
+		if contents, err := os.ReadFile(agyLog); err == nil && bytes.Contains(contents, []byte("security")) {
+			t.Fatalf("a rate-limited ZCode role was rerouted to AGY:\n%s", contents)
 		}
 		log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
-		for _, event := range []domain.RuntimeDiagnosticEventCode{domain.DiagnosticAttemptFailed, domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled, domain.DiagnosticFallbackStarted, domain.DiagnosticFallbackCompleted, domain.DiagnosticPublicationCommitted, domain.DiagnosticRuntimeClosed} {
+		for _, event := range []domain.RuntimeDiagnosticEventCode{domain.DiagnosticAttemptFailed, domain.DiagnosticRoleExhausted, domain.DiagnosticRuntimeClosed} {
 			if !bytes.Contains(log, []byte(`"event":"`+string(event)+`"`)) {
-				t.Fatalf("fallback diagnostic omitted %s:\n%s", event, log)
+				t.Fatalf("rate-limited diagnostic omitted %s:\n%s", event, log)
 			}
 		}
-		assertRuntimeDiagnosticStatus(t, project, *envelope.Result.SessionID, *envelope.Result.RunID, domain.RunCompleted, *envelope.Result.RunManifestURI)
+		// A transient failure must not be reported as an unusable provider.
+		if bytes.Contains(log, []byte(`"event":"`+string(domain.DiagnosticProviderQuarantined)+`"`)) {
+			t.Fatalf("a rate limit was reported as an unusable provider:\n%s", log)
+		}
 	})
 
 	for _, testCase := range []struct {
@@ -2133,7 +2161,7 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 		wantExit   int
 		wantReason string
 	}{
-		{name: "login required is terminal without fallback", mode: "login_review", wantExit: 4, wantReason: "provider_login_required"},
+		{name: "login required is terminal for its role", mode: "login_review", wantExit: 4, wantReason: "provider_login_required"},
 		{name: "non P2 execution failure remains inspectable", mode: "fail_review", wantExit: 10, wantReason: "provider_execution_failed"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

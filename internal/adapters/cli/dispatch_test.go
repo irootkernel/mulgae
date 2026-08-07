@@ -162,8 +162,6 @@ func TestDispatchRejectsUndeclaredHandlerFailureExitAsInvariant(t *testing.T) {
 		"",
 		"",
 		domain.AttemptID{},
-		false,
-		false,
 		"",
 		"",
 	)
@@ -197,8 +195,6 @@ func TestDispatchReturnsDeclaredReadinessFailure(t *testing.T) {
 		"",
 		"",
 		domain.AttemptID{},
-		false,
-		false,
 		"",
 		"",
 	)

@@ -266,7 +266,7 @@ func (capture AttemptCapture) Artifacts() []ports.CapturedAttemptArtifact {
 
 // ProviderInvocationRuntime is the real bridge from coordinator jobs to prompt,
 // provider, validation, repair, and evidence verification. It has no scheduler,
-// transition, fallback, or publication authority.
+// transition or publication authority.
 type ProviderInvocationRuntime struct {
 	provider          ports.ReviewProvider
 	observed          ports.ObservedReviewProvider
@@ -1569,7 +1569,7 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		return AttemptConditionSecurityViolation
 	case domain.DiagnosticCauseOutputMissing,
 		// A staged file the provider never wrote is missing output, exactly like
-		// an empty stdout transport: operational, and fallback stays available.
+		// an empty stdout transport: operational, and repair stays available.
 		domain.DiagnosticCauseProviderOutputFileMissing:
 		return AttemptConditionProviderOutputMissing
 	case domain.DiagnosticCauseOutputFrameMissing,
@@ -1582,7 +1582,7 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		return AttemptConditionProviderOutputDecodeFailed
 	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
 		// Staging Mulgae cannot prove it removed is an artifact fact: fail closed
-		// rather than reuse the attempt through repair or fallback.
+		// rather than reuse the attempt through repair.
 		return AttemptConditionArtifactFailure
 	case domain.DiagnosticCauseCandidateValidationFailed,
 		domain.DiagnosticCauseCandidateRepairPlanInvalid:
@@ -1637,7 +1637,7 @@ func sameWorkspaceSnapshotIdentity(left, right ports.WorkspaceSnapshotIdentity) 
 // observation. The typed cause is authoritative and is consulted before the
 // execution status: the adapter projects a missing or unusable staged file onto
 // an artifact-failure status, and only the cause proves those two remain
-// operational invalid-output outcomes that keep fallback available.
+// operational invalid-output outcomes that keep repair available.
 func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.RuntimeDiagnosticCause) AttemptCondition {
 	switch cause {
 	case domain.DiagnosticCauseOutputMissing,

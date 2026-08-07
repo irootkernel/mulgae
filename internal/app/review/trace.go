@@ -18,7 +18,6 @@ const (
 	CoordinatorEventInvocationDispatched  CoordinatorEventKind = "invocation_dispatched"
 	CoordinatorEventInvocationCommitted   CoordinatorEventKind = "invocation_committed"
 	CoordinatorEventRepairQueued          CoordinatorEventKind = "repair_queued"
-	CoordinatorEventFallbackQueued        CoordinatorEventKind = "fallback_queued"
 	CoordinatorEventRoleTerminal          CoordinatorEventKind = "role_terminal"
 	CoordinatorEventCancellationRequested CoordinatorEventKind = "cancellation_requested"
 	CoordinatorEventLanesCloseAuthorized  CoordinatorEventKind = "lanes_close_authorized"
@@ -33,7 +32,6 @@ func (kind CoordinatorEventKind) Valid() bool {
 		CoordinatorEventInvocationDispatched,
 		CoordinatorEventInvocationCommitted,
 		CoordinatorEventRepairQueued,
-		CoordinatorEventFallbackQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
 		CoordinatorEventLanesCloseAuthorized,
@@ -53,7 +51,6 @@ type CoordinatorTraceEvent struct {
 	role         domain.Role
 	attemptID    domain.AttemptID
 	hasAttempt   bool
-	attemptKind  AttemptKind
 	purpose      domain.InvocationPurpose
 	hasPurpose   bool
 	lane         ports.ConcurrencyKey
@@ -78,11 +75,6 @@ func (event CoordinatorTraceEvent) Role() (domain.Role, bool) {
 // AttemptID returns the coordinator-issued attempt identity when present.
 func (event CoordinatorTraceEvent) AttemptID() (domain.AttemptID, bool) {
 	return event.attemptID, event.hasAttempt
-}
-
-// AttemptKind returns the primary/fallback kind when an attempt is present.
-func (event CoordinatorTraceEvent) AttemptKind() (AttemptKind, bool) {
-	return event.attemptKind, event.hasAttempt
 }
 
 // Purpose returns the initial/repair purpose when an invocation is present.
@@ -120,10 +112,10 @@ func (event CoordinatorTraceEvent) validate() error {
 		if _, err := domain.ParseAttemptID(event.attemptID.String()); err != nil {
 			return fmt.Errorf("review coordinator trace: invalid attempt ID: %w", err)
 		}
-		if !event.attemptKind.Valid() || !event.hasLane || !event.lane.Valid() {
+		if !event.hasLane || !event.lane.Valid() {
 			return fmt.Errorf("review coordinator trace: incomplete attempt identity")
 		}
-	} else if event.attemptID.String() != "" || event.attemptKind != "" || event.hasLane || event.lane.String() != "" {
+	} else if event.attemptID.String() != "" || event.hasLane || event.lane.String() != "" {
 		return fmt.Errorf("review coordinator trace: hidden attempt identity")
 	}
 	if event.hasPurpose {
@@ -152,8 +144,6 @@ func (event CoordinatorTraceEvent) validate() error {
 		wantRole, wantAttempt, wantPurpose, wantCondition = true, true, true, true
 	case CoordinatorEventRepairQueued:
 		wantRole, wantAttempt, wantPurpose, wantReason = true, true, true, true
-	case CoordinatorEventFallbackQueued:
-		wantRole, wantAttempt, wantCondition, wantReason = true, true, true, true
 	case CoordinatorEventRoleTerminal:
 		wantRole, wantAttempt, wantCondition, wantReason = true, event.hasAttempt, true, true
 	case CoordinatorEventCancellationRequested:

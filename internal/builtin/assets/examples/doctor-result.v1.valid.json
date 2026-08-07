@@ -21,9 +21,9 @@
     {"family": "zcode", "state": "not_configured", "reason": "not_configured"},
     {"family": "agy", "state": "not_configured", "reason": "not_configured"}
   ],
-  "assignment": {"state": "degraded_resilience", "resilience": "degraded"},
+  "assignment": {"state": "ready", "resilience": "ready"},
   "platform_evidence": [{"cell": "darwin-arm64", "native": true}],
   "tools_lock": {"state": "not_observed"},
-  "readiness": {"state": "degraded", "exit_code": 0, "reason_codes": ["provider_resilience_degraded"]},
-  "diagnostics": [{"code": "provider_resilience_degraded", "category": "readiness", "message": "All roles have a primary provider but no fallback provider.", "redacted": true}]
+  "readiness": {"state": "ready", "exit_code": 0, "reason_codes": []},
+  "diagnostics": []
 }

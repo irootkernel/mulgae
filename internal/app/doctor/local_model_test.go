@@ -21,11 +21,11 @@ func TestLocalDoctorResultValidateEnforcesCrossStateProjection(t *testing.T) {
 			{Family: "zcode", State: "not_configured", Reason: "not_configured"},
 			{Family: "agy", State: "not_configured", Reason: "not_configured"},
 		},
-		Assignment:       LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"},
+		Assignment:       LocalAssignmentProjection{State: "ready", Resilience: "ready"},
 		PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}},
 		ToolsLock:        LocalToolsLock{State: "not_observed"},
-		Readiness:        LocalReadiness{State: "degraded", ExitCode: 0, ReasonCodes: []string{"provider_resilience_degraded"}},
-		Diagnostics:      []LocalDiagnostic{{Code: "provider_resilience_degraded", Category: "readiness", Message: "Degraded resilience.", Redacted: true}},
+		Readiness:        LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}},
+		Diagnostics:      []LocalDiagnostic{},
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid projection rejected: %v", err)
@@ -39,11 +39,10 @@ func TestLocalDoctorResultValidateEnforcesCrossStateProjection(t *testing.T) {
 			result.ProviderInventory[1] = LocalProviderInventoryRow{Family: "zcode", State: "eligible", Reason: "identity_admitted"}
 		},
 		"assignment readiness mismatch": func(result *LocalDoctorResult) {
-			result.Readiness = LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}
-			result.Diagnostics = []LocalDiagnostic{}
+			result.Readiness = LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_static_admission_unverified"}}
 		},
 		"diagnostic mismatch": func(result *LocalDoctorResult) {
-			result.Diagnostics[0].Code = "provider_unavailable"
+			result.Diagnostics = []LocalDiagnostic{{Code: "provider_unavailable", Category: "readiness", Message: "Unavailable.", Redacted: true}}
 		},
 	}
 	for name, mutate := range tests {
@@ -61,7 +60,10 @@ func TestLocalDoctorResultValidateEnforcesCrossStateProjection(t *testing.T) {
 	}
 }
 
-func TestLocalDoctorResultAllowsDegradedOperationWithOneOfTwoConfiguredProvidersEligible(t *testing.T) {
+// TestLocalDoctorResultIsReadyWithOneOfTwoConfiguredProvidersEligible proves a
+// single eligible family is a complete configuration. Every role runs on exactly
+// one provider, so there is no resilience axis left to degrade.
+func TestLocalDoctorResultIsReadyWithOneOfTwoConfiguredProvidersEligible(t *testing.T) {
 	result := LocalDoctorResult{
 		SchemaVersion:  LocalSchemaVersion,
 		CheckedAt:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
@@ -77,13 +79,13 @@ func TestLocalDoctorResultAllowsDegradedOperationWithOneOfTwoConfiguredProviders
 			{Family: "zcode", State: "not_configured", Reason: "not_configured"},
 			{Family: "agy", State: "eligible", Reason: "identity_admitted"},
 		},
-		Assignment:       LocalAssignmentProjection{State: "degraded_resilience", Resilience: "degraded"},
+		Assignment:       LocalAssignmentProjection{State: "ready", Resilience: "ready"},
 		PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}},
 		ToolsLock:        LocalToolsLock{State: "not_observed"},
-		Readiness:        LocalReadiness{State: "degraded", ExitCode: 0, ReasonCodes: []string{"provider_resilience_degraded"}},
-		Diagnostics:      []LocalDiagnostic{{Code: "provider_resilience_degraded", Category: "readiness", Message: "Degraded resilience.", Redacted: true}},
+		Readiness:        LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}},
+		Diagnostics:      []LocalDiagnostic{},
 	}
 	if err := result.Validate(); err != nil {
-		t.Fatalf("degraded projection rejected: %v", err)
+		t.Fatalf("single-eligible-family projection rejected: %v", err)
 	}
 }

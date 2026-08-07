@@ -147,9 +147,6 @@ func restrictCandidatesToSelectedAssignments(candidates []QualifiedRunCandidate,
 			return nil, fmt.Errorf("review run: selected role %q has no configured assignment", role)
 		}
 		rolesByFamily[assignment.Primary()] = append(rolesByFamily[assignment.Primary()], role)
-		if fallback, ok := assignment.Fallback(); ok {
-			rolesByFamily[fallback] = append(rolesByFamily[fallback], role)
-		}
 	}
 
 	restricted := make([]QualifiedRunCandidate, 0, len(candidates))

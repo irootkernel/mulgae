@@ -66,11 +66,8 @@ const (
 	DiagnosticRepairStarted                 RuntimeDiagnosticEventCode = "repair_started"
 	DiagnosticRepairCompleted               RuntimeDiagnosticEventCode = "repair_completed"
 	DiagnosticRepairExhausted               RuntimeDiagnosticEventCode = "repair_exhausted"
-	DiagnosticFallbackEligible              RuntimeDiagnosticEventCode = "fallback_eligible"
-	DiagnosticFallbackScheduled             RuntimeDiagnosticEventCode = "fallback_scheduled"
-	DiagnosticFallbackStarted               RuntimeDiagnosticEventCode = "fallback_started"
-	DiagnosticFallbackCompleted             RuntimeDiagnosticEventCode = "fallback_completed"
-	DiagnosticFallbackProhibited            RuntimeDiagnosticEventCode = "fallback_prohibited"
+	DiagnosticProviderQuarantined           RuntimeDiagnosticEventCode = "provider_quarantined"
+	DiagnosticRoleNotAttempted              RuntimeDiagnosticEventCode = "role_not_attempted"
 	DiagnosticRoleCompleted                 RuntimeDiagnosticEventCode = "role_completed"
 	DiagnosticRoleExhausted                 RuntimeDiagnosticEventCode = "role_exhausted"
 	DiagnosticReductionStarted              RuntimeDiagnosticEventCode = "coordinator_reduction_started"
@@ -102,8 +99,7 @@ var runtimeDiagnosticMessages = map[RuntimeDiagnosticEventCode]string{
 	DiagnosticOutputParsed: "provider output parsed", DiagnosticOutputParseFailed: "provider output parse failed", DiagnosticValidationStarted: "candidate validation started",
 	DiagnosticValidationSucceeded: "candidate validation succeeded", DiagnosticValidationFailed: "candidate validation failed", DiagnosticRepairScheduled: "repair scheduled",
 	DiagnosticRepairStarted: "repair started", DiagnosticRepairCompleted: "repair completed", DiagnosticRepairExhausted: "repair exhausted",
-	DiagnosticFallbackEligible: "fallback eligible", DiagnosticFallbackScheduled: "fallback scheduled", DiagnosticFallbackStarted: "fallback started",
-	DiagnosticFallbackCompleted: "fallback completed", DiagnosticFallbackProhibited: "fallback prohibited", DiagnosticRoleCompleted: "role completed",
+	DiagnosticProviderQuarantined: "provider quarantined", DiagnosticRoleNotAttempted: "role not attempted", DiagnosticRoleCompleted: "role completed",
 	DiagnosticRoleExhausted: "role exhausted", DiagnosticReductionStarted: "coordinator reduction started", DiagnosticReductionCompleted: "coordinator reduction completed",
 	DiagnosticPublicationPreparationStarted: "publication preparation started", DiagnosticPublicationStaged: "publication staged",
 	DiagnosticPublicationInstalled: "publication installed", DiagnosticPublicationCommitted: "publication committed", DiagnosticPublicationFailed: "publication failed",
@@ -369,10 +365,9 @@ func validDiagnosticLevelForEvent(level RuntimeDiagnosticLevel, event RuntimeDia
 	switch event {
 	case DiagnosticRunStopped, DiagnosticAttemptFailed, DiagnosticProcessTimedOut, DiagnosticProcessTerminated,
 		DiagnosticOutputParseFailed, DiagnosticValidationFailed, DiagnosticRepairExhausted,
-		DiagnosticFallbackProhibited, DiagnosticRoleExhausted, DiagnosticPublicationFailed:
+		DiagnosticProviderQuarantined, DiagnosticRoleNotAttempted, DiagnosticRoleExhausted, DiagnosticPublicationFailed:
 		return level == RuntimeDiagnosticError
-	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted,
-		DiagnosticFallbackEligible, DiagnosticFallbackScheduled, DiagnosticFallbackStarted, DiagnosticFallbackCompleted:
+	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted:
 		return level == RuntimeDiagnosticWarn
 	default:
 		return level == RuntimeDiagnosticInfo

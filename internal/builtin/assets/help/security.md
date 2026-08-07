@@ -34,7 +34,7 @@ and Kimi are unchanged: AGY stays in `--sandbox` plan mode with safe
 permissions, where headless `write_file` is auto-denied.
 
 Security, configuration, artifact, cancellation, and internal failures do not
-authorize fallback or publication. Checksums, safe paths, schema identities,
+authorize repair or publication. Checksums, safe paths, schema identities,
 semantic ownership, and evidence must all agree before a final artifact is
 committed.
 

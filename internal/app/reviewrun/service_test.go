@@ -1244,7 +1244,7 @@ func reviewRunStagedJob(t *testing.T, instance string, purpose domain.Invocation
 		t.Fatal(err)
 	}
 	job, err := review.NewInvocationJob(
-		domain.RoleLogic, review.AttemptKindPrimary, route, target, limits, attemptID, purpose, ordinal,
+		domain.RoleLogic, route, target, limits, attemptID, purpose, ordinal,
 	)
 	if err != nil {
 		t.Fatal(err)

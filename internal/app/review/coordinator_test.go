@@ -19,7 +19,7 @@ import (
 
 func TestCoordinatorScenarios(t *testing.T) {
 	t.Run("same-key-serial", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, true, false)
+		assignments, receipt := coordinatorTestPlan(t, true)
 		entered := make(chan struct{}, len(assignments))
 		release := make(chan struct{})
 		var mu sync.Mutex
@@ -59,7 +59,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 	})
 
 	t.Run("different-keys-concurrent", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		entered := make(chan struct{}, len(assignments))
 		release := make(chan struct{})
 		var mu sync.Mutex
@@ -100,129 +100,108 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("repair-before-fallback", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+	t.Run("repair-exhaustion-closes-the-role-on-its-own-provider", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
 		var sequenceMu sync.Mutex
 		var sequence []string
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			if job.Role() == domain.RoleLogic {
-				sequenceMu.Lock()
-				sequence = append(sequence, string(job.AttemptKind())+"/"+string(job.Purpose()))
-				sequenceMu.Unlock()
+			if job.Role() != domain.RoleLogic {
+				return coordinatorSuccessOutcome(t, job)
 			}
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
-				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
-			}
-			return coordinatorSuccessOutcome(t, job)
+			sequenceMu.Lock()
+			sequence = append(sequence, job.Route().ProviderInstance()+"/"+string(job.Purpose()))
+			sequenceMu.Unlock()
+			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !logic.FallbackScheduled() || len(logic.Attempts()) != 2 || len(logic.Attempts()[0].Invocations()) != 2 {
-			t.Fatalf("logic summary did not repair before fallback: %#v", logic)
+		// One attempt carrying two invocations: the provider call and its one
+		// repair. There is no second attempt, because there is no second provider.
+		if len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 {
+			t.Fatalf("logic summary did not repair in place: %#v", logic)
 		}
-		primary := logic.Attempts()[0]
-		if primary.FailureClass() != domain.FailureInvalidOutput ||
-			primary.ReasonCode() != string(AttemptConditionInvalidProviderOutput) {
-			t.Fatalf("failed primary lost terminal failure facts: %#v", primary)
+		if logic.State() != domain.RoleTaskFailed {
+			t.Fatalf("logic state = %q, want failed", logic.State())
 		}
-		fallback := logic.Attempts()[1]
-		if fallback.FailureClass() != "" || fallback.ReasonCode() != "" {
-			t.Fatalf("successful fallback retained failure facts: %#v", fallback)
+		attempt := logic.Attempts()[0]
+		if attempt.FailureClass() != domain.FailureInvalidOutput ||
+			attempt.ReasonCode() != string(AttemptConditionInvalidProviderOutput) {
+			t.Fatalf("failed attempt lost terminal failure facts: %#v", attempt)
 		}
 		sequenceMu.Lock()
 		gotSequence := append([]string(nil), sequence...)
 		sequenceMu.Unlock()
-		wantSequence := []string{"primary/initial", "primary/repair", "fallback/initial"}
+		wantSequence := []string{"primary.logic/initial", "primary.logic/repair"}
 		if !reflect.DeepEqual(gotSequence, wantSequence) {
 			t.Fatalf("logic invocation order = %q, want %q", gotSequence, wantSequence)
 		}
+		// Every peer role kept its own provider and finished normally.
+		for _, role := range domain.CoreRoleOrder() {
+			if role == domain.RoleLogic {
+				continue
+			}
+			if peer := coordinatorRoleByRole(t, result, role); peer.State() != domain.RoleTaskSucceeded {
+				t.Fatalf("peer role %q = %q, want succeeded", role, peer.State())
+			}
+		}
 		repairIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventRepairQueued, domain.RoleLogic)
-		fallbackIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventFallbackQueued, domain.RoleLogic)
 		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventLanesCloseAuthorized, "")
-		if !(repairIndex < fallbackIndex && fallbackIndex < closeIndex) {
-			t.Fatalf("repair/fallback/close trace order = %d/%d/%d", repairIndex, fallbackIndex, closeIndex)
+		if repairIndex >= closeIndex {
+			t.Fatalf("repair/close trace order = %d/%d", repairIndex, closeIndex)
 		}
 	})
 
-	t.Run("repair-success-no-fallback", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+	t.Run("repair-success-keeps-one-attempt", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary && job.Purpose() == domain.InvocationInitial {
+			if job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial {
 				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidEvidenceClaim)
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !logic.Repaired() || logic.FallbackScheduled() || len(logic.Attempts()) != 1 {
-			t.Fatalf("logic repair/fallback = repaired:%t fallback:%t attempts:%d", logic.Repaired(), logic.FallbackScheduled(), len(logic.Attempts()))
+		if !logic.Repaired() || len(logic.Attempts()) != 1 {
+			t.Fatalf("logic repair = repaired:%t attempts:%d", logic.Repaired(), len(logic.Attempts()))
 		}
 	})
 
-	t.Run("decoded-planless-validation-failure-falls-back-without-invariant", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
-		fallbackStarted := false
-		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
-				return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
-			}
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
-				fallbackStarted = true
-			}
-			return coordinatorSuccessOutcome(t, job)
-		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
-		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !fallbackStarted || !logic.FallbackScheduled() || logic.State() != domain.RoleTaskSucceeded || result.RunState() != domain.RunCompleted {
-			t.Fatalf("decoded validation fallback = started:%t role:%#v run:%q", fallbackStarted, logic, result.RunState())
-		}
-		if primary := logic.Attempts()[0]; primary.ReasonCode() != string(AttemptConditionSemanticContradiction) || primary.FailureClass() != domain.FailureInvalidOutput {
-			t.Fatalf("decoded validation primary classification = %#v", primary)
-		}
-		for _, summary := range logic.Attempts() {
-			if summary.ReasonCode() == string(AttemptConditionInternalInvariant) {
-				t.Fatalf("ordinary fallback path reported internal invariant: %#v", summary)
-			}
-		}
-	})
-
-	t.Run("repair-exhaustion-one-fallback", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
-		var mu sync.Mutex
-		var sequence []string
-		fallbackCalls := 0
+	t.Run("decoded-planless-validation-failure-fails-closed-without-invariant", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
+		invocations := 0
+		var invocationMu sync.Mutex
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() != domain.RoleLogic {
 				return coordinatorSuccessOutcome(t, job)
 			}
-			mu.Lock()
-			sequence = append(sequence, string(job.AttemptKind())+"/"+string(job.Purpose()))
-			if job.AttemptKind() == AttemptKindFallback {
-				fallbackCalls++
-			}
-			mu.Unlock()
-			if job.AttemptKind() == AttemptKindPrimary {
-				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
-			}
-			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+			invocationMu.Lock()
+			invocations++
+			invocationMu.Unlock()
+			return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		mu.Lock()
-		calls := fallbackCalls
-		gotSequence := append([]string(nil), sequence...)
-		mu.Unlock()
-		if calls != 1 || !logic.FallbackScheduled() || logic.State() != domain.RoleTaskFailed {
-			t.Fatalf("fallback calls/state = %d/%t/%q, want 1/true/%q", calls, logic.FallbackScheduled(), logic.State(), domain.RoleTaskFailed)
+		if logic.State() != domain.RoleTaskFailed {
+			t.Fatalf("decoded validation role = %#v", logic)
 		}
-		wantSequence := []string{"primary/initial", "primary/repair", "fallback/initial"}
-		if !reflect.DeepEqual(gotSequence, wantSequence) {
-			t.Fatalf("exhaustion invocation order = %q, want %q", gotSequence, wantSequence)
+		invocationMu.Lock()
+		gotInvocations := invocations
+		invocationMu.Unlock()
+		// A contradiction is unrepairable, so the role stops after one call.
+		if gotInvocations != 1 || len(logic.Attempts()) != 1 {
+			t.Fatalf("logic invocations/attempts = %d/%d, want 1/1", gotInvocations, len(logic.Attempts()))
+		}
+		attempt := logic.Attempts()[0]
+		if attempt.ReasonCode() != string(AttemptConditionSemanticContradiction) || attempt.FailureClass() != domain.FailureInvalidOutput {
+			t.Fatalf("decoded validation classification = %#v", attempt)
+		}
+		if attempt.ReasonCode() == string(AttemptConditionInternalInvariant) {
+			t.Fatalf("ordinary failure path reported internal invariant: %#v", attempt)
 		}
 	})
 
-	t.Run("valid-request-changes-no-fallback", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+	t.Run("valid-request-changes-invokes-once", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
 		var callsMu sync.Mutex
 		logicCalls := 0
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -242,8 +221,8 @@ func TestCoordinatorScenarios(t *testing.T) {
 			})
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
-		if result.FallbackScheduled() || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges {
-			t.Fatalf("fallback/content = %t/%q", result.FallbackScheduled(), result.Outcomes().ContentVerdict())
+		if result.ProviderUnusable() || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges {
+			t.Fatalf("provider blamed/content = %t/%q", result.ProviderUnusable(), result.Outcomes().ContentVerdict())
 		}
 		callsMu.Lock()
 		gotLogicCalls := logicCalls
@@ -253,10 +232,10 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("security-dominates-shared-lane-fallback", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, true, true)
+	t.Run("security-dominates-shared-lane", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, true)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+			if job.Role() == domain.RoleLogic {
 				return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
 			}
 			if job.Role() == domain.RoleSecurity {
@@ -266,19 +245,19 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 		security := coordinatorRoleByRole(t, result, domain.RoleSecurity)
-		if result.RunState() != domain.RunCancelled || result.FallbackScheduled() ||
+		if result.RunState() != domain.RunCancelled ||
 			security.ReasonCode() != string(AttemptConditionSecurityViolation) {
-			t.Fatalf("run/fallback/security reason = %q/%t/%q", result.RunState(), result.FallbackScheduled(), security.ReasonCode())
+			t.Fatalf("run/security reason = %q/%q", result.RunState(), security.ReasonCode())
 		}
 		for _, event := range result.Trace() {
-			if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+			if event.Kind() == CoordinatorEventRepairQueued {
 				t.Fatalf("global security cancellation queued follow-up work: %#v", event)
 			}
 		}
 	})
 
 	t.Run("user-cancel-kills-and-closes", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		started := make(chan struct{}, len(assignments))
 		runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
 			started <- struct{}{}
@@ -310,72 +289,21 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("busy-fallback-lane-order", func(t *testing.T) {
-		assignments, receipt := coordinatorTestSecurityFallbackSharesLogicLanePlan(t)
-		repairEntered := make(chan struct{}, 1)
-		fallbackEntered := make(chan struct{}, 1)
-		releaseRepair := make(chan struct{})
-		repairReturned := make(chan struct{})
-		orderViolation := make(chan string, 1)
-		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			switch {
-			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
-				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
-			case job.Role() == domain.RoleSecurity && job.AttemptKind() == AttemptKindPrimary:
-				return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
-			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRepair:
-				repairEntered <- struct{}{}
-				<-releaseRepair
-				close(repairReturned)
-				return coordinatorSuccessOutcome(t, job)
-			case job.Role() == domain.RoleSecurity && job.AttemptKind() == AttemptKindFallback:
-				select {
-				case <-repairReturned:
-					fallbackEntered <- struct{}{}
-					return coordinatorSuccessOutcome(t, job)
-				default:
-					orderViolation <- "security fallback bypassed the occupied logic repair lane"
-					return coordinatorInternalInvariantOutcome(job)
-				}
-			default:
-				return coordinatorSuccessOutcome(t, job)
-			}
-		}}
-		coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
-		done := make(chan coordinatorTestExecution, 1)
-		go func() {
-			result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
-			done <- coordinatorTestExecution{result: result, err: err}
-		}()
-		<-repairEntered
-		close(releaseRepair)
-		execution := <-done
-		if execution.err != nil {
-			t.Fatal(execution.err)
-		}
-		select {
-		case violation := <-orderViolation:
-			t.Fatal(violation)
-		default:
-		}
-		<-fallbackEntered
-		security := coordinatorRoleByRole(t, execution.result, domain.RoleSecurity)
-		if !security.FallbackScheduled() || security.State() != domain.RoleTaskSucceeded {
-			t.Fatalf("security fallback did not complete after FIFO wait: %#v", security)
-		}
-	})
-
 	t.Run("cross-process-lock-failure-typed", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			return coordinatorSuccessOutcome(t, job)
 		}}
 		locker := coordinatorFailingLocker{key: assignments[0].PrimaryRoute().ConcurrencyKey()}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, locker, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !logic.FallbackScheduled() || len(logic.Attempts()) != 2 || logic.Attempts()[0].State() != domain.AttemptFailed ||
+		if len(logic.Attempts()) != 1 || logic.Attempts()[0].State() != domain.AttemptFailed ||
+			logic.State() != domain.RoleTaskFailed ||
 			logic.FailureClass() != domain.FailureProviderUnavailable || logic.ReasonCode() != string(AttemptConditionProviderUnavailable) {
 			t.Fatalf("lock failure did not retain typed provider-unavailable terminal state: %#v", logic)
+		}
+		if !logic.ProviderUnusable() {
+			t.Fatal("an unavailable provider was not reported as unusable")
 		}
 		runtime.mu.Lock()
 		invocations := len(runtime.jobs)
@@ -385,28 +313,32 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("dynamic-fallback-vs-lane-shutdown", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+	t.Run("timeout-closes-its-role-before-lane-shutdown", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+			if job.Role() == domain.RoleLogic {
 				return coordinatorConditionOutcome(t, job, AttemptConditionTimeout)
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !logic.FallbackScheduled() || logic.State() != domain.RoleTaskSucceeded {
-			t.Fatalf("dynamic fallback state = scheduled:%t state:%q", logic.FallbackScheduled(), logic.State())
+		if logic.State() != domain.RoleTaskFailed || logic.FailureClass() != domain.FailureTimeout {
+			t.Fatalf("timed-out role = state:%q class:%q", logic.State(), logic.FailureClass())
 		}
-		fallbackIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventFallbackQueued, domain.RoleLogic)
+		// A timeout is transient: it must not claim the provider is unusable.
+		if logic.ProviderUnusable() {
+			t.Fatal("a timeout was reported as an unusable provider")
+		}
+		terminalIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventRoleTerminal, domain.RoleLogic)
 		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventLanesCloseAuthorized, "")
-		if fallbackIndex >= closeIndex {
-			t.Fatalf("fallback was queued after lane close authorization: %d/%d", fallbackIndex, closeIndex)
+		if terminalIndex >= closeIndex {
+			t.Fatalf("role closed after lane close authorization: %d/%d", terminalIndex, closeIndex)
 		}
 	})
 
 	t.Run("random-completion-deterministic-aggregation", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		first := coordinatorRandomCompletionResult(t, assignments, receipt, domain.CoreRoleOrder())
 		secondOrder := domain.CoreRoleOrder()
 		for left, right := 0, len(secondOrder)-1; left < right; left, right = left+1, right-1 {
@@ -421,7 +353,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 }
 
 func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	now := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
 	identityIDs := &coordinatorTestIDs{}
 	sessionID, err := identityIDs.NewSessionID(now)
@@ -434,12 +366,7 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 	}
 	tasks := make([]domain.RoleTask, 0, len(assignments))
 	for _, assignment := range assignments {
-		var fallbackProvider *string
-		if fallback, ok := assignment.FallbackRoute(); ok {
-			provider := fallback.ProviderInstance()
-			fallbackProvider = &provider
-		}
-		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance())
 		if taskErr != nil {
 			t.Fatal(taskErr)
 		}
@@ -473,7 +400,10 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 	}
 }
 
-func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
+// TestCoordinatorDiagnosticsPersistProviderFailureBeforeRoleTerminal proves a
+// provider failure is durably recorded before the role closes, and that only
+// deterministic failures additionally record the provider as unusable.
+func TestCoordinatorDiagnosticsPersistProviderFailureBeforeRoleTerminal(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionProviderUnavailable,
 		AttemptConditionProviderSpawnFailed,
@@ -485,9 +415,9 @@ func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 		AttemptConditionRateLimit,
 	} {
 		t.Run(string(condition), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, true)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-				if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+				if job.Role() == domain.RoleLogic {
 					return coordinatorConditionOutcome(t, job, condition)
 				}
 				return coordinatorSuccessOutcome(t, job)
@@ -509,9 +439,7 @@ func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 			}
 			want := []domain.RuntimeDiagnosticEventCode{
 				domain.DiagnosticAttemptFailed,
-				domain.DiagnosticFallbackEligible,
-				domain.DiagnosticFallbackScheduled,
-				domain.DiagnosticFallbackStarted,
+				domain.DiagnosticRoleExhausted,
 			}
 			position := 0
 			for _, event := range diagnostics.events {
@@ -520,13 +448,28 @@ func TestCoordinatorDiagnosticsPersistFailureBeforeFallback(t *testing.T) {
 				}
 			}
 			if position != len(want) {
-				t.Fatalf("%s fallback diagnostic order = %v, missing suffix %v", condition, diagnostics.events, want[position:])
+				t.Fatalf("%s diagnostic order = %v, missing suffix %v", condition, diagnostics.events, want[position:])
+			}
+			// Deterministic provider failures must additionally record that the
+			// provider itself is unusable, so the operator knows to fix it.
+			deterministic := condition != AttemptConditionRateLimit &&
+				condition != AttemptConditionTimeout &&
+				condition != AttemptConditionProviderTimeout
+			quarantined := false
+			for _, event := range diagnostics.events {
+				quarantined = quarantined || event == domain.DiagnosticProviderQuarantined
+			}
+			if quarantined != deterministic {
+				t.Fatalf("%s provider_quarantined = %t, want %t", condition, quarantined, deterministic)
 			}
 		})
 	}
 }
 
-func TestCoordinatorFallbackFailuresRemainTypedAndActionable(t *testing.T) {
+// TestCoordinatorProviderFailuresRemainTypedAndActionable proves a failed role
+// keeps the provider's own classification all the way to the summary, so the
+// report can name the real reason instead of a generic failure.
+func TestCoordinatorProviderFailuresRemainTypedAndActionable(t *testing.T) {
 	tests := []AttemptCondition{
 		AttemptConditionProviderPermissionDenied,
 		AttemptConditionAuthentication,
@@ -536,45 +479,44 @@ func TestCoordinatorFallbackFailuresRemainTypedAndActionable(t *testing.T) {
 		AttemptConditionCancelled,
 		AttemptConditionConfigurationViolation,
 	}
-	for _, fallbackCondition := range tests {
-		t.Run(string(fallbackCondition), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, true)
+	for _, failureCondition := range tests {
+		t.Run(string(failureCondition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false)
 			fallbackCalls := 0
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() != domain.RoleLogic {
 					return coordinatorSuccessOutcome(t, job)
 				}
-				if job.AttemptKind() == AttemptKindPrimary {
-					return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
-				}
 				fallbackCalls++
-				return coordinatorConditionOutcome(t, job, fallbackCondition)
+				return coordinatorConditionOutcome(t, job, failureCondition)
 			}}
 			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-			if fallbackCalls == 0 || !logic.FallbackScheduled() || len(logic.Attempts()) != 2 {
-				t.Fatalf("fallback execution = calls:%d summary:%#v", fallbackCalls, logic)
+			if fallbackCalls == 0 || len(logic.Attempts()) != 1 {
+				t.Fatalf("role execution = calls:%d summary:%#v", fallbackCalls, logic)
 			}
-			primary := logic.Attempts()[0]
-			if primary.ReasonCode() != string(AttemptConditionSemanticContradiction) {
-				t.Fatalf("primary classification changed to %q", primary.ReasonCode())
+			attempt := logic.Attempts()[0]
+			if attempt.ReasonCode() == string(AttemptConditionInternalInvariant) || logic.ReasonCode() == string(AttemptConditionInternalInvariant) {
+				t.Fatalf("ordinary provider failure collapsed to invariant: %#v", logic)
 			}
-			fallback := logic.Attempts()[1]
-			if fallback.ReasonCode() == string(AttemptConditionInternalInvariant) || logic.ReasonCode() == string(AttemptConditionInternalInvariant) {
-				t.Fatalf("ordinary fallback failure collapsed to invariant: %#v", logic)
-			}
-			if fallbackCondition == AttemptConditionInvalidProviderOutput {
-				if fallbackCalls != 2 || fallback.ReasonCode() != string(AttemptConditionInvalidProviderOutput) {
-					t.Fatalf("invalid fallback repair exhaustion = calls:%d summary:%#v", fallbackCalls, fallback)
+			// An invalid output is repaired once on the same provider; every other
+			// condition closes the role after a single call. Either way the
+			// operator sees the provider's own typed reason, not a substitute.
+			if failureCondition == AttemptConditionInvalidProviderOutput {
+				if fallbackCalls != 2 {
+					t.Fatalf("invalid output repair exhaustion = calls:%d", fallbackCalls)
 				}
-			} else if fallback.ReasonCode() != string(fallbackCondition) {
-				t.Fatalf("fallback reason = %q, want %q", fallback.ReasonCode(), fallbackCondition)
+			} else if fallbackCalls != 1 {
+				t.Fatalf("%q calls = %d, want 1", failureCondition, fallbackCalls)
+			}
+			if attempt.ReasonCode() != string(failureCondition) {
+				t.Fatalf("failure reason = %q, want %q", attempt.ReasonCode(), failureCondition)
 			}
 		})
 	}
 }
 
-func TestCoordinatorDiagnosticsPersistNonFallbackFailureBeforeRoleTerminal(t *testing.T) {
+func TestCoordinatorDiagnosticsPersistUnrepairableFailureBeforeRoleTerminal(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionUnrepairableProviderOutput,
 		AttemptConditionUnrepairableEvidence,
@@ -582,7 +524,7 @@ func TestCoordinatorDiagnosticsPersistNonFallbackFailureBeforeRoleTerminal(t *te
 		AttemptConditionConfigurationViolation,
 	} {
 		t.Run(string(condition), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, false)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() == domain.RoleLogic {
 					return coordinatorConditionOutcome(t, job, condition)
@@ -629,7 +571,7 @@ func TestCoordinatorDiagnosticsPersistNonFallbackFailureBeforeRoleTerminal(t *te
 }
 
 func TestCoordinatorDiagnosticsReportRepairLifecycle(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial {
 			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
@@ -667,10 +609,10 @@ func TestCoordinatorDiagnosticsReportRepairLifecycle(t *testing.T) {
 	}
 }
 
-func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+func TestCoordinatorDiagnosticFailureStopsBeforeFollowUpScheduling(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
+		if job.Role() == domain.RoleLogic {
 			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
 		}
 		return coordinatorSuccessOutcome(t, job)
@@ -693,18 +635,20 @@ func TestCoordinatorDiagnosticFailureStopsBeforeFallbackScheduling(t *testing.T)
 		t.Fatalf("diagnostic failure = %v, want artifact failure", err)
 	}
 	for _, job := range runtime.jobs {
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
-			t.Fatal("fallback provider was scheduled after diagnostic persistence failure")
+		if job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRepair {
+			t.Fatal("follow-up work was scheduled after diagnostic persistence failure")
 		}
 	}
 }
 
-func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAndPeerCancellation(t *testing.T) {
+// TestCoordinatorDiagnosticsPersistInitiatingCauseBeforePeerCancellation proves
+// the initiating failure is durably recorded before any peer role is cancelled,
+// so the runtime log always explains why the run stopped.
+func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforePeerCancellation(t *testing.T) {
 	for _, test := range []struct {
 		condition AttemptCondition
 		state     domain.RunState
 	}{
-		{condition: AttemptConditionLoginRequired, state: domain.RunCancelled},
 		{condition: AttemptConditionSecurityViolation, state: domain.RunCancelled},
 		{condition: AttemptConditionMutationViolation, state: domain.RunCancelled},
 		{condition: AttemptConditionCancelled, state: domain.RunCancelled},
@@ -712,7 +656,7 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAn
 		{condition: AttemptConditionInternalInvariant, state: domain.RunFailed},
 	} {
 		t.Run(string(test.condition), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, true)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() == domain.RoleLogic {
 					return coordinatorConditionOutcome(t, job, test.condition)
@@ -739,16 +683,12 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAn
 			if result.RunState() != test.state {
 				t.Fatalf("run state = %q, want %q", result.RunState(), test.state)
 			}
-			failureIndex, prohibitedIndex, cancellationIndex := -1, -1, -1
+			failureIndex, cancellationIndex := -1, -1
 			for index, input := range diagnostics.inputs {
 				switch input.Event {
 				case domain.DiagnosticAttemptFailed:
 					if input.Failure == string(test.condition) && failureIndex < 0 {
 						failureIndex = index
-					}
-				case domain.DiagnosticFallbackProhibited:
-					if input.Failure == string(test.condition) && prohibitedIndex < 0 {
-						prohibitedIndex = index
 					}
 				case domain.DiagnosticLaneCancelled:
 					if cancellationIndex < 0 {
@@ -756,7 +696,7 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforeFallbackProhibitionAn
 					}
 				}
 			}
-			if failureIndex < 0 || prohibitedIndex <= failureIndex || cancellationIndex >= 0 && cancellationIndex <= failureIndex {
+			if failureIndex < 0 || cancellationIndex >= 0 && cancellationIndex <= failureIndex {
 				t.Fatalf("%s diagnostic chronology = %#v", test.condition, diagnostics.inputs)
 			}
 		})
@@ -774,7 +714,7 @@ func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 		AttemptConditionInternalInvariant,
 	} {
 		t.Run(string(condition), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, true)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() == domain.RoleLogic {
 					return coordinatorConditionOutcome(t, job, condition)
@@ -783,17 +723,15 @@ func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 			}}
 			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-			if logic.FallbackScheduled() {
-				t.Fatalf("%q scheduled fallback: %#v", condition, logic)
-			}
 			for _, event := range result.Trace() {
-				if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+				if event.Kind() == CoordinatorEventRepairQueued {
 					t.Fatalf("%q scheduled follow-up event: %#v", condition, event)
 				}
 			}
+			// login_required fails only its own role. Provider families
+			// authenticate separately, so it says nothing about the peers.
 			wantState := domain.RunFailed
-			if condition == AttemptConditionLoginRequired ||
-				condition == AttemptConditionSecurityViolation ||
+			if condition == AttemptConditionSecurityViolation ||
 				condition == AttemptConditionMutationViolation ||
 				condition == AttemptConditionCancelled {
 				wantState = domain.RunCancelled
@@ -806,7 +744,7 @@ func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 }
 
 func TestCoordinatorTerminalTraceClosesRun(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
@@ -841,7 +779,7 @@ func TestCoordinatorTerminalTraceClosesRun(t *testing.T) {
 }
 
 func TestCoordinatorMaxActiveLanes(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	entered := make(chan struct{}, len(assignments))
 	release := make(chan struct{})
 	var mu sync.Mutex
@@ -882,7 +820,7 @@ func TestCoordinatorMaxActiveLanes(t *testing.T) {
 }
 
 func TestIntegrationCoordinatorSixDistinctPrimaryLanesEnterBarrier(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	if len(assignments) != 6 {
 		t.Fatalf("assignment count = %d, want 6", len(assignments))
 	}
@@ -923,80 +861,103 @@ func TestIntegrationCoordinatorSixDistinctPrimaryLanesEnterBarrier(t *testing.T)
 	}
 }
 
-func TestIntegrationCoordinatorFallbackDoesNotSerializeOrCancelPeerLanes(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
-	primaryEntered := make(chan InvocationJob, len(assignments))
-	releasePrimaries := make(chan struct{})
-	fallbackEntered := make(chan struct{}, 1)
-	var mu sync.Mutex
-	active := 0
-	maximum := 0
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		mu.Lock()
-		active++
-		if active > maximum {
-			maximum = active
-		}
-		mu.Unlock()
-		defer func() {
-			mu.Lock()
-			active--
-			mu.Unlock()
-		}()
+// TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes is
+// the load-bearing guarantee of one-provider-per-role: provider families
+// authenticate and meter independently, so one family being unusable must leave
+// every role on the other families running and reported normally. login_required
+// is the sharpest case, because it used to cancel the whole run.
+func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes(t *testing.T) {
+	for _, condition := range []AttemptCondition{
+		AttemptConditionLoginRequired,
+		AttemptConditionAuthentication,
+		AttemptConditionQuota,
+		AttemptConditionProviderUnavailable,
+	} {
+		t.Run(string(condition), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t, false)
+			entered := make(chan InvocationJob, len(assignments))
+			release := make(chan struct{})
+			var mu sync.Mutex
+			active, maximum := 0, 0
+			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				mu.Lock()
+				active++
+				if active > maximum {
+					maximum = active
+				}
+				mu.Unlock()
+				defer func() {
+					mu.Lock()
+					active--
+					mu.Unlock()
+				}()
 
-		if job.AttemptKind() == AttemptKindFallback {
-			fallbackEntered <- struct{}{}
-			return coordinatorSuccessOutcome(t, job)
-		}
-		primaryEntered <- job
-		<-releasePrimaries
-		if job.Role() == domain.RoleLogic {
-			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
-		}
-		return coordinatorSuccessOutcome(t, job)
-	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
-	done := make(chan coordinatorTestExecution, 1)
-	go func() {
-		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
-		done <- coordinatorTestExecution{result: result, err: err}
-	}()
-	for range assignments {
-		select {
-		case <-primaryEntered:
-		case <-time.After(3 * time.Second):
-			close(releasePrimaries)
-			t.Fatal("primary lanes did not all enter before fallback test release")
-		}
-	}
-	close(releasePrimaries)
-	select {
-	case <-fallbackEntered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("fallback did not start after the concurrent primary wave")
-	}
-	mu.Lock()
-	gotMaximum := maximum
-	mu.Unlock()
-	if gotMaximum != 6 {
-		t.Fatalf("primary wave maximum concurrency = %d, want 6", gotMaximum)
-	}
-	execution := <-done
-	if execution.err != nil || execution.result.RunState() != domain.RunCompleted {
-		t.Fatalf("fallback execution = state:%q error:%v", execution.result.RunState(), execution.err)
-	}
-	for _, role := range execution.result.RoleSummaries() {
-		if role.State() != domain.RoleTaskSucceeded {
-			t.Fatalf("peer role %q was serialized or cancelled: %#v", role.Role(), role)
-		}
-	}
-	if !coordinatorRoleByRole(t, execution.result, domain.RoleLogic).FallbackScheduled() {
-		t.Fatal("logic fallback was not recorded")
+				entered <- job
+				<-release
+				if job.Role() == domain.RoleLogic {
+					return coordinatorConditionOutcome(t, job, condition)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+			done := make(chan coordinatorTestExecution, 1)
+			go func() {
+				result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+				done <- coordinatorTestExecution{result: result, err: err}
+			}()
+			for range assignments {
+				select {
+				case <-entered:
+				case <-time.After(3 * time.Second):
+					close(release)
+					t.Fatal("peer lanes did not all enter concurrently")
+				}
+			}
+			close(release)
+			mu.Lock()
+			gotMaximum := maximum
+			mu.Unlock()
+			if gotMaximum != 6 {
+				t.Fatalf("wave maximum concurrency = %d, want 6", gotMaximum)
+			}
+
+			execution := <-done
+			if execution.err != nil {
+				t.Fatal(execution.err)
+			}
+			logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
+			if logic.State() != domain.RoleTaskFailed || logic.ReasonCode() != string(condition) {
+				t.Fatalf("logic = state:%q reason:%q, want failed/%q", logic.State(), logic.ReasonCode(), condition)
+			}
+			// Only the role on the failing provider is affected.
+			for _, role := range execution.result.RoleSummaries() {
+				if role.Role() == domain.RoleLogic {
+					continue
+				}
+				if role.State() != domain.RoleTaskSucceeded {
+					t.Fatalf("peer role %q was serialized or cancelled by a %q on another provider: %#v", role.Role(), condition, role)
+				}
+			}
+			// The run is reported as failed, not cancelled: the peers' work stands.
+			if execution.result.RunState() != domain.RunFailed {
+				t.Fatalf("run state = %q, want failed", execution.result.RunState())
+			}
+			// Exactly one call per role: no role was retried on another provider.
+			runtime.mu.Lock()
+			invocations := len(runtime.jobs)
+			runtime.mu.Unlock()
+			if invocations != len(assignments) {
+				t.Fatalf("invocations = %d, want one per role (%d)", invocations, len(assignments))
+			}
+			if !execution.result.ProviderUnusable() {
+				t.Fatalf("%q did not report the provider as unusable", condition)
+			}
+		})
 	}
 }
 
 func TestCoordinatorResultDefensiveCopies(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorEvidenceOutcome(job, coordinatorEvidenceFixtureInput{
 			severity:     domain.SeverityHigh,
@@ -1036,7 +997,7 @@ func TestCoordinatorResultDefensiveCopies(t *testing.T) {
 }
 func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 	t.Run("verified high is accepted", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() != domain.RoleLogic {
 				return coordinatorSuccessOutcome(t, job)
@@ -1053,7 +1014,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
 		if len(result.Findings()) != 1 || result.Findings()[0].EvidenceState() != domain.EvidenceVerified ||
 			len(result.Evidence()) != 1 || result.Evidence()[0].FindingID() != result.Findings()[0].ID() ||
-			coordinatorRoleByRole(t, result, domain.RoleLogic).FallbackScheduled() {
+			coordinatorRoleByRole(t, result, domain.RoleLogic).ProviderUnusable() {
 			t.Fatalf("verified high result = findings:%#v evidence:%#v role:%#v",
 				result.Findings(), result.Evidence(), coordinatorRoleByRole(t, result, domain.RoleLogic))
 		}
@@ -1083,7 +1044,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 		},
 	} {
 		t.Run("required high "+test.name+" repairs then exhausts fallback", func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, true)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() != domain.RoleLogic {
 					return coordinatorSuccessOutcome(t, job)
@@ -1101,8 +1062,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			if !logic.Required() || logic.State() != domain.RoleTaskFailed ||
 				logic.ReasonCode() != string(AttemptConditionInvalidEvidenceClaim) ||
-				!logic.FallbackScheduled() || len(logic.Attempts()) != 2 ||
-				len(logic.Attempts()[0].Invocations()) != 2 || len(logic.Attempts()[1].Invocations()) != 2 ||
+				len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 ||
 				len(result.Findings()) != 0 || len(result.Evidence()) != 0 {
 				t.Fatalf("unaccepted high evidence result = role:%#v findings:%#v evidence:%#v",
 					logic, result.Findings(), result.Evidence())
@@ -1111,7 +1071,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 	}
 
 	t.Run("default policy accepts unverified low with exact state", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() != domain.RoleLogic {
 				return coordinatorSuccessOutcome(t, job)
@@ -1135,7 +1095,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 		}
 	})
 	t.Run("optional unverified evidence degrades coverage", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() != domain.RoleMaintainability {
 				return coordinatorSuccessOutcome(t, job)
@@ -1162,7 +1122,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 
 	for _, severity := range []domain.Severity{domain.SeverityMedium, domain.SeverityLow} {
 		t.Run("custom policy requires "+string(severity), func(t *testing.T) {
-			assignments, receipt := coordinatorTestPlan(t, false, false)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			policy, err := NewEvidencePolicy([]domain.Severity{
 				domain.SeverityLow,
 				domain.SeverityMedium,
@@ -1210,7 +1170,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 			}
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			if logic.State() != domain.RoleTaskFailed || logic.ReasonCode() != string(AttemptConditionInvalidEvidenceClaim) ||
-				logic.FallbackScheduled() || len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 ||
+				len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 ||
 				len(result.Findings()) != 0 || len(result.Evidence()) != 0 {
 				t.Fatalf("custom policy result = role:%#v findings:%#v evidence:%#v",
 					logic, result.Findings(), result.Evidence())
@@ -1219,8 +1179,8 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 	}
 }
 
-func TestCoordinatorEvidenceInvariantFailsClosedWithoutFallback(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+func TestCoordinatorEvidenceInvariantFailsClosed(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() != domain.RoleLogic {
 			return coordinatorSuccessOutcome(t, job)
@@ -1239,7 +1199,7 @@ func TestCoordinatorEvidenceInvariantFailsClosedWithoutFallback(t *testing.T) {
 	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
 	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 	if logic.State() != domain.RoleTaskFailed || logic.FailureClass() != domain.FailureInternal ||
-		logic.ReasonCode() != string(AttemptConditionInternalInvariant) || logic.FallbackScheduled() ||
+		logic.ReasonCode() != string(AttemptConditionInternalInvariant) || logic.ProviderUnusable() ||
 		len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 1 ||
 		len(result.Findings()) != 0 || len(result.Evidence()) != 0 {
 		t.Fatalf("reduction invariant result = role:%#v findings:%#v evidence:%#v",
@@ -1256,7 +1216,7 @@ func TestCoordinatorEvidenceSubstitutionsRejectWithoutAcceptance(t *testing.T) {
 	} {
 		t.Run(substitution, func(t *testing.T) {
 			wantReason := AttemptConditionInternalInvariant
-			assignments, receipt := coordinatorTestPlan(t, false, false)
+			assignments, receipt := coordinatorTestPlan(t, false)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() != domain.RoleLogic {
 					return coordinatorSuccessOutcome(t, job)
@@ -1277,7 +1237,7 @@ func TestCoordinatorEvidenceSubstitutionsRejectWithoutAcceptance(t *testing.T) {
 	}
 }
 func TestCoordinatorVerifierOwnedTargetMismatchForbidsRepairAndFallback(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleLogic {
 			return coordinatorSubstitutedEvidenceOutcome(job, "different-run-target")
@@ -1288,7 +1248,7 @@ func TestCoordinatorVerifierOwnedTargetMismatchForbidsRepairAndFallback(t *testi
 	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 	if logic.State() != domain.RoleTaskFailed ||
 		logic.ReasonCode() != string(AttemptConditionInternalInvariant) ||
-		logic.FallbackScheduled() ||
+		logic.ProviderUnusable() ||
 		len(logic.Attempts()) != 1 ||
 		len(logic.Attempts()[0].Invocations()) != 1 ||
 		len(result.Findings()) != 0 ||
@@ -1299,7 +1259,7 @@ func TestCoordinatorVerifierOwnedTargetMismatchForbidsRepairAndFallback(t *testi
 }
 
 func TestCoordinatorEvidenceCancellationPreventsAcceptance(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -1336,7 +1296,7 @@ func TestCoordinatorEvidenceCancellationPreventsAcceptance(t *testing.T) {
 }
 
 func TestCoordinatorFinalEvidenceReIDPreservesBoundProof(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		switch job.Role() {
 		case domain.RoleLogic:
@@ -1377,7 +1337,7 @@ func TestCoordinatorFinalEvidenceReIDPreservesBoundProof(t *testing.T) {
 	}
 }
 func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
-	assignments, receipt := coordinatorTestPlanWithLogicFallbackLimits(t)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	entered := make(chan struct{}, len(assignments))
 	release := make(chan struct{})
 	var mu sync.Mutex
@@ -1388,14 +1348,11 @@ func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
 		mu.Unlock()
 		entered <- struct{}{}
 		<-release
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindPrimary {
-			return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
-		}
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
+		if job.Role() == domain.RoleLogic {
 			return coordinatorEvidenceOutcome(job, coordinatorEvidenceFixtureInput{
 				severity:     domain.SeverityHigh,
 				title:        "request changes",
-				path:         "src/coordinator-fallback-request-changes.go",
+				path:         "src/coordinator-request-changes.go",
 				quote:        "request changes\n",
 				targetBytes:  "request changes\n",
 				availability: evidence.ImmutableTargetAvailable,
@@ -1425,20 +1382,14 @@ func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(jobs) != len(assignments)+1 {
-		t.Fatalf("invocation count = %d, want %d", len(jobs), len(assignments)+1)
+	if len(jobs) != len(assignments) {
+		t.Fatalf("invocation count = %d, want %d", len(jobs), len(assignments))
 	}
 	for _, job := range jobs {
 		if job.Target() != target {
 			t.Fatalf("job %d target = %#v, want %#v", job.Ordinal(), job.Target(), target)
 		}
 		limits := job.Limits()
-		if job.Role() == domain.RoleLogic && job.AttemptKind() == AttemptKindFallback {
-			if limits.Timeout() != 2*time.Second || limits.MaxStdoutBytes() != 2 || limits.MaxStderrBytes() != 3 {
-				t.Fatalf("fallback job %d limits = %#v, want fallback receipt limits", job.Ordinal(), limits)
-			}
-			continue
-		}
 		if limits.Timeout() != time.Second || limits.MaxStdoutBytes() != 1 || limits.MaxStderrBytes() != 1 {
 			t.Fatalf("job %d limits = %#v, want primary receipt limits", job.Ordinal(), limits)
 		}
@@ -1446,7 +1397,7 @@ func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
 }
 
 func TestCoordinatorRejectsPrecancelledContextBeforeIssuingIDs(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	ids := &coordinatorCountingIDs{}
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		t.Fatalf("pre-cancelled coordinator invoked job %d", job.Ordinal())
@@ -1476,8 +1427,8 @@ func TestCoordinatorRejectsPrecancelledContextBeforeIssuingIDs(t *testing.T) {
 
 func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 	t.Run("disjoint keys overlap", func(t *testing.T) {
-		firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "first.", false, false)
-		secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "second.", false, false)
+		firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "first.", false)
+		secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "second.", false)
 		entered := make(chan string, len(firstAssignments)+len(secondAssignments))
 		release := make(chan struct{})
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -1531,7 +1482,7 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 	})
 
 	t.Run("equal keys remain serialized", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		entered := make(chan struct{}, len(assignments)*2)
 		release := make(chan struct{})
 		var mu sync.Mutex
@@ -1587,7 +1538,7 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 	})
 }
 func TestCoordinatorCommitsEveryCollectedStoppingWaveFact(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	started := make(chan struct{}, len(assignments))
 	release := make(chan struct{})
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -1640,7 +1591,7 @@ func TestCoordinatorCommitsEveryCollectedStoppingWaveFact(t *testing.T) {
 }
 func TestCoordinatorStoppingTraceIsCanonicalAcrossDeliveryOrder(t *testing.T) {
 	run := func(first domain.Role) CoordinatorResult {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		releases := make(map[domain.Role]chan struct{}, len(assignments))
 		for _, assignment := range assignments {
 			releases[assignment.Role()] = make(chan struct{})
@@ -1716,7 +1667,7 @@ func TestCoordinatorStoppingTraceIsCanonicalAcrossDeliveryOrder(t *testing.T) {
 	}
 }
 func TestCoordinatorCancelsOutstandingInvocationsOnFirstProtectedResult(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	started := make(chan domain.Role, len(assignments))
 	cancelled := make(chan domain.Role, len(assignments)-1)
 	releaseSecurity := make(chan struct{})
@@ -1748,9 +1699,8 @@ func TestCoordinatorCancelsOutstandingInvocationsOnFirstProtectedResult(t *testi
 	for range len(assignments) - 1 {
 		<-cancelled
 	}
-	if execution.result.RunState() != domain.RunCancelled || execution.result.FallbackScheduled() {
-		t.Fatalf("protected early stop = run:%q fallback:%t",
-			execution.result.RunState(), execution.result.FallbackScheduled())
+	if execution.result.RunState() != domain.RunCancelled {
+		t.Fatalf("protected early stop = run:%q", execution.result.RunState())
 	}
 	security := coordinatorRoleByRole(t, execution.result, domain.RoleSecurity)
 	if security.ReasonCode() != string(AttemptConditionSecurityViolation) {
@@ -1776,7 +1726,7 @@ func TestCoordinatorCancelsOutstandingInvocationsOnFirstProtectedResult(t *testi
 }
 
 func TestCoordinatorRechecksCancellationBeforeEachWaveCommit(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleSecurity {
 			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
@@ -1798,15 +1748,13 @@ func TestCoordinatorRechecksCancellationBeforeEachWaveCommit(t *testing.T) {
 	}
 	security := coordinatorRoleByRole(t, result, domain.RoleSecurity)
 	if result.RunState() != domain.RunCancelled ||
-		result.FallbackScheduled() ||
 		security.State() != domain.RoleTaskCancelled ||
 		security.ReasonCode() != string(AttemptConditionCancelled) {
-		t.Fatalf("commit-time cancellation = run:%q fallback:%t security:%#v",
-			result.RunState(), result.FallbackScheduled(), security)
+		t.Fatalf("commit-time cancellation = run:%q security:%#v", result.RunState(), security)
 	}
 	cancellationIndex, securityTerminalIndex := -1, -1
 	for index, event := range result.Trace() {
-		if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+		if event.Kind() == CoordinatorEventRepairQueued {
 			t.Fatalf("commit-time cancellation queued follow-up work: %#v", event)
 		}
 		if event.Kind() == CoordinatorEventCancellationRequested && cancellationIndex < 0 {
@@ -1825,7 +1773,7 @@ func TestCoordinatorRechecksCancellationBeforeEachWaveCommit(t *testing.T) {
 	}
 }
 func TestCoordinatorRunDeadlineAtCommitForbidsFollowup(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, true)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleSecurity {
@@ -1849,21 +1797,19 @@ func TestCoordinatorRunDeadlineAtCommitForbidsFollowup(t *testing.T) {
 	}
 	security := coordinatorRoleByRole(t, result, domain.RoleSecurity)
 	if result.RunState() != domain.RunFailed ||
-		result.FallbackScheduled() ||
 		security.State() != domain.RoleTaskFailed ||
 		security.ReasonCode() != string(AttemptConditionTimeout) {
-		t.Fatalf("commit-time deadline = run:%q fallback:%t security:%#v",
-			result.RunState(), result.FallbackScheduled(), security)
+		t.Fatalf("commit-time deadline = run:%q security:%#v", result.RunState(), security)
 	}
 	for _, event := range result.Trace() {
-		if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+		if event.Kind() == CoordinatorEventRepairQueued {
 			t.Fatalf("commit-time deadline queued follow-up work: %#v", event)
 		}
 	}
 }
 
 func TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	entered := make(chan domain.Role, len(assignments))
 	release := make(chan struct{})
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -1915,7 +1861,7 @@ func TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart(t *testing.T) {
 }
 
 func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
@@ -1956,7 +1902,7 @@ func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
 	}
 }
 func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
@@ -2002,7 +1948,7 @@ func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
 	}
 }
 func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
@@ -2026,8 +1972,8 @@ func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T)
 	}
 }
 func TestCoordinatorsShareProcessActiveLaneLimit(t *testing.T) {
-	firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "capacity.first.", false, false)
-	secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "capacity.second.", false, false)
+	firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "capacity.first.", false)
+	secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "capacity.second.", false)
 	entered := make(chan struct{}, len(firstAssignments)+len(secondAssignments))
 	release := make(chan struct{})
 
@@ -2086,7 +2032,6 @@ func TestProcessActiveLaneAuthorityUsesOneMixedLimitPool(t *testing.T) {
 	newJob := func(role domain.Role, provider, lane string, ordinal uint64) InvocationJob {
 		job, err := NewInvocationJob(
 			role,
-			AttemptKindPrimary,
 			coordinatorTestRoute(t, provider, lane),
 			target,
 			limits,
@@ -2189,7 +2134,7 @@ func TestCoordinatorProtectedConditionsPrecedeContextRaces(t *testing.T) {
 					}
 					globalCause := false
 					for _, event := range result.Trace() {
-						if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+						if event.Kind() == CoordinatorEventRepairQueued {
 							t.Fatalf("protected cancellation queued follow-up work: %#v", event)
 						}
 						if event.Kind() == CoordinatorEventCancellationRequested {
@@ -2207,7 +2152,7 @@ func TestCoordinatorProtectedConditionsPrecedeContextRaces(t *testing.T) {
 }
 
 func TestCoordinatorRunDeadlinePreventsProviderFallback(t *testing.T) {
-	assignments, receipt := coordinatorTestPlanWithInvocationTimeout(t, false, true, time.Minute)
+	assignments, receipt := coordinatorTestPlanWithInvocationTimeout(t, false, time.Minute)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	logicStarted := make(chan struct{}, 1)
 	releaseLogic := make(chan struct{})
@@ -2236,19 +2181,19 @@ func TestCoordinatorRunDeadlinePreventsProviderFallback(t *testing.T) {
 		t.Fatal(execution.err)
 	}
 	logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
-	if logic.FallbackScheduled() || logic.ReasonCode() != string(AttemptConditionTimeout) ||
+	if logic.ReasonCode() != string(AttemptConditionTimeout) ||
 		execution.result.RunState() != domain.RunFailed {
 		t.Fatalf("deadline/provider race = run:%q logic:%#v", execution.result.RunState(), logic)
 	}
 	for _, event := range execution.result.Trace() {
-		if event.Kind() == CoordinatorEventRepairQueued || event.Kind() == CoordinatorEventFallbackQueued {
+		if event.Kind() == CoordinatorEventRepairQueued {
 			t.Fatalf("deadline/provider race queued follow-up work: %#v", event)
 		}
 	}
 }
 
 func TestCoordinatorPostAdmissionFailureReturnsTerminalSnapshot(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	invoked := make(chan struct{}, 1)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, _ InvocationJob) AttemptOutcome {
 		invoked <- struct{}{}
@@ -2434,7 +2379,6 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 			event.role = domain.RoleLogic
 			event.attemptID = attemptID
 			event.hasAttempt = true
-			event.attemptKind = AttemptKindPrimary
 			event.lane = lane
 			event.hasLane = true
 		}
@@ -2452,9 +2396,6 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 			setAttempt()
 			event.purpose, event.hasPurpose = purpose, true
 			event.reason = string(invalidOutput)
-		case CoordinatorEventFallbackQueued:
-			setAttempt()
-			event.condition, event.hasCondition = providerUnavailable, true
 			event.reason = string(providerUnavailable)
 		case CoordinatorEventRoleTerminal:
 			setAttempt()
@@ -2475,7 +2416,6 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		CoordinatorEventInvocationDispatched,
 		CoordinatorEventInvocationCommitted,
 		CoordinatorEventRepairQueued,
-		CoordinatorEventFallbackQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
 		CoordinatorEventLanesCloseAuthorized,
@@ -2489,7 +2429,6 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 	attemptlessTerminal := eventFor(CoordinatorEventRoleTerminal)
 	attemptlessTerminal.hasAttempt = false
 	attemptlessTerminal.attemptID = domain.AttemptID{}
-	attemptlessTerminal.attemptKind = ""
 	attemptlessTerminal.hasLane = false
 	attemptlessTerminal.lane = ports.ConcurrencyKey{}
 	if err := attemptlessTerminal.validate(); err != nil {
@@ -2517,9 +2456,6 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		}},
 		{name: "repair missing reason", kind: CoordinatorEventRepairQueued, mutate: func(event *CoordinatorTraceEvent) {
 			event.reason = ""
-		}},
-		{name: "fallback mismatched reason", kind: CoordinatorEventFallbackQueued, mutate: func(event *CoordinatorTraceEvent) {
-			event.reason = string(AttemptConditionTimeout)
 		}},
 		{name: "terminal has purpose", kind: CoordinatorEventRoleTerminal, mutate: func(event *CoordinatorTraceEvent) {
 			event.purpose, event.hasPurpose = purpose, true
@@ -2830,7 +2766,6 @@ func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 			}
 			job, err := NewInvocationJob(
 				domain.RoleLogic,
-				AttemptKindPrimary,
 				coordinatorTestRoute(t, "provider", "deadline-lane"),
 				coordinatorTestTarget(t),
 				limits,
@@ -2868,7 +2803,6 @@ func TestLaneAcquisitionDoesNotConsumeProviderTimeout(t *testing.T) {
 	}
 	job, err := NewInvocationJob(
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		coordinatorTestRoute(t, "provider", "delayed-lock-lane"),
 		coordinatorTestTarget(t),
 		limits,
@@ -2903,7 +2837,6 @@ func TestLaneContentionRefusesToTruncateProviderWindow(t *testing.T) {
 	}
 	job, err := NewInvocationJob(
 		domain.RoleLogic,
-		AttemptKindPrimary,
 		coordinatorTestRoute(t, "provider", "contended-window-lane"),
 		coordinatorTestTarget(t),
 		limits,
@@ -2941,7 +2874,6 @@ func TestLaneCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
 	newJob := func(role domain.Role, provider, lane string, ordinal uint64) InvocationJob {
 		job, err := NewInvocationJob(
 			role,
-			AttemptKindPrimary,
 			coordinatorTestRoute(t, provider, lane),
 			coordinatorTestTarget(t),
 			limits,
@@ -2987,7 +2919,7 @@ func TestLaneCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
 	scheduler.close()
 }
 func TestCoordinatorOutcomeAxesKeepExhaustionAndFindingsIndependent(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() == domain.RoleLogic {
 			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
@@ -3020,7 +2952,7 @@ func TestCoordinatorOutcomeAxesKeepExhaustionAndFindingsIndependent(t *testing.T
 
 func TestCoordinatorOptionalDegradationAndFourInvocationBound(t *testing.T) {
 	t.Run("optional degradation", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, false)
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() == domain.RoleMaintainability {
 				return coordinatorIncompleteOutcome(t, job)
@@ -3033,8 +2965,8 @@ func TestCoordinatorOptionalDegradationAndFourInvocationBound(t *testing.T) {
 		}
 	})
 
-	t.Run("primary and fallback repair bound", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false, true)
+	t.Run("repair bound", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() == domain.RoleLogic {
 				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
@@ -3043,15 +2975,14 @@ func TestCoordinatorOptionalDegradationAndFourInvocationBound(t *testing.T) {
 		}}
 		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if !logic.FallbackScheduled() || len(logic.Attempts()) != 2 ||
-			len(logic.Attempts()[0].Invocations()) != 2 || len(logic.Attempts()[1].Invocations()) != 2 {
-			t.Fatalf("logic did not stop at primary+fallback four-invocation bound: %#v", logic)
+		if len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 {
+			t.Fatalf("logic did not stop at the two-invocation provider+repair bound: %#v", logic)
 		}
 	})
 }
 
 func TestCoordinatorInvalidProperties(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
@@ -3194,12 +3125,7 @@ func coordinatorDiagnosticRoot(t *testing.T, assignments []Assignment) (domain.R
 	}
 	tasks := make([]domain.RoleTask, 0, len(assignments))
 	for _, assignment := range assignments {
-		var fallbackProvider *string
-		if fallback, ok := assignment.FallbackRoute(); ok {
-			provider := fallback.ProviderInstance()
-			fallbackProvider = &provider
-		}
-		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		task, taskErr := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.PrimaryRoute().ProviderInstance())
 		if taskErr != nil {
 			t.Fatal(taskErr)
 		}
@@ -3354,15 +3280,15 @@ func (lease *coordinatorWrongKeyLease) releaseCount() int {
 	return lease.releases
 }
 
-func coordinatorTestPlan(t *testing.T, sameLane, logicFallback bool) ([]Assignment, RunBudgetReceipt) {
+func coordinatorTestPlan(t *testing.T, sameLane bool) ([]Assignment, RunBudgetReceipt) {
 	t.Helper()
-	return coordinatorTestPlanInNamespace(t, "", sameLane, logicFallback)
+	return coordinatorTestPlanInNamespace(t, "", sameLane)
 }
 
 func coordinatorTestPlanInNamespace(
 	t *testing.T,
 	namespace string,
-	sameLane, logicFallback bool,
+	sameLane bool,
 ) ([]Assignment, RunBudgetReceipt) {
 	t.Helper()
 	assignments := make([]Assignment, 0, len(domain.CoreRoleOrder()))
@@ -3381,22 +3307,11 @@ func coordinatorTestPlanInNamespace(
 		if err != nil {
 			t.Fatal(err)
 		}
-		var fallbackRoute *ports.ProviderRoute
-		var fallbackBudget *RouteBudget
-		if logicFallback && role == domain.RoleLogic {
-			fallback := coordinatorTestRoute(t, namespace+"fallback.logic", namespace+"fallback-logic")
-			fallbackRoute = &fallback
-			budget, err := NewRouteBudget(fallback, limits)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fallbackBudget = &budget
-		}
-		assignment, err := NewScheduledAssignment(role, false, primary, fallbackRoute)
+		assignment, err := NewScheduledAssignment(role, false, primary)
 		if err != nil {
 			t.Fatal(err)
 		}
-		roleBudget, err := NewRoleBudget(role, primaryBudget, fallbackBudget)
+		roleBudget, err := NewRoleBudget(role, primaryBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3411,12 +3326,12 @@ func coordinatorTestPlanInNamespace(
 }
 func coordinatorTestPlanWithInvocationTimeout(
 	t *testing.T,
-	sameLane, logicFallback bool,
+	sameLane bool,
 	timeout time.Duration,
 ) ([]Assignment, RunBudgetReceipt) {
 	t.Helper()
 
-	assignments, receipt := coordinatorTestPlan(t, sameLane, logicFallback)
+	assignments, receipt := coordinatorTestPlan(t, sameLane)
 	limits, err := NewInvocationLimits(timeout, 1, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -3427,15 +3342,7 @@ func coordinatorTestPlanWithInvocationTimeout(
 		if err != nil {
 			t.Fatal(err)
 		}
-		var fallbackBudget *RouteBudget
-		if fallback, ok := budget.Fallback(); ok {
-			updatedFallback, err := NewRouteBudget(fallback.Route(), limits)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fallbackBudget = &updatedFallback
-		}
-		updated, err := NewRoleBudget(budget.Role(), primary, fallbackBudget)
+		updated, err := NewRoleBudget(budget.Role(), primary)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3447,86 +3354,6 @@ func coordinatorTestPlanWithInvocationTimeout(
 	}
 	return assignments, receipt
 }
-func coordinatorTestPlanWithLogicFallbackLimits(t *testing.T) ([]Assignment, RunBudgetReceipt) {
-	t.Helper()
-
-	assignments, receipt := coordinatorTestPlan(t, false, true)
-	budgets := receipt.RoleBudgets()
-	for index, budget := range budgets {
-		if budget.Role() != domain.RoleLogic {
-			continue
-		}
-		fallback, ok := budget.Fallback()
-		if !ok {
-			t.Fatal("logic fallback budget is missing")
-		}
-		limits, err := NewInvocationLimits(2*time.Second, 2, 3)
-		if err != nil {
-			t.Fatal(err)
-		}
-		updatedFallback, err := NewRouteBudget(fallback.Route(), limits)
-		if err != nil {
-			t.Fatal(err)
-		}
-		updated, err := NewRoleBudget(domain.RoleLogic, budget.Primary(), &updatedFallback)
-		if err != nil {
-			t.Fatal(err)
-		}
-		budgets[index] = updated
-		break
-	}
-	updatedReceipt, err := PreflightRunBudgetWithCapacity(budgets, receipt.Ceilings(), receipt.MaxActiveLanes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return assignments, updatedReceipt
-}
-func coordinatorTestSecurityFallbackSharesLogicLanePlan(t *testing.T) ([]Assignment, RunBudgetReceipt) {
-	t.Helper()
-
-	assignments, receipt := coordinatorTestPlan(t, false, false)
-	budgets := receipt.RoleBudgets()
-	var logicRoute ports.ProviderRoute
-	for _, assignment := range assignments {
-		if assignment.Role() == domain.RoleLogic {
-			logicRoute = assignment.PrimaryRoute()
-			break
-		}
-	}
-	for index, assignment := range assignments {
-		if assignment.Role() != domain.RoleSecurity {
-			continue
-		}
-		fallback := coordinatorTestRoute(t, "fallback.security", logicRoute.ConcurrencyKey().String())
-		updated, err := NewScheduledAssignment(domain.RoleSecurity, assignment.Required(), assignment.PrimaryRoute(), &fallback)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assignments[index] = updated
-		for budgetIndex, budget := range budgets {
-			if budget.Role() != domain.RoleSecurity {
-				continue
-			}
-			fallbackBudget, err := NewRouteBudget(fallback, budget.Primary().Limits())
-			if err != nil {
-				t.Fatal(err)
-			}
-			updatedBudget, err := NewRoleBudget(domain.RoleSecurity, budget.Primary(), &fallbackBudget)
-			if err != nil {
-				t.Fatal(err)
-			}
-			budgets[budgetIndex] = updatedBudget
-			break
-		}
-		break
-	}
-	updatedReceipt, err := PreflightRunBudgetWithCapacity(budgets, receipt.Ceilings(), receipt.MaxActiveLanes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return assignments, updatedReceipt
-}
-
 func coordinatorTestRoute(t *testing.T, provider, lane string) ports.ProviderRoute {
 	t.Helper()
 	key, err := ports.ParseConcurrencyKey(lane)
@@ -3819,7 +3646,7 @@ func coordinatorProtectedContextRaceResult(
 ) CoordinatorResult {
 	t.Helper()
 
-	assignments, receipt := coordinatorTestPlanWithInvocationTimeout(t, true, false, time.Minute)
+	assignments, receipt := coordinatorTestPlanWithInvocationTimeout(t, true, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var deadlineSource *coordinatorManualDeadlineContext
@@ -3898,7 +3725,7 @@ func coordinatorRecordExecution(t *testing.T) *coordinatorExecution {
 	}
 	tasks := make([]domain.RoleTask, 0, len(domain.CoreRoleOrder()))
 	for _, role := range domain.CoreRoleOrder() {
-		task, err := domain.NewRoleTask(role, false, "provider."+string(role), nil)
+		task, err := domain.NewRoleTask(role, false, "provider."+string(role))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3933,7 +3760,7 @@ func coordinatorRecordAttempt(t *testing.T, role domain.Role) *coordinatorAttemp
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &coordinatorAttempt{kind: AttemptKindPrimary, route: route, attempt: attempt}
+	return &coordinatorAttempt{route: route, attempt: attempt}
 }
 
 func coordinatorRandomCompletionResult(t *testing.T, assignments []Assignment, receipt RunBudgetReceipt, releaseOrder []domain.Role) CoordinatorResult {
@@ -3999,7 +3826,7 @@ func coordinatorTraceEventIndex(
 }
 
 func TestCoordinatorRoleSummaryCarriesProviderOutputTransport(t *testing.T) {
-	assignments, receipt := coordinatorTestPlan(t, false, false)
+	assignments, receipt := coordinatorTestPlan(t, false)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		if job.Role() != domain.RoleLogic {
 			return coordinatorSuccessOutcome(t, job)

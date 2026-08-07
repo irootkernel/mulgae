@@ -22,7 +22,7 @@ func validConfig() Config {
 		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
 		Validation: ValidationConfig{Evidence: EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
-		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, FallbackRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"},
+		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"},
 		CI:         CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
 	}
 }
@@ -128,8 +128,8 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "60m"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
-	config.Resources.RoleMaxInvocations = 4
-	config.Resources.RunMaxInvocations = 24
+	config.Resources.RoleMaxInvocations = 2
+	config.Resources.RunMaxInvocations = 12
 	canonical, err := EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
@@ -205,8 +205,8 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		}
 		config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 		if config.Providers.Count() >= 2 {
-			config.Resources.RoleMaxInvocations = 4
-			config.Resources.RunMaxInvocations = 24
+			config.Resources.RoleMaxInvocations = 2
+			config.Resources.RunMaxInvocations = 12
 		}
 		encoded, err := EncodeCanonical(config)
 		if err != nil {
@@ -222,13 +222,63 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 	}
 }
 
+// TestConfigRejectsRemovedFallbackKeys proves a configuration written before
+// cross-provider fallback was removed is refused rather than silently reread
+// with the keys ignored. A role is bound to exactly one provider, so a stored
+// fallback route no longer means anything and honouring it halfway would be
+// worse than asking the operator to run `mulgae init` again.
+func TestConfigRejectsRemovedFallbackKeys(t *testing.T) {
+	t.Parallel()
+
+	config := validConfig()
+	config.Providers = ProvidersConfig{
+		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
+		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode},
+	}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(encoded); err != nil {
+		t.Fatalf("canonical config was rejected before mutation: %v", err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		anchor   string
+		replaced string
+	}{
+		{
+			name:     "role fallback provider",
+			anchor:   `logic: {enabled: true, primary_provider: "zcode"}`,
+			replaced: `logic: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
+		},
+		{
+			name:     "fallback repair attempts",
+			anchor:   "  primary_repair_attempts: 1\n",
+			replaced: "  primary_repair_attempts: 1\n  fallback_repair_attempts: 1\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if !strings.Contains(string(encoded), test.anchor) {
+				t.Fatalf("canonical config does not contain %q:\n%s", test.anchor, encoded)
+			}
+			legacy := strings.Replace(string(encoded), test.anchor, test.replaced, 1)
+			if _, err := Decode([]byte(legacy)); err == nil {
+				t.Fatalf("a configuration carrying %s was accepted:\n%s", test.name, legacy)
+			}
+		})
+	}
+}
+
 func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	config := validConfig()
 	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
 	config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
-	config.Resources.RoleMaxInvocations = 4
-	config.Resources.RunMaxInvocations = 24
+	config.Resources.RoleMaxInvocations = 2
+	config.Resources.RunMaxInvocations = 12
 	encoded, err := EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
@@ -236,12 +286,12 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	// Every core role is pinned end to end, so a change to any one of them in
 	// assets/roles.yaml is visible here rather than silently shipping.
 	for _, expected := range []string{
-		`logic: {enabled: true, primary_provider: "kimi", fallback_provider: "zcode"}`,
-		`security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
-		`maintainability: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
-		`product: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
-		`documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}`,
-		`testing: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}`,
+		`logic: {enabled: true, primary_provider: "kimi"}`,
+		`security: {enabled: true, primary_provider: "zcode"}`,
+		`maintainability: {enabled: true, primary_provider: "zcode"}`,
+		`product: {enabled: true, primary_provider: "zcode"}`,
+		`documentation: {enabled: true, primary_provider: "agy"}`,
+		`testing: {enabled: true, primary_provider: "zcode"}`,
 	} {
 		if !strings.Contains(string(encoded), expected) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
@@ -252,9 +302,9 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 		t.Fatal("future config version was accepted")
 	}
 	invalid := config
-	invalid.Roles.Logic.FallbackProvider = "kimi"
+	invalid.Roles.Logic.PrimaryProvider = "unknown"
 	if _, err := EncodeCanonical(invalid); err == nil {
-		t.Fatal("same-family fallback was accepted")
+		t.Fatal("role provider outside the configured families was accepted")
 	}
 }
 
@@ -294,7 +344,7 @@ func TestConfigV1AllowsUIWithoutArtist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode UI config without artist: %v", err)
 	}
-	if decoded.Roles.Artist.Enabled || decoded.Roles.Artist.PrimaryProvider != "" || decoded.Roles.Artist.FallbackProvider != "" || decoded.Roles.Artist.Inputs != nil {
+	if decoded.Roles.Artist.Enabled || decoded.Roles.Artist.PrimaryProvider != "" || decoded.Roles.Artist.Inputs != nil {
 		t.Fatalf("disabled UI artist role gained configuration: %#v", decoded.Roles.Artist)
 	}
 }
@@ -447,8 +497,8 @@ func TestDecodeRejectsExplicitEmptyControlPlaceholderAndNoncanonicalUnknownKey(t
 func TestDecodeRejectsBudgetAndPermissionContradictions(t *testing.T) {
 	config := validConfig()
 	config.Providers.AGY = &AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "inferred"}
-	config.Resources.RoleMaxInvocations = 4
-	config.Resources.RunMaxInvocations = 24
+	config.Resources.RoleMaxInvocations = 2
+	config.Resources.RunMaxInvocations = 12
 	encoded, _ := EncodeCanonical(validConfig())
 	invalid := strings.Replace(string(encoded), "providers:\n", "providers:\n  agy:\n    executable: \"/bin/agy\"\n    permission_mode: \"inferred\"\n", 1)
 	if _, err := Decode([]byte(invalid)); err == nil {

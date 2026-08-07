@@ -41,20 +41,20 @@ func validTarget(t *testing.T) TargetIdentity {
 
 func validRoleTasks(t *testing.T) []RoleTask {
 	t.Helper()
-	logic, err := NewRoleTask(RoleLogic, true, "provider-a", nil)
+	logic, err := NewRoleTask(RoleLogic, true, "provider-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	security, err := NewRoleTask(RoleSecurity, true, "provider-b", nil)
+	security, err := NewRoleTask(RoleSecurity, true, "provider-b")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return []RoleTask{logic, security}
 }
 
-func roleTask(t *testing.T, role Role, required bool, primary string, fallback *string) RoleTask {
+func roleTask(t *testing.T, role Role, required bool, primary string) RoleTask {
 	t.Helper()
-	task, err := NewRoleTask(role, required, primary, fallback)
+	task, err := NewRoleTask(role, required, primary)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,8 +258,8 @@ func TestNewChildRunRejectsCrossSessionOwnership(t *testing.T) {
 func TestRunCanonicalizesRoleSelectionAndDefendsCopies(t *testing.T) {
 	t.Parallel()
 
-	documentation := roleTask(t, RoleDocumentation, false, "provider-docs", nil)
-	testingRole := roleTask(t, RoleTesting, false, "provider-tests", nil)
+	documentation := roleTask(t, RoleDocumentation, false, "provider-docs")
+	testingRole := roleTask(t, RoleTesting, false, "provider-tests")
 	roles := []RoleTask{documentation, validRoleTasks(t)[1], testingRole, validRoleTasks(t)[0]}
 	_, run := newReviewRun(t, testUUIDv7, testUUIDv7, roles)
 	want := []Role{RoleLogic, RoleSecurity, RoleDocumentation, RoleTesting}
@@ -310,7 +310,7 @@ func TestRunRejectsInvalidRoleSelections(t *testing.T) {
 	if _, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), logicOnly); err != nil {
 		t.Fatalf("single-role review session: %v", err)
 	}
-	documentation := roleTask(t, RoleDocumentation, false, "provider-c", nil)
+	documentation := roleTask(t, RoleDocumentation, false, "provider-c")
 	if _, _, err = NewReviewSession(sessionID, time.Unix(1, 0).UTC(), runID, validTarget(t), []RoleTask{documentation}); err != nil {
 		t.Fatalf("optional-only review session: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestRunCompletionRequiresSuccessfulRoles(t *testing.T) {
 func TestRunDegradedRequiresTerminalRequiredAndOptionalOutcomes(t *testing.T) {
 	t.Parallel()
 
-	roles := append(validRoleTasks(t), roleTask(t, RoleProduct, false, "provider-product", nil))
+	roles := append(validRoleTasks(t), roleTask(t, RoleProduct, false, "provider-product"))
 	_, run := newReviewRun(t, testUUIDv7, testUUIDv7, roles)
 	startRun(t, &run)
 	err := run.Transition(RunDegraded)
@@ -400,70 +400,43 @@ func TestTerminalRunCannotMutateRoles(t *testing.T) {
 	}
 }
 
-func TestRunQueueRoleFallback(t *testing.T) {
+func TestRunningRoleTerminatesOnItsOwnProvider(t *testing.T) {
 	t.Parallel()
 
-	t.Run("absent fallback leaves state unchanged", func(t *testing.T) {
+	// A role is bound to exactly one provider. There is no second provider path
+	// out of primary_running: the role succeeds, fails, or is cancelled, and a
+	// failure is reported rather than rerouted.
+	for _, terminal := range []RoleTaskState{RoleTaskSucceeded, RoleTaskFailed, RoleTaskCancelled} {
+		t.Run("primary running reaches "+string(terminal), func(t *testing.T) {
+			_, run := newReviewRun(t, testUUIDv7, testUUIDv7, validRoleTasks(t))
+			startRun(t, &run)
+			transitionRole(t, &run, RoleLogic, RoleTaskPrimaryQueued)
+			transitionRole(t, &run, RoleLogic, RoleTaskPrimaryRunning)
+			transitionRole(t, &run, RoleLogic, terminal)
+		})
+	}
+
+	t.Run("running role cannot return to a queued route", func(t *testing.T) {
 		_, run := newReviewRun(t, testUUIDv7, testUUIDv7, validRoleTasks(t))
 		startRun(t, &run)
 		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryQueued)
 		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryRunning)
-		err := run.QueueRoleFallback(RoleLogic, FailureProviderUnavailable)
-		requireInvariantError(t, err, "role task: domain invariant violation: fallback provider is not configured")
+		if err := run.TransitionRole(RoleLogic, RoleTaskPrimaryQueued); err == nil {
+			t.Fatal("running role re-entered a queued route")
+		}
+		if err := run.TransitionRole(RoleLogic, RoleTaskBlocked); err == nil {
+			t.Fatal("running role reached blocked, which is reserved for roles that never ran")
+		}
 		task := selectedRoleTask(t, run, RoleLogic)
 		if task.State() != RoleTaskPrimaryRunning {
-			t.Fatalf("state after absent fallback = %q, want primary_running", task.State())
-		}
-		if _, ok := task.PrimaryFailureClass(); ok {
-			t.Fatal("absent fallback recorded a primary failure")
+			t.Fatalf("state after rejected transitions = %q, want primary_running", task.State())
 		}
 	})
 
-	t.Run("noneligible failure and generic fallback transitions are rejected", func(t *testing.T) {
-		fallback := "provider-fallback"
-		roles := validRoleTasks(t)
-		roles[0] = roleTask(t, RoleLogic, true, "provider-a", &fallback)
-		_, run := newReviewRun(t, testUUIDv7, testUUIDv7, roles)
-		startRun(t, &run)
-		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryQueued)
-		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryRunning)
-
-		err := run.TransitionRole(RoleLogic, RoleTaskFallbackQueued)
-		requireInvariantError(t, err, "run: domain invariant violation: fallback queuing requires QueueRoleFallback")
-		err = run.TransitionRole(RoleLogic, RoleTaskFallbackRunning)
-		requireInvariantError(t, err, "role task: domain invariant violation: fallback progression requires a recorded eligible primary failure")
-		err = run.QueueRoleFallback(RoleLogic, FailureSecurityPolicy)
-		requireInvariantError(t, err, "role task: domain invariant violation: failure class \"security_policy_violation\" is not eligible for fallback")
-
-		task := selectedRoleTask(t, run, RoleLogic)
-		if task.State() != RoleTaskPrimaryRunning {
-			t.Fatalf("state after rejected fallback requests = %q, want primary_running", task.State())
+	t.Run("role task rejects an empty provider", func(t *testing.T) {
+		if _, err := NewRoleTask(RoleLogic, true, "  "); err == nil {
+			t.Fatal("role task accepted an empty provider")
 		}
-		if _, ok := task.PrimaryFailureClass(); ok {
-			t.Fatal("rejected fallback request recorded a primary failure")
-		}
-	})
-
-	t.Run("eligible configured fallback records failure before progression", func(t *testing.T) {
-		fallback := "provider-fallback"
-		roles := validRoleTasks(t)
-		roles[0] = roleTask(t, RoleLogic, true, "provider-a", &fallback)
-		_, run := newReviewRun(t, testUUIDv7, testUUIDv7, roles)
-		startRun(t, &run)
-		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryQueued)
-		transitionRole(t, &run, RoleLogic, RoleTaskPrimaryRunning)
-		if err := run.QueueRoleFallback(RoleLogic, FailureProviderUnavailable); err != nil {
-			t.Fatal(err)
-		}
-		task := selectedRoleTask(t, run, RoleLogic)
-		if task.State() != RoleTaskFallbackQueued {
-			t.Fatalf("queued fallback state = %q, want fallback_queued", task.State())
-		}
-		if class, ok := task.PrimaryFailureClass(); !ok || class != FailureProviderUnavailable {
-			t.Fatalf("recorded primary failure = %q/%v, want %q/true", class, ok, FailureProviderUnavailable)
-		}
-		transitionRole(t, &run, RoleLogic, RoleTaskFallbackRunning)
-		transitionRole(t, &run, RoleLogic, RoleTaskSucceeded)
 	})
 }
 
@@ -566,7 +539,6 @@ func TestRunMutatorsRejectZeroAndNilReceivers(t *testing.T) {
 	}{
 		{"transition", func(run *Run) error { return run.Transition(RunRunning) }},
 		{"transition role", func(run *Run) error { return run.TransitionRole(RoleLogic, RoleTaskPrimaryQueued) }},
-		{"queue fallback", func(run *Run) error { return run.QueueRoleFallback(RoleLogic, FailureTimeout) }},
 	}
 	for _, test := range actions {
 		test := test

@@ -1282,9 +1282,11 @@ func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *
 		wantProviders []string
 	}{
 		{
-			name:          "one configured family is degraded",
+			// Every role runs on exactly one provider, so a single eligible
+			// family is a complete configuration rather than a degraded one.
+			name:          "one configured family is ready",
 			initArguments: []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"},
-			wantState:     "degraded",
+			wantState:     "ready",
 			wantProviders: []string{"agy"},
 		},
 		{
@@ -1337,7 +1339,10 @@ func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *
 	}
 }
 
-func TestApplicationDoctorDegradesWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable(t *testing.T) {
+// TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable
+// proves an unusable family does not degrade readiness on its own. The roles it
+// owns will fail and be reported; the roles on the eligible family are unaffected.
+func TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable(t *testing.T) {
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
@@ -1362,7 +1367,7 @@ func TestApplicationDoctorDegradesWhenOneOfTwoConfiguredProviderIdentitiesIsUnav
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "degraded" || envelope.Result.Doctor.Readiness.ExitCode != 0 ||
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "ready" || envelope.Result.Doctor.Readiness.ExitCode != 0 ||
 		envelope.Result.Doctor.ProviderInventory[0].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
 		!reflect.DeepEqual(evidence.providerCalls, []string{"agy"}) {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
@@ -4828,4 +4833,60 @@ func foundationGitOutput(t *testing.T, root string, arguments ...string) string 
 		t.Fatalf("git %v failed: %v: %s", arguments, err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// TestProviderFailureHintRoutesByRemediation pins which command a provider
+// failure sends the operator to. Mulgae never substitutes a provider for a
+// failed role, so this hint plus the report's "Provider issues" section are the
+// whole recovery path; sending someone to `mulgae doctor` for a provider that
+// is perfectly healthy and merely failed once wastes their time and hides the
+// real next step. It also keeps the CLI and the report saying the same thing.
+func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		doctor = "mulgae doctor"
+		rerun  = "mulgae rerun"
+		config = "mulgae config --mode effective"
+	)
+	want := map[review.AttemptCondition]string{
+		// The provider itself must be fixed before it can review anything.
+		review.AttemptConditionProviderUnavailable: doctor,
+		review.AttemptConditionProviderSpawnFailed: doctor,
+		review.AttemptConditionAuthentication:      doctor,
+		review.AttemptConditionLoginRequired:       doctor,
+		review.AttemptConditionQuota:               doctor,
+		// Permission is configuration, not provider health.
+		review.AttemptConditionProviderPermissionDenied: config,
+		// The provider failed once; running the role again is the next step.
+		review.AttemptConditionRateLimit:                  rerun,
+		review.AttemptConditionTimeout:                    rerun,
+		review.AttemptConditionProviderTimeout:            rerun,
+		review.AttemptConditionProviderOutputMissing:      rerun,
+		review.AttemptConditionProviderOutputDecodeFailed: rerun,
+		review.AttemptConditionInvalidProviderOutput:      rerun,
+		review.AttemptConditionSemanticContradiction:      rerun,
+		// Not the provider's fault; doctor stays the conservative entry point.
+		review.AttemptConditionSecurityViolation: doctor,
+		review.AttemptConditionArtifactFailure:   doctor,
+		review.AttemptConditionInternalInvariant: doctor,
+	}
+	for condition, expected := range want {
+		if got := providerFailureHint(condition); got != expected {
+			t.Errorf("providerFailureHint(%q) = %q, want %q", condition, got, expected)
+		}
+	}
+
+	// Every condition the coordinator can produce must route somewhere, and a
+	// provider that is merely at fault must never be sent to doctor.
+	for _, condition := range review.AttemptConditions() {
+		hint := providerFailureHint(condition)
+		if hint == "" {
+			t.Errorf("condition %q has no remediation hint", condition)
+		}
+		if review.ConditionProviderFault(condition) && !review.ConditionProviderUnusable(condition) &&
+			condition != review.AttemptConditionProviderPermissionDenied && hint != rerun {
+			t.Errorf("recoverable provider fault %q routes to %q, want %q", condition, hint, rerun)
+		}
+	}
 }

@@ -273,54 +273,44 @@ func TestPreparedCandidateRejectsMalformedAndUnvalidatedBuild(t *testing.T) {
 	}
 }
 
-func TestRecoveredFallbackManifestRetainsFailedPrimary(t *testing.T) {
+// TestPreparedCandidateRejectsASecondAttemptForOneRole pins the one-provider
+// rule at the publication boundary. A role runs its provider once and may repair
+// within that attempt, so a live candidate can never carry a second attempt.
+// Manifests written before the rule can, and stay readable; see the manifest
+// validation in internal/app/query.
+func TestPreparedCandidateRejectsASecondAttemptForOneRole(t *testing.T) {
 	t.Parallel()
 
 	candidate := publicationTestCandidate(t, false)
-	fallbackID, err := domain.ParseAttemptID("a_019f596a-d049-79e7-b2b7-59822f012273")
+	secondID, err := domain.ParseAttemptID("a_019f596a-d049-79e7-b2b7-59822f012273")
 	if err != nil {
 		t.Fatal(err)
 	}
-	primary := &candidate.roles[0].attempts[0]
-	primary.state = domain.AttemptFailed
-	primary.parseState = domain.ParseNotStarted
-	primary.validationState = domain.ValidationNotStarted
-	primary.invocations[0].state = domain.InvocationFailed
-	fallback := *primary
-	fallback.id = fallbackID
-	fallback.kind = review.AttemptKindFallback
-	fallback.provider = "zcode-logic"
-	fallback.state = domain.AttemptSucceeded
-	fallback.parseState = domain.ParseValid
-	fallback.validationState = domain.ValidationValid
-	fallback.invocations = []preparedInvocation{{
+	first := &candidate.roles[0].attempts[0]
+	first.state = domain.AttemptFailed
+	first.parseState = domain.ParseNotStarted
+	first.validationState = domain.ValidationNotStarted
+	first.invocations[0].state = domain.InvocationFailed
+	second := *first
+	second.id = secondID
+	second.provider = "zcode-logic"
+	second.state = domain.AttemptSucceeded
+	second.parseState = domain.ParseValid
+	second.validationState = domain.ValidationValid
+	second.invocations = []preparedInvocation{{
 		sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded,
 	}}
-	candidate.roles[0].attempts = append(candidate.roles[0].attempts, fallback)
+	candidate.roles[0].attempts = append(candidate.roles[0].attempts, second)
 	candidate.failures = []preparedFailure{{
 		class: domain.FailureInvalidOutput, stage: "review",
-		reason: string(review.AttemptConditionInvalidProviderOutput), attemptID: &primary.id,
+		reason: string(review.AttemptConditionInvalidProviderOutput), attemptID: &first.id,
 	}}
 
-	if err := candidate.validate(); err != nil {
-		t.Fatalf("recovered fallback candidate is invalid: %v", err)
-	}
-	bundle, err := candidate.Build(
-		context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest runManifestWire
-	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if len(manifest.Failures) != 1 || manifest.Failures[0].AttemptID == nil ||
-		*manifest.Failures[0].AttemptID != primary.id.String() ||
-		manifest.Failures[0].ReasonCode != string(review.AttemptConditionInvalidProviderOutput) {
-		t.Fatalf("recovered fallback manifest lost failed primary: %#v", manifest.Failures)
+	if err := candidate.validate(); err == nil {
+		t.Fatal("a candidate carrying two attempts for one role was accepted")
 	}
 }
+
 func TestRunSupportArtifactIdentityRecognizesOnlyCanonicalPromptManifests(t *testing.T) {
 	t.Parallel()
 

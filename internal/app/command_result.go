@@ -92,8 +92,6 @@ type Diagnostic struct {
 	role                   string
 	provider               string
 	attemptID              domain.AttemptID
-	fallbackAttempted      bool
-	fallbackProhibited     bool
 	artifactPath           string
 	recommendedNextCommand string
 	retryableOverride      *bool
@@ -101,7 +99,7 @@ type Diagnostic struct {
 
 // NewDiagnosticWithRetryable constructs a diagnostic whose command-envelope
 // retryability is defined by a command-owned outcome contract rather than the
-// generic provider fallback policy.
+// generic provider-fault classification.
 func NewDiagnosticWithRetryable(
 	stage string,
 	failureClass domain.FailureClass,
@@ -109,7 +107,7 @@ func NewDiagnosticWithRetryable(
 	message string,
 	retryable bool,
 ) (Diagnostic, error) {
-	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, false, false, "", "")
+	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, "", "")
 	if err != nil {
 		return Diagnostic{}, err
 	}
@@ -128,7 +126,7 @@ func NewDiagnosticWithRetryableArtifactPath(
 	retryable bool,
 	artifactPath string,
 ) (Diagnostic, error) {
-	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, false, false, artifactPath, "")
+	diagnostic, err := NewDiagnostic(stage, failureClass, machineCode, message, "", "", domain.AttemptID{}, artifactPath, "")
 	if err != nil {
 		return Diagnostic{}, err
 	}
@@ -153,7 +151,7 @@ func NewDiagnosticWithRetryableDetails(
 ) (Diagnostic, error) {
 	diagnostic, err := NewDiagnostic(
 		stage, failureClass, machineCode, message, role, provider,
-		domain.AttemptID{}, false, false, artifactPath, recommendedNextCommand,
+		domain.AttemptID{}, artifactPath, recommendedNextCommand,
 	)
 	if err != nil {
 		return Diagnostic{}, err
@@ -174,8 +172,6 @@ func NewDiagnostic(
 	role string,
 	provider string,
 	attemptID domain.AttemptID,
-	fallbackAttempted bool,
-	fallbackProhibited bool,
 	artifactPath string,
 	recommendedNextCommand string,
 ) (Diagnostic, error) {
@@ -187,8 +183,6 @@ func NewDiagnostic(
 		role:                   role,
 		provider:               provider,
 		attemptID:              attemptID,
-		fallbackAttempted:      fallbackAttempted,
-		fallbackProhibited:     fallbackProhibited,
 		artifactPath:           artifactPath,
 		recommendedNextCommand: recommendedNextCommand,
 	}
@@ -220,11 +214,11 @@ func (diagnostic Diagnostic) Provider() string { return diagnostic.provider }
 // means no attempt applies to this diagnostic.
 func (diagnostic Diagnostic) AttemptID() domain.AttemptID { return diagnostic.attemptID }
 
-// FallbackAttempted reports whether a fallback was attempted for this failure.
-func (diagnostic Diagnostic) FallbackAttempted() bool { return diagnostic.fallbackAttempted }
-
-// FallbackProhibited reports whether policy prohibited fallback for this failure.
-func (diagnostic Diagnostic) FallbackProhibited() bool { return diagnostic.fallbackProhibited }
+// ProviderFault reports whether this failure is attributable to the provider
+// rather than to Mulgae, the captured target, or the operator. When it is true,
+// running the role on a different provider is a reasonable next step, and
+// RecommendedNextCommand names one when the command could construct it.
+func (diagnostic Diagnostic) ProviderFault() bool { return diagnostic.failureClass.ProviderFault() }
 
 // ArtifactPath returns the optional redacted diagnostic artifact path.
 func (diagnostic Diagnostic) ArtifactPath() string { return diagnostic.artifactPath }
@@ -235,12 +229,13 @@ func (diagnostic Diagnostic) RecommendedNextCommand() string {
 }
 
 // Retryable returns the command-owned retryability override when present and
-// otherwise preserves the historical failure-class fallback mapping.
+// otherwise reports whether the failure was the provider's fault, which is the
+// case where rerunning can plausibly produce a different result.
 func (diagnostic Diagnostic) Retryable() bool {
 	if diagnostic.retryableOverride != nil {
 		return *diagnostic.retryableOverride
 	}
-	return diagnostic.failureClass.FallbackAllowed()
+	return diagnostic.failureClass.ProviderFault()
 }
 
 // CommandResult is the immutable application result consumed by a CLI adapter.

@@ -259,7 +259,7 @@ func deltaRoles(roles []appquery.Role) ([]domain.RoleTask, error) {
 		if !ok {
 			return nil, fmt.Errorf("g008 delta source: role %q has no persisted provider", role.Name())
 		}
-		task, err := domain.NewRoleTask(role.Name(), role.Required(), provider, nil)
+		task, err := domain.NewRoleTask(role.Name(), role.Required(), provider)
 		if err != nil {
 			return nil, fmt.Errorf("g008 delta source: role %q: %w", role.Name(), err)
 		}

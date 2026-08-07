@@ -25,4 +25,4 @@ System-owned fields are never delegated to the provider. A failed structured
 repair may still leave a Mulgae-owned free-form role report without structured
 findings; it never grants publication authority by itself. Security,
 configuration, integrity, cancellation, and internal failures never authorize
-fallback or publication.
+repair or publication.

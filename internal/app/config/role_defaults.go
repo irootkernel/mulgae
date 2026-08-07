@@ -13,8 +13,10 @@ const maximumDesignSpecGlobs = 16
 // RoleDefault is one role's build-owned generation-time default.
 //
 // ProviderPreferences is an ordered family preference: the first configured
-// family becomes the primary provider and the second becomes the fallback. The
-// artist fields are populated only for the artist role.
+// family becomes the role's provider. Later entries keep the derivation total
+// when a project configures a different provider set; they are not a fallback
+// route, because a role runs on exactly one provider. The artist fields are
+// populated only for the artist role.
 type RoleDefault struct {
 	ProviderPreferences   []string
 	ArtistTaskPath        string

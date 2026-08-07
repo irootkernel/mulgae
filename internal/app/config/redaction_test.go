@@ -19,7 +19,10 @@ func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 	if strings.Contains(string(data), "/secret/") {
 		t.Fatalf("redaction leaked: %s", data)
 	}
-	if !strings.Contains(string(data), `"primary_provider":"kimi"`) || !strings.Contains(string(data), `"fallback_provider":null`) {
+	if !strings.Contains(string(data), `"primary_provider":"kimi"`) {
 		t.Fatalf("redaction omitted role assignments: %s", data)
+	}
+	if strings.Contains(string(data), "fallback") {
+		t.Fatalf("redaction still projects a fallback route: %s", data)
 	}
 }

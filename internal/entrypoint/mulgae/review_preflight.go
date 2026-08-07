@@ -144,18 +144,12 @@ func NewReviewPreflightResult(
 	if err != nil {
 		return ReviewPreflightResult{}, err
 	}
-	transmissions := make([]ReviewPreflightTransmission, 0, len(plan.Assignments)*2)
+	transmissions := make([]ReviewPreflightTransmission, 0, len(plan.Assignments))
 	if !material.Target().NoChange() {
 		for index, assignment := range plan.Assignments {
-			primary := plan.Budgets[index].Primary()
 			transmissions = append(transmissions, preflightTransmission(
-				assignment.Role(), "primary", primary, agyPermissionMode, fileSetID,
+				assignment.Role(), "primary", plan.Budgets[index].Primary(), agyPermissionMode, fileSetID,
 			))
-			if fallback, present := plan.Budgets[index].Fallback(); present {
-				transmissions = append(transmissions, preflightTransmission(
-					assignment.Role(), "fallback", fallback, agyPermissionMode, fileSetID,
-				))
-			}
 		}
 	}
 	ceilings := budgetReceipt.Ceilings()
@@ -285,13 +279,12 @@ func (result ReviewPreflightResult) Validate() error {
 	if len(result.Transmissions) == 0 {
 		return fmt.Errorf("review preflight: eligible result has no transmissions")
 	}
-	lastRole, lastRoute := -1, ""
+	// One role, one provider, one transmission: role ordinals strictly increase.
+	lastRole := -1
 	for _, transmission := range result.Transmissions {
 		role := domain.Role(transmission.Role)
 		ordinal := preflightRoleOrdinal(role)
-		if ordinal < 0 || ordinal < lastRole || ordinal > lastRole && transmission.RouteKind != "primary" ||
-			ordinal == lastRole && (lastRoute != "primary" || transmission.RouteKind != "fallback") ||
-			(transmission.RouteKind != "primary" && transmission.RouteKind != "fallback") ||
+		if ordinal < 0 || ordinal <= lastRole || transmission.RouteKind != "primary" ||
 			transmission.ProviderInstance != transmission.ProviderFamily+"-"+transmission.Role ||
 			transmission.TargetChannel != "prompt" || transmission.FileSetID != fileSet.ID {
 			return fmt.Errorf("review preflight: invalid transmission order")
@@ -306,30 +299,19 @@ func (result ReviewPreflightResult) Validate() error {
 		if !reviewrun.Family(transmission.ProviderFamily).Valid() || transmission.PermissionMode != wantPermission {
 			return fmt.Errorf("review preflight: invalid transmission provider")
 		}
-		lastRole, lastRoute = ordinal, transmission.RouteKind
+		lastRole = ordinal
 	}
 	return validatePreflightBudgetProjection(result.Transmissions, result.Budget)
 }
 
 func validatePreflightBudgetProjection(transmissions []ReviewPreflightTransmission, projected ReviewPreflightBudget) error {
 	roleBudgets := make([]review.RoleBudget, 0, len(transmissions))
-	for index := 0; index < len(transmissions); {
-		primary, err := preflightRouteBudget(transmissions[index])
-		if err != nil || transmissions[index].RouteKind != "primary" {
+	for _, transmission := range transmissions {
+		primary, err := preflightRouteBudget(transmission)
+		if err != nil || transmission.RouteKind != "primary" {
 			return fmt.Errorf("review preflight: invalid primary budget")
 		}
-		role := domain.Role(transmissions[index].Role)
-		index++
-		var fallback *review.RouteBudget
-		if index < len(transmissions) && transmissions[index].Role == string(role) {
-			value, fallbackErr := preflightRouteBudget(transmissions[index])
-			if fallbackErr != nil || transmissions[index].RouteKind != "fallback" {
-				return fmt.Errorf("review preflight: invalid fallback budget")
-			}
-			fallback = &value
-			index++
-		}
-		roleBudget, err := review.NewRoleBudget(role, primary, fallback)
+		roleBudget, err := review.NewRoleBudget(domain.Role(transmission.Role), primary)
 		if err != nil {
 			return fmt.Errorf("review preflight: invalid role budget")
 		}

@@ -12,51 +12,38 @@ func TestDecideTransitionExhaustiveMatrix(t *testing.T) {
 
 	for _, expectation := range policyExpectations() {
 		for _, repairUsed := range []bool{false, true} {
-			for _, fallbackConfigured := range []bool{false, true} {
-				for _, fallbackEligible := range []bool{false, true} {
-					for _, cancellationObserved := range []bool{false, true} {
-						input := TransitionInput{
-							Condition:            expectation.condition,
-							RepairUsed:           repairUsed,
-							FallbackConfigured:   fallbackConfigured,
-							FallbackEligible:     fallbackEligible,
-							CancellationObserved: cancellationObserved,
-						}
-						decision, err := DecideTransition(input)
-						if err != nil {
-							t.Fatalf("DecideTransition(%+v): %v", input, err)
-						}
-						want := expectedDecision(expectation, input)
-						assertDecision(t, input, decision, want)
-					}
+			for _, cancellationObserved := range []bool{false, true} {
+				input := TransitionInput{
+					Condition:            expectation.condition,
+					RepairUsed:           repairUsed,
+					CancellationObserved: cancellationObserved,
 				}
+				decision, err := DecideTransition(input)
+				if err != nil {
+					t.Fatalf("DecideTransition(%+v): %v", input, err)
+				}
+				assertDecision(t, input, decision, expectedDecision(expectation, input))
 			}
 		}
 	}
 }
 
-func TestValidReviewIncludingFindingsNeverSchedulesFallback(t *testing.T) {
+func TestValidReviewIncludingFindingsNeverSchedulesWork(t *testing.T) {
 	t.Parallel()
 
 	for _, repairUsed := range []bool{false, true} {
-		for _, fallbackConfigured := range []bool{false, true} {
-			for _, fallbackEligible := range []bool{false, true} {
-				decision, err := DecideTransition(TransitionInput{
-					Condition:          AttemptConditionValidReview,
-					RepairUsed:         repairUsed,
-					FallbackConfigured: fallbackConfigured,
-					FallbackEligible:   fallbackEligible,
-				})
-				if err != nil {
-					t.Fatalf("DecideTransition(valid review): %v", err)
-				}
-				if decision.ScheduleRepair() || decision.ScheduleFallback() || decision.CancelRun() {
-					t.Fatalf("valid review with repair=%t configured=%t eligible=%t scheduled work: %+v", repairUsed, fallbackConfigured, fallbackEligible, decision)
-				}
-				if decision.TerminalProjection() != TerminalProjectionSucceeded || decision.TerminalClass() != "" {
-					t.Fatalf("valid review projection = %q/%q", decision.TerminalProjection(), decision.TerminalClass())
-				}
-			}
+		decision, err := DecideTransition(TransitionInput{
+			Condition:  AttemptConditionValidReview,
+			RepairUsed: repairUsed,
+		})
+		if err != nil {
+			t.Fatalf("DecideTransition(valid review): %v", err)
+		}
+		if decision.ScheduleRepair() || decision.CancelRun() || decision.ProviderUnusable() {
+			t.Fatalf("valid review with repair=%t scheduled work or blamed the provider: %+v", repairUsed, decision)
+		}
+		if decision.TerminalProjection() != TerminalProjectionSucceeded || decision.TerminalClass() != "" {
+			t.Fatalf("valid review projection = %q/%q", decision.TerminalProjection(), decision.TerminalClass())
 		}
 	}
 }
@@ -70,21 +57,12 @@ func TestSecurityAndCancellationProhibitNewWork(t *testing.T) {
 		AttemptConditionCancelled,
 	} {
 		for _, repairUsed := range []bool{false, true} {
-			for _, fallbackConfigured := range []bool{false, true} {
-				for _, fallbackEligible := range []bool{false, true} {
-					decision, err := DecideTransition(TransitionInput{
-						Condition:          condition,
-						RepairUsed:         repairUsed,
-						FallbackConfigured: fallbackConfigured,
-						FallbackEligible:   fallbackEligible,
-					})
-					if err != nil {
-						t.Fatalf("DecideTransition(%q): %v", condition, err)
-					}
-					if !decision.CancelRun() || decision.ScheduleRepair() || decision.ScheduleFallback() {
-						t.Fatalf("%q decision allowed new work: %+v", condition, decision)
-					}
-				}
+			decision, err := DecideTransition(TransitionInput{Condition: condition, RepairUsed: repairUsed})
+			if err != nil {
+				t.Fatalf("DecideTransition(%q): %v", condition, err)
+			}
+			if !decision.CancelRun() || decision.ScheduleRepair() {
+				t.Fatalf("%q decision allowed new work: %+v", condition, decision)
 			}
 		}
 	}
@@ -102,8 +80,6 @@ func TestObservedCancellationRespectsPrecedence(t *testing.T) {
 	for _, expectation := range policyExpectations() {
 		input := TransitionInput{
 			Condition:            expectation.condition,
-			FallbackConfigured:   true,
-			FallbackEligible:     true,
 			CancellationObserved: true,
 		}
 		decision, err := DecideTransition(input)
@@ -151,33 +127,62 @@ func TestReduceAttemptConditionsExhaustivePrecedence(t *testing.T) {
 	}
 }
 
-func TestSemanticContradictionUsesOnlyEligibleFallback(t *testing.T) {
+// TestSemanticContradictionFailsClosed proves a contradiction the provider
+// cannot be asked to repair closes the role immediately. It is the provider's
+// fault, but not proof the provider is unusable: a different diff may well pass.
+func TestSemanticContradictionFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	for _, repairUsed := range []bool{false, true} {
-		for _, fallbackConfigured := range []bool{false, true} {
-			for _, fallbackEligible := range []bool{false, true} {
-				input := TransitionInput{
-					Condition:          AttemptConditionSemanticContradiction,
-					RepairUsed:         repairUsed,
-					FallbackConfigured: fallbackConfigured,
-					FallbackEligible:   fallbackEligible,
-				}
-				decision, err := DecideTransition(input)
-				if err != nil {
-					t.Fatalf("DecideTransition(%+v): %v", input, err)
-				}
-				wantFallback := fallbackConfigured && fallbackEligible
-				if decision.Condition() != AttemptConditionSemanticContradiction ||
-					decision.ScheduleRepair() ||
-					decision.ScheduleFallback() != wantFallback ||
-					decision.CancelRun() ||
-					decision.TerminalClass() != domain.FailureInvalidOutput ||
-					decision.ReasonCode() != string(AttemptConditionSemanticContradiction) ||
-					decision.Terminal() == wantFallback {
-					t.Fatalf("semantic contradiction decision = %+v, fallback=%t", decision, wantFallback)
-				}
-			}
+		input := TransitionInput{Condition: AttemptConditionSemanticContradiction, RepairUsed: repairUsed}
+		decision, err := DecideTransition(input)
+		if err != nil {
+			t.Fatalf("DecideTransition(%+v): %v", input, err)
+		}
+		if decision.Condition() != AttemptConditionSemanticContradiction ||
+			decision.ScheduleRepair() ||
+			decision.CancelRun() ||
+			decision.ProviderUnusable() ||
+			decision.TerminalClass() != domain.FailureInvalidOutput ||
+			decision.ReasonCode() != string(AttemptConditionSemanticContradiction) ||
+			!decision.Terminal() {
+			t.Fatalf("semantic contradiction decision = %+v", decision)
+		}
+	}
+}
+
+// TestProviderUnusableIsLimitedToDeterministicFailures pins which conditions
+// tell the operator the provider itself must be fixed or replaced, rather than
+// that the run may simply be worth repeating.
+func TestProviderUnusableIsLimitedToDeterministicFailures(t *testing.T) {
+	t.Parallel()
+
+	unusable := map[AttemptCondition]bool{
+		AttemptConditionProviderUnavailable:      true,
+		AttemptConditionProviderSpawnFailed:      true,
+		AttemptConditionAuthentication:           true,
+		AttemptConditionProviderPermissionDenied: true,
+		AttemptConditionLoginRequired:            true,
+		AttemptConditionQuota:                    true,
+	}
+	for _, condition := range AttemptConditions() {
+		decision, err := DecideTransition(TransitionInput{Condition: condition})
+		if err != nil {
+			t.Fatalf("DecideTransition(%q): %v", condition, err)
+		}
+		if got, want := decision.ProviderUnusable(), unusable[condition]; got != want {
+			t.Fatalf("%q ProviderUnusable() = %t, want %t", condition, got, want)
+		}
+		// Anything that blames the provider must carry a provider-fault class,
+		// so the CLI's retryability and the report's guidance stay consistent.
+		if decision.ProviderUnusable() && !decision.TerminalClass().ProviderFault() {
+			t.Fatalf("%q is unusable but carries class %q", condition, decision.TerminalClass())
+		}
+	}
+	// Transient conditions must never claim the provider is unusable.
+	for _, condition := range []AttemptCondition{AttemptConditionRateLimit, AttemptConditionTimeout, AttemptConditionProviderTimeout} {
+		if unusable[condition] {
+			t.Fatalf("%q was marked deterministic", condition)
 		}
 	}
 }
@@ -188,8 +193,6 @@ func TestUnknownAttemptConditionFailsClosed(t *testing.T) {
 	for _, cancellationObserved := range []bool{false, true} {
 		decision, err := DecideTransition(TransitionInput{
 			Condition:            AttemptCondition("unknown"),
-			FallbackConfigured:   true,
-			FallbackEligible:     true,
 			CancellationObserved: cancellationObserved,
 		})
 		if err == nil || !errors.Is(err, domain.ErrInvariant) {
@@ -214,26 +217,21 @@ func TestPolicyFactsAreDefensiveAndImmutable(t *testing.T) {
 	}
 
 	input := TransitionInput{
-		Condition:          AttemptConditionInvalidEvidenceClaim,
-		RepairUsed:         true,
-		FallbackConfigured: true,
-		FallbackEligible:   true,
+		Condition:  AttemptConditionInvalidEvidenceClaim,
+		RepairUsed: false,
 	}
 	decision, err := DecideTransition(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	input.Condition = AttemptConditionSecurityViolation
-	input.RepairUsed = false
-	input.FallbackConfigured = false
-	input.FallbackEligible = false
+	input.RepairUsed = true
 	input.CancellationObserved = true
 
 	if decision.Condition() != AttemptConditionInvalidEvidenceClaim ||
 		decision.TerminalClass() != domain.FailureInvalidOutput ||
 		decision.ReasonCode() != string(AttemptConditionInvalidEvidenceClaim) ||
-		!decision.ScheduleFallback() ||
-		decision.ScheduleRepair() ||
+		!decision.ScheduleRepair() ||
 		decision.CancelRun() ||
 		decision.TerminalProjection() != TerminalProjectionNone {
 		t.Fatalf("mutating the input changed decision facts: %+v", decision)
@@ -303,39 +301,37 @@ type policyExpectation struct {
 	terminalClass domain.FailureClass
 	projection    TerminalProjection
 	repairable    bool
-	fallbackOnly  bool
 	cancelsRun    bool
 }
 
 type expectedTransitionDecision struct {
-	condition        AttemptCondition
-	scheduleRepair   bool
-	scheduleFallback bool
-	cancelRun        bool
-	terminalClass    domain.FailureClass
-	projection       TerminalProjection
-	reasonCode       string
+	condition      AttemptCondition
+	scheduleRepair bool
+	cancelRun      bool
+	terminalClass  domain.FailureClass
+	projection     TerminalProjection
+	reasonCode     string
 }
 
 func policyExpectations() []policyExpectation {
 	return []policyExpectation{
 		{condition: AttemptConditionValidReview, projection: TerminalProjectionSucceeded},
 		{condition: AttemptConditionInvalidProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
-		{condition: AttemptConditionUnrepairableProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderOutputMissing, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderOutputDecodeFailed, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
+		{condition: AttemptConditionUnrepairableProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderOutputMissing, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderOutputDecodeFailed, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionInvalidEvidenceClaim, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
-		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderSpawnFailed, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionAuthentication, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionProviderPermissionDenied, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed, fallbackOnly: true},
+		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderSpawnFailed, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionAuthentication, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderPermissionDenied, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionLoginRequired, terminalClass: domain.FailureAuthentication, projection: TerminalProjectionFailed},
-		{condition: AttemptConditionQuota, terminalClass: domain.FailureQuota, projection: TerminalProjectionFailed, fallbackOnly: true},
-		{condition: AttemptConditionRateLimit, terminalClass: domain.FailureRateLimit, projection: TerminalProjectionFailed, fallbackOnly: true},
+		{condition: AttemptConditionQuota, terminalClass: domain.FailureQuota, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionRateLimit, terminalClass: domain.FailureRateLimit, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionSecurityViolation, terminalClass: domain.FailureSecurityPolicy, projection: TerminalProjectionCancelled, cancelsRun: true},
 		{condition: AttemptConditionMutationViolation, terminalClass: domain.FailureSecurityPolicy, projection: TerminalProjectionCancelled, cancelsRun: true},
 		{condition: AttemptConditionConfigurationViolation, terminalClass: domain.FailureConfiguration, projection: TerminalProjectionFailed},
@@ -359,16 +355,8 @@ func expectedDecision(expectation policyExpectation, input TransitionInput) expe
 		projection:    expectation.projection,
 		reasonCode:    string(expectation.condition),
 	}
-	fallbackUsable := input.FallbackConfigured && input.FallbackEligible
-	switch {
-	case expectation.repairable && !input.RepairUsed:
+	if expectation.repairable && !input.RepairUsed {
 		want.scheduleRepair = true
-		want.projection = TerminalProjectionNone
-	case expectation.repairable && fallbackUsable:
-		want.scheduleFallback = true
-		want.projection = TerminalProjectionNone
-	case expectation.fallbackOnly && fallbackUsable:
-		want.scheduleFallback = true
 		want.projection = TerminalProjectionNone
 	}
 	return want
@@ -435,17 +423,13 @@ func assertDecision(t *testing.T, input TransitionInput, got TransitionDecision,
 	t.Helper()
 	if got.Condition() != want.condition ||
 		got.ScheduleRepair() != want.scheduleRepair ||
-		got.ScheduleFallback() != want.scheduleFallback ||
 		got.CancelRun() != want.cancelRun ||
 		got.TerminalClass() != want.terminalClass ||
 		got.TerminalProjection() != want.projection ||
 		got.ReasonCode() != want.reasonCode {
-		t.Fatalf("DecideTransition(%+v) = condition=%q repair=%t fallback=%t cancel=%t class=%q projection=%q reason=%q, want condition=%q repair=%t fallback=%t cancel=%t class=%q projection=%q reason=%q", input, got.Condition(), got.ScheduleRepair(), got.ScheduleFallback(), got.CancelRun(), got.TerminalClass(), got.TerminalProjection(), got.ReasonCode(), want.condition, want.scheduleRepair, want.scheduleFallback, want.cancelRun, want.terminalClass, want.projection, want.reasonCode)
+		t.Fatalf("DecideTransition(%+v) = condition=%q repair=%t cancel=%t class=%q projection=%q reason=%q, want condition=%q repair=%t cancel=%t class=%q projection=%q reason=%q", input, got.Condition(), got.ScheduleRepair(), got.CancelRun(), got.TerminalClass(), got.TerminalProjection(), got.ReasonCode(), want.condition, want.scheduleRepair, want.cancelRun, want.terminalClass, want.projection, want.reasonCode)
 	}
-	if got.ScheduleRepair() && got.ScheduleFallback() {
-		t.Fatalf("DecideTransition(%+v) scheduled repair and fallback", input)
-	}
-	if (got.ScheduleRepair() || got.ScheduleFallback()) != !got.Terminal() {
+	if got.ScheduleRepair() == got.Terminal() {
 		t.Fatalf("DecideTransition(%+v) terminal=%t does not match scheduled work", input, got.Terminal())
 	}
 }

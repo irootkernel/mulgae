@@ -9,23 +9,17 @@ func TestRoleTaskTransitionsMatchContract(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[[2]RoleTaskState]bool{
-		{RoleTaskPending, RoleTaskPrimaryQueued}:          true,
-		{RoleTaskPending, RoleTaskCancelled}:              true,
-		{RoleTaskPending, RoleTaskBlocked}:                true,
-		{RoleTaskPrimaryQueued, RoleTaskPrimaryRunning}:   true,
-		{RoleTaskPrimaryQueued, RoleTaskCancelled}:        true,
-		{RoleTaskPrimaryQueued, RoleTaskBlocked}:          true,
-		{RoleTaskPrimaryRunning, RoleTaskSucceeded}:       true,
-		{RoleTaskPrimaryRunning, RoleTaskFallbackQueued}:  true,
-		{RoleTaskPrimaryRunning, RoleTaskFailed}:          true,
-		{RoleTaskPrimaryRunning, RoleTaskCancelled}:       true,
-		{RoleTaskFallbackQueued, RoleTaskFallbackRunning}: true,
-		{RoleTaskFallbackQueued, RoleTaskCancelled}:       true,
-		{RoleTaskFallbackRunning, RoleTaskSucceeded}:      true,
-		{RoleTaskFallbackRunning, RoleTaskFailed}:         true,
-		{RoleTaskFallbackRunning, RoleTaskCancelled}:      true,
+		{RoleTaskPending, RoleTaskPrimaryQueued}:        true,
+		{RoleTaskPending, RoleTaskCancelled}:            true,
+		{RoleTaskPending, RoleTaskBlocked}:              true,
+		{RoleTaskPrimaryQueued, RoleTaskPrimaryRunning}: true,
+		{RoleTaskPrimaryQueued, RoleTaskCancelled}:      true,
+		{RoleTaskPrimaryQueued, RoleTaskBlocked}:        true,
+		{RoleTaskPrimaryRunning, RoleTaskSucceeded}:     true,
+		{RoleTaskPrimaryRunning, RoleTaskFailed}:        true,
+		{RoleTaskPrimaryRunning, RoleTaskCancelled}:     true,
 	}
-	states := []RoleTaskState{RoleTaskPending, RoleTaskPrimaryQueued, RoleTaskPrimaryRunning, RoleTaskFallbackQueued, RoleTaskFallbackRunning, RoleTaskSucceeded, RoleTaskFailed, RoleTaskCancelled, RoleTaskBlocked}
+	states := []RoleTaskState{RoleTaskPending, RoleTaskPrimaryQueued, RoleTaskPrimaryRunning, RoleTaskSucceeded, RoleTaskFailed, RoleTaskCancelled, RoleTaskBlocked}
 	for _, from := range states {
 		for _, to := range states {
 			want := allowed[[2]RoleTaskState{from, to}]
@@ -146,7 +140,7 @@ func TestUnknownStatesCannotTransition(t *testing.T) {
 		t.Error("unknown run source transitioned")
 	}
 
-	for _, state := range []RoleTaskState{RoleTaskPending, RoleTaskPrimaryQueued, RoleTaskPrimaryRunning, RoleTaskFallbackQueued, RoleTaskFallbackRunning, RoleTaskSucceeded, RoleTaskFailed, RoleTaskCancelled, RoleTaskBlocked} {
+	for _, state := range []RoleTaskState{RoleTaskPending, RoleTaskPrimaryQueued, RoleTaskPrimaryRunning, RoleTaskSucceeded, RoleTaskFailed, RoleTaskCancelled, RoleTaskBlocked} {
 		if state.CanTransition(RoleTaskState("unknown")) {
 			t.Errorf("role-task state %q accepted unknown destination", state)
 		}
@@ -268,7 +262,7 @@ func TestEveryStateVocabularyValidatesExactly(t *testing.T) {
 	}{
 		{"run type", func(value string) bool { return RunType(value).Valid() }, []string{string(RunTypeReview), string(RunTypeFollowup), string(RunTypeDelta), string(RunTypeRerun)}},
 		{"run state", func(value string) bool { return RunState(value).Valid() }, []string{string(RunPending), string(RunRunning), string(RunCompleted), string(RunDegraded), string(RunFailed), string(RunCancelled)}},
-		{"role-task state", func(value string) bool { return RoleTaskState(value).Valid() }, []string{string(RoleTaskPending), string(RoleTaskPrimaryQueued), string(RoleTaskPrimaryRunning), string(RoleTaskFallbackQueued), string(RoleTaskFallbackRunning), string(RoleTaskSucceeded), string(RoleTaskFailed), string(RoleTaskCancelled), string(RoleTaskBlocked)}},
+		{"role-task state", func(value string) bool { return RoleTaskState(value).Valid() }, []string{string(RoleTaskPending), string(RoleTaskPrimaryQueued), string(RoleTaskPrimaryRunning), string(RoleTaskSucceeded), string(RoleTaskFailed), string(RoleTaskCancelled), string(RoleTaskBlocked)}},
 		{"attempt state", func(value string) bool { return AttemptState(value).Valid() }, []string{string(AttemptQueued), string(AttemptRunning), string(AttemptValidating), string(AttemptRepairing), string(AttemptSucceeded), string(AttemptFailed), string(AttemptTimedOut), string(AttemptCancelled), string(AttemptBlocked)}},
 		{"invocation state", func(value string) bool { return InvocationState(value).Valid() }, []string{string(InvocationQueued), string(InvocationRunning), string(InvocationSucceeded), string(InvocationFailed), string(InvocationTimedOut), string(InvocationCancelled), string(InvocationBlocked)}},
 		{"parse state", func(value string) bool { return ParseState(value).Valid() }, []string{string(ParseNotStarted), string(ParseValid), string(ParseInvalidJSON), string(ParseEmptyOutput), string(ParseOutputTooLarge)}},

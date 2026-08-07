@@ -27,10 +27,10 @@ mulgae review --stage --preflight --output json
 ```
 
 Preflight performs the real bounded capture and snapshot admission, then reports
-the exact source file set transmitted to every selected role, primary/fallback
-routes, effective provider timeouts, AGY permission mode, and enclosing lane/run
-budgets. `qualification` is `not_run`: preflight does not discover, qualify,
-repair, invoke, or fall back to a provider, and it creates no session, run,
+the exact source file set transmitted to every selected role, each role's
+provider route, effective provider timeouts, AGY permission mode, and enclosing
+lane/run budgets. `qualification` is `not_run`: preflight does not discover,
+qualify, repair, or invoke a provider, and it creates no session, run,
 diagnostics, publication, or durable review artifact. The workspace manifest is
 listed separately as `generated_at_execution`; its ephemeral filesystem identity
 is not represented as source evidence.

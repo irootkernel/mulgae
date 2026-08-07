@@ -119,22 +119,36 @@ mulgae review --stage --preflight --output json
 Preflight uses the real bounded capture path but does not discover, qualify, or
 invoke providers and does not create a session, run, diagnostic, or publication.
 It reports `qualification: not_run`, the exact source files sent to each role,
-PNG/JPEG/WebP binary metadata, primary and fallback routes, effective timeouts,
+PNG/JPEG/WebP binary metadata, each role's provider route, effective timeouts,
 AGY's permission mode, and enclosing lane/run budgets. The generated workspace
 manifest is declared separately as `generated_at_execution`. AGY safe mode is
 explicitly warned because headless permission requests may be denied.
 
-Automatic initialization configures ZCode as the primary reviewer and AGY as
-its fallback for logic, security, maintainability, product, and testing. The
-documentation role uses AGY with ZCode fallback.
+Automatic initialization configures ZCode as the reviewer for logic, security,
+maintainability, product, and testing, and AGY for documentation.
 
 These defaults are declared in one place: `assets/roles.yaml` at the repository
 root, which also holds each role's review guidance. Every role lists an ordered
 `provider_preferences`; `mulgae init` intersects that order with the providers it
-actually configured, taking the first match as the primary and the second as the
-fallback. Editing that file and rebuilding changes what `mulgae init` writes. It
-never changes an existing `.mulgae/config.yaml`, which remains the sole authority
-once a project is initialized.
+actually configured and takes the first match as the role's provider. Editing
+that file and rebuilding changes what `mulgae init` writes. It never changes an
+existing `.mulgae/config.yaml`, which remains the sole authority once a project
+is initialized.
+
+Each role runs on exactly one provider, and Mulgae never switches providers on
+its own. A published review therefore reflects one reviewer per role rather than
+a mix of models chosen by whichever one happened to fail. When a provider fails,
+that role is reported as failed with its typed reason while every other role
+continues on its own provider; the report's "Provider issues" section names each
+failed role, the provider it ran on, why it stopped, and the `mulgae rerun`
+command to run it again on a provider you choose.
+
+A configuration written before this rule carries `roles.<role>.fallback_provider`
+and `resources.fallback_repair_attempts`. Both keys are gone, and a configuration
+that still holds either is rejected rather than reread with them ignored. Run
+`mulgae init` in a fresh directory to generate a current configuration, or delete
+those keys and set `role_max_invocations` to 2 and `run_max_invocations` to twice
+your enabled role count.
 
 `mulgae init` creates the only configuration authority:
 `.mulgae/config.yaml`. It never overwrites an existing configuration.

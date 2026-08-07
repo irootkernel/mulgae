@@ -450,7 +450,8 @@
             "primary",
             "fallback",
             null
-          ]
+          ],
+          "description": "Which configured route the attempt used. A role is bound to exactly one provider, so new runs only ever record \"primary\"; \"fallback\" is retained so artifacts written before cross-provider fallback was removed stay readable."
         },
         "valid_finding_ids": {
           "type": "array",

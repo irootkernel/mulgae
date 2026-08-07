@@ -46,10 +46,9 @@
     },
     "assignment": {
       "type": "object", "additionalProperties": false, "required": ["state", "resilience"],
-      "properties": { "state": { "enum": ["ready", "degraded_resilience", "unavailable", "not_observed"] }, "resilience": { "enum": ["ready", "degraded", "unavailable", "not_observed"] } },
+      "properties": { "state": { "enum": ["ready", "unavailable", "not_observed"] }, "resilience": { "enum": ["ready", "unavailable", "not_observed"] } },
       "oneOf": [
         { "properties": { "state": { "const": "ready" }, "resilience": { "const": "ready" } } },
-        { "properties": { "state": { "const": "degraded_resilience" }, "resilience": { "const": "degraded" } } },
         { "properties": { "state": { "const": "unavailable" }, "resilience": { "const": "unavailable" } } },
         { "properties": { "state": { "const": "not_observed" }, "resilience": { "const": "not_observed" } } }
       ]
@@ -100,7 +99,6 @@
     {
       "oneOf": [
         { "properties": { "assignment": { "properties": { "state": { "const": "ready" } } }, "readiness": { "properties": { "state": { "const": "ready" } } } } },
-        { "properties": { "assignment": { "properties": { "state": { "const": "degraded_resilience" } } }, "readiness": { "properties": { "state": { "const": "degraded" } } } } },
         { "properties": { "assignment": { "properties": { "state": { "const": "unavailable" } } }, "readiness": { "properties": { "state": { "enum": ["unverified", "unsafe"] } } } } },
         { "properties": { "assignment": { "properties": { "state": { "const": "not_observed" } } }, "readiness": { "properties": { "state": { "enum": ["unverified", "unsafe"] } } } } }
       ]

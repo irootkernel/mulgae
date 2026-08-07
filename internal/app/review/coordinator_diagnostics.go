@@ -93,18 +93,10 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 		inputs := []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticLaneStarted, string(domain.InvocationRunning), "")}
 		if trace.purpose == domain.InvocationRepair {
 			inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticRepairStarted, string(domain.AttemptRepairing), ""))
-		} else if trace.attemptKind == AttemptKindFallback {
-			inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticFallbackStarted, string(domain.AttemptRunning), ""))
 		}
 		return inputs
 	case CoordinatorEventRepairQueued:
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticWarn, domain.DiagnosticRepairScheduled, string(domain.AttemptRepairing), "")}
-	case CoordinatorEventFallbackQueued:
-		return []domain.RuntimeDiagnosticEventInput{
-			add(domain.RuntimeDiagnosticError, domain.DiagnosticAttemptFailed, string(traceAttemptState(execution, trace.attemptID)), string(trace.condition)),
-			add(domain.RuntimeDiagnosticWarn, domain.DiagnosticFallbackEligible, "", string(trace.condition)),
-			add(domain.RuntimeDiagnosticWarn, domain.DiagnosticFallbackScheduled, "", string(trace.condition)),
-		}
 	case CoordinatorEventRoleTerminal:
 		state := traceAttemptState(execution, trace.attemptID)
 		level, attemptEvent := domain.RuntimeDiagnosticError, domain.DiagnosticAttemptFailed
@@ -120,10 +112,8 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 				inputs = append(inputs, add(domain.RuntimeDiagnosticError, domain.DiagnosticRepairExhausted, string(state), string(trace.condition)))
 			}
 		}
-		if trace.attemptKind == AttemptKindFallback {
-			inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticFallbackCompleted, string(state), string(trace.condition)))
-		} else if state != domain.AttemptSucceeded && execution.diagnosticRoleHasUnusedFallback(trace.role) {
-			inputs = append(inputs, add(domain.RuntimeDiagnosticError, domain.DiagnosticFallbackProhibited, string(state), string(trace.condition)))
+		if state != domain.AttemptSucceeded && execution.diagnosticRoleProviderUnusable(trace.role) {
+			inputs = append(inputs, add(domain.RuntimeDiagnosticError, domain.DiagnosticProviderQuarantined, string(state), string(trace.condition)))
 		}
 		roleLevel := domain.RuntimeDiagnosticError
 		if roleEvent == domain.DiagnosticRoleCompleted {
@@ -153,9 +143,12 @@ func (execution *coordinatorExecution) diagnosticAttemptUsedRepair(id domain.Att
 	return false
 }
 
-func (execution *coordinatorExecution) diagnosticRoleHasUnusedFallback(role domain.Role) bool {
+// diagnosticRoleProviderUnusable reports whether this role's failure proved its
+// provider unusable, so the runtime log records that the operator must fix or
+// replace the provider rather than simply rerun.
+func (execution *coordinatorExecution) diagnosticRoleProviderUnusable(role domain.Role) bool {
 	state, ok := execution.roles[role]
-	return ok && state.assignment.HasFallback() && !state.fallbackScheduled
+	return ok && state.providerUnusable
 }
 
 func (execution *coordinatorExecution) diagnosticAttemptProvider(id domain.AttemptID) string {
@@ -194,9 +187,6 @@ func (execution *coordinatorExecution) replaceDiagnosticAttemptStatus(trace Coor
 		completed = now
 	}
 	selection := ports.RuntimeDiagnosticPrimary
-	if trace.attemptKind == AttemptKindFallback {
-		selection = ports.RuntimeDiagnosticFallback
-	}
 	status, err := ports.NewRuntimeDiagnosticAttemptStatus(ports.RuntimeDiagnosticAttemptStatusInput{
 		SessionID: execution.run.SessionID(), RunID: execution.run.ID(), AttemptID: trace.attemptID,
 		Role: trace.role, Provider: execution.diagnosticAttemptProvider(trace.attemptID), Selection: selection,

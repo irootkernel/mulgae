@@ -133,12 +133,7 @@ func newChildRun(source SourceAttempt, mode ReplayMode, config Config) (domain.R
 	}
 	roles := make([]domain.RoleTask, 0, len(selected))
 	for _, assignment := range selected {
-		var fallback *string
-		if route, ok := assignment.FallbackRoute(); ok {
-			value := route.ProviderInstance()
-			fallback = &value
-		}
-		task, err := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.ProviderInstance(), fallback)
+		task, err := domain.NewRoleTask(assignment.Role(), assignment.Required(), assignment.ProviderInstance())
 		if err != nil {
 			return domain.Run{}, fmt.Errorf("rerun child role %q: %w", assignment.Role(), err)
 		}
@@ -174,13 +169,17 @@ func selectedAssignmentsForSource(source SourceAttempt, assignments []review.Ass
 	assignment := selected[0]
 	route := assignment.PrimaryRoute()
 	if route.ProviderInstance() != source.ProviderInstance {
-		fallback, ok := assignment.FallbackRoute()
-		if !ok || fallback.ProviderInstance() != source.ProviderInstance {
-			return nil, fmt.Errorf("rerun child exact replay requires the source provider route for its role")
-		}
-		route = fallback
+		// A role is bound to exactly one provider. An attempt recorded against a
+		// different provider came from a run that predates that rule, or from a
+		// configuration that has since changed; replaying it exactly is no longer
+		// possible, and silently substituting the configured provider would not be
+		// an exact replay.
+		return nil, fmt.Errorf(
+			"rerun child exact replay requires the source provider route for its role: attempt used %q but role %q is configured for %q",
+			source.ProviderInstance, assignment.Role(), route.ProviderInstance(),
+		)
 	}
-	exact, err := review.NewScheduledAssignment(assignment.Role(), assignment.Required(), route, nil)
+	exact, err := review.NewScheduledAssignment(assignment.Role(), assignment.Required(), route)
 	if err != nil {
 		return nil, fmt.Errorf("rerun child exact provider route: %w", err)
 	}

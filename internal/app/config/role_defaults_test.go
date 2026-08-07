@@ -128,8 +128,8 @@ func TestCanonicalRolesConfigFollowsSuppliedPreferenceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical roles: %v", err)
 	}
-	if roles.Logic.PrimaryProvider != "agy" || roles.Logic.FallbackProvider != "zcode" {
-		t.Fatalf("logic = %s/%s, want agy/zcode from the supplied defaults", roles.Logic.PrimaryProvider, roles.Logic.FallbackProvider)
+	if roles.Logic.PrimaryProvider != "agy" {
+		t.Fatalf("logic = %s, want agy from the supplied defaults", roles.Logic.PrimaryProvider)
 	}
 }
 
@@ -146,27 +146,42 @@ func TestCanonicalRolesConfigResolvesEachCoreRoleIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical roles: %v", err)
 	}
-	if roles.Security.PrimaryProvider != "zcode" || roles.Security.FallbackProvider != "agy" {
-		t.Fatalf("security = %s/%s, want zcode/agy", roles.Security.PrimaryProvider, roles.Security.FallbackProvider)
+	if roles.Security.PrimaryProvider != "zcode" {
+		t.Fatalf("security = %s, want zcode", roles.Security.PrimaryProvider)
 	}
-	if roles.Testing.PrimaryProvider != "agy" || roles.Testing.FallbackProvider != "kimi" {
-		t.Fatalf("testing = %s/%s, want agy/kimi", roles.Testing.PrimaryProvider, roles.Testing.FallbackProvider)
+	if roles.Testing.PrimaryProvider != "agy" {
+		t.Fatalf("testing = %s, want agy", roles.Testing.PrimaryProvider)
 	}
-	if roles.Product.PrimaryProvider != "kimi" || roles.Product.FallbackProvider != "zcode" {
-		t.Fatalf("product = %s/%s, want the untouched kimi/zcode", roles.Product.PrimaryProvider, roles.Product.FallbackProvider)
+	if roles.Product.PrimaryProvider != "kimi" {
+		t.Fatalf("product = %s, want the untouched kimi", roles.Product.PrimaryProvider)
 	}
 }
 
-func TestCanonicalRolesConfigOmitsFallbackForASingleFamily(t *testing.T) {
+// TestCanonicalRolesConfigSelectsOneProviderPerRole proves the derivation takes
+// only the first configured family from a role's preference order, however many
+// families are configured. Later preferences keep the derivation total; they are
+// not a second route.
+func TestCanonicalRolesConfigSelectsOneProviderPerRole(t *testing.T) {
 	t.Parallel()
 
 	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"agy"})
-	if err != nil {
-		t.Fatalf("canonical roles: %v", err)
-	}
-	if roles.Logic.PrimaryProvider != "agy" || roles.Logic.FallbackProvider != "" {
-		t.Fatalf("logic = %s/%s, want agy with no fallback", roles.Logic.PrimaryProvider, roles.Logic.FallbackProvider)
+	for _, test := range []struct {
+		name       string
+		configured []string
+		want       string
+	}{
+		{"single family", []string{"agy"}, "agy"},
+		{"every family", []string{"kimi", "zcode", "agy"}, "kimi"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			roles, err := appconfig.CanonicalRolesConfig(defaults, test.configured)
+			if err != nil {
+				t.Fatalf("canonical roles: %v", err)
+			}
+			if roles.Logic.PrimaryProvider != test.want {
+				t.Fatalf("logic = %s, want %s", roles.Logic.PrimaryProvider, test.want)
+			}
+		})
 	}
 }
 
@@ -195,8 +210,8 @@ func TestCanonicalRolesConfigSeedsArtistInputsFromDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical UI roles: %v", err)
 	}
-	if roles.Artist.PrimaryProvider != "zcode" || roles.Artist.FallbackProvider != "agy" {
-		t.Fatalf("artist = %s/%s, want zcode/agy from the supplied defaults", roles.Artist.PrimaryProvider, roles.Artist.FallbackProvider)
+	if roles.Artist.PrimaryProvider != "zcode" {
+		t.Fatalf("artist = %s, want zcode from the supplied defaults", roles.Artist.PrimaryProvider)
 	}
 	if roles.Artist.Inputs == nil || roles.Artist.Inputs.TaskPath != "docs/brief.md" {
 		t.Fatalf("artist inputs = %#v, want the supplied task path", roles.Artist.Inputs)

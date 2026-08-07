@@ -90,7 +90,7 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	}
 	attemptID := coordinatorTypesAttemptID(t, 12)
 	job, err := newCoordinatorInvocationJob(
-		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		sessionID, runID, domain.RoleLogic,
 		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
@@ -207,7 +207,7 @@ func providerRuntimeDiagnosticJob(t *testing.T, runID domain.RunID, attemptID do
 		t.Fatal(err)
 	}
 	job, err := newCoordinatorInvocationJob(
-		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		sessionID, runID, domain.RoleLogic,
 		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
@@ -251,7 +251,7 @@ func TestProviderRuntimeOutputReceivedRequiresNonEmptyStdout(t *testing.T) {
 	}
 	attemptID := coordinatorTypesAttemptID(t, 12)
 	job, err := newCoordinatorInvocationJob(
-		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		sessionID, runID, domain.RoleLogic,
 		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
@@ -410,7 +410,7 @@ func TestExplicitRuntimeInvocationsDoNotSerializeDistinctLanes(t *testing.T) {
 	for index, role := range roles {
 		attemptID := coordinatorTypesAttemptID(t, index+1)
 		jobs[index], err = newCoordinatorInvocationJob(
-			sessionID, runID, role, AttemptKindPrimary,
+			sessionID, runID, role,
 			coordinatorTypesRoute(t, "fake."+string(role), string(role)+"-lane"), target,
 			coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, uint64(index+1),
 		)
@@ -752,7 +752,7 @@ func TestProviderBoundaryRequiresTheFullConfiguredWindow(t *testing.T) {
 	}
 }
 
-func TestObservedUnparseableProviderOutputIsFallbackOnly(t *testing.T) {
+func TestObservedUnparseableProviderOutputIsUnrepairable(t *testing.T) {
 	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputDecodeFailed); got != AttemptConditionProviderOutputDecodeFailed {
 		t.Fatalf("invalid provider framing condition = %q", got)
 	}
@@ -856,13 +856,11 @@ func TestPromptConstructionFailureDoesNotAuthorizeProviderOutputRepair(t *testin
 	if got := runtimePromptErrorCondition(context.Background(), errors.New("identity issuance failed")); got != AttemptConditionInternalInvariant {
 		t.Fatalf("prompt construction failure condition = %q, want %q", got, AttemptConditionInternalInvariant)
 	}
-	decision, err := DecideTransition(TransitionInput{
-		Condition: AttemptConditionInternalInvariant, FallbackConfigured: true, FallbackEligible: true,
-	})
+	decision, err := DecideTransition(TransitionInput{Condition: AttemptConditionInternalInvariant})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.ScheduleRepair() || decision.ScheduleFallback() || decision.TerminalProjection() != TerminalProjectionFailed {
+	if decision.ScheduleRepair() || decision.ProviderUnusable() || decision.TerminalProjection() != TerminalProjectionFailed {
 		t.Fatalf("prompt construction decision = %#v", decision)
 	}
 }
@@ -973,12 +971,10 @@ func TestProviderRuntimeMalformedStructuredLikeSchedulesAtMostOneRepair(t *testi
 		t.Fatalf("repair pending = %#v present=%t", pending, ok)
 	}
 	decision, err := DecideTransition(TransitionInput{
-		Condition:          coordinatorOutcomeCondition(outcome),
-		RepairUsed:         false,
-		FallbackConfigured: false,
-		FallbackEligible:   false,
+		Condition:  coordinatorOutcomeCondition(outcome),
+		RepairUsed: false,
 	})
-	if err != nil || !decision.ScheduleRepair() || decision.ScheduleFallback() {
+	if err != nil || !decision.ScheduleRepair() {
 		t.Fatalf("malformed structured-like decision = %#v err=%v", decision, err)
 	}
 }
@@ -1015,17 +1011,15 @@ func TestProviderRuntimeMalformedThenFreeFormRepairPublishesReportsOnly(t *testi
 		t.Fatalf("initial pending = %#v present=%t", pending, ok)
 	}
 	decision, err := DecideTransition(TransitionInput{
-		Condition:          coordinatorOutcomeCondition(initial),
-		RepairUsed:         false,
-		FallbackConfigured: false,
-		FallbackEligible:   false,
+		Condition:  coordinatorOutcomeCondition(initial),
+		RepairUsed: false,
 	})
 	if err != nil || !decision.ScheduleRepair() {
 		t.Fatalf("initial decision = %#v err=%v", decision, err)
 	}
 
 	repairJob, err := newCoordinatorInvocationJob(
-		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(),
 		initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
 		domain.InvocationRepair, 2,
 	)
@@ -1078,7 +1072,7 @@ func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider)
 		t.Fatal(err)
 	}
 	job, err := newCoordinatorInvocationJob(
-		sessionID, runID, domain.RoleLogic, AttemptKindPrimary,
+		sessionID, runID, domain.RoleLogic,
 		coordinatorTypesRoute(t, "fake.logic", "logic-lane"), target,
 		limits, attemptID, domain.InvocationInitial, 1,
 	)
@@ -1453,11 +1447,9 @@ func TestInvokeMapsStagedFileMissingToProviderOutputMissing(t *testing.T) {
 	if outcome.Succeeded() || condition != AttemptConditionProviderOutputMissing {
 		t.Fatalf("staged missing condition = %q, want %q", condition, AttemptConditionProviderOutputMissing)
 	}
-	decision, err := DecideTransition(TransitionInput{
-		Condition: condition, FallbackConfigured: true, FallbackEligible: true,
-	})
-	if err != nil || !decision.ScheduleFallback() || decision.ScheduleRepair() || decision.CancelRun() ||
-		decision.TerminalClass() != domain.FailureInvalidOutput {
+	decision, err := DecideTransition(TransitionInput{Condition: condition})
+	if err != nil || decision.ScheduleRepair() || decision.CancelRun() ||
+		!decision.Terminal() || decision.TerminalClass() != domain.FailureInvalidOutput {
 		t.Fatalf("staged missing decision = %#v err=%v", decision, err)
 	}
 }
@@ -1489,10 +1481,8 @@ func TestInvokeMapsStagingViolationToSecurityViolation(t *testing.T) {
 			if outcome.Succeeded() || condition != AttemptConditionSecurityViolation {
 				t.Fatalf("staging violation condition = %q, want %q", condition, AttemptConditionSecurityViolation)
 			}
-			decision, decisionErr := DecideTransition(TransitionInput{
-				Condition: condition, FallbackConfigured: true, FallbackEligible: true,
-			})
-			if decisionErr != nil || !decision.CancelRun() || decision.ScheduleFallback() || decision.ScheduleRepair() {
+			decision, decisionErr := DecideTransition(TransitionInput{Condition: condition})
+			if decisionErr != nil || !decision.CancelRun() || decision.ScheduleRepair() {
 				t.Fatalf("staging violation decision = %#v err=%v", decision, decisionErr)
 			}
 		})
@@ -1526,10 +1516,8 @@ func TestInvokeCleanupFailureIsArtifactCondition(t *testing.T) {
 			if outcome.Succeeded() || condition != AttemptConditionArtifactFailure {
 				t.Fatalf("staging cleanup condition = %q, want %q", condition, AttemptConditionArtifactFailure)
 			}
-			decision, decisionErr := DecideTransition(TransitionInput{
-				Condition: condition, FallbackConfigured: true, FallbackEligible: true,
-			})
-			if decisionErr != nil || decision.ScheduleFallback() || decision.ScheduleRepair() ||
+			decision, decisionErr := DecideTransition(TransitionInput{Condition: condition})
+			if decisionErr != nil || decision.ScheduleRepair() ||
 				decision.TerminalProjection() != TerminalProjectionFailed || decision.TerminalClass() != domain.FailureArtifact {
 				t.Fatalf("staging cleanup decision = %#v err=%v", decision, decisionErr)
 			}
@@ -1539,12 +1527,13 @@ func TestInvokeCleanupFailureIsArtifactCondition(t *testing.T) {
 
 func TestObservedStagedOutputCausesKeyOnTypedCause(t *testing.T) {
 	// The adapter projects both operational staged causes onto an artifact
-	// failure status. Only the typed cause keeps them fallback-eligible.
+	// failure status. Only the typed cause keeps them publishable as ordinary
+	// provider faults rather than fail-closed integrity failures.
 	for _, test := range []struct {
-		cause    domain.RuntimeDiagnosticCause
-		status   ports.ProviderExecutionStatus
-		want     AttemptCondition
-		fallback bool
+		cause         domain.RuntimeDiagnosticCause
+		status        ports.ProviderExecutionStatus
+		want          AttemptCondition
+		providerFault bool
 	}{
 		{domain.DiagnosticCauseProviderOutputFileMissing, ports.ProviderExecutionStatusArtifactFailure, AttemptConditionProviderOutputMissing, true},
 		{domain.DiagnosticCauseProviderOutputFileInvalid, ports.ProviderExecutionStatusArtifactFailure, AttemptConditionProviderOutputDecodeFailed, true},
@@ -1556,14 +1545,12 @@ func TestObservedStagedOutputCausesKeyOnTypedCause(t *testing.T) {
 			if got != test.want {
 				t.Fatalf("observed staged cause condition = %q, want %q", got, test.want)
 			}
-			decision, err := DecideTransition(TransitionInput{
-				Condition: got, FallbackConfigured: true, FallbackEligible: true,
-			})
+			decision, err := DecideTransition(TransitionInput{Condition: got})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if decision.ScheduleFallback() != test.fallback || decision.ScheduleRepair() {
-				t.Fatalf("staged cause decision = %#v, want fallback %t", decision, test.fallback)
+			if decision.TerminalClass().ProviderFault() != test.providerFault || decision.ScheduleRepair() {
+				t.Fatalf("staged cause decision = %#v, want provider fault %t", decision, test.providerFault)
 			}
 		})
 	}
@@ -1584,7 +1571,7 @@ func TestProviderInvocationCarriesStagedDestinationThroughRepair(t *testing.T) {
 		t.Fatalf("initial staged outcome = %#v pending=%d", initial, len(runtime.pending))
 	}
 	repairJob, err := newCoordinatorInvocationJob(
-		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+		initialJob.SessionID(), initialJob.RunID(), initialJob.Role(),
 		initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
 		domain.InvocationRepair, 2,
 	)
@@ -1675,7 +1662,7 @@ func TestInvokeAppendsDestinationLayerLastForStagedRoutes(t *testing.T) {
 			t.Fatalf("initial malformed outcome = %#v", outcome)
 		}
 		repairJob, err := newCoordinatorInvocationJob(
-			initialJob.SessionID(), initialJob.RunID(), initialJob.Role(), AttemptKindPrimary,
+			initialJob.SessionID(), initialJob.RunID(), initialJob.Role(),
 			initialJob.Route(), initialJob.Target(), initialJob.Limits(), initialJob.AttemptID(),
 			domain.InvocationRepair, 2,
 		)

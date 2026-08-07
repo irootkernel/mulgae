@@ -53,8 +53,8 @@ overlays it into the contract catalog under the same checksum inventory as every
 embedded file.
 
 The document is a generation-time authority only. `mulgae init` derives the
-default primary and fallback assignment it writes into a new project from the
-preference order intersected with the providers it configured. Nothing resolves a
+default provider assignment it writes into a new project from the preference
+order intersected with the providers it configured. Nothing resolves a
 configured value from embedded bytes, and `.mulgae/config.yaml` is never
 re-derived after init.
 
@@ -63,7 +63,7 @@ re-derived after init.
 1. The entrypoint parses one canonical command request.
 2. Project-local configuration is admitted against platform and locality rules.
 3. The requested target is captured immutably.
-4. The planner selects roles and configured primary/fallback providers.
+4. The planner selects roles and each role's configured provider.
 5. Mulgae composes trusted prompt layers and one capture-owned immutable
    workspace shared by every role in the run.
 6. Provider executions run through bounded, serialized lanes with
@@ -75,8 +75,9 @@ re-derived after init.
 8. Bounded UTF-8 provider output becomes Mulgae-owned free-form role reports;
    optional exact JSON may be structured-extracted and normalized with
    Mulgae-owned identity/state. Prose is not treated as a schema document.
-9. One constrained repair and fallback occur only when an explicit transition
-   authorizes them.
+9. One constrained repair on the same provider occurs only when an explicit
+   transition authorizes it. A role never moves to another provider: a failed
+   role is reported with its typed reason while peer roles continue.
 10. Evidence for structured findings is checked against the captured target.
 11. Publication atomically commits the manifest, role reports, and at most one
     final review, recording the transport that carried each accepted role

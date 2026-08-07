@@ -18,6 +18,7 @@ import (
 	coreapp "github.com/irootkernel/mulgae/internal/app"
 	appevidence "github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -685,11 +686,6 @@ func renderMarkdown(
 		} else {
 			writeField(&output, "Provider instance", "absent")
 		}
-		if selection, ok := role.SelectedVia(); ok {
-			writeField(&output, "Selection", selection)
-		} else {
-			writeField(&output, "Selection", "absent")
-		}
 		writeField(&output, "Finding IDs", reportList(role.ValidFindingIDs()))
 		if failure, ok := role.FailureReason(); ok {
 			writeField(&output, "Failure reason", failure)
@@ -781,6 +777,8 @@ func renderMarkdown(
 	}
 	writeBlankLine(&output)
 
+	writeProviderIssues(&output, review)
+
 	writeHeading(&output, "Artifact references")
 	writeField(&output, "Final artifact path", review.FinalPath().String())
 	writeField(&output, "Final artifact SHA-256", review.FinalSHA256())
@@ -808,11 +806,6 @@ func renderMarkdown(
 			writeField(&output, "Role attempt", string(role.Name())+": "+attemptID.String())
 		} else {
 			writeField(&output, "Role attempt", string(role.Name())+": absent")
-		}
-		if selection, ok := role.SelectedVia(); ok {
-			writeField(&output, "Role selection", string(role.Name())+": "+selection)
-		} else {
-			writeField(&output, "Role selection", string(role.Name())+": absent")
 		}
 	}
 	writeBlankLine(&output)
@@ -1039,6 +1032,64 @@ func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bo
 	}
 	digest, err := claim.ExcerptSHA256(excerpt)
 	return err == nil && digest == item.CurrentExcerptSHA256()
+}
+
+// writeProviderIssues reports the roles that produced no review, why each one
+// stopped, and the exact command to run that role again on another provider.
+// Mulgae never substitutes a provider on its own: a role is bound to the one
+// its configuration names, so recovering a failed role is the operator's
+// decision and this section is what they need to make it.
+func writeProviderIssues(output *strings.Builder, review query.CommittedReview) {
+	failed := make([]query.Role, 0, len(review.Roles()))
+	for _, role := range review.Roles() {
+		if role.Outcome() == "failed" {
+			failed = append(failed, role)
+		}
+	}
+	if len(failed) == 0 {
+		return
+	}
+
+	writeHeading(output, "Provider issues")
+	writeText(output, "These roles produced no review. Mulgae did not retry them on another "+
+		"provider; rerun a role with the command shown, replacing <family> with a configured "+
+		"provider family. Each role's remediation says whether its provider must be fixed first.")
+	writeBlankLine(output)
+	for _, role := range failed {
+		writeField(output, "Role", string(role.Name()))
+		if provider, ok := role.ProviderInstance(); ok {
+			writeField(output, "Provider instance", provider)
+		} else {
+			writeField(output, "Provider instance", "absent")
+		}
+		reason, hasReason := role.FailureReason()
+		if hasReason {
+			writeField(output, "Failure reason", reason)
+		} else {
+			writeField(output, "Failure reason", "none")
+		}
+		writeField(output, "Remediation", providerIssueRemediation(reason))
+		writeField(output, "Rerun command", "mulgae rerun --run "+review.RunID().String()+
+			" --role "+string(role.Name())+" --provider <family>")
+		writeBlankLine(output)
+	}
+}
+
+// providerIssueRemediation says whether the provider must be fixed before the
+// rerun can succeed. It reads the coordinator's own closed policy so the report
+// and the CLI's failure hint cannot disagree about what the operator should do.
+func providerIssueRemediation(reason string) string {
+	condition := review.AttemptCondition(reason)
+	switch {
+	case !condition.Valid():
+		return "unknown failure reason; inspect the run diagnostics"
+	case review.ConditionProviderUnusable(condition):
+		return "fix this provider (run mulgae doctor) or rerun the role on another configured provider"
+	case review.ConditionProviderFault(condition):
+		return "the provider failed this once; rerunning the role may succeed"
+	default:
+		return "not a provider failure; inspect the run diagnostics"
+	}
 }
 
 func writeHeading(output *strings.Builder, title string) {

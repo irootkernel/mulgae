@@ -42,8 +42,8 @@ providers:
 effective timeout. Provenance reports the field as `defaulted` when omitted and
 `configured` when a non-default value is present.
 `mulgae review --stage --preflight --output json` reports the same effective
-timeouts on each projected primary/fallback transmission and proves that the
-derived lane and run budgets can accommodate them, without launching providers.
+timeout on each projected role transmission and proves that the derived lane and
+run budgets can accommodate them, without launching providers.
 
 AGY's effective `permission_mode` defaults to `safe` for workspace-first
 reviews. Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to

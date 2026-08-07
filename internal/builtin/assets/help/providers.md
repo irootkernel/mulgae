@@ -17,17 +17,22 @@ Provider identity and capability are checked at runtime. An unknown version is
 not rejected solely because it is new, but a missing required capability or a
 known incompatible version fails closed.
 
-Each configured role has a primary provider and may have an explicit fallback.
-Mulgae serializes invocations that share a provider instance or credential
-namespace. Fallback is allowed only for classified provider availability,
-execution, or invalid-output failures; security, configuration, artifact,
-cancellation, and internal failures never trigger it.
+Each configured role runs on exactly one provider. Mulgae never substitutes
+another provider when one fails: the role is reported as failed with its typed
+failure reason, every other role continues on its own provider, and choosing a
+replacement is yours. The final report lists each failed role, the provider it
+ran on, why it stopped, and the `mulgae rerun` command to run it again
+elsewhere. Mulgae serializes invocations that share a provider instance or
+credential namespace.
+
+Provider families authenticate independently, so a login or quota failure on one
+family never cancels roles running on the others.
 
 The initial assignment comes from the build-owned role document, which lists an
 ordered provider preference per role. `mulgae init` intersects that order with
-the providers it configured, taking the first match as the primary and the
-second as the fallback. That is a generation-time default only: after init the
-project configuration is the sole authority and is never re-derived.
+the providers it configured and takes the first match as the role's provider.
+That is a generation-time default only: after init the project configuration is
+the sole authority and is never re-derived.
 
 ZCode and AGY reviews run against Mulgae's immutable captured snapshot with
 adapter-owned tool boundaries. Providers may selectively read/search that

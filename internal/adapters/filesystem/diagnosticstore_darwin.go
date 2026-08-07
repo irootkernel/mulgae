@@ -598,7 +598,7 @@ func mandatoryRuntimeDiagnosticEvent(code domain.RuntimeDiagnosticEventCode) boo
 	case domain.DiagnosticRuntimeOpened, domain.DiagnosticRunStarted, domain.DiagnosticAttemptFailed,
 		domain.DiagnosticProcessTimedOut, domain.DiagnosticProcessCancelled, domain.DiagnosticProcessTerminated,
 		domain.DiagnosticOutputParseFailed, domain.DiagnosticValidationFailed, domain.DiagnosticRepairExhausted,
-		domain.DiagnosticFallbackEligible, domain.DiagnosticFallbackScheduled, domain.DiagnosticFallbackProhibited,
+		domain.DiagnosticProviderQuarantined, domain.DiagnosticRoleNotAttempted,
 		domain.DiagnosticRoleExhausted, domain.DiagnosticPublicationFailed, domain.DiagnosticRunCompleted,
 		domain.DiagnosticRunStopped, domain.DiagnosticRuntimeClosed:
 		return true

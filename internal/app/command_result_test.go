@@ -199,8 +199,6 @@ func TestDiagnosticPreservesTypedFailureContext(t *testing.T) {
 		"security",
 		"kimi-main",
 		attempt,
-		true,
-		true,
 		".mulgae/diagnostics/secure-write.json",
 		"mulgae doctor security",
 	)
@@ -216,8 +214,10 @@ func TestDiagnosticPreservesTypedFailureContext(t *testing.T) {
 	if diagnostic.Role() != "security" || diagnostic.Provider() != "kimi-main" || diagnostic.AttemptID() != attempt {
 		t.Fatalf("context = %q/%q/%q", diagnostic.Role(), diagnostic.Provider(), diagnostic.AttemptID().String())
 	}
-	if !diagnostic.FallbackAttempted() || !diagnostic.FallbackProhibited() {
-		t.Fatal("fallback flags were not preserved")
+	// A security-policy failure is Mulgae's own refusal, not the provider's
+	// fault, so it must not be advertised as worth retrying elsewhere.
+	if diagnostic.ProviderFault() || diagnostic.Retryable() {
+		t.Fatal("security failure was classified as a provider fault")
 	}
 	if diagnostic.ArtifactPath() != ".mulgae/diagnostics/secure-write.json" || diagnostic.RecommendedNextCommand() != "mulgae doctor security" {
 		t.Fatalf("guidance = %q/%q", diagnostic.ArtifactPath(), diagnostic.RecommendedNextCommand())
@@ -251,8 +251,6 @@ func TestNewDiagnosticRejectsIncompleteReason(t *testing.T) {
 				"",
 				"",
 				domain.AttemptID{},
-				false,
-				false,
 				"",
 				"",
 			)
@@ -273,8 +271,6 @@ func testDiagnostic(t *testing.T) Diagnostic {
 		"security",
 		"kimi-main",
 		domain.AttemptID{},
-		false,
-		true,
 		".mulgae/diagnostics/provider.json",
 		"mulgae doctor security",
 	)

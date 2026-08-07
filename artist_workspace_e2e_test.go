@@ -108,8 +108,8 @@ func TestIntegrationArtistHomepageWorkspaceReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(configBytes, []byte("primary_provider: \"agy\"")) ||
-		!bytes.Contains(configBytes, []byte("fallback_provider: \"zcode\"")) {
-		t.Fatalf("artist route is not AGY -> ZCode:\n%s", configBytes)
+		bytes.Contains(configBytes, []byte("fallback_provider")) {
+		t.Fatalf("artist route is not AGY alone:\n%s", configBytes)
 	}
 
 	reviewResult := runMulgaeBinaryWithEnv(t, binary, project, environment,

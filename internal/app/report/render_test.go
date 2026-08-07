@@ -14,6 +14,7 @@ import (
 	coreapp "github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -777,10 +778,71 @@ func TestRenderRendersSkippedRoleProvenanceAsAbsent(t *testing.T) {
 	for _, expected := range []string{
 		"**Role provider:** `maintainability: absent`",
 		"**Role attempt:** `maintainability: absent`",
-		"**Role selection:** `maintainability: absent`",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("rendered report does not preserve skipped-role absence %q", expected)
+		}
+	}
+}
+
+// TestRenderReportsProviderIssuesForFailedRoles proves the report tells the
+// operator what to do about a role that produced no review: which provider it
+// ran on, why it stopped, and the command to run it again elsewhere. Mulgae no
+// longer picks a replacement provider, so this section is the whole recovery
+// path and must never silently go missing.
+func TestRenderReportsProviderIssuesForFailedRoles(t *testing.T) {
+	run, review := reportCommittedFixture(t)
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
+
+	report, err := mustReportService(t, reader).Render(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	output := string(report.Bytes())
+
+	failed := make([]query.Role, 0, len(review.Roles()))
+	for _, role := range review.Roles() {
+		if role.Outcome() == "failed" {
+			failed = append(failed, role)
+		}
+	}
+	if len(failed) == 0 {
+		t.Fatal("fixture has no failed role to report on")
+	}
+	if !strings.Contains(output, "Provider issues") {
+		t.Fatalf("report omitted the provider issues section:\n%s", output)
+	}
+	for _, role := range failed {
+		reason, ok := role.FailureReason()
+		if !ok {
+			t.Fatalf("failed role %q carries no failure reason", role.Name())
+		}
+		if !strings.Contains(output, reason) {
+			t.Errorf("report omitted the failure reason %q for role %q", reason, role.Name())
+		}
+		want := "mulgae rerun --run " + review.RunID().String() + " --role " + string(role.Name()) + " --provider"
+		if !strings.Contains(output, want) {
+			t.Errorf("report omitted the rerun command %q:\n%s", want, output)
+		}
+		// A rerun alone cannot recover a provider that must be fixed first, so
+		// the report must say which case this is rather than leaving the
+		// operator to infer it from the reason code.
+		wantRemediation := providerIssueRemediation(reason)
+		if !strings.Contains(output, wantRemediation) {
+			t.Errorf("report omitted the remediation %q for role %q:\n%s", wantRemediation, role.Name(), output)
+		}
+		if provider, present := role.ProviderInstance(); present && !strings.Contains(output, provider) {
+			t.Errorf("report omitted the failed role's provider %q", provider)
+		}
+	}
+	// Roles that produced a review must never be offered a rerun command.
+	for _, role := range review.Roles() {
+		if role.Outcome() == "failed" {
+			continue
+		}
+		unwanted := "--role " + string(role.Name()) + " --provider"
+		if strings.Contains(output, unwanted) {
+			t.Errorf("report offered a rerun command for the successful role %q", role.Name())
 		}
 	}
 }
@@ -1168,4 +1230,34 @@ func reportCurrentExcerptDigest(
 		t.Fatal(err)
 	}
 	return digest
+}
+
+// TestProviderIssueRemediationSeparatesFixableFromRetryable proves the report
+// distinguishes a provider that must be fixed from one that merely failed once.
+// It reads the coordinator's closed policy, so it stays aligned with the CLI's
+// failure hint instead of drifting into its own opinion.
+func TestProviderIssueRemediationSeparatesFixableFromRetryable(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		reason review.AttemptCondition
+		want   string
+	}{
+		{review.AttemptConditionLoginRequired, "fix this provider"},
+		{review.AttemptConditionAuthentication, "fix this provider"},
+		{review.AttemptConditionQuota, "fix this provider"},
+		{review.AttemptConditionProviderUnavailable, "fix this provider"},
+		{review.AttemptConditionRateLimit, "may succeed"},
+		{review.AttemptConditionProviderTimeout, "may succeed"},
+		{review.AttemptConditionProviderOutputMissing, "may succeed"},
+		{review.AttemptConditionSemanticContradiction, "may succeed"},
+		{review.AttemptConditionInternalInvariant, "not a provider failure"},
+		{"not_a_condition", "unknown failure reason"},
+	} {
+		t.Run(string(test.reason), func(t *testing.T) {
+			if got := providerIssueRemediation(string(test.reason)); !strings.Contains(got, test.want) {
+				t.Fatalf("providerIssueRemediation(%q) = %q, want it to mention %q", test.reason, got, test.want)
+			}
+		})
+	}
 }

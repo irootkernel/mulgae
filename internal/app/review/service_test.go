@@ -357,20 +357,15 @@ func TestNewServiceRejectsNilDependencies(t *testing.T) {
 func TestExecuteRejectsScheduledAssignmentsAtLegacyBoundary(t *testing.T) {
 	security := requiredAssignments(t)[1]
 	for _, test := range []struct {
-		name     string
-		fallback bool
+		name string
+		lane string
 	}{
-		{name: "nonlegacy lane"},
-		{name: "fallback route", fallback: true},
+		{name: "nonlegacy lane", lane: "scheduled-logic"},
+		{name: "other nonlegacy lane", lane: "scheduled-logic-alternate"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			primary := coordinatorTestRoute(t, "fake.logic", "scheduled-logic")
-			var fallback *ports.ProviderRoute
-			if test.fallback {
-				route := coordinatorTestRoute(t, "fake.logic.fallback", "scheduled-logic-fallback")
-				fallback = &route
-			}
-			logic, err := NewScheduledAssignment(domain.RoleLogic, false, primary, fallback)
+			primary := coordinatorTestRoute(t, "fake.logic", test.lane)
+			logic, err := NewScheduledAssignment(domain.RoleLogic, false, primary)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,8 +393,8 @@ func TestExecuteAllSuccessNoFindings(t *testing.T) {
 	if result.RunState() != domain.RunCompleted || result.Outcomes().ContentVerdict() != domain.ContentNoFindings || result.Outcomes().CoverageStatus() != domain.CoverageComplete {
 		t.Fatalf("unexpected all-success outcome: state=%q content=%q coverage=%q", result.RunState(), result.Outcomes().ContentVerdict(), result.Outcomes().CoverageStatus())
 	}
-	if result.FallbackScheduled() || len(result.Findings()) != 0 || len(provider.invocations) != 2 {
-		t.Fatal("all-success no-finding review scheduled fallback, retained findings, or invoked an unexpected count")
+	if len(result.Findings()) != 0 || len(provider.invocations) != 2 {
+		t.Fatal("all-success no-finding review retained findings or invoked an unexpected count")
 	}
 	if reader.calls != 0 {
 		t.Fatalf("zero-finding review read immutable evidence %d times", reader.calls)
@@ -496,7 +491,7 @@ func TestExecuteRejectsUnverifiedRequiredFindingEvidence(t *testing.T) {
 				t.Fatalf("failure class = %q, want invalid output", failureClass(t, err))
 			}
 			if reader.calls != 1 || result.RunState() != domain.RunFailed || len(result.Findings()) != 0 ||
-				len(result.Evidence()) != 0 || len(provider.invocations) != 1 || result.FallbackScheduled() {
+				len(result.Evidence()) != 0 || len(provider.invocations) != 1 {
 				t.Fatalf("unverified required evidence escaped acceptance: reads=%d result=%#v invocations=%d", reader.calls, result, len(provider.invocations))
 			}
 		})
@@ -568,7 +563,7 @@ func TestAcceptValidatedReviewRejectsCrossTargetEvidence(t *testing.T) {
 		t.Fatalf("cross-target evidence reached immutable reader %d times", reader.calls)
 	}
 }
-func TestExecuteRepairExhaustionFailsWithoutFallback(t *testing.T) {
+func TestExecuteRepairExhaustionIsTerminal(t *testing.T) {
 	provider := &recordingReviewProvider{responses: []reviewProviderResponse{
 		{stdout: repairableHighFindingReview()},
 		{stdout: []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/not-allowed","value":"bad"}]}`)},
@@ -577,8 +572,8 @@ func TestExecuteRepairExhaustionFailsWithoutFallback(t *testing.T) {
 	if failureClass(t, err) != domain.FailureInvalidOutput {
 		t.Fatalf("failure class = %q", failureClass(t, err))
 	}
-	if result.RunState() != domain.RunFailed || result.FallbackScheduled() || len(result.Findings()) != 0 || len(provider.invocations) != 2 {
-		t.Fatal("repair exhaustion did not remain terminal without fallback or failed-role findings")
+	if result.RunState() != domain.RunFailed || len(result.Findings()) != 0 || len(provider.invocations) != 2 {
+		t.Fatal("repair exhaustion did not remain terminal or retained failed-role findings")
 	}
 }
 
@@ -588,8 +583,8 @@ func TestExecuteRejectsWireMismatchAsArtifactFailure(t *testing.T) {
 	if failureClass(t, err) != domain.FailureArtifact {
 		t.Fatalf("failure class = %q", failureClass(t, err))
 	}
-	if result.RunState() != domain.RunFailed || result.FallbackScheduled() || len(provider.invocations) != 1 {
-		t.Fatal("artifact mismatch was not terminal without fallback")
+	if result.RunState() != domain.RunFailed || len(provider.invocations) != 1 {
+		t.Fatal("artifact mismatch was not terminal")
 	}
 }
 func TestExecuteRejectsStdinLengthMismatchAsArtifactFailure(t *testing.T) {
@@ -647,14 +642,14 @@ func TestExecutePreservesAcceptedFindingsAfterLaterRoleFailure(t *testing.T) {
 	}
 }
 
-func TestExecuteValidNegativeNeverRepairsOrFallsBack(t *testing.T) {
+func TestExecuteValidNegativeNeverRepairs(t *testing.T) {
 	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: validHighFindingReview()}, {stdout: validNoFindingReview()}}}
 	result, err := newReviewService(t, provider).Execute(context.Background(), reviewRequest(t, requiredAssignments(t), ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.FallbackScheduled() || len(provider.invocations) != 2 || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges {
-		t.Fatal("valid negative review was repaired, fell back, or lost request_changes")
+	if len(provider.invocations) != 2 || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges {
+		t.Fatal("valid negative review was repaired or lost request_changes")
 	}
 	for _, execution := range result.RoleExecutions() {
 		if execution.Repaired() || len(execution.PromptWireIdentities()) != 1 {

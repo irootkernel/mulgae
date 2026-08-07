@@ -929,12 +929,7 @@ func newRootReviewRun(identity rootRunIdentity, target domain.TargetIdentity, as
 		if !ok {
 			continue
 		}
-		var fallbackProvider *string
-		if fallback, hasFallback := assignment.FallbackRoute(); hasFallback {
-			provider := fallback.ProviderInstance()
-			fallbackProvider = &provider
-		}
-		task, err := domain.NewRoleTask(role, assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		task, err := domain.NewRoleTask(role, assignment.Required(), assignment.PrimaryRoute().ProviderInstance())
 		if err != nil {
 			return domain.Run{}, fmt.Errorf("review run: construct root role %q: %w", role, err)
 		}

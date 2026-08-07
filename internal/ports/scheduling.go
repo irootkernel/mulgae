@@ -1301,7 +1301,7 @@ func (receipt ProviderPacketTransportReceipt) Valid() bool {
 }
 
 // ProcessObservation is the immutable, provider-neutral fact record from one
-// direct process attempt. It intentionally contains no repair, fallback,
+// direct process attempt. It intentionally contains no repair,
 // finding, validation, or outcome authority.
 type ProcessObservation struct {
 	stdout                    []byte
@@ -1682,7 +1682,7 @@ type LaneAcquisitionFailure interface {
 
 // ClassifyLaneAcquisitionFailure returns the closed class carried by err.
 // Unknown adapter errors fail closed as internal rather than becoming
-// fallback-eligible provider unavailability.
+// provider unavailability that would be reported as the provider's fault.
 func ClassifyLaneAcquisitionFailure(err error) LaneAcquisitionFailureClass {
 	if err == nil {
 		return ""

@@ -29,7 +29,7 @@ type IdentityGenerator interface {
 }
 
 // Service is the G004 compatibility path for deterministic, sequential,
-// in-memory fake-provider runs. Coordinator owns fallback scheduling and live
+// in-memory fake-provider runs. Coordinator owns concurrent scheduling and live
 // provider lanes.
 type Service struct {
 	clock           ports.Clock
@@ -151,7 +151,7 @@ func newRoleFailure(class domain.FailureClass, stage, reason string, cause error
 }
 
 // Execute performs every selected role in canonical order. It neither queues a
-// fallback nor writes, publishes, or returns an artifact.
+// repair nor writes, publishes, or returns an artifact.
 func (service *Service) Execute(ctx context.Context, request Request) (Result, error) {
 	if service == nil ||
 		nilInterface(service.clock) ||
@@ -574,18 +574,17 @@ func requestRoleTasks(assignments []Assignment, templates TemplateSet) ([]domain
 			return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "role assignments must be unique", nil)
 		}
 		seen[assignment.role] = struct{}{}
-		if assignment.hasFallback ||
-			!assignment.primaryRoute.Valid() ||
+		if !assignment.primaryRoute.Valid() ||
 			assignment.primaryRoute.ProviderInstance() != assignment.providerInstance ||
 			assignment.primaryRoute.ConcurrencyKey().String() != legacyConcurrencyKey {
 			return nil, newRoleFailure(
 				domain.FailureConfiguration,
 				"review.configuration",
-				"legacy service assignments must use the fixed legacy route without fallback",
+				"legacy service assignments must use the fixed legacy route",
 				nil,
 			)
 		}
-		task, err := domain.NewRoleTask(assignment.role, assignment.required, assignment.providerInstance, nil)
+		task, err := domain.NewRoleTask(assignment.role, assignment.required, assignment.providerInstance)
 		if err != nil {
 			return nil, newRoleFailure(domain.FailureConfiguration, "review.configuration", "role assignment is invalid", err)
 		}

@@ -1807,8 +1807,8 @@ func validateTerminalRun(state domain.RunState, roles []preparedRole, coverage d
 			return fmt.Errorf("publication candidate: failed run does not represent incomplete coverage")
 		}
 		for _, role := range roles {
-			if role.outcome == "failed" && !role.failureClass.FallbackAllowed() {
-				return fmt.Errorf("publication candidate: failed run contains non-fallback-eligible failure %q", role.failureClass)
+			if role.outcome == "failed" && !role.failureClass.ProviderFault() {
+				return fmt.Errorf("publication candidate: failed run contains non-provider failure %q", role.failureClass)
 			}
 		}
 	}
@@ -1880,17 +1880,13 @@ func validatePreparedRole(role preparedRole) error {
 			return fmt.Errorf("duplicate attempt ID %q", attempt.id)
 		}
 		seenAttempts[attempt.id.String()] = struct{}{}
-		switch index {
-		case 0:
-			if attempt.kind != review.AttemptKindPrimary {
-				return fmt.Errorf("attempt sequence must begin with primary")
-			}
-		case 1:
-			if attempt.kind != review.AttemptKindFallback || role.attempts[0].state == domain.AttemptSucceeded {
-				return fmt.Errorf("fallback attempt is not a canonical continuation")
-			}
-		default:
-			return fmt.Errorf("role has more than primary and fallback attempts")
+		// A role is bound to one provider and repair reuses the same attempt, so
+		// a live candidate always has exactly one primary attempt per role.
+		if index != 0 {
+			return fmt.Errorf("role has more than one attempt")
+		}
+		if attempt.kind != review.AttemptKindPrimary {
+			return fmt.Errorf("attempt sequence must begin with primary")
 		}
 		if !attempt.kind.Valid() || !validProviderInstance(attempt.provider) || !terminalAttemptState(attempt.state) || len(attempt.invocations) == 0 {
 			return fmt.Errorf("attempt %q is invalid", attempt.id)
@@ -3183,6 +3179,10 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			return false, fmt.Errorf("manifest attempt %q has unordered or unselected role", attempt.AttemptID)
 		}
 		lastRoleIndex = roleIndex
+		// Manifests are read, not written, here. Runs recorded before Mulgae
+		// bound each role to a single provider can carry a second attempt that
+		// continued onto a fallback route, and those artifacts must stay
+		// readable. Nothing writes that shape any more.
 		switch attemptCountByRole[attempt.Role] {
 		case 0:
 			if attempt.SelectedAs != string(review.AttemptKindPrimary) {
@@ -3192,10 +3192,10 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			previous := lastAttemptByRole[attempt.Role]
 			if attempt.SelectedAs != string(review.AttemptKindFallback) ||
 				previous.State == string(domain.AttemptSucceeded) {
-				return false, fmt.Errorf("manifest role %q has a non-canonical fallback", attempt.Role)
+				return false, fmt.Errorf("manifest role %q has a non-canonical second attempt", attempt.Role)
 			}
 		default:
-			return false, fmt.Errorf("manifest role %q has more than primary and fallback attempts", attempt.Role)
+			return false, fmt.Errorf("manifest role %q has more than two attempts", attempt.Role)
 		}
 		attemptCountByRole[attempt.Role]++
 		if attempt.State == string(domain.AttemptSucceeded) {
@@ -3332,8 +3332,8 @@ func validateManifestFailures(manifest runManifestWire, outcomes []roleOutcomeWi
 			return fmt.Errorf("manifest failure attempt ID is duplicated")
 		}
 		if manifest.State == string(domain.RunFailed) &&
-			!domain.FailureClass(failure.Class).FallbackAllowed() {
-			return fmt.Errorf("failed manifest contains non-fallback-eligible failure")
+			!domain.FailureClass(failure.Class).ProviderFault() {
+			return fmt.Errorf("failed manifest contains non-provider failure")
 		}
 		seen[*failure.AttemptID] = struct{}{}
 	}

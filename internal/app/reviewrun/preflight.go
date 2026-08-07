@@ -40,24 +40,15 @@ func PreflightConfiguredPlan(
 		if err != nil {
 			return ExecutionPlan{}, review.RunBudgetReceipt{}, err
 		}
-		var fallbackRoute *ports.ProviderRoute
-		var fallbackBudget *review.RouteBudget
-		if family, present := configured.Fallback(); present {
-			route, budget, routeErr := configuredPreflightRoute(role, family, providerTimeouts)
-			if routeErr != nil {
-				return ExecutionPlan{}, review.RunBudgetReceipt{}, routeErr
-			}
-			fallbackRoute, fallbackBudget = &route, &budget
-		}
 		required := role.RequiredFloor()
 		for _, configuredRequired := range policy.RequiredRoles {
 			required = required || configuredRequired == role
 		}
-		assignment, err := review.NewScheduledAssignment(role, required, primaryRoute, fallbackRoute)
+		assignment, err := review.NewScheduledAssignment(role, required, primaryRoute)
 		if err != nil {
 			return ExecutionPlan{}, review.RunBudgetReceipt{}, err
 		}
-		budget, err := review.NewRoleBudget(role, primaryBudget, fallbackBudget)
+		budget, err := review.NewRoleBudget(role, primaryBudget)
 		if err != nil {
 			return ExecutionPlan{}, review.RunBudgetReceipt{}, err
 		}

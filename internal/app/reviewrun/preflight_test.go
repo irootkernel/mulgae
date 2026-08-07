@@ -9,11 +9,11 @@ import (
 
 func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *testing.T) {
 	policy := DefaultPlannerPolicy()
-	logic, err := NewRoleProviderAssignment(domain.RoleLogic, FamilyZCode, FamilyAGY)
+	logic, err := NewRoleProviderAssignment(domain.RoleLogic, FamilyZCode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	documentation, err := NewRoleProviderAssignment(domain.RoleDocumentation, FamilyAGY, FamilyZCode)
+	documentation, err := NewRoleProviderAssignment(domain.RoleDocumentation, FamilyAGY)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,25 +30,17 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	if !receipt.Eligible() || len(plan.Assignments) != 2 || len(plan.Budgets) != 2 {
 		t.Fatalf("preflight plan/receipt = %#v/%#v", plan, receipt)
 	}
-	assertPreflightRoute := func(index int, fallback bool, wantInstance string, wantTimeout time.Duration) {
+	assertPreflightRoute := func(index int, wantInstance string, wantTimeout time.Duration) {
 		t.Helper()
 		budget := plan.Budgets[index].Primary()
-		if fallback {
-			var present bool
-			budget, present = plan.Budgets[index].Fallback()
-			if !present {
-				t.Fatalf("role %d has no fallback", index)
-			}
-		}
 		if budget.Route().ProviderInstance() != wantInstance || budget.Route().ConcurrencyKey().String() != wantInstance || budget.Limits().Timeout() != wantTimeout {
 			t.Fatalf("route = %s/%s/%s, want %s/%s/%s", budget.Route().ProviderInstance(), budget.Route().ConcurrencyKey(), budget.Limits().Timeout(), wantInstance, wantInstance, wantTimeout)
 		}
 	}
-	assertPreflightRoute(0, false, "zcode-logic", 30*time.Minute)
-	assertPreflightRoute(0, true, "agy-logic", 15*time.Minute)
-	assertPreflightRoute(1, false, "agy-documentation", 15*time.Minute)
-	assertPreflightRoute(1, true, "zcode-documentation", 30*time.Minute)
-	if receipt.TotalInvocations() != 8 || receipt.TotalOutputCap() != 8*(512<<10) {
+	// One route per role, each carrying its own family's configured timeout.
+	assertPreflightRoute(0, "zcode-logic", 30*time.Minute)
+	assertPreflightRoute(1, "agy-documentation", 15*time.Minute)
+	if receipt.TotalInvocations() != 4 || receipt.TotalOutputCap() != 4*(512<<10) {
 		t.Fatalf("budget totals = %d/%d", receipt.TotalInvocations(), receipt.TotalOutputCap())
 	}
 }

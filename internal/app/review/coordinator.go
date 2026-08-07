@@ -229,7 +229,7 @@ func (summary CoordinatorInvocationSummary) Purpose() domain.InvocationPurpose {
 func (summary CoordinatorInvocationSummary) State() domain.InvocationState { return summary.state }
 
 // CoordinatorAttemptSummary is the immutable terminal projection of one
-// primary or fallback provider attempt.
+// provider attempt.
 type CoordinatorAttemptSummary struct {
 	id              domain.AttemptID
 	kind            AttemptKind
@@ -247,7 +247,8 @@ type CoordinatorAttemptSummary struct {
 // ID returns the coordinator-issued attempt ID.
 func (summary CoordinatorAttemptSummary) ID() domain.AttemptID { return summary.id }
 
-// Kind returns whether this was the primary or fallback attempt.
+// Kind returns the route kind this attempt used. Mulgae only creates primary
+// attempts; the accessor exists because published artifacts record the kind.
 func (summary CoordinatorAttemptSummary) Kind() AttemptKind { return summary.kind }
 
 // Route returns the selected immutable provider route.
@@ -285,19 +286,19 @@ func (summary CoordinatorAttemptSummary) Invocations() []CoordinatorInvocationSu
 // role. ReasonCode retains security and mutation terminal reasons even though
 // those roles end in the cancelled state.
 type CoordinatorRoleSummary struct {
-	role              domain.Role
-	required          bool
-	state             domain.RoleTaskState
-	valid             bool
-	degraded          bool
-	repaired          bool
-	fallbackScheduled bool
-	failureClass      domain.FailureClass
-	reasonCode        string
-	attempts          []CoordinatorAttemptSummary
-	reportsOnly       bool
-	reportMarkdown    []byte
-	outputTransport   ports.ProviderOutputTransport
+	role             domain.Role
+	required         bool
+	state            domain.RoleTaskState
+	valid            bool
+	degraded         bool
+	repaired         bool
+	providerUnusable bool
+	failureClass     domain.FailureClass
+	reasonCode       string
+	attempts         []CoordinatorAttemptSummary
+	reportsOnly      bool
+	reportMarkdown   []byte
+	outputTransport  ports.ProviderOutputTransport
 }
 
 // Role returns the selected role.
@@ -318,8 +319,10 @@ func (summary CoordinatorRoleSummary) Degraded() bool { return summary.degraded 
 // Repaired reports whether a repair invocation produced accepted output.
 func (summary CoordinatorRoleSummary) Repaired() bool { return summary.repaired }
 
-// FallbackScheduled reports whether this role used its configured fallback.
-func (summary CoordinatorRoleSummary) FallbackScheduled() bool { return summary.fallbackScheduled }
+// ProviderUnusable reports whether this role's failure proved its provider
+// unusable rather than merely having failed once, so the report can tell the
+// operator to fix or replace the provider instead of simply retrying.
+func (summary CoordinatorRoleSummary) ProviderUnusable() bool { return summary.providerUnusable }
 
 // FailureClass returns the terminal failure class, or empty on success.
 func (summary CoordinatorRoleSummary) FailureClass() domain.FailureClass { return summary.failureClass }
@@ -354,15 +357,15 @@ func (summary CoordinatorRoleSummary) OutputTransport() ports.ProviderOutputTran
 // CoordinatorResult is the immutable terminal snapshot of one coordinator run.
 // It contains neither domain aggregates nor publication authority.
 type CoordinatorResult struct {
-	sessionID         domain.SessionID
-	runID             domain.RunID
-	runState          domain.RunState
-	findings          []domain.Finding
-	axes              domain.OutcomeAxes
-	evidence          []VerifiedFindingEvidence
-	roleSummaries     []CoordinatorRoleSummary
-	trace             []CoordinatorTraceEvent
-	fallbackScheduled bool
+	sessionID        domain.SessionID
+	runID            domain.RunID
+	runState         domain.RunState
+	findings         []domain.Finding
+	axes             domain.OutcomeAxes
+	evidence         []VerifiedFindingEvidence
+	roleSummaries    []CoordinatorRoleSummary
+	trace            []CoordinatorTraceEvent
+	providerUnusable bool
 }
 
 // SessionID returns the immutable review-session identity.
@@ -406,8 +409,9 @@ func (result CoordinatorResult) Trace() []CoordinatorTraceEvent {
 // TraceEvents is an explicit alias for Trace.
 func (result CoordinatorResult) TraceEvents() []CoordinatorTraceEvent { return result.Trace() }
 
-// FallbackScheduled reports whether any role entered its configured fallback.
-func (result CoordinatorResult) FallbackScheduled() bool { return result.fallbackScheduled }
+// ProviderUnusable reports whether any role failed in a way that proved its
+// provider unusable.
+func (result CoordinatorResult) ProviderUnusable() bool { return result.providerUnusable }
 
 func cloneCoordinatorRoleSummaries(source []CoordinatorRoleSummary) []CoordinatorRoleSummary {
 	copied := make([]CoordinatorRoleSummary, len(source))
@@ -515,7 +519,6 @@ func (issuer *coordinatorIssuer) reserve(rawUUID string) error {
 }
 
 type coordinatorAttempt struct {
-	kind            AttemptKind
 	route           ports.ProviderRoute
 	attempt         domain.Attempt
 	repairUsed      bool
@@ -528,14 +531,14 @@ type coordinatorAttempt struct {
 }
 
 type coordinatorRole struct {
-	assignment        Assignment
-	attempts          []coordinatorAttempt
-	currentAttempt    int
-	output            *ValidatedRoleOutput
-	repaired          bool
-	fallbackScheduled bool
-	failureClass      domain.FailureClass
-	reasonCode        string
+	assignment       Assignment
+	attempts         []coordinatorAttempt
+	currentAttempt   int
+	output           *ValidatedRoleOutput
+	repaired         bool
+	providerUnusable bool
+	failureClass     domain.FailureClass
+	reasonCode       string
 }
 
 type coordinatorExecution struct {
@@ -596,7 +599,7 @@ func (coordinator *Coordinator) ExecuteDeltaRun(
 }
 
 // ExecuteExactReplayRun executes one selected child role with its stored wire
-// authority. It removes fallback authority and the wrapper rejects any
+// authority. The wrapper rejects any
 // non-initial invocation, so repair or multi-role scheduling cannot reach a
 // provider.
 func (coordinator *Coordinator) ExecuteExactReplayRun(
@@ -616,7 +619,7 @@ func (coordinator *Coordinator) ExecuteExactReplayRun(
 	if !ok || runtime == nil {
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay requires provider invocation runtime")
 	}
-	selected, err := NewScheduledAssignment(assignment.Role(), assignment.Required(), assignment.PrimaryRoute(), nil)
+	selected, err := NewScheduledAssignment(assignment.Role(), assignment.Required(), assignment.PrimaryRoute())
 	if err != nil {
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay assignment: %w", err)
 	}
@@ -997,12 +1000,6 @@ func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt, 
 			assignment.ProviderInstance() != assignment.PrimaryRoute().ProviderInstance() {
 			return nil, nil, fmt.Errorf("review coordinator: invalid assignment")
 		}
-		if assignment.HasFallback() {
-			fallback, ok := assignment.FallbackRoute()
-			if !ok || !fallback.Valid() || fallback.ProviderInstance() == assignment.PrimaryRoute().ProviderInstance() {
-				return nil, nil, fmt.Errorf("review coordinator: invalid fallback assignment for role %q", assignment.Role())
-			}
-		}
 		if _, duplicate := byRole[assignment.Role()]; duplicate {
 			return nil, nil, fmt.Errorf("review coordinator: duplicate assignment for role %q", assignment.Role())
 		}
@@ -1035,17 +1032,7 @@ func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt, 
 		if !exists || !sameCoordinatorRoute(assignment.PrimaryRoute(), budget.Primary().Route()) {
 			return nil, nil, fmt.Errorf("review coordinator: primary assignment route does not match budget for role %q", role)
 		}
-		fallback, hasFallback := assignment.FallbackRoute()
-		budgetFallback, budgetHasFallback := budget.Fallback()
-		if hasFallback != budgetHasFallback || hasFallback && !sameCoordinatorRoute(fallback, budgetFallback.Route()) {
-			return nil, nil, fmt.Errorf("review coordinator: fallback assignment route does not match budget for role %q", role)
-		}
-		var fallbackProvider *string
-		if hasFallback {
-			provider := fallback.ProviderInstance()
-			fallbackProvider = &provider
-		}
-		task, err := domain.NewRoleTask(role, assignment.Required(), assignment.PrimaryRoute().ProviderInstance(), fallbackProvider)
+		task, err := domain.NewRoleTask(role, assignment.Required(), assignment.PrimaryRoute().ProviderInstance())
 		if err != nil {
 			return nil, nil, fmt.Errorf("review coordinator: canonical role task %q: %w", role, err)
 		}
@@ -1071,12 +1058,11 @@ func (execution *coordinatorExecution) startPrimary(role domain.Role) (Invocatio
 	if err := execution.run.TransitionRole(role, domain.RoleTaskPrimaryQueued); err != nil {
 		return InvocationJob{}, fmt.Errorf("review coordinator: queue primary role %q: %w", role, err)
 	}
-	return execution.startAttempt(role, AttemptKindPrimary, state.assignment.PrimaryRoute(), CoordinatorEventAttemptQueued)
+	return execution.startAttempt(role, state.assignment.PrimaryRoute(), CoordinatorEventAttemptQueued)
 }
 
 func (execution *coordinatorExecution) startAttempt(
 	role domain.Role,
-	kind AttemptKind,
 	route ports.ProviderRoute,
 	event CoordinatorEventKind,
 ) (InvocationJob, error) {
@@ -1096,15 +1082,11 @@ func (execution *coordinatorExecution) startAttempt(
 	if err := attempt.Transition(domain.AttemptRunning); err != nil {
 		return InvocationJob{}, fmt.Errorf("review coordinator: start attempt: %w", err)
 	}
-	state.attempts = append(state.attempts, coordinatorAttempt{kind: kind, route: route, attempt: attempt})
+	state.attempts = append(state.attempts, coordinatorAttempt{route: route, attempt: attempt})
 	state.currentAttempt = len(state.attempts) - 1
 	current := &state.attempts[state.currentAttempt]
-	if kind == AttemptKindPrimary {
-		if err := execution.run.TransitionRole(role, domain.RoleTaskPrimaryRunning); err != nil {
-			return InvocationJob{}, fmt.Errorf("review coordinator: start primary role %q: %w", role, err)
-		}
-	} else if err := execution.run.TransitionRole(role, domain.RoleTaskFallbackRunning); err != nil {
-		return InvocationJob{}, fmt.Errorf("review coordinator: start fallback role %q: %w", role, err)
+	if err := execution.run.TransitionRole(role, domain.RoleTaskPrimaryRunning); err != nil {
+		return InvocationJob{}, fmt.Errorf("review coordinator: start primary role %q: %w", role, err)
 	}
 	if err := execution.record(event, role, current, nil, nil, "", domain.RunState("")); err != nil {
 		return InvocationJob{}, err
@@ -1113,7 +1095,7 @@ func (execution *coordinatorExecution) startAttempt(
 }
 
 func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordinatorAttempt, purpose domain.InvocationPurpose) (InvocationJob, error) {
-	limits, err := execution.invocationLimits(role, attempt.kind, attempt.route)
+	limits, err := execution.invocationLimits(role, attempt.route)
 	if err != nil {
 		return InvocationJob{}, err
 	}
@@ -1122,7 +1104,6 @@ func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordin
 		execution.run.SessionID(),
 		execution.run.ID(),
 		role,
-		attempt.kind,
 		attempt.route,
 		execution.run.Target(),
 		limits,
@@ -1138,21 +1119,14 @@ func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordin
 
 func (execution *coordinatorExecution) invocationLimits(
 	role domain.Role,
-	kind AttemptKind,
 	route ports.ProviderRoute,
 ) (InvocationLimits, error) {
 	for _, budget := range execution.coordinator.receipt.RoleBudgets() {
 		if budget.Role() != role {
 			continue
 		}
-		if kind == AttemptKindPrimary && sameCoordinatorRoute(budget.Primary().Route(), route) {
+		if sameCoordinatorRoute(budget.Primary().Route(), route) {
 			return budget.Primary().Limits(), nil
-		}
-		if kind == AttemptKindFallback {
-			fallback, ok := budget.Fallback()
-			if ok && sameCoordinatorRoute(fallback.Route(), route) {
-				return fallback.Limits(), nil
-			}
 		}
 	}
 	return InvocationLimits{}, fmt.Errorf("review coordinator: invocation route has no validated budget for role %q", role)
@@ -1256,17 +1230,25 @@ func coordinatorOutcomeCondition(outcome AttemptOutcome) AttemptCondition {
 	return AttemptConditionInternalInvariant
 }
 
+// conditionCancelsCoordinatorRun selects the conditions that cancel in-flight
+// work on every role. Only integrity failures qualify: continuing past them
+// would produce a review Mulgae cannot stand behind. A provider being unusable
+// is not one of them. Provider families authenticate independently, so a login
+// failure on one family says nothing about the roles running on the others;
+// cancelling them would discard sound work for an unrelated reason.
 func conditionCancelsCoordinatorRun(condition AttemptCondition) bool {
-	return condition == AttemptConditionLoginRequired ||
-		condition == AttemptConditionSecurityViolation ||
+	return condition == AttemptConditionSecurityViolation ||
 		condition == AttemptConditionMutationViolation ||
 		condition == AttemptConditionCancelled
 }
 
+// conditionStopsCoordinatorRun selects the conditions that stop dispatching new
+// work. It is a superset of the cancelling conditions: an artifact or invariant
+// failure means Mulgae's own bookkeeping is untrustworthy, so no further work
+// should start even though in-flight attempts are left to finish.
 func conditionStopsCoordinatorRun(condition AttemptCondition) bool {
 	return condition == AttemptConditionInternalInvariant ||
 		condition == AttemptConditionArtifactFailure ||
-		condition == AttemptConditionLoginRequired ||
 		condition == AttemptConditionSecurityViolation ||
 		condition == AttemptConditionMutationViolation ||
 		condition == AttemptConditionCancelled
@@ -1548,17 +1530,13 @@ func (execution *coordinatorExecution) commitOutcome(
 		}
 	}
 
-	fallbackConfigured := job.AttemptKind() == AttemptKindPrimary && state.assignment.HasFallback()
 	repairUsed := attempt.repairUsed
 	if suppressFollowup {
-		fallbackConfigured = false
 		repairUsed = true
 	}
 	decision, err := DecideTransition(TransitionInput{
 		Condition:            condition,
 		RepairUsed:           repairUsed,
-		FallbackConfigured:   fallbackConfigured,
-		FallbackEligible:     fallbackConfigured && conditionFailureClass(condition).FallbackAllowed(),
 		CancellationObserved: cancellationObserved,
 	})
 	if err != nil {
@@ -1585,28 +1563,8 @@ func (execution *coordinatorExecution) commitOutcome(
 		}
 		return []InvocationJob{job}, nil
 	}
-	if decision.ScheduleFallback() {
-		if err := terminalizeAttempt(&attempt.attempt, condition); err != nil {
-			return nil, err
-		}
-		attempt.failureClass = decision.TerminalClass()
-		attempt.reasonCode = decision.ReasonCode()
-		fallback, ok := state.assignment.FallbackRoute()
-		if !ok {
-			return nil, fmt.Errorf("review coordinator: policy scheduled missing fallback route")
-		}
-		if err := execution.run.QueueRoleFallback(job.Role(), decision.TerminalClass()); err != nil {
-			return nil, fmt.Errorf("review coordinator: queue fallback: %w", err)
-		}
-		state.fallbackScheduled = true
-		if err := execution.record(CoordinatorEventFallbackQueued, job.Role(), attempt, nil, &condition, decision.ReasonCode(), domain.RunState("")); err != nil {
-			return nil, err
-		}
-		fallbackJob, err := execution.startAttempt(job.Role(), AttemptKindFallback, fallback, CoordinatorEventAttemptQueued)
-		if err != nil {
-			return nil, err
-		}
-		return []InvocationJob{fallbackJob}, nil
+	if decision.ProviderUnusable() {
+		state.providerUnusable = true
 	}
 
 	if err := terminalizeAttempt(&attempt.attempt, decision.Condition()); err != nil {
@@ -1721,13 +1679,13 @@ func (execution *coordinatorExecution) attemptFor(job InvocationJob) (*coordinat
 	if state == nil {
 		return nil, fmt.Errorf("review coordinator: result for unknown role %q", job.Role())
 	}
-	limits, err := execution.invocationLimits(job.Role(), job.AttemptKind(), job.Route())
+	limits, err := execution.invocationLimits(job.Role(), job.Route())
 	if err != nil {
 		return nil, err
 	}
 	for index := range state.attempts {
 		attempt := &state.attempts[index]
-		if attempt.attempt.ID() == job.AttemptID() && attempt.kind == job.AttemptKind() &&
+		if attempt.attempt.ID() == job.AttemptID() &&
 			sameCoordinatorRoute(attempt.route, job.Route()) && job.Limits() == limits {
 			return attempt, nil
 		}
@@ -1983,7 +1941,7 @@ func (execution *coordinatorExecution) snapshot(
 	evidenceAssociations := make([]coordinatorFindingEvidenceAssociation, 0)
 	roles := make([]CoordinatorRoleSummary, 0, len(execution.roles))
 	roleResults := make([]domain.RoleResultSummary, 0, len(execution.roles))
-	fallbackScheduled := false
+	providerUnusable := false
 	for _, role := range domain.FixedRoleOrder() {
 		state := execution.roles[role]
 		if state == nil {
@@ -2009,19 +1967,19 @@ func (execution *coordinatorExecution) snapshot(
 			outputTransport = state.output.OutputTransport()
 		}
 		roles = append(roles, CoordinatorRoleSummary{
-			role:              role,
-			required:          state.assignment.Required(),
-			state:             roleState,
-			valid:             valid,
-			degraded:          degraded,
-			repaired:          state.repaired,
-			fallbackScheduled: state.fallbackScheduled,
-			failureClass:      state.failureClass,
-			reasonCode:        state.reasonCode,
-			attempts:          coordinatorAttemptSnapshots(state.attempts),
-			reportsOnly:       reportsOnly,
-			reportMarkdown:    reportMarkdown,
-			outputTransport:   outputTransport,
+			role:             role,
+			required:         state.assignment.Required(),
+			state:            roleState,
+			valid:            valid,
+			degraded:         degraded,
+			repaired:         state.repaired,
+			providerUnusable: state.providerUnusable,
+			failureClass:     state.failureClass,
+			reasonCode:       state.reasonCode,
+			attempts:         coordinatorAttemptSnapshots(state.attempts),
+			reportsOnly:      reportsOnly,
+			reportMarkdown:   reportMarkdown,
+			outputTransport:  outputTransport,
 		})
 		roleResults = append(roleResults, domain.RoleResultSummary{
 			Role:        role,
@@ -2031,7 +1989,7 @@ func (execution *coordinatorExecution) snapshot(
 			Degraded:    degraded,
 			ReportsOnly: reportsOnly,
 		})
-		fallbackScheduled = fallbackScheduled || state.fallbackScheduled
+		providerUnusable = providerUnusable || state.providerUnusable
 	}
 	ordered, err := domain.OrderAndAssignFindings(findings)
 	if err != nil {
@@ -2046,15 +2004,15 @@ func (execution *coordinatorExecution) snapshot(
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: compute outcome axes: %w", err)
 	}
 	return CoordinatorResult{
-		sessionID:         sessionID,
-		runID:             runID,
-		runState:          execution.run.State(),
-		findings:          append([]domain.Finding(nil), ordered...),
-		evidence:          cloneVerifiedFindingEvidence(orderedEvidence),
-		axes:              axes,
-		roleSummaries:     cloneCoordinatorRoleSummaries(roles),
-		trace:             append([]CoordinatorTraceEvent(nil), execution.trace...),
-		fallbackScheduled: fallbackScheduled,
+		sessionID:        sessionID,
+		runID:            runID,
+		runState:         execution.run.State(),
+		findings:         append([]domain.Finding(nil), ordered...),
+		evidence:         cloneVerifiedFindingEvidence(orderedEvidence),
+		axes:             axes,
+		roleSummaries:    cloneCoordinatorRoleSummaries(roles),
+		trace:            append([]CoordinatorTraceEvent(nil), execution.trace...),
+		providerUnusable: providerUnusable,
 	}, nil
 }
 func coordinatorOutputDegraded(output *ValidatedRoleOutput) bool {
@@ -2167,7 +2125,7 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 		}
 		snapshots[index] = CoordinatorAttemptSummary{
 			id:              attempt.attempt.ID(),
-			kind:            attempt.kind,
+			kind:            AttemptKindPrimary,
 			route:           attempt.route,
 			state:           attempt.attempt.State(),
 			failureClass:    attempt.failureClass,
@@ -2216,7 +2174,6 @@ func (execution *coordinatorExecution) record(
 		kind == CoordinatorEventInvocationDispatched ||
 		kind == CoordinatorEventInvocationCommitted ||
 		kind == CoordinatorEventRepairQueued ||
-		kind == CoordinatorEventFallbackQueued ||
 		kind == CoordinatorEventRoleTerminal
 	if roleEvent {
 		if !role.Valid() {
@@ -2256,7 +2213,6 @@ func (execution *coordinatorExecution) record(
 	if attempt != nil {
 		event.attemptID = attempt.attempt.ID()
 		event.hasAttempt = true
-		event.attemptKind = attempt.kind
 		event.lane = attempt.route.ConcurrencyKey()
 		event.hasLane = true
 	}

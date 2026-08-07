@@ -23,7 +23,7 @@
       {
         "severity": "high",
         "title": "Fallback is triggered after a valid negative review",
-        "description": "A valid negative result incorrectly queues the fallback provider.",
+        "description": "A valid negative result is incorrectly reported as a role failure.",
         "evidence": [
           {
             "path": "internal/app/coordinator.go",

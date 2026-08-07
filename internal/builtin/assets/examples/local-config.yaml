@@ -14,12 +14,12 @@ providers:
 execution:
   workspace_access: "none"
 roles:
-  logic: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
-  security: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
-  maintainability: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
-  product: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
-  documentation: {enabled: true, primary_provider: "agy", fallback_provider: "zcode"}
-  testing: {enabled: true, primary_provider: "zcode", fallback_provider: "agy"}
+  logic: {enabled: true, primary_provider: "zcode"}
+  security: {enabled: true, primary_provider: "zcode"}
+  maintainability: {enabled: true, primary_provider: "zcode"}
+  product: {enabled: true, primary_provider: "zcode"}
+  documentation: {enabled: true, primary_provider: "agy"}
+  testing: {enabled: true, primary_provider: "zcode"}
 review:
   required_roles: ["logic"]
   request_changes_on: ["high", "critical", "blocker"]
@@ -33,9 +33,8 @@ validation:
 resources:
   max_active_lanes: 6
   primary_repair_attempts: 1
-  fallback_repair_attempts: 1
-  role_max_invocations: 4
-  run_max_invocations: 24
+  role_max_invocations: 2
+  run_max_invocations: 12
   run_total_output_cap: "64MiB"
 ci:
   fail_on_severity: ["high", "critical", "blocker"]

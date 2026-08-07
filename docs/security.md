@@ -65,9 +65,9 @@ as stdout bytes; they are then copied into the Mulgae-owned
 `role-reports/<role>.md`, and the provider-owned inode is never published.
 Staging is removed on every exit path, and a cleanup that cannot be proven
 overrides provider success as an artifact failure. Missing or unusable staged
-content is an operational invalid-provider-output outcome that may fall back; a
-boundary violation is a security fail-closed outcome that never authorizes
-fallback or publication.
+content is an operational invalid-provider-output outcome that may be repaired;
+a boundary violation is a security fail-closed outcome that never authorizes
+repair or publication.
 
 ### ZCode residual risk (owner-accepted)
 
@@ -152,7 +152,7 @@ publication.
 
 Evidence begins as `claimed`; only Mulgae can mark it verified, stale, invalid,
 or unverifiable. Security, configuration, integrity, cancellation, and internal
-failures never authorize fallback or publication.
+failures never authorize repair or publication.
 
 Mulgae output remains advisory after every technical check passes.
 

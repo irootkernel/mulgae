@@ -38,8 +38,8 @@ const (
 )
 
 // TerminalProjection is the terminal role projection selected when this
-// decision does not schedule more work. None means that repair or fallback was
-// selected and the coordinator must await that result.
+// decision does not schedule more work. None means that repair was selected and
+// the coordinator must await that result.
 type TerminalProjection string
 
 const (
@@ -58,12 +58,10 @@ func (projection TerminalProjection) Valid() bool {
 }
 
 // TransitionInput contains the facts the coordinator needs to make one policy
-// decision. Fallback is usable only when it is both configured and eligible.
+// decision.
 type TransitionInput struct {
 	Condition            AttemptCondition
 	RepairUsed           bool
-	FallbackConfigured   bool
-	FallbackEligible     bool
 	CancellationObserved bool
 }
 
@@ -72,7 +70,7 @@ type TransitionInput struct {
 type TransitionDecision struct {
 	condition          AttemptCondition
 	scheduleRepair     bool
-	scheduleFallback   bool
+	providerUnusable   bool
 	cancelRun          bool
 	terminalClass      domain.FailureClass
 	terminalProjection TerminalProjection
@@ -87,9 +85,13 @@ func (decision TransitionDecision) Condition() AttemptCondition { return decisio
 // repair invocation.
 func (decision TransitionDecision) ScheduleRepair() bool { return decision.scheduleRepair }
 
-// ScheduleFallback reports whether the coordinator may schedule a configured,
-// eligible fallback attempt.
-func (decision TransitionDecision) ScheduleFallback() bool { return decision.scheduleFallback }
+// ProviderUnusable reports whether this failure proves the provider itself is
+// unusable rather than having merely failed this once. It separates "log in to
+// this provider, or move the role to another one" from "this may well succeed
+// on a retry", so the report can tell the operator which one they are looking
+// at. It selects no work: every role runs on exactly one provider, and the
+// choice of replacement is the operator's.
+func (decision TransitionDecision) ProviderUnusable() bool { return decision.providerUnusable }
 
 // CancelRun reports whether the coordinator must cancel the run and prevent
 // further work.
@@ -100,13 +102,13 @@ func (decision TransitionDecision) CancelRun() bool { return decision.cancelRun 
 func (decision TransitionDecision) TerminalClass() domain.FailureClass { return decision.terminalClass }
 
 // TerminalProjection returns the selected terminal role projection. It is None
-// while the decision schedules repair or fallback work.
+// while the decision schedules repair work.
 func (decision TransitionDecision) TerminalProjection() TerminalProjection {
 	return decision.terminalProjection
 }
 
 // Terminal reports whether the decision closes this role rather than scheduling
-// repair or fallback work.
+// repair work.
 func (decision TransitionDecision) Terminal() bool {
 	return decision.terminalProjection != TerminalProjectionNone
 }
@@ -120,8 +122,7 @@ type transitionAction uint8
 
 const (
 	transitionActionValid transitionAction = iota
-	transitionActionRepairBeforeFallback
-	transitionActionFallbackOnly
+	transitionActionRepairOnly
 	transitionActionFailClosed
 	transitionActionCancelRun
 )
@@ -147,6 +148,12 @@ type transitionPolicyRow struct {
 	action             transitionAction
 	reasonCode         string
 	precedence         conditionPrecedence
+	// providerUnusable marks conditions that prove the provider itself is
+	// unusable, not merely that this attempt failed. Only deterministic
+	// conditions qualify: a missing or unauthenticated CLI, or an exhausted
+	// account. Transient conditions (rate_limit, timeout) never qualify,
+	// because the very same route may succeed on the operator's next run.
+	providerUnusable bool
 }
 
 var transitionPolicyRows = [...]transitionPolicyRow{
@@ -162,7 +169,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionRepairBeforeFallback,
+		action:             transitionActionRepairOnly,
 		reasonCode:         string(AttemptConditionInvalidProviderOutput),
 	},
 	{
@@ -170,7 +177,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionUnrepairableProviderOutput),
 	},
 	{
@@ -178,7 +185,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderOutputMissing),
 	},
 	{
@@ -186,7 +193,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderOutputDecodeFailed),
 	},
 	{
@@ -194,7 +201,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionRepairBeforeFallback,
+		action:             transitionActionRepairOnly,
 		reasonCode:         string(AttemptConditionInvalidEvidenceClaim),
 	},
 	{
@@ -202,7 +209,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionUnrepairableEvidence),
 	},
 	{
@@ -210,7 +217,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceInvalidOutput,
 		terminalClass:      domain.FailureInvalidOutput,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionSemanticContradiction),
 	},
 	{
@@ -218,23 +225,25 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureProviderUnavailable,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderUnavailable),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionProviderSpawnFailed,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureProviderUnavailable,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderSpawnFailed),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionTimeout,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureTimeout,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionTimeout),
 	},
 	{
@@ -242,7 +251,7 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureTimeout,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderTimeout),
 	},
 	{
@@ -250,16 +259,18 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureAuthentication,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionAuthentication),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionProviderPermissionDenied,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureAuthentication,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderPermissionDenied),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionLoginRequired,
@@ -268,21 +279,23 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionLoginRequired),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionQuota,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureQuota,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionQuota),
+		providerUnusable:   true,
 	},
 	{
 		condition:          AttemptConditionRateLimit,
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureRateLimit,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFallbackOnly,
+		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionRateLimit),
 	},
 	{
@@ -333,6 +346,25 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionInternalInvariant),
 	},
+}
+
+// ConditionProviderUnusable reports whether a condition proves the provider
+// itself must be fixed or replaced before it can review anything, rather than
+// having merely failed this once. It reads the same closed policy table the
+// coordinator decides from, so remediation advice cannot drift from the
+// transition that produced the failure.
+func ConditionProviderUnusable(condition AttemptCondition) bool {
+	row, ok := lookupTransitionPolicy(condition)
+	return ok && row.providerUnusable
+}
+
+// ConditionProviderFault reports whether a condition attributes the failure to
+// the provider at all. It is broader than ConditionProviderUnusable: a rate
+// limit or a timeout is the provider's fault but says nothing about whether the
+// provider is usable, so running the role again is a reasonable next step.
+func ConditionProviderFault(condition AttemptCondition) bool {
+	row, ok := lookupTransitionPolicy(condition)
+	return ok && row.terminalClass.ProviderFault()
 }
 
 // AttemptConditions returns the complete closed condition set in policy order.
@@ -404,21 +436,14 @@ func DecideTransition(input TransitionInput) (TransitionDecision, error) {
 		terminalClass:      row.terminalClass,
 		terminalProjection: row.terminalProjection,
 		reasonCode:         row.reasonCode,
+		providerUnusable:   row.providerUnusable,
 	}
 
 	switch row.action {
 	case transitionActionValid, transitionActionFailClosed:
-	case transitionActionRepairBeforeFallback:
+	case transitionActionRepairOnly:
 		if !input.RepairUsed {
 			decision.scheduleRepair = true
-			decision.terminalProjection = TerminalProjectionNone
-		} else if fallbackUsable(input) {
-			decision.scheduleFallback = true
-			decision.terminalProjection = TerminalProjectionNone
-		}
-	case transitionActionFallbackOnly:
-		if fallbackUsable(input) {
-			decision.scheduleFallback = true
 			decision.terminalProjection = TerminalProjectionNone
 		}
 	case transitionActionCancelRun:
@@ -442,19 +467,18 @@ func lookupTransitionPolicy(condition AttemptCondition) (transitionPolicyRow, bo
 	return transitionPolicyRow{}, false
 }
 
-func fallbackUsable(input TransitionInput) bool {
-	return input.FallbackConfigured && input.FallbackEligible
-}
-
 func (decision TransitionDecision) validate() error {
-	if decision.scheduleRepair && decision.scheduleFallback {
-		return fmt.Errorf("review transition policy: %w: repair and fallback cannot both be scheduled", domain.ErrInvariant)
-	}
-	if (decision.scheduleRepair || decision.scheduleFallback) && decision.terminalProjection != TerminalProjectionNone {
+	if decision.scheduleRepair && decision.terminalProjection != TerminalProjectionNone {
 		return fmt.Errorf("review transition policy: %w: scheduled work cannot have a terminal projection", domain.ErrInvariant)
 	}
-	if decision.cancelRun && (decision.scheduleRepair || decision.scheduleFallback) {
+	if decision.cancelRun && decision.scheduleRepair {
 		return fmt.Errorf("review transition policy: %w: cancelled run cannot schedule work", domain.ErrInvariant)
+	}
+	if decision.providerUnusable && !decision.terminalClass.ProviderFault() {
+		return fmt.Errorf("review transition policy: %w: unusable provider requires a provider-fault class, got %q", domain.ErrInvariant, decision.terminalClass)
+	}
+	if decision.providerUnusable && decision.scheduleRepair {
+		return fmt.Errorf("review transition policy: %w: unusable provider cannot be repaired", domain.ErrInvariant)
 	}
 	if !decision.terminalProjection.Valid() {
 		return fmt.Errorf("review transition policy: %w: invalid terminal projection %q", domain.ErrInvariant, decision.terminalProjection)

@@ -190,7 +190,7 @@ func followupPrimaryReportFixture(t *testing.T, repairResponses [][]byte, repair
 		t.Fatal(err)
 	}
 	target := childrunTarget(t)
-	task, err := domain.NewRoleTask(domain.RoleLogic, true, providerInstance, nil)
+	task, err := domain.NewRoleTask(domain.RoleLogic, true, providerInstance)
 	if err != nil {
 		t.Fatal(err)
 	}

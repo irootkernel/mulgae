@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/user"
@@ -58,6 +60,45 @@ func TestLiveZCodeCapability(t *testing.T) {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
 		},
 	})
+}
+
+// liveProbeFailureMessage classifies a live capability-probe error so an
+// operator can tell a throttled or unauthenticated provider account from a real
+// contract violation, and knows what to do about it.
+//
+// It never downgrades the outcome to a skip. This suite is the release gate for
+// provider certification, and a silently skipped certification is not a
+// certification: a permanently throttled account would look green forever. The
+// failure stays a failure; only the guidance changes.
+func liveProbeFailureMessage(subject string, err error) string {
+	var failure *domain.Failure
+	if !errors.As(err, &failure) {
+		return fmt.Sprintf("INCONCLUSIVE: %s: %v", subject, err)
+	}
+	switch failure.Class() {
+	case domain.FailureRateLimit:
+		return fmt.Sprintf("INCONCLUSIVE: %s: the provider account is rate limited (%v). "+
+			"Certification did not run and this build is uncertified. "+
+			"Wait for the provider's rate-limit window to reset, then run this suite again.", subject, err)
+	case domain.FailureQuota:
+		return fmt.Sprintf("INCONCLUSIVE: %s: the provider account has no quota left (%v). "+
+			"Certification did not run and this build is uncertified. "+
+			"Restore quota on the provider account, then run this suite again.", subject, err)
+	case domain.FailureAuthentication:
+		return fmt.Sprintf("INCONCLUSIVE: %s: the provider account is not authenticated (%v). "+
+			"Certification did not run and this build is uncertified. "+
+			"Log in to the provider CLI, then run this suite again.", subject, err)
+	case domain.FailureTimeout:
+		return fmt.Sprintf("INCONCLUSIVE: %s: the provider did not answer in time (%v). "+
+			"Certification did not run and this build is uncertified. "+
+			"Retry when the provider is responsive; if it persists, treat it as a provider defect.", subject, err)
+	case domain.FailureInvalidOutput:
+		return fmt.Sprintf("FAIL: %s: the provider answered but did not satisfy capability certification (%v). "+
+			"Under heavy load this provider can answer poorly, so retry once before treating it as a defect; "+
+			"a repeatable failure means this provider version no longer meets the capability contract.", subject, err)
+	default:
+		return fmt.Sprintf("FAIL: %s: %v", subject, err)
+	}
 }
 
 func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
@@ -189,7 +230,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
-		t.Fatalf("%s live capability certification failed: %v", config.family, err)
+		t.Fatal(liveProbeFailureMessage(string(config.family)+" live capability certification", err))
 	}
 	if !providercli.VersionAtLeast(result.Version, config.minimumVersion[0], config.minimumVersion[1], config.minimumVersion[2]) {
 		t.Fatalf("%s version %q is below the supported minimum", config.family, result.Version)

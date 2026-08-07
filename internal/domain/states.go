@@ -65,19 +65,19 @@ func (value RunState) RequireTransition(next RunState) error {
 type RoleTaskState string
 
 const (
-	RoleTaskPending         RoleTaskState = "pending"
-	RoleTaskPrimaryQueued   RoleTaskState = "primary_queued"
-	RoleTaskPrimaryRunning  RoleTaskState = "primary_running"
-	RoleTaskFallbackQueued  RoleTaskState = "fallback_queued"
-	RoleTaskFallbackRunning RoleTaskState = "fallback_running"
-	RoleTaskSucceeded       RoleTaskState = "succeeded"
-	RoleTaskFailed          RoleTaskState = "failed"
-	RoleTaskCancelled       RoleTaskState = "cancelled"
-	RoleTaskBlocked         RoleTaskState = "blocked"
+	RoleTaskPending        RoleTaskState = "pending"
+	RoleTaskPrimaryQueued  RoleTaskState = "primary_queued"
+	RoleTaskPrimaryRunning RoleTaskState = "primary_running"
+	RoleTaskSucceeded      RoleTaskState = "succeeded"
+	RoleTaskFailed         RoleTaskState = "failed"
+	RoleTaskCancelled      RoleTaskState = "cancelled"
+	// RoleTaskBlocked is terminal for a role that never ran: the run stopped
+	// before it was dispatched, or its provider family was quarantined.
+	RoleTaskBlocked RoleTaskState = "blocked"
 )
 
 func (value RoleTaskState) Valid() bool {
-	return oneOf(string(value), string(RoleTaskPending), string(RoleTaskPrimaryQueued), string(RoleTaskPrimaryRunning), string(RoleTaskFallbackQueued), string(RoleTaskFallbackRunning), string(RoleTaskSucceeded), string(RoleTaskFailed), string(RoleTaskCancelled), string(RoleTaskBlocked))
+	return oneOf(string(value), string(RoleTaskPending), string(RoleTaskPrimaryQueued), string(RoleTaskPrimaryRunning), string(RoleTaskSucceeded), string(RoleTaskFailed), string(RoleTaskCancelled), string(RoleTaskBlocked))
 }
 
 func (value RoleTaskState) CanTransition(next RoleTaskState) bool {
@@ -87,10 +87,6 @@ func (value RoleTaskState) CanTransition(next RoleTaskState) bool {
 	case RoleTaskPrimaryQueued:
 		return next == RoleTaskPrimaryRunning || next == RoleTaskCancelled || next == RoleTaskBlocked
 	case RoleTaskPrimaryRunning:
-		return next == RoleTaskSucceeded || next == RoleTaskFallbackQueued || next == RoleTaskFailed || next == RoleTaskCancelled
-	case RoleTaskFallbackQueued:
-		return next == RoleTaskFallbackRunning || next == RoleTaskCancelled
-	case RoleTaskFallbackRunning:
 		return next == RoleTaskSucceeded || next == RoleTaskFailed || next == RoleTaskCancelled
 	default:
 		return false

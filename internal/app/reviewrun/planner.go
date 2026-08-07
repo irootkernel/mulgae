@@ -99,29 +99,25 @@ func (route QualifiedRoute) Valid() bool {
 }
 
 // RoleProviderAssignment is the configured provider-family route for one role.
-// An empty fallback family means that the configured provider set is a singleton.
+// A role names exactly one family; Mulgae never substitutes another.
 type RoleProviderAssignment struct {
-	role     domain.Role
-	primary  Family
-	fallback Family
+	role    domain.Role
+	primary Family
 }
 
 // NewRoleProviderAssignment validates one explicit Config v1 assignment.
-func NewRoleProviderAssignment(role domain.Role, primary, fallback Family) (RoleProviderAssignment, error) {
-	if !role.Valid() || !primary.Valid() || (fallback != "" && (!fallback.Valid() || fallback == primary)) {
+func NewRoleProviderAssignment(role domain.Role, primary Family) (RoleProviderAssignment, error) {
+	if !role.Valid() || !primary.Valid() {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
 	}
-	if role == domain.RoleArtist && (primary == FamilyKimi || fallback == FamilyKimi) {
+	if role == domain.RoleArtist && primary == FamilyKimi {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: artist requires agy or zcode")
 	}
-	return RoleProviderAssignment{role: role, primary: primary, fallback: fallback}, nil
+	return RoleProviderAssignment{role: role, primary: primary}, nil
 }
 
 func (assignment RoleProviderAssignment) Role() domain.Role { return assignment.role }
 func (assignment RoleProviderAssignment) Primary() Family   { return assignment.primary }
-func (assignment RoleProviderAssignment) Fallback() (Family, bool) {
-	return assignment.fallback, assignment.fallback != ""
-}
 
 // PlannerPolicy supplies trusted execution limits, explicit Config v1
 // provider assignments, and outcome policy. Zero threshold, ceilings, and lane
@@ -198,7 +194,6 @@ func (planner *qualifiedPlanner) Plan(ctx context.Context, request PlanningReque
 		return ExecutionPlan{}, fmt.Errorf("review run: invalid planning request: %w", err)
 	}
 	primaries := make([]QualifiedRoute, len(roles))
-	fallbacks := make([]*QualifiedRoute, len(roles))
 	for index, role := range roles {
 		configured, ok := planner.configuredAssignment(role)
 		if !ok {
@@ -209,15 +204,8 @@ func (planner *qualifiedPlanner) Plan(ctx context.Context, request PlanningReque
 			return ExecutionPlan{}, err
 		}
 		primaries[index] = primary
-		if configured.fallback != "" {
-			fallback, err := planner.configuredRoute(role, configured.fallback)
-			if err != nil {
-				return ExecutionPlan{}, err
-			}
-			fallbacks[index] = &fallback
-		}
 	}
-	plan, err := planner.makeConfiguredPlan(roles, primaries, fallbacks)
+	plan, err := planner.makeConfiguredPlan(roles, primaries)
 	if err != nil {
 		return ExecutionPlan{}, err
 	}
@@ -260,25 +248,15 @@ func (planner *qualifiedPlanner) configuredRoute(role domain.Role, family Family
 	return *matched, nil
 }
 
-func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primaries []QualifiedRoute, fallbacks []*QualifiedRoute) (ExecutionPlan, error) {
+func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primaries []QualifiedRoute) (ExecutionPlan, error) {
 	assignments := make([]review.Assignment, 0, len(roles))
 	budgets := make([]review.RoleBudget, 0, len(roles))
 	for index, role := range roles {
-		var fallbackRoute *ports.ProviderRoute
-		var fallbackBudget *review.RouteBudget
-		if fallback := fallbacks[index]; fallback != nil {
-			route := fallback.Route()
-			budget, err := review.NewRouteBudget(route, fallback.Limits())
-			if err != nil {
-				return ExecutionPlan{}, err
-			}
-			fallbackRoute, fallbackBudget = &route, &budget
-		}
 		required := role.RequiredFloor()
 		for _, configuredRequired := range planner.policy.RequiredRoles {
 			required = required || configuredRequired == role
 		}
-		assignment, err := review.NewScheduledAssignment(role, required, primaries[index].Route(), fallbackRoute)
+		assignment, err := review.NewScheduledAssignment(role, required, primaries[index].Route())
 		if err != nil {
 			return ExecutionPlan{}, err
 		}
@@ -286,7 +264,7 @@ func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primari
 		if err != nil {
 			return ExecutionPlan{}, err
 		}
-		budget, err := review.NewRoleBudget(role, primaryBudget, fallbackBudget)
+		budget, err := review.NewRoleBudget(role, primaryBudget)
 		if err != nil {
 			return ExecutionPlan{}, err
 		}
@@ -347,7 +325,7 @@ func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
 	seen := make(map[domain.Role]bool, len(assignments))
 	for _, assignment := range assignments {
 		ordinal := roleOrdinal(assignment.role)
-		if ordinal <= lastOrdinal || !assignment.primary.Valid() || (assignment.fallback != "" && (!assignment.fallback.Valid() || assignment.fallback == assignment.primary)) {
+		if ordinal <= lastOrdinal || !assignment.primary.Valid() {
 			return fmt.Errorf("review run: invalid configured assignment for role %q", assignment.role)
 		}
 		seen[assignment.role], lastOrdinal = true, ordinal

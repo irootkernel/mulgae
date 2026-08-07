@@ -22,16 +22,14 @@ type Assignment struct {
 	required         bool
 	providerInstance string
 	primaryRoute     ports.ProviderRoute
-	fallbackRoute    ports.ProviderRoute
-	hasFallback      bool
 }
 
 const legacyConcurrencyKey = "legacy"
 
-// NewAssignment constructs a legacy trusted role assignment without fallback
-// authority. All legacy assignments share the fixed legacy concurrency lane.
+// NewAssignment constructs a legacy trusted role assignment. All legacy
+// assignments share the fixed legacy concurrency lane.
 func NewAssignment(role domain.Role, required bool, providerInstance string) (Assignment, error) {
-	task, err := domain.NewRoleTask(role, required, providerInstance, nil)
+	task, err := domain.NewRoleTask(role, required, providerInstance)
 	if err != nil {
 		return Assignment{}, err
 	}
@@ -43,60 +41,33 @@ func NewAssignment(role domain.Role, required bool, providerInstance string) (As
 	if err != nil {
 		return Assignment{}, err
 	}
-	return newScheduledAssignment(task, primary, nil), nil
+	return newScheduledAssignment(task, primary), nil
 }
 
-// NewScheduledAssignment constructs one trusted role assignment with a primary
-// route and an optional fallback route on a distinct concurrency lane.
+// NewScheduledAssignment constructs one trusted role assignment binding the
+// role to exactly one provider route.
 func NewScheduledAssignment(
 	role domain.Role,
 	required bool,
 	primary ports.ProviderRoute,
-	fallback *ports.ProviderRoute,
 ) (Assignment, error) {
-	var fallbackProvider *string
-	if fallback != nil {
-		provider := fallback.ProviderInstance()
-		fallbackProvider = &provider
-	}
-	task, err := domain.NewRoleTask(role, required, primary.ProviderInstance(), fallbackProvider)
+	task, err := domain.NewRoleTask(role, required, primary.ProviderInstance())
 	if err != nil {
 		return Assignment{}, err
 	}
 	if !primary.Valid() {
 		return Assignment{}, fmt.Errorf("review assignment: invalid primary provider route")
 	}
-	if fallback == nil {
-		return newScheduledAssignment(task, primary, nil), nil
-	}
-	if !fallback.Valid() {
-		return Assignment{}, fmt.Errorf("review assignment: invalid fallback provider route")
-	}
-	if fallback.ProviderInstance() == primary.ProviderInstance() {
-		return Assignment{}, fmt.Errorf("review assignment: fallback provider instance must differ from primary")
-	}
-	if fallback.ConcurrencyKey().String() == primary.ConcurrencyKey().String() {
-		return Assignment{}, fmt.Errorf("review assignment: fallback concurrency key must differ from primary")
-	}
-	return newScheduledAssignment(task, primary, fallback), nil
+	return newScheduledAssignment(task, primary), nil
 }
 
-func newScheduledAssignment(
-	task domain.RoleTask,
-	primary ports.ProviderRoute,
-	fallback *ports.ProviderRoute,
-) Assignment {
-	assignment := Assignment{
+func newScheduledAssignment(task domain.RoleTask, primary ports.ProviderRoute) Assignment {
+	return Assignment{
 		role:             task.Role(),
 		required:         task.Required(),
 		providerInstance: task.PrimaryProvider(),
 		primaryRoute:     primary,
 	}
-	if fallback != nil {
-		assignment.fallbackRoute = *fallback
-		assignment.hasFallback = true
-	}
-	return assignment
 }
 
 // Role returns the coordinator-selected role.
@@ -110,14 +81,6 @@ func (assignment Assignment) ProviderInstance() string { return assignment.provi
 
 // PrimaryRoute returns the trusted primary provider route.
 func (assignment Assignment) PrimaryRoute() ports.ProviderRoute { return assignment.primaryRoute }
-
-// HasFallback reports whether the assignment has a configured fallback route.
-func (assignment Assignment) HasFallback() bool { return assignment.hasFallback }
-
-// FallbackRoute returns a caller-owned fallback route when configured.
-func (assignment Assignment) FallbackRoute() (ports.ProviderRoute, bool) {
-	return assignment.fallbackRoute, assignment.hasFallback
-}
 
 // TemplateSet holds the trusted prompt layers required to compose a role
 // packet. It owns defensive copies of all layer bytes and exposes copies.
@@ -524,6 +487,3 @@ func cloneRoleExecutions(source []RoleExecution) []RoleExecution {
 	}
 	return copied
 }
-
-// FallbackScheduled is always false for this sequential vertical slice.
-func (Result) FallbackScheduled() bool { return false }

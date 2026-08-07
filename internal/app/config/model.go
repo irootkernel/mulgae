@@ -67,10 +67,9 @@ type RolesConfig struct {
 	Artist          RoleConfig `yaml:"artist,omitempty" json:"artist,omitempty"`
 }
 type RoleConfig struct {
-	Enabled          bool                `yaml:"enabled" json:"enabled"`
-	PrimaryProvider  string              `yaml:"primary_provider" json:"primary_provider"`
-	FallbackProvider string              `yaml:"fallback_provider,omitempty" json:"fallback_provider,omitempty"`
-	Inputs           *ArtistInputsConfig `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Enabled         bool                `yaml:"enabled" json:"enabled"`
+	PrimaryProvider string              `yaml:"primary_provider" json:"primary_provider"`
+	Inputs          *ArtistInputsConfig `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 }
 type ArtistInputsConfig struct {
 	TaskPath        string   `yaml:"task_path" json:"task_path"`
@@ -93,12 +92,11 @@ type RepairConfig struct {
 	SameProvider bool `yaml:"same_provider" json:"same_provider"`
 }
 type ResourcesConfig struct {
-	MaxActiveLanes         int    `yaml:"max_active_lanes" json:"max_active_lanes"`
-	PrimaryRepairAttempts  int    `yaml:"primary_repair_attempts" json:"primary_repair_attempts"`
-	FallbackRepairAttempts int    `yaml:"fallback_repair_attempts" json:"fallback_repair_attempts"`
-	RoleMaxInvocations     int    `yaml:"role_max_invocations" json:"role_max_invocations"`
-	RunMaxInvocations      int    `yaml:"run_max_invocations" json:"run_max_invocations"`
-	RunTotalOutputCap      string `yaml:"run_total_output_cap" json:"run_total_output_cap"`
+	MaxActiveLanes        int    `yaml:"max_active_lanes" json:"max_active_lanes"`
+	PrimaryRepairAttempts int    `yaml:"primary_repair_attempts" json:"primary_repair_attempts"`
+	RoleMaxInvocations    int    `yaml:"role_max_invocations" json:"role_max_invocations"`
+	RunMaxInvocations     int    `yaml:"run_max_invocations" json:"run_max_invocations"`
+	RunTotalOutputCap     string `yaml:"run_total_output_cap" json:"run_total_output_cap"`
 }
 type CIConfig struct {
 	FailOnSeverity      []string `yaml:"fail_on_severity" json:"fail_on_severity"`
@@ -243,29 +241,20 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 		return RolesConfig{}, fmt.Errorf("canonical role assignments: logic is required")
 	}
 	// assign resolves one role against its own build-owned preference order. The
-	// first configured family becomes the primary and the second the fallback.
+	// first configured family becomes the role's provider. Later preferences are
+	// not recorded: a role runs on exactly one provider, and choosing a different
+	// one after a failure is the operator's call, not a preconfigured route.
 	assign := func(role domain.Role) (RoleConfig, RoleDefault, error) {
 		preference, exists := defaults.Role(role)
 		if !exists {
 			return RoleConfig{}, RoleDefault{}, fmt.Errorf("canonical role assignments: no default for %q", role)
 		}
-		selected := make([]string, 0, 2)
 		for _, family := range preference.ProviderPreferences {
 			if _, ok := configured[family]; ok {
-				selected = append(selected, family)
-				if len(selected) == 2 {
-					break
-				}
+				return RoleConfig{PrimaryProvider: family}, preference, nil
 			}
 		}
-		if len(selected) == 0 {
-			return RoleConfig{}, preference, nil
-		}
-		assignment := RoleConfig{PrimaryProvider: selected[0]}
-		if len(selected) == 2 {
-			assignment.FallbackProvider = selected[1]
-		}
-		return assignment, preference, nil
+		return RoleConfig{}, preference, nil
 	}
 	core := make(map[domain.Role]RoleConfig, len(domain.CoreRoleOrder()))
 	for _, role := range domain.CoreRoleOrder() {

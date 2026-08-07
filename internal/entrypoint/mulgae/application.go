@@ -1347,7 +1347,7 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 			failure.class,
 			failure.code,
 			message,
-			failure.role, failure.provider, domain.AttemptID{}, false, false, failure.diagnosticURI, failure.recommendedNextCommand,
+			failure.role, failure.provider, domain.AttemptID{}, failure.diagnosticURI, failure.recommendedNextCommand,
 		)
 	}
 	if err != nil {
@@ -1589,7 +1589,7 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		}
 		failureList := strings.Join(facts, ", ")
 		if permissionFailures := qualificationPermissionDeniedFailures(failures); len(permissionFailures) > 0 {
-			hint := providerFailureHint("provider_permission_denied")
+			hint := providerFailureHint(review.AttemptConditionProviderPermissionDenied)
 			providers := make([]string, len(permissionFailures))
 			for index, failure := range permissionFailures {
 				providers[index] = failure.ProviderInstance()
@@ -1653,7 +1653,7 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			}
 		}
 		code := providerExecutionFailureCode(first)
-		hint := providerFailureHint(code)
+		hint := providerFailureHint(review.AttemptCondition(first.ReasonCode()))
 		return &executionFailure{
 			class:                  class,
 			code:                   code,
@@ -1758,15 +1758,29 @@ func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) st
 	return "provider_execution_failed"
 }
 
-func providerFailureHint(code string) string {
-	switch code {
-	case "provider_permission_denied":
+// providerFailureHint names the command that can actually move a provider
+// failure forward. It routes from the coordinator's own condition rather than
+// the narrowed public code, because the public code lumps distinct conditions
+// together and would send the operator to the wrong command.
+//
+// A role runs on exactly one provider and Mulgae never substitutes another, so
+// recovering a failed role is the operator's decision and this hint is most of
+// what they have to make it. `mulgae doctor` is only useful when the provider
+// itself is unusable; for a provider that merely failed this once it reports
+// "eligible" and wastes the operator's time.
+func providerFailureHint(condition review.AttemptCondition) string {
+	switch {
+	case condition == review.AttemptConditionProviderPermissionDenied:
+		// Permission is configuration, not provider health.
 		return "mulgae config --mode effective"
-	case "provider_timeout":
+	case review.ConditionProviderUnusable(condition):
+		// Log in, restore quota, or install the provider before rerunning.
 		return "mulgae doctor"
-	case "provider_output_missing", "provider_output_decode_failed":
-		return "mulgae doctor"
+	case review.ConditionProviderFault(condition):
+		// The provider failed this once. Run the role again, here or elsewhere.
+		return "mulgae rerun"
 	default:
+		// Not the provider's fault; doctor stays the conservative entry point.
 		return "mulgae doctor"
 	}
 }

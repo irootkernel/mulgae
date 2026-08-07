@@ -207,10 +207,10 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	doctorResult := runLiveMulgae(t, validator, environment, project, 4, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
-	expected := map[string][2]string{
-		"logic": {"zcode-logic", "agy-logic"}, "security": {"zcode-security", "agy-security"},
-		"maintainability": {"zcode-maintainability", "agy-maintainability"}, "product": {"zcode-product", "agy-product"},
-		"documentation": {"agy-documentation", "zcode-documentation"}, "testing": {"zcode-testing", "agy-testing"},
+	expected := map[string]string{
+		"logic": "zcode-logic", "security": "zcode-security",
+		"maintainability": "zcode-maintainability", "product": "zcode-product",
+		"documentation": "agy-documentation", "testing": "zcode-testing",
 	}
 	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
@@ -264,14 +264,12 @@ func runLiveChildProductionWorkflows(
 		t.Logf("[test-e2e] skipping followup --finding: committed review has zero structured findings bound to successful selected providers")
 	}
 
-	delta := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
+	delta := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
+		map[string]string{"logic": "zcode-logic", "security": "zcode-security", "documentation": "agy-documentation"},
 		"delta", "--since-run", root.manifest.RunID, "--dirty",
 		"--roles", "logic,security,documentation", "--output", "json",
 	)
 	assertLiveSourceLineage(t, delta, root, "", "")
-	assertLiveAssignments(t, delta, map[string][2]string{
-		"logic": {"zcode-logic", "agy-logic"}, "security": {"zcode-security", "agy-security"}, "documentation": {"agy-documentation", "zcode-documentation"},
-	})
 	assertLiveRoleReportTransports(t, delta, "delta", false)
 
 	exact := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
@@ -282,12 +280,12 @@ func runLiveChildProductionWorkflows(
 	assertLiveSourceBoundAssignment(t, exact, sourceAttempt.Role, sourceAttempt.ProviderInstance)
 	assertLiveExactReplayRoleReportTransports(t, exact)
 
-	recompose := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
+	recompose := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
+		map[string]string{"logic": "zcode-logic"},
 		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
 		"--replay", "recompose", "--output", "json",
 	)
 	assertLiveSourceLineage(t, recompose, root, "", "recompose")
-	assertLiveAssignments(t, recompose, map[string][2]string{"logic": {"zcode-logic", "agy-logic"}})
 	assertLiveRoleReportTransports(t, recompose, "recompose", false)
 }
 
@@ -546,7 +544,7 @@ func runLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, env
 	return loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
 }
 
-func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string][2]string, arguments ...string) livePublishedRun {
+func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, arguments ...string) livePublishedRun {
 	t.Helper()
 	const maxAttempts = 2
 	var last string
@@ -557,11 +555,41 @@ func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, e
 		}
 		last = reason
 	}
-	t.Fatalf("live provider gate did not produce one recoverable full-workflow root after %d attempts: %s", maxAttempts, last)
+	t.Fatal(liveProviderGateFailure(maxAttempts, last))
 	return livePublishedRun{}
 }
 
-func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string][2]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
+// liveAttemptFailureSummary names the typed failure Mulgae recorded for one
+// attempt. The manifest already carries the class and reason code, so the gate
+// can say what the provider actually did instead of printing raw structs and
+// leaving the reader to work it out from a preserved project directory.
+func liveAttemptFailureSummary(run livePublishedRun, attempt liveAttempt) string {
+	for _, failure := range run.manifest.Failures {
+		if failure.AttemptID != nil && *failure.AttemptID == attempt.AttemptID {
+			return fmt.Sprintf("state=%s class=%s reason=%s", attempt.State, failure.Class, failure.ReasonCode)
+		}
+	}
+	return fmt.Sprintf("state=%s (no typed failure recorded)", attempt.State)
+}
+
+// liveProviderGateFailure explains an exhausted live gate. These providers are
+// real accounts under real limits: repeated full runs throttle them, and a
+// throttled provider returns short or non-compliant answers rather than an
+// explicit error. The suite still fails — a live gate that cannot certify has
+// not certified anything — but the operator should be told to let the account
+// recover before treating this as a defect.
+func liveProviderGateFailure(maxAttempts int, last string) string {
+	return fmt.Sprintf(
+		"INCONCLUSIVE: the live provider gate did not produce one recoverable full-workflow root after %d attempts. "+
+			"Last failure: %s.\n"+
+			"Repeated live runs throttle these provider accounts, and a throttled provider answers with short or "+
+			"contract-violating output rather than a clean error. Let the accounts recover, then run this suite "+
+			"again. Treat it as a defect only if it repeats on rested accounts, or if the failure is not a "+
+			"provider-attributed class.",
+		maxAttempts, last)
+}
+
+func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
 	t.Helper()
 	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=actual-provider-production-workflow attempt=%d/%d", attempt, maxAttempts))
 	defer scope.end()
@@ -592,7 +620,7 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 		reason = providerErr.Error()
 	} else if !liveSecurityDefectPresent(project, run, provider) {
 		reason = fmt.Sprintf("selected security provider %s did not publish the required defect via structured finding or verified role-report markers", provider)
-	} else if processErr := validateLivePrimaryProcessTerminals(project, run, livePrimaryAssignments(expected)); processErr != nil {
+	} else if processErr := validateLivePrimaryProcessTerminals(project, run, expected); processErr != nil {
 		t.Fatalf("focused live attempt %d has invalid process diagnostics: %v", attempt, processErr)
 	} else {
 		logLiveRecoverySelections(t, run)
@@ -1427,9 +1455,8 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Policy                struct {
 			RoleAssignments []struct {
-				Role             string  `json:"role"`
-				PrimaryProvider  string  `json:"primary_provider"`
-				FallbackProvider *string `json:"fallback_provider"`
+				Role            string `json:"role"`
+				PrimaryProvider string `json:"primary_provider"`
 			} `json:"role_assignments"`
 		} `json:"policy"`
 	}
@@ -1439,20 +1466,19 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "agy"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
-	want := map[string][2]string{
-		"logic": {"zcode", "agy"}, "security": {"zcode", "agy"}, "maintainability": {"zcode", "agy"},
-		"product": {"zcode", "agy"}, "documentation": {"agy", "zcode"}, "testing": {"zcode", "agy"},
-		"artist": {"", ""},
+	// Each role names exactly one provider: the first configured family from its
+	// own preference order. The projection carries no second route.
+	want := map[string]string{
+		"logic": "zcode", "security": "zcode", "maintainability": "zcode",
+		"product": "zcode", "documentation": "agy", "testing": "zcode",
+		"artist": "",
 	}
 	if len(redacted.Policy.RoleAssignments) != len(want) {
 		t.Fatalf("role assignment count = %d", len(redacted.Policy.RoleAssignments))
 	}
 	for _, assignment := range redacted.Policy.RoleAssignments {
 		expected, ok := want[assignment.Role]
-		if assignment.Role == "artist" && ok && assignment.PrimaryProvider == "" && assignment.FallbackProvider == nil {
-			continue
-		}
-		if !ok || assignment.FallbackProvider == nil || assignment.PrimaryProvider != expected[0] || *assignment.FallbackProvider != expected[1] {
+		if !ok || assignment.PrimaryProvider != expected {
 			t.Fatalf("unexpected config assignment: %#v", assignment)
 		}
 	}
@@ -1473,7 +1499,7 @@ func assertLiveSixLaneConfig(t *testing.T, project string) {
 	}
 }
 
-func validateLiveProviderQualificationHealth(project string, run livePublishedRun, expected map[string][2]string) error {
+func validateLiveProviderQualificationHealth(project string, run livePublishedRun, expected map[string]string) error {
 	if run.envelope.Result.SessionID == nil || run.envelope.Result.RunID == nil {
 		return fmt.Errorf("run has no diagnostic identity")
 	}
@@ -1497,18 +1523,18 @@ func validateLiveProviderQualificationHealth(project string, run livePublishedRu
 	return validateLiveQualificationEvents(events, expected)
 }
 
-func validateLiveQualificationEvents(events []liveRuntimeEvent, expected map[string][2]string) error {
-	candidates := make(map[string]struct{}, len(expected)*2)
-	for role, providers := range expected {
-		for _, provider := range providers {
-			if provider == "" {
-				return fmt.Errorf("%s has an empty qualification candidate", role)
-			}
-			if _, duplicate := candidates[provider]; duplicate {
-				return fmt.Errorf("qualification candidate %s is assigned more than once", provider)
-			}
-			candidates[provider] = struct{}{}
+func validateLiveQualificationEvents(events []liveRuntimeEvent, expected map[string]string) error {
+	// A role owns exactly one candidate, so qualification probes one provider
+	// instance per role and never a family the role does not use.
+	candidates := make(map[string]struct{}, len(expected))
+	for role, provider := range expected {
+		if provider == "" {
+			return fmt.Errorf("%s has an empty qualification candidate", role)
 		}
+		if _, duplicate := candidates[provider]; duplicate {
+			return fmt.Errorf("qualification candidate %s is assigned more than once", provider)
+		}
+		candidates[provider] = struct{}{}
 	}
 	lastOutcome := make(map[string]string, len(candidates))
 	qualified := make(map[string]bool, len(candidates))
@@ -1539,14 +1565,6 @@ func validateLiveQualificationEvents(events []liveRuntimeEvent, expected map[str
 		}
 	}
 	return nil
-}
-
-func livePrimaryAssignments(expected map[string][2]string) map[string]string {
-	primaries := make(map[string]string, len(expected))
-	for role, providers := range expected {
-		primaries[role] = providers[0]
-	}
-	return primaries
 }
 
 func validateLivePrimaryProcessTerminals(project string, run livePublishedRun, expected map[string]string) error {
@@ -1629,12 +1647,18 @@ func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	}
 }
 
-func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[string][2]string) {
+func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
 	t.Helper()
-	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
-		t.Fatalf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
+	if err := validateLiveAssignments(run, expected); err != nil {
+		t.Fatal(err)
 	}
-	for role, providers := range expected {
+}
+
+func validateLiveAssignments(run livePublishedRun, expected map[string]string) error {
+	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
+		return fmt.Errorf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
+	}
+	for role, provider := range expected {
 		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
 		var outcome *liveRoleOutcome
 		for index := range run.review.RoleOutcomes {
@@ -1644,39 +1668,63 @@ func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[stri
 			}
 		}
 		if outcome == nil || !liveSuccessfulRoleOutcome(outcome.Outcome) || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
-			t.Fatalf("%s role outcome is not a successful product outcome: %#v", role, outcome)
+			return fmt.Errorf("%s role outcome is not a successful product outcome: %#v", role, outcome)
 		}
-		if len(attempts) == 0 || attempts[0].ProviderInstance != providers[0] || attempts[0].SelectedAs != "primary" {
-			t.Fatalf("%s primary attempt does not bind %s: %#v", role, providers[0], attempts)
+		// One provider per role means exactly one attempt, always primary.
+		if len(attempts) != 1 || attempts[0].ProviderInstance != provider || attempts[0].SelectedAs != "primary" {
+			return fmt.Errorf("%s does not bind exactly one primary attempt from %s: %#v", role, provider, attempts)
 		}
-		switch *outcome.SelectedVia {
-		case "primary":
-			if len(attempts) != 1 || attempts[0].State != "succeeded" || *outcome.AttemptID != attempts[0].AttemptID || *outcome.ProviderInstance != providers[0] {
-				t.Fatalf("%s primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
-			}
-		case "fallback":
-			if providers[1] == "" || len(attempts) != 2 || attempts[0].State == "succeeded" || attempts[1].ProviderInstance != providers[1] ||
-				attempts[1].SelectedAs != "fallback" || attempts[1].State != "succeeded" || *outcome.AttemptID != attempts[1].AttemptID || *outcome.ProviderInstance != providers[1] {
-				t.Fatalf("%s fallback outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
-			}
-		default:
-			t.Fatalf("%s selected_via = %q", role, *outcome.SelectedVia)
+		if *outcome.SelectedVia != "primary" {
+			return fmt.Errorf("%s selected_via = %q, want primary", role, *outcome.SelectedVia)
+		}
+		if attempts[0].State != "succeeded" || *outcome.AttemptID != attempts[0].AttemptID || *outcome.ProviderInstance != provider {
+			return fmt.Errorf("%s primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
 		}
 	}
+	return nil
 }
 
-func assertLiveRecoverableAssignments(t *testing.T, run livePublishedRun, expected map[string][2]string) {
+// runLiveChildWorkflowWithAssignments runs one child workflow and retries it
+// while any selected role misses its own provider. Live providers are
+// stochastic: the same role on the same provider can succeed in one run and
+// return provider_output_missing in the next. Mulgae no longer masks that by
+// moving the role elsewhere, so this scenario absorbs it the way the root
+// workflow already does, rather than asserting a live provider never flakes.
+func runLiveChildWorkflowWithAssignments(
+	t *testing.T,
+	validator *jsonschema.Validator,
+	environment liveE2EEnvironment,
+	project string,
+	expected map[string]string,
+	arguments ...string,
+) livePublishedRun {
+	t.Helper()
+	const maxAttempts = 2
+	var last error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		run := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4}, arguments...)
+		last = validateLiveAssignments(run, expected)
+		if last == nil {
+			return run
+		}
+		t.Logf("[test-e2e] %s attempt %d/%d did not bind every role to its provider; retrying: %v",
+			arguments[0], attempt, maxAttempts, last)
+	}
+	t.Fatalf("live %s did not bind every role to its configured provider after %d attempts: %v", arguments[0], maxAttempts, last)
+	return livePublishedRun{}
+}
+
+func assertLiveRecoverableAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
 	t.Helper()
 	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// validateLiveRecoverableAssignments keeps direct primary launch mandatory but
-// accepts bounded repair or the exact configured fallback as the selected P2
-// outcome. Eligibility for fallback remains a deterministic coordinator policy
-// tested below the live-provider boundary.
-func validateLiveRecoverableAssignments(run livePublishedRun, expected map[string][2]string) error {
+// validateLiveRecoverableAssignments keeps direct primary launch mandatory and
+// accepts one bounded same-provider repair as the selected P2 outcome. A role is
+// bound to one provider, so no other route can produce the outcome.
+func validateLiveRecoverableAssignments(run livePublishedRun, expected map[string]string) error {
 	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
 		return fmt.Errorf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
 	}
@@ -1687,17 +1735,17 @@ func validateLiveRecoverableAssignments(run livePublishedRun, expected map[strin
 		}
 		selectedRoles[role] = true
 	}
-	for role, providers := range expected {
+	for role, provider := range expected {
 		if !selectedRoles[role] {
 			return fmt.Errorf("selected role %s is absent", role)
 		}
 		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
-		if len(attempts) < 1 || len(attempts) > 2 {
-			return fmt.Errorf("%s attempt cardinality = %d, want primary and at most one fallback: %#v", role, len(attempts), attempts)
+		if len(attempts) != 1 {
+			return fmt.Errorf("%s attempt cardinality = %d, want exactly one primary attempt: %#v", role, len(attempts), attempts)
 		}
 		primary := attempts[0]
-		if primary.ProviderInstance != providers[0] || primary.SelectedAs != "primary" || primary.InvocationCount < 1 || primary.InvocationCount > 2 {
-			return fmt.Errorf("%s primary launch mismatch: %#v, want one bounded attempt from %s", role, primary, providers[0])
+		if primary.ProviderInstance != provider || primary.SelectedAs != "primary" || primary.InvocationCount < 1 || primary.InvocationCount > 2 {
+			return fmt.Errorf("%s primary launch mismatch: %#v, want one bounded attempt from %s", role, primary, provider)
 		}
 
 		var outcome *liveRoleOutcome
@@ -1710,31 +1758,17 @@ func validateLiveRecoverableAssignments(run livePublishedRun, expected map[strin
 			}
 		}
 		if outcome == nil || outcome.Outcome != "completed" && outcome.Outcome != "degraded" || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
-			return fmt.Errorf("%s role has no successful terminal outcome: primary=%#v outcome=%#v", role, primary, outcome)
+			return fmt.Errorf("%s role has no successful terminal outcome on %s: %s",
+				role, primary.ProviderInstance, liveAttemptFailureSummary(run, primary))
 		}
-		switch *outcome.SelectedVia {
-		case "primary":
-			if len(attempts) != 1 || primary.State != "succeeded" || *outcome.AttemptID != primary.AttemptID || *outcome.ProviderInstance != providers[0] {
-				return fmt.Errorf("%s selected primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
-			}
-		case "fallback":
-			if len(attempts) != 2 || !liveFallbackEligibleTerminalState(primary.State) {
-				return fmt.Errorf("%s fallback did not follow one terminal primary failure: attempts=%#v outcome=%#v", role, attempts, outcome)
-			}
-			fallback := attempts[1]
-			if fallback.ProviderInstance != providers[1] || fallback.SelectedAs != "fallback" || fallback.State != "succeeded" ||
-				fallback.InvocationCount < 1 || fallback.InvocationCount > 2 || *outcome.AttemptID != fallback.AttemptID || *outcome.ProviderInstance != providers[1] {
-				return fmt.Errorf("%s selected fallback outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
-			}
-		default:
-			return fmt.Errorf("%s selected_via = %q", role, *outcome.SelectedVia)
+		if *outcome.SelectedVia != "primary" {
+			return fmt.Errorf("%s selected_via = %q, want primary", role, *outcome.SelectedVia)
+		}
+		if primary.State != "succeeded" || *outcome.AttemptID != primary.AttemptID || *outcome.ProviderInstance != provider {
+			return fmt.Errorf("%s selected primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
 		}
 	}
 	return nil
-}
-
-func liveFallbackEligibleTerminalState(state string) bool {
-	return state == "failed" || state == "timed_out" || state == "blocked"
 }
 
 func liveSelectedProvider(run livePublishedRun, role string) (string, error) {
@@ -1768,7 +1802,7 @@ func logLiveRecoverySelections(t *testing.T, run livePublishedRun) {
 
 func TestLiveRecoverableAssignmentGate(t *testing.T) {
 	t.Parallel()
-	expected := map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}}
+	expected := map[string]string{"logic": "kimi-logic"}
 	primaryRun := func(invocations int) livePublishedRun {
 		attemptID, provider, selectedVia := "a_primary", "kimi-logic", "primary"
 		return livePublishedRun{
@@ -1780,12 +1814,14 @@ func TestLiveRecoverableAssignmentGate(t *testing.T) {
 			}}},
 		}
 	}
-	fallbackRun := func(primaryState, fallbackProvider string, fallbackInvocations int) livePublishedRun {
-		attemptID, provider, selectedVia := "a_fallback", fallbackProvider, "fallback"
+	// A second attempt on any provider is now impossible: nothing writes it, and
+	// a published run that claims one is not a run this build could have produced.
+	secondAttemptRun := func(primaryState, secondProvider string, secondInvocations int) livePublishedRun {
+		attemptID, provider, selectedVia := "a_second", secondProvider, "fallback"
 		return livePublishedRun{
 			manifest: liveManifest{SelectedRoles: []string{"logic"}, Attempts: []liveAttempt{
 				{AttemptID: "a_primary", Role: "logic", ProviderInstance: "kimi-logic", SelectedAs: "primary", State: primaryState, InvocationCount: 2},
-				{AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "fallback", State: "succeeded", InvocationCount: fallbackInvocations},
+				{AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "fallback", State: "succeeded", InvocationCount: secondInvocations},
 			}},
 			review: liveReview{RoleOutcomes: []liveRoleOutcome{{
 				Role: "logic", Outcome: "degraded", AttemptID: &attemptID, ProviderInstance: &provider, SelectedVia: &selectedVia,
@@ -1799,11 +1835,8 @@ func TestLiveRecoverableAssignmentGate(t *testing.T) {
 	}{
 		{name: "initial primary", run: primaryRun(1), want: true},
 		{name: "primary repair", run: primaryRun(2), want: true},
-		{name: "configured fallback", run: fallbackRun("failed", "zcode-logic", 1), want: true},
-		{name: "fallback repair", run: fallbackRun("timed_out", "zcode-logic", 2), want: true},
-		{name: "wrong fallback", run: fallbackRun("failed", "agy-logic", 1)},
-		{name: "fallback after successful primary", run: fallbackRun("succeeded", "zcode-logic", 1)},
-		{name: "fallback invocation overflow", run: fallbackRun("failed", "zcode-logic", 3)},
+		{name: "second attempt on another provider", run: secondAttemptRun("failed", "zcode-logic", 1)},
+		{name: "second attempt after successful primary", run: secondAttemptRun("succeeded", "zcode-logic", 1)},
 		{name: "primary invocation overflow", run: primaryRun(3)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1816,7 +1849,7 @@ func TestLiveRecoverableAssignmentGate(t *testing.T) {
 
 func TestLiveQualificationHealthGate(t *testing.T) {
 	t.Parallel()
-	expected := map[string][2]string{"logic": {"kimi-logic", "zcode-logic"}}
+	expected := map[string]string{"logic": "kimi-logic"}
 	qualified := func(provider string) liveRuntimeEvent {
 		return liveRuntimeEvent{Event: "qualification_candidate_checked", Provider: provider, Outcome: "qualified"}
 	}
@@ -1829,12 +1862,12 @@ func TestLiveQualificationHealthGate(t *testing.T) {
 		events []liveRuntimeEvent
 		want   bool
 	}{
-		{name: "all qualified", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), succeeded}, want: true},
-		{name: "retry then qualified", events: []liveRuntimeEvent{rejected("kimi-logic"), qualified("kimi-logic"), qualified("zcode-logic"), succeeded}, want: true},
-		{name: "candidate missing", events: []liveRuntimeEvent{qualified("kimi-logic"), succeeded}},
-		{name: "terminal rejection", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), rejected("zcode-logic"), succeeded}},
-		{name: "unexpected candidate", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), qualified("agy-logic"), succeeded}},
-		{name: "overall success missing", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic")}},
+		{name: "all qualified", events: []liveRuntimeEvent{qualified("kimi-logic"), succeeded}, want: true},
+		{name: "retry then qualified", events: []liveRuntimeEvent{rejected("kimi-logic"), qualified("kimi-logic"), succeeded}, want: true},
+		{name: "candidate missing", events: []liveRuntimeEvent{succeeded}},
+		{name: "terminal rejection", events: []liveRuntimeEvent{qualified("kimi-logic"), rejected("kimi-logic"), succeeded}},
+		{name: "unexpected candidate", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), succeeded}},
+		{name: "overall success missing", events: []liveRuntimeEvent{qualified("kimi-logic")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := validateLiveQualificationEvents(test.events, expected); (err == nil) != test.want {

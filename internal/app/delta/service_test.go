@@ -458,11 +458,11 @@ func testSource(t *testing.T, bytes, receipt string) SourceSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logic, err := domain.NewRoleTask(domain.RoleLogic, true, "logic-provider", nil)
+	logic, err := domain.NewRoleTask(domain.RoleLogic, true, "logic-provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	security, err := domain.NewRoleTask(domain.RoleSecurity, true, "security-provider", nil)
+	security, err := domain.NewRoleTask(domain.RoleSecurity, true, "security-provider")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -473,11 +473,11 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 		if budgetErr != nil {
 			t.Fatal(budgetErr)
 		}
-		roleBudget, budgetErr := review.NewRoleBudget(role, routeBudget, nil)
+		roleBudget, budgetErr := review.NewRoleBudget(role, routeBudget)
 		if budgetErr != nil {
 			t.Fatal(budgetErr)
 		}
-		assignment, assignmentErr := review.NewScheduledAssignment(role, false, route, nil)
+		assignment, assignmentErr := review.NewScheduledAssignment(role, false, route)
 		if assignmentErr != nil {
 			t.Fatal(assignmentErr)
 		}

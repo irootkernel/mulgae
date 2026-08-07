@@ -224,12 +224,7 @@ func childRoles(source []domain.RoleTask, requested []domain.Role) ([]domain.Rol
 	roles := make([]domain.RoleTask, 0, len(ordered))
 	for _, role := range ordered {
 		sourceTask := byRole[role]
-		fallback, hasFallback := sourceTask.FallbackProvider()
-		var fallbackValue *string
-		if hasFallback {
-			fallbackValue = &fallback
-		}
-		task, err := domain.NewRoleTask(role, sourceTask.Required(), sourceTask.PrimaryProvider(), fallbackValue)
+		task, err := domain.NewRoleTask(role, sourceTask.Required(), sourceTask.PrimaryProvider())
 		if err != nil {
 			return nil, fmt.Errorf("delta roles: source role %q is invalid: %w", role, err)
 		}

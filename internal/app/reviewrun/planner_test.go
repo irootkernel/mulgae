@@ -75,9 +75,9 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 				t.Fatal(err)
 			}
 			plan := plannerTestPlan(t, planner, roles)
-			got, fallbacks := plannerTestAssignments(plan)
-			if !reflect.DeepEqual(got, test.want) || !reflect.DeepEqual(fallbacks, test.fallback) {
-				t.Fatalf("assignment golden = %v/%v, want %v/%v", got, fallbacks, test.want, test.fallback)
+			got := plannerTestAssignments(plan)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("assignment golden = %v, want %v", got, test.want)
 			}
 		})
 	}
@@ -119,7 +119,7 @@ func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, _ := plannerTestAssignments(plannerTestPlan(t, planner, roles))
+		got := plannerTestAssignments(plannerTestPlan(t, planner, roles))
 		if golden == nil {
 			golden = got
 		} else if !reflect.DeepEqual(got, golden) {
@@ -140,12 +140,9 @@ func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.
 		t.Fatal(err)
 	}
 	plan := plannerTestPlan(t, planner, roles)
-	primary, fallback := plannerTestRouteInstances(plan)
+	primary := plannerTestRouteInstances(plan)
 	if want := []string{"kimi.one", "zcode.one", "zcode.one", "zcode.one", "agy.one", "zcode.one"}; !reflect.DeepEqual(primary, want) {
 		t.Fatalf("primary matrix = %v, want %v", primary, want)
-	}
-	if want := []string{"zcode.one", "agy.one", "agy.one", "agy.one", "zcode.one", "agy.one"}; !reflect.DeepEqual(fallback, want) {
-		t.Fatalf("fallback matrix = %v, want %v", fallback, want)
 	}
 }
 
@@ -165,31 +162,17 @@ func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := plannerTestPlan(t, planner, roles)
-	primary, fallback := plannerTestRouteInstances(plan)
+	primary := plannerTestRouteInstances(plan)
 	if want := []string{"kimi-logic", "zcode-security", "zcode-maintainability", "zcode-product", "agy-documentation", "zcode-testing"}; !reflect.DeepEqual(primary, want) {
 		t.Fatalf("sharded primary matrix = %v, want %v", primary, want)
-	}
-	if want := []string{"zcode-logic", "agy-security", "agy-maintainability", "agy-product", "zcode-documentation", "agy-testing"}; !reflect.DeepEqual(fallback, want) {
-		t.Fatalf("sharded fallback matrix = %v, want %v", fallback, want)
 	}
 	for index, assignment := range plan.Assignments {
 		wantPrimary := primary[index]
 		if got := assignment.PrimaryRoute().ConcurrencyKey().String(); got != wantPrimary {
 			t.Fatalf("primary concurrency key for %q = %q, want %q", assignment.Role(), got, wantPrimary)
 		}
-		fallbackRoute, ok := assignment.FallbackRoute()
-		if !ok {
-			t.Fatalf("fallback route for %q is missing", assignment.Role())
-		}
-		if got, want := fallbackRoute.ConcurrencyKey().String(), fallback[index]; got != want {
-			t.Fatalf("fallback concurrency key for %q = %q, want %q", assignment.Role(), got, want)
-		}
 		if got := plan.Budgets[index].Primary().Route(); got != assignment.PrimaryRoute() {
 			t.Fatalf("primary route for %q changed between assignment and budget", assignment.Role())
-		}
-		budgetFallback, ok := plan.Budgets[index].Fallback()
-		if !ok || budgetFallback.Route() != fallbackRoute {
-			t.Fatalf("fallback route for %q changed between assignment and budget", assignment.Role())
 		}
 	}
 }
@@ -369,7 +352,7 @@ func TestQualifiedPlannerAcceptsRunSubsetWithoutProjectFloor(t *testing.T) {
 }
 
 func TestQualifiedPlannerAcceptsLogicOnlyProjectPolicy(t *testing.T) {
-	assignment, err := NewRoleProviderAssignment(domain.RoleLogic, FamilyKimi, "")
+	assignment, err := NewRoleProviderAssignment(domain.RoleLogic, FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +371,7 @@ func TestQualifiedPlannerAcceptsLogicOnlyProjectPolicy(t *testing.T) {
 }
 
 func TestQualifiedPlannerRejectsProjectPolicyWithoutLogic(t *testing.T) {
-	assignment, err := NewRoleProviderAssignment(domain.RoleSecurity, FamilyZCode, "")
+	assignment, err := NewRoleProviderAssignment(domain.RoleSecurity, FamilyZCode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,13 +411,13 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 	if _, err := validatePlan(plan, roles); err != nil {
 		t.Fatalf("production plan preflight: %v", err)
 	}
-	instances, fallbacks := plannerTestAssignments(plan)
-	if want := []string{"agy-production", "agy-production"}; !reflect.DeepEqual(instances, want) || !reflect.DeepEqual(fallbacks, []bool{false, false}) {
-		t.Fatalf("production assignments = %v/%v, want %v/%v", instances, fallbacks, want, []bool{false, false})
+	instances := plannerTestAssignments(plan)
+	if want := []string{"agy-production", "agy-production"}; !reflect.DeepEqual(instances, want) {
+		t.Fatalf("production assignments = %v, want %v", instances, want)
 	}
-	repeatedInstances, repeatedFallbacks := plannerTestAssignments(plannerTestPlan(t, planner, roles))
-	if !reflect.DeepEqual(repeatedInstances, instances) || !reflect.DeepEqual(repeatedFallbacks, fallbacks) {
-		t.Fatalf("production planning was nondeterministic: %v/%v then %v/%v", instances, fallbacks, repeatedInstances, repeatedFallbacks)
+	repeatedInstances := plannerTestAssignments(plannerTestPlan(t, planner, roles))
+	if !reflect.DeepEqual(repeatedInstances, instances) {
+		t.Fatalf("production planning was nondeterministic: %v then %v", instances, repeatedInstances)
 	}
 }
 
@@ -510,26 +493,20 @@ func plannerTestRequest(t *testing.T, roles []domain.Role) PlanningRequest {
 	return request
 }
 
-func plannerTestAssignments(plan ExecutionPlan) ([]string, []bool) {
+func plannerTestAssignments(plan ExecutionPlan) []string {
 	instances := make([]string, len(plan.Assignments))
-	fallbacks := make([]bool, len(plan.Assignments))
 	for index, assignment := range plan.Assignments {
 		instances[index] = assignment.PrimaryRoute().ProviderInstance()
-		fallbacks[index] = assignment.HasFallback()
 	}
-	return instances, fallbacks
+	return instances
 }
 
-func plannerTestRouteInstances(plan ExecutionPlan) ([]string, []string) {
+func plannerTestRouteInstances(plan ExecutionPlan) []string {
 	primary := make([]string, len(plan.Assignments))
-	fallback := make([]string, len(plan.Assignments))
 	for index, assignment := range plan.Assignments {
 		primary[index] = assignment.PrimaryRoute().ProviderInstance()
-		if route, ok := assignment.FallbackRoute(); ok {
-			fallback[index] = route.ProviderInstance()
-		}
 	}
-	return primary, fallback
+	return primary
 }
 
 func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
@@ -538,20 +515,14 @@ func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
 	for _, family := range families {
 		configured[family] = struct{}{}
 	}
-	pick := func(preferences []Family) (Family, Family) {
-		selected := make([]Family, 0, 2)
+	// A role takes the first configured family from its preference order.
+	pick := func(preferences []Family) Family {
 		for _, family := range preferences {
 			if _, ok := configured[family]; ok {
-				selected = append(selected, family)
-				if len(selected) == 2 {
-					break
-				}
+				return family
 			}
 		}
-		if len(selected) == 1 {
-			return selected[0], ""
-		}
-		return selected[0], selected[1]
+		return ""
 	}
 	policy := DefaultPlannerPolicy()
 	for _, role := range domain.CoreRoleOrder() {
@@ -561,8 +532,7 @@ func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
 		} else if role == domain.RoleDocumentation {
 			preferences = []Family{FamilyAGY, FamilyZCode, FamilyKimi}
 		}
-		primary, fallback := pick(preferences)
-		assignment, err := NewRoleProviderAssignment(role, primary, fallback)
+		assignment, err := NewRoleProviderAssignment(role, pick(preferences))
 		if err != nil {
 			t.Fatal(err)
 		}

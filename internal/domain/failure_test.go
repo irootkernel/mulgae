@@ -30,7 +30,7 @@ func TestFailurePolicyIsClassBased(t *testing.T) {
 		if !test.class.Valid() {
 			t.Errorf("%q is not a valid failure class", test.class)
 		}
-		if got := test.class.FallbackAllowed(); got != test.fallback {
+		if got := test.class.ProviderFault(); got != test.fallback {
 			t.Errorf("%q fallback = %v, want %v", test.class, got, test.fallback)
 		}
 		if got := test.class.RepairAllowed(); got != test.repair {
@@ -40,7 +40,7 @@ func TestFailurePolicyIsClassBased(t *testing.T) {
 			t.Errorf("NewFailure for %q: %v", test.class, err)
 		}
 	}
-	if FailureClass("unknown").Valid() || FailureClass("unknown").FallbackAllowed() || FailureClass("unknown").RepairAllowed() {
+	if FailureClass("unknown").Valid() || FailureClass("unknown").ProviderFault() || FailureClass("unknown").RepairAllowed() {
 		t.Error("unknown failure class acquired policy")
 	}
 }

@@ -178,14 +178,15 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Declare default role prompts, role-to-provider routing, and artist input
   defaults once, in `assets/roles.yaml` at the repository root. Do not restate
   any of them in Go.
-- Preserve role assignments and configured primary/fallback provider behavior.
-  Do not silently substitute an unconfigured provider or treat several provider
-  opinions as consensus.
+- Preserve role assignments and configured provider behavior. A role runs on
+  exactly one provider. Never substitute another provider for a failed one, and
+  never treat several provider opinions as consensus. Report the failure with its
+  typed reason and leave the choice of replacement to the operator.
 - Provider output may propose finding content and evidence claims, but Mulgae owns
   run, attempt, review, finding, target, provider, role, verification, coverage,
   and publication identity and state.
 - Keep validation and publication fail-closed. Security, configuration, integrity,
-  cancellation, and internal failures never authorize fallback or publication.
+  cancellation, and internal failures never authorize repair or publication.
 - Preserve at most one top-level final review for a completed run. Failed or
   repaired candidates remain in their documented attempt locations.
 - Treat public JSON, JSON Schemas, command grammar, machine identifiers, exit

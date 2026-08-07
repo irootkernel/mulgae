@@ -16,7 +16,7 @@ func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T)
 	sessionID := childrunSessionID(t, "s_019f596a-cf70-7c67-b265-f37053d51ccf")
 	sourceRunID := childrunRunID(t, "r_019f596a-cf71-7c67-b265-f37053d51ccf")
 	childRunID := childrunRunID(t, "r_019f596a-cf72-7c67-b265-f37053d51ccf")
-	task, err := domain.NewRoleTask(domain.RoleLogic, true, "source-fallback", nil)
+	task, err := domain.NewRoleTask(domain.RoleLogic, true, "source-fallback")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,16 +25,11 @@ func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T)
 		t.Fatal(err)
 	}
 	primaryKey, _ := ports.ParseConcurrencyKey("primary-lane")
-	fallbackKey, _ := ports.ParseConcurrencyKey("fallback-lane")
 	primary, err := ports.NewProviderRoute("primary", primaryKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fallback, err := ports.NewProviderRoute("fallback", fallbackKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assignment, err := review.NewScheduledAssignment(domain.RoleLogic, true, primary, &fallback)
+	assignment, err := review.NewScheduledAssignment(domain.RoleLogic, true, primary)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,9 +38,8 @@ func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T)
 		t.Fatal(err)
 	}
 	roles := configured.RoleTasks()
-	gotFallback, ok := roles[0].FallbackProvider()
-	if len(roles) != 1 || roles[0].PrimaryProvider() != "primary" || !ok || gotFallback != "fallback" {
-		t.Fatalf("configured delta roles = %#v, fallback = %q/%t", roles, gotFallback, ok)
+	if len(roles) != 1 || roles[0].PrimaryProvider() != "primary" {
+		t.Fatalf("configured delta roles = %#v", roles)
 	}
 }
 
@@ -130,7 +124,7 @@ func TestExecuteChildReplayRejectsPartialPublicationAuthorityBeforeExecution(t *
 	sourceRunID := childrunRunID(t, "r_019f596a-cfa1-7c67-b265-f37053d51ccf")
 	childRunID := childrunRunID(t, "r_019f596a-cfa2-7c67-b265-f37053d51ccf")
 	target := childrunTarget(t)
-	selected, err := domain.NewRoleTask(domain.RoleLogic, true, "provider", nil)
+	selected, err := domain.NewRoleTask(domain.RoleLogic, true, "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +155,7 @@ func childrunRequiredRoles(t *testing.T) []domain.RoleTask {
 	t.Helper()
 	roles := make([]domain.RoleTask, 0, 2)
 	for _, role := range []domain.Role{domain.RoleLogic, domain.RoleSecurity} {
-		task, err := domain.NewRoleTask(role, true, "provider", nil)
+		task, err := domain.NewRoleTask(role, true, "provider")
 		if err != nil {
 			t.Fatal(err)
 		}
