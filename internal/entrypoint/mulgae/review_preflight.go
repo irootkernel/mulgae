@@ -246,7 +246,8 @@ func (result ReviewPreflightResult) Validate() error {
 		return fmt.Errorf("review preflight: invalid warnings")
 	}
 	fileSet := result.FileSets[0]
-	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" || len(fileSet.Files) > ports.WorkspaceSnapshotMaxFiles {
+	maxFiles, maxBytes := ports.WorkspaceAdmissionLimits(fileSet.PolicyIdentity)
+	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" || len(fileSet.Files) > maxFiles {
 		return fmt.Errorf("review preflight: invalid file set")
 	}
 	previous := ""
@@ -255,7 +256,7 @@ func (result ReviewPreflightResult) Validate() error {
 		path, pathErr := ports.NewSafeRelativePath(file.Path)
 		totalSize += file.Size
 		if pathErr != nil || !path.Valid() || file.Path == ports.WorkspaceSnapshotManifestName || file.Path <= previous ||
-			file.Size < 0 || file.Size > ports.WorkspaceSnapshotMaxFileBytes || totalSize > ports.WorkspaceSnapshotMaxBytes || !preflightSHA256(file.SHA256) ||
+			file.Size < 0 || file.Size > ports.WorkspaceSnapshotMaxFileBytes || totalSize > maxBytes || !preflightSHA256(file.SHA256) ||
 			(file.MediaType == "text/plain" && file.Disposition != "text") ||
 			(file.MediaType != "text/plain" && file.MediaType != "image/png" && file.MediaType != "image/jpeg" && file.MediaType != "image/webp") ||
 			(file.MediaType != "text/plain" && file.Disposition != "binary_preserved") {

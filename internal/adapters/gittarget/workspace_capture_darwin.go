@@ -151,8 +151,8 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		}
 		*files = append(*files, file)
 		*total += int64(len(data))
-		if len(*files) > ports.WorkspaceSnapshotMaxFiles || *total > ports.WorkspaceSnapshotMaxBytes {
-			return fmt.Errorf("workspace snapshot exceeds its bounded file or byte limit; add generated content to .mulgaeignore")
+		if err := ports.ValidateWorkspaceAdmission("workspace-capture", "current", len(*files), *total); err != nil {
+			return err
 		}
 		if _, err := manifest.Write([]byte("file\x00" + relative + "\x00" + strconv.FormatInt(int64(len(data)), 10) + "\x00")); err != nil {
 			return fmt.Errorf("workspace manifest: write file identity: %w", err)

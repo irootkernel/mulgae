@@ -60,11 +60,14 @@ manifest, rather than Git's path-only binary marker, bind the exact raster
 bytes; dirty capture revalidates them before use.
 
 One captured source tree is limited to 10,000 regular files, 64 MiB total, and
-4 MiB per file; a comparison view permits two maximum trees. Reference-only
+4 MiB per file; a comparison view permits two maximum trees, up to 20,000 files
+and 128 MiB total. Reference-only
 capture manifests and other structured publication members are limited to
 8 MiB, while fixed-size storage reads permit 32 MiB. Mulgae validates these
 relationships at composition and checks the exact capture manifest before any
-provider runs. Provider-authored role reports have no fixed size ceiling.
+provider runs. Workspace limit failures use `capture_workspace_too_large` and
+report their bounded counts and limits with `provider_invoked=false`.
+Provider-authored role reports have no fixed size ceiling.
 
 Credential-like raw provider streams may be omitted from private diagnostics
 without failing an otherwise valid review. Validated final reviews and

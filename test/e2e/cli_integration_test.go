@@ -1211,6 +1211,17 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	largePNG := make([]byte, ports.WorkspaceSnapshotMaxFileBytes)
+	copy(largePNG, pngBytes)
+	for index := 0; index < 8; index++ {
+		mustWriteTestFile(t, filepath.Join(project, "screenshots", fmt.Sprintf("provider-view-%02d.png", index)), largePNG)
+	}
+	runTestCommand(t, project, "git", "add", "screenshots")
+	runTestCommand(t, project, "git", "commit", "-m", "Add provider view raster fixtures")
 
 	providerDirectory := canonicalTestTempDir(t)
 	logDirectory := canonicalTestTempDir(t)
@@ -1241,10 +1252,6 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	configBytes = bytes.Replace(configBytes, []byte(launcherLine), []byte(launcherLine+"    timeout: \"30m\"\n"), 1)
 	mustWriteTestFile(t, configPath, configBytes)
 
-	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
-	if err != nil {
-		t.Fatal(err)
-	}
 	worktreePNG := append(append([]byte(nil), pngBytes...), []byte("worktree-only-drift")...)
 	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)
 	credentialFixtures := []byte(strings.Join([]string{
@@ -1343,9 +1350,15 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	wantPNGHash := sha256.Sum256(pngBytes)
 	wantPNG := "sha256:" + hex.EncodeToString(wantPNGHash[:])
 	seenPNG, seenIgnored := false, false
+	sideBytes := map[string]int64{"after": 0, "before": 0}
 	paths := make([]string, 0, len(firstResult.FileSets[0].Files))
 	for _, file := range firstResult.FileSets[0].Files {
 		paths = append(paths, file.Path)
+		for side := range sideBytes {
+			if strings.HasPrefix(file.Path, side+"/") {
+				sideBytes[side] += file.Size
+			}
+		}
 		if file.Path == "ignored.txt" {
 			seenIgnored = true
 		}
@@ -1356,9 +1369,18 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if !seenPNG || seenIgnored {
 		t.Fatalf("preflight file catalog PNG/ignored = %t/%t: %#v", seenPNG, seenIgnored, firstResult.FileSets)
 	}
-	wantPaths := []string{
-		"after/docs/linked.md", "after/review.go", "after/roadmap.md", "after/screenshots/staged.png", "after/security-fixtures.txt",
-		"before/docs/linked.md", "before/review.go", "before/roadmap.md",
+	combinedBytes := sideBytes["after"] + sideBytes["before"]
+	if sideBytes["after"] > ports.WorkspaceSnapshotMaxBytes || sideBytes["before"] > ports.WorkspaceSnapshotMaxBytes ||
+		combinedBytes <= ports.WorkspaceSnapshotMaxBytes || combinedBytes > ports.WorkspaceProviderViewMaxBytes {
+		t.Fatalf("preflight workspace bytes = before:%d after:%d combined:%d", sideBytes["before"], sideBytes["after"], combinedBytes)
+	}
+	wantPaths := []string{"after/docs/linked.md", "after/review.go", "after/roadmap.md"}
+	for index := 0; index < 8; index++ {
+		wantPaths = append(wantPaths, fmt.Sprintf("after/screenshots/provider-view-%02d.png", index))
+	}
+	wantPaths = append(wantPaths, "after/screenshots/staged.png", "after/security-fixtures.txt", "before/docs/linked.md", "before/review.go", "before/roadmap.md")
+	for index := 0; index < 8; index++ {
+		wantPaths = append(wantPaths, fmt.Sprintf("before/screenshots/provider-view-%02d.png", index))
 	}
 	if !slices.Equal(paths, wantPaths) {
 		t.Fatalf("exact transmitted source paths = %v, want %v", paths, wantPaths)
@@ -1371,6 +1393,11 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		actualEnvelope.Result.Kind != "review_started" || actualEnvelope.Result.SessionID == nil || actualEnvelope.Result.RunID == nil ||
 		actualEnvelope.Result.RunManifestURI == nil || actualEnvelope.Result.ReviewArtifactURI == nil {
 		t.Fatalf("actual first-project review = exit %d envelope %#v decode=%v stdout=%q stderr=%q", actual.exitCode, actualEnvelope, err, actual.stdout, actual.stderr)
+	}
+	status := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"status", "--run", *actualEnvelope.Result.RunID, "--output", "json")
+	if status.exitCode != 0 || !bytes.Contains(status.stdout, []byte(`"publication_status":"committed"`)) {
+		t.Fatalf("published review query = exit %d stdout=%q stderr=%q", status.exitCode, status.stdout, status.stderr)
 	}
 	type zcodeObservation struct {
 		CWD    string `json:"cwd"`
@@ -1425,6 +1452,17 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 1/1: %#v", agyQualification, agyReviews, agyObservations)
 	}
 	archive := restoreTestCapturedReviewArchive(t, project, *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID)
+	restoredWorkspace, err := archive.ProviderWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restoredBytes int64
+	for _, file := range restoredWorkspace.Files() {
+		restoredBytes += int64(len(file.Bytes()))
+	}
+	if restoredBytes != combinedBytes {
+		t.Fatalf("restored provider workspace bytes = %d, want %d", restoredBytes, combinedBytes)
+	}
 	assertExactPNG := func(label string, files []ports.WorkspaceSnapshotFile) {
 		t.Helper()
 		for _, file := range files {

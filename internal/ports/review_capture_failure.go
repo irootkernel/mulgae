@@ -14,19 +14,44 @@ import (
 type ReviewCaptureFailureCode string
 
 const (
-	ReviewCaptureFailed        ReviewCaptureFailureCode = "capture_failed"
-	ReviewCaptureUnsupported   ReviewCaptureFailureCode = "unsupported_content"
-	ReviewCapturePolicyBlocked ReviewCaptureFailureCode = "content_policy_blocked"
-	ReviewCaptureManifestLarge ReviewCaptureFailureCode = "capture_manifest_too_large"
+	ReviewCaptureFailed         ReviewCaptureFailureCode = "capture_failed"
+	ReviewCaptureUnsupported    ReviewCaptureFailureCode = "unsupported_content"
+	ReviewCapturePolicyBlocked  ReviewCaptureFailureCode = "content_policy_blocked"
+	ReviewCaptureManifestLarge  ReviewCaptureFailureCode = "capture_manifest_too_large"
+	ReviewCaptureWorkspaceLarge ReviewCaptureFailureCode = "capture_workspace_too_large"
 )
 
 func (code ReviewCaptureFailureCode) Valid() bool {
 	switch code {
-	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked, ReviewCaptureManifestLarge:
+	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked, ReviewCaptureManifestLarge, ReviewCaptureWorkspaceLarge:
 		return true
 	default:
 		return false
 	}
+}
+
+// NewReviewCaptureWorkspaceFailure reports bounded workspace admission facts
+// without exposing captured paths or bytes.
+func NewReviewCaptureWorkspaceFailure(admission *WorkspaceAdmissionFailure) (*ReviewCaptureFailure, error) {
+	if admission == nil {
+		return nil, fmt.Errorf("review capture failure: invalid workspace admission")
+	}
+	failure, err := NewReviewCaptureFailure(
+		ReviewCaptureWorkspaceLarge,
+		"",
+		"",
+		"reduce captured content with .mulgaeignore; the provider was not invoked",
+		admission,
+	)
+	if err != nil {
+		return nil, err
+	}
+	failure.summary = "the captured workspace exceeds its admission limit"
+	failure.effectiveConfiguration = fmt.Sprintf(
+		"admission_stage=%s; member=%s; file_count=%d; byte_count=%d; max_files=%d; max_bytes=%d; provider_invoked=false",
+		admission.Stage(), admission.Member(), admission.FileCount(), admission.ByteCount(), admission.MaxFiles(), admission.MaxBytes(),
+	)
+	return failure, nil
 }
 
 // NewReviewCaptureManifestFailure reports exact execution-free publication
@@ -106,6 +131,8 @@ func NewReviewCaptureFailure(code ReviewCaptureFailureCode, path string, role do
 		summary = "the selected capture path does not support this content"
 	} else if code == ReviewCaptureManifestLarge {
 		summary = "the captured review manifest is too large"
+	} else if code == ReviewCaptureWorkspaceLarge {
+		summary = "the captured workspace is too large"
 	}
 	return &ReviewCaptureFailure{
 		code: code, path: path, role: role, hint: strings.TrimSpace(hint),
@@ -183,6 +210,12 @@ func WrapReviewCaptureFailure(cause error) error {
 	}
 	if _, ok := ReviewCaptureFailureFromError(cause); ok {
 		return cause
+	}
+	if admission, ok := WorkspaceAdmissionFailureFromError(cause); ok {
+		failure, err := NewReviewCaptureWorkspaceFailure(admission)
+		if err == nil {
+			return failure
+		}
 	}
 	failure, err := NewReviewCaptureFailure(ReviewCaptureFailed, "", "", "inspect the capture error and retry after correcting the review target", cause)
 	if err != nil {

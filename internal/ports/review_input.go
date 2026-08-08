@@ -364,9 +364,18 @@ func NewCapturedTargetEvidence(sides map[CapturedEvidenceSide][]WorkspaceSnapsho
 		return CapturedTargetEvidence{}, fmt.Errorf("captured target evidence: no captured sides")
 	}
 	copied := make(map[CapturedEvidenceSide][]WorkspaceSnapshotFile, len(sides))
-	for side, files := range sides {
+	for side := range sides {
 		if !side.Valid() {
 			return CapturedTargetEvidence{}, fmt.Errorf("captured target evidence: invalid side")
+		}
+	}
+	for _, side := range []CapturedEvidenceSide{CapturedEvidenceBase, CapturedEvidenceHead, CapturedEvidenceIndex, CapturedEvidenceWorktree} {
+		files, present := sides[side]
+		if !present {
+			continue
+		}
+		if err := ValidateWorkspaceAdmission("captured-evidence-v1", string(side), len(files), workspaceSnapshotBytes(files)); err != nil {
+			return CapturedTargetEvidence{}, fmt.Errorf("captured target evidence: %w", err)
 		}
 		validated, err := NewWorkspaceSnapshotRequest(files, "captured-evidence-v1")
 		if err != nil {

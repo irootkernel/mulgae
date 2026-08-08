@@ -78,3 +78,18 @@ func TestReviewCaptureManifestFailurePreservesFeasibilityFacts(t *testing.T) {
 		t.Fatalf("manifest failure = %#v", failure)
 	}
 }
+
+func TestWrapReviewCaptureFailureProjectsWorkspaceAdmissionFacts(t *testing.T) {
+	admission := ValidateWorkspaceAdmission(
+		"capture-policy;layout=ordinary-directories-v1",
+		"combined",
+		WorkspaceProviderViewMaxFiles,
+		WorkspaceProviderViewMaxBytes+1,
+	)
+	failure, ok := ReviewCaptureFailureFromError(WrapReviewCaptureFailure(admission))
+	if !ok || failure.Code() != ReviewCaptureWorkspaceLarge ||
+		failure.EffectiveConfiguration() != "admission_stage=provider_view; member=combined; file_count=20000; byte_count=134217729; max_files=20000; max_bytes=134217728; provider_invoked=false" ||
+		!strings.Contains(failure.Hint(), "provider was not invoked") {
+		t.Fatalf("workspace capture failure = %#v, present=%t", failure, ok)
+	}
+}

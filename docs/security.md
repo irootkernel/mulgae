@@ -124,11 +124,14 @@ capture revalidates those bytes before admission.
 
 Source and structured-control limits are centralized and composition-checked:
 one source tree is bounded to 10,000 files, 64 MiB total, and 4 MiB per file;
-the provider's comparison view permits exactly two maximum trees; capture and
+the provider's comparison view permits exactly two maximum trees, up to 20,000
+files and 128 MiB total; capture and
 other structured publication manifests are bounded to 8 MiB; and fixed-size
 storage reads are bounded to 32 MiB. Provider-authored reports are not source
 admission metadata and have no fixed report-size ceiling. Exact capture-manifest
-feasibility is evaluated before any provider invocation.
+feasibility is evaluated before any provider invocation. Workspace limit
+failures use `capture_workspace_too_large` and report the bounded stage, member,
+counts, limits, and `provider_invoked=false` without exposing source bytes.
 
 For example, a repository may start with:
 

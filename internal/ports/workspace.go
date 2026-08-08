@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -80,12 +81,17 @@ type WorkspaceSnapshotRequest struct {
 
 // NewWorkspaceSnapshotRequest validates stable lexicographic, unique captured files.
 func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity string) (WorkspaceSnapshotRequest, error) {
-	maxFiles, maxBytes := workspaceRequestLimits(policyIdentity)
-	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 || len(files) > maxFiles {
-		return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: invalid policy identity or file count")
+	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 {
+		return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: invalid policy identity")
+	}
+	member := "current"
+	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
+		member = "combined"
+	}
+	if err := ValidateWorkspaceAdmission(policyIdentity, member, len(files), workspaceSnapshotBytes(files)); err != nil {
+		return WorkspaceSnapshotRequest{}, err
 	}
 	copied := append([]WorkspaceSnapshotFile(nil), files...)
-	var total int64
 	previous := ""
 	foldedPaths := make(map[string]struct{}, len(copied))
 	for i, file := range copied {
@@ -106,8 +112,7 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 		}
 		foldedPaths[folded] = struct{}{}
 		previous = current
-		total += int64(len(file.bytes))
-		if int64(len(file.bytes)) > WorkspaceSnapshotMaxFileBytes || total > maxBytes {
+		if int64(len(file.bytes)) > WorkspaceSnapshotMaxFileBytes {
 			return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: size limit exceeded")
 		}
 		copied[i].bytes = append([]byte(nil), file.bytes...)
@@ -115,7 +120,22 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 	return WorkspaceSnapshotRequest{files: copied, policyIdentity: policyIdentity}, nil
 }
 
-func workspaceRequestLimits(policyIdentity string) (int, int64) {
+func workspaceSnapshotBytes(files []WorkspaceSnapshotFile) int64 {
+	var total int64
+	for _, file := range files {
+		size := int64(len(file.bytes))
+		if size > math.MaxInt64-total {
+			return math.MaxInt64
+		}
+		total += size
+	}
+	return total
+}
+
+// WorkspaceAdmissionLimits returns the file-count and aggregate-byte limits
+// for one immutable workspace request. Provider comparison views are the only
+// requests admitted at the combined before/after limits.
+func WorkspaceAdmissionLimits(policyIdentity string) (int, int64) {
 	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
 		return WorkspaceProviderViewMaxFiles, WorkspaceProviderViewMaxBytes
 	}

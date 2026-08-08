@@ -2395,16 +2395,21 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceLarge := ports.WrapReviewCaptureFailure(ports.ValidateWorkspaceAdmission(
+		"capture-policy;layout=ordinary-directories-v1", "combined",
+		ports.WorkspaceProviderViewMaxFiles, ports.WorkspaceProviderViewMaxBytes+1,
+	))
 	tests := []struct {
-		name, code, stage string
-		exit              app.ExitCode
-		err               error
-		provider          bool
-		policyConfig      bool
+		name, code, stage, messageFact string
+		exit                           app.ExitCode
+		err                            error
+		provider                       bool
+		policyConfig                   bool
 	}{
 		{name: "capture failed", code: "capture_failed", stage: "review.capture", exit: app.ExitCodeArtifact, err: ports.WrapReviewCaptureFailure(errors.New("snapshot unavailable"))},
 		{name: "unsupported content", code: "unsupported_content", stage: "review.capture", exit: app.ExitCodeArtifact, err: unsupported},
 		{name: "capture manifest too large", code: "capture_manifest_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: manifestLarge},
+		{name: "capture workspace too large", code: "capture_workspace_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: workspaceLarge, messageFact: "admission_stage=provider_view; member=combined; file_count=20000; byte_count=134217729; max_files=20000; max_bytes=134217728; provider_invoked=false"},
 		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
 		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
@@ -2435,7 +2440,8 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 			if envelope.Reasons[0].Code != test.code ||
 				envelope.Reasons[0].Code == "readiness_unverified" || !strings.Contains(message, "stage "+test.stage) || !strings.Contains(message, "hint:") ||
 				test.provider && (!strings.Contains(message, "role=logic") || !strings.Contains(message, "provider=zcode-logic")) ||
-				test.policyConfig && !strings.Contains(message, "effective configuration: detector_policy=content-policy-v1; detector_code=test-policy") {
+				test.policyConfig && !strings.Contains(message, "effective configuration: detector_policy=content-policy-v1; detector_code=test-policy") ||
+				test.messageFact != "" && !strings.Contains(message, test.messageFact) {
 				t.Fatalf("failure taxonomy = %#v, want code %q at stage %q", envelope.Reasons, test.code, test.stage)
 			}
 		})

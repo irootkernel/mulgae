@@ -2,10 +2,13 @@ package mulgae
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *testing.T) {
@@ -118,6 +121,42 @@ func TestReviewPreflightValidateAcceptsEmptyTextFile(t *testing.T) {
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("empty text file: %v", err)
+	}
+}
+
+func TestReviewPreflightValidateAcceptsBoundedGitProviderView(t *testing.T) {
+	result := loadReviewPreflightExample(t)
+	files := make([]ReviewPreflightFile, 0, 10_002)
+	for _, directory := range []string{"after", "before"} {
+		for index := 0; index < 5_001; index++ {
+			file := ReviewPreflightFile{
+				Path:        fmt.Sprintf("%s/files/%05d.txt", directory, index),
+				MediaType:   "text/plain",
+				SHA256:      "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+				Disposition: "text",
+			}
+			if index < 9 {
+				file.Path = fmt.Sprintf("%s/assets/%05d.png", directory, index)
+				file.MediaType = "image/png"
+				file.Size = ports.WorkspaceSnapshotMaxFileBytes
+				file.SHA256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+				file.Disposition = "binary_preserved"
+			}
+			files = append(files, file)
+		}
+	}
+	result.FileSets[0].PolicyIdentity = "index;layout=ordinary-directories-v1"
+	result.FileSets[0].Files = files
+	id, err := reviewPreflightFileSetID(result.FileSets[0].PolicyIdentity, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.FileSets[0].ID = id
+	for index := range result.Transmissions {
+		result.Transmissions[index].FileSetID = id
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("bounded Git provider view: %v", err)
 	}
 }
 

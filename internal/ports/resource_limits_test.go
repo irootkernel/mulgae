@@ -14,11 +14,51 @@ func TestResourceLimitsAreCompatible(t *testing.T) {
 	if err := ValidateResourceLimits(); err != nil {
 		t.Fatal(err)
 	}
-	if files, bytes := workspaceRequestLimits("capture-policy"); files != WorkspaceSnapshotMaxFiles || bytes != WorkspaceSnapshotMaxBytes {
+	if files, bytes := WorkspaceAdmissionLimits("capture-policy"); files != WorkspaceSnapshotMaxFiles || bytes != WorkspaceSnapshotMaxBytes {
 		t.Fatalf("capture request limits = %d/%d", files, bytes)
 	}
-	if files, bytes := workspaceRequestLimits("capture-policy;layout=ordinary-directories-v1"); files != WorkspaceProviderViewMaxFiles || bytes != WorkspaceProviderViewMaxBytes {
+	if files, bytes := WorkspaceAdmissionLimits("capture-policy;layout=ordinary-directories-v1"); files != WorkspaceProviderViewMaxFiles || bytes != WorkspaceProviderViewMaxBytes {
 		t.Fatalf("provider view limits = %d/%d", files, bytes)
+	}
+}
+
+func TestWorkspaceAdmissionReportsSnapshotAndProviderViewLimits(t *testing.T) {
+	tests := []struct {
+		name, policy, member, stage string
+		files                       int
+		bytes                       int64
+		maxFiles                    int
+		maxBytes                    int64
+	}{
+		{
+			name: "captured side bytes", policy: "capture-policy", member: "base", stage: "capture_side",
+			files: WorkspaceSnapshotMaxFiles, bytes: WorkspaceSnapshotMaxBytes + 1,
+			maxFiles: WorkspaceSnapshotMaxFiles, maxBytes: WorkspaceSnapshotMaxBytes,
+		},
+		{
+			name: "captured side files", policy: "capture-policy", member: "index", stage: "capture_side",
+			files: WorkspaceSnapshotMaxFiles + 1, bytes: WorkspaceSnapshotMaxBytes,
+			maxFiles: WorkspaceSnapshotMaxFiles, maxBytes: WorkspaceSnapshotMaxBytes,
+		},
+		{
+			name: "provider view bytes", policy: "capture-policy;layout=ordinary-directories-v1", member: "combined", stage: "provider_view",
+			files: WorkspaceProviderViewMaxFiles, bytes: WorkspaceProviderViewMaxBytes + 1,
+			maxFiles: WorkspaceProviderViewMaxFiles, maxBytes: WorkspaceProviderViewMaxBytes,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateWorkspaceAdmission(test.policy, test.member, test.files, test.bytes)
+			failure, ok := WorkspaceAdmissionFailureFromError(err)
+			if !ok || failure.Stage() != test.stage || failure.Member() != test.member ||
+				failure.FileCount() != test.files || failure.ByteCount() != test.bytes ||
+				failure.MaxFiles() != test.maxFiles || failure.MaxBytes() != test.maxBytes {
+				t.Fatalf("workspace admission failure = %#v, present=%t", failure, ok)
+			}
+		})
+	}
+	if err := ValidateWorkspaceAdmission("capture-policy", "current", WorkspaceSnapshotMaxFiles, WorkspaceSnapshotMaxBytes); err != nil {
+		t.Fatalf("boundary admission: %v", err)
 	}
 }
 

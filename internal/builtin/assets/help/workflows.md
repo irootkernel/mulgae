@@ -40,6 +40,10 @@ If the reference-only capture manifest exceeds its structured-member limit,
 preflight returns `capture_manifest_too_large` with the actual size, the limit,
 and `provider_invoked=false`.
 
+If a captured side or combined provider view exceeds its applicable file or
+byte limit, preflight returns `capture_workspace_too_large` with the admission
+stage and member, actual and maximum counts, and `provider_invoked=false`.
+
 An explicit AGY `safe` mode produces a warning because headless tool requests
 may be denied. A no-change target reports `status: no_change` with no
 transmissions or execution budget. `--preflight` cannot be combined with
