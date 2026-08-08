@@ -88,6 +88,11 @@ func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	if err := validateAgainstRef(t, manifestID, manifestDoc, manifestID+"#/properties/role_reports", manifestReports); err != nil {
 		t.Fatalf("manifest role_reports rejected: %v", err)
 	}
+	largeReport := cloneMap(manifestReports[0].(map[string]any))
+	largeReport["byte_length"] = 10 << 20
+	if err := validateAgainstRef(t, manifestID, manifestDoc, manifestID+"#/properties/role_reports", []any{largeReport}); err != nil {
+		t.Fatalf("manifest role_reports rejected a large report identity: %v", err)
+	}
 	if err := validateAgainstRef(t, manifestID, manifestDoc, manifestID+"#/properties/role_reports", eightManifestRoleReports()); err == nil {
 		t.Fatal("manifest role_reports accepted more than seven entries")
 	}

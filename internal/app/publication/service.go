@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -410,7 +411,8 @@ func (service *Service) publish(
 			!persistedAuxiliaryMatches(persisted, run, support) {
 			return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "store returned inconsistent run support receipt", nil)
 		}
-		readRequest, err := ports.NewReadRunSupportArtifactRequest(run, support.Path(), support.SHA256(), service.maxBytes)
+		readMaximum := max(service.maxBytes, int64(len(support.Bytes())))
+		readRequest, err := ports.NewReadRunSupportArtifactRequest(run, support.Path(), support.SHA256(), readMaximum)
 		if err != nil {
 			return PublicationResult{}, publicationFailure("publish.verify_support", domain.FailureInternal, "run support read request is invalid", err)
 		}
@@ -1111,6 +1113,10 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	identities := make([]RunSupportArtifactIdentity, 0, len(supportIndex.Artifacts)+1)
 	identities = append(identities, runSupportArtifactIdentity(indexArtifact))
 	seen := map[string]struct{}{indexPath.String(): {}}
+	roleReportLengths := make(map[string]int64, len(manifest.RoleReports))
+	for _, report := range manifest.RoleReports {
+		roleReportLengths[run.SessionID().String()+"/"+run.RunID().String()+"/"+report.Path] = int64(report.ByteLength)
+	}
 	for _, item := range supportIndex.Artifacts {
 		if !validSHA256(item.SHA256) {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support identity is invalid", nil)
@@ -1123,7 +1129,11 @@ func (service *Service) readManifestBoundSupportArtifacts(
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support paths are ambiguous", nil)
 		}
 		seen[path.String()] = struct{}{}
-		request, err := ports.NewReadRunSupportArtifactRequest(run, path, item.SHA256, service.maxBytes)
+		readMaximum := service.maxBytes
+		if reportLength := roleReportLengths[path.String()]; reportLength > readMaximum {
+			readMaximum = reportLength
+		}
+		request, err := ports.NewReadRunSupportArtifactRequest(run, path, item.SHA256, readMaximum)
 		if err != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support read request is invalid", err)
 		}
@@ -1573,6 +1583,9 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 		{name: "status", bytes: bundle.Status().Bytes()},
 	}
 	for index, excerpt := range bundle.Excerpts() {
+		if publicationRoleReportPath(excerpt.Path()) {
+			continue
+		}
 		members = append(members, struct {
 			name  string
 			bytes []byte
@@ -1587,6 +1600,20 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 		}
 	}
 	return nil
+}
+
+func publicationRoleReportPath(path ports.SafeRelativePath) bool {
+	parts := strings.Split(path.String(), "/")
+	if len(parts) != 4 {
+		return false
+	}
+	sessionID, sessionErr := domain.ParseSessionID(parts[0])
+	runID, runErr := domain.ParseRunID(parts[1])
+	if sessionErr != nil || runErr != nil {
+		return false
+	}
+	kind, err := ports.ClassifyRunSupportArtifactPath(sessionID, runID, path)
+	return err == nil && kind == ports.RunSupportArtifactRoleReport
 }
 
 func sameCommitComposite(left, right ports.CommitCompositeRequest) bool {

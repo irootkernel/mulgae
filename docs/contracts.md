@@ -118,7 +118,7 @@ stay bounded private diagnostics for a staged launch, and standard output is
 ignored for acceptance.
 
 Staged-file failures are classified, not merged. A missing, empty,
-whitespace-only, non-UTF-8, NUL-bearing, or oversize (over 8 MiB) staged file
+whitespace-only, non-UTF-8, or NUL-bearing staged file
 is an operational invalid-provider-output outcome, so the one constrained repair
 may still run. A staging boundary violation is a security fail-closed outcome
 that never authorizes repair or publication: a symbolic link, an extra hard link,

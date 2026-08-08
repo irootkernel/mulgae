@@ -2392,7 +2392,7 @@ type publicationFile struct {
 }
 
 func readPublicationFile(root ports.AnchoredRoot, path ports.SafeRelativePath, maximum int64) (publicationFile, error) {
-	if !root.Valid() || !path.Valid() || maximum <= 0 || maximum > publicationMaximumReadBytes {
+	if !root.Valid() || !path.Valid() || maximum <= 0 || maximum == int64(^uint64(0)>>1) {
 		return publicationFile{}, errors.New("invalid publication file read")
 	}
 	parts, name, err := splitDestination(path)
@@ -2859,7 +2859,7 @@ func (store *PublicationStore) durableExistingImmutable(
 		return ports.SecureWriteReceipt{}, false, errors.New("invalid existing immutable request")
 	}
 	payload := artifact.Bytes()
-	if int64(len(payload)) > publicationMaximumReadBytes {
+	if int64(len(payload)) > publicationMaximumReadBytes && !unboundedRunSupportArtifact(run, artifact.Path(), channel) {
 		return ports.SecureWriteReceipt{}, false, errPublicationCap
 	}
 	file, err := readPublicationFile(run.Root(), artifact.Path(), int64(len(payload)))
@@ -2930,6 +2930,14 @@ func (store *PublicationStore) durableExistingImmutable(
 	}
 	return receipt, true, nil
 }
+
+func unboundedRunSupportArtifact(run ports.PublicationRun, path ports.SafeRelativePath, channel string) bool {
+	if channel != "publication_auxiliary_artifact" {
+		return false
+	}
+	kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+	return err == nil && authorizedUnscannedRunSupportKind(kind)
+}
 func (store *PublicationStore) writePreparedImmutable(
 	ctx context.Context,
 	run ports.PublicationRun,
@@ -2975,7 +2983,7 @@ func (store *PublicationStore) writeImmutableUsing(ctx context.Context, run port
 		return ports.SecureWriteReceipt{}, errors.New("immutable writer is unavailable")
 	}
 	payload := artifact.Bytes()
-	if int64(len(payload)) > publicationMaximumReadBytes {
+	if int64(len(payload)) > publicationMaximumReadBytes && !unboundedRunSupportArtifact(run, artifact.Path(), channel) {
 		return ports.SecureWriteReceipt{}, errPublicationCap
 	}
 	parts, _, err := splitDestination(artifact.Path())

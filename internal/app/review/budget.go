@@ -46,7 +46,7 @@ func NewInvocationLimits(timeout time.Duration, stdoutCap, stderrCap int64) (Inv
 // Timeout returns the positive invocation deadline.
 func (limits InvocationLimits) Timeout() time.Duration { return limits.timeout }
 
-// MaxStdoutBytes returns the positive stdout capture cap.
+// MaxStdoutBytes returns the positive stdout diagnostic capture cap.
 func (limits InvocationLimits) MaxStdoutBytes() int64 { return limits.maxStdoutBytes }
 
 // MaxStderrBytes returns the positive stderr capture cap.

@@ -1783,11 +1783,8 @@ func TestValidRoleReportMarkdownMatchesProducerBoundary(t *testing.T) {
 	if validRoleReportMarkdown([]byte{0xff, 0xfe, 0xfd}) {
 		t.Fatal("non-UTF-8 markdown accepted")
 	}
-	if !validRoleReportMarkdown([]byte(strings.Repeat("a", maxRoleReportBytes))) {
-		t.Fatal("exact 8 MiB markdown rejected")
-	}
-	if validRoleReportMarkdown([]byte(strings.Repeat("a", maxRoleReportBytes+1))) {
-		t.Fatal("oversized markdown accepted")
+	if !validRoleReportMarkdown([]byte(strings.Repeat("a", (8<<20)+1))) {
+		t.Fatal("large markdown rejected")
 	}
 }
 

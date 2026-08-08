@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -23,6 +24,23 @@ func TestNewReportsOnlyValidatedFollowupAcceptsFreeFormReport(t *testing.T) {
 	}
 	if string(output.ProviderRaw()) != string(report) {
 		t.Fatalf("provider raw = %q, want exact free-form report", output.ProviderRaw())
+	}
+}
+
+func TestNewReportsOnlyValidatedFollowupAcceptsTenMiBReport(t *testing.T) {
+	report := bytes.Repeat([]byte("a"), 10<<20)
+	output, err := NewReportsOnlyValidatedFollowup(
+		domain.RoleLogic,
+		"logic-provider",
+		report,
+		domain.ParseNotStarted,
+		domain.ValidationNotStarted,
+	)
+	if err != nil {
+		t.Fatalf("NewReportsOnlyValidatedFollowup() rejected a 10 MiB report: %v", err)
+	}
+	if len(output.ProviderRaw()) != len(report) {
+		t.Fatalf("report bytes = %d, want %d", len(output.ProviderRaw()), len(report))
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -968,7 +969,15 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			// staged bytes are read back from a snapshot that never drifted.
 			return stagedFileObservation(definition, invocation, processObservation, staging)
 		}
-		resultBytes, isolated, parseErr := providerResult(definition.family, processObservation.Stdout())
+		providerOutput, outputErr := completeProcessStdout(ctx, processObservation)
+		if outputErr != nil {
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
+				"provider_output_read_failed", domain.DiagnosticCauseOutputDecodeFailed, "",
+				definition.maxStdoutBytes, definition.maxStderrBytes,
+			)
+		}
+		resultBytes, isolated, parseErr := providerResult(definition.family, providerOutput)
 		if parseErr != nil {
 			cause := domain.DiagnosticCauseOutputDecodeFailed
 			var outputFailure *providerOutputFailure
@@ -999,6 +1008,31 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		status, invocation, processObservation, diagnostic, cause, "",
 		definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
+}
+
+func completeProcessStdout(ctx context.Context, observation ports.ProcessObservation) ([]byte, error) {
+	artifact, ok := observation.StdoutArtifact()
+	if !ok {
+		return observation.Stdout(), nil
+	}
+	reader, err := artifact.Open(ctx)
+	if err != nil {
+		closeProviderContentArtifact(artifact)
+		return nil, err
+	}
+	content, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	closeProviderContentArtifact(artifact)
+	if readErr != nil || closeErr != nil {
+		return nil, errors.Join(readErr, closeErr)
+	}
+	return content, nil
+}
+
+func closeProviderContentArtifact(artifact ports.ContentArtifact) {
+	if lease, ok := artifact.(ports.ContentLease); ok && lease != nil {
+		_ = lease.Close()
+	}
 }
 
 // acquireStagedOutputLease creates the single per-invocation staging directory
@@ -1173,6 +1207,12 @@ func (r *Registry) runInWorkspace(
 	request, requestErr := processRequest(definition, packet, root.Path(), environment)
 	if requestErr != nil {
 		return ports.ProcessObservation{}, fmt.Errorf("provider registry: %w", requestErr)
+	}
+	if _, staged := invocation.StagedOutputDestination(); !staged {
+		request, requestErr = ports.NewSpooledStdoutProcessRequest(request)
+		if requestErr != nil {
+			return ports.ProcessObservation{}, fmt.Errorf("provider registry: mark report stdout: %w", requestErr)
+		}
 	}
 	launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
 	if duplicateErr != nil {

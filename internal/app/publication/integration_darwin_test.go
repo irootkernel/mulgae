@@ -271,6 +271,60 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	assertPublicationIntegrationFilesEqual(t, rootPath, immutable, before)
 }
 
+func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
+	ctx := context.Background()
+	validator, err := jsonschema.New(ctx, builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootPath := filepath.Join(t.TempDir(), ".mulgae")
+	if err := os.Mkdir(rootPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := publicationTestCandidate(t, true)
+	largeReport := bytes.Repeat([]byte("a"), 10<<20)
+	candidate.roles[0].reportMarkdown = largeReport
+	if !candidate.Valid() {
+		t.Fatal("candidate with a 10 MiB role report is invalid")
+	}
+	clock := publicationServiceClock{now: publicationTestTime()}
+	store, err := filesystem.NewPublicationStore(
+		validator,
+		clock,
+		publicationIntegrationIDs{reviewID: publicationTestReviewID(t)},
+		filesystem.NewSecureWriter(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := NewService(store, validator, clock, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publisher.Publish(ctx, root, candidate, 1); err != nil {
+		t.Fatalf("Publish() rejected a 10 MiB role report: %v", err)
+	}
+	run, err := ports.NewPublicationRun(root, candidate.SessionID(), candidate.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := appquery.NewService(store, validator, nil, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := queries.ReadRunStatus(ctx, run)
+	if err != nil {
+		t.Fatalf("ReadRunStatus() rejected a 10 MiB role report: %v", err)
+	}
+	if len(status.RoleReportURIs()) == 0 {
+		t.Fatal("published role report URI is absent")
+	}
+}
+
 func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t *testing.T) {
 	ctx := context.Background()
 	project := t.TempDir()

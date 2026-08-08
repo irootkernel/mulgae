@@ -557,6 +557,21 @@ type ProcessRequest struct {
 	hasProviderPacketBinding     bool
 	postOutputLifecycle          BoundedPostOutputLifecycle
 	hasPostOutputLifecycle       bool
+	spoolStdout                  bool
+}
+
+// NewSpooledStdoutProcessRequest marks a provider request whose stdout is
+// primary report content. MaxStdoutBytes becomes a diagnostic preview limit,
+// not a process termination threshold.
+func NewSpooledStdoutProcessRequest(request ProcessRequest) (ProcessRequest, error) {
+	if !request.Valid() || !request.hasProviderPacketBinding {
+		return ProcessRequest{}, fmt.Errorf("spooled stdout process request: invalid provider request")
+	}
+	request.spoolStdout = true
+	if err := validateProcessRequest(request); err != nil {
+		return ProcessRequest{}, fmt.Errorf("spooled stdout process request: %w", err)
+	}
+	return request, nil
 }
 
 // NewProcessRequest validates a direct child-process request and retains
@@ -801,11 +816,16 @@ func (request ProcessRequest) Stdin() []byte { return cloneBytes(request.stdin) 
 // Timeout returns the exact positive process deadline.
 func (request ProcessRequest) Timeout() time.Duration { return request.timeout }
 
-// MaxStdoutBytes returns the independent positive stdout capture cap.
+// MaxStdoutBytes returns the positive stdout diagnostic-preview cap. For a
+// spooled provider request it does not limit primary report content.
 func (request ProcessRequest) MaxStdoutBytes() int64 { return request.maxStdoutBytes }
 
 // MaxStderrBytes returns the independent positive stderr capture cap.
 func (request ProcessRequest) MaxStderrBytes() int64 { return request.maxStderrBytes }
+
+// SpoolStdout reports whether stdout is primary content rather than a bounded
+// control response.
+func (request ProcessRequest) SpoolStdout() bool { return request.spoolStdout }
 
 // ConcurrencyKey returns the validated lane key for this process request.
 func (request ProcessRequest) ConcurrencyKey() ConcurrencyKey { return request.concurrencyKey }
@@ -1305,6 +1325,9 @@ func (receipt ProviderPacketTransportReceipt) Valid() bool {
 // finding, validation, or outcome authority.
 type ProcessObservation struct {
 	stdout                    []byte
+	stdoutArtifact            ContentArtifact
+	hasStdoutArtifact         bool
+	stdoutTruncated           bool
 	stderr                    []byte
 	exitCode                  int
 	hasExitCode               bool
@@ -1318,6 +1341,32 @@ type ProcessObservation struct {
 	endedAt                   time.Time
 	lifecycleReceipt          ProcessLifecycleReceipt
 	hasLifecycleReceipt       bool
+}
+
+// NewProcessObservationWithStdoutArtifact binds a file-backed complete stdout
+// artifact to an existing observation whose Stdout bytes are only its bounded
+// diagnostic preview.
+func NewProcessObservationWithStdoutArtifact(observation ProcessObservation, artifact ContentArtifact, truncated bool) (ProcessObservation, error) {
+	if !observation.Valid() || isNilContentArtifact(artifact) || !artifact.Identity().Valid() {
+		return ProcessObservation{}, fmt.Errorf("process stdout artifact: invalid observation or artifact")
+	}
+	identity := artifact.Identity()
+	if truncated {
+		if identity.ByteLength() <= int64(len(observation.stdout)) {
+			return ProcessObservation{}, fmt.Errorf("process stdout artifact: truncated preview is not shorter than content")
+		}
+		if observation.hasLifecycleReceipt {
+			if _, hasFrame := observation.lifecycleReceipt.OutputFrame(); hasFrame {
+				return ProcessObservation{}, fmt.Errorf("process stdout artifact: truncated output cannot claim a complete frame")
+			}
+		}
+	} else if identity.ByteLength() != int64(len(observation.stdout)) || identity.SHA256() != sha256Identifier(observation.stdout) {
+		return ProcessObservation{}, fmt.Errorf("process stdout artifact: complete bytes do not match artifact")
+	}
+	observation.stdoutArtifact = artifact
+	observation.hasStdoutArtifact = true
+	observation.stdoutTruncated = truncated
+	return observation, nil
 }
 
 // NewProcessObservation validates neutral process facts and retains defensive
@@ -1425,6 +1474,15 @@ func NewStartedProviderProcessObservation(
 
 // Stdout returns a caller-owned copy of captured stdout bytes.
 func (observation ProcessObservation) Stdout() []byte { return cloneBytes(observation.stdout) }
+
+// StdoutArtifact returns complete file-backed stdout when report spooling was
+// requested.
+func (observation ProcessObservation) StdoutArtifact() (ContentArtifact, bool) {
+	return observation.stdoutArtifact, observation.hasStdoutArtifact && !isNilContentArtifact(observation.stdoutArtifact)
+}
+
+// StdoutTruncated reports whether Stdout is only a bounded diagnostic preview.
+func (observation ProcessObservation) StdoutTruncated() bool { return observation.stdoutTruncated }
 
 // Stderr returns a caller-owned copy of captured stderr bytes.
 func (observation ProcessObservation) Stderr() []byte { return cloneBytes(observation.stderr) }
@@ -1546,6 +1604,24 @@ func (observation ProcessObservation) Succeeded() bool {
 
 // Valid reports whether observation remains a coherent neutral process fact record.
 func (observation ProcessObservation) Valid() bool {
+	if observation.hasStdoutArtifact != !isNilContentArtifact(observation.stdoutArtifact) {
+		return false
+	}
+	if observation.hasStdoutArtifact {
+		identity := observation.stdoutArtifact.Identity()
+		if !identity.Valid() {
+			return false
+		}
+		if observation.stdoutTruncated {
+			if identity.ByteLength() <= int64(len(observation.stdout)) {
+				return false
+			}
+		} else if identity.ByteLength() != int64(len(observation.stdout)) || identity.SHA256() != sha256Identifier(observation.stdout) {
+			return false
+		}
+	} else if observation.stdoutTruncated {
+		return false
+	}
 	if observation.hasLifecycleReceipt {
 		if !observation.lifecycleReceipt.Valid() || !observation.termination.Valid() ||
 			!observation.stdinWriteReceipt.Valid() || observation.startedAt.IsZero() ||

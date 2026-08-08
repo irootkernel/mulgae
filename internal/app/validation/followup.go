@@ -100,9 +100,7 @@ func (result ValidatedFollowup) ValidationState() domain.ValidationState {
 	return result.validationState
 }
 
-const maxFollowupRoleReportBytes = 8 << 20
-
-// NewReportsOnlyValidatedFollowup accepts one bounded free-form followup role
+// NewReportsOnlyValidatedFollowup accepts one free-form followup role
 // report without a trusted structured resolution. Prose remains untrusted;
 // Mulgae owns identity and publication.
 func NewReportsOnlyValidatedFollowup(
@@ -163,9 +161,6 @@ func (result ValidatedFollowup) WithReportBody(reportMarkdown []byte, repaired b
 func normalizeFollowupRoleReport(report []byte) ([]byte, error) {
 	if len(report) == 0 {
 		return nil, fmt.Errorf("followup validation: role report is empty")
-	}
-	if len(report) > maxFollowupRoleReportBytes {
-		return nil, fmt.Errorf("followup validation: role report exceeds %d bytes", maxFollowupRoleReportBytes)
 	}
 	if !utf8.Valid(report) {
 		return nil, fmt.Errorf("followup validation: role report is not valid UTF-8")

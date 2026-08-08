@@ -26,7 +26,7 @@ func TestNewReportsOnlyValidatedRoleOutputAcceptsMarkdown(t *testing.T) {
 	}
 }
 
-func TestNormalizeRoleReportMarkdownRejectsEmptyWhitespaceNonUTF8AndOversized(t *testing.T) {
+func TestNormalizeRoleReportMarkdownRejectsInvalidContentAndAcceptsLargeReport(t *testing.T) {
 	t.Parallel()
 
 	if _, err := normalizeRoleReportMarkdown(nil); err == nil {
@@ -38,9 +38,9 @@ func TestNormalizeRoleReportMarkdownRejectsEmptyWhitespaceNonUTF8AndOversized(t 
 	if _, err := normalizeRoleReportMarkdown([]byte{0xff, 0xfe, 0xfd}); err == nil || utf8.Valid([]byte{0xff, 0xfe, 0xfd}) {
 		t.Fatalf("non-UTF-8 report accepted or unexpectedly valid: %v", err)
 	}
-	oversized := []byte(strings.Repeat("a", maxRoleReportBytes+1))
-	if _, err := normalizeRoleReportMarkdown(oversized); err == nil {
-		t.Fatal("oversized report accepted")
+	large := []byte(strings.Repeat("a", (8<<20)+1))
+	if normalized, err := normalizeRoleReportMarkdown(large); err != nil || len(normalized) != len(large) {
+		t.Fatalf("large report rejected: bytes=%d err=%v", len(normalized), err)
 	}
 }
 

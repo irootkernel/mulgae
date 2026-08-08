@@ -8,13 +8,15 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // Runner executes direct process requests with an injected observation clock.
 type Runner struct {
-	clock ports.Clock
+	clock   ports.Clock
+	spooler ports.ContentSpooler
 }
 
 var _ ports.ProcessRunner = (*Runner)(nil)
@@ -25,7 +27,7 @@ func NewRunner(clock ports.Clock) (*Runner, error) {
 	if nilClock(clock) {
 		return nil, fmt.Errorf("process runner: nil clock")
 	}
-	return &Runner{clock: clock}, nil
+	return &Runner{clock: clock, spooler: filesystem.NewContentSpooler()}, nil
 }
 
 func (runner *Runner) timestamp() (time.Time, error) {

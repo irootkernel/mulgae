@@ -408,6 +408,67 @@ func TestRunnerRecordsProviderPacketTransport(t *testing.T) {
 	})
 }
 
+func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testing.T) {
+	packet := runnerTestProviderPacket(t, []byte("packet"))
+	binding, err := ports.NewStdinProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := helperBinary(t)
+	request, err := ports.NewProviderProcessRequest(
+		binary, []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", "stdout-ten-mib"},
+		[]ports.EnvironmentVariable{mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"), mustEnvironment(t, "GOCOVERDIR", t.TempDir())},
+		t.TempDir(), binding, processTestExecutionTimeout, 3, 1024, mustConcurrencyKey(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err = ports.NewSpooledStdoutProcessRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := mustRun(t, newTestRunner(t), context.Background(), request)
+	if got := string(observation.Stdout()); got != "aaa" || !observation.StdoutTruncated() {
+		t.Fatalf("diagnostic preview = %q truncated=%t", got, observation.StdoutTruncated())
+	}
+	artifact, ok := observation.StdoutArtifact()
+	if !ok || artifact.Identity().ByteLength() != 10<<20 {
+		t.Fatalf("stdout artifact = %#v, present=%t", artifact, ok)
+	}
+	reader, err := artifact.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.New()
+	read, readErr := io.Copy(hash, reader)
+	closeErr := reader.Close()
+	expected := sha256.Sum256(bytes.Repeat([]byte("a"), 10<<20))
+	if readErr != nil || closeErr != nil || read != 10<<20 || !bytes.Equal(hash.Sum(nil), expected[:]) {
+		t.Fatalf("complete stdout bytes=%d readErr=%v closeErr=%v", read, readErr, closeErr)
+	}
+	closeContentArtifact(artifact)
+}
+
+func TestRunnerSpooledPostOutputFallsBackToNaturalExitAfterPreviewTruncation(t *testing.T) {
+	request, _ := newPostOutputProviderHelperRequest(
+		t, t.TempDir(), "post-output-natural", []string{filepath.Join(t.TempDir(), "pgid")},
+		processTestExecutionTimeout, 3, 20*time.Millisecond, 100*time.Millisecond,
+	)
+	request, err := ports.NewSpooledStdoutProcessRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := mustRun(t, newTestRunner(t), context.Background(), request)
+	if !observation.Succeeded() || !observation.StdoutTruncated() || string(observation.Stdout()) != `{"s` {
+		t.Fatalf("observation success=%t preview=%q truncated=%t", observation.Succeeded(), observation.Stdout(), observation.StdoutTruncated())
+	}
+	artifact, ok := observation.StdoutArtifact()
+	if !ok || artifact.Identity().ByteLength() != int64(len(`{"status":"ok"}`)) {
+		t.Fatalf("stdout artifact = %#v, present=%t", artifact, ok)
+	}
+	closeContentArtifact(artifact)
+}
+
 func TestRunnerVerifiesPromptFileProviderPacketTransport(t *testing.T) {
 	packet := runnerTestProviderPacket(t, []byte(`{"packet":"immutable"}`))
 	snapshot := t.TempDir()
@@ -2437,6 +2498,14 @@ func TestRunnerHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "stdout-large":
 		fmt.Fprint(os.Stdout, "abcdef")
+		os.Exit(0)
+	case "stdout-ten-mib":
+		chunk := bytes.Repeat([]byte("a"), 32<<10)
+		for written := 0; written < 10<<20; written += len(chunk) {
+			if _, err := os.Stdout.Write(chunk); err != nil {
+				os.Exit(2)
+			}
+		}
 		os.Exit(0)
 	case "stderr-large":
 		fmt.Fprint(os.Stderr, "abcdef")

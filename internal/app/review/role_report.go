@@ -10,11 +10,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// maxRoleReportBytes bounds Mulgae-owned free-form role report bodies. It matches
-// the existing report-command markdown cap so publication stays fail-closed.
-const maxRoleReportBytes = 8 << 20
-
-// NewReportsOnlyValidatedRoleOutput accepts one bounded free-form role report
+// NewReportsOnlyValidatedRoleOutput accepts one free-form role report
 // without a validated structured finding document. Provider prose remains
 // untrusted content; Mulgae owns identity and publication.
 func NewReportsOnlyValidatedRoleOutput(
@@ -88,9 +84,6 @@ func (output *ValidatedRoleOutput) bindExtractionStates(parse domain.ParseState,
 func normalizeRoleReportMarkdown(report []byte) ([]byte, error) {
 	if len(report) == 0 {
 		return nil, fmt.Errorf("role report is empty")
-	}
-	if len(report) > maxRoleReportBytes {
-		return nil, fmt.Errorf("role report exceeds %d bytes", maxRoleReportBytes)
 	}
 	if !utf8.Valid(report) {
 		return nil, fmt.Errorf("role report is not valid UTF-8")

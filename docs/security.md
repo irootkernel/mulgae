@@ -58,7 +58,7 @@ through the directory and parent descriptors it retained at creation, so no
 step re-resolves a path the provider could have replaced. It rejects symbolic
 links, files with more than one hard link, non-regular files, a file on another
 device, any extra directory entry, ownership or mode drift, staging-directory
-identity drift, content that changed while it was read, content over 8 MiB,
+identity drift, content that changed while it was read,
 invalid UTF-8, embedded NUL, and empty or whitespace-only content. Accepted
 bytes remain untrusted provider output and enter the same acceptance pipeline
 as stdout bytes; they are then copied into the Mulgae-owned

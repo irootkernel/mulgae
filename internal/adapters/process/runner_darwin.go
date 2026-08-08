@@ -71,8 +71,9 @@ const (
 )
 
 type streamResult struct {
-	stream streamKind
-	err    error
+	stream   streamKind
+	artifact ports.ContentArtifact
+	err      error
 }
 
 type stdinResult struct {
@@ -80,10 +81,33 @@ type stdinResult struct {
 	err     error
 }
 
+type contentSpoolResult struct {
+	artifact ports.ContentArtifact
+	err      error
+}
+
 type cappedCapture struct {
 	limit    int64
 	bytes    []byte
 	exceeded bool
+}
+
+type truncatingCapture struct {
+	limit     int64
+	bytes     []byte
+	truncated bool
+}
+
+func (capture *truncatingCapture) Write(value []byte) (int, error) {
+	remaining := capture.limit - int64(len(capture.bytes))
+	if remaining > 0 {
+		kept := min(int64(len(value)), remaining)
+		capture.bytes = append(capture.bytes, value[:kept]...)
+	}
+	if int64(len(value)) > max(remaining, 0) {
+		capture.truncated = true
+	}
+	return len(value), nil
 }
 
 func (capture *cappedCapture) Write(value []byte) (int, error) {
@@ -363,10 +387,16 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	}
 
 	stdout := cappedCapture{limit: request.MaxStdoutBytes()}
+	stdoutPreview := truncatingCapture{limit: request.MaxStdoutBytes()}
 	stderr := cappedCapture{limit: request.MaxStderrBytes()}
 	streamResults := make(chan streamResult, 2)
-	go copyStream(stdoutStream, stdoutReader, &stdout, streamResults)
+	if request.SpoolStdout() {
+		go copySpooledStream(ctx, runner.spooler, stdoutReader, &stdoutPreview, streamResults)
+	} else {
+		go copyStream(stdoutStream, stdoutReader, &stdout, streamResults)
+	}
 	go copyStream(stderrStream, stderrReader, &stderr, streamResults)
+	var stdoutArtifact ports.ContentArtifact
 
 	stdinResults := make(chan stdinResult, 1)
 	if needsStdinPipe {
@@ -409,6 +439,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			streamResults,
 			stdinResults,
 			&signals,
+			&stdoutArtifact,
 		) {
 		}
 		snapshotTerminalFacts(ctx, timer, &signals)
@@ -476,17 +507,18 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 				waitErr = err
 			case result := <-streamResults:
 				streamsRead++
-				signals.record(result)
+				recordStreamResult(&signals, result, &stdoutArtifact)
 			case result := <-stdinResults:
 				stdinWritten = true
 				stdinReceipt = result.receipt
 				signals.recordStdin(result)
 			case <-teardownTimer.C:
 				closeErr := errors.Join(closeStdin(stdinWriter), stdoutReader.Close(), stderrReader.Close())
+				closeContentArtifact(stdoutArtifact)
 				return processExecutionFailure(
 					domain.DiagnosticCauseProviderProcessWaitFailed,
 					domain.DiagnosticCauseProcessGroupCleanupFailed,
-					stdout.bytes,
+					processStdoutBytes(request, &stdout, &stdoutPreview),
 					stderr.bytes,
 					fmt.Errorf(
 						"process runner: bounded group teardown did not complete: %w",
@@ -503,7 +535,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 			waitErr = err
 		case result := <-streamResults:
 			streamsRead++
-			signals.record(result)
+			recordStreamResult(&signals, result, &stdoutArtifact)
 		case result := <-stdinResults:
 			stdinWritten = true
 			stdinReceipt = result.receipt
@@ -526,45 +558,61 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		streamResults,
 		stdinResults,
 		&signals,
+		&stdoutArtifact,
 	) {
 	}
 	snapshotTerminalFacts(ctx, timer, &signals)
 	if tearingDown {
 		if err := verifyProcessGroupAbsent(processGroupID, teardownDeadline); err != nil {
-			return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, err)
+			closeContentArtifact(stdoutArtifact)
+			return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", processStdoutBytes(request, &stdout, &stdoutPreview), stderr.bytes, err)
 		}
 	} else if err := verifyProcessGroupAbsentAfterNaturalCompletion(processGroupID); err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, err)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", processStdoutBytes(request, &stdout, &stdoutPreview), stderr.bytes, err)
 	}
 
 	if teardownErr != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", stdout.bytes, stderr.bytes, teardownErr)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(domain.DiagnosticCauseProcessGroupCleanupFailed, "", processStdoutBytes(request, &stdout, &stdoutPreview), stderr.bytes, teardownErr)
 	}
 	if signals.internal != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, signals.internal)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", processStdoutBytes(request, &stdout, &stdoutPreview), stderr.bytes, signals.internal)
 	}
+	stdoutBytes := processStdoutBytes(request, &stdout, &stdoutPreview)
 	if termination := signals.termination(); termination != "" {
+		closeContentArtifact(stdoutArtifact)
 		transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 		if err != nil {
-			return processExecutionFailure(providerTransportReceiptCause(binding), "", stdout.bytes, stderr.bytes, err)
+			return processExecutionFailure(providerTransportReceiptCause(binding), "", stdoutBytes, stderr.bytes, err)
 		}
-		return runner.observationWithTransport(stdout.bytes, stderr.bytes, nil, termination, stdinReceipt, transportReceipt, startedAt)
+		return runner.observationWithTransport(stdoutBytes, stderr.bytes, nil, termination, stdinReceipt, transportReceipt, startedAt)
 	}
 	if err := normalWaitError(waitErr); err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdoutBytes, stderr.bytes, err)
 	}
 	exitCode, signal, err := processExitStatus(child.ProcessState)
 	if err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdoutBytes, stderr.bytes, err)
 	}
 	transportReceipt, err := providerTransportReceipt(binding, providerRequest, preStartIdentity)
 	if err != nil {
-		return processExecutionFailure(providerTransportReceiptCause(binding), "", stdout.bytes, stderr.bytes, err)
+		closeContentArtifact(stdoutArtifact)
+		return processExecutionFailure(providerTransportReceiptCause(binding), "", stdoutBytes, stderr.bytes, err)
 	}
 	if signal != nil {
-		return runner.signaledObservation(stdout.bytes, stderr.bytes, *signal, stdinReceipt, transportReceipt, startedAt)
+		closeContentArtifact(stdoutArtifact)
+		return runner.signaledObservation(stdoutBytes, stderr.bytes, *signal, stdinReceipt, transportReceipt, startedAt)
 	}
-	return runner.observationWithTransport(stdout.bytes, stderr.bytes, exitCode, ports.ProcessTerminationExited, stdinReceipt, transportReceipt, startedAt)
+	observation, observationErr := runner.observationWithTransport(stdoutBytes, stderr.bytes, exitCode, ports.ProcessTerminationExited, stdinReceipt, transportReceipt, startedAt)
+	if observationErr != nil || exitCode == nil || *exitCode != 0 || !request.SpoolStdout() {
+		closeContentArtifact(stdoutArtifact)
+		return observation, observationErr
+	}
+	return bindProcessStdoutArtifact(observation, stdoutArtifact, stdoutPreview.truncated)
 }
 func (runner *Runner) signaledObservation(
 	stdout []byte,
@@ -675,6 +723,38 @@ func processSignalName(signal syscall.Signal) string {
 }
 func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Timer, request ports.ProcessRequest, child *exec.Cmd, pgid int, out, errOut *os.File, in io.WriteCloser, stdin []byte, initial ports.StdinWriteReceipt, expected string, binding ports.ProviderPacketBinding, provider bool, pre ports.ProviderPacketIdentity, lifecycle ports.BoundedPostOutputLifecycle, started time.Time) (ports.ProcessObservation, error) {
 	stdout, stderr := cappedCapture{limit: request.MaxStdoutBytes()}, cappedCapture{limit: request.MaxStderrBytes()}
+	stdoutPreview := truncatingCapture{limit: request.MaxStdoutBytes()}
+	var spoolWriter *io.PipeWriter
+	spoolResults := make(chan contentSpoolResult, 1)
+	spoolFinished := !request.SpoolStdout()
+	var stdoutArtifact ports.ContentArtifact
+	artifactTransferred := false
+	defer func() {
+		if !artifactTransferred {
+			closeContentArtifact(stdoutArtifact)
+		}
+	}()
+	if request.SpoolStdout() {
+		spoolReader, writer := io.Pipe()
+		spoolWriter = writer
+		go func() {
+			spoolRequest, err := ports.NewContentSpoolRequest(spoolReader, "application/octet-stream")
+			if err != nil {
+				_ = spoolReader.CloseWithError(err)
+				spoolResults <- contentSpoolResult{err: err}
+				return
+			}
+			lease, err := runner.spooler.Spool(context.Background(), spoolRequest)
+			closeErr := spoolReader.Close()
+			spoolResults <- contentSpoolResult{artifact: lease, err: errors.Join(err, closeErr)}
+		}()
+	}
+	stdoutBytes := func() []byte {
+		if request.SpoolStdout() {
+			return stdoutPreview.bytes
+		}
+		return stdout.bytes
+	}
 	chunks := make(chan outputChunk, 8)
 	producerCancelled := make(chan struct{})
 	producerComplete := make(chan struct{}, 2)
@@ -721,6 +801,10 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		_ = out.Close()
 		_ = errOut.Close()
 		_ = closeStdin(in)
+		if spoolWriter != nil {
+			_ = spoolWriter.Close()
+			spoolWriter = nil
+		}
 	}
 	defer func() {
 		if stable != nil {
@@ -765,7 +849,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		}
 		return err
 	}
-	for !(outDone && errDone && stdinDone && waited && producersJoined == 2) {
+	for !(outDone && errDone && stdinDone && waited && producersJoined == 2 && spoolFinished) {
 		if ctx.Err() != nil {
 			signals.recordContext(ctx)
 		}
@@ -801,6 +885,12 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 			if chunk.bytes == nil {
 				if chunk.stream == stdoutStream {
 					outDone = true
+					if spoolWriter != nil {
+						if err := spoolWriter.Close(); err != nil && signals.internal == nil {
+							signals.internal = fmt.Errorf("process runner: close stdout spool: %w", err)
+						}
+						spoolWriter = nil
+					}
 				} else {
 					errDone = true
 				}
@@ -810,7 +900,29 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 			if chunk.stream == stderrStream {
 				capture = &stderr
 			}
-			if _, err := capture.Write(chunk.bytes); err != nil {
+			if chunk.stream == stdoutStream && request.SpoolStdout() {
+				if spoolWriter == nil {
+					if signals.internal == nil {
+						signals.internal = fmt.Errorf("process runner: stdout arrived after spool closure")
+					}
+					continue
+				}
+				if _, err := spoolWriter.Write(chunk.bytes); err != nil {
+					if signals.internal == nil {
+						signals.internal = fmt.Errorf("process runner: spool stdout: %w", err)
+					}
+					continue
+				}
+				_, _ = stdoutPreview.Write(chunk.bytes)
+				if stdoutPreview.truncated {
+					hasFrame = false
+					if stable != nil {
+						stable.Stop()
+					}
+					stableC = nil
+					continue
+				}
+			} else if _, err := capture.Write(chunk.bytes); err != nil {
 				if chunk.stream == stdoutStream {
 					signals.stdoutFull = true
 				} else {
@@ -824,7 +936,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 					stable.Stop()
 				}
 				stableC = nil
-				if candidate, err := ports.NewProcessOutputFrameReceipt(lifecycle.Framing(), stdout.bytes, lifecycle.StabilityGrace()); err == nil {
+				if candidate, err := ports.NewProcessOutputFrameReceipt(lifecycle.Framing(), stdoutBytes(), lifecycle.StabilityGrace()); err == nil {
 					frame, hasFrame = candidate, true
 					stable = time.NewTimer(lifecycle.StabilityGrace())
 					stableC = stable.C
@@ -837,6 +949,12 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 			waited = true
 		case <-producerComplete:
 			producersJoined++
+		case spooled := <-spoolResults:
+			spoolFinished = true
+			stdoutArtifact = spooled.artifact
+			if spooled.err != nil && signals.internal == nil {
+				signals.internal = fmt.Errorf("process runner: spool stdout: %w", spooled.err)
+			}
 		case <-stableC:
 			stableC = nil
 			if hasFrame && signals.termination() == "" && !termSent {
@@ -902,7 +1020,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 				return processExecutionFailure(
 					domain.DiagnosticCauseProviderProcessWaitFailed,
 					domain.DiagnosticCauseProcessGroupCleanupFailed,
-					stdout.bytes,
+					stdoutBytes(),
 					stderr.bytes,
 					errors.Join(
 						signals.internal,
@@ -932,14 +1050,14 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		} else if cleanupErr != nil || absenceErr != nil {
 			cleanup = domain.DiagnosticCauseProcessGroupCleanupFailed
 		}
-		return processExecutionFailure(primary, cleanup, stdout.bytes, stderr.bytes, errors.Join(signals.internal, cleanupErr, absenceErr))
+		return processExecutionFailure(primary, cleanup, stdoutBytes(), stderr.bytes, errors.Join(signals.internal, cleanupErr, absenceErr))
 	}
 	if err := normalWaitError(waitErr); err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdoutBytes(), stderr.bytes, err)
 	}
 	exit, signal, err := processExitStatus(child.ProcessState)
 	if err != nil {
-		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdout.bytes, stderr.bytes, err)
+		return processExecutionFailure(domain.DiagnosticCauseProviderProcessWaitFailed, "", stdoutBytes(), stderr.bytes, err)
 	}
 	var final ports.ProcessFinalTermination
 	if signal != nil {
@@ -972,9 +1090,17 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	if err != nil {
 		return processExecutionFailure(domain.DiagnosticCauseObservationInvalid, "", stdout.bytes, stderr.bytes, err)
 	}
-	return runner.observationWithLifecycleTransport(
-		stdout.bytes, stderr.bytes, disposition, receipt, *transport, lifecycleReceipt, started,
+	observation, observationErr := runner.observationWithLifecycleTransport(
+		stdoutBytes(), stderr.bytes, disposition, receipt, *transport, lifecycleReceipt, started,
 	)
+	if observationErr != nil || !request.SpoolStdout() || !observation.Succeeded() {
+		return observation, observationErr
+	}
+	bound, bindErr := bindProcessStdoutArtifact(observation, stdoutArtifact, stdoutPreview.truncated)
+	if bindErr == nil {
+		artifactTransferred = true
+	}
+	return bound, bindErr
 }
 
 func explicitEnvironment(environment []ports.EnvironmentVariable) []string {
@@ -1044,6 +1170,62 @@ func copyStream(stream streamKind, reader *os.File, capture io.Writer, results c
 		err = closeErr
 	}
 	results <- streamResult{stream: stream, err: err}
+}
+
+func copySpooledStream(_ context.Context, spooler ports.ContentSpooler, reader *os.File, preview io.Writer, results chan<- streamResult) {
+	if spooler == nil {
+		_ = reader.Close()
+		results <- streamResult{stream: stdoutStream, err: fmt.Errorf("process runner: missing content spooler")}
+		return
+	}
+	request, err := ports.NewContentSpoolRequest(io.TeeReader(reader, preview), "application/octet-stream")
+	if err != nil {
+		_ = reader.Close()
+		results <- streamResult{stream: stdoutStream, err: err}
+		return
+	}
+	lease, spoolErr := spooler.Spool(context.Background(), request)
+	closeErr := reader.Close()
+	if spoolErr != nil || closeErr != nil {
+		if lease != nil {
+			_ = lease.Close()
+		}
+		results <- streamResult{stream: stdoutStream, err: errors.Join(spoolErr, closeErr)}
+		return
+	}
+	results <- streamResult{stream: stdoutStream, artifact: lease}
+}
+
+func recordStreamResult(signals *terminationSignals, result streamResult, stdoutArtifact *ports.ContentArtifact) {
+	if result.artifact != nil && result.stream == stdoutStream && stdoutArtifact != nil {
+		*stdoutArtifact = result.artifact
+	}
+	signals.record(result)
+}
+
+func processStdoutBytes(request ports.ProcessRequest, bounded *cappedCapture, preview *truncatingCapture) []byte {
+	if request.SpoolStdout() {
+		return preview.bytes
+	}
+	return bounded.bytes
+}
+
+func bindProcessStdoutArtifact(observation ports.ProcessObservation, artifact ports.ContentArtifact, truncated bool) (ports.ProcessObservation, error) {
+	if artifact == nil {
+		return ports.ProcessObservation{}, fmt.Errorf("process runner: missing spooled stdout artifact")
+	}
+	bound, err := ports.NewProcessObservationWithStdoutArtifact(observation, artifact, truncated)
+	if err != nil {
+		closeContentArtifact(artifact)
+		return ports.ProcessObservation{}, err
+	}
+	return bound, nil
+}
+
+func closeContentArtifact(artifact ports.ContentArtifact) {
+	if lease, ok := artifact.(ports.ContentLease); ok && lease != nil {
+		_ = lease.Close()
+	}
 }
 
 type stdinWriteCounter struct {
@@ -1219,6 +1401,7 @@ func consumeRunnerCompletion(
 	streamResults <-chan streamResult,
 	stdinResults <-chan stdinResult,
 	signals *terminationSignals,
+	stdoutArtifact *ports.ContentArtifact,
 ) bool {
 	if !*waited {
 		select {
@@ -1233,7 +1416,7 @@ func consumeRunnerCompletion(
 		select {
 		case result := <-streamResults:
 			*streamsRead++
-			signals.record(result)
+			recordStreamResult(signals, result, stdoutArtifact)
 			return true
 		default:
 		}

@@ -22,12 +22,6 @@ import (
 // invocation may write. Mulgae owns the name: provider output never selects it.
 const stagedOutputFilename = "role-report.md"
 
-// stagedOutputMaxBytes bounds the untrusted staged file. It must never exceed
-// the application role-report bound (maxRoleReportBytes, internal/app/review/
-// role_report.go): bytes this adapter accepts must remain acceptable to the
-// role-report boundary that consumes them.
-const stagedOutputMaxBytes = 8 << 20
-
 // maxStagedOutputDirectoryName bounds the per-invocation directory name.
 const maxStagedOutputDirectoryName = 96
 
@@ -256,10 +250,6 @@ func (lease *stagedOutputLease) readStagedFile(fileFD int) ([]byte, ports.Staged
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("staged file permits non-owner writes")
 	case staged.Size == 0:
 		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid("staged file is empty")
-	case staged.Size > stagedOutputMaxBytes:
-		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid(
-			"staged file exceeds %d bytes", int64(stagedOutputMaxBytes),
-		)
 	}
 
 	content := make([]byte, staged.Size)

@@ -1,8 +1,9 @@
 # Validation and repair
 
-Provider assistant output is admitted as bounded UTF-8. Markdown/free-form role
-reports are the primary success form and are not validated as review JSON schema
-documents.
+Provider assistant report output is admitted as UTF-8 without a fixed byte
+ceiling. Markdown/free-form role reports are the primary success form and are
+not validated as review JSON schema documents. Diagnostic previews and optional
+structured JSON validation remain bounded.
 
 When exact structured finding JSON is present, Mulgae may apply one constrained
 repair and then proceeds through:

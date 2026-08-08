@@ -138,7 +138,7 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 	}{
 		{name: "timeout", mode: "timeout", cap: 256, timeout: 250 * time.Millisecond, termination: ports.ProcessTerminationTimedOut},
 		{name: "cancellation", mode: "timeout", cap: 256, timeout: agyLifecycleFixtureTimeout, termination: ports.ProcessTerminationCancelled},
-		{name: "output cap", mode: "oversize", cap: 64, timeout: agyLifecycleFixtureTimeout, termination: ports.ProcessTerminationStdoutLimit},
+		{name: "large output", mode: "oversize", cap: 64, timeout: agyLifecycleFixtureTimeout},
 		{name: "malformed strict output", mode: "malformed", cap: 256, timeout: agyLifecycleFixtureTimeout, status: ports.ProviderExecutionStatusArtifactFailure},
 	} {
 		t.Run(test.name, func(t *testing.T) {

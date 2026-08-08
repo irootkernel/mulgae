@@ -703,8 +703,7 @@
         },
         "byte_length": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 8388608
+          "minimum": 1
         },
         "provider_instance": {
           "type": "string",

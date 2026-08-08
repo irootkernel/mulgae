@@ -72,7 +72,8 @@ re-derived after init.
 7. The provider result arrives on the transport declared for that route: a
    Mulgae-owned staged file the adapter validates and reads back after the
    process terminates, or process stdout.
-8. Bounded UTF-8 provider output becomes Mulgae-owned free-form role reports;
+8. UTF-8 provider output becomes Mulgae-owned free-form role reports without a
+   fixed report-size ceiling; bounded previews remain private diagnostics;
    optional exact JSON may be structured-extracted and normalized with
    Mulgae-owned identity/state. Prose is not treated as a schema document.
 9. One constrained repair on the same provider occurs only when an explicit

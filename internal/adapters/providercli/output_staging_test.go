@@ -205,27 +205,17 @@ func TestStagedOutputRejectsWhitespaceOnlyContent(t *testing.T) {
 	requireStagedOutputRejection(t, err, domain.DiagnosticCauseProviderOutputFileInvalid)
 }
 
-func TestStagedOutputRejectsOversizeContent(t *testing.T) {
+func TestStagedOutputAcceptsContentBeyondFormerEightMiBLimit(t *testing.T) {
 	lease, _ := stagedOutputLeaseFixture(t)
-	path := stagedOutputDestinationPath(t, lease)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	content := bytes.Repeat([]byte("a"), (8<<20)+1)
+	writeStagedOutputTestFile(t, lease, content, 0600)
+	got, receipt, err := lease.Validate()
 	if err != nil {
-		t.Fatalf("create oversize staged file: %v", err)
+		t.Fatalf("Validate() error = %v", err)
 	}
-	// Sparse: the size bound is decided before a single byte is read.
-	if err := file.Truncate(stagedOutputMaxBytes + 1); err != nil {
-		_ = file.Close()
-		t.Fatalf("grow oversize staged file: %v", err)
+	if !bytes.Equal(got, content) || receipt.ByteLength() != int64(len(content)) {
+		t.Fatalf("validated bytes=%d receipt=%d", len(got), receipt.ByteLength())
 	}
-	if err := file.Close(); err != nil {
-		t.Fatalf("close oversize staged file: %v", err)
-	}
-	if err := os.Chmod(path, 0600); err != nil {
-		t.Fatalf("chmod oversize staged file: %v", err)
-	}
-
-	_, _, err = lease.Validate()
-	requireStagedOutputRejection(t, err, domain.DiagnosticCauseProviderOutputFileInvalid)
 }
 
 func TestStagedOutputRejectsEmptyFile(t *testing.T) {

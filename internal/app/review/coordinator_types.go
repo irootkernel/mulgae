@@ -644,7 +644,8 @@ func (outcome AttemptOutcome) validFor(job InvocationJob) bool {
 
 // InvocationRuntime executes immutable jobs. Calls for jobs in distinct
 // provider concurrency lanes may occur concurrently. The runtime MUST enforce
-// job.Limits() timeout, stdout, and stderr capture caps. Both the job and
+// job.Limits() timeout plus stdout/stderr diagnostic capture caps. Primary
+// provider report content is not bounded by the stdout diagnostic cap. Both the job and
 // outcome are value-only boundaries and must not carry mutable coordinator
 // state.
 type InvocationRuntime interface {

@@ -19,7 +19,7 @@ result, evidence status, lineage, and a durable publication record.
 4. **Reproducible inputs.** Mulgae captures an immutable target and records
    prompts, provider identity, attempts, and hashes needed to understand it.
 5. **Fail-closed contracts.** Untrusted provider output is admitted only as
-   bounded UTF-8. Markdown/free-form role reports are primary; optional exact
+   UTF-8 without a product byte ceiling. Markdown/free-form role reports are primary; optional exact
    JSON structured extraction requires parsing, schema, semantic, and evidence
    checks. Prose does not invent findings. Security, configuration, and
    integrity failures never authorize publication.

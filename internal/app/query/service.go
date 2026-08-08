@@ -19,10 +19,6 @@ import (
 )
 
 const (
-	// maxRoleReportBytes matches review.normalizeRoleReportMarkdown / the
-	// report-command markdown cap so status reopen stays producer-consistent.
-	maxRoleReportBytes = 8 << 20
-
 	resolveRunStage        = "query.resolve_run"
 	readCommittedStage     = "query.read_committed"
 	readStatusStage        = "query.read_run_status"
@@ -293,10 +289,14 @@ func (service *Service) readIndexedRuntimeArtifact(ctx context.Context, run port
 }
 
 func (service *Service) readBoundRuntimeArtifact(ctx context.Context, run ports.PublicationRun, review CommittedReview, path ports.SafeRelativePath, digest string) (ports.ImmutablePublicationArtifact, error) {
+	return service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, service.maxReadBytes)
+}
+
+func (service *Service) readBoundRuntimeArtifactWithMaximum(ctx context.Context, run ports.PublicationRun, review CommittedReview, path ports.SafeRelativePath, digest string, maximum int64) (ports.ImmutablePublicationArtifact, error) {
 	if !validSHA256(digest) {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact digest is absent", nil)
 	}
-	request, err := ports.NewReadAuxiliaryArtifactRequest(run, path, digest, service.maxReadBytes)
+	request, err := ports.NewReadAuxiliaryArtifactRequest(run, path, digest, maximum)
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact request is invalid", err)
 	}
@@ -2306,7 +2306,7 @@ func (service *Service) projectStatusRoleReportURIs(
 		if !ok || digest != report.SHA256() {
 			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report is absent from support index", nil)
 		}
-		artifact, readErr := service.readBoundRuntimeArtifact(ctx, run, review, path, digest)
+		artifact, readErr := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, int64(report.ByteLength()))
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -2332,11 +2332,9 @@ func (service *Service) projectStatusRoleReportURIs(
 	return uris, nil
 }
 
-// validRoleReportMarkdown mirrors review.normalizeRoleReportMarkdown acceptance:
-// nonempty, <= 8 MiB, UTF-8, and not whitespace-only.
+// validRoleReportMarkdown mirrors review.normalizeRoleReportMarkdown acceptance.
 func validRoleReportMarkdown(content []byte) bool {
 	return len(content) > 0 &&
-		len(content) <= maxRoleReportBytes &&
 		utf8.Valid(content) &&
 		len(strings.TrimSpace(string(content))) > 0
 }

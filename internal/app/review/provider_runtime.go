@@ -647,12 +647,6 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		transport = observation.OutputTransport()
 		stdout = result.Stdout()
-		if int64(len(stdout)) > job.Limits().MaxStdoutBytes() {
-			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, true); err != nil {
-				return runtimeCondition(job, AttemptConditionArtifactFailure)
-			}
-			return runtimeCondition(job, AttemptConditionArtifactFailure)
-		}
 	} else {
 		providerStarted := time.Now()
 		result, invokeErr := runtime.provider.Invoke(providerCtx, providerInvocation)
@@ -662,12 +656,6 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		stdout = result.Stdout()
 		rawStdout = stdout
-		if int64(len(stdout)) > job.Limits().MaxStdoutBytes() {
-			if err := runtime.capture(invocationCtx, job, nil, stdout, nil, true); err != nil {
-				return runtimeCondition(job, AttemptConditionArtifactFailure)
-			}
-			return runtimeCondition(job, AttemptConditionArtifactFailure)
-		}
 		if result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
 		}
