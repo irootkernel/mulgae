@@ -408,6 +408,25 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	}
 }
 
+func TestResultWriteToDeliversOwnedStreams(t *testing.T) {
+	result := newResult([]byte("result\n"), []byte("diagnostic\n"), app.ExitCodePolicy)
+	var stdout, stderr bytes.Buffer
+	if err := result.WriteTo(&stdout, &stderr); err != nil {
+		t.Fatalf("WriteTo() error = %v", err)
+	}
+	if stdout.String() != "result\n" || stderr.String() != "diagnostic\n" || result.ExitCode() != app.ExitCodePolicy {
+		t.Fatalf("delivered stdout=%q stderr=%q exit=%d", stdout.String(), stderr.String(), result.ExitCode())
+	}
+	if err := result.WriteTo(nil, &stderr); err == nil {
+		t.Fatal("nil stdout writer accepted")
+	} else {
+		var writeErr *ResultWriteError
+		if !errors.As(err, &writeErr) || writeErr.Stream() != ResultStreamStdout {
+			t.Fatalf("nil stdout error = %v", err)
+		}
+	}
+}
+
 func TestApplicationRolesListsStaticInventory(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)

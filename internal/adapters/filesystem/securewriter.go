@@ -28,6 +28,9 @@ var (
 	ErrMaxBytesExceeded = errors.New("secure write exceeded maximum bytes")
 	// ErrSourceRead reports a source read that cannot safely be persisted.
 	ErrSourceRead = errors.New("secure write source read failed")
+	// ErrContentIdentityMismatch reports content that drifted from its declared
+	// immutable identity while it was being installed.
+	ErrContentIdentityMismatch = errors.New("content artifact identity mismatch")
 	// ErrContextCancelled aliases the standard cancellation sentinel so reducers
 	// do not mistake this compatibility marker for an independent artifact error.
 	ErrContextCancelled = context.Canceled
@@ -127,6 +130,7 @@ type SecureWriter struct {
 }
 
 var _ ports.SecureFileWriter = (*SecureWriter)(nil)
+var _ ports.ContentInstaller = (*SecureWriter)(nil)
 
 // NewSecureWriter returns a writer with the fixed Darwin secure-write policy.
 func NewSecureWriter() *SecureWriter {
@@ -155,23 +159,56 @@ func (writer *SecureWriter) EnsurePrivateDir(root ports.AnchoredRoot, directory 
 // Write scans a bounded source stream before atomically creating it once without
 // replacing an existing destination.
 func (writer *SecureWriter) Write(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
-	return writer.write(ctx, request, true)
+	return writer.write(ctx, request, true, nil)
 }
 
 // writeValidatedFinal is intentionally package-private: PublicationStore may
 // use it only after final-review schema, identity, and run bindings have been
 // validated. All public SecureFileWriter traffic remains scan-before-write.
 func (writer *SecureWriter) writeValidatedFinal(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
-	return writer.write(ctx, request, false)
+	return writer.write(ctx, request, false, nil)
 }
 
 // writeAuthorizedRunSupport is package-private and is reachable only after
 // PublicationStore admits the closed run-support path and artifact contract.
 func (writer *SecureWriter) writeAuthorizedRunSupport(ctx context.Context, request ports.SecureWriteRequest) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
-	return writer.write(ctx, request, false)
+	return writer.write(ctx, request, false, nil)
 }
 
-func (writer *SecureWriter) write(ctx context.Context, request ports.SecureWriteRequest, scanCredentials bool) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
+// InstallContent atomically installs a reopenable artifact only when the bytes
+// observed during installation match its declared identity exactly.
+func (writer *SecureWriter) InstallContent(ctx context.Context, request ports.ContentInstallRequest) (ports.SecureWriteReceipt, error) {
+	if ctx == nil || !request.Root().Valid() || !request.Destination().Valid() || request.Channel() == "" || len(request.SourceIDs()) == 0 || request.Artifact() == nil || !request.Identity().Valid() {
+		return ports.SecureWriteReceipt{}, fmt.Errorf("content install: invalid request")
+	}
+	reader, err := request.Artifact().Open(ctx)
+	if err != nil {
+		return ports.SecureWriteReceipt{}, fmt.Errorf("content install: open artifact: %w", err)
+	}
+	maximum := request.Identity().ByteLength()
+	if maximum == 0 {
+		maximum = 1
+	}
+	secureRequest, err := ports.NewSecureWriteRequest(
+		request.Root(), request.Destination(), request.Channel(), reader, maximum,
+		request.SourceIDs(), func(error) {},
+	)
+	if err != nil {
+		return ports.SecureWriteReceipt{}, errors.Join(fmt.Errorf("content install: construct secure request: %w", err), reader.Close())
+	}
+	expected := request.Identity()
+	receipt, _, writeErr := writer.write(ctx, secureRequest, false, &expected)
+	closeErr := reader.Close()
+	if writeErr != nil {
+		return ports.SecureWriteReceipt{}, errors.Join(writeErr, closeErr)
+	}
+	if closeErr != nil {
+		return receipt, fmt.Errorf("content install: close artifact reader: %w", closeErr)
+	}
+	return receipt, nil
+}
+
+func (writer *SecureWriter) write(ctx context.Context, request ports.SecureWriteRequest, scanCredentials bool, expected *ports.ContentIdentity) (ports.SecureWriteReceipt, *ports.DropMetadata, error) {
 	if ctx == nil {
 		return ports.SecureWriteReceipt{}, nil, fmt.Errorf("secure write: nil context")
 	}
@@ -291,6 +328,9 @@ func (writer *SecureWriter) write(ctx context.Context, request ports.SecureWrite
 
 	sum := hash.Sum(nil)
 	defer zeroBytes(sum)
+	if expected != nil && (size != expected.ByteLength() || "sha256:"+hex.EncodeToString(sum) != expected.SHA256()) {
+		return reject("content_identity_mismatch", ErrContentIdentityMismatch)
+	}
 	receipt, err := ports.NewSecureWriteReceipt(
 		request.Root(),
 		request.Destination(),

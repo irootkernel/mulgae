@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -180,7 +181,18 @@ func childPublicationRoot(projectRoot ports.AnchoredRoot) (ports.AnchoredRoot, e
 }
 
 func deliverResult(stdout, stderr io.Writer, result mulgae.Result, argv []string) int {
-	return deliverOutput(stdout, stderr, result.Stdout(), result.Stderr(), int(result.ExitCode()), argv)
+	if err := result.WriteTo(stdout, stderr); err != nil {
+		var writeErr *mulgae.ResultWriteError
+		if errors.As(err, &writeErr) && writeErr.Stream() == mulgae.ResultStreamStdout {
+			if len(argv) > 0 && argv[0] == "init" && result.ExitCode() == 0 {
+				_, _ = io.WriteString(stderr, "mulgae: init committed .mulgae/config.yaml; result delivery failed\n")
+				return 7
+			}
+			_, _ = io.WriteString(stderr, "mulgae: standard output write failed\n")
+		}
+		return 10
+	}
+	return int(result.ExitCode())
 }
 
 func deliverOutput(stdout, stderr io.Writer, output, diagnostic []byte, exitCode int, argv []string) int {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -997,11 +998,73 @@ type Result struct {
 	exit   app.ExitCode
 }
 
+// ResultStream identifies the process stream whose delivery failed.
+type ResultStream string
+
+const (
+	// ResultStreamStdout is the command result stream.
+	ResultStreamStdout ResultStream = "stdout"
+	// ResultStreamStderr is the command diagnostic stream.
+	ResultStreamStderr ResultStream = "stderr"
+)
+
+// ResultWriteError reports an incomplete command-result delivery.
+type ResultWriteError struct {
+	stream ResultStream
+	cause  error
+}
+
+func (err *ResultWriteError) Error() string {
+	return fmt.Sprintf("write result %s: %v", err.stream, err.cause)
+}
+
+// Unwrap returns the underlying writer failure.
+func (err *ResultWriteError) Unwrap() error { return err.cause }
+
+// Stream returns the stream whose delivery failed.
+func (err *ResultWriteError) Stream() ResultStream { return err.stream }
+
 // Stdout returns a defensive copy of command standard output.
 func (result Result) Stdout() []byte { return cloneApplicationBytes(result.stdout) }
 
 // Stderr returns a defensive copy of command standard error.
 func (result Result) Stderr() []byte { return cloneApplicationBytes(result.stderr) }
+
+// WriteTo delivers stdout and stderr without requiring callers to obtain
+// defensive byte copies. Future file-backed command projections use this same
+// boundary while the existing Result accessors remain compatible.
+func (result Result) WriteTo(stdout, stderr io.Writer) error {
+	if stdout == nil {
+		return &ResultWriteError{stream: ResultStreamStdout, cause: fmt.Errorf("nil result writer")}
+	}
+	if stderr == nil {
+		return &ResultWriteError{stream: ResultStreamStderr, cause: fmt.Errorf("nil result writer")}
+	}
+	if err := writeCompleteResult(stdout, result.stdout); err != nil {
+		return &ResultWriteError{stream: ResultStreamStdout, cause: err}
+	}
+	if err := writeCompleteResult(stderr, result.stderr); err != nil {
+		return &ResultWriteError{stream: ResultStreamStderr, cause: err}
+	}
+	return nil
+}
+
+func writeCompleteResult(destination io.Writer, value []byte) error {
+	for len(value) > 0 {
+		written, err := destination.Write(value)
+		if written < 0 || written > len(value) {
+			return io.ErrShortWrite
+		}
+		value = value[written:]
+		if err != nil {
+			return err
+		}
+		if written == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return nil
+}
 
 // ExitCode returns the assigned Mulgae process exit code.
 func (result Result) ExitCode() app.ExitCode { return result.exit }
