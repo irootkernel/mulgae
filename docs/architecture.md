@@ -6,24 +6,30 @@ Mulgae follows a domain-first, ports-and-adapters design:
 
 ```text
 main
-  -> internal/entrypoint/mulgae
+  -> internal/composition
+      -> internal/entrypoint/mulgae
       -> internal/app/*
-          -> internal/domain
-          -> internal/ports
       -> internal/adapters/*
       -> internal/builtin
+
+internal/entrypoint/mulgae -> internal/app/* -> internal/domain
+                                             -> internal/ports
+internal/adapters/* --------------------------> internal/ports
 ```
 
 The domain and application packages do not depend on CLI parsing, provider
-process details, or concrete storage. Adapters implement ports; the root
-composition wires concrete implementations into the application. Architecture
-tests enforce this direction.
+process details, or concrete storage. Adapters implement ports;
+`internal/composition` wires concrete implementations into the application,
+and the root `main.go` delegates process execution to that package. Architecture
+tests enforce this direction and keep every other Go file out of the repository
+root.
 
 ## Package map
 
 | Area | Responsibility |
 |---|---|
-| `main.go`, `*_composition.go` | Darwin/arm64 entrypoint and production graph |
+| `main.go` | Darwin/arm64 process shim and release linker variables |
+| `internal/composition` | Executable bootstrap, build identity, and production graph |
 | `internal/entrypoint/mulgae` | CLI grammar, dispatch, output, selector resolution |
 | `internal/app/reviewrun` | Target capture, planning, qualification, prompts, orchestration |
 | `internal/app/review` | Assignments, coordination, aggregation, results |
@@ -42,6 +48,7 @@ tests enforce this direction.
 | `assets` | Repository-root human-authored role document, embedded into the binary |
 | `internal/roles` | Role document schema, parsing, and whole-catalog validation |
 | `internal/app/roleassets` | Single application-layer reader of the role document |
+| `test/e2e` | Black-box binary integration, artist fixture, and live-provider E2E tests |
 
 ## Role catalog
 

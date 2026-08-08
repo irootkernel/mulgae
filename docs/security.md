@@ -153,13 +153,14 @@ to use their existing redaction and secret-rejection boundaries.
 
 ## Validation and fail-closed behavior
 
-Provider assistant output is admitted as bounded UTF-8. Markdown/free-form role
-reports are the primary consumable success form. Exact structured finding JSON
-remains optional: Mulgae may apply one constrained repair, then validate that
-wire with schema checks, trusted-field injection, and semantic/evidence rules.
-Prose is not schema-validated as review JSON. External schema loading is
-disabled. Mulgae owns trusted identity, evidence verification state, and
-publication.
+Provider assistant output is admitted as UTF-8 without a fixed report-size
+ceiling. Markdown/free-form role reports are the primary consumable success
+form; bounded diagnostic previews and exact structured finding extraction remain
+separate. Structured extraction is optional: Mulgae may apply one constrained
+repair, then validate that wire with schema checks, trusted-field injection, and
+semantic/evidence rules. Prose is not schema-validated as review JSON. External
+schema loading is disabled. Mulgae owns trusted identity, evidence verification
+state, and publication.
 
 Evidence begins as `claimed`; only Mulgae can mark it verified, stale, invalid,
 or unverifiable. Security, configuration, integrity, cancellation, and internal

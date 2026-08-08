@@ -1,6 +1,6 @@
 //go:build darwin && arm64 && live_e2e
 
-package main
+package e2e
 
 import (
 	"bytes"

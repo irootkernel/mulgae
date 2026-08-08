@@ -142,8 +142,9 @@ the runtime sources of truth. Apply these rules when sources disagree:
 ## Architecture and Ownership
 
 - Keep the domain and application packages independent of CLI parsing, provider
-  process details, and concrete storage. Adapters implement ports, and the root
-  composition wires infrastructure into the application.
+  process details, and concrete storage. Adapters implement ports;
+  `internal/composition` wires infrastructure into the application, and the
+  repository-root `main.go` only delegates process execution to it.
 - `internal/entrypoint/mulgae` owns parsing, dispatch, output, and selector
   resolution. It must not become the home of domain policy.
 - `internal/app/reviewrun` owns target capture, planning, qualification, prompts,

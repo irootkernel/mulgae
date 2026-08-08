@@ -157,6 +157,16 @@ func TestTestTierNaming(t *testing.T) {
 	}
 }
 
+func TestRootGoSurface(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(repositoryRoot(t), "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "main.go" {
+		t.Fatalf("root Go files = %v, want only main.go", files)
+	}
+}
+
 func TestMakefileContract(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "Makefile"))
 	if err != nil {
@@ -190,8 +200,8 @@ func TestMakefileContract(t *testing.T) {
 	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
 		t.Fatal("test-int does not serialize race-instrumented package execution")
 	}
-	if !strings.Contains(text, "RELEASE_VERSION := v0.1.4") {
-		t.Fatal("Makefile does not declare the v0.1.4 release version")
+	if !strings.Contains(text, "RELEASE_VERSION := v0.1.5") {
+		t.Fatal("Makefile does not declare the v0.1.5 release version")
 	}
 	releaseStart := integrationEnd
 	releaseEnd := strings.Index(text, "\ntest-e2e:")
@@ -271,7 +281,7 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") {
 		t.Fatal("required live family capability certification may not skip prerequisites")
 	}
-	workflowData, err := os.ReadFile(filepath.Join(root, "live_e2e_test.go"))
+	workflowData, err := os.ReadFile(filepath.Join(root, "test", "e2e", "live_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +323,7 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 }
 
 func TestRequiredArtistPrerequisitesFailClosed(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "artist_workspace_e2e_test.go"))
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "test", "e2e", "artist_workspace_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

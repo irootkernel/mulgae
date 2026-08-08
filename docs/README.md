@@ -24,6 +24,8 @@ The implementation is authoritative for runtime behavior:
 - `internal/ports` owns inward-facing interfaces.
 - `internal/adapters` owns operating-system, Git, provider, schema, and
   filesystem integration.
+- `internal/composition` owns executable bootstrap and concrete production
+  wiring.
 - `internal/builtin/assets` owns embedded v1 runtime contracts.
 - `internal/entrypoint/mulgae` owns command grammar and result projection.
 

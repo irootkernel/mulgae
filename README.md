@@ -1,9 +1,9 @@
 # Mulgae
 
 Mulgae is a local, multi-provider AI code review CLI. It captures an immutable
-review target, asks role-specific reviewers to inspect it, validates their
-structured output, verifies evidence against the captured target, and publishes
-durable artifacts under `.mulgae/`.
+review target, asks role-specific reviewers to inspect it, publishes their
+free-form role reports, optionally validates structured findings and their
+evidence, and commits durable artifacts under `.mulgae/`.
 
 Mulgae is advisory. It reports findings and recommendations; it does not grant
 merge, release, waiver, or organizational approval.
@@ -109,8 +109,8 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-Before spending provider time, inspect the exact staged snapshot and configured
-routing envelope:
+Before spending provider time, inspect the exact staged directory view and
+configured routing envelope:
 
 ```bash
 mulgae review --stage --preflight --output json
@@ -229,10 +229,12 @@ A successful publication creates a run beneath:
 .mulgae/{session_id}/{run_id}/
 ```
 
-The directory contains a manifest, provider attempts, validation records,
-runtime diagnostics, and at most one final `review_*.json` artifact. Provider
-output is never treated as a final artifact until Mulgae has normalized,
-validated, and committed it.
+The directory contains a manifest, accepted free-form role reports, provider
+attempts, validation records, runtime diagnostics, a reference-only v2 capture
+manifest with deduplicated SHA-256 blobs, and at most one final `review_*.json`
+artifact. Provider reports are admitted as UTF-8 without a fixed size ceiling;
+diagnostic previews and optional structured extraction remain bounded. Mulgae
+alone normalizes, validates, and commits the top-level final artifact.
 
 Inspect a run with its exact ID:
 
