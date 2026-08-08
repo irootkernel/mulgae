@@ -26,7 +26,8 @@ Inspect the capture and configured execution envelope without running providers:
 mulgae review --stage --preflight --output json
 ```
 
-Preflight performs the real bounded capture and snapshot admission, then reports
+Preflight performs the real bounded capture, directory-view admission, and
+capture-manifest publication-feasibility check, then reports
 the exact source file set transmitted to every selected role, each role's
 provider route, effective provider timeouts, AGY permission mode, and enclosing
 lane/run budgets. `qualification` is `not_run`: preflight does not discover,
@@ -34,6 +35,10 @@ qualify, repair, or invoke a provider, and it creates no session, run,
 diagnostics, publication, or durable review artifact. The workspace manifest is
 listed separately as `generated_at_execution`; its ephemeral filesystem identity
 is not represented as source evidence.
+
+If the reference-only capture manifest exceeds its structured-member limit,
+preflight returns `capture_manifest_too_large` with the actual size, the limit,
+and `provider_invoked=false`.
 
 An explicit AGY `safe` mode produces a warning because headless tool requests
 may be denied. A no-change target reports `status: no_change` with no

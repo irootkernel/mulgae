@@ -112,8 +112,6 @@ type CapturedStdinStore interface {
 	TakeCapturedStdin(context.Context, string) ([]byte, error)
 }
 
-const ReviewTargetMaxBytes = 180000
-
 // CapturedReviewTarget is an immutable review input with an identity bound to
 // its exact captured bytes. Git targets additionally retain resolved Git facts.
 type CapturedReviewTarget struct {

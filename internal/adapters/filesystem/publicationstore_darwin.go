@@ -27,7 +27,7 @@ const (
 	publicationLockDirectory     = "store/locks"
 	publicationLockFile          = "store.lock"
 	publicationReadBuffer        = 32 * 1024
-	publicationMaximumReadBytes  = int64(32 * 1024 * 1024)
+	publicationMaximumReadBytes  = ports.PublicationStoreMaxReadBytes
 	publicationDirectoryEntryCap = 4096
 )
 

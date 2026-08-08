@@ -57,10 +57,24 @@ func TestWrapReviewCaptureFailureRetainsExistingSubtype(t *testing.T) {
 	if !ok || failure.Code() != ReviewCaptureFailed {
 		t.Fatalf("generic wrapper = %#v, present=%t", failure, ok)
 	}
-	if failure.Summary() == "" || failure.EffectiveConfiguration() != "capture_policy=bounded_snapshot" {
+	if failure.Summary() == "" || failure.EffectiveConfiguration() != "capture_policy=bounded_source_capture" {
 		t.Fatalf("generic capture diagnostics = summary %q configuration %q", failure.Summary(), failure.EffectiveConfiguration())
 	}
 	if strings.Contains(failure.Error()+failure.Summary()+failure.EffectiveConfiguration()+failure.Hint(), "disk failed") {
 		t.Fatal("generic capture diagnostics exposed the underlying error")
+	}
+}
+
+func TestReviewCaptureManifestFailurePreservesFeasibilityFacts(t *testing.T) {
+	t.Parallel()
+
+	failure, err := NewReviewCaptureManifestFailure(9<<20, 8<<20, errors.New("too large"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.Code() != ReviewCaptureManifestLarge ||
+		failure.EffectiveConfiguration() != "member=captured-review.json; member_bytes=9437184; member_limit_bytes=8388608; provider_invoked=false" ||
+		!strings.Contains(failure.Hint(), "provider was not invoked") {
+		t.Fatalf("manifest failure = %#v", failure)
 	}
 }

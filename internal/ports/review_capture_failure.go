@@ -17,15 +17,41 @@ const (
 	ReviewCaptureFailed        ReviewCaptureFailureCode = "capture_failed"
 	ReviewCaptureUnsupported   ReviewCaptureFailureCode = "unsupported_content"
 	ReviewCapturePolicyBlocked ReviewCaptureFailureCode = "content_policy_blocked"
+	ReviewCaptureManifestLarge ReviewCaptureFailureCode = "capture_manifest_too_large"
 )
 
 func (code ReviewCaptureFailureCode) Valid() bool {
 	switch code {
-	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked:
+	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked, ReviewCaptureManifestLarge:
 		return true
 	default:
 		return false
 	}
+}
+
+// NewReviewCaptureManifestFailure reports exact execution-free publication
+// feasibility facts without exposing source paths or bytes.
+func NewReviewCaptureManifestFailure(actualBytes, limitBytes int64, cause error) (*ReviewCaptureFailure, error) {
+	if actualBytes <= limitBytes || limitBytes <= 0 || cause == nil {
+		return nil, fmt.Errorf("review capture failure: invalid manifest size facts")
+	}
+	failure, err := NewReviewCaptureFailure(
+		ReviewCaptureManifestLarge,
+		"",
+		"",
+		"reduce captured path metadata with .mulgaeignore; the provider was not invoked",
+		cause,
+	)
+	if err != nil {
+		return nil, err
+	}
+	failure.summary = "the captured review manifest exceeds its publication member limit"
+	failure.effectiveConfiguration = fmt.Sprintf(
+		"member=captured-review.json; member_bytes=%d; member_limit_bytes=%d; provider_invoked=false",
+		actualBytes,
+		limitBytes,
+	)
+	return failure, nil
 }
 
 // ReviewCaptureFailure preserves closed, actionable facts about a failed input
@@ -78,10 +104,12 @@ func NewReviewCaptureFailure(code ReviewCaptureFailureCode, path string, role do
 	summary := "the capture operation failed"
 	if code == ReviewCaptureUnsupported {
 		summary = "the selected capture path does not support this content"
+	} else if code == ReviewCaptureManifestLarge {
+		summary = "the captured review manifest is too large"
 	}
 	return &ReviewCaptureFailure{
 		code: code, path: path, role: role, hint: strings.TrimSpace(hint),
-		summary: summary, effectiveConfiguration: "capture_policy=bounded_snapshot", err: cause,
+		summary: summary, effectiveConfiguration: "capture_policy=bounded_source_capture", err: cause,
 	}, nil
 }
 

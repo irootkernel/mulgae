@@ -2391,6 +2391,10 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifestLarge, err := ports.NewReviewCaptureManifestFailure(9<<20, 8<<20, errors.New("manifest too large"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name, code, stage string
 		exit              app.ExitCode
@@ -2400,6 +2404,7 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 	}{
 		{name: "capture failed", code: "capture_failed", stage: "review.capture", exit: app.ExitCodeArtifact, err: ports.WrapReviewCaptureFailure(errors.New("snapshot unavailable"))},
 		{name: "unsupported content", code: "unsupported_content", stage: "review.capture", exit: app.ExitCodeArtifact, err: unsupported},
+		{name: "capture manifest too large", code: "capture_manifest_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: manifestLarge},
 		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
 		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},

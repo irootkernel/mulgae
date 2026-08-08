@@ -19,15 +19,6 @@ import (
 // added beside captured source files in every materialized review snapshot.
 const WorkspaceSnapshotManifestName = "._mulgae_workspace_manifest.json"
 
-const (
-	// WorkspaceSnapshotMaxFiles is the maximum number of captured files in one snapshot.
-	WorkspaceSnapshotMaxFiles = 10_000
-	// WorkspaceSnapshotMaxBytes is the maximum total captured byte length.
-	WorkspaceSnapshotMaxBytes int64 = 64 << 20
-	// WorkspaceSnapshotMaxFileBytes is the maximum byte length of one captured file.
-	WorkspaceSnapshotMaxFileBytes int64 = 4 << 20
-)
-
 // WorkspaceSnapshotFile is a captured regular UTF-8 file. Its bytes are copied
 // at construction and when returned so callers cannot alter the request later.
 type WorkspaceSnapshotFile struct {
@@ -89,7 +80,8 @@ type WorkspaceSnapshotRequest struct {
 
 // NewWorkspaceSnapshotRequest validates stable lexicographic, unique captured files.
 func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity string) (WorkspaceSnapshotRequest, error) {
-	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 || len(files) > WorkspaceSnapshotMaxFiles {
+	maxFiles, maxBytes := workspaceRequestLimits(policyIdentity)
+	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 || len(files) > maxFiles {
 		return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: invalid policy identity or file count")
 	}
 	copied := append([]WorkspaceSnapshotFile(nil), files...)
@@ -115,12 +107,19 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 		foldedPaths[folded] = struct{}{}
 		previous = current
 		total += int64(len(file.bytes))
-		if int64(len(file.bytes)) > WorkspaceSnapshotMaxFileBytes || total > WorkspaceSnapshotMaxBytes {
+		if int64(len(file.bytes)) > WorkspaceSnapshotMaxFileBytes || total > maxBytes {
 			return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: size limit exceeded")
 		}
 		copied[i].bytes = append([]byte(nil), file.bytes...)
 	}
 	return WorkspaceSnapshotRequest{files: copied, policyIdentity: policyIdentity}, nil
+}
+
+func workspaceRequestLimits(policyIdentity string) (int, int64) {
+	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
+		return WorkspaceProviderViewMaxFiles, WorkspaceProviderViewMaxBytes
+	}
+	return WorkspaceSnapshotMaxFiles, WorkspaceSnapshotMaxBytes
 }
 
 func validWorkspaceFileBytes(file WorkspaceSnapshotFile) bool {

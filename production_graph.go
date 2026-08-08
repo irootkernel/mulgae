@@ -124,6 +124,9 @@ func composeProductionRuntimeGraph(
 	if !build.Valid() || ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil || stdin == nil {
 		return nil, fmt.Errorf("production graph: invalid dependencies")
 	}
+	if err := ports.ValidateResourceLimits(); err != nil {
+		return nil, fmt.Errorf("production graph: %w", err)
+	}
 	installedUser, err := user.Current()
 	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
 		return nil, fmt.Errorf("production graph: installed user home")
@@ -284,7 +287,7 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: review validator: %w", err)
 	}
-	publisher, err := publication.NewService(publicationStore, validator, clock, 8<<20)
+	publisher, err := publication.NewService(publicationStore, validator, clock, ports.PublicationStructuredMemberMaxBytes)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: publisher: %w", err)
 	}

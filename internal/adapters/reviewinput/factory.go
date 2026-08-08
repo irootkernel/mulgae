@@ -92,6 +92,9 @@ func (factory *Factory) CaptureArchived(ctx context.Context, archive []byte, obj
 			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective rejected: %w", failure)
 		}
 	}
+	if _, err := ports.NewCapturedReviewArchive(material); err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived publication feasibility failed: %w", ports.WrapReviewCaptureFailure(err))
+	}
 	workspace, err := material.ProviderWorkspace()
 	if err != nil {
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived workspace layout failed: %w", ports.WrapReviewCaptureFailure(err))
@@ -181,6 +184,10 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		}
 	}
 
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured archive construction failed: %w", ports.WrapReviewCaptureFailure(err))
+	}
 	workspace, err := material.ProviderWorkspace()
 	if err != nil {
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace layout failed: %w", ports.WrapReviewCaptureFailure(err))
@@ -193,11 +200,6 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace materialization failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
 
-	archive, err := ports.MarshalCapturedReviewMaterial(material)
-	if err != nil {
-		source.quarantine(lease)
-		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured archive construction failed: %w", ports.WrapReviewCaptureFailure(err))
-	}
 	input, err := reviewrun.NewImmutableReviewInputWithCapturedArchive(material.Target(), objective, hasObjective, material.ProjectContext(), material.HasProjectContext(), archive)
 	if err != nil {
 		source.quarantine(lease)

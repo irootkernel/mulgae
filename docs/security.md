@@ -122,6 +122,14 @@ path-only; the reference-only captured archive manifest, its support-indexed
 SHA-256 blobs, and the workspace manifest bind the actual raster bytes. Dirty
 capture revalidates those bytes before admission.
 
+Source and structured-control limits are centralized and composition-checked:
+one source tree is bounded to 10,000 files, 64 MiB total, and 4 MiB per file;
+the provider's comparison view permits exactly two maximum trees; capture and
+other structured publication manifests are bounded to 8 MiB; and fixed-size
+storage reads are bounded to 32 MiB. Provider-authored reports are not source
+admission metadata and have no fixed report-size ceiling. Exact capture-manifest
+feasibility is evaluated before any provider invocation.
+
 For example, a repository may start with:
 
 ```gitignore

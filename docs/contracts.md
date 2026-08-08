@@ -100,6 +100,21 @@ bytes as base64 in `captured-review.json`. The in-process handoff uses a
 deterministic bundle of the same reference manifest and deduplicated raw blobs;
 it does not recreate the v1 base64 JSON representation.
 
+The fixed runtime limits are declared together in `internal/ports/resource_limits.go`
+and validated when the production graph is composed. One captured tree admits
+at most 10,000 regular files, 64 MiB total, and 4 MiB per file; a Git comparison
+view admits two such trees. Reference-only capture manifests and other
+structured publication members admit 8 MiB, and fixed-size storage reads admit
+32 MiB. These limits bound untrusted source and control metadata. They do not
+cap provider-authored role reports, which are streamed and published at their
+actual size.
+
+Capture-manifest feasibility is checked before workspace materialization or
+provider execution. A failure is reported as `capture_manifest_too_large` with
+the actual member size, member limit, and `provider_invoked=false`; an admitted
+capture therefore cannot reach providers and later fail solely because its v2
+capture manifest is not publishable.
+
 Successful selected roles also publish exactly one Mulgae-owned free-form role
 report under `role-reports/<role>.md`. Mulgae alone writes trusted publication
 state; providers never write into it. Additive `manifest.role_reports[]`

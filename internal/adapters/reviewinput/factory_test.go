@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -309,6 +310,21 @@ func TestImmutableInputSourceBlocksBeforeMaterialize(t *testing.T) {
 	}
 }
 
+func TestImmutableInputSourceRejectsUnpublishableManifestBeforeMaterialize(t *testing.T) {
+	calls := []string{}
+	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
+	source, root := testSource(t, captureFake{material: oversizedManifestMaterial(t), calls: &calls}, &detectorFake{calls: &calls}, materializer, nil, false)
+
+	_, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	failure, ok := ports.ReviewCaptureFailureFromError(err)
+	if !ok || failure.Code() != ports.ReviewCaptureManifestLarge || !strings.Contains(failure.EffectiveConfiguration(), "provider_invoked=false") {
+		t.Fatalf("manifest feasibility failure = %#v, present=%t, err=%v", failure, ok, err)
+	}
+	if got := strings.Join(calls, ","); got != "capture" {
+		t.Fatalf("manifest feasibility failure invoked later dependencies: %q", got)
+	}
+}
+
 func TestImmutableInputSourcePreservesTypedTargetCaptureFailure(t *testing.T) {
 	calls := []string{}
 	typed, err := ports.NewReviewCaptureFailure(ports.ReviewCaptureUnsupported, "image.png", "", "use binary capture", errors.New("binary"))
@@ -381,6 +397,40 @@ func testMaterialWithProjectContext(t *testing.T, projectContext []byte, hasProj
 		t.Fatal(err)
 	}
 	material, err := ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, projectContext, hasProjectContext, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return material
+}
+
+func oversizedManifestMaterial(t *testing.T) ports.CapturedReviewMaterial {
+	t.Helper()
+	prefix := strings.Repeat("nested/", 100)
+	files := make([]ports.WorkspaceSnapshotFile, ports.WorkspaceSnapshotMaxFiles)
+	emptyDigest := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	for index := range files {
+		path, err := ports.NewSafeRelativePath(prefix + fmt.Sprintf("file-%05d.txt", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index], err = ports.NewWorkspaceSnapshotFile(path, nil, emptyDigest)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "oversized-manifest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,10 @@ func main() {
 		fmt.Fprint(os.Stderr, "mulgae: current directory is unavailable\n")
 		os.Exit(10)
 	}
+	if err := ports.ValidateResourceLimits(); err != nil {
+		fmt.Fprint(os.Stderr, "mulgae: runtime resource limits are incompatible\n")
+		os.Exit(10)
+	}
 
 	catalog := builtin.NewCatalog()
 	validator, err := jsonschema.New(ctx, catalog)
@@ -74,7 +78,7 @@ func main() {
 		fmt.Fprint(os.Stderr, "mulgae: publication store is unavailable\n")
 		os.Exit(10)
 	}
-	queryService, err := appquery.NewService(publicationStore, validator, nil, 8<<20)
+	queryService, err := appquery.NewService(publicationStore, validator, nil, ports.PublicationStructuredMemberMaxBytes)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "mulgae: publication query service is unavailable\n")
 		os.Exit(10)
