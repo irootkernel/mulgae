@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -161,8 +162,12 @@ func TestImmutableInputSourceCaptureOrdersAndPreservesObjective(t *testing.T) {
 	if got := string(captured.Input().Objective()); got != "@roadmap.md" {
 		t.Fatalf("captured objective = %q", got)
 	}
-	if !materializer.request.Valid() || materializer.request.PolicyIdentity() != material.Snapshot().PolicyIdentity() {
-		t.Fatal("materializer did not receive only the captured snapshot request")
+	expectedWorkspace, err := material.ProviderWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !materializer.request.Valid() || !reflect.DeepEqual(materializer.request, expectedWorkspace) {
+		t.Fatal("materializer did not receive the derived provider workspace")
 	}
 	if captured.PacketDetector() != detector {
 		t.Fatal("captured input lost packet detector authority")

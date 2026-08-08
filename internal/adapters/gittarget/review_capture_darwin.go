@@ -654,7 +654,10 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 	if err != nil {
 		return nil, err
 	}
-	var files []ports.WorkspaceSnapshotFile
+	type treeEntry struct {
+		mode, kind, object, path string
+	}
+	var entries []treeEntry
 	for _, entry := range strings.Split(string(out.Stdout), "\x00") {
 		if entry == "" {
 			continue
@@ -664,26 +667,58 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 			return nil, fmt.Errorf("invalid tree entry")
 		}
 		fields := strings.Fields(split[0])
-		path, err := ports.NewSafeRelativePath(split[1])
-		if err != nil || reservedReviewPath(split[1]) {
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("invalid tree entry")
+		}
+		entries = append(entries, treeEntry{mode: fields[0], kind: fields[1], object: fields[2], path: split[1]})
+	}
+	var gitRules []workspaceIgnoreRule
+	for _, entry := range entries {
+		if filepath.Base(entry.path) != ".gitignore" {
 			continue
 		}
-		if len(ignored) == 1 && workspaceIgnored(split[1], ignored[0]) {
+		if entry.kind != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
+			return nil, fmt.Errorf("Git ignore path %q is not a regular file", entry.path)
+		}
+		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", entry.object))
+		if err != nil {
+			return nil, err
+		}
+		if len(blob.Stdout) > 256<<10 || !utf8.Valid(blob.Stdout) || strings.IndexByte(string(blob.Stdout), 0) >= 0 {
+			return nil, fmt.Errorf("Git ignore path %q is not bounded UTF-8", entry.path)
+		}
+		base := filepath.ToSlash(filepath.Dir(entry.path))
+		if base == "." {
+			base = ""
+		}
+		rules, err := compileWorkspaceIgnore(blob.Stdout, base)
+		if err != nil {
+			return nil, fmt.Errorf("Git ignore path %q: %w", entry.path, err)
+		}
+		gitRules = append(gitRules, rules...)
+	}
+	var files []ports.WorkspaceSnapshotFile
+	for _, entry := range entries {
+		capturedPath, err := ports.NewSafeRelativePath(entry.path)
+		if err != nil || reservedReviewPath(entry.path) {
 			continue
 		}
-		if len(fields) != 3 || (fields[0] != "100644" && fields[0] != "100755") || fields[1] != "blob" {
-			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .mulgaeignore", split[1])
+		if workspaceIgnored(entry.path, gitRules) || len(ignored) == 1 && workspaceIgnored(entry.path, ignored[0]) {
+			continue
 		}
-		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", fields[2]))
+		if entry.kind != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
+			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .mulgaeignore", entry.path)
+		}
+		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", entry.object))
 		if err != nil {
 			return nil, err
 		}
 		if int64(len(blob.Stdout)) > ports.WorkspaceSnapshotMaxFileBytes {
-			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .mulgaeignore", split[1])
+			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .mulgaeignore", entry.path)
 		}
-		file, err := adapter.newCapturedFile(ctx, path, blob.Stdout)
+		file, err := adapter.newCapturedFile(ctx, capturedPath, blob.Stdout)
 		if err != nil {
-			return nil, fmt.Errorf("captured path %q: %w; add it to .mulgaeignore if it is not reviewable", split[1], err)
+			return nil, fmt.Errorf("captured path %q: %w; add it to .mulgaeignore if it is not reviewable", entry.path, err)
 		}
 		files = append(files, file)
 	}
@@ -708,7 +743,25 @@ func sortFiles(files []ports.WorkspaceSnapshotFile) ([]ports.WorkspaceSnapshotFi
 	return files, nil
 }
 func reservedReviewPath(path string) bool {
-	return path == ".git" || path == ".mulgae" || strings.HasPrefix(path, ".git/") || strings.HasPrefix(path, ".mulgae/")
+	for _, part := range strings.Split(path, "/") {
+		if part == ".git" || part == ".mulgae" || part == ".gitignore" || part == ".mulgaeignore" {
+			return true
+		}
+	}
+	return false
+}
+
+func admittedIgnoreControlPath(path string) bool {
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 || parts[len(parts)-1] != ".gitignore" && parts[len(parts)-1] != ".mulgaeignore" {
+		return false
+	}
+	for _, part := range parts[:len(parts)-1] {
+		if part == ".git" || part == ".mulgae" || part == ".gitignore" || part == ".mulgaeignore" {
+			return false
+		}
+	}
+	return true
 }
 func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports.AnchoredRoot) (ports.CapturedReviewMaterial, error) {
 	repo, cleanup, err := newCanonicalRepository(root, "HEAD")
@@ -1027,16 +1080,20 @@ func validateCapturedPathSet(sets ...map[string]bool) error {
 // opened descriptor pinned while reading, then repeats the descriptor walk to
 // reject replacement races.
 func readStableRegular(root, relative string, limit int) ([]byte, error) {
-	return readStableRegularMode(root, relative, limit, true)
+	return readStableRegularMode(root, relative, limit, true, false)
 }
 
 func readStableRegularBinary(root, relative string, limit int) ([]byte, error) {
-	return readStableRegularMode(root, relative, limit, false)
+	return readStableRegularMode(root, relative, limit, false, false)
 }
 
-func readStableRegularMode(root, relative string, limit int, requireText bool) ([]byte, error) {
+func readStableIgnoreFile(root, relative string, limit int) ([]byte, error) {
+	return readStableRegularMode(root, relative, limit, true, true)
+}
+
+func readStableRegularMode(root, relative string, limit int, requireText, allowIgnoreFile bool) ([]byte, error) {
 	path, err := ports.NewSafeRelativePath(relative)
-	if err != nil || reservedReviewPath(relative) || !utf8.ValidString(relative) || norm.NFC.String(relative) != relative || limit <= 0 {
+	if err != nil || reservedReviewPath(relative) && !(allowIgnoreFile && admittedIgnoreControlPath(relative)) || !utf8.ValidString(relative) || norm.NFC.String(relative) != relative || limit <= 0 {
 		return nil, fmt.Errorf("invalid capture path")
 	}
 	fd, err := openNofollowRegular(root, path.String())

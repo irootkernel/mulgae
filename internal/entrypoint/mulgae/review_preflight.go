@@ -122,7 +122,11 @@ func NewReviewPreflightResult(
 	if !material.Valid() || !workspaceReceipt.Valid() || !budgetReceipt.Eligible() || requestedKind == "" || len(plan.Assignments) == 0 || len(plan.Budgets) != len(plan.Assignments) {
 		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid captured plan")
 	}
-	if err := validatePreflightSnapshotBinding(material.Snapshot(), workspaceReceipt); err != nil {
+	providerWorkspace, err := material.ProviderWorkspace()
+	if err != nil {
+		return ReviewPreflightResult{}, fmt.Errorf("review preflight: provider workspace: %w", err)
+	}
+	if err := validatePreflightSnapshotBinding(providerWorkspace, workspaceReceipt); err != nil {
 		return ReviewPreflightResult{}, err
 	}
 	if agyPermissionMode != appconfig.SafeAGYPermissionMode && agyPermissionMode != appconfig.HeadlessAGYPermissionMode {

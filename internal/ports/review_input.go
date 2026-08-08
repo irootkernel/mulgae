@@ -440,6 +440,86 @@ func (material CapturedReviewMaterial) Target() CapturedReviewTarget { return ma
 func (material CapturedReviewMaterial) Snapshot() WorkspaceSnapshotRequest {
 	return material.snapshot
 }
+
+// ProviderWorkspace derives the ordinary directory tree exposed to providers
+// from the immutable capture. Repository-relative evidence paths remain
+// unchanged: current/ is used for one tree, while Git comparisons expose both
+// before/ and after/.
+func (material CapturedReviewMaterial) ProviderWorkspace() (WorkspaceSnapshotRequest, error) {
+	if !material.Valid() {
+		return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: invalid provider workspace")
+	}
+	identity := material.Target().Identity()
+	policy := material.snapshot.PolicyIdentity() + ";layout=ordinary-directories-v1"
+	if material.Target().NoChange() || identity.Kind() != domain.TargetGit {
+		return prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+	}
+	var before, after []WorkspaceSnapshotFile
+	var ok bool
+	switch identity.GitMode() {
+	case domain.GitTargetStage:
+		before, ok = material.evidence.Files(CapturedEvidenceBase)
+		if !ok {
+			return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: stage base is absent")
+		}
+		after, ok = material.evidence.Files(CapturedEvidenceIndex)
+	case domain.GitTargetDirty:
+		before, ok = material.evidence.Files(CapturedEvidenceBase)
+		if !ok {
+			return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: dirty base is absent")
+		}
+		after, ok = material.evidence.Files(CapturedEvidenceWorktree)
+	case domain.GitTargetDiff:
+		before, ok = material.evidence.Files(CapturedEvidenceBase)
+		if !ok {
+			return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: diff base is absent")
+		}
+		if identity.IndexTreeObjectID() != "" {
+			after, ok = material.evidence.Files(CapturedEvidenceIndex)
+		} else {
+			after, ok = material.evidence.Files(CapturedEvidenceHead)
+		}
+	default:
+		return prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+	}
+	if !ok {
+		return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: comparison current side is absent")
+	}
+	beforeFiles, err := prefixWorkspaceFiles("before", before)
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, err
+	}
+	afterFiles, err := prefixWorkspaceFiles("after", after)
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, err
+	}
+	files := append(beforeFiles, afterFiles...)
+	SortWorkspaceSnapshotFiles(files)
+	return NewWorkspaceSnapshotRequest(files, policy)
+}
+
+func prefixedWorkspaceRequest(directory string, files []WorkspaceSnapshotFile, policy string) (WorkspaceSnapshotRequest, error) {
+	prefixed, err := prefixWorkspaceFiles(directory, files)
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, err
+	}
+	return NewWorkspaceSnapshotRequest(prefixed, policy)
+}
+
+func prefixWorkspaceFiles(directory string, files []WorkspaceSnapshotFile) ([]WorkspaceSnapshotFile, error) {
+	result := make([]WorkspaceSnapshotFile, len(files))
+	for index, file := range files {
+		path, err := NewSafeRelativePath(directory + "/" + file.Path().String())
+		if err != nil {
+			return nil, fmt.Errorf("provider workspace path: %w", err)
+		}
+		result[index] = file
+		result[index].path = path
+		result[index].bytes = append([]byte(nil), file.bytes...)
+	}
+	SortWorkspaceSnapshotFiles(result)
+	return result, nil
+}
 func (material CapturedReviewMaterial) HasProjectContext() bool {
 	return material.hasProjectContext
 }

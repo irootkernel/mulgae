@@ -47,7 +47,7 @@ run budgets can accommodate them, without launching providers.
 
 AGY's effective `permission_mode` defaults to `safe` for workspace-first
 reviews. Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to
-the bounded immutable snapshot. Headless write/shell requests remain denied
+the bounded immutable workspace view. Headless write/shell requests remain denied
 under the default. To opt into AGY's permission bypass, set:
 
 ```yaml

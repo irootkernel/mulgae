@@ -105,7 +105,7 @@ read from the terminal observation of the selected attempt.
 On a `staged_file` route the provider writes exactly one untrusted file,
 `role-report.md`, into a fresh per-invocation staging directory Mulgae creates
 under the provider's disposable namespace scratch area, outside the sealed
-snapshot and outside `.mulgae`. The prompt's last trusted layer,
+workspace view and outside `.mulgae`. The prompt's last trusted layer,
 `review:output-destination`, states that exact absolute path; a staged launch
 whose packet does not carry its own destination layer fails closed before the
 process starts. After the process has fully terminated, the adapter validates

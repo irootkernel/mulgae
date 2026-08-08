@@ -1914,14 +1914,17 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		if file.Path == "ignored.txt" {
 			seenIgnored = true
 		}
-		if file.Path == "screenshots/staged.png" {
+		if file.Path == "after/screenshots/staged.png" {
 			seenPNG = file.MediaType == "image/png" && file.Disposition == "binary_preserved" && file.Size == int64(len(pngBytes)) && file.SHA256 == wantPNG
 		}
 	}
 	if !seenPNG || seenIgnored {
 		t.Fatalf("preflight file catalog PNG/ignored = %t/%t: %#v", seenPNG, seenIgnored, firstResult.FileSets)
 	}
-	wantPaths := []string{".mulgaeignore", "docs/linked.md", "review.go", "roadmap.md", "screenshots/staged.png", "security-fixtures.txt"}
+	wantPaths := []string{
+		"after/docs/linked.md", "after/review.go", "after/roadmap.md", "after/screenshots/staged.png", "after/security-fixtures.txt",
+		"before/docs/linked.md", "before/review.go", "before/roadmap.md",
+	}
 	if !slices.Equal(paths, wantPaths) {
 		t.Fatalf("exact transmitted source paths = %v, want %v", paths, wantPaths)
 	}
@@ -2891,8 +2894,8 @@ func main() {
 		panic("non-canonical AGY review print timeout")
 	}
 	if observation.Prompt != "@roadmap.md" {
-		fixture, fixtureErr := os.ReadFile("security-fixtures.txt")
-		png, pngErr := os.ReadFile("screenshots/staged.png")
+		fixture, fixtureErr := os.ReadFile("after/security-fixtures.txt")
+		png, pngErr := os.ReadFile("after/screenshots/staged.png")
 		if fixtureErr == nil && pngErr == nil {
 			observation.Fixture = string(fixture)
 			digest := sha256.Sum256(png)

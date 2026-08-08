@@ -92,7 +92,11 @@ func (factory *Factory) CaptureArchived(ctx context.Context, archive []byte, obj
 			return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived objective rejected: %w", failure)
 		}
 	}
-	lease, err := factory.leases.MaterializeLease(ctx, material.Snapshot())
+	workspace, err := material.ProviderWorkspace()
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived workspace layout failed: %w", ports.WrapReviewCaptureFailure(err))
+	}
+	lease, err := factory.leases.MaterializeLease(ctx, workspace)
 	if err != nil || nilInterface(lease) {
 		if err == nil {
 			err = fmt.Errorf("workspace materializer returned no lease")
@@ -177,7 +181,11 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		}
 	}
 
-	lease, err := source.factory.leases.MaterializeLease(ctx, material.Snapshot())
+	workspace, err := material.ProviderWorkspace()
+	if err != nil {
+		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: workspace layout failed: %w", ports.WrapReviewCaptureFailure(err))
+	}
+	lease, err := source.factory.leases.MaterializeLease(ctx, workspace)
 	if err != nil || nilInterface(lease) {
 		if err == nil {
 			err = fmt.Errorf("workspace materializer returned no lease")

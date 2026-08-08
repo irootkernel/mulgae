@@ -11,17 +11,19 @@ and publication.
 
 Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
-commands against that immutable snapshot, isolated output, explicit credential
-projection, execution bounds, per-instance serialization, cancellation, and
-terminal process-state checks. Prompt packets retain bounded patch, stdin, and
-old/new review-target bytes that a workspace tree alone cannot represent;
-surrounding project content is read selectively from the sealed snapshot rather
-than re-embedded for every role.
+commands against that immutable directory view, isolated output, explicit
+credential projection, execution bounds, per-instance serialization,
+cancellation, and terminal process-state checks. Prompt packets retain bounded
+patch, stdin, and old/new review-target bytes that a workspace tree alone cannot
+represent; surrounding project content is read selectively from the sealed
+directory view rather than re-embedded for every role.
 
-The workspace snapshot is materialized read-only (`0444` files, `0555`
-directories) and is revalidated through retained descriptors before and after
-every invocation. Post-execution drift overrides provider success, so a
-provider that mutates the snapshot cannot produce a publishable result.
+The workspace is materialized as ordinary read-only files (`0444`) and
+directories (`0555`). A single tree appears under `current/`; Git comparisons
+appear under `before/` and `after/`. Mulgae revalidates the view through retained
+descriptors before and after every invocation. Post-execution drift overrides
+provider success, so a provider that mutates the view cannot produce a
+publishable result.
 
 Project configuration cannot introduce an executable command.
 
@@ -35,20 +37,20 @@ say that no provider ever holds it.
   enabled so ZCode can place its role report at the one absolute path Mulgae
   chose. ZCode qualification is unchanged: plan mode with all tools denied.
 - AGY review invocations are unchanged: `--new-project --sandbox --add-dir
-  <snapshot> --mode plan` in the default safe permission mode. Headless AGY
+  <workspace> --mode plan` in the default safe permission mode. Headless AGY
   auto-denies `write_file` in safe mode, so AGY role reports stay on the stdout
   transport. The dangerous permission bypass remains an explicit opt-in and is
   not used for role output.
 - Kimi is unchanged and has no adapter-owned workspace tools; its process
-  working directory is still the immutable snapshot.
+  working directory is still the immutable workspace view.
 
 ### Staging boundary
 
 A ZCode review launch receives exactly one write target: a fresh
 per-invocation directory Mulgae creates with `0700` under the provider's
 disposable namespace scratch area, holding the single Mulgae-chosen filename
-`role-report.md`. That directory is outside the sealed snapshot and outside
-`.mulgae`. The exact absolute path is stated only by the prompt's last trusted
+`role-report.md`. That directory is outside the sealed workspace view and
+outside `.mulgae`. The exact absolute path is stated only by the prompt's last trusted
 layer; a staged launch whose packet lacks that layer fails closed before the
 process starts, and a staging destination the adapter did not itself choose is
 refused.
@@ -76,7 +78,7 @@ not confined to the staging directory by the provider itself. Its tool controls
 are name-based: local ZCode 0.16.1 rejects `--allowed-tools` at runtime, so
 Mulgae uses an explicit denylist, which can enable or deny `Write` wholesale
 but cannot bind it to one directory. Containment is therefore entirely
-Mulgae-side: the review workspace is a read-only `0444`/`0555` snapshot whose
+Mulgae-side: the review workspace is a read-only `0444`/`0555` directory view whose
 post-execution drift check overrides provider success; the process runs in a
 disposable namespace with projected `HOME`, `TMPDIR`, and scratch; only the
 staging directory is ever read back as trusted-path input, and only after full
@@ -102,7 +104,7 @@ new diagnostic field is a data-release boundary and requires review.
 
 Review capture does not apply secret-pattern detection to source files,
 security fixtures, objectives, or provider packets. A configured provider is
-therefore authorized to receive every file in the captured snapshot, including
+therefore authorized to receive every file in the captured workspace view, including
 credential-like placeholders and test data. Use `.mulgaeignore` to exclude
 `.env` files, credential files, generated data, or any other path that must not
 be transmitted. The immutable v3 `._mulgae_workspace_manifest.json` supplied
@@ -131,7 +133,7 @@ credentials/
 
 These entries are examples, not a built-in policy: repository owners remain in
 control of the paths shared with their selected providers. Output redaction,
-configuration credential admission, bounded snapshots, and provider sandboxing
+configuration credential admission, bounded workspace views, and provider sandboxing
 remain enforced independently of capture admission.
 
 A credential-like provider raw stream may be omitted from private diagnostics,

@@ -35,7 +35,7 @@ tests enforce this direction.
 | `internal/domain` | IDs, findings, failures, states, roles, immutable values |
 | `internal/ports` | Interfaces and safe values crossing application boundaries |
 | `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation |
-| `internal/adapters/workspace` | Isolated snapshots and descriptor-bound workspaces |
+| `internal/adapters/workspace` | Isolated directory views and descriptor-bound workspaces |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |
 | `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
 | `internal/builtin` | Embedded schemas, prompts, examples, and help |
@@ -65,10 +65,11 @@ re-derived after init.
 3. The requested target is captured immutably.
 4. The planner selects roles and each role's configured provider.
 5. Mulgae composes trusted prompt layers and one capture-owned immutable
-   workspace shared by every role in the run.
+   directory view shared by every role in the run. A single tree is available
+   under `current/`; a Git comparison exposes both `before/` and `after/`.
 6. Provider executions run through bounded, serialized lanes with
    adapter-owned tool boundaries and per-invocation process isolation against
-   that shared snapshot.
+   that shared directory view.
 7. The provider result arrives on the transport declared for that route: a
    Mulgae-owned staged file the adapter validates and reads back after the
    process terminates, or process stdout.

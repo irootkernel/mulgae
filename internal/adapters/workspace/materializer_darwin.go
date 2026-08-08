@@ -1314,11 +1314,11 @@ func validateFiles(files []ports.WorkspaceSnapshotFile) error {
 	previous := ""
 	for _, file := range files {
 		value := file.Path().String()
-		if value == manifestName || value == ".git" || value == ".mulgae" || strings.HasPrefix(value, ".git/") || strings.HasPrefix(value, ".mulgae/") {
+		if value == manifestName {
 			return fmt.Errorf("workspace snapshot: reserved path %q", value)
 		}
 		for _, part := range strings.Split(value, "/") {
-			if part == ".git" || part == ".mulgae" {
+			if part == ".git" || part == ".mulgae" || part == ".gitignore" || part == ".mulgaeignore" {
 				return fmt.Errorf("workspace snapshot: reserved path %q", value)
 			}
 		}

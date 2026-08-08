@@ -176,7 +176,7 @@ func readWorkspaceIgnore(root ports.AnchoredRoot, relative, base string) ([]work
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, nil, fmt.Errorf("ignore file %q must be a regular file", relative)
 	}
-	data, err := readStableRegular(root.String(), relative, 256<<10)
+	data, err := readStableIgnoreFile(root.String(), relative, 256<<10)
 	if err != nil {
 		return nil, nil, err
 	}

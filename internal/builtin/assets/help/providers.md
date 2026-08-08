@@ -34,10 +34,11 @@ the providers it configured and takes the first match as the role's provider.
 That is a generation-time default only: after init the project configuration is
 the sole authority and is never re-derived.
 
-ZCode and AGY reviews run against Mulgae's immutable captured snapshot with
-adapter-owned tool boundaries. Providers may selectively read/search that
-snapshot; they do not receive live project-tree access, shell, or network
-authority from Mulgae, and the snapshot itself is read-only with
+ZCode and AGY reviews run against Mulgae's immutable captured directory view
+with adapter-owned tool boundaries. Providers may selectively read/search that
+view; they do not receive live project-tree access, shell, or network
+authority from Mulgae. A single tree is under `current/`; Git comparisons are
+under `before/` and `after/`. The view itself is read-only with
 post-execution drift detection overriding provider success.
 
 Role reports reach Mulgae over a per-family transport recorded in
@@ -47,7 +48,7 @@ Role reports reach Mulgae over a per-family transport recorded in
   `Bash,Edit,NotebookEdit,WebSearch,WebFetch`, so `Write` is enabled for one
   purpose only: writing `role-report.md` to the exact absolute staging path
   Mulgae names in the last trusted prompt layer. That directory sits in a
-  disposable namespace outside the snapshot and outside `.mulgae`. Mulgae
+  disposable namespace outside the workspace view and outside `.mulgae`. Mulgae
   validates the file after the process exits, copies the accepted bytes into
   `role-reports/<role>.md`, and always removes staging. ZCode's write authority
   is not path-scoped by the provider; containment is Mulgae-side. ZCode
@@ -56,8 +57,8 @@ Role reports reach Mulgae over a per-family transport recorded in
   safe mode.
 - Exact replay (`rerun --exact`) is always `stdout`.
 
-AGY keeps `--new-project --sandbox --add-dir <snapshot> --mode plan` limited to
-the bounded snapshot. The default AGY `permission_mode` is `safe` so headless
+AGY keeps `--new-project --sandbox --add-dir <workspace> --mode plan` limited to
+the bounded workspace view. The default AGY `permission_mode` is `safe` so headless
 write/shell requests remain denied. Set
 `providers.agy.permission_mode: "dangerously-skip-permissions"` only as an
 explicit opt-in; Mulgae reports a warning because that mode may approve write or
@@ -68,4 +69,4 @@ Capability probes stay prompt-bound to the embedded fixture packet and must not
 induce workspace or tool reads. ZCode capability remains tool-denied; selective
 workspace reads apply only to review invocations. Kimi has no adapter-owned
 workspace read tools; its process working directory is still the immutable
-snapshot.
+workspace view.

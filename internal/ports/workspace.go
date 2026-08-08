@@ -206,11 +206,13 @@ func (receipt WorkspaceSnapshotReceipt) Valid() bool {
 }
 
 func workspaceReservedPath(value string) bool {
-	first := value
-	if slash := strings.IndexByte(first, '/'); slash >= 0 {
-		first = first[:slash]
+	for _, part := range strings.Split(value, "/") {
+		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".mulgae") ||
+			strings.EqualFold(part, ".gitignore") || strings.EqualFold(part, ".mulgaeignore") {
+			return true
+		}
 	}
-	return strings.EqualFold(first, ".git") || strings.EqualFold(first, ".mulgae")
+	return false
 }
 func workspaceSnapshotName(value string) bool {
 	if !strings.HasPrefix(value, "snapshot-") || len(value) != len("snapshot-")+32 {

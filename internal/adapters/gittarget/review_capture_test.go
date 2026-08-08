@@ -510,6 +510,43 @@ func TestReviewCaptureWorkspaceWithoutGitHonorsIgnoreFiles(t *testing.T) {
 	}
 }
 
+func TestReviewCaptureGitComparisonAppliesCommittedIgnoreAndDerivesTwoDirectoryView(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
+	writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored before\n")
+	writeReviewFile(t, filepath.Join(root, "kept.txt"), "before\n")
+	reviewGit(t, root, "add", ".gitignore", "kept.txt")
+	reviewGit(t, root, "add", "-f", "ignored.txt")
+	reviewGit(t, root, "commit", "-m", "comparison base")
+	base := strings.TrimSpace(string(reviewGitOutput(t, root, "rev-parse", "HEAD")))
+
+	writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored after\n")
+	writeReviewFile(t, filepath.Join(root, "kept.txt"), "after\n")
+	reviewGit(t, root, "add", "-f", "ignored.txt")
+	reviewGit(t, root, "add", "kept.txt")
+	reviewGit(t, root, "commit", "-m", "comparison head")
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetDiff, base+"..HEAD")
+	for _, side := range []ports.CapturedEvidenceSide{ports.CapturedEvidenceBase, ports.CapturedEvidenceHead} {
+		files, ok := material.Evidence().Files(side)
+		if !ok {
+			t.Fatalf("comparison evidence omitted %q", side)
+		}
+		paths := reviewFilePathSet(files)
+		if paths[".gitignore"] || paths["ignored.txt"] || !paths["kept.txt"] {
+			t.Fatalf("comparison evidence %q ignored paths = %v", side, paths)
+		}
+	}
+	workspace, err := material.ProviderWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := reviewFilePathSet(workspace.Files())
+	if !paths["before/kept.txt"] || !paths["after/kept.txt"] || paths["before/.gitignore"] || paths["after/ignored.txt"] {
+		t.Fatalf("provider comparison view paths = %v", paths)
+	}
+}
+
 func TestParseDiffSelectorUsesGitStandardForms(t *testing.T) {
 	for _, test := range []struct {
 		value                  string
@@ -768,6 +805,21 @@ func TestIntegrationReviewCaptureIgnoreRulesAndMulgaeIgnoreAcrossModes(t *testin
 			})
 		}
 	})
+}
+
+func TestAdmittedIgnoreControlPathRejectsReservedParent(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{".gitignore", ".mulgaeignore", "nested/.gitignore", "nested/.mulgaeignore"} {
+		if !admittedIgnoreControlPath(path) {
+			t.Errorf("admittedIgnoreControlPath(%q) = false", path)
+		}
+	}
+	for _, path := range []string{"ordinary.txt", ".git/config/.gitignore", ".mulgae/state/.mulgaeignore", ".gitignore/nested/.gitignore"} {
+		if admittedIgnoreControlPath(path) {
+			t.Errorf("admittedIgnoreControlPath(%q) = true", path)
+		}
+	}
 }
 
 func TestIntegrationReviewCaptureRejectsEligibleNonTextAndSpecialPathsWithGuidance(t *testing.T) {

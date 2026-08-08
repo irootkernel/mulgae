@@ -264,7 +264,11 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 			return mulgae.ReviewPreflightResult{}, failure
 		}
 	}
-	lease, err := service.materializer.MaterializeLease(ctx, material.Snapshot())
+	providerWorkspace, err := material.ProviderWorkspace()
+	if err != nil {
+		return mulgae.ReviewPreflightResult{}, fmt.Errorf("review preflight composition: workspace layout: %w", err)
+	}
+	lease, err := service.materializer.MaterializeLease(ctx, providerWorkspace)
 	if err != nil {
 		if owner, ok := workspace.MaterializationCleanupRetryOwner(err); ok {
 			err = errors.Join(err, owner.Retry())
