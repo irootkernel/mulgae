@@ -420,6 +420,28 @@ func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t
 	if published.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("publication authority = %q, want P2", published.Decision().Authority())
 	}
+	persistedTargetRoot := filepath.Join(publicationPath, candidate.SessionID().String(), candidate.RunID().String(), "target")
+	persistedManifest, err := os.ReadFile(filepath.Join(persistedTargetRoot, "captured-review.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(persistedManifest, []byte(`"bytes"`)) || !bytes.Contains(persistedManifest, []byte(`"schema_version":"mulgae-captured-review-archive.v2"`)) {
+		t.Fatalf("persisted capture is not a reference-only v2 manifest: %s", persistedManifest)
+	}
+	blobReferences, err := ports.CapturedReviewArchiveBlobReferences(persistedManifest)
+	if err != nil || len(blobReferences) == 0 {
+		t.Fatalf("persisted capture blob references = %d, %v", len(blobReferences), err)
+	}
+	for _, reference := range blobReferences {
+		body, readErr := os.ReadFile(filepath.Join(persistedTargetRoot, filepath.FromSlash(reference.Path().String())))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		blob, blobErr := ports.NewCapturedReviewArchiveBlob(reference.Path(), body)
+		if blobErr != nil || blob.SHA256() != reference.SHA256() {
+			t.Fatalf("persisted capture blob %q is invalid: %v", reference.Path(), blobErr)
+		}
+	}
 
 	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "mutated after P2\n")
 	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "mutated after P2\n")

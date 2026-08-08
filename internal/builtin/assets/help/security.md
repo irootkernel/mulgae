@@ -55,8 +55,9 @@ evidence readers omit their binary bodies instead of decoding them as UTF-8.
 Invalid raster signatures are reported as `unsupported_content`.
 `.mulgaeignore` and workspace size limits still apply. Output redaction and
 configuration credential checks remain separate security boundaries. The
-captured archive and workspace manifest, rather than Git's path-only binary
-marker, bind the exact raster bytes; dirty capture revalidates them before use.
+reference-only captured archive manifest, its SHA-256 blobs, and the workspace
+manifest, rather than Git's path-only binary marker, bind the exact raster
+bytes; dirty capture revalidates them before use.
 
 Credential-like raw provider streams may be omitted from private diagnostics
 without failing an otherwise valid review. Validated final reviews and

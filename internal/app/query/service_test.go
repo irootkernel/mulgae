@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 	"testing"
 
@@ -2201,6 +2202,14 @@ func TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifact
 			_, err := service.ReadRuntimeTarget(context.Background(), run)
 			return err
 		},
+		"captured-archive": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		},
+		"captured-blob": func(service *Service, run ports.PublicationRun, _ domain.AttemptID) error {
+			_, err := service.ReadRuntimeTarget(context.Background(), run)
+			return err
+		},
 		"prompt-manifest": func(service *Service, run ports.PublicationRun, attempt domain.AttemptID) error {
 			_, err := service.ReadCommittedAttempt(context.Background(), run, attempt)
 			return err
@@ -2379,19 +2388,63 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 	}
 	targetPath := prefix + "/target/target.bytes"
 	target := mustQueryArtifact(t, mustQueryPath(t, targetPath), []byte("runtime target bytes"))
+	capturedTarget, err := ports.NewCapturedReviewPatchTarget(target.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedSnapshot, err := ports.NewWorkspaceSnapshotRequest(nil, "query-runtime-fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedEvidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedMaterial, err := ports.NewCapturedReviewMaterialWithEvidence(capturedTarget, capturedSnapshot, nil, capturedEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := ports.NewCapturedReviewArchive(capturedMaterial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedPath := prefix + "/target/captured-review.json"
+	capturedManifest := mustQueryArtifact(t, mustQueryPath(t, capturedPath), captured.Manifest())
+	capturedArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
+	var capturedBlobPath string
+	for _, blob := range captured.Blobs() {
+		path := prefix + "/target/" + blob.Path().String()
+		artifact := mustQueryArtifact(t, mustQueryPath(t, path), blob.Bytes())
+		capturedArtifacts[path] = artifact
+		capturedBlobPath = path
+	}
 	stdinPath := prefix + "/prompts/" + attempt.String() + "/001-initial.stdin"
 	stdin := mustQueryArtifact(t, mustQueryPath(t, stdinPath), []byte("runtime stdin bytes"))
 	promptPath := prefix + "/prompts/" + attempt.String() + "/001-initial.manifest.json"
 	completeStdinSHA256 := prompt.CompleteStdinSHA256(stdin.Bytes())
 	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
 	targetManifestPath := prefix + "/target/target-manifest.json"
-	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
+	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"captured_archive":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), capturedPath, capturedManifest.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
 	normalizedPath := prefix + "/excerpts/F001.json"
 	normalized := mustQueryArtifact(t, mustQueryPath(t, normalizedPath), []byte(`{"id":"F001"}`))
 	excerptPath := prefix + "/excerpts/F001_1.md"
 	excerpt := mustQueryArtifact(t, mustQueryPath(t, excerptPath), []byte("line one\nline two"))
 	supportPath := prefix + "/support/index.json"
-	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-run-support-index.v1","artifacts":[{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q},{"path":%q,"sha256":%q}]}`, normalizedPath, normalized.SHA256(), excerptPath, excerpt.SHA256(), targetPath, target.SHA256(), stdinPath, stdin.SHA256(), promptPath, prompt.SHA256(), targetManifestPath, targetManifest.SHA256())))
+	supportIdentities := []artifactIdentityDTO{
+		{Path: normalizedPath, SHA256: normalized.SHA256()}, {Path: excerptPath, SHA256: excerpt.SHA256()},
+		{Path: targetPath, SHA256: target.SHA256()}, {Path: stdinPath, SHA256: stdin.SHA256()},
+		{Path: promptPath, SHA256: prompt.SHA256()}, {Path: targetManifestPath, SHA256: targetManifest.SHA256()},
+		{Path: capturedPath, SHA256: capturedManifest.SHA256()},
+	}
+	for path, artifact := range capturedArtifacts {
+		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: path, SHA256: artifact.SHA256()})
+	}
+	sort.Slice(supportIdentities, func(i, j int) bool { return supportIdentities[i].Path < supportIdentities[j].Path })
+	supportBytes, err := json.Marshal(runtimeSupportIndexDTO{SchemaVersion: "mulgae-run-support-index.v1", Artifacts: supportIdentities})
+	if err != nil {
+		t.Fatal(err)
+	}
+	support := mustQueryArtifact(t, mustQueryPath(t, supportPath), supportBytes)
 
 	finalRecord, err := decodeFinalDTO(baseSnapshot.Final().Bytes())
 	if err != nil {
@@ -2463,7 +2516,12 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 		t.Fatalf("runtime fixture semantics: %v", semanticErr)
 	}
 	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
-	return run, snapshot, observation, map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest}, map[string]string{"support": supportPath, "normalized": normalizedPath, "excerpt": excerptPath, "target": targetPath, "target-manifest": targetManifestPath, "prompt-manifest": promptPath, "stdin": stdinPath}, attempt
+	artifacts := map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest, capturedPath: capturedManifest}
+	for path, artifact := range capturedArtifacts {
+		artifacts[path] = artifact
+	}
+	paths := map[string]string{"support": supportPath, "normalized": normalizedPath, "excerpt": excerptPath, "target": targetPath, "target-manifest": targetManifestPath, "captured-archive": capturedPath, "captured-blob": capturedBlobPath, "prompt-manifest": promptPath, "stdin": stdinPath}
+	return run, snapshot, observation, artifacts, paths, attempt
 }
 
 type queryStore struct {

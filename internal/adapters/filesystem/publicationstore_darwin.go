@@ -437,6 +437,7 @@ func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 		ports.RunSupportArtifactTargetBytes,
 		ports.RunSupportArtifactTargetManifest,
 		ports.RunSupportArtifactCapturedArchive,
+		ports.RunSupportArtifactCapturedBlob,
 		ports.RunSupportArtifactArtistBrief,
 		ports.RunSupportArtifactArtistVisuals,
 		ports.RunSupportArtifactPromptStdin,

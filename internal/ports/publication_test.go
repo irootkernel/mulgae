@@ -1097,6 +1097,38 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.
 	}
 }
 
+func TestClassifyRunSupportArtifactPathRequiresCanonicalCapturedBlob(t *testing.T) {
+	t.Parallel()
+
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/target/blobs/"
+	digest := strings.Repeat("a", 64)
+	for _, test := range []struct {
+		path  string
+		valid bool
+	}{
+		{prefix + "sha256-" + digest, true},
+		{prefix + digest, false},
+		{prefix + "sha256-" + strings.ToUpper(digest), false},
+		{prefix + "sha256-" + digest[:63], false},
+		{prefix + "sha256-" + digest[:63] + "g", false},
+		{prefix + "nested/sha256-" + digest, false},
+	} {
+		path, err := NewSafeRelativePath(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if test.valid {
+			if err != nil || kind != RunSupportArtifactCapturedBlob {
+				t.Fatalf("ClassifyRunSupportArtifactPath(%q) = %q, %v", test.path, kind, err)
+			}
+		} else if err == nil {
+			t.Fatalf("ClassifyRunSupportArtifactPath(%q) accepted %q", test.path, kind)
+		}
+	}
+}
+
 func TestClassifyRunSupportArtifactPathAcceptsCanonicalArtistInputs(t *testing.T) {
 	t.Parallel()
 	run := publicationTestRun(t)

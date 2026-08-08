@@ -301,15 +301,7 @@ func assertArtistFinalArtifact(t *testing.T, contents []byte, screenshotSHA stri
 
 func assertArtistCapturedArchive(t *testing.T, project, sessionID, runID, referenceSHA, currentSHA string) {
 	t.Helper()
-	path := filepath.Join(project, ".mulgae", sessionID, runID, "target", "captured-review.json")
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	material, err := ports.UnmarshalCapturedReviewMaterial(contents)
-	if err != nil {
-		t.Fatal(err)
-	}
+	material := restoreTestCapturedReviewArchive(t, project, sessionID, runID)
 	want := map[string]string{
 		"design-specs/homepage-before.png":  referenceSHA,
 		"design-specs/homepage-current.png": currentSHA,

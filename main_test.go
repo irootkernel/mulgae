@@ -1989,15 +1989,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if agyQualification != 1 || agyReviews != 1 {
 		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 1/1: %#v", agyQualification, agyReviews, agyObservations)
 	}
-	archivePath := filepath.Join(project, ".mulgae", *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID, "target", "captured-review.json")
-	archiveBytes, err := os.ReadFile(archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	archive, err := ports.UnmarshalCapturedReviewMaterial(archiveBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
+	archive := restoreTestCapturedReviewArchive(t, project, *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID)
 	assertExactPNG := func(label string, files []ports.WorkspaceSnapshotFile) {
 		t.Helper()
 		for _, file := range files {
@@ -2068,6 +2060,36 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		t.Fatalf("no-change preflight mutated .mulgae: before=%v after=%v", beforeMulgae, got)
 	}
 	assertProviderLogsUnchanged("no-change")
+}
+
+func restoreTestCapturedReviewArchive(t *testing.T, project, sessionID, runID string) ports.CapturedReviewMaterial {
+	t.Helper()
+	targetRoot := filepath.Join(project, ".mulgae", sessionID, runID, "target")
+	manifest, err := os.ReadFile(filepath.Join(targetRoot, "captured-review.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	references, err := ports.CapturedReviewArchiveBlobReferences(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobs := make([]ports.CapturedReviewArchiveBlob, 0, len(references))
+	for _, reference := range references {
+		contents, readErr := os.ReadFile(filepath.Join(targetRoot, filepath.FromSlash(reference.Path().String())))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		blob, blobErr := ports.NewCapturedReviewArchiveBlob(reference.Path(), contents)
+		if blobErr != nil || blob.SHA256() != reference.SHA256() {
+			t.Fatalf("captured review blob %q is invalid: %v", reference.Path().String(), blobErr)
+		}
+		blobs = append(blobs, blob)
+	}
+	material, err := ports.RestoreCapturedReviewArchive(manifest, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return material
 }
 
 func snapshotTestTree(t *testing.T, root string) []string {

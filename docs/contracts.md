@@ -77,12 +77,28 @@ may change only explicitly allowed provider-owned paths.
       validation/
       role-reports/
         <role>.md
+      target/
+        target.bytes
+        target-manifest.json
+        captured-review.json
+        blobs/
+          sha256-<hex>
       review_<uuidv7>.json
 ```
 
 `manifest.json` is the run index and integrity record. A completed run has at
 most one top-level final review. Failed or repaired candidates remain beneath
 `attempts/`.
+
+`target/captured-review.json` is a reference-only v2 capture manifest. Exact
+target, workspace, project-context, and evidence bytes are stored once under
+`target/blobs/sha256-<hex>` and may be shared by any number of manifest entries.
+Every blob and the manifest itself is independently support-indexed and verified
+before rerun, followup, or delta reconstructs a captured workspace. Existing v1
+single-file archives remain readable, but new publications never embed source
+bytes as base64 in `captured-review.json`. The in-process handoff uses a
+deterministic bundle of the same reference manifest and deduplicated raw blobs;
+it does not recreate the v1 base64 JSON representation.
 
 Successful selected roles also publish exactly one Mulgae-owned free-form role
 report under `role-reports/<role>.md`. Mulgae alone writes trusted publication

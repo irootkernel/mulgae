@@ -118,8 +118,9 @@ evidence readers omit their bodies instead of decoding them as UTF-8. Invalid
 raster signatures fail as `unsupported_content` with the affected path.
 `.mulgaeignore` and the existing workspace/file byte limits apply to raster
 evidence exactly as they do to text files. Git's textual binary-diff marker is
-path-only; the captured archive and workspace manifest bind the actual raster
-bytes, and dirty capture revalidates those bytes before admission.
+path-only; the reference-only captured archive manifest, its support-indexed
+SHA-256 blobs, and the workspace manifest bind the actual raster bytes. Dirty
+capture revalidates those bytes before admission.
 
 For example, a repository may start with:
 

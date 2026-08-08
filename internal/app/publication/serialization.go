@@ -556,18 +556,40 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 	var artistBriefIdentity *artifactIdentityWire
 	var artistVisualsIdentity *artifactIdentityWire
 	if len(capturedArchive) > 0 {
+		material, archiveErr := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
+		if archiveErr != nil {
+			return nil, fmt.Errorf("publication build: captured archive decode: %w", archiveErr)
+		}
+		splitArchive, archiveErr := ports.NewCapturedReviewArchive(material)
+		if archiveErr != nil {
+			return nil, fmt.Errorf("publication build: captured archive split: %w", archiveErr)
+		}
 		archivePath, pathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/captured-review.json", candidate.sessionID, candidate.runID))
 		if pathErr != nil {
 			return nil, fmt.Errorf("publication build: captured archive path: %w", pathErr)
 		}
-		archiveArtifact, artifactErr := immutableArtifact(archivePath, capturedArchive)
+		archiveArtifact, artifactErr := immutableArtifact(archivePath, splitArchive.Manifest())
 		if artifactErr != nil {
 			return nil, fmt.Errorf("publication build: captured archive: %w", artifactErr)
 		}
 		artifacts = append(artifacts, archiveArtifact)
+		for _, blob := range splitArchive.Blobs() {
+			blobPath, blobPathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/%s", candidate.sessionID, candidate.runID, blob.Path().String()))
+			if blobPathErr != nil {
+				return nil, fmt.Errorf("publication build: captured blob path: %w", blobPathErr)
+			}
+			blobArtifact, blobArtifactErr := immutableArtifact(blobPath, blob.Bytes())
+			if blobArtifactErr != nil {
+				return nil, fmt.Errorf("publication build: captured blob: %w", blobArtifactErr)
+			}
+			if blobArtifact.SHA256() != blob.SHA256() {
+				return nil, fmt.Errorf("publication build: captured blob identity mismatch")
+			}
+			artifacts = append(artifacts, blobArtifact)
+		}
 		value := artifactIdentityWire{Path: archiveArtifact.Path().String(), SHA256: archiveArtifact.SHA256()}
 		capturedArchiveIdentity = &value
-		artistArtifacts, briefIdentity, visualsIdentity, artistErr := candidate.buildArtistInputArtifacts(capturedArchive)
+		artistArtifacts, briefIdentity, visualsIdentity, artistErr := candidate.buildArtistInputArtifacts(material)
 		if artistErr != nil {
 			return nil, artistErr
 		}
@@ -603,9 +625,8 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 	return append(artifacts, targetManifest), nil
 }
 
-func (candidate PreparedCandidate) buildArtistInputArtifacts(capturedArchive []byte) ([]ports.ImmutablePublicationArtifact, *artifactIdentityWire, *artifactIdentityWire, error) {
-	material, err := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
-	if err != nil || !material.HasProjectContext() {
+func (candidate PreparedCandidate) buildArtistInputArtifacts(material ports.CapturedReviewMaterial) ([]ports.ImmutablePublicationArtifact, *artifactIdentityWire, *artifactIdentityWire, error) {
+	if !material.Valid() || !material.HasProjectContext() {
 		return nil, nil, nil, nil
 	}
 	raw := material.ProjectContext()

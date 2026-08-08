@@ -7,9 +7,9 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-// CapturedReviewArchive is the durable, authority-free serialization of one
-// capture. It is sufficient to rematerialize the exact workspace and evidence
-// used by rerun, followup, and delta without reopening the live project.
+// capturedReviewArchiveWire is the legacy v1 single-JSON representation. New
+// captures use the v2 reference manifest and raw-blob bundle; this wire remains
+// read-only compatibility authority for previously published runs.
 type capturedReviewArchiveWire struct {
 	SchemaVersion     string                     `json:"schema_version"`
 	TargetIdentity    capturedTargetIdentityWire `json:"target_identity"`
@@ -44,9 +44,17 @@ type capturedEvidenceWire struct {
 	Files []capturedFileWire `json:"files"`
 }
 
-// MarshalCapturedReviewMaterial returns deterministic JSON. All maps are
-// projected into fixed-order slices before marshaling.
+// MarshalCapturedReviewMaterial returns the deterministic v2 transport bundle.
+// Its manifest contains references only; raw blobs are deduplicated and never
+// base64-expanded. Durable publication persists the manifest and blobs as
+// separate members.
 func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, error) {
+	return marshalCapturedReviewBundle(material)
+}
+
+// marshalCapturedReviewMaterialV1 is retained only to build compatibility
+// fixtures for archives published before the split manifest/blob format.
+func marshalCapturedReviewMaterialV1(material CapturedReviewMaterial) ([]byte, error) {
 	if !material.Valid() {
 		return nil, fmt.Errorf("captured review archive: invalid material")
 	}
@@ -78,6 +86,13 @@ func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, err
 // UnmarshalCapturedReviewMaterial validates every byte and identity while
 // rebuilding constructor-owned domain objects.
 func UnmarshalCapturedReviewMaterial(bytes []byte) (CapturedReviewMaterial, error) {
+	if isCapturedReviewBundle(bytes) {
+		return unmarshalCapturedReviewBundle(bytes)
+	}
+	return unmarshalCapturedReviewMaterialV1(bytes)
+}
+
+func unmarshalCapturedReviewMaterialV1(bytes []byte) (CapturedReviewMaterial, error) {
 	var wire capturedReviewArchiveWire
 	if err := json.Unmarshal(bytes, &wire); err != nil || wire.SchemaVersion != "mulgae-captured-review-archive.v1" {
 		return CapturedReviewMaterial{}, fmt.Errorf("captured review archive: invalid encoding")

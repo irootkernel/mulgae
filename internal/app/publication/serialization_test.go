@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -345,7 +346,26 @@ func TestFailedAttemptRetainsInitialReplayPrompt(t *testing.T) {
 func TestRuntimeArtifactsPersistCapturedReviewArchive(t *testing.T) {
 	t.Parallel()
 	candidate := publicationRuntimeCandidate(t)
-	archive := []byte(`{"schema_version":"test-capture"}`)
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("reviewed line\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(nil, "policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for roleIndex := range candidate.roles {
 		for attemptIndex := range candidate.roles[roleIndex].attempts {
 			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
@@ -359,17 +379,85 @@ func TestRuntimeArtifactsPersistCapturedReviewArchive(t *testing.T) {
 	}
 	var manifest runtimeTargetManifestWire
 	foundArchive := false
+	foundBlob := false
 	for _, artifact := range artifacts {
 		if artifact.Path().String() == candidate.sessionID.String()+"/"+candidate.runID.String()+"/target/captured-review.json" {
-			foundArchive = bytes.Equal(artifact.Bytes(), archive)
+			foundArchive = bytes.Contains(artifact.Bytes(), []byte(`"schema_version":"mulgae-captured-review-archive.v2"`)) &&
+				!bytes.Contains(artifact.Bytes(), []byte(`"bytes"`))
+		}
+		if strings.Contains(artifact.Path().String(), "/target/blobs/sha256-") {
+			foundBlob = true
 		}
 		var decoded runtimeTargetManifestWire
 		if unmarshalExact(artifact.Bytes(), &decoded) == nil && decoded.SchemaVersion == "mulgae-runtime-target-manifest.v1" {
 			manifest = decoded
 		}
 	}
-	if !foundArchive || manifest.CapturedArchive == nil || manifest.CapturedArchive.Path == "" || manifest.CapturedArchive.SHA256 == "" {
+	if !foundArchive || !foundBlob || manifest.CapturedArchive == nil || manifest.CapturedArchive.Path == "" || manifest.CapturedArchive.SHA256 == "" {
 		t.Fatal("captured review archive was not persisted and manifest-bound")
+	}
+}
+
+func TestPublicationBundleAcceptsDeduplicatedLargeCapture(t *testing.T) {
+	contents := bytes.Repeat([]byte("x"), 1<<20)
+	files := make([]ports.WorkspaceSnapshotFile, 8)
+	for index := range files {
+		path, err := ports.NewSafeRelativePath(fmt.Sprintf("fixtures/copy-%02d.txt", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index], err = ports.NewWorkspaceSnapshotFile(path, contents, sha256Identifier(contents))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "deduplicated-large-capture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ports.NewCapturedReviewPatchTarget([]byte("reviewed line\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive) >= 2<<20 {
+		t.Fatalf("deduplicated runtime bundle size = %d", len(archive))
+	}
+
+	candidate := publicationRuntimeCandidate(t)
+	for roleIndex := range candidate.roles {
+		for attemptIndex := range candidate.roles[roleIndex].attempts {
+			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+				candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime.capturedArchive = append([]byte(nil), archive...)
+			}
+		}
+	}
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePublicationBundleSize(bundle, 8<<20); err != nil {
+		t.Fatalf("deduplicated capture exceeded publication member limit: %v", err)
+	}
+	var capturedBlobCount int
+	for _, artifact := range bundle.Excerpts() {
+		if strings.Contains(artifact.Path().String(), "/target/blobs/sha256-") {
+			capturedBlobCount++
+		}
+	}
+	if capturedBlobCount != 2 {
+		t.Fatalf("captured blob count = %d, want target plus one shared source blob", capturedBlobCount)
 	}
 }
 

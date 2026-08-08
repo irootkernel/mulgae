@@ -54,6 +54,8 @@
       target/
         target-manifest.json
         captured-review.json
+        blobs/
+          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         review-target.patch
         untracked-manifest.json
       prompts/

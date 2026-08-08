@@ -83,7 +83,8 @@ re-derived after init.
 10. Evidence for structured findings is checked against the captured target.
 11. Publication atomically commits the manifest, role reports, and at most one
     final review, recording the transport that carried each accepted role
-    report.
+    report. Captured content is retained as a reference-only manifest plus
+    deduplicated SHA-256 blobs for immutable child-run reconstruction.
 
 ## Concurrency, cancellation, and storage
 

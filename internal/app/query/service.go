@@ -218,11 +218,42 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 		if readErr != nil {
 			return RuntimeTarget{}, readErr
 		}
-		material, decodeErr := ports.UnmarshalCapturedReviewMaterial(archiveArtifact.Bytes())
+		references, decodeErr := ports.CapturedReviewArchiveBlobReferences(archiveArtifact.Bytes())
+		if decodeErr != nil {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive manifest is invalid", decodeErr)
+		}
+		blobs := make([]ports.CapturedReviewArchiveBlob, 0, len(references))
+		for _, reference := range references {
+			blobPath, blobPathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/%s", run.SessionID(), run.RunID(), reference.Path().String()))
+			if blobPathErr != nil || index[blobPath.String()] != reference.SHA256() {
+				return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive blob is not support-indexed", blobPathErr)
+			}
+			blobArtifact, blobReadErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, blobPath)
+			if blobReadErr != nil {
+				return RuntimeTarget{}, blobReadErr
+			}
+			blob, blobErr := ports.NewCapturedReviewArchiveBlob(reference.Path(), blobArtifact.Bytes())
+			if blobErr != nil || blob.SHA256() != reference.SHA256() {
+				return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive blob identity is invalid", blobErr)
+			}
+			blobs = append(blobs, blob)
+		}
+		material, decodeErr := ports.RestoreCapturedReviewArchive(archiveArtifact.Bytes(), blobs)
 		if decodeErr != nil || material.Target().Identity() != identity || !bytes.Equal(material.Target().Bytes(), targetArtifact.Bytes()) {
 			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive target binding is invalid", decodeErr)
 		}
-		capturedArchive = archiveArtifact.Bytes()
+		legacy, legacyErr := ports.CapturedReviewArchiveIsLegacy(archiveArtifact.Bytes())
+		if legacyErr != nil {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive format is invalid", legacyErr)
+		}
+		if legacy {
+			capturedArchive = archiveArtifact.Bytes()
+		} else {
+			capturedArchive, decodeErr = ports.MarshalCapturedReviewMaterial(material)
+			if decodeErr != nil {
+				return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive reconstruction failed", decodeErr)
+			}
+		}
 	}
 	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes(), capturedArchive: capturedArchive}, nil
 }

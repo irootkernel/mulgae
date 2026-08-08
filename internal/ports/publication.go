@@ -547,6 +547,7 @@ const (
 	RunSupportArtifactTargetBytes       RunSupportArtifactKind = "target_bytes"
 	RunSupportArtifactTargetManifest    RunSupportArtifactKind = "target_manifest"
 	RunSupportArtifactCapturedArchive   RunSupportArtifactKind = "captured_archive"
+	RunSupportArtifactCapturedBlob      RunSupportArtifactKind = "captured_blob"
 	RunSupportArtifactArtistBrief       RunSupportArtifactKind = "artist_brief"
 	RunSupportArtifactArtistVisuals     RunSupportArtifactKind = "artist_visual_assets"
 	RunSupportArtifactPromptStdin       RunSupportArtifactKind = "prompt_stdin"
@@ -562,7 +563,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactInitialCandidate, RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
-		RunSupportArtifactCapturedArchive, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
+		RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport:
 		return true
@@ -816,6 +817,17 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	}
 	if relative == "target/captured-review.json" {
 		return RunSupportArtifactCapturedArchive, nil
+	}
+	if name, ok := strings.CutPrefix(relative, "target/blobs/sha256-"); ok {
+		if len(name) == 64 && strings.ToLower(name) == name {
+			for _, character := range name {
+				if character < '0' || character > '9' && character < 'a' || character > 'f' {
+					return "", fmt.Errorf("captured blob path %q is not canonical", value)
+				}
+			}
+			return RunSupportArtifactCapturedBlob, nil
+		}
+		return "", fmt.Errorf("captured blob path %q is not canonical", value)
 	}
 	if relative == "inputs/artist-brief.md" {
 		return RunSupportArtifactArtistBrief, nil
