@@ -266,12 +266,11 @@ gaori run --parser go-test --tag go --tag unit -- \
   go test -count=1 <package> -run '<pattern>'
 ```
 
-Before the first Gaori run, verify that `gaori --version` reports
-`gaori v0.1.8`. Configured commands require `.gaori/tester.yaml`. If the binary,
-expected version, or local config is unavailable, run the underlying command
-documented in `docs/development.md` and report that Gaori evidence compression was
-unavailable. Do not install or upgrade Gaori or change its local state unless
-master explicitly asks.
+Use the locally installed Gaori without enforcing a specific version. Configured
+commands require `.gaori/tester.yaml`. If the binary or local config is
+unavailable, run the underlying command documented in `docs/development.md` and
+report that Gaori evidence compression was unavailable. Do not install or upgrade
+Gaori or change its local state unless master explicitly asks.
 
 The wrapped command's exit code is authoritative for pass/fail.
 `extractor_status` describes evidence quality only. Tags do not select a parser,
@@ -286,6 +285,33 @@ Keep the entire `.gaori/` directory out of Git. In the final report, include the
 Gaori command, process exit code, artifact status, extractor status, relevant
 summary and raw-log paths, and skipped checks. Gaori evidence alone does not
 establish review acceptance, release readiness, or runtime activation.
+
+## Commit Messages: Lore Format
+
+When writing Git commit messages for non-trivial changes, use the Lore format
+with Git trailers to capture decision context.
+
+Format:
+
+- Use an imperative summary line focused on why, not what.
+- Add an optional body explaining the change.
+- Add only the Git trailers that carry signal for the change:
+
+| Trailer | Purpose |
+|---|---|
+| `Constraint:` | External limit that shaped the decision |
+| `Rejected:` | Alternative considered and why (`alternative \| reason`) |
+| `Confidence:` | `high`, `medium`, or `low` |
+| `Scope-risk:` | `narrow`, `moderate`, or `broad` |
+| `Reversibility:` | `clean`, `moderate`, or `difficult` |
+| `Directive:` | Warning or instruction for future modifiers |
+| `Tested:` | What was verified |
+| `Not-tested:` | Known coverage gaps |
+| `Related:` | Linked commits forming a decision chain |
+
+Trailers are optional and repeatable. Do not add them to trivial commits such as
+typo-only or formatting-only changes. Follow the `lore-commits` skill for the
+complete format and examples. Reference: https://github.com/tmdgusya/lora
 
 ## Repository Safety and Delivery
 

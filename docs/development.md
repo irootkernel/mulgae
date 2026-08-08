@@ -40,16 +40,9 @@ Gaori can wrap long or noisy local test commands so coding agents and developers
 can inspect bounded summaries before opening complete logs. It does not replace
 the Make targets above or change their pass/fail result.
 
-Install and verify the pinned version explicitly:
-
-```bash
-go install github.com/irootkernel/gaori@v0.1.8
-gaori --version
-```
-
-The version command must report `gaori v0.1.8`. Local Gaori configuration and
-evidence live below the ignored `.gaori/` directory. Provision
-`.gaori/tester.yaml` with these commands:
+Use the locally installed Gaori without enforcing a specific version. Local
+Gaori configuration and evidence live below the ignored `.gaori/` directory.
+Provision `.gaori/tester.yaml` with these commands:
 
 | Command ID | Wrapped command | Parser | Tags | Timeout |
 |---|---|---|---|---:|
@@ -95,9 +88,9 @@ Markdown summary, structured summary, and bounded excerpts in that order. Open
 only the necessary portion of the raw log when extraction is insufficient or
 degraded: raw logs are preserved without redaction and may contain secrets.
 
-If Gaori or the pinned version is unavailable, run the corresponding Make
-target directly and report that evidence compression was unavailable. Never
-skip a required check because its optional wrapper is unavailable.
+If Gaori is unavailable, run the corresponding Make target directly and report
+that evidence compression was unavailable. Never skip a required check because
+its optional wrapper is unavailable.
 
 ## Changing embedded assets
 
