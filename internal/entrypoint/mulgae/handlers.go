@@ -540,45 +540,28 @@ func (application *Application) handleClean(ctx context.Context, invocation Invo
 	if application.retention == nil {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("retention service unavailable"), domain.FailureArtifact)}
 	}
-	var expectedPlanSHA256 *string
-	if value, present := request.ExpectedPlanSHA256(); present {
-		expectedPlanSHA256 = &value
-	}
-	result, err := application.retention.PlanAndApplyRetention(ctx, RetentionRequest{
-		Mode: request.Mode(), ExpectedPlanSHA256: expectedPlanSHA256,
+	result, err := application.retention.CleanRuns(ctx, RetentionRequest{
+		OlderThanDays: request.OlderThanDays(), All: request.All(), DryRun: request.DryRun(),
 	})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.clean", domain.FailureArtifact, "clean operation failed", err), domain.FailureArtifact)}
 	}
-	if (result.Mode != "" && result.Mode != request.Mode()) || !validCommandURI(result.CleanPlanURI) || strings.TrimSpace(result.PlanSHA256) == "" || result.Applied != (request.Mode() == CleanModeApply) {
+	if result.DryRun != request.DryRun() || result.AffectedRunCount < 0 || result.AffectedBytes < 0 {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid clean result"), domain.FailureInternal)}
 	}
-	if request.Mode() == CleanModeExplain {
-		if !validCleanExplainRows(result.ExplainRows) {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid clean explain rows"), domain.FailureInternal)}
-		}
-	} else if len(result.ExplainRows) != 0 {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unexpected clean explain rows"), domain.FailureInternal)}
-	}
 	data, err := json.Marshal(struct {
-		Kind         string `json:"kind"`
-		CleanPlanURI string `json:"clean_plan_uri"`
-		PlanSHA256   string `json:"plan_sha256"`
-		Applied      bool   `json:"applied"`
-	}{"clean_completed", result.CleanPlanURI, result.PlanSHA256, result.Applied})
+		Kind             string `json:"kind"`
+		DryRun           bool   `json:"dry_run"`
+		AffectedRunCount int    `json:"affected_run_count"`
+		AffectedBytes    int64  `json:"affected_bytes"`
+	}{"clean_completed", result.DryRun, result.AffectedRunCount, result.AffectedBytes})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
-	switch request.Mode() {
-	case CleanModePlan:
-		return execution{human: []byte("clean plan: " + result.CleanPlanURI), data: data}
-	case CleanModeApply:
-		return execution{human: []byte("clean completed: " + result.CleanPlanURI), data: data}
-	case CleanModeExplain:
-		return execution{human: []byte("clean explain: " + result.CleanPlanURI + "\n" + strings.Join(result.ExplainRows, "\n")), data: data}
-	default:
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("unsupported clean mode"), domain.FailureInternal)}
+	if result.DryRun {
+		return execution{human: []byte(fmt.Sprintf("clean dry-run: would remove %d runs and %d bytes", result.AffectedRunCount, result.AffectedBytes)), data: data}
 	}
+	return execution{human: []byte(fmt.Sprintf("clean completed: removed %d runs and %d bytes", result.AffectedRunCount, result.AffectedBytes)), data: data}
 }
 
 func (application *Application) handleExport(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
@@ -671,18 +654,6 @@ func commandRoleReportURIs(sessionID, runID string, reports []RoleReportURI) ([]
 		}{Role: report.Role, URI: report.URI})
 	}
 	return uris, nil
-}
-
-func validCleanExplainRows(rows []string) bool {
-	if len(rows) == 0 || len(rows) > 4096 {
-		return false
-	}
-	for _, row := range rows {
-		if len(row) > 4096 || strings.TrimSpace(row) == "" || strings.ContainsAny(row, "\x00\r\n") {
-			return false
-		}
-	}
-	return true
 }
 
 func validCommandRunID(value string) bool {

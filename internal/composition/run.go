@@ -113,6 +113,16 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		writeDiagnostic(stderr, "mulgae: G008 request resolver is unavailable\n")
 		return 10
 	}
+	artifactRoot, err := childPublicationRoot(root)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: cleanup artifact root is unavailable\n")
+		return 10
+	}
+	cleanupStore, err := filesystem.NewCleanupStore(artifactRoot, publicationStore, clock)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: cleanup store is unavailable\n")
+		return 10
+	}
 	g008Dependencies, err := mulgae.NewG008Dependencies(mulgae.G008Composition{
 		Root:                 root,
 		Queries:              queryService,
@@ -121,17 +131,15 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		IDs:                  ids,
 		ExportInstaller:      exportInstaller,
 		PublicationAuthority: publicationStore,
+		CleanStore:           cleanupStore,
+		CleanValidator:       validator,
 	})
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: G008 offline services are unavailable\n")
 		return 10
 	}
 	build, buildErr := buildIdentityFrom(info, overrides.Version, overrides.Revision)
-	childArtifactRoot, err := childPublicationRoot(root)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: child workflow artifact root is unavailable\n")
-		return 10
-	}
+	childArtifactRoot := artifactRoot
 	childSources, err := mulgae.NewG008Sources(childArtifactRoot, productionChildRunResolver{queries: queryService}, queryService)
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: child workflow sources are unavailable\n")

@@ -35,44 +35,30 @@ const (
 type CleanupStore struct {
 	root        ports.AnchoredRoot
 	publication *PublicationStore
-	policy      clean.Policy
-	policyHash  string
 	clock       ports.Clock
 	operations  secureWriterOperations
 }
 
 var _ clean.ApplyStore = (*CleanupStore)(nil)
 
-func NewCleanupStore(root ports.AnchoredRoot, publication *PublicationStore, policy clean.Policy, policySHA256 string, clock ports.Clock) (*CleanupStore, error) {
+func NewCleanupStore(root ports.AnchoredRoot, publication *PublicationStore, clock ports.Clock) (*CleanupStore, error) {
 	if !root.Valid() || publication == nil || clock == nil {
 		return nil, errors.New("cleanup store: root, publication authority, and clock are required")
 	}
 	if err := publication.valid(); err != nil {
 		return nil, fmt.Errorf("cleanup store: publication authority: %w", err)
 	}
-	if !cleanupSHA256(policySHA256) || policy.RetentionAgeSeconds < 0 || policy.MinAgeForSizeSeconds < 0 || policy.TargetBytes < 0 {
-		return nil, errors.New("cleanup store: invalid resolved retention policy")
-	}
-	seen := map[string]bool{}
-	for _, id := range policy.ExplicitKeepRunIDs {
-		if _, err := domain.ParseRunID(id); err != nil || seen[id] {
-			return nil, errors.New("cleanup store: invalid explicit keep run ID")
-		}
-		seen[id] = true
-	}
-	policy.ExplicitKeepRunIDs = append([]string(nil), policy.ExplicitKeepRunIDs...)
-	return &CleanupStore{root: root, publication: publication, policy: policy, policyHash: policySHA256, clock: clock, operations: defaultSecureWriterOperations()}, nil
+	return &CleanupStore{root: root, publication: publication, clock: clock, operations: defaultSecureWriterOperations()}, nil
 }
 
-// RetentionPolicy returns this store's explicitly configured policy authority.
-func (store *CleanupStore) RetentionPolicy(ctx context.Context) (clean.Policy, string, error) {
-	if store == nil {
-		return clean.Policy{}, "", errors.New("cleanup store: nil store")
+// Observe reads a cleanup snapshot without creating lock or journal state.
+// Concurrent filesystem changes fail closed through the snapshot's bounded,
+// identity-checked reads.
+func (store *CleanupStore) Observe(ctx context.Context) (clean.RetentionSnapshot, error) {
+	if store == nil || store.publication == nil {
+		return clean.RetentionSnapshot{}, errors.New("cleanup store: publication authority is required")
 	}
-	if err := ctx.Err(); err != nil {
-		return clean.Policy{}, "", err
-	}
-	return cloneCleanupPolicy(store.policy), store.policyHash, nil
+	return store.snapshotLocked(ctx)
 }
 
 // WithCleanupTransaction uses PublicationStore's authoritative lock namespace.
@@ -92,6 +78,9 @@ func (transaction cleanupTransaction) Snapshot(ctx context.Context) (clean.Reten
 }
 func (transaction cleanupTransaction) PersistDryRunPlan(ctx context.Context, plan clean.CleanPlan) error {
 	return transaction.CleanupStore.persistDryRunPlan(ctx, plan)
+}
+func (transaction cleanupTransaction) ClearDryRunPlans(ctx context.Context) error {
+	return transaction.CleanupStore.clearDryRunPlans(ctx)
 }
 
 // PersistDryRunPlan commits an immutable canonical dry-run receipt by hash.
@@ -150,7 +139,41 @@ func (store *CleanupStore) snapshotLocked(ctx context.Context) (clean.RetentionS
 	if value == 0 {
 		value = 1
 	}
-	return clean.RetentionSnapshot{Now: store.clock.Now().UTC(), StoreEpoch: clean.StoreEpoch{Value: value, SHA256: "sha256:" + hex.EncodeToString(digest[:])}, InputPolicySHA256: store.policyHash, Policy: cloneCleanupPolicy(store.policy), Runs: runs, Edges: edges, ProtectedRegularFileBytes: protectedBytes}, nil
+	return clean.RetentionSnapshot{Now: store.clock.Now().UTC(), StoreEpoch: clean.StoreEpoch{Value: value, SHA256: "sha256:" + hex.EncodeToString(digest[:])}, Runs: runs, Edges: edges, ProtectedRegularFileBytes: protectedBytes}, nil
+}
+
+func (store *CleanupStore) clearDryRunPlans(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	directory, err := walkPrivateDirectory(store.root, []string{"store", "clean", "plans"}, false)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer closeFD(directory)
+	names, err := cleanupDirNames(directory)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if len(name) != 69 || !strings.HasSuffix(name, ".json") {
+			return errors.New("cleanup store: invalid transient journal name")
+		}
+		hash := "sha256:" + strings.TrimSuffix(name, ".json")
+		if !cleanupSHA256(hash) {
+			return errors.New("cleanup store: invalid transient journal hash")
+		}
+		if _, err := store.DryRunPlan(ctx, hash); err != nil {
+			return err
+		}
+		if err := unix.Unlinkat(directory, name, 0); err != nil {
+			return err
+		}
+	}
+	return unix.Fsync(directory)
 }
 
 func (store *CleanupStore) DryRunPlan(ctx context.Context, hash string) (clean.CleanPlan, error) {
@@ -1028,8 +1051,4 @@ func decodeCleanupTombstone(data []byte) (clean.Tombstone, error) {
 		return clean.Tombstone{}, errors.New("cleanup store: corrupt tombstone")
 	}
 	return tombstone, nil
-}
-func cloneCleanupPolicy(p clean.Policy) clean.Policy {
-	p.ExplicitKeepRunIDs = append([]string{}, p.ExplicitKeepRunIDs...)
-	return p
 }

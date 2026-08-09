@@ -46,9 +46,9 @@
     },
     {
       "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
-      "decision": "protected",
+      "decision": "not_selected",
       "reasons": [
-        "newest_session"
+        "young"
       ]
     },
     {

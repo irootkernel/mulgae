@@ -571,32 +571,21 @@ func (request RerunRequest) SourceAttemptID() string { return request.sourceAtte
 // ReplayMode returns the selected replay construction mode.
 func (request RerunRequest) ReplayMode() ReplayMode { return request.replayMode }
 
-// CleanMode identifies the literal maintenance request mode.
-type CleanMode string
-
-const (
-	// CleanModePlan produces a dry-run clean plan.
-	CleanModePlan CleanMode = "plan"
-	// CleanModeApply executes a hash-bound clean plan.
-	CleanModeApply CleanMode = "apply"
-	// CleanModeExplain renders a dry-run plan with deterministic human rows.
-	CleanModeExplain CleanMode = "explain"
-)
-
-// CleanRequest contains the immutable clean-plan selection.
+// CleanRequest contains one immutable cleanup selection.
 type CleanRequest struct {
-	mode                CleanMode
-	expectedPlanSHA256  string
-	hasExpectedPlanHash bool
+	olderThanDays int64
+	all           bool
+	dryRun        bool
 }
 
-// Mode returns the literal clean request mode.
-func (request CleanRequest) Mode() CleanMode { return request.mode }
+// OlderThanDays returns the selected whole-day age, or zero for --all.
+func (request CleanRequest) OlderThanDays() int64 { return request.olderThanDays }
 
-// ExpectedPlanSHA256 returns the required apply-plan hash when present.
-func (request CleanRequest) ExpectedPlanSHA256() (string, bool) {
-	return request.expectedPlanSHA256, request.hasExpectedPlanHash
-}
+// All reports whether every safely deletable terminal run was selected.
+func (request CleanRequest) All() bool { return request.all }
+
+// DryRun reports whether cleanup is observation-only.
+func (request CleanRequest) DryRun() bool { return request.dryRun }
 
 // ExportRequest contains the immutable redacted export selection.
 type ExportRequest struct {

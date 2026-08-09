@@ -73,6 +73,7 @@ func TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns(t *testing.T) {
 	newestP2.CompletedAt = cleanTime("2026-07-13T11:59:59Z")
 	snapshot := cleanSnapshot([]RunObservation{diagnostic, newestP2})
 	snapshot.ProtectedRegularFileBytes = 7
+	snapshot.Policy.TargetBytes = math.MaxInt64
 	plan, err := Plan(snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +86,9 @@ func TestPlanRetainsAuthoritySeparationForDiagnosticOnlyRuns(t *testing.T) {
 	}
 
 	diagnostic.DiagnosticProtected = true
-	protectedPlan, err := Plan(cleanSnapshot([]RunObservation{diagnostic, newestP2}))
+	protectedSnapshot := cleanSnapshot([]RunObservation{diagnostic, newestP2})
+	protectedSnapshot.Policy.TargetBytes = math.MaxInt64
+	protectedPlan, err := Plan(protectedSnapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +157,7 @@ func TestPlanProtectsGraphAnomalies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.DeleteSets.AgeDeleteSet) != 1 || plan.DeleteSets.AgeDeleteSet[0].RunID != cleanRunTwo {
+	if len(plan.DeleteSets.AgeDeleteSet) != 2 || plan.DeleteSets.AgeDeleteSet[0].RunID != cleanRunTwo || plan.DeleteSets.AgeDeleteSet[1].RunID != cleanRunThree {
 		t.Fatalf("unrelated healthy run was not selected: %#v", plan.DeleteSets.AgeDeleteSet)
 	}
 }
@@ -253,10 +256,6 @@ func TestExecuteApplyHoldsOneTransactionAndRejectsFreshEpochOrHash(t *testing.T)
 		t.Fatalf("transaction scope = %#v", store)
 	}
 	store.snapshot = snapshot
-	store.beforeSnapshot = func() { store.snapshot.InputPolicySHA256 = cleanHash }
-	if err := ExecuteApply(context.Background(), store, apply); !IsFailure(err, FailureStalePlan) {
-		t.Fatalf("policy hash race = %v", err)
-	}
 	store.beforeSnapshot = nil
 	apply.PlanHash = cleanHash
 	if err := ExecuteApply(context.Background(), store, apply); !IsFailure(err, FailureStalePlan) {
@@ -292,6 +291,10 @@ type fakeCleanStore struct {
 	transactionCount int
 }
 
+func (store *fakeCleanStore) Observe(ctx context.Context) (RetentionSnapshot, error) {
+	return store.Snapshot(ctx)
+}
+
 func (store *fakeCleanStore) WithCleanupTransaction(_ context.Context, callback func(CleanupTransaction) error) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -316,6 +319,10 @@ func (store *fakeCleanStore) PersistDryRunPlan(_ context.Context, plan CleanPlan
 	store.dryRuns = append(store.dryRuns, plan.Clone())
 	return nil
 }
+func (store *fakeCleanStore) ClearDryRunPlans(context.Context) error {
+	store.dryRuns = []CleanPlan{}
+	return nil
+}
 func (store *fakeCleanStore) Tombstones(context.Context) ([]Tombstone, error) {
 	return append([]Tombstone(nil), store.tombstones...), nil
 }
@@ -331,6 +338,12 @@ func (store *fakeCleanStore) DeleteTombstoned(_ context.Context, tombstone Tombs
 		if current == tombstone {
 			store.tombstones = append(store.tombstones[:index], store.tombstones[index+1:]...)
 			store.deleted = append(store.deleted, tombstone.RunID)
+			for runIndex, run := range store.snapshot.Runs {
+				if run.RunID == tombstone.RunID {
+					store.snapshot.Runs = append(store.snapshot.Runs[:runIndex], store.snapshot.Runs[runIndex+1:]...)
+					break
+				}
+			}
 			return nil
 		}
 	}

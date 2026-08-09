@@ -2,11 +2,15 @@ package clean
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
+	"strconv"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -25,6 +29,7 @@ type CleanupTransaction interface {
 	Snapshot(context.Context) (RetentionSnapshot, error)
 	DryRunPlan(context.Context, string) (CleanPlan, error)
 	PersistDryRunPlan(context.Context, CleanPlan) error
+	ClearDryRunPlans(context.Context) error
 	Tombstones(context.Context) ([]Tombstone, error)
 	Tombstone(context.Context, Tombstone) error
 	DeleteTombstoned(context.Context, Tombstone) error
@@ -34,13 +39,8 @@ type CleanupTransaction interface {
 // hold one exclusive store lock for the complete callback, including snapshot,
 // validation, tombstone commits, and deletion.
 type ApplyStore interface {
+	Observe(context.Context) (RetentionSnapshot, error)
 	WithCleanupTransaction(context.Context, func(CleanupTransaction) error) error
-}
-
-// RetentionPolicySource is the sole authority for cleanup retention policy.
-// Implementations must return the exact resolved policy and its canonical digest.
-type RetentionPolicySource interface {
-	RetentionPolicy(context.Context) (Policy, string, error)
 }
 
 // SchemaValidator validates a candidate plan against the embedded clean-plan
@@ -49,54 +49,45 @@ type SchemaValidator interface {
 	Validate(context.Context, ports.AssetID, []byte) error
 }
 
-// Mode selects a command-facing cleanup operation.
-type Mode string
-
-const (
-	ModeDryRun  Mode = "dry_run"
-	ModeExplain Mode = "explain"
-	ModeApply   Mode = "apply"
-)
-
-// Request is a cleanup command selection. ExpectedPlanSHA256 is required only
-// for ModeApply.
+// Request is one explicit command-facing cleanup selection.
 type Request struct {
-	Mode               Mode
-	ExpectedPlanSHA256 string
+	OlderThanDays int64
+	All           bool
+	DryRun        bool
 }
 
-// Result is the immutable plan projection and optional deterministic explain rows.
+// Result is the immutable cleanup summary and its internally validated plan.
 type Result struct {
-	Plan        CleanPlan
-	ExplainRows []string
+	Plan             CleanPlan
+	DryRun           bool
+	AffectedRunCount int
+	AffectedBytes    int64
 }
 
-// Service composes explicit policy authority, a fixed clock, schema validation,
-// and the durable cleanup store. It has no policy defaults or provider dependency.
+// Service composes a fixed clock, schema validation, and the durable cleanup store.
 type Service struct {
 	clock     ports.Clock
-	policy    RetentionPolicySource
 	validator SchemaValidator
 	store     ApplyStore
 	schemaID  ports.AssetID
 }
 
 // NewService constructs a cleanup service with only explicit authorities.
-func NewService(clock ports.Clock, policy RetentionPolicySource, validator SchemaValidator, store ApplyStore) (*Service, error) {
-	if nilCleanDependency(clock) || nilCleanDependency(policy) || nilCleanDependency(validator) || nilCleanDependency(store) {
-		return nil, errors.New("clean service: clock, policy source, schema validator, and apply store are required")
+func NewService(clock ports.Clock, validator SchemaValidator, store ApplyStore) (*Service, error) {
+	if nilCleanDependency(clock) || nilCleanDependency(validator) || nilCleanDependency(store) {
+		return nil, errors.New("clean service: clock, schema validator, and apply store are required")
 	}
 	schemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("clean service: clean plan schema ID: %w", err)
 	}
-	return &Service{clock: clock, policy: policy, validator: validator, store: store, schemaID: schemaID}, nil
+	return &Service{clock: clock, validator: validator, store: store, schemaID: schemaID}, nil
 }
 
-// Run executes one command-facing cleanup operation. It always resumes durable
-// tombstones before observing a new dry-run plan or executing a hash-bound apply.
+// Run executes one command-facing cleanup operation. Dry runs are read-only;
+// destructive runs recover any prior journal before computing a new plan.
 func (service *Service) Run(ctx context.Context, request Request) (Result, error) {
-	if service == nil || nilCleanDependency(service.clock) || nilCleanDependency(service.policy) || nilCleanDependency(service.validator) || nilCleanDependency(service.store) {
+	if service == nil || nilCleanDependency(service.clock) || nilCleanDependency(service.validator) || nilCleanDependency(service.store) {
 		return Result{}, failure(FailureInvalidSnapshot, "cleanup service is uninitialized", nil)
 	}
 	if ctx == nil {
@@ -105,40 +96,42 @@ func (service *Service) Run(ctx context.Context, request Request) (Result, error
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	policy, policyHash, err := service.policy.RetentionPolicy(ctx)
+	policy, policyHash, err := requestPolicy(request)
 	if err != nil {
-		return Result{}, failure(FailureInvalidSnapshot, "resolve explicit retention policy", err)
-	}
-	if err := validatePolicyAuthority(policy, policyHash); err != nil {
 		return Result{}, err
+	}
+	if request.DryRun {
+		return service.plan(ctx, policy, policyHash, false, true)
 	}
 	if err := ResumeTombstones(ctx, service.store); err != nil {
 		return Result{}, err
 	}
-
-	switch request.Mode {
-	case ModeDryRun, ModeExplain:
-		if request.ExpectedPlanSHA256 != "" {
-			return Result{}, failure(FailureInvalidSnapshot, "expected plan hash is only valid for apply", nil)
-		}
-		return service.dryRun(ctx, policy, policyHash, request.Mode == ModeExplain)
-	case ModeApply:
-		if !canonicalSHA256(request.ExpectedPlanSHA256) {
-			return Result{}, failure(FailureInvalidSnapshot, "expected dry-run plan hash is required and canonical", nil)
-		}
-		return service.apply(ctx, policy, policyHash, request.ExpectedPlanSHA256)
-	default:
-		return Result{}, failure(FailureInvalidSnapshot, "unsupported cleanup mode", nil)
+	result, err := service.plan(ctx, policy, policyHash, true, false)
+	if err != nil || len(result.Plan.OrderedActions) == 0 {
+		return result, err
 	}
+	apply, err := ApplyPlan(result.Plan)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := service.validatePlan(ctx, apply); err != nil {
+		return Result{}, err
+	}
+	if err := ExecuteApply(ctx, service.store, apply); err != nil {
+		return Result{}, err
+	}
+	if err := service.store.WithCleanupTransaction(ctx, func(transaction CleanupTransaction) error {
+		return transaction.ClearDryRunPlans(ctx)
+	}); err != nil {
+		return Result{}, failure(FailureTombstone, "remove completed cleanup journal", err)
+	}
+	result.Plan = apply.Clone()
+	return result, nil
 }
 
-func (service *Service) dryRun(ctx context.Context, policy Policy, policyHash string, explain bool) (Result, error) {
+func (service *Service) plan(ctx context.Context, policy Policy, policyHash string, persist, dryRun bool) (Result, error) {
 	var result Result
-	err := service.store.WithCleanupTransaction(ctx, func(transaction CleanupTransaction) error {
-		snapshot, err := transaction.Snapshot(ctx)
-		if err != nil {
-			return failure(FailureInvalidSnapshot, "observe cleanup store", err)
-		}
+	build := func(snapshot RetentionSnapshot) error {
 		snapshot.Now = service.clock.Now().UTC()
 		snapshot.Policy = policy.clone()
 		snapshot.InputPolicySHA256 = policyHash
@@ -149,12 +142,34 @@ func (service *Service) dryRun(ctx context.Context, policy Policy, policyHash st
 		if err := service.validatePlan(ctx, plan); err != nil {
 			return err
 		}
-		if err := transaction.PersistDryRunPlan(ctx, plan.Clone()); err != nil {
-			return failure(FailureInvalidSnapshot, "persist immutable dry-run receipt", err)
-		}
 		result.Plan = plan.Clone()
-		if explain {
-			result.ExplainRows = explainRows(plan)
+		result.DryRun = dryRun
+		result.AffectedRunCount = len(plan.DeleteSets.AgeDeleteSet) + len(plan.DeleteSets.SizeDeleteSet)
+		result.AffectedBytes = plan.ByteAccounting.PlannedDeleteBytes
+		return nil
+	}
+	if !persist {
+		snapshot, err := service.store.Observe(ctx)
+		if err != nil {
+			return Result{}, failure(FailureInvalidSnapshot, "observe cleanup store", err)
+		}
+		if err := build(snapshot); err != nil {
+			return Result{}, err
+		}
+		return result, nil
+	}
+	err := service.store.WithCleanupTransaction(ctx, func(transaction CleanupTransaction) error {
+		snapshot, err := transaction.Snapshot(ctx)
+		if err != nil {
+			return failure(FailureInvalidSnapshot, "observe cleanup store", err)
+		}
+		if err := build(snapshot); err != nil {
+			return err
+		}
+		if len(result.Plan.OrderedActions) > 0 {
+			if err := transaction.PersistDryRunPlan(ctx, result.Plan.Clone()); err != nil {
+				return failure(FailureInvalidSnapshot, "persist transient cleanup journal", err)
+			}
 		}
 		return nil
 	})
@@ -162,37 +177,6 @@ func (service *Service) dryRun(ctx context.Context, policy Policy, policyHash st
 		return Result{}, err
 	}
 	return result, nil
-}
-
-func (service *Service) apply(ctx context.Context, policy Policy, policyHash, expectedHash string) (Result, error) {
-	var receipt CleanPlan
-	if err := service.store.WithCleanupTransaction(ctx, func(transaction CleanupTransaction) error {
-		loaded, err := transaction.DryRunPlan(ctx, expectedHash)
-		if err != nil {
-			return failure(FailureStalePlan, "load immutable dry-run receipt", err)
-		}
-		if err := validateDryRunReceipt(loaded, expectedHash); err != nil {
-			return err
-		}
-		if loaded.InputPolicySHA256 != policyHash || !reflect.DeepEqual(loaded.Policy, policy) {
-			return failure(FailureStalePlan, "resolved retention policy changed", nil)
-		}
-		receipt = loaded.Clone()
-		return nil
-	}); err != nil {
-		return Result{}, err
-	}
-	apply, err := ApplyPlan(receipt)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := service.validatePlan(ctx, apply); err != nil {
-		return Result{}, err
-	}
-	if err := ExecuteApply(ctx, service.store, apply); err != nil {
-		return Result{}, err
-	}
-	return Result{Plan: apply.Clone()}, nil
 }
 
 func (service *Service) validatePlan(ctx context.Context, plan CleanPlan) error {
@@ -209,34 +193,22 @@ func (service *Service) validatePlan(ctx context.Context, plan CleanPlan) error 
 	return nil
 }
 
-func validatePolicyAuthority(policy Policy, policyHash string) error {
-	if !canonicalSHA256(policyHash) || policy.RetentionAgeSeconds < 0 || policy.MinAgeForSizeSeconds < 0 || policy.TargetBytes < 0 || policy.ExplicitKeepRunIDs == nil {
-		return failure(FailureInvalidSnapshot, "retention policy authority is invalid", nil)
+func requestPolicy(request Request) (Policy, string, error) {
+	if request.All == (request.OlderThanDays > 0) || request.OlderThanDays < 0 ||
+		request.OlderThanDays > int64((1<<63-1)/int64(24*time.Hour)) {
+		return Policy{}, "", failure(FailureInvalidSnapshot, "exactly one valid cleanup selection is required", nil)
 	}
-	seen := make(map[string]struct{}, len(policy.ExplicitKeepRunIDs))
-	for _, id := range policy.ExplicitKeepRunIDs {
-		if !canonicalRunID(id) {
-			return failure(FailureInvalidSnapshot, "retention policy explicit keep run ID is invalid", nil)
-		}
-		if _, duplicate := seen[id]; duplicate {
-			return failure(FailureInvalidSnapshot, "retention policy explicit keep run ID is duplicated", nil)
-		}
-		seen[id] = struct{}{}
+	ageSeconds := int64(0)
+	identity := "all"
+	if !request.All {
+		ageSeconds = request.OlderThanDays * 24 * 60 * 60
+		identity = "older-than-days:" + strconv.FormatInt(request.OlderThanDays, 10)
 	}
-	return nil
-}
-
-func explainRows(plan CleanPlan) []string {
-	rows := make([]string, 1, len(plan.RunDecisions)+1)
-	rows[0] = "plan_hash: " + plan.PlanHash
-	for _, decision := range plan.RunDecisions {
-		reasons := make([]string, len(decision.Reasons))
-		for index, reason := range decision.Reasons {
-			reasons[index] = string(reason)
-		}
-		rows = append(rows, decision.RunID+": "+decision.Decision+" ("+fmt.Sprintf("%v", reasons)+")")
-	}
-	return rows
+	digest := sha256.Sum256([]byte("mulgae-clean-selection-v1\x00" + identity))
+	return Policy{
+		RetentionAgeSeconds: ageSeconds, MinAgeForSizeSeconds: 0,
+		TargetBytes: math.MaxInt64, ExplicitKeepRunIDs: []string{},
+	}, fmt.Sprintf("sha256:%x", digest), nil
 }
 
 func nilCleanDependency(value any) bool {
@@ -276,11 +248,11 @@ func ExecuteApply(ctx context.Context, store ApplyStore, apply CleanPlan) error 
 		if err != nil {
 			return failure(FailureInvalidSnapshot, "observe store for apply", err)
 		}
-		if err := validateSnapshotIdentity(current); err != nil {
-			return err
+		if current.StoreEpoch.Value < 0 || !canonicalSHA256(current.StoreEpoch.SHA256) {
+			return failure(FailureInvalidSnapshot, "invalid current store epoch", nil)
 		}
-		if current.StoreEpoch != apply.ApplyIdentity.ExpectedStoreEpoch || current.InputPolicySHA256 != apply.ApplyIdentity.ExpectedInputPolicySHA256 {
-			return failure(FailureStalePlan, "store epoch or input policy changed", nil)
+		if current.StoreEpoch != apply.ApplyIdentity.ExpectedStoreEpoch {
+			return failure(FailureStalePlan, "store epoch changed", nil)
 		}
 		for _, action := range apply.OrderedActions {
 			if err := ctx.Err(); err != nil {
@@ -346,6 +318,9 @@ func ResumeTombstones(ctx context.Context, store ApplyStore) error {
 			if err := transaction.DeleteTombstoned(ctx, tombstone); err != nil {
 				return failure(FailureTombstone, "resume tombstoned run "+tombstone.RunID, err)
 			}
+		}
+		if err := transaction.ClearDryRunPlans(ctx); err != nil {
+			return failure(FailureTombstone, "remove recovered cleanup journals", err)
 		}
 		return nil
 	})

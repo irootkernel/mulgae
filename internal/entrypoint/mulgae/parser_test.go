@@ -232,25 +232,19 @@ func TestParseG008RequestForms(t *testing.T) {
 	}
 	assertRequestJSON(t, rerun, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`)
 
-	clean := mustParse(t, []string{"clean"})
+	clean := mustParse(t, []string{"clean", "--older-than", "30d"})
 	cleanRequest, ok := clean.Clean()
-	if !ok || cleanRequest.Mode() != CleanModePlan {
-		t.Fatalf("clean request = %#v, %t; want plan default", cleanRequest, ok)
+	if !ok || cleanRequest.OlderThanDays() != 30 || cleanRequest.All() || cleanRequest.DryRun() {
+		t.Fatalf("clean request = %#v, %t; want 30-day cleanup", cleanRequest, ok)
 	}
-	if _, present := cleanRequest.ExpectedPlanSHA256(); present {
-		t.Fatal("clean plan hash must be null")
-	}
-	assertRequestJSON(t, clean, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"plan","expected_plan_sha256":null,"output_format":"human"}`)
+	assertRequestJSON(t, clean, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","older_than_days":30,"all":false,"dry_run":false,"output_format":"human"}`)
 
-	planHash := "sha256:" + strings.Repeat("b", 64)
-	apply := mustParse(t, []string{"clean", "--mode", "apply", "--expected-plan-sha256", planHash})
-	applyRequest, ok := apply.Clean()
-	if !ok || applyRequest.Mode() != CleanModeApply {
-		t.Fatalf("clean apply request = %#v, %t", applyRequest, ok)
+	all := mustParse(t, []string{"clean", "--all", "--dry-run"})
+	allRequest, ok := all.Clean()
+	if !ok || allRequest.OlderThanDays() != 0 || !allRequest.All() || !allRequest.DryRun() {
+		t.Fatalf("clean all dry-run request = %#v, %t", allRequest, ok)
 	}
-	if got, present := applyRequest.ExpectedPlanSHA256(); !present || got != planHash {
-		t.Fatalf("clean apply hash = %q, %t; want %q, true", got, present, planHash)
-	}
+	assertRequestJSON(t, all, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","older_than_days":null,"all":true,"dry_run":true,"output_format":"human"}`)
 
 	export := mustParse(t, []string{"export", "--run", testRunID, "--output-path", "exports/review.zip"})
 	exportRequest, ok := export.Export()
@@ -433,8 +427,6 @@ func TestParseDocumentedG008CommandGoldens(t *testing.T) {
 		attemptID: testAttemptID,
 		target:    "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
-	const planHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-
 	for _, test := range []struct {
 		name      string
 		arguments []string
@@ -476,14 +468,9 @@ func TestParseDocumentedG008CommandGoldens(t *testing.T) {
 			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`,
 		},
 		{
-			name:      "clean plan",
-			arguments: []string{"clean", "--mode", "plan"},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"plan","expected_plan_sha256":null,"output_format":"human"}`,
-		},
-		{
-			name:      "clean hash bound apply",
-			arguments: []string{"clean", "--mode", "apply", "--expected-plan-sha256", planHash},
-			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","mode":"apply","expected_plan_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","output_format":"human"}`,
+			name:      "clean all dry-run",
+			arguments: []string{"clean", "--all", "--dry-run"},
+			want:      `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","older_than_days":null,"all":true,"dry_run":true,"output_format":"human"}`,
 		},
 		{
 			name:      "export output path",
@@ -519,21 +506,22 @@ func TestParseResolvedDistinguishesSelectorUsageFromOperationalFailures(t *testi
 }
 
 func TestParseRejectsMalformedG008Requests(t *testing.T) {
-	planHash := "sha256:" + strings.Repeat("b", 64)
 	for _, arguments := range [][]string{
 		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--patch", "changes.patch"},
 		{"followup", "--run", testRunID, "--finding", "lowercase", "--dirty"},
 		{"followup", "--run", testRunID, "--finding", "F001", "--dirty", "--role", "Logic"},
 		{"delta", "--run", testRunID, "--dirty", "--roles", "logic"},
-		{"clean", "--older-than", "30d"},
+		{"clean"},
+		{"clean", "--older-than", "0d"},
+		{"clean", "--older-than", "030d"},
+		{"clean", "--older-than", "30h"},
+		{"clean", "--older-than", "30d", "--all"},
 		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,logic"},
 		{"delta", "--since-run", testRunID, "--stdin", "capture", "--roles", "logic,security,testing,docs,ops,release,extra"},
 		{"rerun", "--run", testRunID, "--attempt", "a_019f596a-cf80-6c67-b265-f37053d51ccf"},
 		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--replay", "wire"},
 		{"clean", "--mode", "apply"},
-		{"clean", "--expected-plan-sha256", planHash},
-		{"clean", "--mode", "plan", "--expected-plan-sha256", planHash},
-		{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:" + strings.Repeat("B", 64)},
+		{"clean", "--expected-plan-sha256", "sha256:" + strings.Repeat("b", 64)},
 		{"export", "--run", testRunID, "--output-path", "../review.zip"},
 		{"export", "--run", testRunID, "--output-path", "review.zip", "--redacted", "false"},
 	} {
@@ -624,7 +612,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFollowup:  {"followup", "--run", testRunID, "--finding", "F001", "--dirty"},
 		app.CommandDelta:     {"delta", "--since-run", testRunID, "--dirty", "--roles", "logic"},
 		app.CommandRerun:     {"rerun", "--run", testRunID, "--attempt", testAttemptID},
-		app.CommandClean:     {"clean"},
+		app.CommandClean:     {"clean", "--all", "--dry-run"},
 		app.CommandExport:    {"export", "--run", testRunID, "--output-path", "exports/review.zip"},
 		app.CommandStatus:    {"status", "--run", testRunID},
 		app.CommandReport:    {"report", "--run", testRunID, "--output-path", "reports/run.json"},
@@ -837,8 +825,8 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "removed prompt command", arguments: []string{"prompt", "extra"}, wantError: true},
 		{name: "schema success", arguments: []string{"schema", "list"}, command: app.CommandSchema},
 		{name: "schema error", arguments: []string{"schema"}, wantError: true},
-		{name: "clean success", arguments: []string{"clean", "--mode", "plan"}, command: app.CommandClean},
-		{name: "clean error", arguments: []string{"clean", "--mode", "apply"}, wantError: true},
+		{name: "clean success", arguments: []string{"clean", "--older-than", "30d"}, command: app.CommandClean},
+		{name: "clean error", arguments: []string{"clean"}, wantError: true},
 		{name: "reporting export", arguments: []string{"export", "--run", "latest", "--output-path", "exports/mulgae-review.zip", "--output", "json"}, resolved: true, command: app.CommandExport},
 		{name: "export error", arguments: []string{"export", "--run", testRunID, "--redacted"}, wantError: true},
 		{name: "help success", arguments: []string{"help"}, command: app.CommandHelp},

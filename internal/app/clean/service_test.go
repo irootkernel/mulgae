@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"reflect"
 	"testing"
 	"time"
 
@@ -15,16 +14,6 @@ import (
 type serviceClock struct{ now time.Time }
 
 func (clock serviceClock) Now() time.Time { return clock.now }
-
-type servicePolicySource struct {
-	policy Policy
-	hash   string
-	err    error
-}
-
-func (source servicePolicySource) RetentionPolicy(context.Context) (Policy, string, error) {
-	return source.policy.clone(), source.hash, source.err
-}
 
 type serviceValidator struct {
 	calls int
@@ -47,77 +36,48 @@ func (validator *serviceValidator) Validate(_ context.Context, id ports.AssetID,
 	return nil
 }
 
-func TestServiceDryRunPersistsSchemaValidatedReceiptAndAppliesExpectedHash(t *testing.T) {
+func TestServiceDryRunIsReadOnlyAndDirectCleanDeletesSelectedRuns(t *testing.T) {
 	snapshot := cleanSnapshot([]RunObservation{
 		{RunID: cleanRunOne, SessionID: cleanSession, Completed: true, CompletedAt: cleanTime("2026-07-10T12:00:00Z"), Committed: true, RegularFileBytes: 8},
 		{RunID: cleanRunTwo, SessionID: cleanSessionTwo, Completed: true, CompletedAt: cleanTime("2026-07-13T11:59:59Z"), Committed: true, RegularFileBytes: 1},
 	})
 	store := &fakeCleanStore{snapshot: snapshot}
 	validator := &serviceValidator{}
-	service, err := NewService(serviceClock{now: snapshot.Now}, servicePolicySource{policy: snapshot.Policy, hash: snapshot.InputPolicySHA256}, validator, store)
+	service, err := NewService(serviceClock{now: snapshot.Now}, validator, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	dryRun, err := service.Run(context.Background(), Request{Mode: ModeExplain})
+	dryRun, err := service.Run(context.Background(), Request{OlderThanDays: 1, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(store.dryRuns) != 1 || !reflect.DeepEqual(store.dryRuns[0], dryRun.Plan) || len(dryRun.ExplainRows) != len(dryRun.Plan.RunDecisions)+1 || validator.calls != 1 {
-		t.Fatalf("dry-run receipt or projection = %#v, %#v, %d", store.dryRuns, dryRun.ExplainRows, validator.calls)
+	if store.transactionCount != 0 || len(store.dryRuns) != 0 || len(store.tombstones) != 0 || len(store.deleted) != 0 || !dryRun.DryRun || dryRun.AffectedRunCount != 1 || dryRun.AffectedBytes != 8 || validator.calls != 1 {
+		t.Fatalf("dry-run effects or projection = %#v, %#v, %d", store, dryRun, validator.calls)
 	}
 
-	applied, err := service.Run(context.Background(), Request{Mode: ModeApply, ExpectedPlanSHA256: dryRun.Plan.PlanHash})
+	applied, err := service.Run(context.Background(), Request{All: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if applied.Plan.Mode != "apply" || applied.Plan.ApplyIdentity == nil || applied.Plan.ApplyIdentity.DryRunPlanHash != dryRun.Plan.PlanHash || len(store.deleted) != 0 || validator.calls != 2 {
-		t.Fatalf("apply did not use persisted expected receipt: %#v %#v %d", applied.Plan, store.deleted, validator.calls)
+	if applied.DryRun || applied.AffectedRunCount != 2 || applied.AffectedBytes != 9 || applied.Plan.Mode != "apply" || len(store.deleted) != 2 || len(store.dryRuns) != 0 || len(store.tombstones) != 0 || validator.calls != 3 {
+		t.Fatalf("direct clean result = %#v %#v %d", applied, store, validator.calls)
 	}
 }
 
-func TestServiceFailsClosedWhenPolicyAuthorityIsAbsent(t *testing.T) {
+func TestServiceRejectsInvalidSelectionWithoutStoreEffects(t *testing.T) {
 	snapshot := cleanSnapshot(nil)
 	store := &fakeCleanStore{snapshot: snapshot}
 	validator := &serviceValidator{}
-	service, err := NewService(serviceClock{now: snapshot.Now}, servicePolicySource{err: errors.New("authority unavailable")}, validator, store)
+	service, err := NewService(serviceClock{now: snapshot.Now}, validator, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Run(context.Background(), Request{Mode: ModeDryRun}); !IsFailure(err, FailureInvalidSnapshot) || store.transactionCount != 0 || len(store.dryRuns) != 0 {
-		t.Fatalf("absent authority must have no store effects: %v %#v", err, store)
+	if _, err := service.Run(context.Background(), Request{}); !IsFailure(err, FailureInvalidSnapshot) || store.transactionCount != 0 || len(store.dryRuns) != 0 {
+		t.Fatalf("invalid selection must have no store effects: %v %#v", err, store)
 	}
 }
-func TestServiceRejectsStalePolicyAndEpochWithoutNewApplyEffects(t *testing.T) {
-	snapshot := cleanSnapshot([]RunObservation{{RunID: cleanRunOne, SessionID: cleanSession, Completed: true, CompletedAt: cleanTime("2026-07-10T12:00:00Z"), Committed: true, RegularFileBytes: 8}})
-	store := &fakeCleanStore{snapshot: snapshot}
-	validator := &serviceValidator{}
-	service, err := NewService(serviceClock{now: snapshot.Now}, servicePolicySource{policy: snapshot.Policy, hash: snapshot.InputPolicySHA256}, validator, store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dryRun, err := service.Run(context.Background(), Request{Mode: ModeDryRun})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	changed := snapshot.Policy
-	changed.TargetBytes = 1
-	policyChanged, err := NewService(serviceClock{now: snapshot.Now}, servicePolicySource{policy: changed, hash: cleanHash}, validator, store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := policyChanged.Run(context.Background(), Request{Mode: ModeApply, ExpectedPlanSHA256: dryRun.Plan.PlanHash}); !IsFailure(err, FailureStalePlan) || len(store.deleted) != 0 {
-		t.Fatalf("policy change must reject apply before deletion: %v %#v", err, store.deleted)
-	}
-
-	store.beforeSnapshot = func() { store.snapshot.StoreEpoch.Value++ }
-	if _, err := service.Run(context.Background(), Request{Mode: ModeApply, ExpectedPlanSHA256: dryRun.Plan.PlanHash}); !IsFailure(err, FailureStalePlan) || len(store.deleted) != 0 {
-		t.Fatalf("epoch change must reject apply before deletion: %v %#v", err, store.deleted)
-	}
-}
-
-func TestServiceResumesTombstonesBeforePlanning(t *testing.T) {
+func TestServiceDryRunDoesNotResumeTombstones(t *testing.T) {
 	snapshot := cleanSnapshot([]RunObservation{oldRun(cleanRunOne, 1), oldRun(cleanRunTwo, 1)})
 	recoveryPlan, err := Plan(snapshot)
 	if err != nil {
@@ -125,16 +85,16 @@ func TestServiceResumesTombstonesBeforePlanning(t *testing.T) {
 	}
 	store := &fakeCleanStore{snapshot: snapshot, dryRuns: []CleanPlan{recoveryPlan}, tombstones: []Tombstone{{RunID: cleanRunOne, PlanHash: recoveryPlan.PlanHash}}}
 	validator := &serviceValidator{}
-	service, err := NewService(serviceClock{now: snapshot.Now}, servicePolicySource{policy: snapshot.Policy, hash: snapshot.InputPolicySHA256}, validator, store)
+	service, err := NewService(serviceClock{now: snapshot.Now}, validator, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.Run(context.Background(), Request{Mode: ModeDryRun})
+	result, err := service.Run(context.Background(), Request{All: true, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(store.tombstones) != 0 || len(store.deleted) != 1 || store.deleted[0] != cleanRunOne || result.Plan.OrderedActions == nil {
-		t.Fatalf("tombstone was not resumed before planning: %#v %#v", store, result.Plan)
+	if len(store.tombstones) != 1 || len(store.deleted) != 0 || len(store.dryRuns) != 1 || result.Plan.OrderedActions == nil {
+		t.Fatalf("dry-run resumed durable state: %#v %#v", store, result.Plan)
 	}
 }
 
@@ -204,17 +164,11 @@ func TestValidateDryRunReceiptRejectsSelfHashedDeleteSetOverflow(t *testing.T) {
 		tombstones []Tombstone
 		request    Request
 	}{
-		{name: "apply", request: Request{Mode: ModeApply, ExpectedPlanSHA256: hash}},
-		{name: "resume", tombstones: []Tombstone{{RunID: cleanRunOne, PlanHash: hash}}, request: Request{Mode: ModeDryRun}},
+		{name: "resume", tombstones: []Tombstone{{RunID: cleanRunOne, PlanHash: hash}}, request: Request{All: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeCleanStore{snapshot: snapshot, dryRuns: []CleanPlan{plan}, tombstones: append([]Tombstone(nil), test.tombstones...)}
-			service, err := NewService(
-				serviceClock{now: snapshot.Now},
-				servicePolicySource{policy: snapshot.Policy, hash: snapshot.InputPolicySHA256},
-				&serviceValidator{},
-				store,
-			)
+			service, err := NewService(serviceClock{now: snapshot.Now}, &serviceValidator{}, store)
 			if err != nil {
 				t.Fatal(err)
 			}

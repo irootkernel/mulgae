@@ -3328,12 +3328,17 @@
       "clean": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["request_id", "command", "mode", "expected_plan_sha256", "output_format"],
+        "required": ["request_id", "command", "older_than_days", "all", "dry_run", "output_format"],
+        "oneOf": [
+          { "properties": { "older_than_days": { "type": "integer", "minimum": 1, "maximum": 106751 }, "all": { "const": false } } },
+          { "properties": { "older_than_days": { "const": null }, "all": { "const": true } } }
+        ],
         "properties": {
           "request_id": { "$ref": "#/$defs/request_id" },
           "command": { "const": "clean" },
-          "mode": { "type": "string", "enum": ["plan", "apply", "explain"] },
-          "expected_plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+          "older_than_days": { "type": ["integer", "null"] },
+          "all": { "type": "boolean" },
+          "dry_run": { "type": "boolean" },
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
@@ -3863,12 +3868,12 @@
       "clean": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "clean_plan_uri", "plan_sha256", "applied"],
+        "required": ["kind", "dry_run", "affected_run_count", "affected_bytes"],
         "properties": {
           "kind": { "const": "clean_completed" },
-          "clean_plan_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "plan_sha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
-          "applied": { "type": "boolean" }
+          "dry_run": { "type": "boolean" },
+          "affected_run_count": { "type": "integer", "minimum": 0 },
+          "affected_bytes": { "type": "integer", "minimum": 0 }
         }
       },
       "export": {

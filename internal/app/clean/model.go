@@ -46,7 +46,6 @@ const (
 	ReasonActive            Reason = "active"
 	ReasonUncommitted       Reason = "uncommitted"
 	ReasonCorrupt           Reason = "corrupt"
-	ReasonNewestSession     Reason = "newest_session"
 	ReasonAncestor          Reason = "ancestor"
 	ReasonGraphAnomaly      Reason = "graph_anomaly"
 	ReasonMissingTime       Reason = "missing_time"

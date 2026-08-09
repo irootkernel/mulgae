@@ -397,7 +397,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"roles", []string{"roles"}, 0},
 			{"config", []string{"config"}, 2},
 			{"schema", []string{"schema", "list"}, 0},
-			{"clean", []string{"clean"}, 7},
+			{"clean", []string{"clean", "--all", "--dry-run"}, 7},
 			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
 			{"help", []string{"help"}, 0},
 		}

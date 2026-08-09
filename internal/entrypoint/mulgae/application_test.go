@@ -2827,15 +2827,15 @@ type g008RetentionE2EFake struct {
 	err      error
 }
 
-func (fake *g008RetentionE2EFake) PlanAndApplyRetention(_ context.Context, request RetentionRequest) (RetentionResult, error) {
+func (fake *g008RetentionE2EFake) CleanRuns(_ context.Context, request RetentionRequest) (RetentionResult, error) {
 	fake.requests = append(fake.requests, request)
 	if fake.err != nil {
 		return RetentionResult{}, fake.err
 	}
 	return RetentionResult{
-		CleanPlanURI: ".mulgae/clean/plan.json",
-		PlanSHA256:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		Applied:      request.Mode == CleanModeApply,
+		DryRun:           request.DryRun,
+		AffectedRunCount: 3,
+		AffectedBytes:    8192,
 	}, nil
 }
 
@@ -3844,7 +3844,7 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApplication rejected absent G008 dependency group: %v", err)
 	}
-	result := standalone.Run(context.Background(), []string{"clean", "--output", "json"}, testAnchoredRoot(t))
+	result := standalone.Run(context.Background(), []string{"clean", "--all", "--output", "json"}, testAnchoredRoot(t))
 	if result.ExitCode() != app.ExitCodeArtifact {
 		t.Fatalf("absent G008 clean exit = %d, want %d; stdout=%q stderr=%q", result.ExitCode(), app.ExitCodeArtifact, result.Stdout(), result.Stderr())
 	}
@@ -3896,8 +3896,8 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 		{name: "delta JSON", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"}, kind: "delta_started", json: true},
 		{name: "rerun human", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose"}, human: "rerun started: r_019f596a-d052-79e7-b2b7-59822f012273", kind: "rerun_started", exit: app.ExitCodeReadiness},
 		{name: "rerun JSON", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"}, kind: "rerun_started", exit: app.ExitCodeReadiness, json: true, reason: "required_role_incomplete"},
-		{name: "clean human", argv: []string{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, human: "clean completed: .mulgae/clean/plan.json", kind: "clean_completed"},
-		{name: "clean JSON", argv: []string{"clean", "--mode", "apply", "--expected-plan-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--output", "json"}, kind: "clean_completed", json: true},
+		{name: "clean human", argv: []string{"clean", "--older-than", "30d"}, human: "clean completed: removed 3 runs and 8192 bytes", kind: "clean_completed"},
+		{name: "clean JSON", argv: []string{"clean", "--all", "--dry-run", "--output", "json"}, kind: "clean_completed", json: true},
 		{name: "export human", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip"}, human: "export created: exports/redacted.zip", kind: "export_created"},
 		{name: "export JSON", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json"}, kind: "export_created", json: true},
 	}
@@ -4098,7 +4098,7 @@ func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
 		},
 		{
 			name: "typed artifact clean",
-			argv: []string{"clean", "--output", "json"},
+			argv: []string{"clean", "--all", "--dry-run", "--output", "json"},
 			exit: app.ExitCodeArtifact,
 			set:  func(fakes g008WorkflowFakes) { fakes.retention.err = mustG006ArtifactFailure(t) },
 		},
@@ -4311,13 +4311,18 @@ func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 		}
 		request := fakes.retention.requests[0]
 		if strings.HasPrefix(name, "typed artifact") {
-			if request.Mode != CleanModePlan || request.ExpectedPlanSHA256 != nil {
+			if !request.All || !request.DryRun || request.OlderThanDays != 0 {
 				t.Fatalf("clean failure request = %#v", request)
 			}
 			return
 		}
-		if request.Mode != CleanModeApply || request.ExpectedPlanSHA256 == nil ||
-			*request.ExpectedPlanSHA256 != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		if name == "clean JSON" {
+			if !request.All || !request.DryRun || request.OlderThanDays != 0 {
+				t.Fatalf("clean dry-run request = %#v", request)
+			}
+			return
+		}
+		if request.OlderThanDays != 30 || request.All || request.DryRun {
 			t.Fatalf("clean request = %#v", request)
 		}
 	case strings.HasPrefix(name, "export"):
@@ -4379,9 +4384,9 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 	}
 
 	fixture := newFoundationFixture(t)
-	run := func(argv ...string) ([]byte, []byte, app.ExitCode) {
+	runAt := func(root string, argv ...string) ([]byte, []byte, app.ExitCode) {
 		command := exec.Command(binary, argv...)
-		command.Dir = t.TempDir()
+		command.Dir = root
 		stdout, err := command.Output()
 		if err == nil {
 			return stdout, nil, app.ExitCodeSuccess
@@ -4391,6 +4396,9 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 			t.Fatalf("run production mulgae %v: %v", argv, err)
 		}
 		return stdout, exitError.Stderr, app.ExitCode(exitError.ExitCode())
+	}
+	run := func(argv ...string) ([]byte, []byte, app.ExitCode) {
+		return runAt(t.TempDir(), argv...)
 	}
 	for _, argv := range [][]string{
 		{"help", "security", "--output", "json"},
@@ -4435,11 +4443,18 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 		t.Fatalf("production export = exit %d stderr %q", exit, stderr)
 	}
 	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
-	stdout, stderr, exit = run("clean", "--output", "json")
-	if exit != app.ExitCodeArtifact || len(stderr) != 0 {
+	cleanRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cleanRoot, ".mulgae"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, exit = runAt(cleanRoot, "clean", "--all", "--dry-run", "--output", "json")
+	if exit != app.ExitCodeSuccess || len(stderr) != 0 {
 		t.Fatalf("production clean = exit %d stderr %q", exit, stderr)
 	}
-	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
+	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeSuccess)
+	if entries, err := os.ReadDir(filepath.Join(cleanRoot, ".mulgae")); err != nil || len(entries) != 0 {
+		t.Fatalf("production clean dry-run mutated .mulgae: entries=%#v err=%v", entries, err)
+	}
 }
 func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSource(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)

@@ -31,8 +31,26 @@ func TestCleanupStoreRejectsMissingPublicationAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCleanupStore(root, nil, clean.Policy{}, cleanupTestHash("policy"), cleanupTestClock{}); err == nil {
+	if _, err := NewCleanupStore(root, nil, cleanupTestClock{}); err == nil {
 		t.Fatal("cleanup store accepted missing publication authority")
+	}
+}
+
+func TestCleanupStoreObserveDoesNotCreatePrivateState(t *testing.T) {
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newCleanupStoreForTest(t, root)
+	if _, err := store.Observe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("read-only cleanup observation created state: %#v", entries)
 	}
 }
 
@@ -556,7 +574,7 @@ func newCleanupStoreForTest(t *testing.T, root ports.AnchoredRoot) *CleanupStore
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewCleanupStore(root, publication, clean.Policy{}, cleanupTestHash("policy"), cleanupTestClock{})
+	store, err := NewCleanupStore(root, publication, cleanupTestClock{})
 	if err != nil {
 		t.Fatal(err)
 	}

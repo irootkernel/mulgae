@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -1360,7 +1362,7 @@ func parseRerun(arguments []string, requestID string) (Invocation, error) {
 
 func parseClean(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--mode": true, "--expected-plan-sha256": true, "--output": true,
+		"--older-than": true, "--all": false, "--dry-run": false, "--output": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1368,44 +1370,56 @@ func parseClean(arguments []string, requestID string) (Invocation, error) {
 	if len(positionals) != 0 {
 		return Invocation{}, usageError("clean accepts no positional arguments")
 	}
-	request := CleanRequest{mode: CleanModePlan}
-	if value, present := options["--mode"]; present {
-		request.mode = CleanMode(value)
-		if request.mode != CleanModePlan && request.mode != CleanModeApply && request.mode != CleanModeExplain {
-			return Invocation{}, usageError("unsupported clean mode")
+	olderThan, hasOlderThan := options["--older-than"]
+	_, all := options["--all"]
+	if hasOlderThan == all {
+		return Invocation{}, usageError("clean requires exactly one of --older-than or --all")
+	}
+	request := CleanRequest{all: all}
+	if hasOlderThan {
+		days, err := parseCleanDays(olderThan)
+		if err != nil {
+			return Invocation{}, err
 		}
+		request.olderThanDays = days
 	}
-	if value, present := options["--expected-plan-sha256"]; present {
-		if !validSHA256Identifier(value) {
-			return Invocation{}, usageError("expected clean plan SHA-256 is not canonical")
-		}
-		request.expectedPlanSHA256, request.hasExpectedPlanHash = value, true
-	}
-	if request.mode == CleanModeApply && !request.hasExpectedPlanHash {
-		return Invocation{}, usageError("clean apply requires --expected-plan-sha256")
-	}
-	if request.mode != CleanModeApply && request.hasExpectedPlanHash {
-		return Invocation{}, usageError("only clean apply accepts --expected-plan-sha256")
-	}
+	_, request.dryRun = options["--dry-run"]
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
 		return Invocation{}, err
 	}
-	var expectedPlanSHA256 *string
-	if request.hasExpectedPlanHash {
-		expectedPlanSHA256 = &request.expectedPlanSHA256
+	var olderThanDays *int64
+	if hasOlderThan {
+		olderThanDays = &request.olderThanDays
 	}
 	requestJSON, err := marshalRequest(struct {
-		RequestID          string       `json:"request_id"`
-		Command            string       `json:"command"`
-		Mode               CleanMode    `json:"mode"`
-		ExpectedPlanSHA256 *string      `json:"expected_plan_sha256"`
-		OutputFormat       OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandClean), request.mode, expectedPlanSHA256, outputFormat})
+		RequestID     string       `json:"request_id"`
+		Command       string       `json:"command"`
+		OlderThanDays *int64       `json:"older_than_days"`
+		All           bool         `json:"all"`
+		DryRun        bool         `json:"dry_run"`
+		OutputFormat  OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandClean), olderThanDays, request.all, request.dryRun, outputFormat})
 	if err != nil {
 		return Invocation{}, err
 	}
 	return Invocation{command: app.CommandClean, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, clean: &request}, nil
+}
+
+func parseCleanDays(value string) (int64, error) {
+	if len(value) < 2 || value[len(value)-1] != 'd' || value[0] < '1' || value[0] > '9' {
+		return 0, usageError("clean age must be a positive whole-day duration")
+	}
+	for _, character := range value[:len(value)-1] {
+		if character < '0' || character > '9' {
+			return 0, usageError("clean age must be a positive whole-day duration")
+		}
+	}
+	days, err := strconv.ParseInt(value[:len(value)-1], 10, 64)
+	if err != nil || days > int64((1<<63-1)/int64(24*time.Hour)) {
+		return 0, usageError("clean age exceeds the supported range")
+	}
+	return days, nil
 }
 
 func parseExport(arguments []string, requestID string) (Invocation, error) {

@@ -364,7 +364,6 @@
         "active",
         "uncommitted",
         "corrupt",
-        "newest_session",
         "ancestor",
         "graph_anomaly",
         "missing_time",

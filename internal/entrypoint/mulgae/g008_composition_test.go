@@ -8,7 +8,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/app/childrun"
-	appclean "github.com/irootkernel/mulgae/internal/app/clean"
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
@@ -103,16 +102,10 @@ func TestG008RuntimePromptSourceRejectsMissingExplicitAuthorities(t *testing.T) 
 
 func TestG008CompositionRejectsPartialCleanAuthority(t *testing.T) {
 	composition := newG008Composition(t)
-	composition.CleanPolicy = compositionCleanPolicy{}
+	composition.CleanValidator = newFoundationFixture(t).validator
 	if _, err := NewG008Dependencies(composition); err == nil {
 		t.Fatal("partial clean authority was accepted")
 	}
-}
-
-type compositionCleanPolicy struct{}
-
-func (compositionCleanPolicy) RetentionPolicy(context.Context) (appclean.Policy, string, error) {
-	return appclean.Policy{}, "", nil
 }
 
 func newG008Composition(t *testing.T) G008Composition {

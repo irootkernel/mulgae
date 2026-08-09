@@ -69,27 +69,6 @@ func Plan(snapshot RetentionSnapshot) (CleanPlan, error) {
 			seed[id] = true
 		}
 	}
-	newest := map[string]RunObservation{}
-	for _, run := range byID {
-		completed, ok := run.completion()
-		if !ok {
-			continue
-		}
-		old, exists := newest[run.SessionID]
-		if !exists {
-			newest[run.SessionID] = run
-			continue
-		}
-		oldTime, _ := old.completion()
-		if completed.After(oldTime) || (completed.Equal(oldTime) && run.RunID > old.RunID) {
-			newest[run.SessionID] = run
-		}
-	}
-	for _, run := range newest {
-		add(run.RunID, ReasonNewestSession)
-		seed[run.RunID] = true
-	}
-
 	sortEdges(snapshot.Edges)
 	parentByChild := make(map[string]string, len(snapshot.Edges))
 	for index := range snapshot.Edges {
@@ -508,7 +487,7 @@ func addReason(r []Reason, add Reason) []Reason {
 	return append(r, add)
 }
 func sortReasons(r []Reason) []Reason {
-	order := map[Reason]int{ReasonProtectedExplicit: 0, ReasonActive: 1, ReasonUncommitted: 2, ReasonCorrupt: 3, ReasonNewestSession: 4, ReasonAncestor: 5, ReasonGraphAnomaly: 6, ReasonMissingTime: 7, ReasonYoung: 8, ReasonEligibleAge: 9, ReasonEligibleSize: 10, ReasonDeletedAge: 11, ReasonDeletedSize: 12, ReasonTargetProtected: 13, ReasonStaleEpoch: 14, ReasonPartialResume: 15}
+	order := map[Reason]int{ReasonProtectedExplicit: 0, ReasonActive: 1, ReasonUncommitted: 2, ReasonCorrupt: 3, ReasonAncestor: 4, ReasonGraphAnomaly: 5, ReasonMissingTime: 6, ReasonYoung: 7, ReasonEligibleAge: 8, ReasonEligibleSize: 9, ReasonDeletedAge: 10, ReasonDeletedSize: 11, ReasonTargetProtected: 12, ReasonStaleEpoch: 13, ReasonPartialResume: 14}
 	sort.Slice(r, func(i, j int) bool { return order[r[i]] < order[r[j]] })
 	return r
 }

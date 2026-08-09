@@ -48,7 +48,6 @@ type G008Composition struct {
 
 	Online *G008OnlineAuthority
 
-	CleanPolicy    appclean.RetentionPolicySource
 	CleanStore     appclean.ApplyStore
 	CleanValidator appclean.SchemaValidator
 }
@@ -81,16 +80,13 @@ func NewG008Dependencies(composition G008Composition) (Dependencies, error) {
 	}
 	dependencies := Dependencies{RequestResolver: composition.RequestResolver, Exports: exports}
 
-	policyPresent := !nilApplicationDependency(composition.CleanPolicy)
 	storePresent := !nilApplicationDependency(composition.CleanStore)
-	if policyPresent != storePresent {
+	validatorPresent := !nilApplicationDependency(composition.CleanValidator)
+	if storePresent != validatorPresent {
 		return Dependencies{}, fmt.Errorf("G008 composition: incomplete clean authority")
 	}
-	if policyPresent {
-		if nilApplicationDependency(composition.CleanValidator) {
-			return Dependencies{}, fmt.Errorf("G008 composition: clean validator is required")
-		}
-		clean, err := appclean.NewService(composition.Clock, composition.CleanPolicy, composition.CleanValidator, composition.CleanStore)
+	if storePresent {
+		clean, err := appclean.NewService(composition.Clock, composition.CleanValidator, composition.CleanStore)
 		if err != nil {
 			return Dependencies{}, fmt.Errorf("G008 composition: clean service: %w", err)
 		}

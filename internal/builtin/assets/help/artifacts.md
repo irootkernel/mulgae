@@ -48,6 +48,9 @@ Failed runs without publication authority retain a bounded status under
 then reads that diagnostic-only status when no published run exists. It does
 not expose raw provider streams or runtime event logs.
 
-Use `status`, `findings`, and `report` to inspect a run. `clean --mode plan`
-produces a hash-bound retention plan; applying it requires the exact plan hash.
+Use `status`, `findings`, and `report` to inspect a run. `clean --older-than 30d`
+removes safely deletable terminal runs older than 30 whole days; add `--dry-run`
+for a read-only summary. `clean --all` removes every safely deletable terminal
+run regardless of age. Active, incomplete, corrupt, unknown, and required lineage
+state remains protected.
 `export` creates a redacted bundle at a safe project-relative path.

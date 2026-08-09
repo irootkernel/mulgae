@@ -107,7 +107,7 @@ func canonicalCommandSpecs() []CommandSpec {
 		newCommandSpec(app.CommandRoles, "internal/app/roles", "ListRoles", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
 		newCommandSpec(app.CommandConfig, "internal/app/config", "ResolveConfiguration", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandSchema, "internal/app/schema", "InspectSchema", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}),
-		newCommandSpec(app.CommandClean, "internal/app/clean", "PlanAndApplyRetention", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
+		newCommandSpec(app.CommandClean, "internal/app/clean", "CleanRuns", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandExport, "internal/app/export", "ExportRedactedRun", []string{exportManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandHelp, "internal/app/help", "RenderHelp", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
 	}

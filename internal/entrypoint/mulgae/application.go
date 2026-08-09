@@ -781,24 +781,21 @@ func rerunRoleReportURIs(reports []appreplay.RoleReportURI) []RoleReportURI {
 
 // RetentionRequest is the complete schema-backed clean command selection.
 type RetentionRequest struct {
-	Mode               CleanMode
-	ExpectedPlanSHA256 *string
+	OlderThanDays int64
+	All           bool
+	DryRun        bool
 }
 
-// RetentionResult is the authoritative mode-specific clean projection. ExplainRows
-// preserve the service's deterministic explanation order for human output only;
-// the frozen JSON command-result schema intentionally does not expose them.
+// RetentionResult is the authoritative cleanup summary.
 type RetentionResult struct {
-	Mode         CleanMode
-	CleanPlanURI string
-	PlanSHA256   string
-	Applied      bool
-	ExplainRows  []string
+	DryRun           bool
+	AffectedRunCount int
+	AffectedBytes    int64
 }
 
 // RetentionService is the command-facing retention workflow boundary.
 type RetentionService interface {
-	PlanAndApplyRetention(context.Context, RetentionRequest) (RetentionResult, error)
+	CleanRuns(context.Context, RetentionRequest) (RetentionResult, error)
 }
 
 // RedactedExportRequest is the complete schema-backed export selection.
@@ -927,7 +924,7 @@ func (adapter rerunAdapter) StartRerun(ctx context.Context, request appreplay.Re
 // RetentionServiceFunc adapts a command retention function to RetentionService.
 type RetentionServiceFunc func(context.Context, RetentionRequest) (RetentionResult, error)
 
-func (fn RetentionServiceFunc) PlanAndApplyRetention(ctx context.Context, request RetentionRequest) (RetentionResult, error) {
+func (fn RetentionServiceFunc) CleanRuns(ctx context.Context, request RetentionRequest) (RetentionResult, error) {
 	return fn(ctx, request)
 }
 
@@ -1612,11 +1609,11 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 		}{"rerun_started", nil, nil, nil})
 	case app.CommandClean:
 		return json.Marshal(struct {
-			Kind         string  `json:"kind"`
-			CleanPlanURI *string `json:"clean_plan_uri"`
-			PlanSHA256   *string `json:"plan_sha256"`
-			Applied      bool    `json:"applied"`
-		}{"clean_completed", nil, nil, false})
+			Kind             string `json:"kind"`
+			DryRun           bool   `json:"dry_run"`
+			AffectedRunCount int    `json:"affected_run_count"`
+			AffectedBytes    int64  `json:"affected_bytes"`
+		}{"clean_completed", false, 0, 0})
 	case app.CommandExport:
 		return json.Marshal(struct {
 			Kind              string  `json:"kind"`

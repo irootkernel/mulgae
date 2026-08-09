@@ -129,12 +129,10 @@
       epoch_00000042.json
     locks/
       store.lock
-  cleanup/
-    plans/
-      clean-plan_019f596a-d1a0-7e72-9e97-a367cf173056.json
-    tombstones/
-      tombstone_019f596a-d1a0-7e72-9e97-a367cf173056.json
-    receipts/
-      clean-receipt_019f596a-d1a0-7e72-9e97-a367cf173056.json
+    clean/
+      plans/
+        <sha256>.json
+      tombstones/
+        <run-and-plan-sha256>.json
 
-A committed publication is visible only when the epoch record references the matching immutable manifest and lineage-edge hashes. Recovery reads the journal plus staged, installed, manifest, edge, and epoch observations; cleanup applies an epoch-bound plan through its tombstone and receipt.
+A committed publication is visible only when the epoch record references the matching immutable manifest and lineage-edge hashes. Recovery reads the journal plus staged, installed, manifest, edge, and epoch observations. Cleanup plans and tombstones are transient crash-recovery state and are removed after successful deletion.
