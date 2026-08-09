@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -394,7 +395,7 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	}
 
 	malformed := fixture.application.Run(ctx, []string{"help", "unsupported-topic"}, root)
-	if malformed.ExitCode() != app.ExitCodeUsage || len(malformed.Stdout()) != 0 || !bytes.Equal(malformed.Stderr(), []byte("mulgae: invalid command usage\n")) {
+	if malformed.ExitCode() != app.ExitCodeUsage || len(malformed.Stdout()) != 0 || !bytes.Equal(malformed.Stderr(), []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 		t.Fatalf("malformed usage result = %#v", malformed)
 	}
 	removedRolesTopic := fixture.application.Run(ctx, []string{"help", "roles"}, root)
@@ -528,7 +529,7 @@ func TestApplicationRejectedInitJSONUsesInvalidRequestContract(t *testing.T) {
 		{"init", "--providers", "other", "--output", "json", "--output", "human"},
 	} {
 		result := fixture.application.Run(context.Background(), argv, root)
-		if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("mulgae: invalid command usage\n")) {
+		if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 			t.Fatalf("ambiguous rejected usage = %#v", result)
 		}
 	}
@@ -558,7 +559,7 @@ func TestApplicationSchemaListShowAndExport(t *testing.T) {
 	}
 
 	listJSON := fixture.application.Run(ctx, []string{"schema", "list", "--output", "json"}, root)
-	if listJSON.ExitCode() != app.ExitCodeUsage || len(listJSON.Stdout()) != 0 || !bytes.Equal(listJSON.Stderr(), []byte("mulgae: invalid command usage\n")) {
+	if listJSON.ExitCode() != app.ExitCodeUsage || len(listJSON.Stdout()) != 0 || !bytes.Equal(listJSON.Stderr(), []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 		t.Fatalf("schema list JSON result = %#v; want usage rejection without a fabricated command-result envelope", listJSON)
 	}
 
@@ -967,7 +968,15 @@ func TestApplicationNativeHomeCancellationUsesExitNine(t *testing.T) {
 			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if envelope.Exit.Code != 9 || envelope.Exit.Kind != "cancellation" || len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "cancellation" || envelope.Reasons[0].Code != "request_cancelled" || envelope.Reasons[0].Message != "The command was cancelled." || envelope.Reasons[0].Retryable {
+			if len(envelope.Reasons) != 1 {
+				t.Fatalf("cancellation envelope = %#v", envelope)
+			}
+			specificCancellation := envelope.Reasons[0].Message == "The command was cancelled."
+			actionableFallback := strings.Contains(envelope.Reasons[0].Message, "stage cli."+test.command) &&
+				strings.Contains(envelope.Reasons[0].Message, "code request_cancelled") &&
+				strings.Contains(envelope.Reasons[0].Message, "hint: retry the command when ready")
+			if envelope.Exit.Code != 9 || envelope.Exit.Kind != "cancellation" || envelope.Reasons[0].Category != "cancellation" || envelope.Reasons[0].Code != "request_cancelled" ||
+				(!specificCancellation && !actionableFallback) || envelope.Reasons[0].Retryable {
 				t.Fatalf("cancellation envelope = %#v", envelope)
 			}
 			switch test.command {
@@ -1015,7 +1024,8 @@ func TestApplicationNativeHomeCancellationHumanOutput(t *testing.T) {
 				argv = []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh"}
 			}
 			result := fixture.application.Run(context.Background(), argv, root)
-			if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("mulgae: request was cancelled\n")) {
+			want := "mulgae: request was cancelled\ncode: request_cancelled\nstage: cli." + command + "\nhint: retry the command when ready\n"
+			if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 || string(result.Stderr()) != want {
 				t.Fatalf("human cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 			}
 		})
@@ -1484,8 +1494,8 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
 	wantFamilies := []string{"kimi", "zcode", "agy"}
-	if len(lines) != len(wantFamilies) {
-		t.Fatalf("providers human rows = %q, want %d rows", human.Stdout(), len(wantFamilies))
+	if len(lines) != len(wantFamilies)+3 || lines[3] != "code: readiness_unverified" || lines[4] != "stage: cli.providers" || lines[5] != "hint: run mulgae doctor" {
+		t.Fatalf("providers human rows = %q, want provider rows plus actionable failure details", human.Stdout())
 	}
 	for index, family := range wantFamilies {
 		if !strings.Contains(lines[index], "family="+family+" ") ||
@@ -1499,7 +1509,8 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 
 	filtered := fixture.application.Run(context.Background(), []string{"providers"}, root)
 	if filtered.ExitCode() != app.ExitCodeReadiness ||
-		!bytes.Equal(filtered.Stdout(), []byte("no evidence-qualified provider profiles\n")) ||
+		!strings.Contains(string(filtered.Stdout()), "no evidence-qualified provider profiles\n") ||
+		!strings.Contains(string(filtered.Stdout()), "code: readiness_unverified\nstage: cli.providers\nhint: run mulgae doctor\n") ||
 		len(filtered.Stderr()) != 0 {
 		t.Fatalf("filtered providers result = exit %d stdout %q stderr %q", filtered.ExitCode(), filtered.Stdout(), filtered.Stderr())
 	}
@@ -1975,6 +1986,62 @@ func TestApplicationReviewPreflightUsesOnlyExecutionFreeService(t *testing.T) {
 	}
 }
 
+func TestApplicationReviewPreflightProjectsActionableInvariantFailure(t *testing.T) {
+	result := loadReviewPreflightExample(t)
+	files := make([]ReviewPreflightFile, 33)
+	for index := range files {
+		files[index] = ReviewPreflightFile{
+			Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png",
+			Size:        ports.WorkspaceSnapshotMaxFileBytes,
+			SHA256:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			Disposition: "binary_preserved",
+		}
+	}
+	setReviewPreflightFiles(t, &result, "index;layout=ordinary-directories-v1", files)
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{preflightResult: result}
+	machine := fixture.application.Run(context.Background(), []string{"review", "--stage", "--preflight", "--output", "json"}, testAnchoredRoot(t))
+	if machine.ExitCode() != app.ExitCodeInternal || len(machine.Stderr()) != 0 {
+		t.Fatalf("preflight invariant exit = %d stderr=%q stdout=%q", machine.ExitCode(), machine.Stderr(), machine.Stdout())
+	}
+	var envelope struct {
+		Reasons []struct {
+			Category    string  `json:"category"`
+			Code        string  `json:"code"`
+			Message     string  `json:"message"`
+			ArtifactURI *string `json:"artifact_uri"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "internal" ||
+		envelope.Reasons[0].Code != "provider_view_limit_validation_failed" || envelope.Reasons[0].ArtifactURI != nil ||
+		!strings.Contains(envelope.Reasons[0].Message, "stage review.preflight.validate") ||
+		!strings.Contains(envelope.Reasons[0].Message, "invariant=provider_view_resource_limit") ||
+		!strings.Contains(envelope.Reasons[0].Message, "max_bytes=134217728") ||
+		!strings.Contains(envelope.Reasons[0].Message, "hint: run mulgae doctor") {
+		t.Fatalf("preflight invariant envelope = %#v", envelope)
+	}
+}
+
+func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: errors.New("private adapter detail")}
+	result := fixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	stderr := string(result.Stderr())
+	if result.ExitCode() == app.ExitCodeSuccess || !strings.Contains(stderr, "code: provider_unavailable") ||
+		!strings.Contains(stderr, "stage: cli.review") || !strings.Contains(stderr, "hint: run mulgae doctor") ||
+		strings.Contains(stderr, "private adapter detail") {
+		t.Fatalf("actionable human failure = exit %d stderr=%q", result.ExitCode(), stderr)
+	}
+
+	usage := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--stage"}, testAnchoredRoot(t))
+	if usage.ExitCode() != app.ExitCodeUsage || !strings.Contains(string(usage.Stderr()), "hint: run mulgae help workflows") {
+		t.Fatalf("actionable usage failure = exit %d stderr=%q", usage.ExitCode(), usage.Stderr())
+	}
+}
+
 func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	cause, err := domain.NewFailure(
 		"reviewrun.current.capability",
@@ -2037,7 +2104,8 @@ func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
 	humanFixture.application.reviewRuns = &reviewRunFake{err: loginErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "mulgae: login required for provider kimi-default, zcode-default; authenticate outside Mulgae, then rerun the command\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
+		!strings.Contains(string(human.Stderr()), "code: provider_login_required\nstage: cli.review\nhint: run mulgae doctor") ||
+		!strings.Contains(string(human.Stderr()), "diagnostic_uri: "+diagnosticURI.String()) {
 		t.Fatalf("human login-required result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
@@ -2161,7 +2229,7 @@ func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
 	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "mulgae: provider qualification failed: kimi-default=invalid_provider_output, zcode-default=timeout\n" {
+		!strings.Contains(string(human.Stderr()), "code: provider_qualification_failed\nstage: cli.review\nhint: run mulgae doctor") {
 		t.Fatalf("human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
@@ -2265,7 +2333,7 @@ func TestApplicationReviewPreservesQualificationPermissionDenialInMixedAggregate
 	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "mulgae: provider permission denied during qualification for agy-security; other qualification failures: zcode-logic=timeout\n" {
+		!strings.Contains(string(human.Stderr()), "code: provider_permission_denied\nstage: provider.qualify\nhint: run mulgae config --mode effective") {
 		t.Fatalf("mixed human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
@@ -2327,7 +2395,8 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	humanFixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
-		string(human.Stderr()) != "mulgae: provider execution failed: role=security provider=zcode-default reason=security_violation\ndiagnostic_uri: "+diagnosticURI.String()+"\n" {
+		!strings.Contains(string(human.Stderr()), "code: provider_execution_failed\nstage: provider.execute\nhint: run mulgae doctor") ||
+		!strings.Contains(string(human.Stderr()), "diagnostic_uri: "+diagnosticURI.String()) {
 		t.Fatalf("human provider execution failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
@@ -3497,7 +3566,9 @@ func TestApplicationG006FailureParityAcrossCommands(t *testing.T) {
 
 				human := fixture.application.Run(context.Background(), command.argv, root)
 				if human.ExitCode() != failure.exit || len(human.Stdout()) != 0 ||
-					!bytes.Equal(human.Stderr(), terminalOutput([]byte(humanFailureMessage(failure.class)))) {
+					!strings.Contains(string(human.Stderr()), humanFailureMessage(failure.class)) ||
+					!strings.Contains(string(human.Stderr()), "stage: cli."+string(command.command)) ||
+					!strings.Contains(string(human.Stderr()), "hint:") {
 					t.Fatalf("human failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 				}
 
@@ -4345,7 +4416,7 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 			}
 		}
 	}
-	if stdout, stderr, exit := run("prompt", "--run", testRunID, "--attempt", testAttemptID); exit != app.ExitCodeUsage || len(stdout) != 0 || !bytes.Equal(stderr, []byte("mulgae: invalid command usage\n")) {
+	if stdout, stderr, exit := run("prompt", "--run", testRunID, "--attempt", testAttemptID); exit != app.ExitCodeUsage || len(stdout) != 0 || !bytes.Equal(stderr, []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 		t.Fatalf("removed production prompt command = exit %d stdout %q stderr %q", exit, stdout, stderr)
 	}
 	for _, argv := range [][]string{

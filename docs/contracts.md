@@ -122,6 +122,19 @@ member, actual and maximum file and byte counts, and `provider_invoked=false`.
 The combined provider-view limit never weakens the limits on either captured
 side.
 
+Preflight projection validation uses the same policy-derived limits. If an
+already admitted comparison view violates that internal projection invariant,
+the command returns `provider_view_limit_validation_failed` with the bounded
+observed and maximum counts. Other malformed service projections return
+`preflight_result_validation_failed`. These are internal failures because
+capture must reject a genuinely oversized input earlier. Preflight remains
+execution-free and does not create a diagnostic artifact for either failure.
+
+Every human-readable command failure includes a stable code, public pipeline
+stage, and a safe next-action hint. Machine output retains the v1 reason shape;
+specific reason messages remain stable, while otherwise opaque fallback
+messages include the failed stage, code, and safe action.
+
 Successful selected roles also publish exactly one Mulgae-owned free-form role
 report under `role-reports/<role>.md`. Mulgae alone writes trusted publication
 state; providers never write into it. Additive `manifest.role_reports[]`

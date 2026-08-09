@@ -1368,16 +1368,19 @@ func (application *Application) renderSuccess(ctx context.Context, invocation In
 }
 
 func (application *Application) renderFailure(ctx context.Context, invocation Invocation, run execution) Result {
-	failure := *run.failure
+	failure := normalizeExecutionFailure(invocation.Command(), *run.failure)
 	exit := projectedFailureExit(invocation.Command(), failure.exit)
 	if invocation.OutputFormat() == OutputFormatHuman {
 		if len(run.human) != 0 {
-			return newResult(terminalOutput(appendDiagnosticURI(run.human, failure.diagnosticURI)), nil, exit)
+			human := appendHumanFailureDetails(run.human, failure)
+			return newResult(terminalOutput(appendDiagnosticURI(human, failure.diagnosticURI)), nil, exit)
 		}
 		if failure.humanMessage != "" {
-			return errorResult(exit, string(appendDiagnosticURI([]byte(failure.humanMessage), failure.diagnosticURI)))
+			human := appendHumanFailureDetails([]byte(failure.humanMessage), failure)
+			return errorResult(exit, string(appendDiagnosticURI(human, failure.diagnosticURI)))
 		}
-		return errorResult(exit, string(appendDiagnosticURI([]byte(humanFailureMessage(failure.class)), failure.diagnosticURI)))
+		human := appendHumanFailureDetails([]byte(humanFailureMessage(failure.class)), failure)
+		return errorResult(exit, string(appendDiagnosticURI(human, failure.diagnosticURI)))
 	}
 	request, available, requestErr := envelopeRequestJSON(invocation)
 	if requestErr != nil {
@@ -1396,7 +1399,7 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 	}
 	message := failure.message
 	if message == "" {
-		message = stableFailureMessage(failure.class)
+		message = actionableFallbackMessage(failure)
 	}
 	var diagnostic app.Diagnostic
 	if failure.hasRetryable {
@@ -1425,6 +1428,45 @@ func (application *Application) renderFailure(ctx context.Context, invocation In
 		return errorResult(app.ExitCodeInternal, "mulgae: command result could not be rendered")
 	}
 	return newResult(output, nil, exit)
+}
+
+func normalizeExecutionFailure(command app.CommandName, failure executionFailure) executionFailure {
+	if failure.code == "" {
+		failure.code = "internal_failure"
+	}
+	if failure.stage == "" {
+		failure.stage = "cli." + string(command)
+	}
+	if failure.recommendedNextCommand == "" {
+		switch failure.class {
+		case domain.FailureCancelled:
+			failure.recommendedNextCommand = "retry the command when ready"
+		default:
+			failure.recommendedNextCommand = "mulgae doctor"
+		}
+	}
+	return failure
+}
+
+func actionableFallbackMessage(failure executionFailure) string {
+	return fmt.Sprintf(
+		"%s Failure at stage %s with code %s; hint: %s.",
+		stableFailureMessage(failure.class), failure.stage, failure.code, humanFailureHint(failure),
+	)
+}
+
+func appendHumanFailureDetails(message []byte, failure executionFailure) []byte {
+	trimmed := bytes.TrimRight(message, "\n")
+	details := fmt.Sprintf("\ncode: %s\nstage: %s\nhint: %s", failure.code, failure.stage, humanFailureHint(failure))
+	return append(append([]byte(nil), trimmed...), details...)
+}
+
+func humanFailureHint(failure executionFailure) string {
+	hint := strings.TrimSpace(failure.recommendedNextCommand)
+	if strings.HasPrefix(hint, "mulgae ") {
+		return "run " + hint
+	}
+	return hint
 }
 
 func failureResultJSON(invocation Invocation) ([]byte, error) {
@@ -2036,7 +2078,17 @@ func isG008Command(command app.CommandName) bool {
 }
 
 func errorResult(exit app.ExitCode, message string) Result {
-	return newResult(nil, terminalOutput([]byte(message)), exit)
+	trimmed := strings.TrimRight(message, "\n")
+	if !strings.Contains(strings.ToLower(trimmed), "hint:") {
+		hint := "run mulgae doctor"
+		if exit == app.ExitCodeUsage {
+			hint = "run mulgae help workflows"
+		} else if exit == app.ExitCodeCancellation {
+			hint = "retry the command when ready"
+		}
+		trimmed += "\nhint: " + hint
+	}
+	return newResult(nil, terminalOutput([]byte(trimmed)), exit)
 }
 
 func terminalOutput(value []byte) []byte {

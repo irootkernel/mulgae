@@ -102,6 +102,15 @@ credential or project location. Do not commit credentials, provider homes,
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.
 
+Tracked `.gitignore` and `.mulgaeignore` files are trusted capture-policy
+inputs, not provider evidence. Their presence does not invalidate a repository,
+but their paths and contents are omitted from Git targets, patch/stdin targets,
+captured snapshots, evidence, manifests, and provider workspaces. A patch or
+stdin target containing only excluded control content fails as
+`no_reviewable_content`; an equivalent Git target is a no-change capture.
+Reserved namespaces such as `.git/**` and `.mulgae/**`, malformed paths, path
+collisions, and selected symlinks remain fail-closed.
+
 Review capture does not apply secret-pattern detection to source files,
 security fixtures, objectives, or provider packets. A configured provider is
 therefore authorized to receive every file in the captured workspace view, including

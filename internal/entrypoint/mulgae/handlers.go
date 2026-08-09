@@ -157,6 +157,22 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review.preflight", domain.FailureConfiguration, "review preflight failed", err), domain.FailureConfiguration)}
 		}
 		if err := result.Validate(); err != nil {
+			if validation, ok := err.(*reviewPreflightValidationFailure); ok {
+				message := "Review preflight validation failed at stage review.preflight.validate: invariant=" + validation.invariant
+				if validation.hasLimitFacts {
+					message += fmt.Sprintf(
+						"; file_count=%d; byte_count=%d; max_files=%d; max_bytes=%d",
+						validation.fileCount, validation.byteCount, validation.maxFiles, validation.maxBytes,
+					)
+				}
+				message += "; hint: run mulgae doctor."
+				return execution{failureData: reviewPreflightFailureJSON(), failure: &executionFailure{
+					class: domain.FailureInternal, code: validation.code, message: message,
+					humanMessage: "mulgae: " + validation.code + " at review.preflight.validate; hint: run mulgae doctor",
+					retryable:    false, hasRetryable: true, stage: "review.preflight.validate", exit: app.ExitCodeInternal,
+					recommendedNextCommand: "mulgae doctor",
+				}}
+			}
 			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 		}
 		data, err := reviewPreflightSuccessJSON(result)

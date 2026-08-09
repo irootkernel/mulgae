@@ -344,7 +344,7 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err = filterMulgaeIgnoredPatch(patch, mulgaeRules)
+	patch, err = filterReviewPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -426,7 +426,7 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err := filterMulgaeIgnoredPatch(patchOut.Stdout, mulgaeRules)
+	patch, err := filterReviewPatch(patchOut.Stdout, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -464,16 +464,27 @@ func (adapter *ReviewTargetAdapter) capturePatch(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review patch: %w", err)
 	}
+	mulgaeRules, mulgaeDigest, err := capturedMulgaeIgnore(root)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	bytes, err = filterReviewPatch(bytes, mulgaeRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	if len(bytes) == 0 {
+		return ports.CapturedReviewMaterial{}, noReviewableContentFailure()
+	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, path, bytes); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	_, files, err := adapter.headSnapshot(ctx, root)
+	_, files, err := adapter.headSnapshot(ctx, root, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	return adapter.materialize(bytes, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceHead: files,
-	}, "patch;git=canonical-v1;ignore=none;detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) { return ports.NewCapturedReviewPatchTarget(bytes) })
+	}, "patch;git=canonical-v1;ignore=mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) { return ports.NewCapturedReviewPatchTarget(bytes) })
 }
 
 func (adapter *ReviewTargetAdapter) captureStdin(ctx context.Context, root ports.AnchoredRoot, token string) (ports.CapturedReviewMaterial, error) {
@@ -484,16 +495,27 @@ func (adapter *ReviewTargetAdapter) captureStdin(ctx context.Context, root ports
 	if err := validateInput(bytes, false); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
+	mulgaeRules, mulgaeDigest, err := capturedMulgaeIgnore(root)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	bytes, err = filterReviewPatch(bytes, mulgaeRules)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	if len(bytes) == 0 {
+		return ports.CapturedReviewMaterial{}, noReviewableContentFailure()
+	}
 	if err := adapter.clean(ctx, ports.ReviewInputTarget, "stdin", bytes); err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	_, files, err := adapter.headSnapshot(ctx, root)
+	_, files, err := adapter.headSnapshot(ctx, root, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
 	return adapter.materialize(bytes, files, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceHead: files,
-	}, "stdin;git=canonical-v1;ignore=none;detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) { return ports.NewCapturedReviewStdinTarget(bytes) })
+	}, "stdin;git=canonical-v1;ignore=mulgaeignore-v1-"+mulgaeDigest+";detector="+adapter.detectorPolicy, func() (ports.CapturedReviewTarget, error) { return ports.NewCapturedReviewStdinTarget(bytes) })
 }
 
 func (adapter *ReviewTargetAdapter) materialize(bytes []byte, files []ports.WorkspaceSnapshotFile, evidenceSides map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile, policy string, build func() (ports.CapturedReviewTarget, error)) (ports.CapturedReviewMaterial, error) {
@@ -630,7 +652,7 @@ func (adapter *ReviewTargetAdapter) gitDiff(ctx context.Context, repo canonicalR
 	return out.Stdout, nil
 }
 
-func (adapter *ReviewTargetAdapter) headSnapshot(ctx context.Context, root ports.AnchoredRoot) (ports.GitObjectID, []ports.WorkspaceSnapshotFile, error) {
+func (adapter *ReviewTargetAdapter) headSnapshot(ctx context.Context, root ports.AnchoredRoot, ignored ...[]workspaceIgnoreRule) (ports.GitObjectID, []ports.WorkspaceSnapshotFile, error) {
 	repo, cleanup, err := newCanonicalRepository(root, "HEAD")
 	if err != nil {
 		return ports.GitObjectID{}, nil, err
@@ -640,7 +662,7 @@ func (adapter *ReviewTargetAdapter) headSnapshot(ctx context.Context, root ports
 	if err != nil {
 		return ports.GitObjectID{}, nil, err
 	}
-	files, err := adapter.objectSnapshot(ctx, root, head)
+	files, err := adapter.objectSnapshot(ctx, root, head, ignored...)
 	return head, files, err
 }
 
@@ -674,7 +696,13 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 	}
 	var gitRules []workspaceIgnoreRule
 	for _, entry := range entries {
-		if filepath.Base(entry.path) != ".gitignore" {
+		if _, err := ports.NewSafeRelativePath(entry.path); err != nil || !utf8.ValidString(entry.path) || norm.NFC.String(entry.path) != entry.path {
+			return nil, fmt.Errorf("non-canonical tree path")
+		}
+		if reservedReviewPath(entry.path) && !admittedIgnoreControlPath(entry.path) {
+			return nil, fmt.Errorf("unsafe reserved tree path")
+		}
+		if filepath.Base(entry.path) != ".gitignore" || !admittedIgnoreControlPath(entry.path) {
 			continue
 		}
 		if entry.kind != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
@@ -699,9 +727,12 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 	}
 	var files []ports.WorkspaceSnapshotFile
 	for _, entry := range entries {
+		if admittedIgnoreControlPath(entry.path) {
+			continue
+		}
 		capturedPath, err := ports.NewSafeRelativePath(entry.path)
 		if err != nil || reservedReviewPath(entry.path) {
-			continue
+			return nil, fmt.Errorf("unsafe reserved tree path")
 		}
 		if workspaceIgnored(entry.path, gitRules) || len(ignored) == 1 && workspaceIgnored(entry.path, ignored[0]) {
 			continue
@@ -763,6 +794,20 @@ func admittedIgnoreControlPath(path string) bool {
 	}
 	return true
 }
+
+func noReviewableContentFailure() error {
+	failure, err := ports.NewReviewCaptureFailure(
+		ports.ReviewCaptureNoReviewableContent,
+		"",
+		"",
+		"include at least one non-control path that is not excluded by .mulgaeignore",
+		fmt.Errorf("provider-visible patch is empty after capture policy filtering"),
+	)
+	if err != nil {
+		return fmt.Errorf("review target capture: no reviewable content")
+	}
+	return failure
+}
 func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports.AnchoredRoot) (ports.CapturedReviewMaterial, error) {
 	repo, cleanup, err := newCanonicalRepository(root, "HEAD")
 	if err != nil {
@@ -807,7 +852,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 		return ports.CapturedReviewMaterial{}, err
 	}
 	patch := append(append([]byte(nil), out.Stdout...), untracked...)
-	patch, err = filterMulgaeIgnoredPatch(patch, mulgaeRules)
+	patch, err = filterReviewPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -981,8 +1026,14 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		if path == "" {
 			continue
 		}
-		if _, err := ports.NewSafeRelativePath(path); err != nil || !utf8.ValidString(path) || norm.NFC.String(path) != path || reservedReviewPath(path) {
+		if _, err := ports.NewSafeRelativePath(path); err != nil || !utf8.ValidString(path) || norm.NFC.String(path) != path {
 			return nil, fmt.Errorf("non-canonical tracked path")
+		}
+		if admittedIgnoreControlPath(path) {
+			continue
+		}
+		if reservedReviewPath(path) {
+			return nil, fmt.Errorf("unsafe reserved tracked path")
 		}
 		if tracked[path] {
 			return nil, fmt.Errorf("duplicate tracked path")

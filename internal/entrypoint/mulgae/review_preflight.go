@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -107,6 +108,40 @@ type ReviewPreflightLaneDeadline struct {
 	TransitionCount    int    `json:"transition_count"`
 	InvocationTimeouts string `json:"invocation_timeouts"`
 	Deadline           string `json:"deadline"`
+}
+
+type reviewPreflightValidationFailure struct {
+	code          string
+	invariant     string
+	fileCount     int
+	byteCount     int64
+	maxFiles      int
+	maxBytes      int64
+	hasLimitFacts bool
+}
+
+func (failure *reviewPreflightValidationFailure) Error() string {
+	return "review preflight projection violated an internal invariant"
+}
+
+func newReviewPreflightValidationFailure(invariant string) error {
+	return &reviewPreflightValidationFailure{
+		code:      "preflight_result_validation_failed",
+		invariant: invariant,
+	}
+}
+
+func newReviewPreflightLimitValidationFailure(policyIdentity string, fileCount int, byteCount int64, maxFiles int, maxBytes int64) error {
+	code := "preflight_result_validation_failed"
+	invariant := "snapshot_resource_limit"
+	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
+		code = "provider_view_limit_validation_failed"
+		invariant = "provider_view_resource_limit"
+	}
+	return &reviewPreflightValidationFailure{
+		code: code, invariant: invariant, fileCount: fileCount, byteCount: byteCount,
+		maxFiles: maxFiles, maxBytes: maxBytes, hasLimitFacts: true,
+	}
 }
 
 // NewReviewPreflightResult converts the already-captured snapshot and the
@@ -231,7 +266,15 @@ func validatePreflightSnapshotBinding(snapshot ports.WorkspaceSnapshotRequest, r
 
 // Validate rejects malformed service projections before either renderer can
 // expose them as successful preflight evidence.
-func (result ReviewPreflightResult) Validate() error {
+func (result ReviewPreflightResult) Validate() (err error) {
+	defer func() {
+		if err == nil {
+			return
+		}
+		if _, ok := err.(*reviewPreflightValidationFailure); !ok {
+			err = newReviewPreflightValidationFailure("result_projection")
+		}
+	}()
 	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" ||
 		(result.Status != "eligible" && result.Status != "no_change") || !validPreflightTarget(result.Target) ||
 		(result.AGYPermissionMode != appconfig.SafeAGYPermissionMode && result.AGYPermissionMode != appconfig.HeadlessAGYPermissionMode) ||
@@ -247,22 +290,29 @@ func (result ReviewPreflightResult) Validate() error {
 	}
 	fileSet := result.FileSets[0]
 	maxFiles, maxBytes := ports.WorkspaceAdmissionLimits(fileSet.PolicyIdentity)
-	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" || len(fileSet.Files) > maxFiles {
+	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" {
 		return fmt.Errorf("review preflight: invalid file set")
 	}
 	previous := ""
 	var totalSize int64
 	for _, file := range fileSet.Files {
 		path, pathErr := ports.NewSafeRelativePath(file.Path)
-		totalSize += file.Size
 		if pathErr != nil || !path.Valid() || file.Path == ports.WorkspaceSnapshotManifestName || file.Path <= previous ||
-			file.Size < 0 || file.Size > ports.WorkspaceSnapshotMaxFileBytes || totalSize > maxBytes || !preflightSHA256(file.SHA256) ||
+			file.Size < 0 || file.Size > ports.WorkspaceSnapshotMaxFileBytes || !preflightSHA256(file.SHA256) ||
 			(file.MediaType == "text/plain" && file.Disposition != "text") ||
 			(file.MediaType != "text/plain" && file.MediaType != "image/png" && file.MediaType != "image/jpeg" && file.MediaType != "image/webp") ||
 			(file.MediaType != "text/plain" && file.Disposition != "binary_preserved") {
 			return fmt.Errorf("review preflight: invalid file")
 		}
+		if file.Size > math.MaxInt64-totalSize {
+			totalSize = math.MaxInt64
+		} else {
+			totalSize += file.Size
+		}
 		previous = file.Path
+	}
+	if len(fileSet.Files) > maxFiles || totalSize > maxBytes {
+		return newReviewPreflightLimitValidationFailure(fileSet.PolicyIdentity, len(fileSet.Files), totalSize, maxFiles, maxBytes)
 	}
 	recomputed, err := reviewPreflightFileSetID(fileSet.PolicyIdentity, fileSet.Files)
 	if err != nil || recomputed != fileSet.ID {

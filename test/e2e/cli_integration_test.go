@@ -436,7 +436,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"review", "--dirty", "--ci"},
 		} {
 			got := runMulgaeBinary(t, binary, t.TempDir(), argv...)
-			if got.exitCode != 2 || len(got.stdout) != 0 || !bytes.Equal(got.stderr, []byte("mulgae: invalid command usage\n")) {
+			if got.exitCode != 2 || len(got.stdout) != 0 || !bytes.Equal(got.stderr, []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 				t.Fatalf("usage %q = exit %d stdout %q stderr %q", argv, got.exitCode, got.stdout, got.stderr)
 			}
 		}
@@ -448,7 +448,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			t.Fatalf("schema list human = exit %d stdout %q stderr %q", human.exitCode, human.stdout, human.stderr)
 		}
 		json := runMulgaeBinary(t, binary, t.TempDir(), "schema", "list", "--output", "json")
-		if json.exitCode != 2 || len(json.stdout) != 0 || !bytes.Equal(json.stderr, []byte("mulgae: invalid command usage\n")) {
+		if json.exitCode != 2 || len(json.stdout) != 0 || !bytes.Equal(json.stderr, []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 			t.Fatalf("schema list JSON = exit %d stdout %q stderr %q", json.exitCode, json.stdout, json.stderr)
 		}
 	})
@@ -1222,6 +1222,12 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	}
 	runTestCommand(t, project, "git", "add", "screenshots")
 	runTestCommand(t, project, "git", "commit", "-m", "Add provider view raster fixtures")
+	mustWriteTestFile(t, filepath.Join(project, ".gitignore"), []byte("git-ignored.txt\n"))
+	mustWriteTestFile(t, filepath.Join(project, ".mulgaeignore"), []byte("ignored.txt\nignored-untracked.txt\n"))
+	mustWriteTestFile(t, filepath.Join(project, "ignored.txt"), []byte("ignored baseline\n"))
+	runTestCommand(t, project, "git", "add", ".gitignore", ".mulgaeignore")
+	runTestCommand(t, project, "git", "add", "-f", "ignored.txt")
+	runTestCommand(t, project, "git", "commit", "-m", "Track capture controls")
 
 	providerDirectory := canonicalTestTempDir(t)
 	logDirectory := canonicalTestTempDir(t)
@@ -1251,6 +1257,42 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	}
 	configBytes = bytes.Replace(configBytes, []byte(launcherLine), []byte(launcherLine+"    timeout: \"30m\"\n"), 1)
 	mustWriteTestFile(t, configPath, configBytes)
+
+	mustWriteTestFile(t, filepath.Join(project, ".gitignore"), []byte("git-ignored.txt\n# dirty control\n"))
+	mustWriteTestFile(t, filepath.Join(project, ".mulgaeignore"), []byte("ignored.txt\nignored-untracked.txt\n# dirty control\n"))
+	mustWriteTestFile(t, filepath.Join(project, "ignored.txt"), []byte("ignored dirty\n"))
+	mustWriteTestFile(t, filepath.Join(project, "ignored-untracked.txt"), []byte("ignored untracked\n"))
+	mustWriteTestFile(t, filepath.Join(project, "included-untracked.txt"), []byte("included untracked\n"))
+	beforeDirtyMulgae := snapshotTestTree(t, filepath.Join(project, ".mulgae"))
+	dirty := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "logic,security", "--preflight", "--output", "json")
+	if dirty.exitCode != 0 || len(dirty.stderr) != 0 {
+		t.Fatalf("tracked-control dirty preflight = exit %d stdout=%q stderr=%q", dirty.exitCode, dirty.stdout, dirty.stderr)
+	}
+	var dirtyEnvelope struct {
+		Result struct {
+			Kind      string                            `json:"kind"`
+			Preflight mulgaeentry.ReviewPreflightResult `json:"preflight"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(dirty.stdout, &dirtyEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if dirtyEnvelope.Result.Kind != "review_preflight" || dirtyEnvelope.Result.Preflight.Status != "eligible" || len(dirtyEnvelope.Result.Preflight.FileSets) != 1 {
+		t.Fatalf("tracked-control dirty result = %#v", dirtyEnvelope.Result)
+	}
+	dirtyPaths := make([]string, 0, len(dirtyEnvelope.Result.Preflight.FileSets[0].Files))
+	for _, file := range dirtyEnvelope.Result.Preflight.FileSets[0].Files {
+		dirtyPaths = append(dirtyPaths, file.Path)
+		if strings.Contains(file.Path, ".gitignore") || strings.Contains(file.Path, ".mulgaeignore") || strings.Contains(file.Path, "ignored") {
+			t.Fatalf("dirty preflight transmitted control or ignored path %q", file.Path)
+		}
+	}
+	if !slices.Contains(dirtyPaths, "after/included-untracked.txt") || !slices.Contains(dirtyPaths, "after/review.go") {
+		t.Fatalf("dirty preflight paths = %v", dirtyPaths)
+	}
+	if got := snapshotTestTree(t, filepath.Join(project, ".mulgae")); !reflect.DeepEqual(got, beforeDirtyMulgae) {
+		t.Fatalf("dirty preflight mutated .mulgae: before=%v after=%v", beforeDirtyMulgae, got)
+	}
 
 	worktreePNG := append(append([]byte(nil), pngBytes...), []byte("worktree-only-drift")...)
 	mustWriteTestFile(t, filepath.Join(project, "screenshots", "staged.png"), pngBytes)

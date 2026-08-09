@@ -14,16 +14,17 @@ import (
 type ReviewCaptureFailureCode string
 
 const (
-	ReviewCaptureFailed         ReviewCaptureFailureCode = "capture_failed"
-	ReviewCaptureUnsupported    ReviewCaptureFailureCode = "unsupported_content"
-	ReviewCapturePolicyBlocked  ReviewCaptureFailureCode = "content_policy_blocked"
-	ReviewCaptureManifestLarge  ReviewCaptureFailureCode = "capture_manifest_too_large"
-	ReviewCaptureWorkspaceLarge ReviewCaptureFailureCode = "capture_workspace_too_large"
+	ReviewCaptureFailed              ReviewCaptureFailureCode = "capture_failed"
+	ReviewCaptureUnsupported         ReviewCaptureFailureCode = "unsupported_content"
+	ReviewCapturePolicyBlocked       ReviewCaptureFailureCode = "content_policy_blocked"
+	ReviewCaptureManifestLarge       ReviewCaptureFailureCode = "capture_manifest_too_large"
+	ReviewCaptureWorkspaceLarge      ReviewCaptureFailureCode = "capture_workspace_too_large"
+	ReviewCaptureNoReviewableContent ReviewCaptureFailureCode = "no_reviewable_content"
 )
 
 func (code ReviewCaptureFailureCode) Valid() bool {
 	switch code {
-	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked, ReviewCaptureManifestLarge, ReviewCaptureWorkspaceLarge:
+	case ReviewCaptureFailed, ReviewCaptureUnsupported, ReviewCapturePolicyBlocked, ReviewCaptureManifestLarge, ReviewCaptureWorkspaceLarge, ReviewCaptureNoReviewableContent:
 		return true
 	default:
 		return false
@@ -133,6 +134,8 @@ func NewReviewCaptureFailure(code ReviewCaptureFailureCode, path string, role do
 		summary = "the captured review manifest is too large"
 	} else if code == ReviewCaptureWorkspaceLarge {
 		summary = "the captured workspace is too large"
+	} else if code == ReviewCaptureNoReviewableContent {
+		summary = "the selected patch contains no provider-visible review content"
 	}
 	return &ReviewCaptureFailure{
 		code: code, path: path, role: role, hint: strings.TrimSpace(hint),

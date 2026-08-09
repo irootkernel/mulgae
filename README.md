@@ -164,6 +164,12 @@ Every review command requires exactly one target:
 --stdin                  a patch read from standard input
 ```
 
+Tracked `.gitignore` and `.mulgaeignore` files remain trusted capture controls
+and are never sent to providers. Their presence does not invalidate `--dirty`;
+their paths and contents are removed from captured files and patch targets.
+Patch/stdin input containing only excluded control changes fails with
+`no_reviewable_content`.
+
 Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
 

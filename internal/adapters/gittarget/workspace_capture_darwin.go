@@ -276,8 +276,8 @@ func filterMulgaeIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []wo
 	return filtered
 }
 
-func filterMulgaeIgnoredPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
-	if len(rules) == 0 || len(patch) == 0 {
+func filterReviewPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
+	if len(patch) == 0 {
 		return append([]byte(nil), patch...), nil
 	}
 	starts := []int{0}
@@ -306,6 +306,18 @@ func filterMulgaeIgnoredPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte
 		}
 		left = strings.TrimPrefix(left, "a/")
 		right = strings.TrimPrefix(right, "b/")
+		leftPath, leftErr := ports.NewSafeRelativePath(left)
+		rightPath, rightErr := ports.NewSafeRelativePath(right)
+		if leftErr != nil || rightErr != nil || !leftPath.Valid() || !rightPath.Valid() ||
+			!utf8.ValidString(left) || !utf8.ValidString(right) || norm.NFC.String(left) != left || norm.NFC.String(right) != right {
+			return nil, fmt.Errorf("cannot apply capture policy to non-canonical Git path")
+		}
+		if reservedReviewPath(left) && !admittedIgnoreControlPath(left) || reservedReviewPath(right) && !admittedIgnoreControlPath(right) {
+			return nil, fmt.Errorf("patch selects an unsafe reserved path")
+		}
+		if admittedIgnoreControlPath(left) || admittedIgnoreControlPath(right) {
+			continue
+		}
 		if workspaceIgnored(left, rules) || workspaceIgnored(right, rules) {
 			continue
 		}

@@ -44,6 +44,13 @@ If a captured side or combined provider view exceeds its applicable file or
 byte limit, preflight returns `capture_workspace_too_large` with the admission
 stage and member, actual and maximum counts, and `provider_invoked=false`.
 
+An admitted provider view that later violates its projection limit is an
+internal invariant failure reported as `provider_view_limit_validation_failed`;
+other malformed preflight projections use `preflight_result_validation_failed`.
+Both include a safe stage and next-action hint without creating diagnostics or
+printing captured paths. Human failures from every command include a stable
+code, public stage, and minimum remediation hint.
+
 An explicit AGY `safe` mode produces a warning because headless tool requests
 may be denied. A no-change target reports `status: no_change` with no
 transmissions or execution budget. `--preflight` cannot be combined with

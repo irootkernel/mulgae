@@ -42,6 +42,14 @@ committed.
 Do not commit `.mulgae/`, provider credential directories, raw transcripts, or
 exported review bundles.
 
+Tracked `.gitignore` and `.mulgaeignore` files are capture-policy controls, not
+review evidence. Mulgae accepts them as ordinary tracked controls but excludes
+their paths and contents from every provider target, snapshot, evidence record,
+manifest, and workspace. A patch or stdin target containing only excluded
+control content fails as `no_reviewable_content`; a Git target with only those
+changes is reported as no change. Unsafe reserved namespaces and selected
+symlinks still fail closed.
+
 Review capture does not block source code or test fixtures because they look
 like credentials. The selected providers receive every path in the bounded
 workspace view. Use `.mulgaeignore` to exclude `.env`, `*.pem`, `*.key`, credential

@@ -160,6 +160,51 @@ func TestReviewPreflightValidateAcceptsBoundedGitProviderView(t *testing.T) {
 	}
 }
 
+func TestReviewPreflightValidateReportsAuthoritativeLimitInvariant(t *testing.T) {
+	tests := []struct {
+		name, policy, code, invariant string
+		fileCount                     int
+	}{
+		{name: "snapshot", policy: "current", code: "preflight_result_validation_failed", invariant: "snapshot_resource_limit", fileCount: 17},
+		{name: "provider view", policy: "index;layout=ordinary-directories-v1", code: "provider_view_limit_validation_failed", invariant: "provider_view_resource_limit", fileCount: 33},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := loadReviewPreflightExample(t)
+			files := make([]ReviewPreflightFile, test.fileCount)
+			for index := range files {
+				files[index] = ReviewPreflightFile{
+					Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png",
+					Size:        ports.WorkspaceSnapshotMaxFileBytes,
+					SHA256:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+					Disposition: "binary_preserved",
+				}
+			}
+			setReviewPreflightFiles(t, &result, test.policy, files)
+			err := result.Validate()
+			failure, ok := err.(*reviewPreflightValidationFailure)
+			if !ok || failure.code != test.code || failure.invariant != test.invariant || !failure.hasLimitFacts ||
+				failure.fileCount != test.fileCount || failure.byteCount != int64(test.fileCount)*ports.WorkspaceSnapshotMaxFileBytes {
+				t.Fatalf("limit validation failure = %#v, present=%t, err=%v", failure, ok, err)
+			}
+		})
+	}
+}
+
+func setReviewPreflightFiles(t *testing.T, result *ReviewPreflightResult, policy string, files []ReviewPreflightFile) {
+	t.Helper()
+	result.FileSets[0].PolicyIdentity = policy
+	result.FileSets[0].Files = files
+	id, err := reviewPreflightFileSetID(policy, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.FileSets[0].ID = id
+	for index := range result.Transmissions {
+		result.Transmissions[index].FileSetID = id
+	}
+}
+
 func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)

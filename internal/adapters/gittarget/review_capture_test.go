@@ -94,6 +94,133 @@ func TestReviewCaptureDirtyPreservesUntrackedPNGWithoutTextDecoding(t *testing.T
 	t.Fatalf("dirty snapshot omitted %q", imagePath)
 }
 
+func TestReviewCaptureDirtyAcceptsTrackedIgnoreControlsAndExcludesTheirMaterial(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "git-ignored.txt\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "excluded-*.txt\n")
+	writeReviewFile(t, filepath.Join(root, "excluded-tracked.txt"), "base\n")
+	reviewGit(t, root, "add", ".gitignore", ".mulgaeignore", "excluded-tracked.txt")
+	reviewGit(t, root, "commit", "-m", "Track capture controls")
+
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "git-ignored.txt\n# changed control\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "excluded-*.txt\n# changed control\n")
+	writeReviewFile(t, filepath.Join(root, "tracked.txt"), "dirty tracked\n")
+	writeReviewFile(t, filepath.Join(root, "included-untracked.txt"), "included\n")
+	writeReviewFile(t, filepath.Join(root, "excluded-tracked.txt"), "dirty excluded\n")
+	writeReviewFile(t, filepath.Join(root, "excluded-untracked.txt"), "excluded\n")
+	writeReviewFile(t, filepath.Join(root, "git-ignored.txt"), "ignored by Git\n")
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetDirty, "dirty")
+	for _, forbidden := range []string{".gitignore", ".mulgaeignore", "excluded-tracked.txt", "excluded-untracked.txt", "git-ignored.txt"} {
+		assertReviewMaterialExcludes(t, material, forbidden, "changed control")
+	}
+	paths := reviewFilePathSet(material.Snapshot().Files())
+	if !paths["tracked.txt"] || !paths["included-untracked.txt"] {
+		t.Fatalf("dirty snapshot paths = %v", paths)
+	}
+	workspace, err := material.ProviderWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path := range reviewFilePathSet(workspace.Files()) {
+		if strings.Contains(path, ".gitignore") || strings.Contains(path, ".mulgaeignore") || strings.Contains(path, "excluded-") {
+			t.Fatalf("provider workspace retained control material %q", path)
+		}
+	}
+	archive, err := ports.MarshalCapturedReviewMaterial(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range [][]byte{[]byte(`"path":".gitignore"`), []byte(`"path":".mulgaeignore"`), []byte("changed control")} {
+		if bytes.Contains(archive, forbidden) {
+			t.Fatalf("captured archive retained control material %q", forbidden)
+		}
+	}
+}
+
+func TestReviewCaptureGitTargetsNeverTransmitControlFileChanges(t *testing.T) {
+	for _, target := range []ports.ReviewTargetSelectorKind{ports.ReviewTargetStage, ports.ReviewTargetDirty, ports.ReviewTargetDiff} {
+		t.Run(string(target), func(t *testing.T) {
+			root := reviewCaptureRepository(t)
+			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n")
+			reviewGit(t, root, "add", ".gitignore", ".mulgaeignore")
+			reviewGit(t, root, "commit", "-m", "Track controls")
+			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n# changed\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n# changed\n")
+			writeReviewFile(t, filepath.Join(root, "tracked.txt"), "reviewable change\n")
+
+			value := string(target)
+			switch target {
+			case ports.ReviewTargetStage:
+				reviewGit(t, root, "add", ".gitignore", ".mulgaeignore", "tracked.txt")
+			case ports.ReviewTargetDiff:
+				reviewGit(t, root, "add", ".gitignore", ".mulgaeignore", "tracked.txt")
+				reviewGit(t, root, "commit", "-m", "Change controls")
+				value = "HEAD~1..HEAD"
+			}
+			material := captureReviewMaterial(t, root, target, value)
+			patch := string(material.Target().Bytes())
+			if !strings.Contains(patch, "tracked.txt") || strings.Contains(patch, ".gitignore") || strings.Contains(patch, ".mulgaeignore") || strings.Contains(patch, "# changed") {
+				t.Fatalf("%s target patch = %q", target, patch)
+			}
+		})
+	}
+}
+
+func TestReviewCapturePatchAndStdinFilterControlAndIgnoredSections(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n")
+	patch := strings.Join([]string{
+		"diff --git a/.gitignore b/.gitignore", "--- a/.gitignore", "+++ b/.gitignore", "@@ -0,0 +1 @@", "+ignored.txt",
+		"diff --git a/.mulgaeignore b/.mulgaeignore", "--- a/.mulgaeignore", "+++ b/.mulgaeignore", "@@ -0,0 +1 @@", "+secret.txt",
+		"diff --git a/secret.txt b/secret.txt", "--- a/secret.txt", "+++ b/secret.txt", "@@ -0,0 +1 @@", "+secret",
+		"diff --git a/kept.txt b/kept.txt", "--- a/kept.txt", "+++ b/kept.txt", "@@ -0,0 +1 @@", "+kept",
+	}, "\n") + "\n"
+	writeReviewFile(t, filepath.Join(root, "review.patch"), patch)
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetPatch, "review.patch")
+	if got := string(material.Target().Bytes()); !strings.Contains(got, "kept.txt") || strings.Contains(got, ".gitignore") || strings.Contains(got, ".mulgaeignore") || strings.Contains(got, "secret.txt") {
+		t.Fatalf("filtered patch target = %q", got)
+	}
+
+	anchored, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewReviewTargetCapturer(NewExecRunner(), &oneShotStdin{bytes: []byte(patch)}, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinMaterial, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetStdin, "captured"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(stdinMaterial.Target().Bytes()); got != string(material.Target().Bytes()) {
+		t.Fatalf("stdin target = %q, patch target = %q", got, material.Target().Bytes())
+	}
+
+	controlOnly := "diff --git a/.gitignore b/.gitignore\n--- a/.gitignore\n+++ b/.gitignore\n@@ -0,0 +1 @@\n+ignored.txt\n"
+	writeReviewFile(t, filepath.Join(root, "control-only.patch"), controlOnly)
+	err = captureReviewError(t, root, ports.ReviewTargetPatch, "control-only.patch")
+	failure, ok := ports.ReviewCaptureFailureFromError(err)
+	if !ok || failure.Code() != ports.ReviewCaptureNoReviewableContent {
+		t.Fatalf("control-only patch failure = %#v, present=%t, err=%v", failure, ok, err)
+	}
+
+	for name, unsafePatch := range map[string]string{
+		"reserved namespace": "diff --git a/.mulgae/state.json b/.mulgae/state.json\n--- a/.mulgae/state.json\n+++ b/.mulgae/state.json\n@@ -0,0 +1 @@\n+unsafe\n",
+		"non-canonical path": "diff --git a/../.gitignore b/../.gitignore\n--- a/../.gitignore\n+++ b/../.gitignore\n@@ -0,0 +1 @@\n+unsafe\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeReviewFile(t, filepath.Join(root, "unsafe.patch"), unsafePatch)
+			if err := captureReviewError(t, root, ports.ReviewTargetPatch, "unsafe.patch"); err == nil {
+				t.Fatal("unsafe patch was accepted")
+			}
+		})
+	}
+}
+
 type rasterMutationRunner struct {
 	delegate    Runner
 	path        string
