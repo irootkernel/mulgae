@@ -1,5 +1,7 @@
 # Mulgae
 
+![Six seal reviewers independently inspect an immutable code snapshot and file separate reports in a local archive.](docs/assets/mulgae-hero.webp)
+
 Mulgae is a local, multi-provider AI code review CLI. It captures an immutable
 review target, asks role-specific reviewers to inspect it, publishes their
 free-form role reports, optionally validates structured findings and their
