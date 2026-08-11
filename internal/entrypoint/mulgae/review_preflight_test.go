@@ -14,7 +14,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v1.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +34,14 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 		"file set identity": func(result *ReviewPreflightResult) {
 			result.FileSets[0].ID = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		},
-		"budget total":  func(result *ReviewPreflightResult) { result.Budget.TotalInvocations++ },
-		"lane deadline": func(result *ReviewPreflightResult) { result.Budget.Lanes[0].Deadline = "31m" },
-		"route order":   func(result *ReviewPreflightResult) { result.Transmissions[0].RouteKind = "fallback" },
+		"budget total":       func(result *ReviewPreflightResult) { result.Budget.TotalInvocations++ },
+		"role path deadline": func(result *ReviewPreflightResult) { result.Budget.RolePaths[0].Deadline = "31m" },
+		"duplicate role path": func(result *ReviewPreflightResult) {
+			duplicate := result.Budget.RolePaths[0]
+			duplicate.ProviderInstance = "agy-logic"
+			result.Budget.RolePaths = append(result.Budget.RolePaths, duplicate)
+		},
+		"route order": func(result *ReviewPreflightResult) { result.Transmissions[0].RouteKind = "fallback" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var candidate ReviewPreflightResult
@@ -53,7 +58,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 
 func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v1.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +103,7 @@ func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	result.Budget.TotalOutputCapBytes = 0
 	result.Budget.CriticalPathDeadline = "0s"
 	result.Budget.RunDeadline = "0s"
-	result.Budget.Lanes = nil
+	result.Budget.RolePaths = nil
 	if err := result.Validate(); err != nil {
 		t.Fatalf("no-change result: %v", err)
 	}
@@ -193,7 +198,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v1.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

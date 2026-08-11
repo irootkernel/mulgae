@@ -15,7 +15,7 @@ import (
 const (
 	testProjectRoot         = "/work/project"
 	testRequestID           = "i_01234567-89ab-7cde-8f01-23456789abcd"
-	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
+	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
 	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -153,7 +153,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.SchemaID(); !present || got != testSchemaID {
 		t.Fatalf("schema show ID = %q, %t; want %q, true", got, present, testSchemaID)
 	}
-	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json","export_path":null,"output_format":"human"}`)
+	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v2.schema.json","export_path":null,"output_format":"human"}`)
 
 	export := mustParse(t, []string{"schema", "export", testSchemaID, "contracts/result.json", "--project-root", "/work/export", "--output", "human"})
 	request, ok = export.Schema()
@@ -163,7 +163,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.ExportPath(); !present || got != "contracts/result.json" {
 		t.Fatalf("schema export path = %q, %t; want contracts/result.json, true", got, present)
 	}
-	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v2.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
 }
 func TestParsePublicationQueryForms(t *testing.T) {
 	status := mustParse(t, []string{"status", "--run", testRunID, "--output", "json"})

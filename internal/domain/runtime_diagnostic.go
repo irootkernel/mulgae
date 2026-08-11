@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v1"
+const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v2"
 
 type RuntimeDiagnosticLevel string
 
@@ -39,14 +39,14 @@ const (
 	DiagnosticReviewPlanCreated             RuntimeDiagnosticEventCode = "review_plan_created"
 	DiagnosticAssignmentResolved            RuntimeDiagnosticEventCode = "assignment_resolved"
 	DiagnosticRunBudgetAccepted             RuntimeDiagnosticEventCode = "run_budget_accepted"
-	DiagnosticLaneScheduled                 RuntimeDiagnosticEventCode = "lane_scheduled"
-	DiagnosticLaneStarted                   RuntimeDiagnosticEventCode = "lane_started"
+	DiagnosticRolePathScheduled             RuntimeDiagnosticEventCode = "role_path_scheduled"
+	DiagnosticRolePathStarted               RuntimeDiagnosticEventCode = "role_path_started"
 	DiagnosticAttemptCreated                RuntimeDiagnosticEventCode = "attempt_created"
 	DiagnosticAttemptStarted                RuntimeDiagnosticEventCode = "attempt_started"
 	DiagnosticAttemptCompleted              RuntimeDiagnosticEventCode = "attempt_completed"
 	DiagnosticAttemptFailed                 RuntimeDiagnosticEventCode = "attempt_failed"
-	DiagnosticLaneCompleted                 RuntimeDiagnosticEventCode = "lane_completed"
-	DiagnosticLaneCancelled                 RuntimeDiagnosticEventCode = "lane_cancelled"
+	DiagnosticRolePathCompleted             RuntimeDiagnosticEventCode = "role_path_completed"
+	DiagnosticRolePathCancelled             RuntimeDiagnosticEventCode = "role_path_cancelled"
 	DiagnosticInvocationPrepared            RuntimeDiagnosticEventCode = "provider_invocation_prepared"
 	DiagnosticSpawnRevalidated              RuntimeDiagnosticEventCode = "provider_spawn_revalidated"
 	DiagnosticProcessStarted                RuntimeDiagnosticEventCode = "provider_process_started"
@@ -90,9 +90,9 @@ var runtimeDiagnosticMessages = map[RuntimeDiagnosticEventCode]string{
 	DiagnosticQualificationStarted: "qualification started", DiagnosticQualificationCandidateChecked: "qualification candidate checked",
 	DiagnosticQualificationSucceeded: "qualification succeeded", DiagnosticQualificationRejected: "qualification rejected",
 	DiagnosticReviewPlanCreated: "review plan created", DiagnosticAssignmentResolved: "assignment resolved", DiagnosticRunBudgetAccepted: "run budget accepted",
-	DiagnosticLaneScheduled: "lane scheduled", DiagnosticLaneStarted: "lane started", DiagnosticAttemptCreated: "attempt created",
+	DiagnosticRolePathScheduled: "role path scheduled", DiagnosticRolePathStarted: "role path started", DiagnosticAttemptCreated: "attempt created",
 	DiagnosticAttemptStarted: "attempt started", DiagnosticAttemptCompleted: "attempt completed", DiagnosticAttemptFailed: "attempt failed",
-	DiagnosticLaneCompleted: "lane completed", DiagnosticLaneCancelled: "lane cancelled", DiagnosticInvocationPrepared: "provider invocation prepared",
+	DiagnosticRolePathCompleted: "role path completed", DiagnosticRolePathCancelled: "role path cancelled", DiagnosticInvocationPrepared: "provider invocation prepared",
 	DiagnosticSpawnRevalidated: "provider spawn revalidated", DiagnosticProcessStarted: "provider process started", DiagnosticIOObserved: "provider I/O observed",
 	DiagnosticProcessExited: "provider process exited", DiagnosticProcessTimedOut: "provider process timed out", DiagnosticProcessCancelled: "provider process cancelled",
 	DiagnosticProcessTerminated: "provider process terminated", DiagnosticOutputReceived: "provider output received", DiagnosticOutputParseStarted: "provider output parse started",

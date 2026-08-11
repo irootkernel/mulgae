@@ -668,7 +668,7 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforePeerCancellation(t *t
 					if input.Failure == string(test.condition) && failureIndex < 0 {
 						failureIndex = index
 					}
-				case domain.DiagnosticLaneCancelled:
+				case domain.DiagnosticRolePathCancelled:
 					if cancellationIndex < 0 {
 						cancellationIndex = index
 					}

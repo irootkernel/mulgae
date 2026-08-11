@@ -1762,7 +1762,7 @@ func intendedProvider(value string) bool {
 
 func validHelpTopic(value string) bool {
 	switch value {
-	case "quickstart", "config", "providers", "lanes", "prompts",
+	case "quickstart", "config", "providers", "role-paths", "prompts",
 		"workflows", "artifacts", "validation", "ci", "exit-codes", "security":
 		return true
 	default:

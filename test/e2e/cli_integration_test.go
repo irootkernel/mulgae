@@ -65,7 +65,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 	t.Run("authoritative help", func(t *testing.T) {
 		catalog := builtin.NewCatalog()
 		for _, topic := range []string{
-			"quickstart", "config", "providers", "lanes", "prompts",
+			"quickstart", "config", "providers", "role-paths", "prompts",
 			"workflows", "artifacts", "validation", "ci", "exit-codes", "security",
 		} {
 			t.Run(topic, func(t *testing.T) {
@@ -723,17 +723,17 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		t.Fatalf("read AGY runtime diagnostic status: %v", err)
 	}
 	var diagnosticStatus struct {
-		State         domain.RunState `json:"state"`
-		LaneTotal     int             `json:"lane_total"`
-		LaneCompleted int             `json:"lane_completed"`
-		LaneFailed    int             `json:"lane_failed"`
-		P2URI         string          `json:"p2_uri"`
+		State             domain.RunState `json:"state"`
+		RolePathTotal     int             `json:"role_path_total"`
+		RolePathCompleted int             `json:"role_path_completed"`
+		RolePathFailed    int             `json:"role_path_failed"`
+		P2URI             string          `json:"p2_uri"`
 	}
 	if err := json.Unmarshal(statusBytes, &diagnosticStatus); err != nil {
 		t.Fatalf("decode AGY runtime diagnostic status: %v", err)
 	}
-	if diagnosticStatus.State != domain.RunCompleted || diagnosticStatus.LaneTotal != 2 || diagnosticStatus.LaneCompleted != 2 || diagnosticStatus.LaneFailed != 0 || diagnosticStatus.P2URI != *reviewEnvelope.Result.RunManifestURI {
-		t.Fatalf("AGY runtime diagnostic status = %#v, want completed 2/2 lanes linked to %q", diagnosticStatus, *reviewEnvelope.Result.RunManifestURI)
+	if diagnosticStatus.State != domain.RunCompleted || diagnosticStatus.RolePathTotal != 2 || diagnosticStatus.RolePathCompleted != 2 || diagnosticStatus.RolePathFailed != 0 || diagnosticStatus.P2URI != *reviewEnvelope.Result.RunManifestURI {
+		t.Fatalf("AGY runtime diagnostic status = %#v, want completed 2/2 role paths linked to %q", diagnosticStatus, *reviewEnvelope.Result.RunManifestURI)
 	}
 	rawStreams, err := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", *reviewEnvelope.Result.SessionID, *reviewEnvelope.Result.RunID, "attempts", "a_*", "invocations", "*", "*.raw"))
 	if err != nil || len(rawStreams) != 0 {
@@ -911,17 +911,17 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 		t.Fatal(err)
 	}
 	var diagnostic struct {
-		State         domain.RunState `json:"state"`
-		LaneTotal     int             `json:"lane_total"`
-		LaneCompleted int             `json:"lane_completed"`
-		LaneFailed    int             `json:"lane_failed"`
-		P2URI         string          `json:"p2_uri"`
+		State             domain.RunState `json:"state"`
+		RolePathTotal     int             `json:"role_path_total"`
+		RolePathCompleted int             `json:"role_path_completed"`
+		RolePathFailed    int             `json:"role_path_failed"`
+		P2URI             string          `json:"p2_uri"`
 	}
 	if err := json.Unmarshal(diagnosticBytes, &diagnostic); err != nil {
 		t.Fatal(err)
 	}
-	if diagnostic.State != domain.RunCompleted || diagnostic.LaneTotal != 6 || diagnostic.LaneCompleted != 6 ||
-		diagnostic.LaneFailed != 0 || diagnostic.P2URI != *envelope.Result.RunManifestURI {
+	if diagnostic.State != domain.RunCompleted || diagnostic.RolePathTotal != 6 || diagnostic.RolePathCompleted != 6 ||
+		diagnostic.RolePathFailed != 0 || diagnostic.P2URI != *envelope.Result.RunManifestURI {
 		t.Fatalf("six-role diagnostic status = %#v", diagnostic)
 	}
 
@@ -1250,15 +1250,15 @@ func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
 				t.Fatal(err)
 			}
 			var status struct {
-				State         domain.RunState `json:"state"`
-				LaneCompleted int             `json:"lane_completed"`
-				LaneFailed    int             `json:"lane_failed"`
-				P2URI         string          `json:"p2_uri"`
+				State             domain.RunState `json:"state"`
+				RolePathCompleted int             `json:"role_path_completed"`
+				RolePathFailed    int             `json:"role_path_failed"`
+				P2URI             string          `json:"p2_uri"`
 			}
 			if err := json.Unmarshal(statusBytes, &status); err != nil {
 				t.Fatal(err)
 			}
-			if status.State == domain.RunCompleted || status.LaneCompleted != 0 || status.LaneFailed != 1 || status.P2URI != "" {
+			if status.State == domain.RunCompleted || status.RolePathCompleted != 0 || status.RolePathFailed != 1 || status.P2URI != "" {
 				t.Fatalf("staging violation diagnostic status = %#v", status)
 			}
 			launches := fakeZCodeReviewObservations(t, zcodeLog)
@@ -1448,19 +1448,19 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if firstResult.AGYPermissionMode != "safe" || !slices.Equal(gotRoutes, wantRoutes) {
 		t.Fatalf("preflight routes = mode %q %v, want %v", firstResult.AGYPermissionMode, gotRoutes, wantRoutes)
 	}
-	// One lane per role, each carrying its provider call plus its one repair.
-	wantLanes := []mulgaeentry.ReviewPreflightLaneDeadline{
-		{ConcurrencyKey: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
-		{ConcurrencyKey: "zcode-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
-		{ConcurrencyKey: "zcode-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
+	// One path per role, each carrying its provider call plus its one repair.
+	wantRolePaths := []mulgaeentry.ReviewPreflightRolePath{
+		{Role: "logic", ProviderInstance: "zcode-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
+		{Role: "security", ProviderInstance: "zcode-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
+		{Role: "artist", ProviderInstance: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
 	}
-	// Three roles at two invocations each: six invocations and three lanes. The
+	// Three roles at two invocations each: six invocations and three role paths. The
 	// critical path is one role's provider call plus its repair and transition.
 	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 6 ||
 		budget.TotalOutputCapBytes != 3<<20 || budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
-		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.LaneDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
+		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.RolePathDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
 		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 || budget.Ceilings.MaxTotalOutputBytes != 64<<20 ||
-		!reflect.DeepEqual(budget.Lanes, wantLanes) {
+		!reflect.DeepEqual(budget.RolePaths, wantRolePaths) {
 		t.Fatalf("preflight budget = %#v, want exact first-project capacity envelope", budget)
 	}
 	wantPNGHash := sha256.Sum256(pngBytes)
@@ -1638,7 +1638,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		t.Fatalf("no-change preflight = exit %d stdout=%q stderr=%q", noChange.exitCode, noChange.stdout, noChange.stderr)
 	}
 	noChangeResult := decode(noChange.stdout)
-	if noChangeResult.Status != "no_change" || len(noChangeResult.Transmissions) != 0 || noChangeResult.Budget.TotalInvocations != 0 || len(noChangeResult.Budget.Lanes) != 0 {
+	if noChangeResult.Status != "no_change" || len(noChangeResult.Transmissions) != 0 || noChangeResult.Budget.TotalInvocations != 0 || len(noChangeResult.Budget.RolePaths) != 0 {
 		t.Fatalf("no-change projection = %#v", noChangeResult)
 	}
 	if got := snapshotTestTree(t, tempRoot); !reflect.DeepEqual(got, beforeTemp) {

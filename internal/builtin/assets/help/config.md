@@ -42,7 +42,7 @@ providers:
 effective timeout. Provenance reports the field as `defaulted` when omitted and
 `configured` when a non-default value is present.
 `mulgae review --stage --preflight --output json` reports the same effective
-timeout on each projected role transmission and proves that the derived lane and
+timeout on each projected role transmission and proves that the derived role-path and
 run budgets can accommodate them, without launching providers.
 
 AGY's effective `permission_mode` defaults to `safe` for workspace-first

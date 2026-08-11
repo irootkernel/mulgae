@@ -17,7 +17,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v1"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v2"
 
 // ReviewPreflightService projects the exact capture and configured execution
 // envelope without provider discovery, qualification, invocation, or durable
@@ -81,28 +81,29 @@ type ReviewPreflightTransmission struct {
 }
 
 type ReviewPreflightBudget struct {
-	Eligible             bool                          `json:"eligible"`
-	ReasonCode           string                        `json:"reason_code"`
-	MaxActiveLanes       int                           `json:"max_active_lanes"`
-	TotalInvocations     int                           `json:"total_invocations"`
-	TotalOutputCapBytes  int64                         `json:"total_output_cap_bytes"`
-	CriticalPathDeadline string                        `json:"critical_path_deadline"`
-	RunDeadline          string                        `json:"run_deadline"`
-	Ceilings             ReviewPreflightCeilings       `json:"ceilings"`
-	Lanes                []ReviewPreflightLaneDeadline `json:"lanes"`
+	Eligible             bool                      `json:"eligible"`
+	ReasonCode           string                    `json:"reason_code"`
+	MaxActiveLanes       int                       `json:"max_active_lanes"`
+	TotalInvocations     int                       `json:"total_invocations"`
+	TotalOutputCapBytes  int64                     `json:"total_output_cap_bytes"`
+	CriticalPathDeadline string                    `json:"critical_path_deadline"`
+	RunDeadline          string                    `json:"run_deadline"`
+	Ceilings             ReviewPreflightCeilings   `json:"ceilings"`
+	RolePaths            []ReviewPreflightRolePath `json:"role_paths"`
 }
 
 type ReviewPreflightCeilings struct {
 	ProviderTimeout       string `json:"provider_timeout"`
-	LaneDeadline          string `json:"lane_deadline"`
+	RolePathDeadline      string `json:"role_path_deadline"`
 	RunDeadline           string `json:"run_deadline"`
 	MaxInvocationsPerRole int    `json:"max_invocations_per_role"`
 	MaxInvocationsPerRun  int    `json:"max_invocations_per_run"`
 	MaxTotalOutputBytes   int64  `json:"max_total_output_bytes"`
 }
 
-type ReviewPreflightLaneDeadline struct {
-	ConcurrencyKey     string `json:"concurrency_key"`
+type ReviewPreflightRolePath struct {
+	Role               string `json:"role"`
+	ProviderInstance   string `json:"provider_instance"`
 	InvocationCount    int    `json:"invocation_count"`
 	TransitionCount    int    `json:"transition_count"`
 	InvocationTimeouts string `json:"invocation_timeouts"`
@@ -191,13 +192,13 @@ func NewReviewPreflightResult(
 		}
 	}
 	ceilings := budgetReceipt.Ceilings()
-	lanes := budgetReceipt.LaneDeadlines()
-	laneRows := make([]ReviewPreflightLaneDeadline, len(lanes))
-	for index, lane := range lanes {
-		laneRows[index] = ReviewPreflightLaneDeadline{
-			ConcurrencyKey: lane.ConcurrencyKey().String(), InvocationCount: lane.InvocationCount(),
-			TransitionCount: lane.TransitionCount(), InvocationTimeouts: lane.InvocationTimeouts().String(),
-			Deadline: lane.Deadline().String(),
+	paths := budgetReceipt.RolePathDeadlines()
+	pathRows := make([]ReviewPreflightRolePath, len(paths))
+	for index, path := range paths {
+		pathRows[index] = ReviewPreflightRolePath{
+			Role: string(path.Role()), ProviderInstance: path.ProviderInstance(), InvocationCount: path.InvocationCount(),
+			TransitionCount: path.TransitionCount(), InvocationTimeouts: path.InvocationTimeouts().String(),
+			Deadline: path.Deadline().String(),
 		}
 	}
 	warnings := []string{}
@@ -212,7 +213,7 @@ func NewReviewPreflightResult(
 	if material.Target().NoChange() {
 		status, reasonCode = "no_change", "no_change"
 		maxActiveLanes, totalInvocations, totalOutput = 0, 0, 0
-		criticalPath, runDeadline, laneRows = "0s", "0s", []ReviewPreflightLaneDeadline{}
+		criticalPath, runDeadline, pathRows = "0s", "0s", []ReviewPreflightRolePath{}
 	}
 	result := ReviewPreflightResult{
 		SchemaVersion: reviewPreflightSchemaVersion,
@@ -236,11 +237,11 @@ func NewReviewPreflightResult(
 			TotalInvocations: totalInvocations, TotalOutputCapBytes: totalOutput,
 			CriticalPathDeadline: criticalPath, RunDeadline: runDeadline,
 			Ceilings: ReviewPreflightCeilings{
-				ProviderTimeout: appconfig.ProviderTimeoutText(ceilings.MaxTimeout()), LaneDeadline: ceilings.MaxLaneDeadline().String(),
+				ProviderTimeout: appconfig.ProviderTimeoutText(ceilings.MaxTimeout()), RolePathDeadline: ceilings.MaxRolePathDeadline().String(),
 				RunDeadline: ceilings.MaxRunDeadline().String(), MaxInvocationsPerRole: ceilings.MaxInvocationsPerRole(),
 				MaxInvocationsPerRun: ceilings.MaxInvocationsPerRun(), MaxTotalOutputBytes: ceilings.MaxTotalOutput(),
 			},
-			Lanes: laneRows,
+			RolePaths: pathRows,
 		},
 	}
 	return result, nil
@@ -365,9 +366,9 @@ func validatePreflightBudgetProjection(transmissions []ReviewPreflightTransmissi
 	if err != nil {
 		return fmt.Errorf("review preflight: invalid provider ceiling")
 	}
-	laneDeadline, err := time.ParseDuration(projected.Ceilings.LaneDeadline)
+	rolePathDeadline, err := time.ParseDuration(projected.Ceilings.RolePathDeadline)
 	if err != nil {
-		return fmt.Errorf("review preflight: invalid lane ceiling")
+		return fmt.Errorf("review preflight: invalid role path ceiling")
 	}
 	runDeadline, err := time.ParseDuration(projected.Ceilings.RunDeadline)
 	if err != nil {
@@ -375,7 +376,7 @@ func validatePreflightBudgetProjection(transmissions []ReviewPreflightTransmissi
 	}
 	ceilings, err := review.NewHarnessCeilings(
 		providerTimeout, 256<<10, 256<<10, projected.Ceilings.MaxTotalOutputBytes,
-		laneDeadline, runDeadline, projected.Ceilings.MaxInvocationsPerRole, projected.Ceilings.MaxInvocationsPerRun,
+		rolePathDeadline, runDeadline, projected.Ceilings.MaxInvocationsPerRole, projected.Ceilings.MaxInvocationsPerRun,
 	)
 	if err != nil {
 		return fmt.Errorf("review preflight: invalid reconstructed ceilings: %w", err)
@@ -389,15 +390,15 @@ func validatePreflightBudgetProjection(transmissions []ReviewPreflightTransmissi
 		projected.RunDeadline != receipt.RunDeadline().String() {
 		return fmt.Errorf("review preflight: budget projection mismatch")
 	}
-	lanes := receipt.LaneDeadlines()
-	if len(lanes) != len(projected.Lanes) {
-		return fmt.Errorf("review preflight: lane projection mismatch")
+	paths := receipt.RolePathDeadlines()
+	if len(paths) != len(projected.RolePaths) {
+		return fmt.Errorf("review preflight: role path projection mismatch")
 	}
-	for index, lane := range lanes {
-		row := projected.Lanes[index]
-		if row.ConcurrencyKey != lane.ConcurrencyKey().String() || row.InvocationCount != lane.InvocationCount() ||
-			row.TransitionCount != lane.TransitionCount() || row.InvocationTimeouts != lane.InvocationTimeouts().String() || row.Deadline != lane.Deadline().String() {
-			return fmt.Errorf("review preflight: lane projection mismatch: got %#v want %s/%d/%d/%s/%s", row, lane.ConcurrencyKey(), lane.InvocationCount(), lane.TransitionCount(), lane.InvocationTimeouts(), lane.Deadline())
+	for index, path := range paths {
+		row := projected.RolePaths[index]
+		if row.Role != string(path.Role()) || row.ProviderInstance != path.ProviderInstance() || row.InvocationCount != path.InvocationCount() ||
+			row.TransitionCount != path.TransitionCount() || row.InvocationTimeouts != path.InvocationTimeouts().String() || row.Deadline != path.Deadline().String() {
+			return fmt.Errorf("review preflight: role path projection mismatch: got %#v want %s/%s/%d/%d/%s/%s", row, path.Role(), path.ProviderInstance(), path.InvocationCount(), path.TransitionCount(), path.InvocationTimeouts(), path.Deadline())
 		}
 	}
 	return nil
@@ -442,7 +443,7 @@ func validPreflightTarget(target ReviewPreflightTarget) bool {
 }
 
 func validatePreflightBudget(budget ReviewPreflightBudget, status string) error {
-	for _, value := range []string{budget.CriticalPathDeadline, budget.RunDeadline, budget.Ceilings.LaneDeadline, budget.Ceilings.RunDeadline} {
+	for _, value := range []string{budget.CriticalPathDeadline, budget.RunDeadline, budget.Ceilings.RolePathDeadline, budget.Ceilings.RunDeadline} {
 		if duration, err := time.ParseDuration(value); err != nil || duration < 0 {
 			return fmt.Errorf("review preflight: invalid budget duration")
 		}
@@ -454,7 +455,7 @@ func validatePreflightBudget(budget ReviewPreflightBudget, status string) error 
 		return fmt.Errorf("review preflight: invalid ceilings")
 	}
 	if status == "no_change" {
-		if budget.ReasonCode != "no_change" || budget.MaxActiveLanes != 0 || budget.TotalInvocations != 0 || budget.TotalOutputCapBytes != 0 || len(budget.Lanes) != 0 {
+		if budget.ReasonCode != "no_change" || budget.MaxActiveLanes != 0 || budget.TotalInvocations != 0 || budget.TotalOutputCapBytes != 0 || len(budget.RolePaths) != 0 {
 			return fmt.Errorf("review preflight: invalid no-change budget")
 		}
 		return nil
@@ -462,17 +463,26 @@ func validatePreflightBudget(budget ReviewPreflightBudget, status string) error 
 	if budget.ReasonCode != string(review.BudgetReasonEligible) || budget.MaxActiveLanes < 1 || budget.TotalInvocations < 1 || budget.TotalOutputCapBytes < 1 {
 		return fmt.Errorf("review preflight: invalid eligible budget")
 	}
-	previous := ""
-	for _, lane := range budget.Lanes {
-		if lane.ConcurrencyKey <= previous || lane.InvocationCount < 1 || lane.TransitionCount < 0 {
-			return fmt.Errorf("review preflight: invalid lane")
+	if len(budget.RolePaths) > len(domain.FixedRoleOrder()) {
+		return fmt.Errorf("review preflight: too many role paths")
+	}
+	previousRole := -1
+	seenRoles := make(map[string]struct{}, len(budget.RolePaths))
+	for _, path := range budget.RolePaths {
+		ordinal := preflightRoleOrdinal(domain.Role(path.Role))
+		if ordinal <= previousRole || path.ProviderInstance == "" || path.InvocationCount < 1 || path.InvocationCount > 2 || path.TransitionCount < 0 || path.TransitionCount > 1 {
+			return fmt.Errorf("review preflight: invalid role path")
 		}
-		for _, value := range []string{lane.InvocationTimeouts, lane.Deadline} {
+		if _, duplicate := seenRoles[path.Role]; duplicate {
+			return fmt.Errorf("review preflight: duplicate role path")
+		}
+		seenRoles[path.Role] = struct{}{}
+		for _, value := range []string{path.InvocationTimeouts, path.Deadline} {
 			if duration, err := time.ParseDuration(value); err != nil || duration <= 0 {
-				return fmt.Errorf("review preflight: invalid lane duration")
+				return fmt.Errorf("review preflight: invalid role path duration")
 			}
 		}
-		previous = lane.ConcurrencyKey
+		previousRole = ordinal
 	}
 	return nil
 }
@@ -546,12 +556,12 @@ func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {
 	fmt.Fprintf(&output, "budget: %s invocations=%d output=%d critical_path=%s run_deadline=%s max_active_lanes=%d\n",
 		result.Budget.ReasonCode, result.Budget.TotalInvocations, result.Budget.TotalOutputCapBytes,
 		result.Budget.CriticalPathDeadline, result.Budget.RunDeadline, result.Budget.MaxActiveLanes)
-	fmt.Fprintf(&output, "ceilings: provider_timeout=%s lane_deadline=%s run_deadline=%s role_invocations=%d run_invocations=%d output=%d\n",
-		result.Budget.Ceilings.ProviderTimeout, result.Budget.Ceilings.LaneDeadline, result.Budget.Ceilings.RunDeadline,
+	fmt.Fprintf(&output, "ceilings: provider_timeout=%s role_path_deadline=%s run_deadline=%s role_invocations=%d run_invocations=%d output=%d\n",
+		result.Budget.Ceilings.ProviderTimeout, result.Budget.Ceilings.RolePathDeadline, result.Budget.Ceilings.RunDeadline,
 		result.Budget.Ceilings.MaxInvocationsPerRole, result.Budget.Ceilings.MaxInvocationsPerRun, result.Budget.Ceilings.MaxTotalOutputBytes)
-	for _, lane := range result.Budget.Lanes {
-		fmt.Fprintf(&output, "lane: %s invocations=%d transitions=%d provider_time=%s deadline=%s\n",
-			lane.ConcurrencyKey, lane.InvocationCount, lane.TransitionCount, lane.InvocationTimeouts, lane.Deadline)
+	for _, path := range result.Budget.RolePaths {
+		fmt.Fprintf(&output, "role path: %s provider=%s invocations=%d transitions=%d provider_time=%s deadline=%s\n",
+			path.Role, path.ProviderInstance, path.InvocationCount, path.TransitionCount, path.InvocationTimeouts, path.Deadline)
 	}
 	return []byte(strings.TrimSuffix(output.String(), "\n"))
 }

@@ -122,7 +122,7 @@ Preflight uses the complete immutable capture path but does not discover, qualif
 invoke providers and does not create a session, run, diagnostic, or publication.
 It reports `qualification: not_run`, the exact source files sent to each role,
 PNG/JPEG/WebP binary metadata, each role's provider route, effective timeouts,
-AGY's permission mode, and enclosing lane/run budgets. The generated workspace
+AGY's permission mode, and enclosing role-path/run budgets. The generated workspace
 manifest is declared separately as `generated_at_execution`. AGY safe mode is
 explicitly warned because headless permission requests may be denied.
 
@@ -271,7 +271,7 @@ mulgae help artifacts
 mulgae help security
 ```
 
-Available topics are `quickstart`, `config`, `providers`, `lanes`, `prompts`,
+Available topics are `quickstart`, `config`, `providers`, `role-paths`, `prompts`,
 `workflows`, `artifacts`, `validation`, `ci`, `exit-codes`, and `security`.
 
 ## Documentation

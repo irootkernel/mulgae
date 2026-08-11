@@ -672,7 +672,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 	timeout, stdout, stderr := defaults.MaxTimeout(), defaults.MaxStdoutBytes(), defaults.MaxStderrBytes()
 	ceilings, err := review.NewHarnessCeilings(
 		timeout, stdout, stderr, resolved.RunTotalOutputCapBytes(),
-		defaults.MaxLaneDeadline(), defaults.MaxRunDeadline(),
+		defaults.MaxRolePathDeadline(), defaults.MaxRunDeadline(),
 		resolved.RoleMaxInvocations(), resolved.RunMaxInvocations(),
 	)
 	if err != nil {

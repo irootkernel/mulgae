@@ -123,7 +123,7 @@ func TestRuntimeDiagnosticStatusesValidateHierarchyAndDefensivelyCopy(t *testing
 	roles := []domain.Role{domain.RoleSecurity, domain.RoleLogic}
 	started := request.StartedAt()
 	updated := started.Add(time.Second)
-	status, err := NewRuntimeDiagnosticRunStatus(RuntimeDiagnosticRunStatusInput{SessionID: request.SessionID(), RunID: request.RunID(), State: domain.RunRunning, StartedAt: started, UpdatedAt: updated, SelectedRoles: roles, LaneTotal: 2, LastSequence: 3})
+	status, err := NewRuntimeDiagnosticRunStatus(RuntimeDiagnosticRunStatusInput{SessionID: request.SessionID(), RunID: request.RunID(), State: domain.RunRunning, StartedAt: started, UpdatedAt: updated, SelectedRoles: roles, RolePathTotal: 2, LastSequence: 3})
 	if err != nil {
 		t.Fatal(err)
 	}

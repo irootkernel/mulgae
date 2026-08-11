@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json",
-  "title": "Mulgae Command Result v1",
+  "$id": "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json",
+  "title": "Mulgae Command Result v2",
   "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
   "type": "object",
   "additionalProperties": false,
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-command-result.v1"
+      "const": "mulgae-command-result.v2"
     },
     "command": {
       "$ref": "#/$defs/command"
@@ -3015,7 +3015,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema_version","status","qualification","target","agy_permission_mode","warnings","file_sets","generated_files","transmissions","budget"],
       "properties": {
-        "schema_version": { "const": "mulgae-review-preflight.v1" },
+        "schema_version": { "const": "mulgae-review-preflight.v2" },
         "status": { "enum": ["eligible","no_change"] },
         "qualification": { "const": "not_run" },
         "target": {
@@ -3078,30 +3078,39 @@
         },
         "budget": {
           "type":"object","additionalProperties":false,
-          "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","lanes"],
+          "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","role_paths"],
           "properties": {
             "eligible":{"const":true},"reason_code":{"enum":["eligible","no_change"]},
-            "max_active_lanes":{"type":"integer","minimum":0,"maximum":28},
-            "total_invocations":{"type":"integer","minimum":0,"maximum":28},
+            "max_active_lanes":{"type":"integer","minimum":0,"maximum":64},
+            "total_invocations":{"type":"integer","minimum":0,"maximum":14},
             "total_output_cap_bytes":{"type":"integer","minimum":0,"maximum":67108864},
             "critical_path_deadline":{"$ref":"#/$defs/review_preflight_duration"},
             "run_deadline":{"$ref":"#/$defs/review_preflight_duration"},
             "ceilings": {
               "type":"object","additionalProperties":false,
-              "required":["provider_timeout","lane_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
+              "required":["provider_timeout","role_path_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
               "properties": {
-                "provider_timeout":{"$ref":"#/$defs/review_preflight_duration"},"lane_deadline":{"$ref":"#/$defs/review_preflight_duration"},"run_deadline":{"$ref":"#/$defs/review_preflight_duration"},
-                "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":4},"max_invocations_per_run":{"type":"integer","minimum":1,"maximum":28},
+                "provider_timeout":{"$ref":"#/$defs/review_preflight_duration"},"role_path_deadline":{"$ref":"#/$defs/review_preflight_duration"},"run_deadline":{"$ref":"#/$defs/review_preflight_duration"},
+                "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":2},"max_invocations_per_run":{"type":"integer","minimum":1,"maximum":14},
                 "max_total_output_bytes":{"type":"integer","minimum":1,"maximum":67108864}
               }
             },
-            "lanes": {
-              "type":"array","maxItems":14,
+            "role_paths": {
+              "type":"array","maxItems":7,"uniqueItems":true,
+              "allOf":[
+                {"contains":{"type":"object","properties":{"role":{"const":"logic"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"security"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"maintainability"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"product"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"documentation"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"testing"}},"required":["role"]},"minContains":0,"maxContains":1},
+                {"contains":{"type":"object","properties":{"role":{"const":"artist"}},"required":["role"]},"minContains":0,"maxContains":1}
+              ],
               "items": {
-                "type":"object","additionalProperties":false,"required":["concurrency_key","invocation_count","transition_count","invocation_timeouts","deadline"],
+                "type":"object","additionalProperties":false,"required":["role","provider_instance","invocation_count","transition_count","invocation_timeouts","deadline"],
                 "properties": {
-                  "concurrency_key":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},"invocation_count":{"type":"integer","minimum":1,"maximum":28},
-                  "transition_count":{"type":"integer","minimum":0,"maximum":27},"invocation_timeouts":{"$ref":"#/$defs/review_preflight_duration"},"deadline":{"$ref":"#/$defs/review_preflight_duration"}
+                  "role":{"$ref":"#/$defs/role"},"provider_instance":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},"invocation_count":{"type":"integer","minimum":1,"maximum":2},
+                  "transition_count":{"type":"integer","minimum":0,"maximum":1},"invocation_timeouts":{"$ref":"#/$defs/review_preflight_duration"},"deadline":{"$ref":"#/$defs/review_preflight_duration"}
                 }
               }
             }
@@ -3362,7 +3371,7 @@
         "properties": {
           "request_id": { "$ref": "#/$defs/request_id" },
           "command": { "const": "help" },
-          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "role-paths", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       }
@@ -3474,7 +3483,7 @@
             "required": ["kind", "schema_version", "eligible"],
             "properties": {
               "kind": { "const": "review_preflight_failed" },
-              "schema_version": { "const": "mulgae-review-preflight.v1" },
+              "schema_version": { "const": "mulgae-review-preflight.v2" },
               "eligible": { "const": false }
             }
           }
@@ -3639,9 +3648,9 @@
             "items": { "type": "string", "enum": ["logic", "security", "maintainability", "product", "documentation", "testing", "artist"] },
             "uniqueItems": true
           },
-          "lane_total": { "type": "integer", "minimum": 0 },
-          "lane_completed": { "type": "integer", "minimum": 0 },
-          "lane_failed": { "type": "integer", "minimum": 0 },
+          "role_path_total": { "type": "integer", "minimum": 0 },
+          "role_path_completed": { "type": "integer", "minimum": 0 },
+          "role_path_failed": { "type": "integer", "minimum": 0 },
           "last_seq": { "type": "integer", "minimum": 0 },
           "terminal_cause": { "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9_]+$" },
           "terminal_phase": {
@@ -3665,7 +3674,7 @@
         },
         "oneOf": [
           {
-            "required": ["session_id", "started_at", "updated_at", "completed_at", "selected_roles", "lane_total", "lane_completed", "lane_failed", "last_seq", "terminal_cause", "terminal_phase", "dropped_events", "diagnostic_only", "publication_authority"],
+            "required": ["session_id", "started_at", "updated_at", "completed_at", "selected_roles", "role_path_total", "role_path_completed", "role_path_failed", "last_seq", "terminal_cause", "terminal_phase", "dropped_events", "diagnostic_only", "publication_authority"],
             "properties": {
               "kind": { "const": "diagnostic_status_read" },
               "run_state": { "type": "string" },
@@ -3893,7 +3902,7 @@
         "required": ["kind", "topic", "rendered"],
         "properties": {
           "kind": { "const": "help_rendered" },
-          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "lanes", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
+          "topic": { "type": "string", "enum": ["quickstart", "config", "providers", "role-paths", "prompts", "workflows", "artifacts", "validation", "ci", "exit-codes", "security"] },
           "rendered": { "type": "boolean" }
         }
       }

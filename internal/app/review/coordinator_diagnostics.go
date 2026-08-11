@@ -84,13 +84,13 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRunStarted, string(domain.RunRunning), "")}
 	case CoordinatorEventAttemptQueued:
 		inputs := []domain.RuntimeDiagnosticEventInput{
-			add(domain.RuntimeDiagnosticInfo, domain.DiagnosticLaneScheduled, string(domain.AttemptQueued), ""),
+			add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRolePathScheduled, string(domain.AttemptQueued), ""),
 			add(domain.RuntimeDiagnosticInfo, domain.DiagnosticAttemptCreated, string(domain.AttemptQueued), ""),
 			add(domain.RuntimeDiagnosticInfo, domain.DiagnosticAttemptStarted, string(domain.AttemptRunning), ""),
 		}
 		return inputs
 	case CoordinatorEventInvocationDispatched:
-		inputs := []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticLaneStarted, string(domain.InvocationRunning), "")}
+		inputs := []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRolePathStarted, string(domain.InvocationRunning), "")}
 		if trace.purpose == domain.InvocationRepair {
 			inputs = append(inputs, add(domain.RuntimeDiagnosticWarn, domain.DiagnosticRepairStarted, string(domain.AttemptRepairing), ""))
 		}
@@ -119,10 +119,10 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 		if roleEvent == domain.DiagnosticRoleCompleted {
 			roleLevel = domain.RuntimeDiagnosticInfo
 		}
-		inputs = append(inputs, add(roleLevel, roleEvent, "", string(trace.condition)), add(domain.RuntimeDiagnosticInfo, domain.DiagnosticLaneCompleted, "", string(trace.condition)))
+		inputs = append(inputs, add(roleLevel, roleEvent, "", string(trace.condition)), add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRolePathCompleted, "", string(trace.condition)))
 		return inputs
 	case CoordinatorEventCancellationRequested:
-		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticLaneCancelled, "", string(trace.condition))}
+		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRolePathCancelled, "", string(trace.condition))}
 	case CoordinatorEventLanesCloseAuthorized:
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticReductionStarted, "", "")}
 	case CoordinatorEventRunTerminal:

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json",
-  "title": "Mulgae Review Preflight v1",
+  "$id": "https://mulgae.local/schemas/mulgae-review-preflight.v2.schema.json",
+  "title": "Mulgae Review Preflight v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version","status","qualification","target","agy_permission_mode","warnings","file_sets","generated_files","transmissions","budget"],
   "properties": {
-    "schema_version": {"const": "mulgae-review-preflight.v1"},
+    "schema_version": {"const": "mulgae-review-preflight.v2"},
     "status": {"enum": ["eligible","no_change"]},
     "qualification": {"const": "not_run"},
     "target": {
@@ -79,36 +79,46 @@
     },
     "budget": {
       "type":"object","additionalProperties":false,
-      "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","lanes"],
+      "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","role_paths"],
       "properties":{
         "eligible":{"const":true},
         "reason_code":{"enum":["eligible","no_change"]},
-        "max_active_lanes":{"type":"integer","minimum":0,"maximum":28},
-        "total_invocations":{"type":"integer","minimum":0,"maximum":28},
+        "max_active_lanes":{"type":"integer","minimum":0,"maximum":64},
+        "total_invocations":{"type":"integer","minimum":0,"maximum":14},
         "total_output_cap_bytes":{"type":"integer","minimum":0,"maximum":67108864},
         "critical_path_deadline":{"$ref":"#/$defs/duration"},
         "run_deadline":{"$ref":"#/$defs/duration"},
         "ceilings":{
           "type":"object","additionalProperties":false,
-          "required":["provider_timeout","lane_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
+          "required":["provider_timeout","role_path_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
           "properties":{
             "provider_timeout":{"$ref":"#/$defs/duration"},
-            "lane_deadline":{"$ref":"#/$defs/duration"},
+            "role_path_deadline":{"$ref":"#/$defs/duration"},
             "run_deadline":{"$ref":"#/$defs/duration"},
-            "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":4},
-            "max_invocations_per_run":{"type":"integer","minimum":1,"maximum":28},
+            "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":2},
+            "max_invocations_per_run":{"type":"integer","minimum":1,"maximum":14},
             "max_total_output_bytes":{"type":"integer","minimum":1,"maximum":67108864}
           }
         },
-        "lanes":{
-          "type":"array","maxItems":14,
+        "role_paths":{
+          "type":"array","maxItems":7,"uniqueItems":true,
+          "allOf":[
+            {"contains":{"type":"object","properties":{"role":{"const":"logic"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"security"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"maintainability"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"product"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"documentation"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"testing"}},"required":["role"]},"minContains":0,"maxContains":1},
+            {"contains":{"type":"object","properties":{"role":{"const":"artist"}},"required":["role"]},"minContains":0,"maxContains":1}
+          ],
           "items":{
             "type":"object","additionalProperties":false,
-            "required":["concurrency_key","invocation_count","transition_count","invocation_timeouts","deadline"],
+            "required":["role","provider_instance","invocation_count","transition_count","invocation_timeouts","deadline"],
             "properties":{
-              "concurrency_key":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
-              "invocation_count":{"type":"integer","minimum":1,"maximum":28},
-              "transition_count":{"type":"integer","minimum":0,"maximum":27},
+              "role":{"$ref":"#/$defs/role"},
+              "provider_instance":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
+              "invocation_count":{"type":"integer","minimum":1,"maximum":2},
+              "transition_count":{"type":"integer","minimum":0,"maximum":1},
               "invocation_timeouts":{"$ref":"#/$defs/duration"},
               "deadline":{"$ref":"#/$defs/duration"}
             }

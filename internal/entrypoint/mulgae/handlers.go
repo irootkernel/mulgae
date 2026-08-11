@@ -1847,7 +1847,7 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 	if status.RunID().String() != request.RunID() || !status.State().Valid() {
 		return nil, errors.New("diagnostic status projection is invalid")
 	}
-	total, completed, failed := status.LaneCounts()
+	total, completed, failed := status.RolePathCounts()
 	completedAt, hasCompletedAt := status.CompletedAt()
 	var completedAtValue *string
 	if hasCompletedAt {
@@ -1877,9 +1877,9 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 		UpdatedAt            string   `json:"updated_at"`
 		CompletedAt          *string  `json:"completed_at"`
 		SelectedRoles        []string `json:"selected_roles"`
-		LaneTotal            int      `json:"lane_total"`
-		LaneCompleted        int      `json:"lane_completed"`
-		LaneFailed           int      `json:"lane_failed"`
+		RolePathTotal        int      `json:"role_path_total"`
+		RolePathCompleted    int      `json:"role_path_completed"`
+		RolePathFailed       int      `json:"role_path_failed"`
 		LastSequence         uint64   `json:"last_seq"`
 		TerminalCause        *string  `json:"terminal_cause"`
 		TerminalPhase        *string  `json:"terminal_phase"`
@@ -1890,20 +1890,20 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 		Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
 		RecoveryAction: &recoveryAction,
 		RunState:       string(status.State()), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano),
-		CompletedAt: completedAtValue, SelectedRoles: roleStrings(status.SelectedRoles()), LaneTotal: total,
-		LaneCompleted: completed, LaneFailed: failed, LastSequence: status.LastSequence(), TerminalCause: terminalCauseValue,
+		CompletedAt: completedAtValue, SelectedRoles: roleStrings(status.SelectedRoles()), RolePathTotal: total,
+		RolePathCompleted: completed, RolePathFailed: failed, LastSequence: status.LastSequence(), TerminalCause: terminalCauseValue,
 		TerminalPhase: terminalPhaseValue,
 		DroppedEvents: status.DroppedEvents(), DiagnosticOnly: true, PublicationAuthority: false,
 	})
 }
 
 func diagnosticStatusHumanOutput(status ports.RuntimeDiagnosticRunStatus) []byte {
-	total, completed, failed := status.LaneCounts()
+	total, completed, failed := status.RolePathCounts()
 	phase := status.TerminalPhase()
 	if phase.Valid() {
-		return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed, phase))
+		return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed, phase))
 	}
-	return []byte(fmt.Sprintf("diagnostic run %s: state=%s lanes=%d/%d failed=%d recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
+	return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
 }
 
 func roleStrings(roles []domain.Role) []string {

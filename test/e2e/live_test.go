@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
+	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )

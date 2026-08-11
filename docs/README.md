@@ -26,7 +26,7 @@ The implementation is authoritative for runtime behavior:
   filesystem integration.
 - `internal/composition` owns executable bootstrap and concrete production
   wiring.
-- `internal/builtin/assets` owns embedded v1 runtime contracts.
+- `internal/builtin/assets` owns embedded versioned runtime contracts.
 - `internal/entrypoint/mulgae` owns command grammar and result projection.
 
 Contributor documents explain these boundaries but do not create a parallel

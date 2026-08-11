@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-review-preflight.v1",
+  "schema_version": "mulgae-review-preflight.v2",
   "status": "eligible",
   "qualification": "not_run",
   "target": {
@@ -58,15 +58,16 @@
     "run_deadline": "1h0m7s",
     "ceilings": {
       "provider_timeout": "60m",
-      "lane_deadline": "14h0m14s",
+      "role_path_deadline": "14h0m14s",
       "run_deadline": "14h0m19s",
       "max_invocations_per_role": 2,
       "max_invocations_per_run": 14,
       "max_total_output_bytes": 67108864
     },
-    "lanes": [
+    "role_paths": [
       {
-        "concurrency_key": "zcode-logic",
+        "role": "logic",
+        "provider_instance": "zcode-logic",
         "invocation_count": 2,
         "transition_count": 1,
         "invocation_timeouts": "1h0m0s",

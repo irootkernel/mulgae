@@ -80,6 +80,21 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 	if !DiagnosticWorkspaceCleanupCompleted.Valid() || RuntimeDiagnosticEventCode("custom").Valid() {
 		t.Fatal("event code set is not closed")
 	}
+	for _, oldCode := range []RuntimeDiagnosticEventCode{
+		"lane_scheduled", "lane_started", "lane_completed", "lane_cancelled",
+	} {
+		if oldCode.Valid() {
+			t.Fatalf("legacy event code %q remains valid", oldCode)
+		}
+	}
+	for _, rolePathCode := range []RuntimeDiagnosticEventCode{
+		DiagnosticRolePathScheduled, DiagnosticRolePathStarted,
+		DiagnosticRolePathCompleted, DiagnosticRolePathCancelled,
+	} {
+		if !rolePathCode.Valid() {
+			t.Fatalf("role-path event code %q is not valid", rolePathCode)
+		}
+	}
 	if !DiagnosticCausePersistenceFailed.Valid() || RuntimeDiagnosticCause("native text").Valid() {
 		t.Fatal("cause set is not closed")
 	}

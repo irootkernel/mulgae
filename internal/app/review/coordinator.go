@@ -173,7 +173,7 @@ func validCoordinatorReceipt(receipt RunBudgetReceipt) bool {
 		canonical.criticalPath == receipt.criticalPath &&
 		canonical.maxActiveLanes == receipt.maxActiveLanes &&
 		equalRoleBudgets(canonical.roles, receipt.roles) &&
-		equalLaneDeadlines(canonical.lanes, receipt.lanes)
+		equalRolePathDeadlines(canonical.rolePaths, receipt.rolePaths)
 }
 
 func equalRoleBudgets(left, right []RoleBudget) bool {
@@ -188,7 +188,7 @@ func equalRoleBudgets(left, right []RoleBudget) bool {
 	return true
 }
 
-func equalLaneDeadlines(left, right []LaneDeadline) bool {
+func equalRolePathDeadlines(left, right []RolePathDeadline) bool {
 	if len(left) != len(right) {
 		return false
 	}

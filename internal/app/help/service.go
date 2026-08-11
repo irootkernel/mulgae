@@ -19,8 +19,8 @@ const (
 	TopicConfig = "config"
 	// TopicProviders documents provider setup and readiness.
 	TopicProviders = "providers"
-	// TopicLanes documents provider concurrency lanes.
-	TopicLanes = "lanes"
+	// TopicRolePaths documents provider execution paths.
+	TopicRolePaths = "role-paths"
 	// TopicPrompts documents prompt contracts.
 	TopicPrompts = "prompts"
 	// TopicWorkflows documents CLI workflows.
@@ -180,7 +180,7 @@ func requiredHelpTopics() [11]string {
 		TopicQuickstart,
 		TopicConfig,
 		TopicProviders,
-		TopicLanes,
+		TopicRolePaths,
 		TopicPrompts,
 		TopicWorkflows,
 		TopicArtifacts,

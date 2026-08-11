@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -124,9 +125,9 @@ type runtimeDiagnosticRunStatusWire struct {
 	UpdatedAt            string                        `json:"updated_at"`
 	CompletedAt          string                        `json:"completed_at,omitempty"`
 	SelectedRoles        []domain.Role                 `json:"selected_roles"`
-	LaneTotal            int                           `json:"lane_total"`
-	LaneCompleted        int                           `json:"lane_completed"`
-	LaneFailed           int                           `json:"lane_failed"`
+	RolePathTotal        int                           `json:"role_path_total"`
+	RolePathCompleted    int                           `json:"role_path_completed"`
+	RolePathFailed       int                           `json:"role_path_failed"`
 	LastSequence         uint64                        `json:"last_seq"`
 	TerminalCause        domain.RuntimeDiagnosticCause `json:"terminal_cause,omitempty"`
 	TerminalPhase        domain.RuntimeDiagnosticPhase `json:"terminal_phase,omitempty"`
@@ -134,6 +135,22 @@ type runtimeDiagnosticRunStatusWire struct {
 	DroppedEvents        uint64                        `json:"dropped_events"`
 	DiagnosticOnly       bool                          `json:"diagnostic_only"`
 	PublicationAuthority bool                          `json:"publication_authority"`
+}
+
+func rejectLegacyDiagnosticStatus(data []byte) error {
+	var header struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return nil
+	}
+	if header.SchemaVersion == "mulgae-runtime-run-status.v1" ||
+		bytes.Contains(data, []byte(`"lane_total"`)) ||
+		bytes.Contains(data, []byte(`"lane_completed"`)) ||
+		bytes.Contains(data, []byte(`"lane_failed"`)) {
+		return fmt.Errorf("%w: v1 lane vocabulary", ports.ErrRuntimeDiagnosticContractUnsupported)
+	}
+	return nil
 }
 
 func encodeRuntimeDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus) ([]byte, error) {
@@ -145,10 +162,10 @@ func encodeRuntimeDiagnosticRunStatusAtSequence(status ports.RuntimeDiagnosticRu
 }
 
 func encodeRuntimeDiagnosticRunStatusAt(status ports.RuntimeDiagnosticRunStatus, lastSequence, droppedEvents uint64) ([]byte, error) {
-	total, completed, failed := status.LaneCounts()
+	total, completed, failed := status.RolePathCounts()
 	completedAt, hasCompletedAt := status.CompletedAt()
 	p2, hasP2 := status.P2URI()
-	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), LaneTotal: total, LaneCompleted: completed, LaneFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), TerminalPhase: status.TerminalPhase(), DroppedEvents: droppedEvents, DiagnosticOnly: true, PublicationAuthority: false}
+	wire := runtimeDiagnosticRunStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), State: status.State(), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), SelectedRoles: status.SelectedRoles(), RolePathTotal: total, RolePathCompleted: completed, RolePathFailed: failed, LastSequence: lastSequence, TerminalCause: status.TerminalCause(), TerminalPhase: status.TerminalPhase(), DroppedEvents: droppedEvents, DiagnosticOnly: true, PublicationAuthority: false}
 	if hasCompletedAt {
 		wire.CompletedAt = completedAt.Format(time.RFC3339Nano)
 	}

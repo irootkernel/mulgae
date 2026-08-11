@@ -419,7 +419,7 @@ var catalogHelpAliases = map[string]string{
 	"help:quickstart": "help/quickstart.md",
 	"help:config":     "help/config.md",
 	"help:providers":  "help/providers.md",
-	"help:lanes":      "help/providers.md",
+	"help:role-paths": "help/providers.md",
 	"help:prompts":    "help/prompts.md",
 	"help:workflows":  "help/workflows.md",
 	"help:artifacts":  "help/artifacts.md",

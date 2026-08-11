@@ -16,14 +16,15 @@ const (
 	RuntimeDiagnosticLogMaxBytes            int64 = 8 << 20
 	RuntimeDiagnosticTailReserveBytes       int64 = 256 << 10
 	RuntimeDiagnosticStatusMaxBytes         int64 = 256 << 10
-	RuntimeDiagnosticRunStatusSchema              = "mulgae-runtime-run-status.v1"
+	RuntimeDiagnosticRunStatusSchema              = "mulgae-runtime-run-status.v2"
 	RuntimeDiagnosticAttemptStatusSchema          = "mulgae-runtime-attempt-status.v1"
 	RuntimeDiagnosticInvocationStatusSchema       = "mulgae-runtime-invocation-status.v1"
 )
 
 var (
-	ErrRuntimeDiagnosticEventDropped = errors.New("runtime diagnostic ordinary event dropped at cap")
-	ErrRuntimeDiagnosticRunNotFound  = errors.New("runtime diagnostic run not found")
+	ErrRuntimeDiagnosticEventDropped        = errors.New("runtime diagnostic ordinary event dropped at cap")
+	ErrRuntimeDiagnosticRunNotFound         = errors.New("runtime diagnostic run not found")
+	ErrRuntimeDiagnosticContractUnsupported = errors.New("runtime diagnostic contract is unsupported")
 )
 
 // RuntimeDiagnosticQuery reads only the bounded safe run-status projection.
@@ -67,36 +68,36 @@ func (selection RuntimeDiagnosticSelection) Valid() bool {
 }
 
 type RuntimeDiagnosticRunStatus struct {
-	sessionID                            domain.SessionID
-	runID                                domain.RunID
-	state                                domain.RunState
-	startedAt, updatedAt                 time.Time
-	completedAt                          time.Time
-	hasCompletedAt                       bool
-	selectedRoles                        []domain.Role
-	laneTotal, laneCompleted, laneFailed int
-	lastSequence                         uint64
-	terminalCause                        domain.RuntimeDiagnosticCause
-	terminalPhase                        domain.RuntimeDiagnosticPhase
-	p2URI                                SafeRelativePath
-	hasP2URI                             bool
-	droppedEvents                        uint64
+	sessionID                                        domain.SessionID
+	runID                                            domain.RunID
+	state                                            domain.RunState
+	startedAt, updatedAt                             time.Time
+	completedAt                                      time.Time
+	hasCompletedAt                                   bool
+	selectedRoles                                    []domain.Role
+	rolePathTotal, rolePathCompleted, rolePathFailed int
+	lastSequence                                     uint64
+	terminalCause                                    domain.RuntimeDiagnosticCause
+	terminalPhase                                    domain.RuntimeDiagnosticPhase
+	p2URI                                            SafeRelativePath
+	hasP2URI                                         bool
+	droppedEvents                                    uint64
 }
 
 type RuntimeDiagnosticRunStatusInput struct {
-	SessionID                            domain.SessionID
-	RunID                                domain.RunID
-	State                                domain.RunState
-	StartedAt, UpdatedAt, CompletedAt    time.Time
-	HasCompletedAt                       bool
-	SelectedRoles                        []domain.Role
-	LaneTotal, LaneCompleted, LaneFailed int
-	LastSequence                         uint64
-	TerminalCause                        domain.RuntimeDiagnosticCause
-	TerminalPhase                        domain.RuntimeDiagnosticPhase
-	P2URI                                SafeRelativePath
-	HasP2URI                             bool
-	DroppedEvents                        uint64
+	SessionID                                        domain.SessionID
+	RunID                                            domain.RunID
+	State                                            domain.RunState
+	StartedAt, UpdatedAt, CompletedAt                time.Time
+	HasCompletedAt                                   bool
+	SelectedRoles                                    []domain.Role
+	RolePathTotal, RolePathCompleted, RolePathFailed int
+	LastSequence                                     uint64
+	TerminalCause                                    domain.RuntimeDiagnosticCause
+	TerminalPhase                                    domain.RuntimeDiagnosticPhase
+	P2URI                                            SafeRelativePath
+	HasP2URI                                         bool
+	DroppedEvents                                    uint64
 }
 
 func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (RuntimeDiagnosticRunStatus, error) {
@@ -110,8 +111,8 @@ func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (Runti
 			return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid selected roles")
 		}
 	}
-	if input.LaneTotal < 0 || input.LaneCompleted < 0 || input.LaneFailed < 0 || input.LaneCompleted+input.LaneFailed > input.LaneTotal {
-		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid lane counts")
+	if input.RolePathTotal < 0 || input.RolePathCompleted < 0 || input.RolePathFailed < 0 || input.RolePathCompleted+input.RolePathFailed > input.RolePathTotal {
+		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid role path counts")
 	}
 	if input.TerminalCause != "" && !input.TerminalCause.Valid() {
 		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid terminal cause")
@@ -123,8 +124,8 @@ func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (Runti
 		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: inconsistent P2 URI")
 	}
 	return RuntimeDiagnosticRunStatus{sessionID: input.SessionID, runID: input.RunID, state: input.State, startedAt: input.StartedAt, updatedAt: input.UpdatedAt,
-		completedAt: input.CompletedAt, hasCompletedAt: input.HasCompletedAt, selectedRoles: roles, laneTotal: input.LaneTotal, laneCompleted: input.LaneCompleted,
-		laneFailed: input.LaneFailed, lastSequence: input.LastSequence, terminalCause: input.TerminalCause, terminalPhase: input.TerminalPhase,
+		completedAt: input.CompletedAt, hasCompletedAt: input.HasCompletedAt, selectedRoles: roles, rolePathTotal: input.RolePathTotal, rolePathCompleted: input.RolePathCompleted,
+		rolePathFailed: input.RolePathFailed, lastSequence: input.LastSequence, terminalCause: input.TerminalCause, terminalPhase: input.TerminalPhase,
 		p2URI: input.P2URI, hasP2URI: input.HasP2URI, droppedEvents: input.DroppedEvents}, nil
 }
 
@@ -142,8 +143,8 @@ func (status RuntimeDiagnosticRunStatus) CompletedAt() (time.Time, bool) {
 func (status RuntimeDiagnosticRunStatus) SelectedRoles() []domain.Role {
 	return append([]domain.Role(nil), status.selectedRoles...)
 }
-func (status RuntimeDiagnosticRunStatus) LaneCounts() (int, int, int) {
-	return status.laneTotal, status.laneCompleted, status.laneFailed
+func (status RuntimeDiagnosticRunStatus) RolePathCounts() (int, int, int) {
+	return status.rolePathTotal, status.rolePathCompleted, status.rolePathFailed
 }
 func (status RuntimeDiagnosticRunStatus) LastSequence() uint64 { return status.lastSequence }
 func (status RuntimeDiagnosticRunStatus) TerminalCause() domain.RuntimeDiagnosticCause {

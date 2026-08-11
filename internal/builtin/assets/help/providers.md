@@ -1,4 +1,4 @@
-# Providers and lanes
+# Providers and role paths
 
 Mulgae supports the `kimi`, `zcode`, and `agy` provider families. Provider
 executables must be installed and authenticated before review.

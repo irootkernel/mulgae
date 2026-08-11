@@ -111,19 +111,19 @@ type HarnessCeilings struct {
 	maxStdoutBytes        int64
 	maxStderrBytes        int64
 	maxTotalOutput        int64
-	maxLaneDeadline       time.Duration
+	maxRolePathDeadline   time.Duration
 	maxRunDeadline        time.Duration
 	maxInvocationsPerRole int
 	maxInvocationsPerRun  int
 }
 
 // NewHarnessCeilings validates trusted execution ceilings. The fixed SOT
-// maxima are closed: four invocations per role, 28 per run, 64 MiB output,
+// maxima are closed: two invocations per role, 14 per run, 64 MiB output,
 // and a topology-derived deadline for 60-minute provider invocations.
 func NewHarnessCeilings(
 	maxTimeout time.Duration,
 	maxStdout, maxStderr, maxTotalOutput int64,
-	maxLaneDeadline, maxRunDeadline time.Duration,
+	maxRolePathDeadline, maxRunDeadline time.Duration,
 	maxInvocationsPerRole, maxInvocationsPerRun int,
 ) (HarnessCeilings, error) {
 	ceilings := HarnessCeilings{
@@ -131,7 +131,7 @@ func NewHarnessCeilings(
 		maxStdoutBytes:        maxStdout,
 		maxStderrBytes:        maxStderr,
 		maxTotalOutput:        maxTotalOutput,
-		maxLaneDeadline:       maxLaneDeadline,
+		maxRolePathDeadline:   maxRolePathDeadline,
 		maxRunDeadline:        maxRunDeadline,
 		maxInvocationsPerRole: maxInvocationsPerRole,
 		maxInvocationsPerRun:  maxInvocationsPerRun,
@@ -145,17 +145,17 @@ func NewHarnessCeilings(
 // DefaultHarnessCeilings returns the immutable SOT default envelope. Callers
 // must pass it explicitly to PreflightRunBudget when these defaults are wanted.
 func DefaultHarnessCeilings() HarnessCeilings {
-	maxLaneDeadline, _ := topologyDeadlineCeiling(
+	maxRolePathDeadline, _ := topologyDeadlineCeiling(
 		maxBudgetProviderTimeout,
 		maxBudgetInvocationsPerRun,
 	)
-	maxRunDeadline, _ := addDuration(maxLaneDeadline, budgetRunGrace)
+	maxRunDeadline, _ := addDuration(maxRolePathDeadline, budgetRunGrace)
 	return HarnessCeilings{
 		maxTimeout:            maxBudgetProviderTimeout,
 		maxStdoutBytes:        256 << 10,
 		maxStderrBytes:        256 << 10,
 		maxTotalOutput:        maxBudgetTotalOutputBytes,
-		maxLaneDeadline:       maxLaneDeadline,
+		maxRolePathDeadline:   maxRolePathDeadline,
 		maxRunDeadline:        maxRunDeadline,
 		maxInvocationsPerRole: maxBudgetInvocationsPerRole,
 		maxInvocationsPerRun:  maxBudgetInvocationsPerRun,
@@ -174,8 +174,10 @@ func (ceilings HarnessCeilings) MaxStderrBytes() int64 { return ceilings.maxStde
 // MaxTotalOutput returns the trusted aggregate stdout-plus-stderr ceiling.
 func (ceilings HarnessCeilings) MaxTotalOutput() int64 { return ceilings.maxTotalOutput }
 
-// MaxLaneDeadline returns the trusted per-lane deadline ceiling.
-func (ceilings HarnessCeilings) MaxLaneDeadline() time.Duration { return ceilings.maxLaneDeadline }
+// MaxRolePathDeadline returns the trusted per-role-path deadline ceiling.
+func (ceilings HarnessCeilings) MaxRolePathDeadline() time.Duration {
+	return ceilings.maxRolePathDeadline
+}
 
 // MaxRunDeadline returns the trusted full-run deadline ceiling.
 func (ceilings HarnessCeilings) MaxRunDeadline() time.Duration { return ceilings.maxRunDeadline }
@@ -207,7 +209,7 @@ const (
 	BudgetReasonRoleInvocationLimit   BudgetReasonCode = "role_invocation_limit"
 	BudgetReasonRunInvocationLimit    BudgetReasonCode = "run_invocation_limit"
 	BudgetReasonTotalOutputLimit      BudgetReasonCode = "total_output_limit"
-	BudgetReasonLaneDeadlineLimit     BudgetReasonCode = "lane_deadline_limit"
+	BudgetReasonRolePathDeadlineLimit BudgetReasonCode = "role_path_deadline_limit"
 	BudgetReasonRunDeadlineLimit      BudgetReasonCode = "run_deadline_limit"
 )
 
@@ -224,7 +226,7 @@ func (code BudgetReasonCode) Valid() bool {
 		BudgetReasonRoleInvocationLimit,
 		BudgetReasonRunInvocationLimit,
 		BudgetReasonTotalOutputLimit,
-		BudgetReasonLaneDeadlineLimit,
+		BudgetReasonRolePathDeadlineLimit,
 		BudgetReasonRunDeadlineLimit:
 		return true
 	default:
@@ -232,38 +234,41 @@ func (code BudgetReasonCode) Valid() bool {
 	}
 }
 
-// LaneDeadline records the fully accumulated worst-case deadline for one
-// normalized concurrency lane.
-type LaneDeadline struct {
-	concurrencyKey     ports.ConcurrencyKey
+// RolePathDeadline records the complete initial-to-repair path for one role.
+type RolePathDeadline struct {
+	role               domain.Role
+	providerInstance   string
 	invocationCount    int
 	transitionCount    int
 	invocationTimeouts time.Duration
 	deadline           time.Duration
 }
 
-// ConcurrencyKey returns the immutable normalized lane key.
-func (lane LaneDeadline) ConcurrencyKey() ports.ConcurrencyKey { return lane.concurrencyKey }
+// Role returns the unique role represented by this path.
+func (path RolePathDeadline) Role() domain.Role { return path.role }
 
-// InvocationCount returns the number of possible invocations assigned to lane.
-func (lane LaneDeadline) InvocationCount() int { return lane.invocationCount }
+// ProviderInstance returns the provider bound to the role path.
+func (path RolePathDeadline) ProviderInstance() string { return path.providerInstance }
+
+// InvocationCount returns the number of possible invocations in the role path.
+func (path RolePathDeadline) InvocationCount() int { return path.invocationCount }
 
 // TransitionCount returns the number of possible repair transitions
-// charged to lane.
-func (lane LaneDeadline) TransitionCount() int { return lane.transitionCount }
+// charged to the role path.
+func (path RolePathDeadline) TransitionCount() int { return path.transitionCount }
 
 // InvocationTimeouts returns the sum of all possible invocation timeouts.
-func (lane LaneDeadline) InvocationTimeouts() time.Duration { return lane.invocationTimeouts }
+func (path RolePathDeadline) InvocationTimeouts() time.Duration { return path.invocationTimeouts }
 
 // Deadline returns invocation timeouts plus two seconds per transition.
-func (lane LaneDeadline) Deadline() time.Duration { return lane.deadline }
+func (path RolePathDeadline) Deadline() time.Duration { return path.deadline }
 
 // RunBudgetReceipt is the immutable result of a pure assignment preflight.
 // All slice getters return caller-owned copies in canonical order.
 type RunBudgetReceipt struct {
 	ceilings         HarnessCeilings
 	roles            []RoleBudget
-	lanes            []LaneDeadline
+	rolePaths        []RolePathDeadline
 	totalInvocations int
 	totalOutputCap   int64
 	runDeadline      time.Duration
@@ -281,9 +286,9 @@ func (receipt RunBudgetReceipt) RoleBudgets() []RoleBudget {
 	return append([]RoleBudget(nil), receipt.roles...)
 }
 
-// LaneDeadlines returns copied per-lane results in normalized key order.
-func (receipt RunBudgetReceipt) LaneDeadlines() []LaneDeadline {
-	return append([]LaneDeadline(nil), receipt.lanes...)
+// RolePathDeadlines returns copied per-role paths in canonical role order.
+func (receipt RunBudgetReceipt) RolePathDeadlines() []RolePathDeadline {
+	return append([]RolePathDeadline(nil), receipt.rolePaths...)
 }
 
 // TotalInvocations returns the count of every possible initial and repair
@@ -297,7 +302,7 @@ func (receipt RunBudgetReceipt) TotalOutputCap() int64 { return receipt.totalOut
 func (receipt RunBudgetReceipt) RunDeadline() time.Duration { return receipt.runDeadline }
 
 // CriticalPathDeadline returns the longest serial provider/repair or
-// concurrency-lane path charged by preflight, before run grace.
+// role path charged by preflight, before run grace.
 func (receipt RunBudgetReceipt) CriticalPathDeadline() time.Duration { return receipt.criticalPath }
 
 // MaxActiveLanes returns the process capacity used to derive RunDeadline.
@@ -315,8 +320,8 @@ func (receipt RunBudgetReceipt) ReasonCode() BudgetReasonCode { return receipt.r
 // canonical operands and every safely computable result.
 func PreflightRunBudget(roles []RoleBudget, ceilings HarnessCeilings) (RunBudgetReceipt, error) {
 	canonical := canonicalRoleBudgets(roles)
-	lanes, _, _, _ := accumulateRunBudget(canonical)
-	capacity := len(lanes)
+	rolePaths, _, _, _ := accumulateRunBudget(canonical)
+	capacity := len(rolePaths)
 	if capacity < 1 {
 		capacity = 1
 	}
@@ -348,29 +353,27 @@ func PreflightRunBudgetWithCapacity(
 		return rejectBudget(receipt, reason)
 	}
 
-	lanes, totalInvocations, totalOutputCap, overflow := accumulateRunBudget(receipt.roles)
-	receipt.lanes = lanes
+	rolePaths, totalInvocations, totalOutputCap, overflow := accumulateRunBudget(receipt.roles)
+	receipt.rolePaths = rolePaths
 	receipt.totalInvocations = totalInvocations
 	receipt.totalOutputCap = totalOutputCap
 
-	maxLaneDeadline := time.Duration(0)
-	totalLaneWork := time.Duration(0)
-	for _, lane := range receipt.lanes {
-		if lane.deadline > maxLaneDeadline {
-			maxLaneDeadline = lane.deadline
+	maxRolePathDeadline := time.Duration(0)
+	totalRolePathWork := time.Duration(0)
+	for _, path := range receipt.rolePaths {
+		if path.deadline > maxRolePathDeadline {
+			maxRolePathDeadline = path.deadline
 		}
-		var laneOverflow bool
-		totalLaneWork, laneOverflow = addDuration(totalLaneWork, lane.deadline)
-		overflow = overflow || laneOverflow
+		var pathOverflow bool
+		totalRolePathWork, pathOverflow = addDuration(totalRolePathWork, path.deadline)
+		overflow = overflow || pathOverflow
 	}
-	rolePath, rolePathOverflow := longestRolePath(receipt.roles)
-	overflow = overflow || rolePathOverflow
-	receipt.criticalPath = maxDuration(maxLaneDeadline, rolePath)
+	receipt.criticalPath = maxRolePathDeadline
 	capacityDeadline, capacityOverflow := capacityDeadline(
-		totalLaneWork,
+		totalRolePathWork,
 		receipt.criticalPath,
 		maxActiveLanes,
-		len(receipt.lanes),
+		len(receipt.rolePaths),
 	)
 	overflow = overflow || capacityOverflow
 	var runDeadlineOverflow bool
@@ -388,9 +391,9 @@ func PreflightRunBudgetWithCapacity(
 	if totalOutputCap > ceilings.maxTotalOutput {
 		return rejectBudget(receipt, BudgetReasonTotalOutputLimit)
 	}
-	for _, lane := range receipt.lanes {
-		if lane.deadline > ceilings.maxLaneDeadline {
-			return rejectBudget(receipt, BudgetReasonLaneDeadlineLimit)
+	for _, path := range receipt.rolePaths {
+		if path.deadline > ceilings.maxRolePathDeadline {
+			return rejectBudget(receipt, BudgetReasonRolePathDeadlineLimit)
 		}
 	}
 	if runDeadlineOverflow || receipt.runDeadline > ceilings.maxRunDeadline {
@@ -401,30 +404,14 @@ func PreflightRunBudgetWithCapacity(
 	return receipt, nil
 }
 
-func longestRolePath(roles []RoleBudget) (time.Duration, bool) {
-	longest := time.Duration(0)
-	overflow := false
-	for _, budget := range roles {
-		// One role runs at most two invocations: the provider attempt and its
-		// one allowed repair, separated by a single transition.
-		primary, primaryOverflow := multiplyDuration(budget.primary.limits.timeout, 2)
-		path, pathOverflow := addDuration(primary, budgetTransitionGrace)
-		overflow = overflow || primaryOverflow || pathOverflow
-		if path > longest {
-			longest = path
-		}
-	}
-	return longest, overflow
-}
-
 // capacityDeadline is the list-scheduling upper bound for the resource and
-// role dependency DAG: W/C + (1-1/C)L. When every lane can be active, L is the
+// role dependency DAG: W/C + (1-1/C)L. When every path can be active, L is the
 // exact capacity-independent bound. Integer division rounds upward.
-func capacityDeadline(totalWork, criticalPath time.Duration, capacity, laneCount int) (time.Duration, bool) {
-	if capacity < 1 || laneCount < 1 {
+func capacityDeadline(totalWork, criticalPath time.Duration, capacity, pathCount int) (time.Duration, bool) {
+	if capacity < 1 || pathCount < 1 {
 		return 0, false
 	}
-	if capacity >= laneCount {
+	if capacity >= pathCount {
 		return criticalPath, false
 	}
 	weightedCritical, overflow := multiplyDuration(criticalPath, capacity-1)
@@ -499,8 +486,8 @@ func validateHarnessCeilings(ceilings HarnessCeilings) error {
 		return fmt.Errorf("review run budget: maximum stderr cap must be positive")
 	case ceilings.maxTotalOutput <= 0:
 		return fmt.Errorf("review run budget: maximum total output must be positive")
-	case ceilings.maxLaneDeadline <= 0:
-		return fmt.Errorf("review run budget: maximum lane deadline must be positive")
+	case ceilings.maxRolePathDeadline <= 0:
+		return fmt.Errorf("review run budget: maximum role path deadline must be positive")
 	case ceilings.maxRunDeadline <= 0:
 		return fmt.Errorf("review run budget: maximum run deadline must be positive")
 	case ceilings.maxInvocationsPerRole <= 0:
@@ -516,14 +503,14 @@ func validateHarnessCeilings(ceilings HarnessCeilings) error {
 	case ceilings.maxTotalOutput > maxBudgetTotalOutputBytes:
 		return fmt.Errorf("review run budget: maximum total output exceeds %d", maxBudgetTotalOutputBytes)
 	}
-	maxLaneDeadline, overflow := topologyDeadlineCeiling(
+	maxRolePathDeadline, overflow := topologyDeadlineCeiling(
 		maxBudgetProviderTimeout,
 		maxBudgetInvocationsPerRun,
 	)
-	if overflow || ceilings.maxLaneDeadline > maxLaneDeadline {
-		return fmt.Errorf("review run budget: maximum lane deadline exceeds topology ceiling %s", maxLaneDeadline)
+	if overflow || ceilings.maxRolePathDeadline > maxRolePathDeadline {
+		return fmt.Errorf("review run budget: maximum role path deadline exceeds topology ceiling %s", maxRolePathDeadline)
 	}
-	maxRunDeadline, overflow := addDuration(maxLaneDeadline, budgetRunGrace)
+	maxRunDeadline, overflow := addDuration(maxRolePathDeadline, budgetRunGrace)
 	if overflow || ceilings.maxRunDeadline > maxRunDeadline {
 		return fmt.Errorf("review run budget: maximum run deadline exceeds topology ceiling %s", maxRunDeadline)
 	}
@@ -623,56 +610,34 @@ func validateRoleSelection(roles []RoleBudget) BudgetReasonCode {
 	return BudgetReasonEligible
 }
 
-func accumulateRunBudget(roles []RoleBudget) ([]LaneDeadline, int, int64, bool) {
-	lanes := make(map[string]LaneDeadline, len(roles)*2)
+func accumulateRunBudget(roles []RoleBudget) ([]RolePathDeadline, int, int64, bool) {
+	paths := make([]RolePathDeadline, 0, len(roles))
 	totalInvocations := 0
 	totalOutputCap := int64(0)
 	overflow := false
 	for _, budget := range roles {
-		overflow = addRouteBudget(lanes, budget.primary, 2, 1, &totalInvocations, &totalOutputCap) || overflow
-	}
+		path := RolePathDeadline{
+			role:             budget.role,
+			providerInstance: budget.primary.route.ProviderInstance(),
+			invocationCount:  2,
+			transitionCount:  1,
+		}
+		var pathOverflow bool
+		path.invocationTimeouts, pathOverflow = multiplyDuration(budget.primary.limits.timeout, path.invocationCount)
+		overflow = overflow || pathOverflow
+		path.deadline, pathOverflow = addDuration(path.invocationTimeouts, budgetTransitionGrace)
+		overflow = overflow || pathOverflow
+		paths = append(paths, path)
+		totalInvocations += path.invocationCount
 
-	canonical := make([]LaneDeadline, 0, len(lanes))
-	for _, lane := range lanes {
-		var overflowed bool
-		lane.deadline, overflowed = addDuration(lane.invocationTimeouts, time.Duration(lane.transitionCount)*budgetTransitionGrace)
-		overflow = overflow || overflowed
-		canonical = append(canonical, lane)
-	}
-	sort.Slice(canonical, func(left, right int) bool {
-		return canonical[left].concurrencyKey.String() < canonical[right].concurrencyKey.String()
-	})
-	return canonical, totalInvocations, totalOutputCap, overflow
-}
-
-func addRouteBudget(
-	lanes map[string]LaneDeadline,
-	budget RouteBudget,
-	invocations, transitions int,
-	totalInvocations *int,
-	totalOutputCap *int64,
-) bool {
-	key := budget.route.ConcurrencyKey()
-	lane := lanes[key.String()]
-	if !lane.concurrencyKey.Valid() {
-		lane.concurrencyKey = key
-	}
-	overflow := false
-	for range invocations {
-		var overflowed bool
-		lane.invocationTimeouts, overflowed = addDuration(lane.invocationTimeouts, budget.limits.timeout)
-		overflow = overflow || overflowed
-		lane.invocationCount++
-		(*totalInvocations)++
-
-		outputCap, outputOverflow := addInt64(budget.limits.maxStdoutBytes, budget.limits.maxStderrBytes)
+		outputCap, outputOverflow := addInt64(budget.primary.limits.maxStdoutBytes, budget.primary.limits.maxStderrBytes)
 		overflow = overflow || outputOverflow
-		*totalOutputCap, outputOverflow = addInt64(*totalOutputCap, outputCap)
+		roleOutputCap, roleOutputOverflow := multiplyInt64(outputCap, path.invocationCount)
+		overflow = overflow || roleOutputOverflow
+		totalOutputCap, outputOverflow = addInt64(totalOutputCap, roleOutputCap)
 		overflow = overflow || outputOverflow
 	}
-	lane.transitionCount += transitions
-	lanes[key.String()] = lane
-	return overflow
+	return paths, totalInvocations, totalOutputCap, overflow
 }
 
 func addDuration(left, right time.Duration) (time.Duration, bool) {
@@ -687,6 +652,16 @@ func addInt64(left, right int64) (int64, bool) {
 		return math.MaxInt64, true
 	}
 	return left + right, false
+}
+
+func multiplyInt64(value int64, factor int) (int64, bool) {
+	if factor <= 0 || value == 0 {
+		return 0, false
+	}
+	if value > math.MaxInt64/int64(factor) {
+		return math.MaxInt64, true
+	}
+	return value * int64(factor), false
 }
 
 func validateRouteCaps(roles []RoleBudget, ceilings HarnessCeilings) BudgetReasonCode {

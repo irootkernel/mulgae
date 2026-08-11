@@ -181,18 +181,18 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	if now.IsZero() || now.Before(lifecycle.identity.startedAt) {
 		now = lifecycle.identity.startedAt
 	}
-	laneCompleted, laneFailed := 0, 0
+	rolePathCompleted, rolePathFailed := 0, 0
 	for _, summary := range coordinator.RoleSummaries() {
 		if summary.State() == domain.RoleTaskSucceeded {
-			laneCompleted++
+			rolePathCompleted++
 		} else {
-			laneFailed++
+			rolePathFailed++
 		}
 	}
 	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID, State: state,
 		StartedAt: lifecycle.identity.startedAt, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true,
-		SelectedRoles: lifecycle.roles, LaneTotal: len(lifecycle.roles), LaneCompleted: laneCompleted, LaneFailed: laneFailed,
+		SelectedRoles: lifecycle.roles, RolePathTotal: len(lifecycle.roles), RolePathCompleted: rolePathCompleted, RolePathFailed: rolePathFailed,
 		LastSequence: lastSequence, TerminalCause: cause, TerminalPhase: phase, P2URI: p2URI, HasP2URI: p2URI.Valid(),
 	})
 	if err != nil {

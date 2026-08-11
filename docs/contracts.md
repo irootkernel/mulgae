@@ -119,7 +119,7 @@ capture failure. Malformed preflight service projections return
 not create a diagnostic artifact for this failure.
 
 Every human-readable command failure includes a stable code, public pipeline
-stage, and a safe next-action hint. Machine output retains the v1 reason shape;
+stage, and a safe next-action hint. Machine output retains its closed reason shape;
 specific reason messages remain stable, while otherwise opaque fallback
 messages include the failed stage, code, and safe action.
 
@@ -200,6 +200,12 @@ store-lock, path-preparation, persistence, installation, and commit failures.
 the diagnostic record itself; it does not replace an earlier publication
 cause.
 
+Runtime event logs and diagnostic-only run status use the v2 role-path
+vocabulary (`role_path_scheduled`, `role_path_started`,
+`role_path_completed`, `role_path_cancelled`, and `role_path_*` status counts).
+Readers reject v1 status documents and old lane-named fields with the typed
+unsupported-contract error; there is no compatibility shim.
+
 `review`, `followup`, `delta`, and `rerun` create distinct runs. They
 respectively start a review, check one prior finding, review a delta, or repeat
 a selected attempt.
@@ -207,7 +213,9 @@ a selected attempt.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Workflow commands
-use `--output json` and return a `mulgae-command-result.v1` envelope. Process
+use `--output json` and return a `mulgae-command-result.v2` envelope. Command
+result v1 and review-preflight v1 are intentionally unsupported after this
+contract revision. Process
 exits:
 
 | Exit | Meaning |

@@ -140,7 +140,7 @@ func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 		{
 			name: "invalid schema identity",
 			mutate: func(t *testing.T, files fstest.MapFS) {
-				files["schemas/mulgae-command-result.v1.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
+				files["schemas/mulgae-command-result.v2.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
 				rewriteTestChecksums(t, files)
 			},
 		},
@@ -165,7 +165,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
-	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json")
+	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json")
 	metadata, first, err := catalog.Read(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Read(%q): %v", id.String(), err)
@@ -176,7 +176,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	if metadata.Kind() != ports.AssetKindSchema {
 		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindSchema)
 	}
-	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v1.schema.json"))
+	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v2.schema.json"))
 	if err != nil {
 		t.Fatalf("read authoritative global default: %v", err)
 	}
@@ -216,6 +216,22 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	unknown := mustAssetID(t, "sot:not-present")
 	if _, _, err := catalog.Read(context.Background(), unknown); err == nil {
 		t.Fatal("Read succeeded for an unknown asset ID")
+	}
+}
+
+func TestProductionCatalogDoesNotExposeSupersededV1Contracts(t *testing.T) {
+	t.Parallel()
+	catalog := NewCatalog()
+	for _, value := range []string{
+		"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json",
+		"https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json",
+		"example:command-result.v1.valid.json",
+		"example:review-preflight.v1.valid.json",
+	} {
+		id := mustAssetID(t, value)
+		if _, _, err := catalog.Read(context.Background(), id); err == nil {
+			t.Fatalf("superseded contract %q remains readable", value)
+		}
 	}
 }
 
@@ -374,7 +390,7 @@ func TestCatalogHelpAliasesAreExact(t *testing.T) {
 		"help:quickstart": "help/quickstart.md",
 		"help:config":     "help/config.md",
 		"help:providers":  "help/providers.md",
-		"help:lanes":      "help/providers.md",
+		"help:role-paths": "help/providers.md",
 		"help:prompts":    "help/prompts.md",
 		"help:workflows":  "help/workflows.md",
 		"help:artifacts":  "help/artifacts.md",
@@ -497,7 +513,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 
 	expected := []schemaExamplePair{
 		{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "schemas/mulgae-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-command-result.v1.schema.json", "schemas/mulgae-command-result.v1.schema.json", "examples/command-result.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v2.schema.json", "schemas/mulgae-command-result.v2.schema.json", "examples/command-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "schemas/mulgae-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "schemas/mulgae-file-catalog.v1.schema.json", "examples/file-catalog.v1.valid.json"},
@@ -509,7 +525,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json", "schemas/mulgae-repair-patch.v1.schema.json", "examples/repair-patch.json"},
 		{"https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json", "schemas/mulgae-repair-request.v1.schema.json", "examples/repair-request.json"},
 		{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "schemas/mulgae-review-artifact.v1.schema.json", "examples/review-artifact.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-review-preflight.v1.schema.json", "schemas/mulgae-review-preflight.v1.schema.json", "examples/review-preflight.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-preflight.v2.schema.json", "schemas/mulgae-review-preflight.v2.schema.json", "examples/review-preflight.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v1.schema.json", "examples/run-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},

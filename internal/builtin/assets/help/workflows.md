@@ -30,7 +30,7 @@ Preflight performs complete immutable capture, directory-view admission, and
 capture-manifest construction, then reports
 the exact source file set transmitted to every selected role, each role's
 provider route, effective provider timeouts, AGY permission mode, and enclosing
-lane/run budgets. `qualification` is `not_run`: preflight does not discover,
+role-path/run budgets. `qualification` is `not_run`: preflight does not discover,
 qualify, repair, or invoke a provider, and it creates no session, run,
 diagnostics, publication, or durable review artifact. The workspace manifest is
 listed separately as `generated_at_execution`; its ephemeral filesystem identity

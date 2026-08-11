@@ -116,7 +116,7 @@ func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
 	terminal, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunFailed,
 		StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true,
-		SelectedRoles: []domain.Role{domain.RoleTesting}, LaneTotal: 1, LaneFailed: 1,
+		SelectedRoles: []domain.Role{domain.RoleTesting}, RolePathTotal: 1, RolePathFailed: 1,
 		TerminalCause: domain.DiagnosticCausePublicationInstallationFailed,
 		TerminalPhase: domain.DiagnosticPhasePublicationInstallation,
 	})
@@ -145,6 +145,24 @@ func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
 	missing, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
 	if _, err := NewDiagnosticStatusReader().ReadRunStatus(context.Background(), root, missing); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
 		t.Fatalf("missing diagnostic error = %v", err)
+	}
+}
+
+func TestDiagnosticStatusDecoderRejectsLegacyVocabularyWithTypedCause(t *testing.T) {
+	t.Parallel()
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+
+	for name, document := range map[string]string{
+		"v1 schema":       `{"schema_version":"mulgae-runtime-run-status.v1"}`,
+		"old field in v2": `{"schema_version":"mulgae-runtime-run-status.v2","lane_total":1}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeDiagnosticRunStatus([]byte(document), sessionID, runID)
+			if !errors.Is(err, ports.ErrRuntimeDiagnosticContractUnsupported) {
+				t.Fatalf("decode legacy diagnostic status error = %v, want typed unsupported contract", err)
+			}
+		})
 	}
 }
 
@@ -333,7 +351,7 @@ func TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops(t *testing.T
 	concrete.mu.Lock()
 	concrete.logBytes = ports.RuntimeDiagnosticLogMaxBytes - ports.RuntimeDiagnosticTailReserveBytes
 	concrete.mu.Unlock()
-	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); !errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted)); !errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
 		t.Fatalf("ordinary cap error = %v", err)
 	}
 	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
@@ -375,7 +393,7 @@ func TestDiagnosticStoreRecoversPartialJSONLineBeforeAppend(t *testing.T) {
 		}
 		return originalWrite(fd, data)
 	}
-	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); err == nil {
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted)); err == nil {
 		t.Fatal("partial append reported success")
 	}
 	concrete.closeLog()
@@ -410,7 +428,7 @@ func TestDiagnosticStoreRollsBackPartialAppendBeforeSameSinkFinalize(t *testing.
 		}
 		return originalWrite(fd, data)
 	}
-	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); err == nil {
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted)); err == nil {
 		t.Fatal("partial append reported success")
 	}
 	completed := fixture.request.StartedAt().Add(time.Second)
@@ -436,7 +454,7 @@ func TestDiagnosticStoreRollsBackAppendAfterSyncFailure(t *testing.T) {
 		}
 		return originalSync(fd)
 	}
-	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted)); !errors.Is(err, injected) {
+	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted)); !errors.Is(err, injected) {
 		t.Fatalf("sync failure = %v", err)
 	}
 	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
@@ -541,7 +559,7 @@ func TestDiagnosticStoreConcurrentAppendProducesCompleteUniqueSequence(t *testin
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticLaneStarted))
+			event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted))
 			if err != nil {
 				t.Error(err)
 				return

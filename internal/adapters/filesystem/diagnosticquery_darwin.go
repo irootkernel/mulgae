@@ -123,6 +123,9 @@ func readDiagnosticStatusFile(directory int) ([]byte, error) {
 }
 
 func decodeDiagnosticRunStatus(data []byte, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	if err := rejectLegacyDiagnosticStatus(data); err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: %w", err)
+	}
 	var wire runtimeDiagnosticRunStatusWire
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -158,7 +161,7 @@ func decodeDiagnosticRunStatus(data []byte, sessionID domain.SessionID, runID do
 	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt,
 		CompletedAt: completedAt, HasCompletedAt: hasCompletedAt, SelectedRoles: wire.SelectedRoles,
-		LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed,
+		RolePathTotal: wire.RolePathTotal, RolePathCompleted: wire.RolePathCompleted, RolePathFailed: wire.RolePathFailed,
 		LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, P2URI: p2URI,
 		HasP2URI: hasP2URI, DroppedEvents: wire.DroppedEvents,
 	})

@@ -93,6 +93,9 @@ func (store *DiagnosticStore) validateExistingRunStatus() (bool, error) {
 			return false, fmt.Errorf("read existing run status: %w", errors.Join(readErr, io.ErrUnexpectedEOF))
 		}
 	}
+	if err := rejectLegacyDiagnosticStatus(data); err != nil {
+		return false, err
+	}
 	var wire runtimeDiagnosticRunStatusWire
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -110,7 +113,7 @@ func (store *DiagnosticStore) validateExistingRunStatus() (bool, error) {
 	if wire.State != domain.RunRunning {
 		return false, fmt.Errorf("existing diagnostic run is terminal")
 	}
-	if _, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, SelectedRoles: wire.SelectedRoles, LaneTotal: wire.LaneTotal, LaneCompleted: wire.LaneCompleted, LaneFailed: wire.LaneFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, DroppedEvents: wire.DroppedEvents}); err != nil || wire.CompletedAt != "" || wire.P2URI != "" {
+	if _, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: store.request.SessionID(), RunID: store.request.RunID(), State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt, SelectedRoles: wire.SelectedRoles, RolePathTotal: wire.RolePathTotal, RolePathCompleted: wire.RolePathCompleted, RolePathFailed: wire.RolePathFailed, LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, DroppedEvents: wire.DroppedEvents}); err != nil || wire.CompletedAt != "" || wire.P2URI != "" {
 		return false, fmt.Errorf("existing run status is invalid")
 	}
 	store.droppedEvents = wire.DroppedEvents

@@ -11,9 +11,9 @@ import (
 func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	t.Parallel()
 
-	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v1.schema.json")
+	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v2.schema.json")
 	manifestDoc := readAssetJSON(t, "schemas/mulgae-run-manifest.v1.schema.json")
-	commandID := "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
+	commandID := "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
 	manifestID := "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 
 	seven := []any{
@@ -95,6 +95,50 @@ func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	}
 	if err := validateAgainstRef(t, manifestID, manifestDoc, manifestID+"#/properties/role_reports", eightManifestRoleReports()); err == nil {
 		t.Fatal("manifest role_reports accepted more than seven entries")
+	}
+}
+
+func TestReviewPreflightV2RolePathSchemaBounds(t *testing.T) {
+	t.Parallel()
+
+	document := readAssetJSON(t, "schemas/mulgae-review-preflight.v2.schema.json")
+	resourceID := "https://mulgae.local/schemas/mulgae-review-preflight.v2.schema.json"
+	ref := resourceID + "#/properties/budget/properties/role_paths"
+	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
+	paths := make([]any, 0, len(roles))
+	for _, role := range roles {
+		paths = append(paths, map[string]any{
+			"role": role, "provider_instance": "zcode-" + role,
+			"invocation_count": 2, "transition_count": 1,
+			"invocation_timeouts": "1h0m0s", "deadline": "1h0m2s",
+		})
+	}
+	if err := validateAgainstRef(t, resourceID, document, ref, paths); err != nil {
+		t.Fatalf("seven unique role paths rejected: %v", err)
+	}
+
+	duplicateRole := append([]any(nil), paths...)
+	duplicateRole[1] = map[string]any{
+		"role": "logic", "provider_instance": "agy-logic",
+		"invocation_count": 2, "transition_count": 1,
+		"invocation_timeouts": "30m0s", "deadline": "30m2s",
+	}
+	if err := validateAgainstRef(t, resourceID, document, ref, duplicateRole); err == nil {
+		t.Fatal("role_paths accepted the same role with a different provider")
+	}
+
+	for name, field := range map[string]string{"invocation count": "invocation_count", "transition count": "transition_count"} {
+		t.Run(name, func(t *testing.T) {
+			invalid := []any{map[string]any{
+				"role": "logic", "provider_instance": "zcode-logic",
+				"invocation_count": 2, "transition_count": 1,
+				"invocation_timeouts": "1h0m0s", "deadline": "1h0m2s",
+			}}
+			invalid[0].(map[string]any)[field] = 3
+			if err := validateAgainstRef(t, resourceID, document, ref, invalid); err == nil {
+				t.Fatalf("role_paths accepted %s above its v2 bound", field)
+			}
+		})
 	}
 }
 

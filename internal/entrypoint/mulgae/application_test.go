@@ -44,7 +44,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v1.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -3058,7 +3058,7 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
 		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
-		LaneTotal: 1, LaneFailed: 1, LastSequence: 12, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 12, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
 	})
 	if err != nil {
 		t.Fatal(err)

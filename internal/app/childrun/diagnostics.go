@@ -165,7 +165,7 @@ func (lifecycle *childDiagnosticLifecycle) finish(ctx context.Context, terminalE
 	}
 	_ = lifecycle.emit(ctx, domain.RuntimeDiagnosticInfo, domain.DiagnosticRuntimeClosed, "childrun", "finalize", "")
 	now := lifecycle.clock.Now().UTC()
-	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: lifecycle.sessionID, RunID: lifecycle.runID, State: state, StartedAt: lifecycle.startedAt, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true, SelectedRoles: lifecycle.roles, LaneTotal: len(lifecycle.roles), LaneCompleted: boolCount(terminalErr == nil) * len(lifecycle.roles), LaneFailed: boolCount(terminalErr != nil) * len(lifecycle.roles), LastSequence: lifecycle.lastSeq, TerminalCause: cause, P2URI: p2, HasP2URI: p2.Valid()})
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: lifecycle.sessionID, RunID: lifecycle.runID, State: state, StartedAt: lifecycle.startedAt, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true, SelectedRoles: lifecycle.roles, RolePathTotal: len(lifecycle.roles), RolePathCompleted: boolCount(terminalErr == nil) * len(lifecycle.roles), RolePathFailed: boolCount(terminalErr != nil) * len(lifecycle.roles), LastSequence: lifecycle.lastSeq, TerminalCause: cause, P2URI: p2, HasP2URI: p2.Valid()})
 	if err != nil {
 		return childDiagnosticArtifactFailure(err)
 	}
