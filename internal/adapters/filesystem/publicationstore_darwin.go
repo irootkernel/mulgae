@@ -1966,8 +1966,6 @@ func (store *PublicationStore) withLockContext(ctx context.Context, root ports.A
 	if !root.Valid() {
 		return errors.New("publication store: invalid root")
 	}
-	publicationStoreProcessMu.Lock()
-	defer publicationStoreProcessMu.Unlock()
 	lock, err := store.acquireLock(ctx, root)
 	if err != nil {
 		return err

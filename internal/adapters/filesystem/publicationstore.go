@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -28,8 +27,8 @@ type ReviewIDGenerator interface {
 	NewReviewID(time.Time) (domain.ReviewID, error)
 }
 
-// PublicationStore is the Darwin durable publication authority. All filesystem
-// access is serialized through the process-wide mutex and an on-disk flock.
+// PublicationStore is the Darwin durable publication authority. Mutations are
+// serialized by the project-local on-disk flock.
 type PublicationStore struct {
 	validator PublicationSchemaValidator
 	clock     ports.Clock
@@ -55,8 +54,6 @@ type publicationStoreOperations struct {
 	fsync       func(int) error
 	renameatxNp func(int, string, int, string, uint32) error
 }
-
-var publicationStoreProcessMu sync.Mutex
 
 // NewPublicationStore constructs a durable publication adapter. It performs no
 // filesystem I/O; roots are validated by each operation's PublicationRun.

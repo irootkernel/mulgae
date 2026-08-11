@@ -144,6 +144,94 @@ func TestPublicationStoreLockWaitHonorsDeadlineWithoutCorruptingState(t *testing
 	}
 }
 
+func TestPublicationStoreAllowsDifferentRootsToPublishConcurrently(t *testing.T) {
+	first := newPublicationStoreFixture(t)
+	second := newPublicationStoreFixture(t)
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- first.store.WithNextPublicationEpoch(context.Background(), first.run.Root(), func(context.Context, uint64) error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- second.store.WithNextPublicationEpoch(context.Background(), second.run.Root(), func(context.Context, uint64) error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+	overlapped := false
+	select {
+	case <-secondEntered:
+		overlapped = true
+	case <-time.After(time.Second):
+	}
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first project publication failed: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second project publication failed: %v", err)
+	}
+	if !overlapped {
+		t.Fatal("different project roots were serialized by process-global publication state")
+	}
+}
+
+func TestPublicationStoreSameRootWaitHonorsDeadlineBehindInProcessTransaction(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	root := fixture.run.Root()
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- fixture.store.WithNextPublicationEpoch(context.Background(), root, func(context.Context, uint64) error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	called := false
+	waiterDone := make(chan error, 1)
+	go func() {
+		waiterDone <- fixture.store.WithNextPublicationEpoch(ctx, root, func(context.Context, uint64) error {
+			called = true
+			return nil
+		})
+	}()
+	waiterReturned := false
+	var waiterErr error
+	select {
+	case waiterErr = <-waiterDone:
+		waiterReturned = true
+	case <-time.After(time.Second):
+	}
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first same-root publication failed: %v", err)
+	}
+	if !waiterReturned {
+		waiterErr = <-waiterDone
+	}
+	if !waiterReturned {
+		t.Fatalf("same-root waiter ignored its deadline until the active transaction ended: %v", waiterErr)
+	}
+	if !errors.Is(waiterErr, context.DeadlineExceeded) || called {
+		t.Fatalf("same-root waiter = called %t, error %v; want deadline before callback", called, waiterErr)
+	}
+}
+
 func TestParsePublicationEpochFilenameRejectsMalformedMembers(t *testing.T) {
 	for _, name := range []string{
 		"epoch_00000000000000000000.json",
