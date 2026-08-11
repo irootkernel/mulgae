@@ -15,6 +15,11 @@ import (
 // requires the installed user to authenticate outside Mulgae before retrying.
 var ErrProviderLoginRequired = errors.New("provider login required")
 
+// ErrProviderInstanceAlreadyActive marks an impossible concurrent reuse of one
+// provider instance inside a single run-owned registry. Callers must classify
+// it as an internal invariant rather than a provider or security failure.
+var ErrProviderInstanceAlreadyActive = errors.New("provider instance already active")
+
 // ProviderRuntimeError carries a closed detailed cause when the provider
 // boundary itself fails. A caller may still receive a valid observation with
 // this error and must preserve that evidence before applying policy.

@@ -612,6 +612,9 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	if got := runtimeProviderErrorCondition(context.Background(), ports.ErrProviderPacketSecurity); got != AttemptConditionSecurityViolation {
 		t.Fatalf("packet screening condition = %q, want security violation", got)
 	}
+	if got := runtimeProviderErrorCondition(context.Background(), fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive)); got != AttemptConditionInternalInvariant {
+		t.Fatalf("duplicate provider instance condition = %q, want internal invariant", got)
+	}
 	for _, cause := range []domain.RuntimeDiagnosticCause{
 		domain.DiagnosticCausePromptFilePreStartFailed,
 		domain.DiagnosticCausePromptFilePostEndFailed,

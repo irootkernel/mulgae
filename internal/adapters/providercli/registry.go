@@ -861,7 +861,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	}
 	if _, active := r.activeInstances[definition.instance]; active {
 		r.stateMu.Unlock()
-		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseObservationMismatch, fmt.Errorf("provider registry: provider instance %q is already active in this run", definition.instance))
+		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: provider instance %q: %w", definition.instance, ports.ErrProviderInstanceAlreadyActive)
 	}
 	if r.active == 0 {
 		r.activeZero = make(chan struct{})

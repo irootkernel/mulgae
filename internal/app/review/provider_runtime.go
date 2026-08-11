@@ -1515,6 +1515,9 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	if errors.Is(err, ports.ErrProviderLoginRequired) {
 		return AttemptConditionLoginRequired
 	}
+	if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
+		return AttemptConditionInternalInvariant
+	}
 	var providerFailure *ports.ProviderRuntimeError
 	if errors.As(err, &providerFailure) {
 		return runtimeCauseCondition(providerFailure.Cause())

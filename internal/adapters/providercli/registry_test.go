@@ -609,8 +609,11 @@ func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 	}()
 	select {
 	case observeErr := <-refused:
-		if got := providerRuntimeCause(observeErr); got != domain.DiagnosticCauseObservationMismatch {
-			t.Fatalf("duplicate active instance cause = %q, want internal observation mismatch", got)
+		if !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
+			t.Fatalf("duplicate active instance error = %v, want typed internal invariant", observeErr)
+		}
+		if got := providerRuntimeCause(observeErr); got.Valid() {
+			t.Fatalf("duplicate active instance exposed provider diagnostic cause %q", got)
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("duplicate active instance waited instead of failing closed")
@@ -718,7 +721,7 @@ func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.
 	}()
 	<-runner.started
 
-	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(observeErr) != domain.DiagnosticCauseObservationMismatch {
+	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
 		t.Fatalf("duplicate active invocation error = %v", observeErr)
 	}
 	select {
