@@ -130,11 +130,11 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if err != nil {
 		t.Fatal(err)
 	}
-	logicRoute, err := ports.NewProviderRoute("fake.logic", mustG008Key(t, "g008"))
+	logicRoute, err := ports.NewProviderRoute("fake.logic")
 	if err != nil {
 		t.Fatal(err)
 	}
-	securityRoute, err := ports.NewProviderRoute("fake.security", mustG008Key(t, "g008"))
+	securityRoute, err := ports.NewProviderRoute("fake.security")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 		domain.RoleSecurity: securityRoute,
 	}
 	for _, role := range extraRoles {
-		route, routeErr := ports.NewProviderRoute("fake."+string(role), mustG008Key(t, "g008"))
+		route, routeErr := ports.NewProviderRoute("fake." + string(role))
 		if routeErr != nil {
 			t.Fatal(routeErr)
 		}
@@ -200,13 +200,4 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if !repaired {
 		t.Fatal("repaired attempt artifact was not retained")
 	}
-}
-
-func mustG008Key(t *testing.T, value string) ports.ConcurrencyKey {
-	t.Helper()
-	key, err := ports.ParseConcurrencyKey(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return key
 }

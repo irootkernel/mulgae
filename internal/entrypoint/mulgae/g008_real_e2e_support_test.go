@@ -460,12 +460,11 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, _ := ports.ParseConcurrencyKey("g008")
 	limits, _ := review.NewInvocationLimits(time.Second, 256<<10, 256<<10)
 	roleBudgets := make([]review.RoleBudget, 0, len(domain.CoreRoleOrder()))
 	assignments := make([]review.Assignment, 0, len(domain.CoreRoleOrder()))
 	for _, role := range domain.CoreRoleOrder() {
-		route, routeErr := ports.NewProviderRoute("g008."+string(role), key)
+		route, routeErr := ports.NewProviderRoute("g008." + string(role))
 		if routeErr != nil {
 			t.Fatal(routeErr)
 		}

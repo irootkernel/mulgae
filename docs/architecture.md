@@ -95,8 +95,8 @@ re-derived after init.
 
 ## Concurrency, cancellation, and storage
 
-Provider concurrency keys remain route and budget identity, but do not create
-queues or locks. Each run owns a registry and one temporary namespace generation
+Application routes and budgets identify providers directly; they contain no
+concurrency key. Each run owns a registry and one temporary namespace generation
 per provider instance, so independent runs can invoke the same configured
 provider concurrently. A run cannot register one provider instance twice, and
 an impossible concurrent reuse of one instance within the same registry fails

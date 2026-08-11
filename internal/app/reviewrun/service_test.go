@@ -1221,11 +1221,7 @@ func TestPromptSourceStatesEachStagedLaunchDestination(t *testing.T) {
 
 func reviewRunStagedJob(t *testing.T, instance string, purpose domain.InvocationPurpose, ordinal uint64) review.InvocationJob {
 	t.Helper()
-	key, err := ports.ParseConcurrencyKey(instance)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route, err := ports.NewProviderRoute(instance, key)
+	route, err := ports.NewProviderRoute(instance)
 	if err != nil {
 		t.Fatal(err)
 	}

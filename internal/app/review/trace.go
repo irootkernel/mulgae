@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/domain"
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // CoordinatorEventKind is the closed, logical event vocabulary emitted by the
@@ -53,8 +52,6 @@ type CoordinatorTraceEvent struct {
 	hasAttempt   bool
 	purpose      domain.InvocationPurpose
 	hasPurpose   bool
-	lane         ports.ConcurrencyKey
-	hasLane      bool
 	condition    AttemptCondition
 	hasCondition bool
 	reason       string
@@ -82,11 +79,6 @@ func (event CoordinatorTraceEvent) Purpose() (domain.InvocationPurpose, bool) {
 	return event.purpose, event.hasPurpose
 }
 
-// Lane returns the normalized concurrency lane when an invocation is present.
-func (event CoordinatorTraceEvent) Lane() (ports.ConcurrencyKey, bool) {
-	return event.lane, event.hasLane
-}
-
 // Condition returns the committed closed attempt condition when present.
 func (event CoordinatorTraceEvent) Condition() (AttemptCondition, bool) {
 	return event.condition, event.hasCondition
@@ -112,10 +104,7 @@ func (event CoordinatorTraceEvent) validate() error {
 		if _, err := domain.ParseAttemptID(event.attemptID.String()); err != nil {
 			return fmt.Errorf("review coordinator trace: invalid attempt ID: %w", err)
 		}
-		if !event.hasLane || !event.lane.Valid() {
-			return fmt.Errorf("review coordinator trace: incomplete attempt identity")
-		}
-	} else if event.attemptID.String() != "" || event.hasLane || event.lane.String() != "" {
+	} else if event.attemptID.String() != "" {
 		return fmt.Errorf("review coordinator trace: hidden attempt identity")
 	}
 	if event.hasPurpose {

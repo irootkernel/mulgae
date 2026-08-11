@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -223,11 +222,7 @@ func expectedE2ECall(provider string, role domain.Role, attemptID domain.Attempt
 
 func e2eAssignment(t *testing.T, role domain.Role, provider string) review.Assignment {
 	t.Helper()
-	key, err := ports.ParseConcurrencyKey(strings.ReplaceAll(provider, ".", "-"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	route, err := ports.NewProviderRoute(provider, key)
+	route, err := ports.NewProviderRoute(provider)
 	if err != nil {
 		t.Fatal(err)
 	}

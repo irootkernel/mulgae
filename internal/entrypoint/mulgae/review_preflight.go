@@ -405,11 +405,7 @@ func validatePreflightBudgetProjection(transmissions []ReviewPreflightTransmissi
 }
 
 func preflightRouteBudget(transmission ReviewPreflightTransmission) (review.RouteBudget, error) {
-	key, err := ports.ParseConcurrencyKey(transmission.ProviderInstance)
-	if err != nil {
-		return review.RouteBudget{}, err
-	}
-	route, err := ports.NewProviderRoute(transmission.ProviderInstance, key)
+	route, err := ports.NewProviderRoute(transmission.ProviderInstance)
 	if err != nil {
 		return review.RouteBudget{}, err
 	}

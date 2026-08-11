@@ -10,7 +10,7 @@ import (
 func TestNewScheduledAssignmentStoresTheSingleExplicitRoute(t *testing.T) {
 	t.Parallel()
 
-	primary := assignmentTestRoute(t, "primary.product", "product-primary")
+	primary := assignmentTestRoute(t, "primary.product")
 	assignment, err := NewScheduledAssignment(domain.RoleProduct, false, primary)
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestNewScheduledAssignmentPreservesRequiredFloorForAllRoles(t *testing.T) {
 
 	for _, role := range domain.CoreRoleOrder() {
 		t.Run(string(role), func(t *testing.T) {
-			primary := assignmentTestRoute(t, "scheduled."+string(role), "lane-"+string(role))
+			primary := assignmentTestRoute(t, "scheduled."+string(role))
 			assignment, err := NewScheduledAssignment(role, false, primary)
 			if err != nil {
 				t.Fatal(err)
@@ -52,14 +52,9 @@ func TestNewScheduledAssignmentRejectsInvalidRoutes(t *testing.T) {
 	}
 }
 
-func assignmentTestRoute(t *testing.T, providerInstance, concurrencyKey string) ports.ProviderRoute {
+func assignmentTestRoute(t *testing.T, providerInstance string) ports.ProviderRoute {
 	t.Helper()
-
-	key, err := ports.ParseConcurrencyKey(concurrencyKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route, err := ports.NewProviderRoute(providerInstance, key)
+	route, err := ports.NewProviderRoute(providerInstance)
 	if err != nil {
 		t.Fatal(err)
 	}

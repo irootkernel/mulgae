@@ -26,7 +26,7 @@ func TestAttemptKindClosed(t *testing.T) {
 func TestNewInvocationJobRejectsInvalidFields(t *testing.T) {
 	t.Parallel()
 
-	route := coordinatorTypesRoute(t, "provider", "lane")
+	route := coordinatorTypesRoute(t, "provider")
 	attemptID := coordinatorTypesAttemptID(t, 1)
 	limits := coordinatorTypesLimits(t)
 	target := coordinatorTypesTarget(t, 1)
@@ -119,7 +119,7 @@ func TestNewInvocationJobRejectsMissingLimits(t *testing.T) {
 
 	if _, err := NewInvocationJob(
 		domain.RoleLogic,
-		coordinatorTypesRoute(t, "provider", "lane"),
+		coordinatorTypesRoute(t, "provider"),
 		coordinatorTypesTarget(t, 1),
 		InvocationLimits{},
 		coordinatorTypesAttemptID(t, 9),
@@ -133,7 +133,7 @@ func TestNewInvocationJobRejectsMissingLimits(t *testing.T) {
 func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 	t.Parallel()
 
-	route := coordinatorTypesRoute(t, "provider", "lane")
+	route := coordinatorTypesRoute(t, "provider")
 	attemptID := coordinatorTypesAttemptID(t, 2)
 	target := coordinatorTypesTarget(t, 1)
 	job, err := NewInvocationJob(domain.RoleLogic, route, target, coordinatorTypesLimits(t), attemptID, domain.InvocationRepair, 3)
@@ -148,7 +148,7 @@ func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 		t.Fatalf("job accessors = %#v", job)
 	}
 	returnedRoute := job.Route()
-	if !returnedRoute.Valid() || returnedRoute.ProviderInstance() != "provider" || returnedRoute.ConcurrencyKey().String() != "lane" {
+	if !returnedRoute.Valid() || returnedRoute.ProviderInstance() != "provider" {
 		t.Fatalf("job route = %#v", returnedRoute)
 	}
 	if got := job.Target(); got != target {
@@ -173,7 +173,7 @@ func TestCoordinatorInvocationJobRetainsCoordinates(t *testing.T) {
 		sessionID,
 		runID,
 		domain.RoleLogic,
-		coordinatorTypesRoute(t, "provider", "lane"),
+		coordinatorTypesRoute(t, "provider"),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),
 		coordinatorTypesAttemptID(t, 2),
@@ -198,7 +198,7 @@ func TestCoordinatorInvocationJobRejectsIncompleteCoordinates(t *testing.T) {
 		domain.SessionID{},
 		runID,
 		domain.RoleLogic,
-		coordinatorTypesRoute(t, "provider", "lane"),
+		coordinatorTypesRoute(t, "provider"),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),
 		coordinatorTypesAttemptID(t, 2),
@@ -647,14 +647,9 @@ func TestNilInvocationRuntimeRecognizesTypedNil(t *testing.T) {
 	}
 }
 
-func coordinatorTypesRoute(t *testing.T, providerInstance, key string) ports.ProviderRoute {
+func coordinatorTypesRoute(t *testing.T, providerInstance string) ports.ProviderRoute {
 	t.Helper()
-
-	concurrencyKey, err := ports.ParseConcurrencyKey(key)
-	if err != nil {
-		t.Fatalf("ParseConcurrencyKey() error = %v", err)
-	}
-	route, err := ports.NewProviderRoute(providerInstance, concurrencyKey)
+	route, err := ports.NewProviderRoute(providerInstance)
 	if err != nil {
 		t.Fatalf("NewProviderRoute() error = %v", err)
 	}
@@ -723,7 +718,7 @@ func coordinatorTypesJob(t *testing.T, role domain.Role, providerInstance string
 
 	job, err := NewInvocationJob(
 		role,
-		coordinatorTypesRoute(t, providerInstance, "lane"),
+		coordinatorTypesRoute(t, providerInstance),
 		coordinatorTypesTarget(t, 1),
 		coordinatorTypesLimits(t),
 		coordinatorTypesAttemptID(t, int(ordinal)),

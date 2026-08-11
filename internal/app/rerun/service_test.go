@@ -113,7 +113,7 @@ func TestStartRerunExactSelectsStoredPrimaryProviderRoute(t *testing.T) {
 	source := validRerunSource()
 	reader := &rerunSourceReader{source: source}
 	executor := &rerunExecutor{}
-	primary, err := ports.NewProviderRoute(source.ProviderInstance, mustRerunConcurrencyKey(t))
+	primary, err := ports.NewProviderRoute(source.ProviderInstance)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestStartRerunExactRejectsAnAttemptFromAnotherProvider(t *testing.T) {
 	source := validRerunSource()
 	reader := &rerunSourceReader{source: source}
 	executor := &rerunExecutor{}
-	primary, err := ports.NewProviderRoute("current-primary", mustRerunConcurrencyKey(t))
+	primary, err := ports.NewProviderRoute("current-primary")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestStartRerunExactRejectsChangedAssignmentProvider(t *testing.T) {
 	source := validRerunSource()
 	reader := &rerunSourceReader{source: source}
 	executor := &rerunExecutor{}
-	route, err := ports.NewProviderRoute("changed-provider", mustRerunConcurrencyKey(t))
+	route, err := ports.NewProviderRoute("changed-provider")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func (ids rerunIDs) NewRunID(time.Time) (domain.RunID, error) { return ids.id, i
 
 func testRerunService(t *testing.T, reader SourceReader, executor ChildReplayExecutor) *Service {
 	t.Helper()
-	route, err := ports.NewProviderRoute("kimi-main", mustRerunConcurrencyKey(t))
+	route, err := ports.NewProviderRoute("kimi-main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,14 +461,6 @@ func testRerunServiceWithAssignments(t *testing.T, reader SourceReader, executor
 		t.Fatal(err)
 	}
 	return service
-}
-func mustRerunConcurrencyKey(t *testing.T) ports.ConcurrencyKey {
-	t.Helper()
-	key, err := ports.ParseConcurrencyKey("rerun-child")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return key
 }
 
 var _ ports.Clock = rerunClock{}

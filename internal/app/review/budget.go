@@ -546,9 +546,6 @@ func compareRouteBudgets(left, right RouteBudget) int {
 	if compared := compareStrings(left.route.ProviderInstance(), right.route.ProviderInstance()); compared != 0 {
 		return compared
 	}
-	if compared := compareStrings(left.route.ConcurrencyKey().String(), right.route.ConcurrencyKey().String()); compared != 0 {
-		return compared
-	}
 	if left.limits.timeout != right.limits.timeout {
 		if left.limits.timeout < right.limits.timeout {
 			return -1

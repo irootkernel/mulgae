@@ -91,7 +91,7 @@ func TestProviderRuntimePersistsSeparatedRawReferences(t *testing.T) {
 	attemptID := coordinatorTypesAttemptID(t, 12)
 	job, err := newCoordinatorInvocationJob(
 		sessionID, runID, domain.RoleLogic,
-		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesRoute(t, "fake.logic"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
 	if err != nil {
@@ -208,7 +208,7 @@ func providerRuntimeDiagnosticJob(t *testing.T, runID domain.RunID, attemptID do
 	}
 	job, err := newCoordinatorInvocationJob(
 		sessionID, runID, domain.RoleLogic,
-		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesRoute(t, "fake.logic"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
 	if err != nil {
@@ -252,7 +252,7 @@ func TestProviderRuntimeOutputReceivedRequiresNonEmptyStdout(t *testing.T) {
 	attemptID := coordinatorTypesAttemptID(t, 12)
 	job, err := newCoordinatorInvocationJob(
 		sessionID, runID, domain.RoleLogic,
-		coordinatorTypesRoute(t, "fake.logic", "diagnostic-lane"), coordinatorTypesTarget(t, 13),
+		coordinatorTypesRoute(t, "fake.logic"), coordinatorTypesTarget(t, 13),
 		coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, 1,
 	)
 	if err != nil {
@@ -388,7 +388,7 @@ func (provider concurrentExplicitRuntimeProvider) Invoke(ctx context.Context, in
 	}
 }
 
-func TestExplicitRuntimeInvocationsDoNotSerializeDistinctLanes(t *testing.T) {
+func TestExplicitRuntimeInvocationsDoNotSerializeDistinctProviders(t *testing.T) {
 	targetBytes := []byte("immutable target")
 	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
 		Kind: domain.TargetStdin, SHA256: strings.TrimPrefix(sha256Identifier(targetBytes), "sha256:"),
@@ -411,7 +411,7 @@ func TestExplicitRuntimeInvocationsDoNotSerializeDistinctLanes(t *testing.T) {
 		attemptID := coordinatorTypesAttemptID(t, index+1)
 		jobs[index], err = newCoordinatorInvocationJob(
 			sessionID, runID, role,
-			coordinatorTypesRoute(t, "fake."+string(role), string(role)+"-lane"), target,
+			coordinatorTypesRoute(t, "fake."+string(role)), target,
 			coordinatorTypesLimits(t), attemptID, domain.InvocationInitial, uint64(index+1),
 		)
 		if err != nil {
@@ -475,7 +475,7 @@ func TestExplicitRuntimeInvocationsDoNotSerializeDistinctLanes(t *testing.T) {
 		case <-entered:
 		case <-time.After(500 * time.Millisecond):
 			close(release)
-			t.Fatal("distinct explicit runtime lane was serialized behind another provider invocation")
+			t.Fatal("distinct explicit provider invocation was serialized behind another provider invocation")
 		}
 	}
 	close(release)
@@ -1073,7 +1073,7 @@ func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider)
 	}
 	job, err := newCoordinatorInvocationJob(
 		sessionID, runID, domain.RoleLogic,
-		coordinatorTypesRoute(t, "fake.logic", "logic-lane"), target,
+		coordinatorTypesRoute(t, "fake.logic"), target,
 		limits, attemptID, domain.InvocationInitial, 1,
 	)
 	if err != nil {

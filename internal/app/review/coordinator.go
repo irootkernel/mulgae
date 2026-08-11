@@ -1042,8 +1042,7 @@ func coordinatorAssignments(assignments []Assignment, receipt RunBudgetReceipt, 
 }
 
 func sameCoordinatorRoute(left, right ports.ProviderRoute) bool {
-	return left.ProviderInstance() == right.ProviderInstance() &&
-		left.ConcurrencyKey().String() == right.ConcurrencyKey().String()
+	return left.ProviderInstance() == right.ProviderInstance()
 }
 
 func (execution *coordinatorExecution) startPrimary(role domain.Role) (InvocationJob, error) {
@@ -2215,8 +2214,6 @@ func (execution *coordinatorExecution) record(
 	if attempt != nil {
 		event.attemptID = attempt.attempt.ID()
 		event.hasAttempt = true
-		event.lane = attempt.route.ConcurrencyKey()
-		event.hasLane = true
 	}
 	if purpose != nil {
 		event.purpose = *purpose

@@ -196,7 +196,7 @@ func canonicalCoordinatorRoute(route ports.ProviderRoute) (ports.ProviderRoute, 
 	if !route.Valid() {
 		return ports.ProviderRoute{}, fmt.Errorf("provider route is invalid")
 	}
-	canonical, err := ports.NewProviderRoute(route.ProviderInstance(), route.ConcurrencyKey())
+	canonical, err := ports.NewProviderRoute(route.ProviderInstance())
 	if err != nil {
 		return ports.ProviderRoute{}, err
 	}
@@ -444,11 +444,7 @@ func (output ValidatedRoleOutput) clone() ValidatedRoleOutput {
 }
 
 func validCoordinatorProviderInstance(providerInstance string) bool {
-	key, err := ports.ParseConcurrencyKey("provider")
-	if err != nil {
-		return false
-	}
-	_, err = ports.NewProviderRoute(providerInstance, key)
+	_, err := ports.NewProviderRoute(providerInstance)
 	return err == nil
 }
 

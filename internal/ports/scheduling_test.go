@@ -156,17 +156,13 @@ func TestParseConcurrencyKeyAcceptsOnlyCanonicalGrammarAfterNormalization(t *tes
 	}
 }
 
-func TestProviderRouteBindsSafeProviderToValidKey(t *testing.T) {
-	key := schedulingTestConcurrencyKey(t)
-	route, err := NewProviderRoute("kimi-main", key)
+func TestProviderRouteRetainsOnlySafeProviderIdentity(t *testing.T) {
+	route, err := NewProviderRoute("kimi-main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := route.ProviderInstance(), "kimi-main"; got != want {
 		t.Fatalf("ProviderInstance() = %q, want %q", got, want)
-	}
-	if got := route.ConcurrencyKey(); got != key {
-		t.Fatalf("ConcurrencyKey() = %q, want %q", got, key)
 	}
 	if !route.Valid() {
 		t.Fatal("valid route reports invalid")
@@ -175,14 +171,12 @@ func TestProviderRouteBindsSafeProviderToValidKey(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		provider string
-		key      ConcurrencyKey
 	}{
-		{name: "empty provider", provider: "", key: key},
-		{name: "unsafe provider", provider: "Kimi Main", key: key},
-		{name: "invalid key", provider: "kimi-main", key: ConcurrencyKey{}},
+		{name: "empty provider", provider: ""},
+		{name: "unsafe provider", provider: "Kimi Main"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewProviderRoute(test.provider, test.key); err == nil {
+			if _, err := NewProviderRoute(test.provider); err == nil {
 				t.Fatal("NewProviderRoute() succeeded")
 			}
 		})

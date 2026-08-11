@@ -22,7 +22,7 @@ func TestPreflightRunBudgetExactOutputBoundaryAndCapOneOver(t *testing.T) {
 			outputCap = 11 * mib
 		}
 		limits := budgetTestLimits(t, time.Second, outputCap-1, 1)
-		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), "shared", limits)
+		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), limits)
 		roles = append(roles, budgetTestRole(t, role, primary))
 	}
 
@@ -39,7 +39,7 @@ func TestPreflightRunBudgetExactOutputBoundaryAndCapOneOver(t *testing.T) {
 
 	over := append([]RoleBudget(nil), roles...)
 	overLimits := budgetTestLimits(t, time.Second, 11*mib, 1)
-	over[0].primary = budgetTestRoute(t, "primary-0", "shared", overLimits)
+	over[0].primary = budgetTestRoute(t, "primary-0", overLimits)
 	rejected, err := PreflightRunBudget(over, ceilings)
 	if err == nil {
 		t.Fatal("PreflightRunBudget() succeeded with a cap one byte over its trusted ceiling")
@@ -52,19 +52,18 @@ func TestPreflightRunBudgetExactOutputBoundaryAndCapOneOver(t *testing.T) {
 	}
 }
 
-func TestPreflightRunBudgetSixRoleFormulaIgnoresSharedConcurrencyKey(t *testing.T) {
+func TestPreflightRunBudgetSixRoleFormulaUsesOnePathPerRole(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(int) string { return "shared" })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 24, 4*time.Second, 9*time.Second, 2, 12)
 
 	receipt, err := PreflightRunBudget(roles, ceilings)
 	if err != nil {
 		t.Fatalf("PreflightRunBudget() error = %v", err)
 	}
-	// Six roles retain independent initial-to-repair paths even when their
-	// provider routes carry the same legacy concurrency key.
+	// Six roles retain one independent initial-to-repair path each.
 	if got, want := receipt.TotalInvocations(), 12; got != want {
 		t.Fatalf("total invocations = %d, want %d", got, want)
 	}
@@ -95,7 +94,7 @@ func TestPreflightRunBudgetIndependentRolePathsUseMaximumDeadline(t *testing.T) 
 	t.Parallel()
 
 	limits := budgetTestLimits(t, 3*time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(index int) string { return fmt.Sprintf("primary-%d", index) })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, 5*time.Second, 1, 1, 24, 8*time.Second, 13*time.Second, 2, 12)
 
 	receipt, err := PreflightRunBudget(roles, ceilings)
@@ -124,7 +123,7 @@ func TestPreflightRunBudgetCapacityCoversQueueAndRoleDependencyPaths(t *testing.
 	t.Parallel()
 
 	limits := budgetTestLimits(t, 3*time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(index int) string { return fmt.Sprintf("capacity-primary-%d", index) })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, 5*time.Second, 1, 1, 24, 30*time.Second, 3*time.Minute, 2, 12)
 
 	// Six 8s role paths: 48s of work on a critical path of 8s. W/C + (1-1/C)L.
@@ -157,7 +156,7 @@ func TestPreflightRunBudgetAcceptsThirtyAndSixtyMinuteProviderBoundaries(t *test
 
 	for _, timeout := range []time.Duration{30 * time.Minute, 60 * time.Minute} {
 		limits := budgetTestLimits(t, timeout, 1, 1)
-		primary := budgetTestRoute(t, "primary", "shared-boundary", limits)
+		primary := budgetTestRoute(t, "primary", limits)
 		roles := []RoleBudget{budgetTestRole(t, domain.RoleLogic, primary)}
 
 		receipt, err := PreflightRunBudgetWithCapacity(roles, DefaultHarnessCeilings(), 1)
@@ -174,7 +173,7 @@ func TestPreflightRunBudgetAcceptsThirtyAndSixtyMinuteProviderBoundaries(t *test
 	}
 
 	over := budgetTestLimits(t, 60*time.Minute+time.Nanosecond, 1, 1)
-	roles := []RoleBudget{budgetTestRole(t, domain.RoleLogic, budgetTestRoute(t, "primary-over", "over", over))}
+	roles := []RoleBudget{budgetTestRole(t, domain.RoleLogic, budgetTestRoute(t, "primary-over", over))}
 	receipt, err := PreflightRunBudgetWithCapacity(roles, DefaultHarnessCeilings(), 1)
 	if err == nil || receipt.ReasonCode() != BudgetReasonInvocationCapExceeded {
 		t.Fatalf("one-over timeout = error:%v reason:%q", err, receipt.ReasonCode())
@@ -192,7 +191,7 @@ func TestPreflightRunBudgetAcceptsProductionSixRoleTopology(t *testing.T) {
 		if len(instance) >= len("zcode-") && instance[:len("zcode-")] == "zcode-" {
 			limits = zcode
 		}
-		return budgetTestRoute(t, instance, instance, limits)
+		return budgetTestRoute(t, instance, limits)
 	}
 	role := func(name domain.Role, primary string) RoleBudget {
 		t.Helper()
@@ -243,7 +242,7 @@ func TestPreflightRunBudgetRolePathAndRunDeadlineOneOver(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(int) string { return "shared" })
+	roles := budgetTestCompleteRoles(t, limits)
 	// Every role path needs 4s and the run 9s; each ceiling is one second short.
 	pathCeiling := budgetTestCeilings(t, 2*time.Second, 1, 1, 24, 3*time.Second, 9*time.Second, 2, 12)
 	pathRejected, err := PreflightRunBudget(roles, pathCeiling)
@@ -268,7 +267,7 @@ func TestPreflightRunBudgetCanonicalizesShuffledInputs(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, 2*time.Second, 2, 3)
-	roles := budgetTestCompleteRoles(t, limits, func(index int) string { return fmt.Sprintf("primary-%d", index) })
+	roles := budgetTestCompleteRoles(t, limits)
 	shuffled := []RoleBudget{roles[5], roles[2], roles[0], roles[4], roles[1], roles[3]}
 	ceilings := budgetTestCeilings(t, 3*time.Second, 4, 5, 200, time.Minute, 2*time.Minute, 2, 12)
 
@@ -294,7 +293,7 @@ func TestPreflightRunBudgetAcceptsRoleSubsetsAndRejectsInvalidSelection(t *testi
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(int) string { return "shared" })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 48, time.Minute, 2*time.Minute, 2, 12)
 
 	for _, selected := range [][]RoleBudget{
@@ -333,7 +332,7 @@ func TestPreflightRunBudgetRejectsRouteCapOverflow(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 2, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(int) string { return "shared" })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 48, time.Minute, 2*time.Minute, 2, 12)
 
 	receipt, err := PreflightRunBudget(roles, ceilings)
@@ -349,7 +348,7 @@ func TestRunBudgetReceiptDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	limits := budgetTestLimits(t, time.Second, 1, 1)
-	roles := budgetTestCompleteRoles(t, limits, func(int) string { return "shared" })
+	roles := budgetTestCompleteRoles(t, limits)
 	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 48, time.Minute, 2*time.Minute, 2, 12)
 	receipt, err := PreflightRunBudget(roles, ceilings)
 	if err != nil {
@@ -505,15 +504,11 @@ func budgetTestLimits(t *testing.T, timeout time.Duration, stdoutCap, stderrCap 
 	return limits
 }
 
-func budgetTestRoute(t *testing.T, providerInstance, concurrencyKey string, limits InvocationLimits) RouteBudget {
+func budgetTestRoute(t *testing.T, providerInstance string, limits InvocationLimits) RouteBudget {
 	t.Helper()
-	key, err := ports.ParseConcurrencyKey(concurrencyKey)
+	route, err := ports.NewProviderRoute(providerInstance)
 	if err != nil {
-		t.Fatalf("ParseConcurrencyKey(%q) error = %v", concurrencyKey, err)
-	}
-	route, err := ports.NewProviderRoute(providerInstance, key)
-	if err != nil {
-		t.Fatalf("NewProviderRoute(%q, %q) error = %v", providerInstance, concurrencyKey, err)
+		t.Fatalf("NewProviderRoute(%q) error = %v", providerInstance, err)
 	}
 	budget, err := NewRouteBudget(route, limits)
 	if err != nil {
@@ -531,11 +526,11 @@ func budgetTestRole(t *testing.T, role domain.Role, primary RouteBudget) RoleBud
 	return budget
 }
 
-func budgetTestCompleteRoles(t *testing.T, limits InvocationLimits, lane func(int) string) []RoleBudget {
+func budgetTestCompleteRoles(t *testing.T, limits InvocationLimits) []RoleBudget {
 	t.Helper()
 	roles := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
 	for index, role := range domain.CoreRoleOrder() {
-		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), lane(index), limits)
+		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), limits)
 		roles = append(roles, budgetTestRole(t, role, primary))
 	}
 	return roles

@@ -262,10 +262,14 @@ func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[F
 				return nil, routeErr
 			}
 			instance := route.ProviderInstance()
+			concurrencyKey, keyErr := ports.ParseConcurrencyKey(instance)
+			if keyErr != nil {
+				return nil, keyErr
+			}
 			template := productionCandidateTemplate{
 				family: family, instance: instance, profileID: instance,
 				runtimeSafetyPolicyIdentity: identities[family], transportChannel: ports.ProviderPacketChannelArgvLiteral,
-				concurrencyKey: route.ConcurrencyKey(), limits: limits, supportedRoles: []domain.Role{role},
+				concurrencyKey: concurrencyKey, limits: limits, supportedRoles: []domain.Role{role},
 			}
 			switch family {
 			case FamilyKimi:
@@ -287,11 +291,7 @@ func productionRouteAndLimits(family Family, role domain.Role, providerTimeouts 
 		return ports.ProviderRoute{}, review.InvocationLimits{}, fmt.Errorf("review run: invalid production route")
 	}
 	instance := string(family) + "-" + string(role)
-	key, err := ports.ParseConcurrencyKey(instance)
-	if err != nil {
-		return ports.ProviderRoute{}, review.InvocationLimits{}, err
-	}
-	route, err := ports.NewProviderRoute(instance, key)
+	route, err := ports.NewProviderRoute(instance)
 	if err != nil {
 		return ports.ProviderRoute{}, review.InvocationLimits{}, err
 	}

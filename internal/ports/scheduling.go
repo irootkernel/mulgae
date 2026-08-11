@@ -20,9 +20,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// ConcurrencyKey is the stable, normalized route and budget identity retained
-// by the v1 contract. It is opaque so every equal key compares equal without
-// caller-defined spelling rules.
+// ConcurrencyKey is temporary normalized process metadata retained below the
+// application route boundary. It is opaque so every equal key compares equal
+// without caller-defined spelling rules.
 type ConcurrencyKey struct{ value string }
 
 // ParseConcurrencyKey NFC-normalizes and ASCII-lowercases value before
@@ -42,33 +42,26 @@ func (key ConcurrencyKey) String() string { return key.value }
 // Valid reports whether key is a canonical concurrency key.
 func (key ConcurrencyKey) Valid() bool { return validateCanonicalConcurrencyKey(key.value) == nil }
 
-// ProviderRoute binds one safe provider instance to its normalized concurrency
-// lane. It contains no provider-family or live-runtime authority.
+// ProviderRoute identifies one safe provider instance. It contains no
+// provider-family, scheduling, or live-runtime authority.
 type ProviderRoute struct {
 	providerInstance string
-	concurrencyKey   ConcurrencyKey
 }
 
-// NewProviderRoute validates an immutable provider-instance-to-lane binding.
-func NewProviderRoute(providerInstance string, concurrencyKey ConcurrencyKey) (ProviderRoute, error) {
+// NewProviderRoute validates an immutable provider identity.
+func NewProviderRoute(providerInstance string) (ProviderRoute, error) {
 	if !validProviderInstanceID(providerInstance) {
 		return ProviderRoute{}, fmt.Errorf("provider route: invalid provider instance %q", providerInstance)
 	}
-	if !concurrencyKey.Valid() {
-		return ProviderRoute{}, fmt.Errorf("provider route: invalid concurrency key")
-	}
-	return ProviderRoute{providerInstance: providerInstance, concurrencyKey: concurrencyKey}, nil
+	return ProviderRoute{providerInstance: providerInstance}, nil
 }
 
 // ProviderInstance returns the safe provider instance identifier.
 func (route ProviderRoute) ProviderInstance() string { return route.providerInstance }
 
-// ConcurrencyKey returns the normalized lane key selected for the provider.
-func (route ProviderRoute) ConcurrencyKey() ConcurrencyKey { return route.concurrencyKey }
-
-// Valid reports whether route is a valid provider-instance-to-lane binding.
+// Valid reports whether route contains a valid provider identity.
 func (route ProviderRoute) Valid() bool {
-	return validProviderInstanceID(route.providerInstance) && route.concurrencyKey.Valid()
+	return validProviderInstanceID(route.providerInstance)
 }
 
 // EnvironmentVariable is one explicit, portable process-environment entry.

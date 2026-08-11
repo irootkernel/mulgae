@@ -11,7 +11,7 @@ import (
 )
 
 // QualifiedRoute is the complete immutable planning authority for one provider
-// instance and concurrency lane. It contains no discovery or invocation power.
+// instance. It contains no discovery or invocation power.
 type QualifiedRoute struct {
 	qualification  Qualification
 	route          ports.ProviderRoute
@@ -65,7 +65,7 @@ func NewQualifiedRoute(qualification Qualification, route ports.ProviderRoute, l
 // Qualification returns the immutable current admission decision.
 func (route QualifiedRoute) Qualification() Qualification { return route.qualification }
 
-// Route returns the immutable provider instance and lane binding.
+// Route returns the immutable provider identity.
 func (route QualifiedRoute) Route() ports.ProviderRoute { return route.route }
 
 // Limits returns immutable invocation limits for this route.
@@ -120,8 +120,9 @@ func (assignment RoleProviderAssignment) Role() domain.Role { return assignment.
 func (assignment RoleProviderAssignment) Primary() Family   { return assignment.primary }
 
 // PlannerPolicy supplies trusted execution limits, explicit Config v1
-// provider assignments, and outcome policy. Zero threshold, ceilings, and lane
-// count select the closed defaults; assignments never default.
+// provider assignments, outcome policy, and active-worker capacity. Zero
+// threshold, ceilings, and capacity select the closed defaults; assignments
+// never default.
 type PlannerPolicy struct {
 	Ceilings      review.HarnessCeilings
 	Threshold     domain.Severity
@@ -396,12 +397,6 @@ func compareQualifiedRoutes(left, right QualifiedRoute) int {
 		return -1
 	}
 	if left.route.ProviderInstance() > right.route.ProviderInstance() {
-		return 1
-	}
-	if left.route.ConcurrencyKey().String() < right.route.ConcurrencyKey().String() {
-		return -1
-	}
-	if left.route.ConcurrencyKey().String() > right.route.ConcurrencyKey().String() {
 		return 1
 	}
 	return 0

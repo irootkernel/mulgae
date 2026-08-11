@@ -24,8 +24,7 @@ func TestDeltaRunWithConfiguredAssignmentsUsesCurrentPlannerRoutes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	primaryKey, _ := ports.ParseConcurrencyKey("primary-lane")
-	primary, err := ports.NewProviderRoute("primary", primaryKey)
+	primary, err := ports.NewProviderRoute("primary")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ import (
 
 // PreflightConfiguredPlan projects the production route topology and its
 // enclosing budgets without discovering, qualifying, or invoking providers.
-// It deliberately shares the production instance, lane, output-cap, timeout,
+// It deliberately shares the production instance, output-cap, timeout,
 // assignment, and budget authorities used by qualified execution planning.
 func PreflightConfiguredPlan(
 	policy PlannerPolicy,

@@ -495,7 +495,7 @@ func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Co
 			}
 			return admission, providerQualificationBoundaryError(definition, cause, "qualification_invalid")
 		}
-		route, err := ports.NewProviderRoute(definition.Instance(), definition.ConcurrencyKey())
+		route, err := ports.NewProviderRoute(definition.Instance())
 		if err != nil {
 			releaseAll()
 			return admission, fmt.Errorf("review run: provider route for %q: %w", definition.Instance(), err)
