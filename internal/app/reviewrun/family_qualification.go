@@ -27,7 +27,7 @@ type familyQualificationGroup struct {
 
 // familyRuntimeProfileKeyFor binds every capability-relevant runtime field that
 // must match before same-command family qualification may be shared. Instance,
-// timeout, concurrency key, profile id, and configured version are excluded so
+// timeout, profile id, and configured version are excluded so
 // sibling role routes can share one probe; transport, argv, environment,
 // working directory, output bounds, lifecycle, model, digests, and safety
 // identity remain part of the share key.

@@ -117,7 +117,7 @@ tests in the owning application package.
 - Keep dependency direction intact; external behavior belongs behind a port.
 - Preserve project-local and provider isolation boundaries.
 - Add negative fail-closed tests, not only success tests.
-- Update v1 contracts and docs with user-visible behavior.
+- Update affected versioned contracts and docs with user-visible behavior.
 - Keep unrelated changes out of the commit.
 - Run the complete gate before release.
 

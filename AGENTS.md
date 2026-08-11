@@ -192,7 +192,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
   repaired candidates remain in their documented attempt locations.
 - Treat public JSON, JSON Schemas, command grammar, machine identifiers, exit
   codes, artifact layout, and trusted-field ownership as compatibility-sensitive
-  v1 contracts. Automation must not depend on human-readable output.
+  versioned contracts. Automation must not depend on human-readable output.
 - Keep process execution, inputs, workspaces, artifacts, timeouts, concurrency,
   diagnostics, and exported data bounded. Avoid leaking native paths, credentials,
   raw provider transcripts, or private source through diagnostics and exports.

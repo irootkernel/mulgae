@@ -25,7 +25,7 @@ result, evidence status, lineage, and a durable publication record.
    integrity failures never authorize publication.
 6. **Local ownership.** Configuration and artifacts remain in `.mulgae/`.
 7. **Inspectable automation.** Human output is convenient; `--output json`
-   provides stable v1 envelopes and typed exits.
+   provides stable versioned envelopes and typed exits.
 
 ## Non-goals
 
@@ -46,7 +46,7 @@ The first public release is intentionally narrow:
 
 - one binary named `mulgae`;
 - one project-local config at `.mulgae/config.yaml`;
-- v1 configuration and machine contracts;
+- v1 configuration and independently versioned machine contracts;
 - Kimi, ZCode, and AGY provider families;
 - macOS on Apple silicon;
 - manual Git tagging after the complete local release gate passes.

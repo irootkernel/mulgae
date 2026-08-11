@@ -33,7 +33,7 @@ See the complete
 [`local-config.yaml`](../internal/builtin/assets/examples/local-config.yaml)
 example.
 
-## Embedded v1 contracts
+## Embedded versioned contracts
 
 Schemas use JSON Schema Draft 2020-12 and live in
 [`internal/builtin/assets/schemas`](../internal/builtin/assets/schemas).
