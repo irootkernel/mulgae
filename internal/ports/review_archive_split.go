@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -180,14 +179,6 @@ func NewCapturedReviewArchive(material CapturedReviewMaterial) (CapturedReviewAr
 	manifest, err := json.Marshal(wire)
 	if err != nil {
 		return CapturedReviewArchive{}, fmt.Errorf("captured review archive: encode manifest: %w", err)
-	}
-	if int64(len(manifest)) > CapturedReviewManifestMaxBytes {
-		cause := fmt.Errorf("captured-review.json byte length %d exceeds limit %d", len(manifest), CapturedReviewManifestMaxBytes)
-		failure, failureErr := NewReviewCaptureManifestFailure(int64(len(manifest)), CapturedReviewManifestMaxBytes, cause)
-		if failureErr != nil {
-			return CapturedReviewArchive{}, errors.Join(cause, failureErr)
-		}
-		return CapturedReviewArchive{}, failure
 	}
 	result := CapturedReviewArchive{manifest: manifest, blobs: make([]CapturedReviewArchiveBlob, 0, len(blobs))}
 	for _, blob := range blobs {
@@ -376,6 +367,8 @@ func capturedRefsToFiles(files []capturedFileRefWire, resolve func(capturedConte
 		}
 		if file.MediaType == "" || file.MediaType == "text/plain" {
 			result[index], err = NewWorkspaceSnapshotFile(path, body, file.SHA256)
+		} else if file.MediaType == "application/octet-stream" {
+			result[index], err = NewWorkspaceBinaryFile(path, body, file.SHA256)
 		} else {
 			result[index], err = NewWorkspaceVisualAsset(path, body, file.SHA256, file.MediaType)
 		}

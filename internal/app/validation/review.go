@@ -328,9 +328,6 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		}
 		return ValidatedReview{}, nil, inspection.error()
 	}
-	if scope.Role == domain.RoleArtist && scope.ArtistInputsConfigured && !scope.ArtistInputsReady && inspection.review.completeness != "incomplete" {
-		return ValidatedReview{}, nil, fmt.Errorf("review validation: unavailable artist inputs require incomplete coverage")
-	}
 	if err := validateVisualEvidence(provider, scope); err != nil {
 		return ValidatedReview{}, nil, err
 	}
@@ -355,7 +352,6 @@ func validateVisualEvidence(provider map[string]any, scope ReviewValidationScope
 	for findingIndex, findingValue := range findings {
 		finding, _ := findingValue.(map[string]any)
 		evidence, _ := finding["evidence"].([]any)
-		verified := false
 		for evidenceIndex, evidenceValue := range evidence {
 			evidenceObject, _ := evidenceValue.(map[string]any)
 			visual, present := evidenceObject["visual"].(map[string]any)
@@ -370,10 +366,6 @@ func validateVisualEvidence(provider map[string]any, scope ReviewValidationScope
 			if expected, ok := scope.VisualAssets[path]; !ok || expected != digest {
 				return fmt.Errorf("review validation: unverified visual evidence at findings[%d].evidence[%d]", findingIndex, evidenceIndex)
 			}
-			verified = true
-		}
-		if scope.Role == domain.RoleArtist && !verified {
-			return fmt.Errorf("review validation: artist finding %d requires a verified visual reference", findingIndex)
 		}
 	}
 	return nil

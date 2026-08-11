@@ -332,7 +332,12 @@ func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRu
 		return roles, ports.ArtistReviewInputs{}, false, nil
 	}
 	brief, _ := resolved.ArtistBrief()
-	inputs, err := ports.NewArtistReviewInputs(brief, resolved.ArtistDesignSpecs())
+	var inputs ports.ArtistReviewInputs
+	if resolved.ArtistAutomatic() {
+		inputs, err = ports.NewAutomaticArtistReviewInputs(brief, resolved.ArtistDesignSpecs())
+	} else {
+		inputs, err = ports.NewArtistReviewInputs(brief, resolved.ArtistDesignSpecs())
+	}
 	return roles, inputs, err == nil, err
 }
 

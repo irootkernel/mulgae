@@ -26,8 +26,8 @@ Inspect the capture and configured execution envelope without running providers:
 mulgae review --stage --preflight --output json
 ```
 
-Preflight performs the real bounded capture, directory-view admission, and
-capture-manifest publication-feasibility check, then reports
+Preflight performs complete immutable capture, directory-view admission, and
+capture-manifest construction, then reports
 the exact source file set transmitted to every selected role, each role's
 provider route, effective provider timeouts, AGY permission mode, and enclosing
 lane/run budgets. `qualification` is `not_run`: preflight does not discover,
@@ -36,17 +36,11 @@ diagnostics, publication, or durable review artifact. The workspace manifest is
 listed separately as `generated_at_execution`; its ephemeral filesystem identity
 is not represented as source evidence.
 
-If the reference-only capture manifest exceeds its structured-member limit,
-preflight returns `capture_manifest_too_large` with the actual size, the limit,
-and `provider_invoked=false`.
-
-If a captured side or combined provider view exceeds its applicable file or
-byte limit, preflight returns `capture_workspace_too_large` with the admission
-stage and member, actual and maximum counts, and `provider_invoked=false`.
-
-An admitted provider view that later violates its projection limit is an
-internal invariant failure reported as `provider_view_limit_validation_failed`;
-other malformed preflight projections use `preflight_result_validation_failed`.
+Source capture has no fixed file-count, aggregate-byte, per-file, diff, patch,
+stdin, or capture-manifest ceiling. Preflight still rejects malformed paths,
+reserved namespaces, selected symlinks and special files, invalid raster
+signatures, and files excluded by capture policy. Other malformed preflight
+projections use `preflight_result_validation_failed`.
 Both include a safe stage and next-action hint without creating diagnostics or
 printing captured paths. Human failures from every command include a stable
 code, public stage, and minimum remediation hint.

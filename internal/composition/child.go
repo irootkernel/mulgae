@@ -382,9 +382,6 @@ func (canonicalDeltaComparator) Compare(_ context.Context, source, current appde
 			continue
 		}
 		writeWholeFileDelta(&output, path, before, beforeOK, after, afterOK)
-		if output.Len() > appdelta.MaxTargetBytes {
-			return appdelta.Delta{}, fmt.Errorf("delta comparator: archive delta exceeds %d bytes; narrow the target or add generated files to .mulgaeignore", appdelta.MaxTargetBytes)
-		}
 	}
 	return appdelta.Delta{Bytes: []byte(output.String())}, nil
 }

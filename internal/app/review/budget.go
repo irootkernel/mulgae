@@ -105,7 +105,7 @@ func (budget RoleBudget) Primary() RouteBudget { return budget.primary }
 func (budget RoleBudget) Valid() bool { return validateRoleBudget(budget) == nil }
 
 // HarnessCeilings are trusted preflight ceilings. They can only strengthen the
-// fixed SOT resource limits; they never authorize a larger budget.
+// fixed execution and provider-output limits; they never authorize a larger budget.
 type HarnessCeilings struct {
 	maxTimeout            time.Duration
 	maxStdoutBytes        int64

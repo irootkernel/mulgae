@@ -80,12 +80,7 @@ func TestReviewCaptureManifestFailurePreservesFeasibilityFacts(t *testing.T) {
 }
 
 func TestWrapReviewCaptureFailureProjectsWorkspaceAdmissionFacts(t *testing.T) {
-	admission := ValidateWorkspaceAdmission(
-		"capture-policy;layout=ordinary-directories-v1",
-		"combined",
-		WorkspaceProviderViewMaxFiles,
-		WorkspaceProviderViewMaxBytes+1,
-	)
+	admission := &WorkspaceAdmissionFailure{stage: "provider_view", member: "combined", fileCount: 20000, byteCount: 134217729, maxFiles: 20000, maxBytes: 134217728}
 	failure, ok := ReviewCaptureFailureFromError(WrapReviewCaptureFailure(admission))
 	if !ok || failure.Code() != ReviewCaptureWorkspaceLarge ||
 		failure.EffectiveConfiguration() != "admission_stage=provider_view; member=combined; file_count=20000; byte_count=134217729; max_files=20000; max_bytes=134217728; provider_invoked=false" ||

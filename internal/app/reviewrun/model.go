@@ -31,6 +31,13 @@ func NewInputCaptureRequestWithArtistInputs(root ports.AnchoredRoot, target port
 	return newInputCaptureRequest(root, target, objective, hasObjective, artistInputs, true)
 }
 
+func NewInputCaptureRequestWithAutomaticArtistInputs(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs) (InputCaptureRequest, error) {
+	if !artistInputs.Automatic() {
+		return InputCaptureRequest{}, fmt.Errorf("review run: automatic artist inputs are required")
+	}
+	return newInputCaptureRequest(root, target, objective, hasObjective, artistInputs, true)
+}
+
 func newInputCaptureRequest(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) (InputCaptureRequest, error) {
 	if !root.Valid() || !target.Valid() || !hasObjective && len(objective) != 0 || hasArtistInputs != artistInputs.Valid() {
 		return InputCaptureRequest{}, fmt.Errorf("review run: invalid input capture request")
@@ -46,7 +53,12 @@ func (request InputCaptureRequest) ArtistInputs() (ports.ArtistReviewInputs, boo
 	if !request.hasArtistInputs {
 		return ports.ArtistReviewInputs{}, false
 	}
-	inputs, _ := ports.NewArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
+	var inputs ports.ArtistReviewInputs
+	if request.artistInputs.Automatic() {
+		inputs, _ = ports.NewAutomaticArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
+	} else {
+		inputs, _ = ports.NewArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
+	}
 	return inputs, true
 }
 func (request InputCaptureRequest) Valid() bool {
@@ -209,6 +221,7 @@ func NewCapturedRunInput(input ImmutableReviewInput, lease ports.WorkspaceSnapsh
 	}
 	return CapturedRunInput{input: input, lease: lease, reader: reader, packetDetector: packetDetector}, nil
 }
+
 func (captured CapturedRunInput) Input() ImmutableReviewInput { return captured.input }
 func (captured CapturedRunInput) WorkspaceLease() ports.WorkspaceSnapshotLease {
 	return captured.lease

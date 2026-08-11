@@ -31,7 +31,7 @@ func (code ReviewCaptureFailureCode) Valid() bool {
 	}
 }
 
-// NewReviewCaptureWorkspaceFailure reports bounded workspace admission facts
+// NewReviewCaptureWorkspaceFailure reports workspace admission facts
 // without exposing captured paths or bytes.
 func NewReviewCaptureWorkspaceFailure(admission *WorkspaceAdmissionFailure) (*ReviewCaptureFailure, error) {
 	if admission == nil {

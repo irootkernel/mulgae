@@ -235,19 +235,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		capability.Stdout(),
 	)
 	if frameErr == nil {
-		var evidence struct {
-			Root string `json:"root"`
-			Link string `json:"link"`
-			Role string `json:"role"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(capabilityFrame))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&evidence); err != nil {
-			t.Fatal("FAIL: AGY capability terminal frame is not strict JSON")
-		}
-		if err := decoder.Decode(&struct{}{}); err != io.EOF ||
-			evidence.Root != fixture.Nonce() || evidence.Link != fixture.Link() ||
-			evidence.Role != string(fixture.Role()) {
+		if !liveAgyExactStructuredEvidence(capabilityFrame, fixture.Nonce(), fixture.Link(), string(fixture.Role())) {
 			t.Fatal("FAIL: AGY capability evidence did not contain the exact descriptor-bound positive evidence")
 		}
 	} else {
@@ -297,6 +285,38 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	drained = true
 	t.Logf("PASS: installed AGY %s completed the descriptor-bound immutable fixture probe", result.Version)
+}
+
+func liveAgyExactStructuredEvidence(value []byte, root, link, role string) bool {
+	type evidence struct {
+		Root string `json:"root"`
+		Link string `json:"link"`
+		Role string `json:"role"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.DisallowUnknownFields()
+	var direct evidence
+	if decoder.Decode(&direct) == nil && decoder.Decode(&struct{}{}) == io.EOF && direct.Root == root && direct.Link == link && direct.Role == role {
+		return true
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(bytes.TrimSpace(value), &envelope) != nil {
+		return false
+	}
+	for _, key := range []string{"structured_output", "result", "message", "content", "text", "response", "output"} {
+		raw, present := envelope[key]
+		if !present {
+			continue
+		}
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			raw = []byte(text)
+		}
+		if liveAgyExactStructuredEvidence(raw, root, link, role) {
+			return true
+		}
+	}
+	return false
 }
 
 func liveAgyRequireExactReceipts(t *testing.T, receipts []providercli.CurrentProbeReceipt) {

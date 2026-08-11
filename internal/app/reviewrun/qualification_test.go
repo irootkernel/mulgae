@@ -17,8 +17,8 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 	}
 	guidance := []VersionGuidance{
 		{Family: FamilyKimi, Minimum: "0.23.6", VerifiedLatest: "0.28.0"},
-		{Family: FamilyZCode, Minimum: "0.15.2", VerifiedLatest: "0.15.2"},
-		{Family: FamilyAGY, Minimum: "1.1.4", VerifiedLatest: "1.1.4"},
+		{Family: FamilyZCode, Minimum: "0.15.2", VerifiedLatest: "0.16.1"},
+		{Family: FamilyAGY, Minimum: "1.1.4", VerifiedLatest: "1.1.12"},
 	}
 	for _, want := range guidance {
 		got, ok := Guidance(want.Family)
@@ -56,9 +56,12 @@ func TestClassifyVersion(t *testing.T) {
 		{name: "verified latest", family: FamilyKimi, version: "0.28.0", want: VersionGreen},
 		{name: "above verified latest", family: FamilyKimi, version: "0.28.1", want: VersionYellow},
 		{name: "minimum", family: FamilyZCode, version: "0.15.2", want: VersionGreen},
+		{name: "verified latest", family: FamilyZCode, version: "0.16.1", want: VersionGreen},
+		{name: "above verified latest", family: FamilyZCode, version: "0.16.2", want: VersionYellow},
 		{name: "below minimum", family: FamilyAGY, version: "1.1.3", want: VersionRed},
-		{name: "verified latest", family: FamilyAGY, version: "1.1.4", want: VersionGreen},
-		{name: "newer", family: FamilyAGY, version: "1.1.5", want: VersionYellow},
+		{name: "minimum", family: FamilyAGY, version: "1.1.4", want: VersionGreen},
+		{name: "verified latest", family: FamilyAGY, version: "1.1.12", want: VersionGreen},
+		{name: "above verified latest", family: FamilyAGY, version: "1.1.13", want: VersionYellow},
 		{name: "unparseable", family: FamilyKimi, version: "latest", want: VersionYellow},
 		{name: "unknown family", family: "other", version: "1.0.0", want: VersionUnknown},
 	}
@@ -135,7 +138,7 @@ func TestValidateQualificationRejectsIdentityMismatches(t *testing.T) {
 }
 
 func TestValidateQualificationAdmitsCompleteNewerPassSet(t *testing.T) {
-	input := completeInput(t, FamilyAGY, "1.1.5")
+	input := completeInput(t, FamilyAGY, "1.1.13")
 	qualification := ValidateQualification(input)
 	if !qualification.Available() {
 		t.Fatalf("qualification unavailable: %s", qualification.Reason())
@@ -335,10 +338,11 @@ func TestValidateQualificationVersionPolicy(t *testing.T) {
 	}{
 		{name: "below minimum", family: FamilyKimi, version: "0.23.5", available: false, reason: "ineligible_version", class: VersionRed},
 		{name: "below AGY baseline", family: FamilyAGY, version: "1.1.3", available: false, reason: "ineligible_version", class: VersionRed},
-		{name: "latest", family: FamilyAGY, version: "1.1.4", available: true, reason: "eligible", class: VersionGreen},
-		{name: "newer AGY", family: FamilyAGY, version: "1.1.5", available: true, reason: "eligible", class: VersionYellow},
-		{name: "newer with current pass", family: FamilyAGY, version: "1.1.5", available: true, reason: "eligible", class: VersionYellow},
-		{name: "newer with failed current pass", family: FamilyAGY, version: "1.1.5", mutate: func(input *QualificationInput) { input.Receipts[0].State = ReceiptFailed }, available: false, reason: "non_passing_receipt", class: VersionYellow},
+		{name: "minimum", family: FamilyAGY, version: "1.1.4", available: true, reason: "eligible", class: VersionGreen},
+		{name: "verified latest", family: FamilyAGY, version: "1.1.12", available: true, reason: "eligible", class: VersionGreen},
+		{name: "newer AGY", family: FamilyAGY, version: "1.1.13", available: true, reason: "eligible", class: VersionYellow},
+		{name: "newer with current pass", family: FamilyAGY, version: "1.1.13", available: true, reason: "eligible", class: VersionYellow},
+		{name: "newer with failed current pass", family: FamilyAGY, version: "1.1.13", mutate: func(input *QualificationInput) { input.Receipts[0].State = ReceiptFailed }, available: false, reason: "non_passing_receipt", class: VersionYellow},
 		{name: "unparseable", family: FamilyKimi, version: "current", available: false, reason: "unparseable_version", class: VersionYellow},
 	}
 	for _, test := range tests {

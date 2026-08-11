@@ -100,35 +100,23 @@ bytes as base64 in `captured-review.json`. The in-process handoff uses a
 deterministic bundle of the same reference manifest and deduplicated raw blobs;
 it does not recreate the v1 base64 JSON representation.
 
-The fixed runtime limits are declared together in `internal/ports/resource_limits.go`
-and validated when the production graph is composed. One captured tree admits
-at most 10,000 regular files, 64 MiB total, and 4 MiB per file; a Git comparison
-view admits two such trees, up to 20,000 files and 128 MiB total. Reference-only
-capture manifests and other structured publication members admit 8 MiB, and
-fixed-size storage reads admit 32 MiB. These limits bound untrusted source and
-control metadata. They do not
-cap provider-authored role reports, which are streamed and published at their
-actual size.
+Source capture has no fixed file-count, aggregate-byte, per-file, diff, patch,
+or stdin ceiling. Every eligible regular file is preserved byte-for-byte in the
+immutable snapshot; Git comparisons expose complete `before/` and `after/`
+trees, while single-tree reviews expose `current/`. `.mulgaeignore`, reserved
+namespaces, canonical-path checks, and special-file rejection remain the source
+admission boundaries. Operational execution, provider output, diagnostics,
+structured publication members, and fixed-size storage reads retain their
+separate limits.
 
-Capture-manifest feasibility is checked before workspace materialization or
-provider execution. A failure is reported as `capture_manifest_too_large` with
-the actual member size, member limit, and `provider_invoked=false`; an admitted
-capture therefore cannot reach providers and later fail solely because its v2
-capture manifest is not publishable.
+Target material, capture manifests and blobs, artist inputs, prompt stdin, and
+the support index are source-sized support artifacts and are persisted at their
+actual size. They are not subjected to the structured control-member ceiling.
 
-A source-side or provider-view admission failure is reported as
-`capture_workspace_too_large`. Its diagnostic includes the admission stage and
-member, actual and maximum file and byte counts, and `provider_invoked=false`.
-The combined provider-view limit never weakens the limits on either captured
-side.
-
-Preflight projection validation uses the same policy-derived limits. If an
-already admitted comparison view violates that internal projection invariant,
-the command returns `provider_view_limit_validation_failed` with the bounded
-observed and maximum counts. Other malformed service projections return
-`preflight_result_validation_failed`. These are internal failures because
-capture must reject a genuinely oversized input earlier. Preflight remains
-execution-free and does not create a diagnostic artifact for either failure.
+A malformed source-side or provider-view capture is reported with its typed
+capture failure. Malformed preflight service projections return
+`preflight_result_validation_failed`. Preflight remains execution-free and does
+not create a diagnostic artifact for this failure.
 
 Every human-readable command failure includes a stable code, public pipeline
 stage, and a safe next-action hint. Machine output retains the v1 reason shape;

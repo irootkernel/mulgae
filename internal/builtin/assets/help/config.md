@@ -47,7 +47,7 @@ run budgets can accommodate them, without launching providers.
 
 AGY's effective `permission_mode` defaults to `safe` for workspace-first
 reviews. Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to
-the bounded immutable workspace view. Headless write/shell requests remain denied
+the immutable captured workspace view. Headless write/shell requests remain denied
 under the default. To opt into AGY's permission bypass, set:
 
 ```yaml
@@ -65,6 +65,14 @@ marks an omitted safe mode as `defaulted` and an explicit mode as `configured`.
 Existing Config v1 files that explicitly recorded
 `dangerously-skip-permissions` remain canonical byte-for-byte. Older canonical
 files that omitted the mode now select the safe default.
+
+For UI projects, `roles.artist.inputs.design_spec_globs` are discovery hints,
+not file-access rules. Default Git reviews always retain the configured artist;
+an added or modified supported image matching a hint becomes primary evidence,
+while a review without a matching changed image proceeds from the UI code.
+Added images are primary `after` evidence; modified images provide both `before`
+and `after`. The artist may inspect any file in the captured workspace when
+history or a similar screen is useful.
 
 Initialization uses atomic installation and an unconditional project-root
 durability barrier. An output delivery failure never rolls back a committed

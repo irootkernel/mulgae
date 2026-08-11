@@ -3026,7 +3026,7 @@
             "captured_kind": { "enum": ["git","workspace","patch","stdin"] },
             "git_mode": { "enum": ["","diff","stage","dirty"] },
             "sha256": { "$ref": "#/$defs/sha256" },
-            "size": { "type": "integer", "minimum": 0, "maximum": 180000 }
+            "size": { "type": "integer", "minimum": 0 }
           }
         },
         "agy_permission_mode": { "enum": ["safe","dangerously-skip-permissions"] },
@@ -3039,13 +3039,13 @@
               "id":{"$ref":"#/$defs/sha256"},
               "policy_identity":{"type":"string","minLength":1,"maxLength":1024},
               "files": {
-                "type":"array","maxItems":10000,
+                "type":"array",
                 "items": {
                   "type":"object","additionalProperties":false,"required":["path","media_type","size","sha256","disposition"],
                   "properties": {
                     "path":{"$ref":"#/$defs/path"},
-                    "media_type":{"enum":["text/plain","image/png","image/jpeg","image/webp"]},
-                    "size":{"type":"integer","minimum":0,"maximum":4194304},
+                    "media_type":{"enum":["text/plain","application/octet-stream","image/png","image/jpeg","image/webp"]},
+                    "size":{"type":"integer","minimum":0},
                     "sha256":{"$ref":"#/$defs/sha256"},
                     "disposition":{"enum":["text","binary_preserved"]}
                   }

@@ -20,12 +20,7 @@ type RoleReportURI struct {
 	URI  string
 }
 
-const (
-	// MaxTargetBytes is the fixed review-target cap. Targets are rejected rather
-	// than truncated so their identity always describes the exact captured bytes.
-	MaxTargetBytes = 180000
-	maxTargetValue = 4096
-)
+const maxTargetValue = 4096
 
 // TargetKind identifies the canonical input selected for the current target
 // capture. Diff is a Git-backed capture; patch and stdin are byte captures.
@@ -245,9 +240,6 @@ func (target ImmutableTarget) validate(name string) error {
 }
 
 func validTargetBytes(value []byte) error {
-	if len(value) > MaxTargetBytes {
-		return fmt.Errorf("delta target: bytes exceed %d", MaxTargetBytes)
-	}
 	return nil
 }
 

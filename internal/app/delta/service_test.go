@@ -409,8 +409,9 @@ func TestImmutableTargetCopiesAndFailsClosed(t *testing.T) {
 	if string(target.Bytes()) != "patch bytes" {
 		t.Fatal("target exposed mutable bytes")
 	}
-	if _, err := NewByteImmutableTarget(TargetPatch, "change.patch", bytes.Repeat([]byte{'x'}, MaxTargetBytes+1)); err == nil {
-		t.Fatal("oversized target bytes accepted")
+	large, err := NewByteImmutableTarget(TargetPatch, "change.patch", bytes.Repeat([]byte{'x'}, 180001))
+	if err != nil || len(large.Bytes()) != 180001 {
+		t.Fatalf("large target bytes rejected: %v", err)
 	}
 	if _, err := NewByteImmutableTarget(TargetDiff, "HEAD", []byte("not Git")); err == nil {
 		t.Fatal("non-Git diff bytes accepted")

@@ -23,25 +23,14 @@ type WorkspaceAdmissionFailure struct {
 	maxBytes  int64
 }
 
-// ValidateWorkspaceAdmission applies the canonical limits for a captured side
-// or combined provider view.
+// ValidateWorkspaceAdmission retains the v1 fact-validation boundary without
+// imposing a source file-count or byte ceiling.
 func ValidateWorkspaceAdmission(policyIdentity, member string, fileCount int, byteCount int64) error {
 	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 ||
 		!validWorkspaceAdmissionMember(member) || fileCount < 0 || byteCount < 0 {
 		return fmt.Errorf("workspace admission: invalid facts")
 	}
-	maxFiles, maxBytes := WorkspaceAdmissionLimits(policyIdentity)
-	if fileCount <= maxFiles && byteCount <= maxBytes {
-		return nil
-	}
-	stage := workspaceAdmissionCaptureSide
-	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
-		stage = workspaceAdmissionProviderView
-	}
-	return &WorkspaceAdmissionFailure{
-		stage: stage, member: member, fileCount: fileCount, byteCount: byteCount,
-		maxFiles: maxFiles, maxBytes: maxBytes,
-	}
+	return nil
 }
 
 func validWorkspaceAdmissionMember(member string) bool {

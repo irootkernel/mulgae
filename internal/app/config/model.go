@@ -107,7 +107,7 @@ const (
 	ConfigVersion    = 1
 	DefaultKimiModel = "kimi-code/kimi-for-coding"
 	// DefaultAGYPermissionMode keeps AGY headless reviews inside Mulgae's
-	// read-oriented permission boundary. The bounded snapshot and --sandbox
+	// read-oriented permission boundary. The immutable snapshot and --sandbox
 	// remain the workspace authority; write/shell requests stay soft-denied.
 	// Explicit permission_mode: "dangerously-skip-permissions" remains opt-in.
 	DefaultAGYPermissionMode  = "safe"

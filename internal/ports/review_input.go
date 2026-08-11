@@ -1,7 +1,9 @@
 package ports
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -241,9 +243,6 @@ func validateCapturedReviewBytes(bytes []byte, allowEmpty bool) error {
 	if !allowEmpty && len(bytes) == 0 {
 		return fmt.Errorf("bytes must be non-empty")
 	}
-	if len(bytes) > ReviewTargetMaxBytes {
-		return fmt.Errorf("bytes exceed %d-byte limit", ReviewTargetMaxBytes)
-	}
 	if !utf8.Valid(bytes) {
 		return fmt.Errorf("bytes must be valid UTF-8")
 	}
@@ -374,9 +373,6 @@ func NewCapturedTargetEvidence(sides map[CapturedEvidenceSide][]WorkspaceSnapsho
 		if !present {
 			continue
 		}
-		if err := ValidateWorkspaceAdmission("captured-evidence-v1", string(side), len(files), workspaceSnapshotBytes(files)); err != nil {
-			return CapturedTargetEvidence{}, fmt.Errorf("captured target evidence: %w", err)
-		}
 		validated, err := NewWorkspaceSnapshotRequest(files, "captured-evidence-v1")
 		if err != nil {
 			return CapturedTargetEvidence{}, fmt.Errorf("captured target evidence: %w", err)
@@ -459,7 +455,11 @@ func (material CapturedReviewMaterial) ProviderWorkspace() (WorkspaceSnapshotReq
 	identity := material.Target().Identity()
 	policy := material.snapshot.PolicyIdentity() + ";layout=ordinary-directories-v1"
 	if material.Target().NoChange() || identity.Kind() != domain.TargetGit {
-		return prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+		workspace, err := prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+		if err != nil {
+			return WorkspaceSnapshotRequest{}, err
+		}
+		return material.withProviderTarget(workspace, policy)
 	}
 	var before, after []WorkspaceSnapshotFile
 	var ok bool
@@ -487,7 +487,11 @@ func (material CapturedReviewMaterial) ProviderWorkspace() (WorkspaceSnapshotReq
 			after, ok = material.evidence.Files(CapturedEvidenceHead)
 		}
 	default:
-		return prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+		workspace, err := prefixedWorkspaceRequest("current", material.snapshot.Files(), policy)
+		if err != nil {
+			return WorkspaceSnapshotRequest{}, err
+		}
+		return material.withProviderTarget(workspace, policy)
 	}
 	if !ok {
 		return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: comparison current side is absent")
@@ -501,6 +505,28 @@ func (material CapturedReviewMaterial) ProviderWorkspace() (WorkspaceSnapshotReq
 		return WorkspaceSnapshotRequest{}, err
 	}
 	files := append(beforeFiles, afterFiles...)
+	SortWorkspaceSnapshotFiles(files)
+	workspace, err := NewWorkspaceSnapshotRequest(files, policy)
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, err
+	}
+	return material.withProviderTarget(workspace, policy)
+}
+
+func (material CapturedReviewMaterial) withProviderTarget(workspace WorkspaceSnapshotRequest, policy string) (WorkspaceSnapshotRequest, error) {
+	if material.Target().NoChange() {
+		return workspace, nil
+	}
+	path, err := NewSafeRelativePath(WorkspaceReviewTargetName)
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, err
+	}
+	bytes := material.Target().Bytes()
+	file, err := NewWorkspaceSnapshotFile(path, bytes, sha256Identifier(bytes))
+	if err != nil {
+		return WorkspaceSnapshotRequest{}, fmt.Errorf("captured review material: provider target file: %w", err)
+	}
+	files := append(workspace.Files(), file)
 	SortWorkspaceSnapshotFiles(files)
 	return NewWorkspaceSnapshotRequest(files, policy)
 }
@@ -533,6 +559,17 @@ func (material CapturedReviewMaterial) HasProjectContext() bool {
 func (material CapturedReviewMaterial) ProjectContext() []byte {
 	return cloneBytes(material.projectContext)
 }
+func (material CapturedReviewMaterial) ArtistVisualsReady() bool {
+	raw := material.ProjectContext()
+	if index := bytes.LastIndexByte(raw, '\n'); index >= 0 {
+		raw = raw[index+1:]
+	}
+	var manifest struct {
+		SchemaVersion string `json:"schema_version"`
+		Status        string `json:"status"`
+	}
+	return json.Unmarshal(raw, &manifest) == nil && manifest.SchemaVersion == "mulgae-artist-inputs.v1" && manifest.Status == "ready"
+}
 func (material CapturedReviewMaterial) Evidence() CapturedTargetEvidence {
 	evidence, _ := NewCapturedTargetEvidence(material.evidence.sides)
 	return evidence
@@ -546,12 +583,13 @@ type ReviewTargetCapturer interface {
 	CaptureReviewTarget(context.Context, AnchoredRoot, ReviewTargetSelector) (CapturedReviewMaterial, error)
 }
 
-// ArtistReviewInputs identifies one review-scoped brief and bounded visual
-// reference selection. Paths remain project-relative and are interpreted by
+// ArtistReviewInputs identifies one review-scoped brief and primary visual
+// discovery hints. Paths remain project-relative and are interpreted by
 // the target capturer against the selected immutable snapshot.
 type ArtistReviewInputs struct {
 	briefPath       string
 	designSpecGlobs []string
+	automatic       bool
 }
 
 func NewArtistReviewInputs(briefPath string, designSpecGlobs []string) (ArtistReviewInputs, error) {
@@ -561,12 +599,25 @@ func NewArtistReviewInputs(briefPath string, designSpecGlobs []string) (ArtistRe
 	return ArtistReviewInputs{briefPath: briefPath, designSpecGlobs: append([]string(nil), designSpecGlobs...)}, nil
 }
 
+// NewAutomaticArtistReviewInputs marks project-default artist selection. Image
+// discovery supplies primary evidence but does not gate the code-only role.
+func NewAutomaticArtistReviewInputs(briefPath string, designSpecGlobs []string) (ArtistReviewInputs, error) {
+	inputs, err := NewArtistReviewInputs(briefPath, designSpecGlobs)
+	if err != nil {
+		return ArtistReviewInputs{}, err
+	}
+	inputs.automatic = true
+	return inputs, nil
+}
+
 func (inputs ArtistReviewInputs) BriefPath() string { return inputs.briefPath }
 func (inputs ArtistReviewInputs) DesignSpecGlobs() []string {
 	return append([]string(nil), inputs.designSpecGlobs...)
 }
+func (inputs ArtistReviewInputs) Automatic() bool { return inputs.automatic }
 func (inputs ArtistReviewInputs) Valid() bool {
-	_, err := NewArtistReviewInputs(inputs.briefPath, inputs.designSpecGlobs)
+	validated, err := NewArtistReviewInputs(inputs.briefPath, inputs.designSpecGlobs)
+	_ = validated
 	return err == nil
 }
 

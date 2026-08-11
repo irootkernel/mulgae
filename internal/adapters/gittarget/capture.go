@@ -197,7 +197,7 @@ func (adapter *Adapter) ReadFileAtCommit(ctx context.Context, root ports.Anchore
 		return nil, fmt.Errorf("Git tree path %q: %w", file.String(), fs.ErrNotExist)
 	}
 
-	result, err := adapter.run(ctx, repository.command("cat-file", "blob", blob.String()))
+	result, err := adapter.run(ctx, repository.sourceCommand("cat-file", "blob", blob.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +215,7 @@ func (adapter *Adapter) headTree(ctx context.Context, repository canonicalReposi
 }
 
 func (adapter *Adapter) diff(ctx context.Context, repository canonicalRepository, base, head ports.GitObjectID) ([]byte, error) {
-	result, err := adapter.run(ctx, repository.command(
+	result, err := adapter.run(ctx, repository.sourceCommand(
 		"diff",
 		"--binary",
 		"--full-index",
@@ -242,10 +242,10 @@ func (adapter *Adapter) diff(ctx context.Context, repository canonicalRepository
 }
 
 func (adapter *Adapter) untrackedInventory(ctx context.Context, root ports.AnchoredRoot) ([]byte, error) {
-	result, err := adapter.run(ctx, Command{
+	result, err := adapter.run(ctx, (Command{
 		Dir:  root.String(),
 		Args: []string{"ls-files", "--others", "--exclude-standard", "-z"},
-	})
+	}).withSourceSizedStdout())
 	if err != nil {
 		return nil, err
 	}

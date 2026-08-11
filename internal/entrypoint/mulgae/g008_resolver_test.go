@@ -16,13 +16,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/domain"
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestG008RequestResolverCapturedStdinTransfersOnceAndZerosOwnedBytes(t *testing.T) {
 	input := []byte("first line\nsecond line\n")
 	reader := &countingReader{Reader: bytes.NewReader(input)}
-	resolver := &G008RequestResolver{reader: reader, stdinLimit: ports.ReviewTargetMaxBytes}
+	resolver := &G008RequestResolver{reader: reader}
 
 	token, err := resolver.CaptureTarget(context.Background())
 	if err != nil {
@@ -64,24 +63,11 @@ func TestG008RequestResolverCapturedStdinTransfersOnceAndZerosOwnedBytes(t *test
 	}
 }
 
-func TestG008RequestResolverCaptureTargetAcceptsReviewTargetMaximum(t *testing.T) {
-	for name, size := range map[string]int{
-		"maximum":  ports.ReviewTargetMaxBytes,
-		"oversize": ports.ReviewTargetMaxBytes + 1,
-	} {
-		t.Run(name, func(t *testing.T) {
-			resolver := &G008RequestResolver{reader: bytes.NewReader(bytes.Repeat([]byte("x"), size)), stdinLimit: ports.ReviewTargetMaxBytes}
-			token, err := resolver.CaptureTarget(context.Background())
-			if size == ports.ReviewTargetMaxBytes {
-				if err != nil || !validCapturedStdinToken(token) {
-					t.Fatalf("CaptureTarget = %q, %v", token, err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("oversize CaptureTarget succeeded")
-			}
-		})
+func TestG008RequestResolverCaptureTargetAcceptsBeyondLegacyMaximum(t *testing.T) {
+	resolver := &G008RequestResolver{reader: bytes.NewReader(bytes.Repeat([]byte("x"), 180001))}
+	token, err := resolver.CaptureTarget(context.Background())
+	if err != nil || !validCapturedStdinToken(token) {
+		t.Fatalf("CaptureTarget = %q, %v", token, err)
 	}
 }
 
@@ -93,7 +79,7 @@ func TestG008RequestResolverCaptureTargetRejectsInvalidInput(t *testing.T) {
 		"read error":    errorReader{},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resolver := &G008RequestResolver{reader: reader, stdinLimit: ports.ReviewTargetMaxBytes}
+			resolver := &G008RequestResolver{reader: reader}
 			if _, err := resolver.CaptureTarget(context.Background()); err == nil {
 				t.Fatal("CaptureTarget succeeded")
 			}

@@ -77,6 +77,34 @@ func advanceInitialToValidation(t *testing.T, attempt *Attempt) {
 	}
 }
 
+func TestInvocationRuntimeArtifactExpectationIsTrustedLifecycleState(t *testing.T) {
+	attempt := lifecycleAttempt(t)
+	if err := attempt.Transition(AttemptRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.TransitionInvocation(1, InvocationRunning); err != nil {
+		t.Fatal(err)
+	}
+	if attempt.Invocations()[0].RuntimeArtifactsExpected() {
+		t.Fatal("running invocation gained runtime artifacts before the trusted boundary")
+	}
+	if err := attempt.MarkInvocationRuntimeArtifactsExpected(1); err != nil {
+		t.Fatal(err)
+	}
+	if !attempt.Invocations()[0].RuntimeArtifactsExpected() {
+		t.Fatal("runtime artifact expectation was not retained")
+	}
+	if err := attempt.MarkInvocationRuntimeArtifactsExpected(1); err == nil {
+		t.Fatal("duplicate runtime artifact boundary was accepted")
+	}
+	if err := attempt.TransitionInvocation(1, InvocationTimedOut); err != nil {
+		t.Fatal(err)
+	}
+	if !attempt.Invocations()[0].RuntimeArtifactsExpected() {
+		t.Fatal("terminal transition lost the runtime artifact expectation")
+	}
+}
+
 func advanceToRepairing(t *testing.T, attempt *Attempt) {
 	t.Helper()
 

@@ -231,11 +231,11 @@ func TestImmutableInputSourceUsesReviewScopedArtistCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artistInputs, err := ports.NewArtistReviewInputs("docs/roadmap.md", []string{"design-specs/**/*.png"})
+	artistInputs, err := ports.NewAutomaticArtistReviewInputs("docs/roadmap.md", []string{"design-specs/**/*.png"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := reviewrun.NewInputCaptureRequestWithArtistInputs(root, target, nil, false, artistInputs)
+	request, err := reviewrun.NewInputCaptureRequestWithAutomaticArtistInputs(root, target, nil, false, artistInputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,8 @@ func TestImmutableInputSourceUsesReviewScopedArtistCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}); err != nil {
+	captured, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(calls, ","); got != "artist-capture,materialize" {
@@ -255,6 +256,9 @@ func TestImmutableInputSourceUsesReviewScopedArtistCapture(t *testing.T) {
 	}
 	if capturer.inputs.BriefPath() != "docs/roadmap.md" || len(capturer.inputs.DesignSpecGlobs()) != 1 {
 		t.Fatalf("artist inputs = %#v", capturer.inputs)
+	}
+	if !captured.Input().Target().Valid() {
+		t.Fatal("code-only automatic artist capture returned an invalid immutable input")
 	}
 }
 
@@ -310,18 +314,16 @@ func TestImmutableInputSourceBlocksBeforeMaterialize(t *testing.T) {
 	}
 }
 
-func TestImmutableInputSourceRejectsUnpublishableManifestBeforeMaterialize(t *testing.T) {
+func TestImmutableInputSourceAcceptsLargeCaptureManifest(t *testing.T) {
 	calls := []string{}
 	materializer := &leaseFactoryFake{lease: leaseFake{identity: testIdentity(t)}, calls: &calls}
 	source, root := testSource(t, captureFake{material: oversizedManifestMaterial(t), calls: &calls}, &detectorFake{calls: &calls}, materializer, nil, false)
 
-	_, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root})
-	failure, ok := ports.ReviewCaptureFailureFromError(err)
-	if !ok || failure.Code() != ports.ReviewCaptureManifestLarge || !strings.Contains(failure.EffectiveConfiguration(), "provider_invoked=false") {
-		t.Fatalf("manifest feasibility failure = %#v, present=%t, err=%v", failure, ok, err)
+	if _, err := source.Capture(context.Background(), reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: root}); err != nil {
+		t.Fatalf("large capture manifest rejected: %v", err)
 	}
-	if got := strings.Join(calls, ","); got != "capture" {
-		t.Fatalf("manifest feasibility failure invoked later dependencies: %q", got)
+	if got := strings.Join(calls, ","); got != "capture,materialize" {
+		t.Fatalf("large capture did not materialize: %q", got)
 	}
 }
 
@@ -406,7 +408,7 @@ func testMaterialWithProjectContext(t *testing.T, projectContext []byte, hasProj
 func oversizedManifestMaterial(t *testing.T) ports.CapturedReviewMaterial {
 	t.Helper()
 	prefix := strings.Repeat("nested/", 100)
-	files := make([]ports.WorkspaceSnapshotFile, ports.WorkspaceSnapshotMaxFiles)
+	files := make([]ports.WorkspaceSnapshotFile, 10000)
 	emptyDigest := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	for index := range files {
 		path, err := ports.NewSafeRelativePath(prefix + fmt.Sprintf("file-%05d.txt", index))

@@ -34,6 +34,7 @@ type ReviewTargetAdapter struct {
 	detectorPolicy  string
 	artistBriefPath string
 	artistGlobs     []*regexp.Regexp
+	artistAutomatic bool
 }
 
 var _ ports.ReviewTargetCapturer = (*ReviewTargetAdapter)(nil)
@@ -107,6 +108,7 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTargetWithArtistInputs(ctx cont
 	scoped := *adapter
 	scoped.artistBriefPath = inputs.BriefPath()
 	scoped.artistGlobs = patterns
+	scoped.artistAutomatic = inputs.Automatic()
 	return scoped.CaptureReviewTarget(ctx, root, selector)
 }
 
@@ -114,6 +116,7 @@ type artistAssetManifest struct {
 	Path      string `json:"path"`
 	SHA256    string `json:"sha256"`
 	MediaType string `json:"media_type"`
+	Side      string `json:"side"`
 }
 
 type artistInputManifest struct {
@@ -129,25 +132,19 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 		return material, nil
 	}
 	manifest := artistInputManifest{SchemaVersion: "mulgae-artist-inputs.v1", Status: "missing", TaskPath: adapter.artistBriefPath, VisualAssets: []artistAssetManifest{}}
-	visualPaths := adapter.artistVisualPaths(material)
+	manifest.VisualAssets = adapter.artistVisualAssets(material)
 	for _, file := range material.Snapshot().Files() {
-		if file.Path().String() == adapter.artistBriefPath && file.IsText() && len(file.Bytes()) <= 128<<10 {
+		if file.Path().String() == adapter.artistBriefPath && file.IsText() {
 			manifest.Task = string(file.Bytes())
-		}
-		if !file.IsText() && visualPaths[file.Path().String()] {
-			manifest.VisualAssets = append(manifest.VisualAssets, artistAssetManifest{Path: file.Path().String(), SHA256: file.SHA256(), MediaType: file.MediaType()})
 		}
 	}
 	if manifest.Task != "" && len(manifest.VisualAssets) > 0 {
 		manifest.Status = "ready"
-	} else if manifest.Task != "" || len(manifest.VisualAssets) > 0 {
-		manifest.Status = "incomplete"
+	} else if manifest.Task != "" {
+		manifest.Status = "code_only"
 	}
-	if manifest.Task == "" {
+	if manifest.Task == "" && !adapter.artistAutomatic {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: artist brief %q is missing or empty", adapter.artistBriefPath)
-	}
-	if len(manifest.VisualAssets) == 0 {
-		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: artist visual references are missing")
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -161,18 +158,27 @@ func (adapter *ReviewTargetAdapter) withArtistContext(material ports.CapturedRev
 	return ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(material.Target(), material.Snapshot(), contextBytes, true, material.Evidence())
 }
 
-// artistVisualPaths preserves configured design references and adds raster
-// evidence changed by this Git target. Unchanged rasters outside the configured
-// globs remain ordinary bounded snapshot files and are not promoted into the
-// artist prompt manifest.
-func (adapter *ReviewTargetAdapter) artistVisualPaths(material ports.CapturedReviewMaterial) map[string]bool {
-	selected := make(map[string]bool)
-	for _, file := range material.Snapshot().Files() {
-		if !file.IsText() && adapter.artistMediaType(file.Path().String()) != "" {
-			selected[file.Path().String()] = true
-		}
-	}
+// artistVisualAssets promotes added and modified rasters matching the configured
+// discovery hints. The provider still receives the complete immutable snapshot
+// and may inspect other historical or similar images when useful.
+func (adapter *ReviewTargetAdapter) artistVisualAssets(material ports.CapturedReviewMaterial) []artistAssetManifest {
 	if material.Target().Kind() != domain.TargetGit {
+		if adapter.artistAutomatic {
+			return []artistAssetManifest{}
+		}
+		selected := make([]artistAssetManifest, 0)
+		for _, file := range material.Snapshot().Files() {
+			path := file.Path().String()
+			if file.IsText() || adapter.artistMediaType(path) == "" {
+				continue
+			}
+			selected = append(selected, artistAssetManifest{
+				Path:      "current/" + path,
+				SHA256:    file.SHA256(),
+				MediaType: file.MediaType(),
+				Side:      "current",
+			})
+		}
 		return selected
 	}
 	var currentSide ports.CapturedEvidenceSide
@@ -188,25 +194,31 @@ func (adapter *ReviewTargetAdapter) artistVisualPaths(material ports.CapturedRev
 			currentSide = ports.CapturedEvidenceHead
 		}
 	default:
-		return selected
+		return []artistAssetManifest{}
 	}
 	base, hasBase := material.Evidence().Files(ports.CapturedEvidenceBase)
 	current, hasCurrent := material.Evidence().Files(currentSide)
 	if !hasBase || !hasCurrent {
-		return selected
+		return []artistAssetManifest{}
 	}
-	baseHashes := make(map[string]string, len(base))
+	baseFiles := make(map[string]ports.WorkspaceSnapshotFile, len(base))
 	for _, file := range base {
-		baseHashes[file.Path().String()] = file.SHA256()
+		baseFiles[file.Path().String()] = file
 	}
+	selected := make([]artistAssetManifest, 0)
 	for _, file := range current {
 		path := file.Path().String()
-		if file.IsText() || rasterMediaType(path) == "" {
+		if file.IsText() || adapter.artistMediaType(path) == "" {
 			continue
 		}
-		if prior, exists := baseHashes[path]; !exists || prior != file.SHA256() {
-			selected[path] = true
+		prior, exists := baseFiles[path]
+		if exists && prior.SHA256() == file.SHA256() {
+			continue
 		}
+		if exists && !prior.IsText() && prior.MediaType() == file.MediaType() {
+			selected = append(selected, artistAssetManifest{Path: "before/" + path, SHA256: prior.SHA256(), MediaType: prior.MediaType(), Side: "before"})
+		}
+		selected = append(selected, artistAssetManifest{Path: "after/" + path, SHA256: file.SHA256(), MediaType: file.MediaType(), Side: "after"})
 	}
 	return selected
 }
@@ -225,8 +237,8 @@ func (adapter *ReviewTargetAdapter) artistMediaType(path string) string {
 	return rasterMediaType(path)
 }
 
-// rasterMediaType identifies paths that must be captured through the bounded
-// binary reader. NewWorkspaceVisualAsset separately verifies that the bytes
+// rasterMediaType identifies paths captured through the binary reader.
+// NewWorkspaceVisualAsset separately verifies that the bytes
 // match the declared raster type, so an extension alone never admits content.
 func rasterMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
@@ -260,6 +272,9 @@ func (adapter *ReviewTargetAdapter) newCapturedFile(ctx context.Context, path po
 			return ports.WorkspaceSnapshotFile{}, err
 		}
 		return ports.WorkspaceSnapshotFile{}, failure
+	}
+	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+		return ports.NewWorkspaceBinaryFile(path, data, identity)
 	}
 	if err := adapter.clean(ctx, ports.ReviewInputReference, path.String(), data); err != nil {
 		return ports.WorkspaceSnapshotFile{}, err
@@ -418,7 +433,7 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patchOut, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--cached", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", base.String()}})
+	patchOut, err := adapter.run(ctx, (Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--cached", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", base.String()}}).withSourceSizedStdout())
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -460,7 +475,7 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 }
 
 func (adapter *ReviewTargetAdapter) capturePatch(ctx context.Context, root ports.AnchoredRoot, path string) (ports.CapturedReviewMaterial, error) {
-	bytes, err := readStableRegular(root.String(), path, ports.ReviewTargetMaxBytes)
+	bytes, err := readStableRegular(root.String(), path, 0)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review patch: %w", err)
 	}
@@ -538,17 +553,15 @@ func (adapter *ReviewTargetAdapter) materialize(bytes []byte, files []ports.Work
 }
 
 func (adapter *ReviewTargetAdapter) clean(ctx context.Context, channel ports.ReviewInputChannel, name string, bytes []byte) error {
-	limit := int64(ports.ReviewTargetMaxBytes)
 	// An empty Git diff is a valid no-change target. Patch and stdin capture
 	// reject empty input before reaching this detector boundary.
 	allowEmpty := channel == ports.ReviewInputTarget
 	diagnosticPath := ""
 	if channel == ports.ReviewInputReference {
-		limit = ports.WorkspaceSnapshotMaxFileBytes
 		allowEmpty = true
 		diagnosticPath = name
 	}
-	if err := validateText(bytes, limit, allowEmpty); err != nil {
+	if err := validateText(bytes, allowEmpty); err != nil {
 		failure, failureErr := ports.NewReviewCaptureFailure(
 			ports.ReviewCaptureUnsupported,
 			diagnosticPath,
@@ -605,12 +618,12 @@ func (adapter *ReviewTargetAdapter) clean(ctx context.Context, channel ports.Rev
 }
 
 func validateInput(bytes []byte, empty bool) error {
-	return validateText(bytes, ports.ReviewTargetMaxBytes, empty)
+	return validateText(bytes, empty)
 }
 
-func validateText(bytes []byte, limit int64, empty bool) error {
-	if (!empty && len(bytes) == 0) || int64(len(bytes)) > limit || !utf8.Valid(bytes) || strings.IndexByte(string(bytes), 0) >= 0 {
-		return fmt.Errorf("review input is not bounded UTF-8 text")
+func validateText(bytes []byte, empty bool) error {
+	if (!empty && len(bytes) == 0) || !utf8.Valid(bytes) || strings.IndexByte(string(bytes), 0) >= 0 {
+		return fmt.Errorf("review input is not UTF-8 text")
 	}
 	return nil
 }
@@ -642,7 +655,7 @@ func (adapter *ReviewTargetAdapter) tree(ctx context.Context, repo canonicalRepo
 	return parseObjectID(out.Stdout, "tree")
 }
 func (adapter *ReviewTargetAdapter) gitDiff(ctx context.Context, repo canonicalRepository, left, right string) ([]byte, error) {
-	out, err := adapter.run(ctx, repo.command("diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", left, right))
+	out, err := adapter.run(ctx, repo.sourceCommand("diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", left, right))
 	if err != nil {
 		return nil, err
 	}
@@ -672,7 +685,7 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 		return nil, err
 	}
 	defer func() { _ = cleanup() }()
-	out, err := adapter.run(ctx, repo.command("ls-tree", "-r", "-z", "--full-tree", commit.String()))
+	out, err := adapter.run(ctx, repo.sourceCommand("ls-tree", "-r", "-z", "--full-tree", commit.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -740,12 +753,9 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 		if entry.kind != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
 			return nil, fmt.Errorf("captured path %q is not a regular file; add it to .mulgaeignore", entry.path)
 		}
-		blob, err := adapter.run(ctx, repo.command("cat-file", "blob", entry.object))
+		blob, err := adapter.run(ctx, repo.sourceCommand("cat-file", "blob", entry.object))
 		if err != nil {
 			return nil, err
-		}
-		if int64(len(blob.Stdout)) > ports.WorkspaceSnapshotMaxFileBytes {
-			return nil, fmt.Errorf("captured path %q exceeds the reference limit; add it to .mulgaeignore", entry.path)
 		}
 		file, err := adapter.newCapturedFile(ctx, capturedPath, blob.Stdout)
 		if err != nil {
@@ -843,7 +853,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 			delete(eligible.eligible, path)
 		}
 	}
-	out, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", head.String()}})
+	out, err := adapter.run(ctx, (Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", head.String()}}).withSourceSizedStdout())
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -873,7 +883,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
 	}
-	verifyDiff, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", head.String()}})
+	verifyDiff, err := adapter.run(ctx, (Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--no-indent-heuristic", "--diff-algorithm=myers", "--no-textconv", "--no-relative", "--unified=3", "--inter-hunk-context=0", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=all", head.String()}}).withSourceSizedStdout())
 	if err != nil || !bytes.Equal(out.Stdout, verifyDiff.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
 	}
@@ -901,7 +911,7 @@ func verifyCapturedRasterBytes(root ports.AnchoredRoot, files []ports.WorkspaceS
 		if file.IsText() {
 			continue
 		}
-		data, err := readStableRegularBinary(root.String(), file.Path().String(), int(ports.WorkspaceSnapshotMaxFileBytes))
+		data, err := readStableRegularBinary(root.String(), file.Path().String(), 0)
 		if err != nil {
 			return fmt.Errorf("revalidate raster %q: %w", file.Path().String(), err)
 		}
@@ -927,19 +937,9 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 
 	var patch []byte
 	for _, path := range paths {
-		read := readStableRegular
-		binaryRaster := rasterMediaType(path) != ""
-		limit := ports.ReviewTargetMaxBytes
-		if binaryRaster {
-			read = readStableRegularBinary
-			limit = int(ports.WorkspaceSnapshotMaxFileBytes)
-		}
-		bytes, err := read(root.String(), path, limit)
+		contents, err := readStableRegularBinary(root.String(), path, 0)
 		if err != nil {
 			return nil, fmt.Errorf("untracked path %q: %w; add it to .mulgaeignore", path, err)
-		}
-		if !binaryRaster && len(patch)+len(bytes) > ports.ReviewTargetMaxBytes {
-			return nil, fmt.Errorf("dirty patch exceeds limit")
 		}
 		oldPath := quoteGitPath("a/" + path)
 		newPath := quoteGitPath("b/" + path)
@@ -950,37 +950,31 @@ func untrackedPatch(root ports.AnchoredRoot, eligible map[string]bool) ([]byte, 
 		patch = append(patch, "\nnew file mode 100644\n--- /dev/null\n+++ "...)
 		patch = append(patch, newPath...)
 		patch = append(patch, '\n')
-		if binaryRaster {
+		if !utf8.Valid(contents) || bytes.IndexByte(contents, 0) >= 0 {
 			patch = append(patch, "Binary files /dev/null and "...)
 			patch = append(patch, newPath...)
 			patch = append(patch, " differ\n"...)
-			if len(patch) > ports.ReviewTargetMaxBytes {
-				return nil, fmt.Errorf("dirty patch exceeds limit")
-			}
 			continue
 		}
-		if len(bytes) == 0 {
+		if len(contents) == 0 {
 			continue
 		}
-		lines := strings.Count(string(bytes), "\n")
-		if bytes[len(bytes)-1] != '\n' {
+		lines := strings.Count(string(contents), "\n")
+		if contents[len(contents)-1] != '\n' {
 			lines++
 		}
 		patch = append(patch, fmt.Sprintf("@@ -0,0 +1,%d @@\n", lines)...)
-		for len(bytes) > 0 {
-			lineEnd := strings.IndexByte(string(bytes), '\n')
+		for len(contents) > 0 {
+			lineEnd := strings.IndexByte(string(contents), '\n')
 			if lineEnd < 0 {
 				patch = append(patch, '+')
-				patch = append(patch, bytes...)
+				patch = append(patch, contents...)
 				patch = append(patch, "\n\\ No newline at end of file\n"...)
 				break
 			}
 			patch = append(patch, '+')
-			patch = append(patch, bytes[:lineEnd+1]...)
-			bytes = bytes[lineEnd+1:]
-		}
-		if len(patch) > ports.ReviewTargetMaxBytes {
-			return nil, fmt.Errorf("dirty patch exceeds limit")
+			patch = append(patch, contents[:lineEnd+1]...)
+			contents = contents[lineEnd+1:]
 		}
 	}
 	return patch, nil
@@ -1017,7 +1011,7 @@ func quoteGitPath(path string) string {
 }
 
 func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root ports.AnchoredRoot, eligible map[string]bool, ignored ...[]workspaceIgnoreRule) ([]ports.WorkspaceSnapshotFile, error) {
-	trackedOut, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "ls-files", "-z"}})
+	trackedOut, err := adapter.run(ctx, (Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "ls-files", "-z"}}).withSourceSizedStdout())
 	if err != nil {
 		return nil, err
 	}
@@ -1084,11 +1078,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		if !selected {
 			return nil
 		}
-		read := readStableRegular
-		if rasterMediaType(relative) != "" {
-			read = readStableRegularBinary
-		}
-		bytes, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
+		bytes, err := readStableRegularBinary(root.String(), relative, 0)
 		if err != nil {
 			return fmt.Errorf("captured path %q: %w; add it to .mulgaeignore", relative, err)
 		}
@@ -1144,7 +1134,7 @@ func readStableIgnoreFile(root, relative string, limit int) ([]byte, error) {
 
 func readStableRegularMode(root, relative string, limit int, requireText, allowIgnoreFile bool) ([]byte, error) {
 	path, err := ports.NewSafeRelativePath(relative)
-	if err != nil || reservedReviewPath(relative) && !(allowIgnoreFile && admittedIgnoreControlPath(relative)) || !utf8.ValidString(relative) || norm.NFC.String(relative) != relative || limit <= 0 {
+	if err != nil || reservedReviewPath(relative) && !(allowIgnoreFile && admittedIgnoreControlPath(relative)) || !utf8.ValidString(relative) || norm.NFC.String(relative) != relative || limit < 0 {
 		return nil, fmt.Errorf("invalid capture path")
 	}
 	fd, err := openNofollowRegular(root, path.String())
@@ -1158,7 +1148,11 @@ func readStableRegularMode(root, relative string, limit int, requireText, allowI
 	if err := unix.Fstat(fd, &before); err != nil || before.Mode&unix.S_IFMT != unix.S_IFREG {
 		return nil, fmt.Errorf("capture path is not a regular file")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	var reader io.Reader = file
+	if limit > 0 {
+		reader = io.LimitReader(file, int64(limit)+1)
+	}
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -1176,8 +1170,8 @@ func readStableRegularMode(root, relative string, limit int, requireText, allowI
 	if statErr != nil || !sameStableFile(before, afterPath) {
 		return nil, fmt.Errorf("capture path changed while reading")
 	}
-	if len(data) > limit || requireText && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
-		return nil, fmt.Errorf("capture file is not bounded UTF-8 text")
+	if limit > 0 && len(data) > limit || requireText && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
+		return nil, fmt.Errorf("capture file is not valid UTF-8 text")
 	}
 	return data, nil
 }

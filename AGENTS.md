@@ -198,7 +198,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
   raw provider transcripts, or private source through diagnostics and exports.
 - Use `.mulgaeignore` to exclude files that must not be transmitted to a provider.
   Do not mistake credential-pattern matching for source-capture admission policy.
-- Preserve supported PNG, JPEG, and WebP files as bounded binary evidence after
+- Preserve supported PNG, JPEG, and WebP files as binary evidence after
   extension and signature validation. Do not decode their bodies as text.
 - The complete release target is native Apple Silicon macOS. New platforms or
   providers require explicit adapters, capability tests, security review,

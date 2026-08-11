@@ -118,7 +118,7 @@ configured routing envelope:
 mulgae review --stage --preflight --output json
 ```
 
-Preflight uses the real bounded capture path but does not discover, qualify, or
+Preflight uses the complete immutable capture path but does not discover, qualify, or
 invoke providers and does not create a session, run, diagnostic, or publication.
 It reports `qualification: not_run`, the exact source files sent to each role,
 PNG/JPEG/WebP binary metadata, each role's provider route, effective timeouts,

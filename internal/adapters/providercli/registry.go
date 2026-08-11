@@ -1646,7 +1646,7 @@ func agyContent(stdout []byte) ([]byte, error) {
 		// Trim only for nonempty/shape checks; return exact stdout bytes.
 		return append([]byte(nil), stdout...), nil
 	}
-	if text := agyResultText(frame); len(bytes.TrimSpace(text)) > 0 {
+	if text := agyReviewResultText(frame); len(bytes.TrimSpace(text)) > 0 {
 		return append([]byte(nil), text...), nil
 	}
 	return frame, nil

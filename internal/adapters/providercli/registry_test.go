@@ -262,6 +262,11 @@ func TestProviderResultStrictness(t *testing.T) {
 	if err != nil || !isolated || !bytes.Equal(got, agyProse) {
 		t.Fatalf("AGY pure Markdown = %q, isolated=%t, err=%v", got, isolated, err)
 	}
+	agyStructured := []byte(`{"status":"success","response":"completed","structured_output":{"root":"nonce","link":"linked","role":"logic"}}`)
+	got, isolated, err = providerResult(FamilyAgy, agyStructured)
+	if err != nil || !isolated || string(got) != "completed" {
+		t.Fatalf("AGY structured output = %q, isolated=%t, err=%v", got, isolated, err)
+	}
 	zcodeSpaced, err := json.Marshal(map[string]any{
 		"sessionId": "session",
 		"response":  "  narration with spaces  \n",

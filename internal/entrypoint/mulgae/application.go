@@ -484,6 +484,7 @@ func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]b
 	if hasArtistInputs && !artistInputs.Valid() {
 		return ReviewRequest{}, errors.New("production artist defaults are invalid")
 	}
+	automaticRoles := !request.rolesExplicit
 	selected := make(map[domain.Role]bool, len(request.roles))
 	if request.rolesExplicit {
 		for _, raw := range request.roles {
@@ -525,6 +526,7 @@ func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]b
 		}
 		request.artistBriefPath, request.hasArtistBrief = resolved.BriefPath(), true
 		request.artistDesignGlobs = resolved.DesignSpecGlobs()
+		request.artistAutomatic = automaticRoles
 	} else if request.hasArtistBrief || len(request.artistDesignGlobs) != 0 {
 		return ReviewRequest{}, errArtistRoleRequired
 	}
@@ -559,11 +561,21 @@ func (adapter reviewRunAdapter) StartReviewRun(
 	objective, hasObjective := request.Objective()
 	var captureRequest reviewrun.InputCaptureRequest
 	if containsString(request.roles, string(domain.RoleArtist)) {
-		artistInputs, artistErr := ports.NewArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
+		var artistInputs ports.ArtistReviewInputs
+		var artistErr error
+		if request.artistAutomatic {
+			artistInputs, artistErr = ports.NewAutomaticArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
+		} else {
+			artistInputs, artistErr = ports.NewArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
+		}
 		if artistErr != nil {
 			return ReviewRunResult{}, artistErr
 		}
-		captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
+		if request.artistAutomatic {
+			captureRequest, err = reviewrun.NewInputCaptureRequestWithAutomaticArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
+		} else {
+			captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
+		}
 	} else {
 		captureRequest, err = reviewrun.NewInputCaptureRequest(root, targetSelector, []byte(objective), hasObjective)
 	}

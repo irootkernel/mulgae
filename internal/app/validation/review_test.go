@@ -214,7 +214,7 @@ func TestReviewValidatorInjectsTrustedIdentityAndNormalizesFindings(t *testing.T
 }
 
 func TestReviewValidatorRequiresCapturedVisualIdentityForArtistFindings(t *testing.T) {
-	const path = "design-specs/home.png"
+	const path = "current/design-specs/home.png"
 	const digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	raw := providerReviewWith(t, func(document map[string]any) {
 		evidence := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
@@ -240,6 +240,17 @@ func TestReviewValidatorRequiresCapturedVisualIdentityForArtistFindings(t *testi
 	scope.VisualAssets[path] = "sha256:" + strings.Repeat("c", 64)
 	if _, _, err := validator.Validate(context.Background(), raw, scope); err == nil || !strings.Contains(err.Error(), "candidate_validation_failed") {
 		t.Fatalf("mismatched visual identity was accepted: %v", err)
+	}
+	unqualified := providerReviewWith(t, func(document map[string]any) {
+		evidence := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
+		evidence["visual"] = map[string]any{
+			"path": "design-specs/home.png", "sha256": digest,
+			"bbox": map[string]any{"x": 0, "y": 12, "width": 44, "height": 20},
+		}
+	})
+	scope.VisualAssets[path] = digest
+	if _, _, err := validator.Validate(context.Background(), unqualified, scope); err == nil || !strings.Contains(err.Error(), "candidate_validation_failed") {
+		t.Fatalf("unqualified visual path was accepted: %v", err)
 	}
 }
 func TestReviewValidatorCorrelatesEvidenceClaimsAfterFindingOrdering(t *testing.T) {

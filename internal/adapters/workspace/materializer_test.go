@@ -255,12 +255,10 @@ func TestRequestRejectsUnsafeBytesAndBounds(t *testing.T) {
 	if _, err := ports.NewWorkspaceSnapshotFile(path, []byte{'a', 0}, "sha256:"+strings.Repeat("0", 64)); err == nil {
 		t.Fatal("accepted NUL")
 	}
-	large := strings.Repeat("x", int(ports.WorkspaceSnapshotMaxFileBytes)+1)
-	if _, err := ports.NewWorkspaceSnapshotFile(path, []byte(large), "sha256:"+strings.Repeat("0", 64)); err == nil {
-		t.Fatal("accepted mismatched oversized file")
-	}
-	if _, err := ports.NewWorkspaceSnapshotRequest(make([]ports.WorkspaceSnapshotFile, ports.WorkspaceSnapshotMaxFiles+1), "policy"); err == nil {
-		t.Fatal("accepted excessive file count")
+	large := strings.Repeat("x", 4<<20+1)
+	largeSum := sha256.Sum256([]byte(large))
+	if _, err := ports.NewWorkspaceSnapshotFile(path, []byte(large), "sha256:"+hex.EncodeToString(largeSum[:])); err != nil {
+		t.Fatalf("rejected large valid file: %v", err)
 	}
 }
 

@@ -236,6 +236,45 @@ func TestPublicationStoreRejectsReadCapsAboveAdapterLimit(t *testing.T) {
 	}
 }
 
+func TestPublicationStoreAllowsOnlyVariableSizedRunSupportAboveFixedLimit(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	payload := bytes.Repeat([]byte("s"), int(publicationMaximumReadBytes)+1)
+	base := fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/"
+
+	sourcePath := mustRelativePath(t, base+"support/index.json")
+	source, err := ports.NewImmutablePublicationArtifact(sourcePath, publicationSHA256(payload), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistSource, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.PersistAuxiliaryArtifact(context.Background(), persistSource); err != nil {
+		t.Fatalf("source-sized support artifact was capped: %v", err)
+	}
+	readSource, err := ports.NewReadRunSupportArtifactRequest(fixture.run, sourcePath, source.SHA256(), int64(len(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed, err := fixture.store.ReadAuxiliaryArtifact(context.Background(), readSource); err != nil || !bytes.Equal(observed.Bytes(), payload) {
+		t.Fatalf("source-sized support artifact reread = %d bytes, %v", len(observed.Bytes()), err)
+	}
+
+	controlPath := mustRelativePath(t, base+"excerpts/F001.json")
+	control, err := ports.NewImmutablePublicationArtifact(controlPath, publicationSHA256(payload), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistControl, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.PersistAuxiliaryArtifact(context.Background(), persistControl); !errors.Is(err, errPublicationCap) {
+		t.Fatalf("oversized structured control artifact error = %v, want publication cap", err)
+	}
+}
+
 func TestPublicationStoreCorruptionDiagnosticIsDurablyIdempotent(t *testing.T) {
 	fixture := newPublicationStoreFixture(t)
 	fixture.writeJournal(t, domain.JournalCompleted)

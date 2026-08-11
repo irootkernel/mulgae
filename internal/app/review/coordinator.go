@@ -212,9 +212,10 @@ func equalLaneDeadlines(left, right []LaneDeadline) bool {
 // CoordinatorInvocationSummary is the immutable terminal projection of one
 // invocation within a role attempt.
 type CoordinatorInvocationSummary struct {
-	sequence uint64
-	purpose  domain.InvocationPurpose
-	state    domain.InvocationState
+	sequence                 uint64
+	purpose                  domain.InvocationPurpose
+	state                    domain.InvocationState
+	runtimeArtifactsExpected bool
 }
 
 // Sequence returns the attempt-local invocation sequence.
@@ -227,6 +228,11 @@ func (summary CoordinatorInvocationSummary) Purpose() domain.InvocationPurpose {
 
 // State returns the invocation's terminal state.
 func (summary CoordinatorInvocationSummary) State() domain.InvocationState { return summary.state }
+
+// RuntimeArtifactsExpected reports that trusted prompt material was retained.
+func (summary CoordinatorInvocationSummary) RuntimeArtifactsExpected() bool {
+	return summary.runtimeArtifactsExpected
+}
 
 // CoordinatorAttemptSummary is the immutable terminal projection of one
 // provider attempt.
@@ -1516,6 +1522,11 @@ func (execution *coordinatorExecution) commitOutcome(
 			attempt.hasTimeoutFacts = true
 		}
 	}
+	if outcome.RuntimeArtifactsExpected() {
+		if err := attempt.attempt.MarkInvocationRuntimeArtifactsExpected(invocationSequence(job.Purpose())); err != nil {
+			return nil, fmt.Errorf("review coordinator: retain runtime artifact boundary: %w", err)
+		}
+	}
 
 	if conditionRequiresValidation(condition) {
 		if err := attempt.attempt.TransitionInvocation(invocationSequence(job.Purpose()), domain.InvocationSucceeded); err != nil {
@@ -2138,9 +2149,10 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 		}
 		for invocationIndex, invocation := range invocations {
 			snapshots[index].invocations[invocationIndex] = CoordinatorInvocationSummary{
-				sequence: invocation.Sequence(),
-				purpose:  invocation.Purpose(),
-				state:    invocation.State(),
+				sequence:                 invocation.Sequence(),
+				purpose:                  invocation.Purpose(),
+				state:                    invocation.State(),
+				runtimeArtifactsExpected: invocation.RuntimeArtifactsExpected(),
 			}
 		}
 	}

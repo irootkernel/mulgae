@@ -126,6 +126,12 @@ func TestCaptureResolvesReferencesBeforeEveryOtherCommand(t *testing.T) {
 	if !matchesCanonicalCommand(runner.commands[3], captureDiffArgs(baseObjectID, headObjectID)) {
 		t.Fatalf("diff argv = %v, want canonical diff command", runner.commands[3].Argv())
 	}
+	if runner.commands[2].sourceSizedStdout {
+		t.Fatal("head tree object ID was classified as source-sized stdout")
+	}
+	if !runner.commands[3].sourceSizedStdout {
+		t.Fatal("captured diff was not classified as source-sized stdout")
+	}
 	captured := target.Bytes()
 	captured[0] ^= 0xff
 	if bytes.Equal(captured, target.Bytes()) {
@@ -353,6 +359,27 @@ func TestExecRunnerCapsFailClosed(t *testing.T) {
 	assertOutputLimit(t, err, "stderr")
 	if len(result.Stdout) != 0 || len(result.Stderr) != 0 {
 		t.Fatal("stderr cap returned partial output")
+	}
+}
+
+func TestExecRunnerReadsSourceSizedStdoutPastControlLimit(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init", "--quiet")
+	payload := bytes.Repeat([]byte("source-bytes\n"), defaultMaxStdoutBytes/len("source-bytes\n")+2)
+	path := filepath.Join(root, "large-source.txt")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oid := strings.TrimSpace(string(runGit(t, root, "hash-object", "-w", path)))
+	command := Command{Dir: root, Args: []string{"cat-file", "blob", oid}}
+	if _, err := NewExecRunner().Run(context.Background(), command); err == nil {
+		t.Fatal("control stdout unexpectedly ignored the fixed limit")
+	} else {
+		assertOutputLimit(t, err, "stdout")
+	}
+	result, err := NewExecRunner().Run(context.Background(), command.withSourceSizedStdout())
+	if err != nil || !bytes.Equal(result.Stdout, payload) {
+		t.Fatalf("source-sized stdout = %d bytes, err %v", len(result.Stdout), err)
 	}
 }
 func TestExecRunnerPinsGitExecutableAgainstAmbientPATHShadow(t *testing.T) {

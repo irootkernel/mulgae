@@ -129,16 +129,9 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		if !entry.Type().IsRegular() {
 			return fmt.Errorf("workspace path %q is not a regular file; add it to .mulgaeignore", relative)
 		}
-		read := readStableRegular
-		if rasterMediaType(relative) != "" {
-			read = readStableRegularBinary
-		}
-		data, err := read(root.String(), relative, int(ports.WorkspaceSnapshotMaxFileBytes))
+		data, err := readStableRegularBinary(root.String(), relative, 0)
 		if err != nil {
 			return fmt.Errorf("workspace path %q: %w; add it to .mulgaeignore if it is not reviewable", relative, err)
-		}
-		if rasterMediaType(relative) == "" && (!utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0) {
-			return fmt.Errorf("workspace path %q is not UTF-8 text; add it to .mulgaeignore", relative)
 		}
 		path, err := ports.NewSafeRelativePath(relative)
 		if err != nil || norm.NFC.String(relative) != relative {
@@ -151,9 +144,6 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 		}
 		*files = append(*files, file)
 		*total += int64(len(data))
-		if err := ports.ValidateWorkspaceAdmission("workspace-capture", "current", len(*files), *total); err != nil {
-			return err
-		}
 		if _, err := manifest.Write([]byte("file\x00" + relative + "\x00" + strconv.FormatInt(int64(len(data)), 10) + "\x00")); err != nil {
 			return fmt.Errorf("workspace manifest: write file identity: %w", err)
 		}

@@ -20,7 +20,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const defaultG008StdinLimit int64 = ports.ReviewTargetMaxBytes
+const defaultG008StdinLimit int64 = 0
 
 // G008RunEnumerator is the filesystem-only namespace projection used to find
 // possible runs. It deliberately has no P2 interpretation authority.
@@ -48,8 +48,8 @@ type G008RequestResolver struct {
 }
 
 // NewG008RequestResolver constructs the production selector resolver. The
-// optional limit permits a smaller integration limit; absent it, the review
-// target byte limit is used.
+// optional positive limit supports bounded integration fixtures; production
+// capture has no fixed source-size ceiling.
 func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, enumerator G008RunEnumerator, reader io.Reader, limit ...int64) (*G008RequestResolver, error) {
 	if !root.Valid() {
 		return nil, fmt.Errorf("G008 request resolver: invalid root")
@@ -64,8 +64,8 @@ func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, 
 		return nil, fmt.Errorf("G008 request resolver: stdin reader is required")
 	}
 	stdinLimit := defaultG008StdinLimit
-	if len(limit) > 1 || len(limit) == 1 && (limit[0] <= 0 || limit[0] > ports.ReviewTargetMaxBytes) {
-		return nil, fmt.Errorf("G008 request resolver: stdin limit must be between 1 and %d bytes", ports.ReviewTargetMaxBytes)
+	if len(limit) > 1 || len(limit) == 1 && limit[0] <= 0 {
+		return nil, fmt.Errorf("G008 request resolver: stdin limit must be positive")
 	}
 	if len(limit) == 1 {
 		stdinLimit = limit[0]
@@ -332,13 +332,17 @@ func committedCreatedAt(manifest []byte) (time.Time, error) {
 }
 
 func readFrozenStdin(ctx context.Context, reader io.Reader, limit int64) ([]byte, error) {
-	if reader == nil || limit <= 0 || limit > ports.ReviewTargetMaxBytes {
+	if reader == nil || limit < 0 {
 		return nil, fmt.Errorf("capture stdin: invalid input")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	bytes, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	var source io.Reader = reader
+	if limit > 0 {
+		source = io.LimitReader(reader, limit+1)
+	}
+	bytes, err := io.ReadAll(source)
 	if err != nil {
 		return nil, fmt.Errorf("capture stdin: read: %w", err)
 	}
@@ -348,7 +352,7 @@ func readFrozenStdin(ctx context.Context, reader io.Reader, limit int64) ([]byte
 	if len(bytes) == 0 {
 		return nil, fmt.Errorf("capture stdin: empty input")
 	}
-	if int64(len(bytes)) > limit {
+	if limit > 0 && int64(len(bytes)) > limit {
 		return nil, fmt.Errorf("capture stdin: input exceeds %d bytes", limit)
 	}
 	if containsNUL(bytes) {

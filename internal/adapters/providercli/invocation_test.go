@@ -34,7 +34,7 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -131,7 +131,7 @@ func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("headless AGY probe argv = %#v, want %#v", argv, want)
 	}

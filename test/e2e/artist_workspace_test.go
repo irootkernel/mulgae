@@ -255,7 +255,7 @@ func artistProviderOutput(t *testing.T, line int, quote, screenshotSHA string, b
 			"confidence":     "high",
 			"evidence": []any{map[string]any{
 				"current": map[string]any{"path": "index.html", "side": "worktree", "line_start": line, "line_end": line, "quote": quote},
-				"visual":  map[string]any{"path": "design-specs/homepage-current.png", "sha256": screenshotSHA, "bbox": bbox},
+				"visual":  map[string]any{"path": "current/design-specs/homepage-current.png", "sha256": screenshotSHA, "bbox": bbox},
 			}},
 		}},
 	}
@@ -293,7 +293,7 @@ func assertArtistFinalArtifact(t *testing.T, contents []byte, screenshotSHA stri
 	}
 	evidence := artifact.Findings[0].Evidence[0]
 	if evidence.Current.Path != "index.html" || evidence.Current.Side != "worktree" || evidence.Current.Verification != "verified" ||
-		evidence.Visual == nil || evidence.Visual.Path != "design-specs/homepage-current.png" || evidence.Visual.SHA256 != screenshotSHA ||
+		evidence.Visual == nil || evidence.Visual.Path != "current/design-specs/homepage-current.png" || evidence.Visual.SHA256 != screenshotSHA ||
 		evidence.Visual.BBox != bbox || evidence.Visual.Verification != "verified" {
 		t.Fatalf("artist evidence was not preserved: %#v", evidence)
 	}
@@ -334,8 +334,9 @@ func assertArtistPromptFraming(t *testing.T, observations []fakeAGYObservation, 
 	}
 	for _, expected := range []string{
 		"The primary call to action must remain adjacent to the hero copy",
-		"design-specs/homepage-before.png", referenceSHA,
-		"design-specs/homepage-current.png", currentSHA,
+		`"status":"ready"`,
+		`"path":"current/design-specs/homepage-before.png"`, referenceSHA,
+		`"path":"current/design-specs/homepage-current.png"`, currentSHA,
 	} {
 		if !strings.Contains(reviewPrompt, expected) {
 			t.Fatalf("artist prompt omitted %q: %s", expected, reviewPrompt)

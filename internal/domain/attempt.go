@@ -6,9 +6,10 @@ import (
 )
 
 type Invocation struct {
-	sequence uint64
-	purpose  InvocationPurpose
-	state    InvocationState
+	sequence                 uint64
+	purpose                  InvocationPurpose
+	state                    InvocationState
+	runtimeArtifactsExpected bool
 }
 
 func NewInvocation(sequence uint64, purpose InvocationPurpose) (Invocation, error) {
@@ -32,6 +33,9 @@ func (invocation Invocation) withTransition(next InvocationState) (Invocation, e
 func (invocation Invocation) Sequence() uint64           { return invocation.sequence }
 func (invocation Invocation) Purpose() InvocationPurpose { return invocation.purpose }
 func (invocation Invocation) State() InvocationState     { return invocation.state }
+func (invocation Invocation) RuntimeArtifactsExpected() bool {
+	return invocation.runtimeArtifactsExpected
+}
 
 type Attempt struct {
 	id               AttemptID
@@ -164,6 +168,20 @@ func (attempt *Attempt) TransitionInvocation(sequence uint64, next InvocationSta
 		return err
 	}
 	attempt.invocations[len(attempt.invocations)-1] = updated
+	return nil
+}
+
+// MarkInvocationRuntimeArtifactsExpected records the trusted runtime boundary
+// after prompt construction retained the immutable target and prompt inventory.
+func (attempt *Attempt) MarkInvocationRuntimeArtifactsExpected(sequence uint64) error {
+	if attempt == nil || len(attempt.invocations) == 0 {
+		return fmt.Errorf("attempt: %w: no invocation can retain runtime artifacts", ErrInvariant)
+	}
+	invocation := &attempt.invocations[len(attempt.invocations)-1]
+	if invocation.Sequence() != sequence || invocation.State() != InvocationRunning || invocation.runtimeArtifactsExpected {
+		return fmt.Errorf("attempt: %w: invocation runtime artifact boundary is invalid", ErrInvariant)
+	}
+	invocation.runtimeArtifactsExpected = true
 	return nil
 }
 

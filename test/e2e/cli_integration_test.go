@@ -575,8 +575,7 @@ func TestIntegrationMulgaeProductionReviewSubprocessKimiQualificationNonAdmissio
 		t.Fatalf("Kimi qualification launch count = %d, want 1 family probe: %#v", len(observations), observations)
 	}
 	observation := observations[0]
-	if !strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") &&
-		!strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
+	if !strings.Contains(observation.Prompt, "Prove readiness by returning exactly one JSON object and nothing else.") {
 		t.Fatalf("Kimi qualification prompt missing readiness binding: %#v", observation)
 	}
 	if !strings.Contains(observation.Prompt, "role=logic") && !strings.Contains(observation.Prompt, "role must be logic") {
@@ -1215,7 +1214,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if err != nil {
 		t.Fatal(err)
 	}
-	largePNG := make([]byte, ports.WorkspaceSnapshotMaxFileBytes)
+	largePNG := make([]byte, 4<<20)
 	copy(largePNG, pngBytes)
 	for index := 0; index < 8; index++ {
 		mustWriteTestFile(t, filepath.Join(project, "screenshots", fmt.Sprintf("provider-view-%02d.png", index)), largePNG)
@@ -1412,11 +1411,10 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		t.Fatalf("preflight file catalog PNG/ignored = %t/%t: %#v", seenPNG, seenIgnored, firstResult.FileSets)
 	}
 	combinedBytes := sideBytes["after"] + sideBytes["before"]
-	if sideBytes["after"] > ports.WorkspaceSnapshotMaxBytes || sideBytes["before"] > ports.WorkspaceSnapshotMaxBytes ||
-		combinedBytes <= ports.WorkspaceSnapshotMaxBytes || combinedBytes > ports.WorkspaceProviderViewMaxBytes {
+	if sideBytes["after"] > 64<<20 || sideBytes["before"] > 64<<20 || combinedBytes <= 64<<20 {
 		t.Fatalf("preflight workspace bytes = before:%d after:%d combined:%d", sideBytes["before"], sideBytes["after"], combinedBytes)
 	}
-	wantPaths := []string{"after/docs/linked.md", "after/review.go", "after/roadmap.md"}
+	wantPaths := []string{ports.WorkspaceReviewTargetName, "after/docs/linked.md", "after/review.go", "after/roadmap.md"}
 	for index := 0; index < 8; index++ {
 		wantPaths = append(wantPaths, fmt.Sprintf("after/screenshots/provider-view-%02d.png", index))
 	}
@@ -1458,8 +1456,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		if observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
 			t.Fatalf("ZCode escaped the bounded snapshot: %#v", observation)
 		}
-		if strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") ||
-			strings.Contains(observation.Prompt, "The object must contain exactly root, link, and role string fields.") {
+		if strings.Contains(observation.Prompt, "Prove readiness by returning exactly one JSON object and nothing else.") {
 			zcodeQualification++
 		} else {
 			zcodeReviews++
@@ -1485,7 +1482,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		if observation.Fixture != string(credentialFixtures) || observation.PNG != wantPNG ||
 			!slices.Contains(observation.Argv, "--sandbox") || slices.Contains(observation.Argv, "--dangerously-skip-permissions") ||
 			!slices.Contains(observation.Argv, "--add-dir") {
-			t.Fatalf("AGY did not read the exact bounded fixture and raster evidence: %#v", observation)
+			t.Fatalf("AGY did not read the exact captured fixture and raster evidence: %#v", observation)
 		}
 	}
 	// AGY owns only the artist role, so it is probed and executed exactly once.
@@ -1502,8 +1499,9 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	for _, file := range restoredWorkspace.Files() {
 		restoredBytes += int64(len(file.Bytes()))
 	}
-	if restoredBytes != combinedBytes {
-		t.Fatalf("restored provider workspace bytes = %d, want %d", restoredBytes, combinedBytes)
+	wantRestoredBytes := combinedBytes + int64(len(archive.Target().Bytes()))
+	if restoredBytes != wantRestoredBytes {
+		t.Fatalf("restored provider workspace bytes = %d, want %d", restoredBytes, wantRestoredBytes)
 	}
 	assertExactPNG := func(label string, files []ports.WorkspaceSnapshotFile) {
 		t.Helper()
@@ -2225,8 +2223,7 @@ func main() {
 	if prompt == "" || mode == "" || disallowed == "" {
 		panic("non-canonical ZCode invocation")
 	}
-	capability := strings.Contains(prompt, "Prove readiness by binding the immutable fixture values below.") ||
-		strings.Contains(prompt, "The object must contain exactly root, link, and role string fields.")
+	capability := strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
 	if capability {
 		if mode != "plan" || disallowed != "*" {
 			panic("non-canonical ZCode capability invocation")
@@ -2412,10 +2409,24 @@ func main() {
 		argv[10] == "--print":
 		printTimeout = argv[9]
 		observation.Snapshot, observation.Prompt = argv[3], argv[11]
+	case len(argv) == 16 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
+		argv[2] == "--add-dir" && argv[3] == cwd && argv[4] == "--mode" && argv[5] == "plan" &&
+		argv[6] == "--effort" && argv[7] == "low" && argv[8] == "--print-timeout" &&
+		argv[10] == "--print" && argv[12] == "--output-format" && argv[13] == "json" &&
+		argv[14] == "--json-schema" && json.Valid([]byte(argv[15])):
+		printTimeout = argv[9]
+		observation.Snapshot, observation.Prompt = argv[3], argv[11]
 	case len(argv) == 13 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
 		argv[2] == "--dangerously-skip-permissions" && argv[3] == "--add-dir" && argv[4] == cwd &&
 		argv[5] == "--mode" && argv[6] == "plan" && argv[7] == "--effort" && argv[8] == "low" &&
 		argv[9] == "--print-timeout" && argv[11] == "--print":
+		printTimeout = argv[10]
+		observation.Snapshot, observation.Prompt = argv[4], argv[12]
+	case len(argv) == 17 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
+		argv[2] == "--dangerously-skip-permissions" && argv[3] == "--add-dir" && argv[4] == cwd &&
+		argv[5] == "--mode" && argv[6] == "plan" && argv[7] == "--effort" && argv[8] == "low" &&
+		argv[9] == "--print-timeout" && argv[11] == "--print" && argv[13] == "--output-format" &&
+		argv[14] == "json" && argv[15] == "--json-schema" && json.Valid([]byte(argv[16])):
 		printTimeout = argv[10]
 		observation.Snapshot, observation.Prompt = argv[4], argv[12]
 	default:
@@ -2424,10 +2435,10 @@ func main() {
 	// Qualification probes stay inside the bounded 30s probe deadline; reviews
 	// keep the full configured runtime deadline.
 	if observation.Prompt == "@roadmap.md" {
-		if printTimeout != "25s" {
+		if printTimeout != "25s" || len(argv) != 16 && len(argv) != 17 {
 			panic("non-canonical AGY qualification print timeout")
 		}
-	} else if printTimeout != "14m55s" {
+	} else if printTimeout != "14m55s" || len(argv) != 12 && len(argv) != 13 {
 		panic("non-canonical AGY review print timeout")
 	}
 	if observation.Prompt != "@roadmap.md" {
@@ -2453,7 +2464,7 @@ func main() {
 		if err != nil || len(root) != 2 || len(role) != 2 {
 			panic("native qualification reference did not resolve")
 		}
-		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], strings.TrimSpace(string(link)), role[1])
+		fmt.Printf("{\"status\":\"success\",\"structured_output\":{\"root\":%q,\"link\":%q,\"role\":%q}}", root[1], strings.TrimSpace(string(link)), role[1])
 		_ = os.Stdout.Close()
 		for { time.Sleep(time.Hour) }
 	}
@@ -2530,7 +2541,7 @@ func fakeZCodeReviewObservations(t *testing.T, path string) []fakeZCodeObservati
 		if len(observation.Argv) == 2 && observation.Argv[1] == "--version" {
 			continue
 		}
-		if strings.Contains(observation.Prompt, "Prove readiness by binding the immutable fixture values below.") {
+		if strings.Contains(observation.Prompt, "Prove readiness by returning exactly one JSON object and nothing else.") {
 			continue
 		}
 		reviews = append(reviews, observation)

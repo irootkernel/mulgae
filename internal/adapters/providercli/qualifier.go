@@ -1003,11 +1003,13 @@ func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error
 			candidates = append(candidates, content)
 		}
 	case FamilyAgy:
+		if frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, trimmed); err == nil {
+			if structured := agyQualificationStructuredOutput(frame); len(bytes.TrimSpace(structured)) > 0 {
+				candidates = append(candidates, structured)
+			}
+		}
 		if content, err := agyContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
 			candidates = append(candidates, content)
-			if nested := agyResultText(content); len(bytes.TrimSpace(nested)) > 0 {
-				candidates = append(candidates, nested)
-			}
 		}
 	case FamilyZcode:
 		if content, err := zcodeContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
@@ -1053,7 +1055,7 @@ func zcodeResponseText(stdout []byte) []byte {
 	return []byte(response)
 }
 
-func agyResultText(frame []byte) []byte {
+func agyReviewResultText(frame []byte) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(bytes.TrimSpace(frame), &envelope); err != nil {
 		return nil
@@ -1068,10 +1070,41 @@ func agyResultText(frame []byte) []byte {
 			return []byte(text)
 		}
 		if nested := bytes.TrimSpace(raw); looksLikeJSONObject(nested) || looksLikeJSONArray(nested) {
-			if text := agyResultText(nested); len(bytes.TrimSpace(text)) > 0 {
+			if text := agyReviewResultText(nested); len(bytes.TrimSpace(text)) > 0 {
 				return text
 			}
 			return append([]byte(nil), nested...)
+		}
+	}
+	return nil
+}
+
+func agyQualificationStructuredOutput(frame []byte) []byte {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(frame), &envelope); err != nil {
+		return nil
+	}
+	if raw, present := envelope["structured_output"]; present {
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
+			return []byte(text)
+		}
+		trimmed := bytes.TrimSpace(raw)
+		if looksLikeJSONObject(trimmed) || looksLikeJSONArray(trimmed) {
+			return append([]byte(nil), trimmed...)
+		}
+	}
+	for _, key := range []string{"result", "message", "content", "text", "response", "output"} {
+		raw, present := envelope[key]
+		if !present {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			raw = []byte(text)
+		}
+		if nested := agyQualificationStructuredOutput(raw); len(bytes.TrimSpace(nested)) > 0 {
+			return nested
 		}
 	}
 	return nil

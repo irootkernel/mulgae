@@ -61,7 +61,7 @@ func (attestor *GitLocalityAttestor) Attest(ctx context.Context, request ports.C
 	if err != nil {
 		return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD tree: %w", err)
 	}
-	indexResult, err := attestor.adapter.run(ctx, repository.command("ls-files", "--stage", "-z"))
+	indexResult, err := attestor.adapter.run(ctx, repository.sourceCommand("ls-files", "--stage", "-z"))
 	if err != nil {
 		return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: index: %w", err)
 	}
@@ -85,7 +85,7 @@ func (attestor *GitLocalityAttestor) Attest(ctx context.Context, request ports.C
 		seen[candidate.String()] = struct{}{}
 	}
 	for _, commit := range commits {
-		listed, err := attestor.adapter.run(ctx, repository.command("ls-tree", "-r", "-z", "--name-only", commit))
+		listed, err := attestor.adapter.run(ctx, repository.sourceCommand("ls-tree", "-r", "-z", "--name-only", commit))
 		if err != nil {
 			return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: commit tree: %w", err)
 		}

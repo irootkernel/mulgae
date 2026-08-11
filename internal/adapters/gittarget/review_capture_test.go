@@ -72,7 +72,7 @@ func TestReviewCaptureStagePreservesPNGAsBinaryEvidence(t *testing.T) {
 
 func TestReviewCaptureDirtyPreservesUntrackedPNGWithoutTextDecoding(t *testing.T) {
 	root := reviewCaptureRepository(t)
-	pngBytes := make([]byte, ports.ReviewTargetMaxBytes+4096)
+	pngBytes := make([]byte, 180000+4096)
 	copy(pngBytes, []byte("\x89PNG\r\n\x1a\n"))
 	const imagePath = "untracked.png"
 	if err := os.WriteFile(filepath.Join(root, imagePath), pngBytes, 0o644); err != nil {
@@ -92,6 +92,31 @@ func TestReviewCaptureDirtyPreservesUntrackedPNGWithoutTextDecoding(t *testing.T
 		}
 	}
 	t.Fatalf("dirty snapshot omitted %q", imagePath)
+}
+
+func TestReviewCaptureDiffPreservesSourcePastGitControlOutputLimit(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	payload := bytes.Repeat([]byte("complete source line\n"), defaultMaxStdoutBytes/len("complete source line\n")+2)
+	const sourcePath = "large-source.txt"
+	if err := os.WriteFile(filepath.Join(root, sourcePath), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", sourcePath)
+	reviewGit(t, root, "commit", "-m", "Add large source")
+
+	material := captureReviewMaterial(t, root, ports.ReviewTargetDiff, "HEAD~1..HEAD")
+	if len(material.Target().Bytes()) <= defaultMaxStdoutBytes {
+		t.Fatalf("captured diff = %d bytes, want more than former Git stdout limit", len(material.Target().Bytes()))
+	}
+	for _, file := range material.Snapshot().Files() {
+		if file.Path().String() == sourcePath {
+			if !bytes.Equal(file.Bytes(), payload) {
+				t.Fatalf("captured source = %d bytes, want %d", len(file.Bytes()), len(payload))
+			}
+			return
+		}
+	}
+	t.Fatalf("snapshot omitted %q", sourcePath)
 }
 
 func TestReviewCaptureDirtyAcceptsTrackedIgnoreControlsAndExcludesTheirMaterial(t *testing.T) {
@@ -264,7 +289,7 @@ func TestReviewCaptureDirtyRejectsRasterMutationAfterSnapshot(t *testing.T) {
 	}
 }
 
-func TestUntrackedRasterPatchRejectsAggregateMarkerOverflow(t *testing.T) {
+func TestUntrackedRasterPatchAcceptsBeyondLegacyAggregateLimit(t *testing.T) {
 	rootPath := t.TempDir()
 	root, err := ports.NewAnchoredRoot(rootPath)
 	if err != nil {
@@ -278,8 +303,35 @@ func TestUntrackedRasterPatchRejectsAggregateMarkerOverflow(t *testing.T) {
 		}
 		eligible[name] = true
 	}
-	if _, err := untrackedPatch(root, eligible); err == nil || !strings.Contains(err.Error(), "dirty patch exceeds limit") {
-		t.Fatalf("aggregate raster patch overflow = %v", err)
+	if patch, err := untrackedPatch(root, eligible); err != nil || len(patch) <= 180000 {
+		t.Fatalf("large aggregate raster patch = %d bytes, %v", len(patch), err)
+	}
+}
+
+func TestUntrackedNonRasterBinaryUsesPathOnlyMarker(t *testing.T) {
+	rootPath := t.TempDir()
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "fixtures/archive.bin"
+	if err := os.MkdirAll(filepath.Join(rootPath, "fixtures"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contents := []byte{'P', 'K', 0, 0xff, 0x01}
+	if err := os.WriteFile(filepath.Join(rootPath, filepath.FromSlash(path)), contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	patch, err := untrackedPatch(root, map[string]bool{path: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(patch, []byte("Binary files /dev/null and b/fixtures/archive.bin differ\n")) {
+		t.Fatalf("binary patch did not use a path-only marker: %q", patch)
+	}
+	if bytes.Contains(patch, contents) {
+		t.Fatal("binary bytes leaked into the textual review target")
 	}
 }
 
@@ -330,7 +382,7 @@ func TestReviewCaptureRejectsInvalidRasterAsTypedUnsupportedContent(t *testing.T
 	}
 }
 
-func TestArtistManifestUnionsConfiguredAndChangedRasterEvidence(t *testing.T) {
+func TestArtistManifestIncludesAddedAndBothSidesOfModifiedHintedRasterEvidence(t *testing.T) {
 	root := reviewCaptureRepository(t)
 	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
 	if err != nil {
@@ -348,10 +400,14 @@ func TestArtistManifestUnionsConfiguredAndChangedRasterEvidence(t *testing.T) {
 	}
 	reviewGit(t, root, "add", "ux-ui-info.md", "design-specs/reference.png", "unrelated.png")
 	reviewGit(t, root, "commit", "-m", "artist baseline")
-	if err := os.WriteFile(filepath.Join(root, "staged-evidence.png"), pngBytes, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "staged-evidence.png"), pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reviewGit(t, root, "add", "staged-evidence.png")
+	modifiedPNG := append(append([]byte(nil), pngBytes...), '\n')
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "reference.png"), modifiedPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", "design-specs/staged-evidence.png", "design-specs/reference.png")
 
 	anchored, err := ports.NewAnchoredRoot(root)
 	if err != nil {
@@ -370,12 +426,65 @@ func TestArtistManifestUnionsConfiguredAndChangedRasterEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	contextText := string(material.ProjectContext())
-	if !strings.Contains(contextText, `"path":"design-specs/reference.png"`) || !strings.Contains(contextText, `"path":"staged-evidence.png"`) || strings.Contains(contextText, `"path":"unrelated.png"`) {
-		t.Fatalf("artist visual union = %s", contextText)
+	if !strings.Contains(contextText, `"task_path":"ux-ui-info.md"`) ||
+		strings.Contains(contextText, `"task_path":"after/ux-ui-info.md"`) ||
+		!strings.Contains(contextText, `"path":"after/design-specs/staged-evidence.png"`) ||
+		!strings.Contains(contextText, `"path":"before/design-specs/reference.png"`) ||
+		!strings.Contains(contextText, `"path":"after/design-specs/reference.png"`) ||
+		strings.Contains(contextText, `unrelated.png`) {
+		t.Fatalf("artist primary visuals = %s", contextText)
 	}
 }
 
-func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
+func TestAutomaticArtistRetainsChangedVisualsWhenBriefIsMissing(t *testing.T) {
+	root := reviewCaptureRepository(t)
+	pngBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "design-specs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "ux-ui-info.md"), "Review the changed screen.\n")
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "screen.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", "ux-ui-info.md", "design-specs/screen.png")
+	reviewGit(t, root, "commit", "-m", "artist baseline")
+	if err := os.Remove(filepath.Join(root, "ux-ui-info.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "design-specs", "screen.png"), append(append([]byte(nil), pngBytes...), '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewGit(t, root, "add", "-A")
+
+	anchored, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewReviewTargetCapturer(NewExecRunner(), &oneShotStdin{bytes: []byte("x")}, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := ports.NewAutomaticArtistReviewInputs("ux-ui-info.md", []string{"design-specs/**/*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetStage, "stage"), inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextText := string(material.ProjectContext())
+	if !strings.Contains(contextText, `"status":"missing"`) ||
+		!strings.Contains(contextText, `"task_path":"ux-ui-info.md"`) ||
+		!strings.Contains(contextText, `"path":"before/design-specs/screen.png"`) ||
+		!strings.Contains(contextText, `"path":"after/design-specs/screen.png"`) {
+		t.Fatalf("automatic artist missing-brief context = %s", contextText)
+	}
+}
+
+func TestUIWorkspaceCaptureProvidesFullSnapshotForCodeOnlyArtist(t *testing.T) {
 	root := reviewCaptureRepository(t)
 	if err := os.MkdirAll(filepath.Join(root, "design-specs"), 0o755); err != nil {
 		t.Fatal(err)
@@ -408,7 +517,8 @@ func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	for _, file := range material.Snapshot().Files() {
 		foundVisual = foundVisual || file.Path().String() == "design-specs/home.png" && file.MediaType() == "image/png" && !file.IsText()
 	}
-	if !foundVisual || !strings.Contains(string(material.ProjectContext()), `"status":"ready"`) {
+	if !foundVisual || !strings.Contains(string(material.ProjectContext()), `"status":"ready"`) ||
+		!strings.Contains(string(material.ProjectContext()), `"path":"current/design-specs/home.png"`) {
 		t.Fatalf("UI inputs were not captured: visual=%t context=%s", foundVisual, material.ProjectContext())
 	}
 	archive, err := ports.MarshalCapturedReviewMaterial(material)
@@ -430,8 +540,8 @@ func TestUIWorkspaceCaptureIncludesBoundedVisualInputs(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "design-specs", "home.png")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"), inputs); err == nil || !strings.Contains(err.Error(), "visual references") {
-		t.Fatalf("missing artist visuals error = %v", err)
+	if material, err := adapter.CaptureReviewTargetWithArtistInputs(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"), inputs); err != nil || !strings.Contains(string(material.ProjectContext()), `"status":"code_only"`) {
+		t.Fatalf("code-only artist capture = %s, %v", material.ProjectContext(), err)
 	}
 }
 
@@ -949,7 +1059,7 @@ func TestAdmittedIgnoreControlPathRejectsReservedParent(t *testing.T) {
 	}
 }
 
-func TestIntegrationReviewCaptureRejectsEligibleNonTextAndSpecialPathsWithGuidance(t *testing.T) {
+func TestIntegrationReviewCapturePreservesBinaryAndRejectsSpecialPathsWithGuidance(t *testing.T) {
 	for _, fixture := range []struct {
 		name string
 		path string
@@ -972,6 +1082,15 @@ func TestIntegrationReviewCaptureRejectsEligibleNonTextAndSpecialPathsWithGuidan
 			writeReviewFile(t, filepath.Join(root, "source.go"), "package source\n")
 			fixture.make(t, filepath.Join(root, fixture.path))
 			err := captureReviewError(t, root, ports.ReviewTargetWorkspace, "workspace")
+			if fixture.name == "binary" {
+				material := captureReviewMaterial(t, root, ports.ReviewTargetWorkspace, "workspace")
+				for _, file := range material.Snapshot().Files() {
+					if file.Path().String() == fixture.path && file.MediaType() == "application/octet-stream" && bytes.Equal(file.Bytes(), []byte("\x00binary")) {
+						return
+					}
+				}
+				t.Fatal("binary file was not preserved byte-for-byte")
+			}
 			if err == nil || !strings.Contains(err.Error(), fixture.path) || !strings.Contains(err.Error(), ".mulgaeignore") {
 				t.Fatalf("workspace rejection = %v", err)
 			}

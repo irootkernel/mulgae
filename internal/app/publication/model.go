@@ -482,11 +482,12 @@ type preparedAttemptArtifact struct {
 }
 
 type preparedInvocation struct {
-	sequence  uint64
-	purpose   domain.InvocationPurpose
-	state     domain.InvocationState
-	artifacts []preparedAttemptArtifact
-	runtime   *preparedRuntimeArtifact
+	sequence                 uint64
+	purpose                  domain.InvocationPurpose
+	state                    domain.InvocationState
+	runtimeArtifactsExpected bool
+	artifacts                []preparedAttemptArtifact
+	runtime                  *preparedRuntimeArtifact
 }
 
 type preparedRuntimeArtifact struct {
@@ -889,9 +890,6 @@ func PrepareCandidateWithRuntimeArtifacts(
 }
 
 func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runtimeArtifactInventory) error {
-	if len(inputs) == 0 {
-		return fmt.Errorf("publication candidate: runtime artifact inventory is absent")
-	}
 	seen := make(map[string]struct{}, len(inputs))
 	captures := make([]AttemptArtifactInput, 0)
 	for _, input := range inputs {
@@ -962,7 +960,7 @@ func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runt
 			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
 				attempt := candidate.roles[roleIndex].attempts[attemptIndex]
 				invocation := attempt.invocations[invocationIndex]
-				if invocation.runtime == nil {
+				if invocation.runtime == nil && (invocation.state != domain.InvocationTimedOut || invocation.runtimeArtifactsExpected) {
 					return fmt.Errorf(
 						"publication candidate: runtime artifact inventory is incomplete for role=%s attempt=%s sequence=%d purpose=%s",
 						candidate.roles[roleIndex].role, attempt.id, invocation.sequence, invocation.purpose,
@@ -1430,6 +1428,7 @@ func prepareRoles(summaries []review.CoordinatorRoleSummary) ([]preparedRole, []
 				}
 				preparedInvocations[invocationIndex] = preparedInvocation{
 					sequence: invocation.Sequence(), purpose: invocation.Purpose(), state: invocation.State(),
+					runtimeArtifactsExpected: invocation.RuntimeArtifactsExpected(),
 				}
 			}
 			preparedAttempts[attemptIndex] = preparedAttempt{

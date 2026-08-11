@@ -166,6 +166,37 @@ func TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths(t *testing.
 		}
 	}
 }
+
+func TestPublicationSourceSizedSupportPathsUseCanonicalKindPolicy(t *testing.T) {
+	t.Parallel()
+	candidate := publicationTestCandidate(t, false)
+	base := candidate.sessionID.String() + "/" + candidate.runID.String() + "/"
+	attemptID := candidate.roles[0].attempts[0].id.String()
+	for _, test := range []struct {
+		path string
+		want bool
+	}{
+		{base + "target/target.bytes", true},
+		{base + "target/target-manifest.json", true},
+		{base + "target/captured-review.json", true},
+		{base + "target/blobs/sha256-" + strings.Repeat("a", 64), true},
+		{base + "inputs/artist-brief.md", true},
+		{base + "inputs/artist-visual-assets.json", true},
+		{base + "prompts/" + attemptID + "/001-initial.stdin", true},
+		{base + "support/index.json", true},
+		{base + "prompts/" + attemptID + "/001-initial.manifest.json", false},
+		{base + "role-reports/logic.md", false},
+		{base + "excerpts/F001.json", false},
+	} {
+		path, err := ports.NewSafeRelativePath(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := publicationSourceSizedSupportPath(path); got != test.want {
+			t.Fatalf("publicationSourceSizedSupportPath(%q) = %t, want %t", test.path, got, test.want)
+		}
+	}
+}
 func TestRepairedCandidateAndPatchStdoutHaveDistinctCanonicalArtifacts(t *testing.T) {
 	t.Parallel()
 

@@ -26,16 +26,26 @@ var errStreamLimit = errors.New("Git command stream exceeds configured limit")
 // Command is one direct Git invocation. Args excludes the git executable and
 // is passed verbatim to exec.CommandContext; it is never interpreted by a shell.
 type Command struct {
-	Dir  string
-	Args []string
+	Dir               string
+	Args              []string
+	sourceSizedStdout bool
 }
 
 // Clone returns a caller-owned command copy suitable for transcripts.
 func (command Command) Clone() Command {
 	return Command{
-		Dir:  command.Dir,
-		Args: cloneStrings(command.Args),
+		Dir:               command.Dir,
+		Args:              cloneStrings(command.Args),
+		sourceSizedStdout: command.sourceSizedStdout,
 	}
+}
+
+// withSourceSizedStdout marks immutable source bytes and source-derived path
+// inventories whose size is determined by the captured repository. Command
+// argv and stderr remain bounded independently.
+func (command Command) withSourceSizedStdout() Command {
+	command.sourceSizedStdout = true
+	return command
 }
 
 // Argv returns the exact process argv, including the pinned Git executable.
@@ -46,7 +56,9 @@ func (command Command) Argv() []string {
 	return argv
 }
 
-// Result contains the bounded stdout and stderr bytes from one Git command.
+// Result contains stdout and bounded stderr bytes from one Git command.
+// Control-command stdout remains bounded; source-sized stdout is retained to
+// EOF by the capture path.
 type Result struct {
 	Stdout []byte
 	Stderr []byte
@@ -66,8 +78,8 @@ type Runner interface {
 	Run(context.Context, Command) (Result, error)
 }
 
-// ExecRunner executes direct Git argv with fixed environment and memory caps.
-// A zero cap selects the fixed default; negative caps are rejected.
+// ExecRunner executes direct Git argv with fixed environment and control-stream
+// caps. A zero cap selects the fixed default; negative caps are rejected.
 type ExecRunner struct {
 	MaxCommandBytes int
 	MaxStdoutBytes  int
@@ -172,7 +184,8 @@ func (err *CommandError) Stderr() []byte {
 }
 
 // Run executes git with Command.Args as direct argv and no shell. It fails
-// closed on a command, stdout, or stderr cap violation.
+// closed on command, control-stdout, or stderr cap violations. Source-sized
+// stdout is read to EOF because capture admission has no fixed byte ceiling.
 func (runner ExecRunner) Run(ctx context.Context, command Command) (Result, error) {
 	if ctx == nil {
 		return Result{}, &CommandInputError{Reason: "nil context"}
@@ -198,15 +211,20 @@ func (runner ExecRunner) Run(ctx context.Context, command Command) (Result, erro
 	}
 
 	stdout := cappedBuffer{limit: maxStdout}
+	var sourceStdout bytes.Buffer
 	stderr := cappedBuffer{limit: maxStderr}
 	child := exec.CommandContext(ctx, gitExecutable, command.Args...)
 	child.Dir = command.Dir
 	child.Env = DeterministicEnvironment()
-	child.Stdout = &stdout
+	if command.sourceSizedStdout {
+		child.Stdout = &sourceStdout
+	} else {
+		child.Stdout = &stdout
+	}
 	child.Stderr = &stderr
 	commandErr := child.Run()
 
-	if stdout.exceeded {
+	if !command.sourceSizedStdout && stdout.exceeded {
 		return Result{}, &OutputLimitError{Stream: "stdout", Limit: maxStdout, command: command.Clone()}
 	}
 	if stderr.exceeded {
@@ -219,8 +237,12 @@ func (runner ExecRunner) Run(ctx context.Context, command Command) (Result, erro
 			cause:   commandErr,
 		}
 	}
+	stdoutBytes := stdout.Bytes()
+	if command.sourceSizedStdout {
+		stdoutBytes = sourceStdout.Bytes()
+	}
 	return Result{
-		Stdout: cloneBytes(stdout.Bytes()),
+		Stdout: cloneBytes(stdoutBytes),
 		Stderr: cloneBytes(stderr.Bytes()),
 	}, nil
 }

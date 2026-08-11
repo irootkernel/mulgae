@@ -51,31 +51,33 @@ changes is reported as no change. Unsafe reserved namespaces and selected
 symlinks still fail closed.
 
 Review capture does not block source code or test fixtures because they look
-like credentials. The selected providers receive every path in the bounded
-workspace view. Use `.mulgaeignore` to exclude `.env`, `*.pem`, `*.key`, credential
+like credentials. The selected providers receive every path in the immutable
+captured workspace view. Use `.mulgaeignore` to exclude `.env`, `*.pem`, `*.key`, credential
 directories, generated data, or any other path that must not be transmitted.
 Each provider workspace includes a v3 `._mulgae_workspace_manifest.json`,
 which lists the exact transmitted paths, sizes, hashes, media types, and
-capture dispositions. PNG, JPEG, and WebP files are preserved byte-for-byte
-after extension and signature validation. Changed raster evidence and
-configured design references are listed in artist metadata; line-oriented
+capture dispositions. Every eligible regular file is preserved byte-for-byte.
+PNG, JPEG, and WebP media types require extension and signature validation;
+other non-text files use `application/octet-stream`. Added and modified hinted
+rasters are listed as primary artist metadata with before/after sides. The
+artist may inspect any other captured image for history or comparison;
+line-oriented
 evidence readers omit their binary bodies instead of decoding them as UTF-8.
 Invalid raster signatures are reported as `unsupported_content`.
-`.mulgaeignore` and workspace size limits still apply. Output redaction and
+.mulgaeignore still applies. Output redaction and
 configuration credential checks remain separate security boundaries. The
 reference-only captured archive manifest, its SHA-256 blobs, and the workspace
-manifest, rather than Git's path-only binary marker, bind the exact raster
-bytes; dirty capture revalidates them before use.
+manifest, rather than Git's path-only marker for every non-text file, bind the
+exact non-text bytes; dirty capture revalidates them before use.
 
-One captured source tree is limited to 10,000 regular files, 64 MiB total, and
-4 MiB per file; a comparison view permits two maximum trees, up to 20,000 files
-and 128 MiB total. Reference-only
-capture manifests and other structured publication members are limited to
-8 MiB, while fixed-size storage reads permit 32 MiB. Mulgae validates these
-relationships at composition and checks the exact capture manifest before any
-provider runs. Workspace limit failures use `capture_workspace_too_large` and
-report their bounded counts and limits with `provider_invoked=false`.
-Provider-authored role reports have no fixed size ceiling.
+Source capture has no fixed file-count, aggregate-byte, per-file, diff, patch,
+or stdin ceiling. Git comparisons expose complete immutable `before/` and
+`after/` trees; other reviews expose `current/`. Provider execution, output,
+diagnostics, structured publication members, and fixed-size storage reads retain
+their separate operational limits. Source-sized target material, capture
+manifests and blobs, artist inputs, prompt stdin, and the support index are
+persisted at their actual size. Provider-authored role reports have no fixed size
+ceiling.
 
 Credential-like raw provider streams may be omitted from private diagnostics
 without failing an otherwise valid review. Validated final reviews and

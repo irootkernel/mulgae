@@ -13,10 +13,11 @@ Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
 commands against that immutable directory view, isolated output, explicit
 credential projection, execution bounds, per-instance serialization,
-cancellation, and terminal process-state checks. Prompt packets retain bounded
-patch, stdin, and old/new review-target bytes that a workspace tree alone cannot
-represent; surrounding project content is read selectively from the sealed
-directory view rather than re-embedded for every role.
+cancellation, and terminal process-state checks. Prompt packets identify the
+generated `._mulgae_review_target.txt` file by path, digest, and size rather than
+re-embedding patch, stdin, or old/new target bytes for every role. Providers read
+that file and surrounding project content selectively from the sealed directory
+view.
 
 The workspace is materialized as ordinary read-only files (`0444`) and
 directories (`0555`). A single tree appears under `current/`; Git comparisons
@@ -120,27 +121,25 @@ be transmitted. The immutable v3 `._mulgae_workspace_manifest.json` supplied
 in each provider workspace lists the exact transmitted paths, sizes, hashes,
 media types, and capture dispositions.
 
-Supported PNG, JPEG, and WebP files are preserved as bounded binary evidence
-after extension and signature validation. Changed raster evidence and
-configured design references are listed in artist visual metadata. Line-based
+All eligible regular files are preserved byte-for-byte. Supported PNG, JPEG,
+and WebP files receive image media types only after extension and signature
+validation; other non-text files use `application/octet-stream`. Added and
+modified hinted rasters are listed as primary artist metadata with explicit
+before/after sides. Line-based
 evidence readers omit their bodies instead of decoding them as UTF-8. Invalid
 raster signatures fail as `unsupported_content` with the affected path.
-`.mulgaeignore` and the existing workspace/file byte limits apply to raster
-evidence exactly as they do to text files. Git's textual binary-diff marker is
+The artist may inspect any other captured image for history or comparison; the
+primary manifest is not an access allowlist. Git's textual binary-diff marker for every non-text file is
 path-only; the reference-only captured archive manifest, its support-indexed
-SHA-256 blobs, and the workspace manifest bind the actual raster bytes. Dirty
+SHA-256 blobs, and the workspace manifest bind the actual non-text bytes. Dirty
 capture revalidates those bytes before admission.
 
-Source and structured-control limits are centralized and composition-checked:
-one source tree is bounded to 10,000 files, 64 MiB total, and 4 MiB per file;
-the provider's comparison view permits exactly two maximum trees, up to 20,000
-files and 128 MiB total; capture and
-other structured publication manifests are bounded to 8 MiB; and fixed-size
-storage reads are bounded to 32 MiB. Provider-authored reports are not source
-admission metadata and have no fixed report-size ceiling. Exact capture-manifest
-feasibility is evaluated before any provider invocation. Workspace limit
-failures use `capture_workspace_too_large` and report the bounded stage, member,
-counts, limits, and `provider_invoked=false` without exposing source bytes.
+Source capture has no fixed file-count or byte ceiling. Provider execution,
+output, diagnostics, structured publication members, and fixed-size storage
+reads remain independently bounded. Source-sized target material, capture
+manifests and blobs, artist inputs, prompt stdin, and the support index are
+persisted at their actual size. Provider-authored reports are streamed and have
+no fixed report-size ceiling.
 
 For example, a repository may start with:
 
@@ -154,8 +153,8 @@ credentials/
 
 These entries are examples, not a built-in policy: repository owners remain in
 control of the paths shared with their selected providers. Output redaction,
-configuration credential admission, bounded workspace views, and provider sandboxing
-remain enforced independently of capture admission.
+configuration credential admission, immutable workspace isolation, and provider
+sandboxing remain enforced independently of capture admission.
 
 A credential-like provider raw stream may be omitted from private diagnostics,
 but that diagnostic drop does not turn an otherwise valid review into a

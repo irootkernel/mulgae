@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 
@@ -1092,7 +1093,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index path is invalid", err)
 	}
-	readIndex, err := ports.NewReadRunSupportArtifactRequest(run, indexPath, index.SHA256, service.maxBytes)
+	readIndex, err := ports.NewReadRunSupportArtifactRequest(run, indexPath, index.SHA256, math.MaxInt64-1)
 	if err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest support index request is invalid", err)
 	}
@@ -1130,6 +1131,9 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		}
 		seen[path.String()] = struct{}{}
 		readMaximum := service.maxBytes
+		if publicationSourceSizedSupportPath(path) {
+			readMaximum = math.MaxInt64 - 1
+		}
 		if reportLength := roleReportLengths[path.String()]; reportLength > readMaximum {
 			readMaximum = reportLength
 		}
@@ -1583,7 +1587,7 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 		{name: "status", bytes: bundle.Status().Bytes()},
 	}
 	for index, excerpt := range bundle.Excerpts() {
-		if publicationRoleReportPath(excerpt.Path()) {
+		if publicationRoleReportPath(excerpt.Path()) || publicationSourceSizedSupportPath(excerpt.Path()) {
 			continue
 		}
 		members = append(members, struct {
@@ -1602,18 +1606,31 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 	return nil
 }
 
-func publicationRoleReportPath(path ports.SafeRelativePath) bool {
+func publicationSourceSizedSupportPath(path ports.SafeRelativePath) bool {
+	kind, ok := publicationSupportArtifactKind(path)
+	return ok && kind.IsSourceSized()
+}
+
+func publicationSupportArtifactKind(path ports.SafeRelativePath) (ports.RunSupportArtifactKind, bool) {
 	parts := strings.Split(path.String(), "/")
-	if len(parts) != 4 {
-		return false
+	if len(parts) < 3 {
+		return "", false
 	}
 	sessionID, sessionErr := domain.ParseSessionID(parts[0])
 	runID, runErr := domain.ParseRunID(parts[1])
 	if sessionErr != nil || runErr != nil {
-		return false
+		return "", false
 	}
 	kind, err := ports.ClassifyRunSupportArtifactPath(sessionID, runID, path)
-	return err == nil && kind == ports.RunSupportArtifactRoleReport
+	if err != nil {
+		return "", false
+	}
+	return kind, true
+}
+
+func publicationRoleReportPath(path ports.SafeRelativePath) bool {
+	kind, ok := publicationSupportArtifactKind(path)
+	return ok && kind == ports.RunSupportArtifactRoleReport
 }
 
 func sameCommitComposite(left, right ports.CommitCompositeRequest) bool {

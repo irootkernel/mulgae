@@ -24,7 +24,7 @@ type capturedIgnoreSet struct {
 // capture. Its digest is recorded with the snapshot policy so a later ignore
 // configuration change cannot be mistaken for the captured decision.
 func (adapter *ReviewTargetAdapter) capturedIgnorePaths(ctx context.Context, root ports.AnchoredRoot) (capturedIgnoreSet, error) {
-	result, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "ls-files", "--others", "--exclude-standard", "-z"}})
+	result, err := adapter.run(ctx, (Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "ls-files", "--others", "--exclude-standard", "-z"}}).withSourceSizedStdout())
 	if err != nil {
 		return capturedIgnoreSet{}, err
 	}

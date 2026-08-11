@@ -442,11 +442,16 @@ func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 		ports.RunSupportArtifactArtistVisuals,
 		ports.RunSupportArtifactPromptStdin,
 		ports.RunSupportArtifactPromptManifest,
+		ports.RunSupportArtifactSupportIndex,
 		ports.RunSupportArtifactRoleReport:
 		return true
 	default:
 		return false
 	}
+}
+
+func variableSizedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
+	return kind.IsSourceSized() || kind == ports.RunSupportArtifactRoleReport
 }
 
 func (store *PublicationStore) ReadAuxiliaryArtifact(ctx context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
@@ -2937,7 +2942,7 @@ func unboundedRunSupportArtifact(run ports.PublicationRun, path ports.SafeRelati
 		return false
 	}
 	kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-	return err == nil && authorizedUnscannedRunSupportKind(kind)
+	return err == nil && variableSizedRunSupportKind(kind)
 }
 func (store *PublicationStore) writePreparedImmutable(
 	ctx context.Context,

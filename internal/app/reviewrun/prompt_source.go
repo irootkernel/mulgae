@@ -170,7 +170,7 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 	}
 	sourcePayload := prompt.NewPayload(material.SourceTarget)
 	deltaPayload := prompt.NewPayload(material.Delta)
-	input := prompt.CompileInput{Scope: scope, ProjectContext: &sourcePayload, ReviewTarget: prompt.NewPayload(material.CurrentTarget), PriorReport: &deltaPayload}
+	input := prompt.CompileInput{Scope: scope, ProjectContext: &sourcePayload, ReviewTarget: prompt.NewPayload(reviewTargetReferenceIdentity(job.Target(), len(material.CurrentTarget))), PriorReport: &deltaPayload}
 	_, _, artistContext := splitArtistPromptContext(source.input)
 	applyArtistPromptInputs(&input, artistContext, job.Role())
 	if repair != nil {
@@ -220,7 +220,7 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: input.AdapterProfile, AdapterParameters: input.AdapterParameters}, nil
 }
 func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput, role domain.Role) prompt.CompileInput {
-	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(input.Target().Bytes())}
+	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(reviewTargetReference(input.Target()))}
 	projectContext, hasProjectContext, artistContext := splitArtistPromptContext(input)
 	if hasProjectContext {
 		project := prompt.NewPayload(projectContext)
@@ -228,6 +228,29 @@ func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewI
 	}
 	applyArtistPromptInputs(&compileInput, artistContext, role)
 	return compileInput
+}
+
+func reviewTargetReference(target ports.CapturedReviewTarget) []byte {
+	if target.NoChange() {
+		return nil
+	}
+	return reviewTargetReferenceIdentity(target.Identity(), len(target.Bytes()))
+}
+
+func reviewTargetReferenceIdentity(identity domain.TargetIdentity, size int) []byte {
+	wire := struct {
+		SchemaVersion string `json:"schema_version"`
+		Path          string `json:"path"`
+		SHA256        string `json:"sha256"`
+		Size          int    `json:"size"`
+	}{
+		SchemaVersion: "mulgae-review-target-reference.v1",
+		Path:          ports.WorkspaceReviewTargetName,
+		SHA256:        "sha256:" + identity.SHA256(),
+		Size:          size,
+	}
+	bytes, _ := json.Marshal(wire)
+	return bytes
 }
 
 type artistPromptManifest struct {

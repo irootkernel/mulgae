@@ -509,13 +509,14 @@ func duplicateCoordinatorFinding(findings []domain.Finding) bool {
 // job. It contains either validated role content or one closed failure
 // condition, never both.
 type AttemptOutcome struct {
-	job             InvocationJob
-	output          ValidatedRoleOutput
-	condition       AttemptCondition
-	timeoutFacts    ProviderTimeoutFacts
-	hasOutput       bool
-	hasCondition    bool
-	hasTimeoutFacts bool
+	job                      InvocationJob
+	output                   ValidatedRoleOutput
+	condition                AttemptCondition
+	timeoutFacts             ProviderTimeoutFacts
+	hasOutput                bool
+	hasCondition             bool
+	hasTimeoutFacts          bool
+	runtimeArtifactsExpected bool
 }
 
 // ProviderTimeoutFacts contains only safe timing facts from a provider process
@@ -614,6 +615,12 @@ func (outcome AttemptOutcome) Condition() (AttemptCondition, bool) {
 
 func (outcome AttemptOutcome) ProviderTimeoutFacts() (ProviderTimeoutFacts, bool) {
 	return outcome.timeoutFacts, outcome.hasTimeoutFacts
+}
+
+// RuntimeArtifactsExpected reports that trusted runtime prompt construction
+// completed and its immutable target and prompt inventory was recorded.
+func (outcome AttemptOutcome) RuntimeArtifactsExpected() bool {
+	return outcome.runtimeArtifactsExpected
 }
 
 func (outcome AttemptOutcome) validFor(job InvocationJob) bool {

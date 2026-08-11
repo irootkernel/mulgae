@@ -1447,13 +1447,27 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
 		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
-		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "@roadmap.md"},
+		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema},
 	} {
 		definition := testProfile(t, family, "kimi_current", "lane", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
 		if err != nil || !reflect.DeepEqual(argv[len(definition.BaseArgv()):], want) {
 			t.Fatalf("%s argv=%q err=%v", family, argv, err)
 		}
+	}
+}
+
+func TestAgyQualificationStructuredOutputIsSeparateFromReviewContent(t *testing.T) {
+	frame := []byte(`{"status":"success","response":"completed","structured_output":{"root":"nonce","link":"linked","role":"logic"}}`)
+	if got := string(agyReviewResultText(frame)); got != "completed" {
+		t.Fatalf("agyReviewResultText() = %q, want historical response", got)
+	}
+	if got := string(agyQualificationStructuredOutput(frame)); got != `{"root":"nonce","link":"linked","role":"logic"}` {
+		t.Fatalf("agyQualificationStructuredOutput() = %q", got)
+	}
+	nested := []byte(`{"result":{"structured_output":"{\"root\":\"nonce\",\"link\":\"linked\",\"role\":\"logic\"}"}}`)
+	if got := string(agyQualificationStructuredOutput(nested)); got != `{"root":"nonce","link":"linked","role":"logic"}` {
+		t.Fatalf("nested agyQualificationStructuredOutput() = %q", got)
 	}
 }
 

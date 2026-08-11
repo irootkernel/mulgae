@@ -459,6 +459,7 @@ type ReviewRequest struct {
 	hasObjective      bool
 	roles             []string
 	rolesExplicit     bool
+	artistAutomatic   bool
 	artistBriefPath   string
 	hasArtistBrief    bool
 	artistDesignGlobs []string
@@ -491,6 +492,7 @@ func (request ReviewRequest) ArtistBrief() (string, bool) {
 func (request ReviewRequest) ArtistDesignSpecs() []string {
 	return cloneStrings(request.artistDesignGlobs)
 }
+func (request ReviewRequest) ArtistAutomatic() bool { return request.artistAutomatic }
 
 // SessionID returns the optional imported workflow session ID.
 func (request ReviewRequest) SessionID() (string, bool) {

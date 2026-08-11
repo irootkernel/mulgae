@@ -1798,6 +1798,18 @@ func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t 
 	if fake.calls != 1 || !present || brief != "docs/roadmap.md" || !reflect.DeepEqual(fake.request.ArtistDesignSpecs(), []string{"design-specs/**/*.png"}) {
 		t.Fatalf("resolved artist request = %#v", fake.request)
 	}
+	if fake.request.ArtistAutomatic() {
+		t.Fatal("explicit artist selection was marked automatic")
+	}
+
+	automaticFake := &reviewRunFake{}
+	automaticService := NewPolicyReviewRunServiceWithArtistInputs(automaticFake, nil, enabled, defaults)
+	if _, err := automaticService.StartReviewRun(context.Background(), ReviewRequest{roles: coreRoleNames()}, testReviewRunAnchoredRoot(t)); err != nil {
+		t.Fatal(err)
+	}
+	if !automaticFake.request.ArtistAutomatic() || !containsString(automaticFake.request.Roles(), "artist") {
+		t.Fatalf("project-default artist selection = %#v", automaticFake.request)
+	}
 
 	missing := NewPolicyReviewRunService(&reviewRunFake{}, nil, enabled)
 	if _, err := missing.StartReviewRun(context.Background(), ReviewRequest{roles: []string{"artist"}, rolesExplicit: true}, testReviewRunAnchoredRoot(t)); err == nil {
@@ -1986,13 +1998,13 @@ func TestApplicationReviewPreflightUsesOnlyExecutionFreeService(t *testing.T) {
 	}
 }
 
-func TestApplicationReviewPreflightProjectsActionableInvariantFailure(t *testing.T) {
+func TestApplicationReviewPreflightAcceptsLargeProjection(t *testing.T) {
 	result := loadReviewPreflightExample(t)
 	files := make([]ReviewPreflightFile, 33)
 	for index := range files {
 		files[index] = ReviewPreflightFile{
 			Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png",
-			Size:        ports.WorkspaceSnapshotMaxFileBytes,
+			Size:        4 << 20,
 			SHA256:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 			Disposition: "binary_preserved",
 		}
@@ -2001,8 +2013,8 @@ func TestApplicationReviewPreflightProjectsActionableInvariantFailure(t *testing
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{preflightResult: result}
 	machine := fixture.application.Run(context.Background(), []string{"review", "--stage", "--preflight", "--output", "json"}, testAnchoredRoot(t))
-	if machine.ExitCode() != app.ExitCodeInternal || len(machine.Stderr()) != 0 {
-		t.Fatalf("preflight invariant exit = %d stderr=%q stdout=%q", machine.ExitCode(), machine.Stderr(), machine.Stdout())
+	if machine.ExitCode() != app.ExitCodeSuccess || len(machine.Stderr()) != 0 {
+		t.Fatalf("large preflight exit = %d stderr=%q stdout=%q", machine.ExitCode(), machine.Stderr(), machine.Stdout())
 	}
 	var envelope struct {
 		Reasons []struct {
@@ -2015,13 +2027,8 @@ func TestApplicationReviewPreflightProjectsActionableInvariantFailure(t *testing
 	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "internal" ||
-		envelope.Reasons[0].Code != "provider_view_limit_validation_failed" || envelope.Reasons[0].ArtifactURI != nil ||
-		!strings.Contains(envelope.Reasons[0].Message, "stage review.preflight.validate") ||
-		!strings.Contains(envelope.Reasons[0].Message, "invariant=provider_view_resource_limit") ||
-		!strings.Contains(envelope.Reasons[0].Message, "max_bytes=134217728") ||
-		!strings.Contains(envelope.Reasons[0].Message, "hint: run mulgae doctor") {
-		t.Fatalf("preflight invariant envelope = %#v", envelope)
+	if len(envelope.Reasons) != 0 || !bytes.Contains(machine.Stdout(), []byte(`"kind":"review_preflight"`)) {
+		t.Fatalf("large preflight projection failed = %#v", envelope)
 	}
 }
 
@@ -2464,10 +2471,6 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceLarge := ports.WrapReviewCaptureFailure(ports.ValidateWorkspaceAdmission(
-		"capture-policy;layout=ordinary-directories-v1", "combined",
-		ports.WorkspaceProviderViewMaxFiles, ports.WorkspaceProviderViewMaxBytes+1,
-	))
 	tests := []struct {
 		name, code, stage, messageFact string
 		exit                           app.ExitCode
@@ -2478,7 +2481,6 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		{name: "capture failed", code: "capture_failed", stage: "review.capture", exit: app.ExitCodeArtifact, err: ports.WrapReviewCaptureFailure(errors.New("snapshot unavailable"))},
 		{name: "unsupported content", code: "unsupported_content", stage: "review.capture", exit: app.ExitCodeArtifact, err: unsupported},
 		{name: "capture manifest too large", code: "capture_manifest_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: manifestLarge},
-		{name: "capture workspace too large", code: "capture_workspace_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: workspaceLarge, messageFact: "admission_stage=provider_view; member=combined; file_count=20000; byte_count=134217729; max_files=20000; max_bytes=134217728; provider_invoked=false"},
 		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
 		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},

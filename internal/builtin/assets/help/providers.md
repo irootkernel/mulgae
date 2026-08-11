@@ -58,7 +58,7 @@ Role reports reach Mulgae over a per-family transport recorded in
 - Exact replay (`rerun --exact`) is always `stdout`.
 
 AGY keeps `--new-project --sandbox --add-dir <workspace> --mode plan` limited to
-the bounded workspace view. The default AGY `permission_mode` is `safe` so headless
+the immutable captured workspace. The default AGY `permission_mode` is `safe` so headless
 write/shell requests remain denied. Set
 `providers.agy.permission_mode: "dangerously-skip-permissions"` only as an
 explicit opt-in; Mulgae reports a warning because that mode may approve write or

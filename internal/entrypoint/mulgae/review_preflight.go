@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -289,30 +288,20 @@ func (result ReviewPreflightResult) Validate() (err error) {
 		return fmt.Errorf("review preflight: invalid warnings")
 	}
 	fileSet := result.FileSets[0]
-	maxFiles, maxBytes := ports.WorkspaceAdmissionLimits(fileSet.PolicyIdentity)
 	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" {
 		return fmt.Errorf("review preflight: invalid file set")
 	}
 	previous := ""
-	var totalSize int64
 	for _, file := range fileSet.Files {
 		path, pathErr := ports.NewSafeRelativePath(file.Path)
 		if pathErr != nil || !path.Valid() || file.Path == ports.WorkspaceSnapshotManifestName || file.Path <= previous ||
-			file.Size < 0 || file.Size > ports.WorkspaceSnapshotMaxFileBytes || !preflightSHA256(file.SHA256) ||
+			file.Size < 0 || !preflightSHA256(file.SHA256) ||
 			(file.MediaType == "text/plain" && file.Disposition != "text") ||
-			(file.MediaType != "text/plain" && file.MediaType != "image/png" && file.MediaType != "image/jpeg" && file.MediaType != "image/webp") ||
+			(file.MediaType != "text/plain" && file.MediaType != "application/octet-stream" && file.MediaType != "image/png" && file.MediaType != "image/jpeg" && file.MediaType != "image/webp") ||
 			(file.MediaType != "text/plain" && file.Disposition != "binary_preserved") {
 			return fmt.Errorf("review preflight: invalid file")
 		}
-		if file.Size > math.MaxInt64-totalSize {
-			totalSize = math.MaxInt64
-		} else {
-			totalSize += file.Size
-		}
 		previous = file.Path
-	}
-	if len(fileSet.Files) > maxFiles || totalSize > maxBytes {
-		return newReviewPreflightLimitValidationFailure(fileSet.PolicyIdentity, len(fileSet.Files), totalSize, maxFiles, maxBytes)
 	}
 	recomputed, err := reviewPreflightFileSetID(fileSet.PolicyIdentity, fileSet.Files)
 	if err != nil || recomputed != fileSet.ID {

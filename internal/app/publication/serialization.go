@@ -434,6 +434,7 @@ type capturedArtistVisualWire struct {
 	Path      string `json:"path"`
 	SHA256    string `json:"sha256"`
 	MediaType string `json:"media_type"`
+	Side      string `json:"side,omitempty"`
 }
 
 type publishedArtistVisualsWire struct {
@@ -637,11 +638,29 @@ func (candidate PreparedCandidate) buildArtistInputArtifacts(material ports.Capt
 	if json.Unmarshal(raw, &inputs) != nil || inputs.SchemaVersion != "mulgae-artist-inputs.v1" {
 		return nil, nil, nil, nil
 	}
-	if inputs.Status != "ready" || inputs.TaskPath == "" || inputs.Task == "" || len(inputs.VisualAssets) == 0 {
+	if inputs.Status == "missing" && inputs.Task == "" && len(inputs.VisualAssets) == 0 {
+		return nil, nil, nil, nil
+	}
+	validInputs := inputs.TaskPath != ""
+	switch inputs.Status {
+	case "ready":
+		validInputs = validInputs && inputs.Task != "" && len(inputs.VisualAssets) > 0
+	case "code_only":
+		validInputs = validInputs && inputs.Task != "" && len(inputs.VisualAssets) == 0
+	case "missing":
+		validInputs = validInputs && inputs.Task == "" && len(inputs.VisualAssets) > 0
+	default:
+		validInputs = false
+	}
+	if !validInputs {
 		return nil, nil, nil, fmt.Errorf("publication build: captured artist inputs are incomplete")
 	}
-	files := make(map[string]ports.WorkspaceSnapshotFile, len(material.Snapshot().Files()))
-	for _, file := range material.Snapshot().Files() {
+	workspace, workspaceErr := material.ProviderWorkspace()
+	if workspaceErr != nil {
+		return nil, nil, nil, fmt.Errorf("publication build: artist workspace: %w", workspaceErr)
+	}
+	files := make(map[string]ports.WorkspaceSnapshotFile, len(workspace.Files()))
+	for _, file := range workspace.Files() {
 		files[file.Path().String()] = file
 	}
 	for _, visual := range inputs.VisualAssets {
@@ -651,13 +670,19 @@ func (candidate PreparedCandidate) buildArtistInputArtifacts(material ports.Capt
 		}
 	}
 	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/inputs/"
-	briefPath, err := ports.NewSafeRelativePath(prefix + "artist-brief.md")
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist brief path: %w", err)
-	}
-	briefArtifact, err := immutableArtifact(briefPath, []byte(inputs.Task))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist brief: %w", err)
+	artifacts := make([]ports.ImmutablePublicationArtifact, 0, 2)
+	var briefIdentity *artifactIdentityWire
+	if inputs.Task != "" {
+		briefPath, err := ports.NewSafeRelativePath(prefix + "artist-brief.md")
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("publication build: artist brief path: %w", err)
+		}
+		briefArtifact, err := immutableArtifact(briefPath, []byte(inputs.Task))
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("publication build: artist brief: %w", err)
+		}
+		artifacts = append(artifacts, briefArtifact)
+		briefIdentity = &artifactIdentityWire{Path: briefArtifact.Path().String(), SHA256: briefArtifact.SHA256()}
 	}
 	visualBytes, err := marshalCanonical(publishedArtistVisualsWire{SchemaVersion: "mulgae-artist-visual-assets.v1", BriefPath: inputs.TaskPath, VisualAssets: inputs.VisualAssets})
 	if err != nil {
@@ -671,9 +696,8 @@ func (candidate PreparedCandidate) buildArtistInputArtifacts(material ports.Capt
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest artifact: %w", err)
 	}
-	briefIdentity := &artifactIdentityWire{Path: briefArtifact.Path().String(), SHA256: briefArtifact.SHA256()}
 	visualIdentity := &artifactIdentityWire{Path: visualArtifact.Path().String(), SHA256: visualArtifact.SHA256()}
-	return []ports.ImmutablePublicationArtifact{briefArtifact, visualArtifact}, briefIdentity, visualIdentity, nil
+	return append(artifacts, visualArtifact), briefIdentity, visualIdentity, nil
 }
 
 func (candidate PreparedCandidate) buildFinalBytes(

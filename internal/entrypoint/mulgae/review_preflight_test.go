@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *testing.T) {
@@ -124,7 +122,7 @@ func TestReviewPreflightValidateAcceptsEmptyTextFile(t *testing.T) {
 	}
 }
 
-func TestReviewPreflightValidateAcceptsBoundedGitProviderView(t *testing.T) {
+func TestReviewPreflightValidateAcceptsLargeGitProviderView(t *testing.T) {
 	result := loadReviewPreflightExample(t)
 	files := make([]ReviewPreflightFile, 0, 10_002)
 	for _, directory := range []string{"after", "before"} {
@@ -138,7 +136,7 @@ func TestReviewPreflightValidateAcceptsBoundedGitProviderView(t *testing.T) {
 			if index < 9 {
 				file.Path = fmt.Sprintf("%s/assets/%05d.png", directory, index)
 				file.MediaType = "image/png"
-				file.Size = ports.WorkspaceSnapshotMaxFileBytes
+				file.Size = 4 << 20
 				file.SHA256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 				file.Disposition = "binary_preserved"
 			}
@@ -156,38 +154,22 @@ func TestReviewPreflightValidateAcceptsBoundedGitProviderView(t *testing.T) {
 		result.Transmissions[index].FileSetID = id
 	}
 	if err := result.Validate(); err != nil {
-		t.Fatalf("bounded Git provider view: %v", err)
+		t.Fatalf("large Git provider view: %v", err)
 	}
 }
 
-func TestReviewPreflightValidateReportsAuthoritativeLimitInvariant(t *testing.T) {
-	tests := []struct {
-		name, policy, code, invariant string
-		fileCount                     int
-	}{
-		{name: "snapshot", policy: "current", code: "preflight_result_validation_failed", invariant: "snapshot_resource_limit", fileCount: 17},
-		{name: "provider view", policy: "index;layout=ordinary-directories-v1", code: "provider_view_limit_validation_failed", invariant: "provider_view_resource_limit", fileCount: 33},
+func TestReviewPreflightValidateAcceptsBeyondLegacyAggregateLimit(t *testing.T) {
+	result := loadReviewPreflightExample(t)
+	files := make([]ReviewPreflightFile, 33)
+	for index := range files {
+		files[index] = ReviewPreflightFile{
+			Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png", Size: 4 << 20,
+			SHA256: "sha256:0000000000000000000000000000000000000000000000000000000000000000", Disposition: "binary_preserved",
+		}
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := loadReviewPreflightExample(t)
-			files := make([]ReviewPreflightFile, test.fileCount)
-			for index := range files {
-				files[index] = ReviewPreflightFile{
-					Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png",
-					Size:        ports.WorkspaceSnapshotMaxFileBytes,
-					SHA256:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-					Disposition: "binary_preserved",
-				}
-			}
-			setReviewPreflightFiles(t, &result, test.policy, files)
-			err := result.Validate()
-			failure, ok := err.(*reviewPreflightValidationFailure)
-			if !ok || failure.code != test.code || failure.invariant != test.invariant || !failure.hasLimitFacts ||
-				failure.fileCount != test.fileCount || failure.byteCount != int64(test.fileCount)*ports.WorkspaceSnapshotMaxFileBytes {
-				t.Fatalf("limit validation failure = %#v, present=%t, err=%v", failure, ok, err)
-			}
-		})
+	setReviewPreflightFiles(t, &result, "index;layout=ordinary-directories-v1", files)
+	if err := result.Validate(); err != nil {
+		t.Fatalf("large preflight projection rejected: %v", err)
 	}
 }
 

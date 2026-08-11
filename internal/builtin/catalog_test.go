@@ -63,6 +63,33 @@ func TestProductionCatalogPinsEveryEmbeddedAssetDigest(t *testing.T) {
 	}
 }
 
+func TestArtistVisualEvidencePathContractMatchesCommonPrompt(t *testing.T) {
+	common, err := os.ReadFile(filepath.Join(testSOTRoot, "prompts", "root-review", "common.v1.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, err := os.ReadFile(testRootRoleDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, document := range map[string][]byte{
+		"common prompt": common,
+		"role catalog":  roles,
+	} {
+		if !bytes.Contains(document, []byte("exact captured workspace path")) {
+			t.Fatalf("%s does not require the exact captured workspace path for visual evidence", name)
+		}
+	}
+	if !bytes.Contains(common, []byte("without a `current/`, `before/`, or `after/` prefix")) ||
+		!bytes.Contains(common, []byte("including its `current/`, `before/`, or `after/` prefix")) {
+		t.Fatal("common prompt does not distinguish project-relative code evidence from side-qualified visual evidence")
+	}
+	if !bytes.Contains(roles, []byte("including its current/before/after prefix")) {
+		t.Fatal("artist role does not preserve the side-qualified visual evidence path")
+	}
+}
+
 func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 	t.Parallel()
 

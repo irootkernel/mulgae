@@ -13,6 +13,7 @@ import (
 type NativeProbeInvocation struct{}
 
 const agyPrintTimeoutCleanupGrace = 5 * time.Second
+const agyQualificationJSONSchema = `{"additionalProperties":false,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
 
 // VersionArgv builds the sole family-closed argv admitted for a version probe.
 func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string, error) {
@@ -72,7 +73,11 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		// invocations use appendZcodeInvocation's read-oriented denylist.
 		return appendZcodeCapabilityInvocation(baseArgv, string(packet)), nil
 	case FamilyAgy:
-		return canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), fixture.Reference())
+		argv, err := canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), fixture.Reference())
+		if err != nil {
+			return nil, err
+		}
+		return append(argv, "--output-format", "json", "--json-schema", agyQualificationJSONSchema), nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}

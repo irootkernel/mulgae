@@ -145,6 +145,10 @@ func (repository canonicalRepository) command(args ...string) Command {
 	return Command{Dir: repository.gitDir, Args: commandArgs}
 }
 
+func (repository canonicalRepository) sourceCommand(args ...string) Command {
+	return repository.command(args...).withSourceSizedStdout()
+}
+
 // canonicalRepositoryID binds capture identity to the resolved common Git
 // directory without consulting mutable repository configuration.
 func canonicalRepositoryID(commonGitDir string) string {

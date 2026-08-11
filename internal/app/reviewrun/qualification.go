@@ -58,8 +58,8 @@ type VersionGuidance struct {
 
 var guidance = [...]VersionGuidance{
 	{Family: FamilyKimi, Minimum: "0.23.6", VerifiedLatest: "0.28.0"},
-	{Family: FamilyZCode, Minimum: "0.15.2", VerifiedLatest: "0.15.2"},
-	{Family: FamilyAGY, Minimum: "1.1.4", VerifiedLatest: "1.1.4"},
+	{Family: FamilyZCode, Minimum: "0.15.2", VerifiedLatest: "0.16.1"},
+	{Family: FamilyAGY, Minimum: "1.1.4", VerifiedLatest: "1.1.12"},
 }
 
 // Guidance returns the qualification guidance for family.

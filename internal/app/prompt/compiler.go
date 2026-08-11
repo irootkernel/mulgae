@@ -18,10 +18,6 @@ import (
 )
 
 const (
-	// MaxReviewTargetBytes is the fixed captured-target cap. Oversized targets
-	// fail; they are never silently truncated.
-	MaxReviewTargetBytes = 180000
-
 	framePreamble                     = "Mulgae-UNTRUSTED/1\n"
 	framesPreamble                    = "\nMulgae-FRAMES/1\n"
 	framesEnd                         = "Mulgae-FRAMES-END/1\n"
@@ -775,9 +771,6 @@ type pendingPayload struct {
 }
 
 func orderedPayloads(input CompileInput) ([]pendingPayload, error) {
-	if len(input.ReviewTarget.bytes) > MaxReviewTargetBytes {
-		return nil, fmt.Errorf("prompt compiler: review target exceeds %d bytes", MaxReviewTargetBytes)
-	}
 	pending := make([]pendingPayload, 0, 7+len(input.ExternalLogs))
 	if input.ProjectContext != nil {
 		pending = append(pending, pendingPayload{kind: SectionProjectContext, payload: cloneBytes(input.ProjectContext.bytes)})
@@ -1169,9 +1162,6 @@ func validateSections(sections []FramedSection) error {
 		expectedSectionID := deriveSectionID(section.scope.SourceInvocationID(), uint64(index+1), section.kind, section.payload)
 		if section.id != expectedSectionID {
 			return fmt.Errorf("section %d: section id is not derived from its source invocation, ordinal, kind, and payload", index+1)
-		}
-		if section.kind == SectionReviewTarget && len(section.payload) > MaxReviewTargetBytes {
-			return fmt.Errorf("section %d: review target exceeds %d bytes", index+1, MaxReviewTargetBytes)
 		}
 		if !bytes.Equal(section.frame, makeFrame(section.scope, section.id, section.kind, section.payload).frame) {
 			return fmt.Errorf("section %d: frame bytes are not canonical", index+1)

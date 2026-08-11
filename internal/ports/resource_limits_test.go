@@ -8,62 +8,23 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-func TestResourceLimitsAreCompatible(t *testing.T) {
+func TestOperationalResourceLimitsAreCompatible(t *testing.T) {
 	t.Parallel()
 
 	if err := ValidateResourceLimits(); err != nil {
 		t.Fatal(err)
 	}
-	if files, bytes := WorkspaceAdmissionLimits("capture-policy"); files != WorkspaceSnapshotMaxFiles || bytes != WorkspaceSnapshotMaxBytes {
-		t.Fatalf("capture request limits = %d/%d", files, bytes)
-	}
-	if files, bytes := WorkspaceAdmissionLimits("capture-policy;layout=ordinary-directories-v1"); files != WorkspaceProviderViewMaxFiles || bytes != WorkspaceProviderViewMaxBytes {
-		t.Fatalf("provider view limits = %d/%d", files, bytes)
+}
+
+func TestWorkspaceAdmissionAcceptsLargeValidSourceFacts(t *testing.T) {
+	if err := ValidateWorkspaceAdmission("capture-policy", "current", 10001, 64<<20+1); err != nil {
+		t.Fatalf("large source facts rejected: %v", err)
 	}
 }
 
-func TestWorkspaceAdmissionReportsSnapshotAndProviderViewLimits(t *testing.T) {
-	tests := []struct {
-		name, policy, member, stage string
-		files                       int
-		bytes                       int64
-		maxFiles                    int
-		maxBytes                    int64
-	}{
-		{
-			name: "captured side bytes", policy: "capture-policy", member: "base", stage: "capture_side",
-			files: WorkspaceSnapshotMaxFiles, bytes: WorkspaceSnapshotMaxBytes + 1,
-			maxFiles: WorkspaceSnapshotMaxFiles, maxBytes: WorkspaceSnapshotMaxBytes,
-		},
-		{
-			name: "captured side files", policy: "capture-policy", member: "index", stage: "capture_side",
-			files: WorkspaceSnapshotMaxFiles + 1, bytes: WorkspaceSnapshotMaxBytes,
-			maxFiles: WorkspaceSnapshotMaxFiles, maxBytes: WorkspaceSnapshotMaxBytes,
-		},
-		{
-			name: "provider view bytes", policy: "capture-policy;layout=ordinary-directories-v1", member: "combined", stage: "provider_view",
-			files: WorkspaceProviderViewMaxFiles, bytes: WorkspaceProviderViewMaxBytes + 1,
-			maxFiles: WorkspaceProviderViewMaxFiles, maxBytes: WorkspaceProviderViewMaxBytes,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := ValidateWorkspaceAdmission(test.policy, test.member, test.files, test.bytes)
-			failure, ok := WorkspaceAdmissionFailureFromError(err)
-			if !ok || failure.Stage() != test.stage || failure.Member() != test.member ||
-				failure.FileCount() != test.files || failure.ByteCount() != test.bytes ||
-				failure.MaxFiles() != test.maxFiles || failure.MaxBytes() != test.maxBytes {
-				t.Fatalf("workspace admission failure = %#v, present=%t", failure, ok)
-			}
-		})
-	}
-	if err := ValidateWorkspaceAdmission("capture-policy", "current", WorkspaceSnapshotMaxFiles, WorkspaceSnapshotMaxBytes); err != nil {
-		t.Fatalf("boundary admission: %v", err)
-	}
-}
-
-func TestMaximumFileCountGitComparisonIsViewableAndPublishable(t *testing.T) {
-	files := make([]WorkspaceSnapshotFile, WorkspaceSnapshotMaxFiles)
+func TestMoreThanLegacyMaximumFileCountGitComparisonIsViewableAndPublishable(t *testing.T) {
+	const fileCount = 10001
+	files := make([]WorkspaceSnapshotFile, fileCount)
 	emptyDigest := sha256Identifier(nil)
 	for index := range files {
 		path, err := NewSafeRelativePath(fmt.Sprintf("f/%05d", index))
@@ -101,14 +62,14 @@ func TestMaximumFileCountGitComparisonIsViewableAndPublishable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(view.Files()); got != WorkspaceProviderViewMaxFiles {
-		t.Fatalf("provider comparison file count = %d, want %d", got, WorkspaceProviderViewMaxFiles)
+	if got := len(view.Files()); got != 2*fileCount+1 {
+		t.Fatalf("provider comparison file count = %d, want %d", got, 2*fileCount+1)
 	}
 	archive, err := NewCapturedReviewArchive(material)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if int64(len(archive.Manifest())) > CapturedReviewManifestMaxBytes {
-		t.Fatalf("maximum-count manifest size = %d", len(archive.Manifest()))
+	if len(archive.Manifest()) == 0 {
+		t.Fatal("large capture manifest is empty")
 	}
 }

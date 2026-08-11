@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"sort"
 	"strings"
@@ -19,6 +18,10 @@ import (
 // WorkspaceSnapshotManifestName is the generated provider-visible manifest
 // added beside captured source files in every materialized review snapshot.
 const WorkspaceSnapshotManifestName = "._mulgae_workspace_manifest.json"
+
+// WorkspaceReviewTargetName is the generated provider-visible file containing
+// the exact captured diff, patch, stdin, or workspace descriptor bytes.
+const WorkspaceReviewTargetName = "._mulgae_review_target.txt"
 
 // WorkspaceSnapshotFile is a captured regular UTF-8 file. Its bytes are copied
 // at construction and when returned so callers cannot alter the request later.
@@ -44,7 +47,7 @@ func NewWorkspaceSnapshotFile(path SafeRelativePath, bytes []byte, expectedSHA25
 	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256, mediaType: "text/plain"}, nil
 }
 
-// NewWorkspaceVisualAsset validates a bounded raster design reference. Visual
+// NewWorkspaceVisualAsset validates a raster design reference. Visual
 // assets are materialized for UI review but are never passed through text or
 // line-evidence readers.
 func NewWorkspaceVisualAsset(path SafeRelativePath, bytes []byte, expectedSHA256, mediaType string) (WorkspaceSnapshotFile, error) {
@@ -59,6 +62,20 @@ func NewWorkspaceVisualAsset(path SafeRelativePath, bytes []byte, expectedSHA256
 		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace visual asset: expected SHA-256 does not match bytes")
 	}
 	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256, mediaType: mediaType}, nil
+}
+
+// NewWorkspaceBinaryFile validates an arbitrary regular file captured
+// byte-for-byte. Raster extensions use NewWorkspaceVisualAsset so their
+// signatures and declared media types remain verified.
+func NewWorkspaceBinaryFile(path SafeRelativePath, bytes []byte, expectedSHA256 string) (WorkspaceSnapshotFile, error) {
+	if !path.Valid() || workspaceReservedPath(path.String()) || !workspaceSHA256(expectedSHA256) {
+		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace binary file: invalid path or SHA-256 identity")
+	}
+	actual := sha256.Sum256(bytes)
+	if expectedSHA256 != "sha256:"+hex.EncodeToString(actual[:]) {
+		return WorkspaceSnapshotFile{}, fmt.Errorf("workspace binary file: expected SHA-256 does not match bytes")
+	}
+	return WorkspaceSnapshotFile{path: path, bytes: append([]byte(nil), bytes...), sha256: expectedSHA256, mediaType: "application/octet-stream"}, nil
 }
 
 func (file WorkspaceSnapshotFile) Path() SafeRelativePath { return file.path }
@@ -84,13 +101,6 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 	if policyIdentity == "" || !utf8.ValidString(policyIdentity) || strings.IndexByte(policyIdentity, 0) >= 0 {
 		return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: invalid policy identity")
 	}
-	member := "current"
-	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
-		member = "combined"
-	}
-	if err := ValidateWorkspaceAdmission(policyIdentity, member, len(files), workspaceSnapshotBytes(files)); err != nil {
-		return WorkspaceSnapshotRequest{}, err
-	}
 	copied := append([]WorkspaceSnapshotFile(nil), files...)
 	previous := ""
 	foldedPaths := make(map[string]struct{}, len(copied))
@@ -112,45 +122,23 @@ func NewWorkspaceSnapshotRequest(files []WorkspaceSnapshotFile, policyIdentity s
 		}
 		foldedPaths[folded] = struct{}{}
 		previous = current
-		if int64(len(file.bytes)) > WorkspaceSnapshotMaxFileBytes {
-			return WorkspaceSnapshotRequest{}, fmt.Errorf("workspace snapshot request: size limit exceeded")
-		}
 		copied[i].bytes = append([]byte(nil), file.bytes...)
 	}
 	return WorkspaceSnapshotRequest{files: copied, policyIdentity: policyIdentity}, nil
-}
-
-func workspaceSnapshotBytes(files []WorkspaceSnapshotFile) int64 {
-	var total int64
-	for _, file := range files {
-		size := int64(len(file.bytes))
-		if size > math.MaxInt64-total {
-			return math.MaxInt64
-		}
-		total += size
-	}
-	return total
-}
-
-// WorkspaceAdmissionLimits returns the file-count and aggregate-byte limits
-// for one immutable workspace request. Provider comparison views are the only
-// requests admitted at the combined before/after limits.
-func WorkspaceAdmissionLimits(policyIdentity string) (int, int64) {
-	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
-		return WorkspaceProviderViewMaxFiles, WorkspaceProviderViewMaxBytes
-	}
-	return WorkspaceSnapshotMaxFiles, WorkspaceSnapshotMaxBytes
 }
 
 func validWorkspaceFileBytes(file WorkspaceSnapshotFile) bool {
 	if file.IsText() {
 		return utf8.Valid(file.bytes) && strings.IndexByte(string(file.bytes), 0) < 0
 	}
+	if file.MediaType() == "application/octet-stream" {
+		return true
+	}
 	return validRasterBytes(file.bytes, file.MediaType())
 }
 
 func validRasterBytes(bytes []byte, mediaType string) bool {
-	if len(bytes) == 0 || int64(len(bytes)) > WorkspaceSnapshotMaxFileBytes {
+	if len(bytes) == 0 {
 		return false
 	}
 	switch mediaType {

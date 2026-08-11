@@ -55,7 +55,8 @@ func TestProviderWorkspaceUsesCurrentDirectoryForSingleTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := workspace.Files()
-	if len(files) != 1 || files[0].Path().String() != "current/src/main.go" || string(files[0].Bytes()) != "package main\n" {
+	if len(files) != 2 || files[0].Path().String() != WorkspaceReviewTargetName || string(files[0].Bytes()) != "patch" ||
+		files[1].Path().String() != "current/src/main.go" || string(files[1].Bytes()) != "package main\n" {
 		t.Fatalf("provider workspace files = %#v", files)
 	}
 }
@@ -89,8 +90,9 @@ func TestProviderWorkspaceUsesBeforeAndAfterForGitComparison(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := workspace.Files()
-	if len(files) != 2 || files[0].Path().String() != "after/src/main.go" || string(files[0].Bytes()) != "after\n" ||
-		files[1].Path().String() != "before/src/main.go" || string(files[1].Bytes()) != "before\n" {
+	if len(files) != 3 || files[0].Path().String() != WorkspaceReviewTargetName || string(files[0].Bytes()) != "diff\n" ||
+		files[1].Path().String() != "after/src/main.go" || string(files[1].Bytes()) != "after\n" ||
+		files[2].Path().String() != "before/src/main.go" || string(files[2].Bytes()) != "before\n" {
 		t.Fatalf("provider comparison workspace files = %#v", files)
 	}
 	if material.Snapshot().Files()[0].Path().String() != "src/main.go" {

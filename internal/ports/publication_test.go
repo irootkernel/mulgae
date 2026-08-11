@@ -1097,6 +1097,42 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.
 	}
 }
 
+func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
+	t.Parallel()
+	sourceSized := map[RunSupportArtifactKind]bool{
+		RunSupportArtifactTargetBytes:     true,
+		RunSupportArtifactTargetManifest:  true,
+		RunSupportArtifactCapturedArchive: true,
+		RunSupportArtifactCapturedBlob:    true,
+		RunSupportArtifactArtistBrief:     true,
+		RunSupportArtifactArtistVisuals:   true,
+		RunSupportArtifactPromptStdin:     true,
+		RunSupportArtifactSupportIndex:    true,
+	}
+	for _, kind := range []RunSupportArtifactKind{
+		RunSupportArtifactExcerpt,
+		RunSupportArtifactAttemptStatus,
+		RunSupportArtifactInitialCandidate,
+		RunSupportArtifactRepairedCandidate,
+		RunSupportArtifactInvocationStdout,
+		RunSupportArtifactInvocationStderr,
+		RunSupportArtifactTargetBytes,
+		RunSupportArtifactTargetManifest,
+		RunSupportArtifactCapturedArchive,
+		RunSupportArtifactCapturedBlob,
+		RunSupportArtifactArtistBrief,
+		RunSupportArtifactArtistVisuals,
+		RunSupportArtifactPromptStdin,
+		RunSupportArtifactPromptManifest,
+		RunSupportArtifactSupportIndex,
+		RunSupportArtifactRoleReport,
+	} {
+		if got, want := kind.IsSourceSized(), sourceSized[kind]; got != want {
+			t.Fatalf("%q IsSourceSized() = %t, want %t", kind, got, want)
+		}
+	}
+}
+
 func TestClassifyRunSupportArtifactPathRequiresCanonicalCapturedBlob(t *testing.T) {
 	t.Parallel()
 

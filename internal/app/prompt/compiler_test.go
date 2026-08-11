@@ -270,15 +270,6 @@ func TestCompilerRejectsInvalidTemplateScopeTargetAndIdentityReuse(t *testing.T)
 
 	compiler := newTestCompiler(t, []int{5, 5}, []int{6, 7})
 	input := testCompileInput(t)
-	input.ReviewTarget = NewPayload(bytes.Repeat([]byte{'x'}, MaxReviewTargetBytes+1))
-	if _, err := compiler.Compile(input); err == nil {
-		t.Fatal("Compile() accepted oversized review target")
-	}
-	if compiler.issuer.(*testInvocationIssuer).sourceAt != 0 {
-		t.Fatal("Compile() minted an identity before rejecting invalid target")
-	}
-
-	input = testCompileInput(t)
 	if _, err := compiler.Compile(input); err != nil {
 		t.Fatalf("first Compile() error = %v", err)
 	}
@@ -331,16 +322,6 @@ func TestCompilerIdentityFailuresAreTypedAndReservationsPersist(t *testing.T) {
 	_, err = invalidCompiler.Compile(testCompileInput(t))
 	requireIdentityError(t, err)
 
-	oversized := testCompileInput(t)
-	oversized.ReviewTarget = NewPayload(bytes.Repeat([]byte{'x'}, MaxReviewTargetBytes+1))
-	_, err = invalidCompiler.Compile(oversized)
-	if err == nil {
-		t.Fatal("Compile() accepted an oversized review target")
-	}
-	var unexpectedIdentityError *IdentityError
-	if errors.As(err, &unexpectedIdentityError) {
-		t.Fatalf("input validation error = %v, want non-IdentityError", err)
-	}
 }
 
 func TestParseStdinRejectsMalformedTruncatedTrailingAndNonCanonicalFrames(t *testing.T) {
@@ -418,11 +399,6 @@ func TestParseStdinRejectsMalformedTruncatedTrailingAndNonCanonicalFrames(t *tes
 	frameScope, err := NewFrameScope(coordinates, compiled.Scope().SourceInvocationID())
 	if err != nil {
 		t.Fatal(err)
-	}
-	overlarge := bytes.Repeat([]byte{'x'}, MaxReviewTargetBytes+1)
-	forged := makeFrame(frameScope, deriveSectionID(frameScope.SourceInvocationID(), 1, SectionReviewTarget, overlarge), SectionReviewTarget, overlarge)
-	if _, err := ParseStdin(compiled.TrustedTemplate(), composeStdin(compiled.TrustedTemplate().bytes, []FramedSection{forged})); err == nil {
-		t.Fatal("ParseStdin() accepted review target above the fixed cap")
 	}
 	fullPayload := []byte("review target")
 	truncatedPayload := fullPayload[:len("review")]

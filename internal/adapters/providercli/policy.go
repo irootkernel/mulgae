@@ -115,6 +115,7 @@ func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.Workspac
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid lifecycle")
 	}
 	want, err := canonicalAGYExecutionArgv(definition, snapshot, nativeReference)
+	want = append(want, "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: argv drift")
 	}

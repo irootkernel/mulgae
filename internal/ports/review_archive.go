@@ -160,6 +160,8 @@ func archiveToFiles(files []capturedFileWire) ([]WorkspaceSnapshotFile, error) {
 		}
 		if file.MediaType == "" || file.MediaType == "text/plain" {
 			result[index], err = NewWorkspaceSnapshotFile(path, file.Bytes, file.SHA256)
+		} else if file.MediaType == "application/octet-stream" {
+			result[index], err = NewWorkspaceBinaryFile(path, file.Bytes, file.SHA256)
 		} else {
 			result[index], err = NewWorkspaceVisualAsset(path, file.Bytes, file.SHA256, file.MediaType)
 		}

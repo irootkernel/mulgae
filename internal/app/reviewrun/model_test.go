@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -66,8 +67,8 @@ func TestCapturedReviewTargetValidatesExactBytesAndGitMetadata(t *testing.T) {
 		if _, err := construct([]byte(strings.Repeat("x", 180000))); err != nil {
 			t.Fatalf("180000-byte input rejected: %v", err)
 		}
-		if _, err := construct([]byte(strings.Repeat("x", 180001))); err == nil {
-			t.Fatal("180001-byte input accepted")
+		if target, err := construct([]byte(strings.Repeat("x", 180001))); err != nil || len(target.Bytes()) != 180001 {
+			t.Fatalf("180001-byte input rejected: %v", err)
 		}
 	}
 	patch, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
@@ -255,6 +256,30 @@ func TestPromptCompilerProjectContextFramePresence(t *testing.T) {
 				t.Fatalf("project-context frame count = %d, want %d", count, test.want)
 			}
 		})
+	}
+}
+
+func TestRootReviewPromptReferencesWorkspaceTargetWithoutInliningBody(t *testing.T) {
+	target := reviewRunPatchTarget(t)
+	input, err := NewImmutableReviewInput(target, nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleLogic)
+	var reference struct {
+		SchemaVersion string `json:"schema_version"`
+		Path          string `json:"path"`
+		SHA256        string `json:"sha256"`
+		Size          int    `json:"size"`
+	}
+	if err := json.Unmarshal(compiled.ReviewTarget.Bytes(), &reference); err != nil {
+		t.Fatal(err)
+	}
+	if reference.SchemaVersion != "mulgae-review-target-reference.v1" ||
+		reference.Path != ports.WorkspaceReviewTargetName ||
+		reference.SHA256 != "sha256:"+target.Identity().SHA256() ||
+		reference.Size != len(target.Bytes()) || bytes.Equal(compiled.ReviewTarget.Bytes(), target.Bytes()) {
+		t.Fatalf("review target reference = %#v", reference)
 	}
 }
 

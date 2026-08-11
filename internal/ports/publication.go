@@ -572,6 +572,25 @@ func (kind RunSupportArtifactKind) Valid() bool {
 	}
 }
 
+// IsSourceSized reports whether the artifact stores source input or metadata
+// whose size is determined by the captured source rather than by a structured
+// publication-control limit.
+func (kind RunSupportArtifactKind) IsSourceSized() bool {
+	switch kind {
+	case RunSupportArtifactTargetBytes,
+		RunSupportArtifactTargetManifest,
+		RunSupportArtifactCapturedArchive,
+		RunSupportArtifactCapturedBlob,
+		RunSupportArtifactArtistBrief,
+		RunSupportArtifactArtistVisuals,
+		RunSupportArtifactPromptStdin,
+		RunSupportArtifactSupportIndex:
+		return true
+	default:
+		return false
+	}
+}
+
 // PersistAuxiliaryArtifactRequest binds one exact immutable run-support artifact
 // to a run. Its kind is derived from the canonical path, never caller supplied.
 type PersistAuxiliaryArtifactRequest struct {

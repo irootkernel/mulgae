@@ -119,7 +119,9 @@ func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.
 	}
 	if !strings.Contains(packet, "root=root-nonce") ||
 		!strings.Contains(packet, "link=link-nonce") ||
-		!strings.Contains(packet, "role=security") {
+		!strings.Contains(packet, "role=security") ||
+		!strings.Contains(packet, "returning exactly one JSON object and nothing else") ||
+		!strings.Contains(packet, "do not add Markdown, narration, or fields") {
 		t.Fatalf("capability packet lost embedded fixture bindings: %q", packet)
 	}
 	if request.PolicyIdentity() != "current-qualification-fixture-v2" {

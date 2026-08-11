@@ -1120,6 +1120,133 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 	return candidate
 }
 
+func TestPreparedCandidateAcceptsTerminalProviderTimeout(t *testing.T) {
+	candidate := publicationTestCandidate(t, false)
+	role := &candidate.roles[1]
+	role.state = domain.RoleTaskFailed
+	role.valid = false
+	role.outcome = "failed"
+	role.failureClass = domain.FailureTimeout
+	role.failureReason = "provider_timed_out"
+	role.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
+	role.reportMarkdown = nil
+	role.outputTransport = ""
+	role.attempts[0].state = domain.AttemptTimedOut
+	role.attempts[0].parseState = domain.ParseNotStarted
+	role.attempts[0].validationState = domain.ValidationNotStarted
+	role.attempts[0].invocations[0].state = domain.InvocationTimedOut
+	attemptID := role.attempts[0].id
+	candidate.failures = []preparedFailure{{
+		class: domain.FailureTimeout, stage: "review", reason: "provider_timed_out", attemptID: &attemptID,
+	}}
+	candidate.runState = domain.RunFailed
+	candidate.axes.coverage = domain.CoverageIncomplete
+	candidate.axes.ci = domain.CIFail
+	candidate.reasons = []string{"required_role_incomplete"}
+	candidate.limits = []string{"Required review coverage is incomplete."}
+	candidate.exitCode = int(domain.ExitIncompleteCoverage)
+
+	if err := candidate.validate(); err != nil {
+		t.Fatalf("terminal provider timeout candidate rejected: %v", err)
+	}
+	targetBytes := []byte("reviewed line\n")
+	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
+		Kind: domain.TargetPatch, SHA256: strings.TrimPrefix(candidate.target.sha256, "sha256:"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin := []byte("compiled prompt")
+	logic := candidate.roles[0]
+	input := FollowupRuntimeArtifactInput{
+		RuntimeRunID: candidate.runID, RuntimeAttemptID: logic.attempts[0].id,
+		RuntimeSequence: 1, RuntimePurpose: domain.InvocationInitial, RuntimeRole: logic.role,
+		RuntimeTarget: targetBytes, RuntimeTargetIdentity: target, RuntimeStdin: stdin,
+		RuntimeStdinSHA256: prompt.CompleteStdinSHA256(stdin), RuntimeTemplateID: "root-review",
+		RuntimeTemplateVersion: "1", RuntimeTemplateSHA256: "sha256:" + strings.Repeat("c", 64),
+		RuntimeSourceInvocationID: "source-1", RuntimeExecutionInvocationID: "execution-1",
+		RuntimeScope: "repository", RuntimeAdapterProfile: "root-review",
+	}
+	if err := candidate.bindRuntimeArtifactInventories([]runtimeArtifactInventory{input}); err != nil {
+		t.Fatalf("pre-invocation timeout required nonexistent runtime artifacts: %v", err)
+	}
+	if candidate.roles[1].attempts[0].invocations[0].runtime != nil {
+		t.Fatal("timed-out pre-invocation lane acquired runtime artifacts")
+	}
+}
+
+func TestPreparedCandidateAcceptsOnlyPreInvocationTimeoutsWithoutRuntimeArtifacts(t *testing.T) {
+	candidate := publicationTestCandidate(t, false)
+	candidate.failures = nil
+	for roleIndex := range candidate.roles {
+		role := &candidate.roles[roleIndex]
+		role.state = domain.RoleTaskFailed
+		role.valid = false
+		role.outcome = "failed"
+		role.failureClass = domain.FailureTimeout
+		role.failureReason = "provider_timed_out"
+		role.limitations = []string{"Role coverage is incomplete due to a terminal provider failure."}
+		role.reportMarkdown = nil
+		role.outputTransport = ""
+		role.attempts[0].state = domain.AttemptTimedOut
+		role.attempts[0].parseState = domain.ParseNotStarted
+		role.attempts[0].validationState = domain.ValidationNotStarted
+		role.attempts[0].invocations[0].state = domain.InvocationTimedOut
+		attemptID := role.attempts[0].id
+		candidate.failures = append(candidate.failures, preparedFailure{
+			class: domain.FailureTimeout, stage: "review", reason: "provider_timed_out", attemptID: &attemptID,
+		})
+	}
+	candidate.runState = domain.RunFailed
+	candidate.axes.coverage = domain.CoverageIncomplete
+	candidate.axes.ci = domain.CIFail
+	candidate.reasons = []string{"required_role_incomplete"}
+	candidate.limits = []string{"Required review coverage is incomplete."}
+	candidate.exitCode = int(domain.ExitIncompleteCoverage)
+
+	if err := candidate.bindRuntimeArtifactInventories(nil); err != nil {
+		t.Fatalf("all pre-invocation timeouts required runtime artifacts: %v", err)
+	}
+	for _, role := range candidate.roles {
+		if role.attempts[0].invocations[0].runtime != nil {
+			t.Fatalf("timed-out role %q acquired runtime artifacts", role.role)
+		}
+	}
+	bundle, err := candidate.Build(
+		context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42,
+	)
+	if err != nil || !bundle.Valid() {
+		t.Fatalf("all-timeout publication bundle = valid %t, err %v", bundle.Valid(), err)
+	}
+	for _, artifact := range bundle.SupportArtifacts() {
+		if strings.Contains(artifact.Path().String(), "/target/") || strings.Contains(artifact.Path().String(), "/prompts/") {
+			t.Fatalf("all-timeout publication persisted nonexistent runtime artifact %q", artifact.Path())
+		}
+	}
+
+	succeeded := publicationTestCandidate(t, false)
+	if err := succeeded.bindRuntimeArtifactInventories(nil); err == nil || !strings.Contains(err.Error(), "runtime artifact inventory is incomplete") {
+		t.Fatalf("successful invocations without runtime artifacts returned %v", err)
+	}
+	for _, state := range []domain.InvocationState{
+		domain.InvocationFailed,
+		domain.InvocationCancelled,
+		domain.InvocationBlocked,
+	} {
+		candidate := publicationTestCandidate(t, false)
+		candidate.roles[0].attempts[0].invocations[0].state = state
+		if err := candidate.bindRuntimeArtifactInventories(nil); err == nil || !strings.Contains(err.Error(), "runtime artifact inventory is incomplete") {
+			t.Fatalf("%s invocation without runtime artifacts returned %v", state, err)
+		}
+	}
+	postPromptTimeout := publicationTestCandidate(t, false)
+	postPromptTimeout.roles[0].attempts[0].invocations[0].state = domain.InvocationTimedOut
+	postPromptTimeout.roles[0].attempts[0].invocations[0].runtimeArtifactsExpected = true
+	if err := postPromptTimeout.bindRuntimeArtifactInventories(nil); err == nil || !strings.Contains(err.Error(), "runtime artifact inventory is incomplete") {
+		t.Fatalf("post-prompt timeout without runtime artifacts returned %v", err)
+	}
+}
+
 func publicationTestReviewID(t *testing.T) domain.ReviewID {
 	t.Helper()
 	id, err := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
