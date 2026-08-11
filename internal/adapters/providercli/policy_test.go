@@ -215,7 +215,7 @@ func currentProbeDirectExecutionTestProof() currentProbeDirectExecutionRoleProof
 	}
 }
 func TestCurrentProbeDirectExecutionAuthorityMatchesExactRuntimeAndRoles(t *testing.T) {
-	definition := testProfile(t, FamilyKimi, "kimi_current", "kimi-current", "1.2.3", "sha256:executable")
+	definition := testProfile(t, FamilyKimi, "kimi_current", "1.2.3", "sha256:executable")
 	definition.launcher = definition.Executable()
 	definition.launcherSHA256 = definition.ExecutableSHA256()
 	definition.profileID = "profile"

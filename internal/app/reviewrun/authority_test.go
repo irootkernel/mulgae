@@ -91,7 +91,7 @@ func TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
-	policy.MaxLanes = -1
+	policy.MaxWorkers = -1
 	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
-	policy.MaxLanes = -1
+	policy.MaxWorkers = -1
 	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
 		t.Fatal(err)

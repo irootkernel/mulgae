@@ -462,7 +462,7 @@ func validate(config *Config) error {
 		return fmt.Errorf("repair disabled")
 	}
 	if config.Resources.MaxActiveLanes < 1 || config.Resources.MaxActiveLanes > 64 {
-		return fmt.Errorf("lanes")
+		return fmt.Errorf("max active lanes")
 	}
 	// A role runs its provider once and may repair once on the same provider.
 	roleCost := 1 + config.Resources.PrimaryRepairAttempts

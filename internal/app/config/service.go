@@ -95,7 +95,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"roles.testing.enabled", "roles.testing.primary_provider",
 		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
 		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "resources.run_total_output_cap", "ci.fail_on_severity", "ci.degraded_review_fails",
-		"execution.strategy", "execution.cross_process_lane_lock", "runtime.path_policy", "runtime.environment_policy", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
+		"execution.strategy", "runtime.path_policy", "runtime.environment_policy", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
 	}
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {

@@ -247,7 +247,7 @@ type ExecutionPlan struct {
 	Ceilings    review.HarnessCeilings
 	Threshold   domain.Severity
 	Policy      *domain.CIPolicy
-	MaxLanes    int
+	MaxWorkers  int
 }
 
 func (plan ExecutionPlan) clone() ExecutionPlan {
@@ -452,7 +452,7 @@ func nilInterface(value any) bool {
 }
 
 func validatePlan(plan ExecutionPlan, requestedRoles []domain.Role) (review.RunBudgetReceipt, error) {
-	if len(requestedRoles) == 0 || len(plan.Assignments) == 0 || len(plan.Budgets) == 0 || plan.MaxLanes < 1 || !plan.Threshold.Valid() {
+	if len(requestedRoles) == 0 || len(plan.Assignments) == 0 || len(plan.Budgets) == 0 || plan.MaxWorkers < 1 || !plan.Threshold.Valid() {
 		return review.RunBudgetReceipt{}, fmt.Errorf("review run: incomplete execution plan")
 	}
 	if len(plan.Assignments) != len(requestedRoles) || len(plan.Budgets) != len(requestedRoles) {
@@ -463,7 +463,7 @@ func validatePlan(plan ExecutionPlan, requestedRoles []domain.Role) (review.RunB
 			return review.RunBudgetReceipt{}, fmt.Errorf("review run: assignment and budget mismatch")
 		}
 	}
-	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxWorkers)
 	if err != nil || !receipt.Eligible() {
 		return review.RunBudgetReceipt{}, fmt.Errorf("review run: budget preflight failed: %w", err)
 	}

@@ -263,7 +263,7 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 	if err != nil {
 		return nil, nil, err
 	}
-	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxWorkers)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -294,7 +294,7 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 			return nil, nil, fmt.Errorf("child composition: provider output staging: %w", err)
 		}
 	}
-	coordinator, err := review.NewCoordinator(graph.clock, graph.ids, runtime, plan.MaxLanes, receipt)
+	coordinator, err := review.NewCoordinator(graph.clock, graph.ids, runtime, plan.MaxWorkers, receipt)
 	if err != nil {
 		return nil, nil, err
 	}

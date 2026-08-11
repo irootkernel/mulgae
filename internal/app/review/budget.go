@@ -329,7 +329,7 @@ func PreflightRunBudget(roles []RoleBudget, ceilings HarnessCeilings) (RunBudget
 }
 
 // PreflightRunBudgetWithCapacity derives the enclosing run budget for the
-// process-wide active-lane capacity that execution will use. Capacity waiting
+// process-wide active-worker capacity that execution will use. Capacity waiting
 // is charged to the run deadline, never to an individual provider timeout.
 func PreflightRunBudgetWithCapacity(
 	roles []RoleBudget,

@@ -30,7 +30,7 @@ type IdentityGenerator interface {
 
 // Service is the G004 compatibility path for deterministic, sequential,
 // in-memory fake-provider runs. Coordinator owns concurrent scheduling and live
-// provider lanes.
+// provider workers.
 type Service struct {
 	clock           ports.Clock
 	ids             IdentityGenerator

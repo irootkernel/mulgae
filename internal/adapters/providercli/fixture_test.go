@@ -180,7 +180,7 @@ func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 			}
 		}
 	}
-	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
+	definition := testProfile(t, FamilyAgy, "agy_current", "", "")
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, first)
 	if err != nil || strings.Contains(strings.Join(argv, "\x00"), first.Nonce()) || strings.Contains(strings.Join(argv, "\x00"), first.Link()) {
 		t.Fatalf("native invocation exposed fixture nonce: argv=%q err=%v", argv, err)

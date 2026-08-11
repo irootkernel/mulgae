@@ -402,7 +402,7 @@ func reviewRunPlan(t *testing.T, roles []domain.Role) ExecutionPlan {
 		assignments = append(assignments, assignment)
 		budgets = append(budgets, budget)
 	}
-	return ExecutionPlan{Assignments: assignments, Budgets: budgets, Threshold: domain.SeverityLow, MaxLanes: 1}
+	return ExecutionPlan{Assignments: assignments, Budgets: budgets, Threshold: domain.SeverityLow, MaxWorkers: 1}
 }
 
 func equalRoles(left, right []domain.Role) bool {

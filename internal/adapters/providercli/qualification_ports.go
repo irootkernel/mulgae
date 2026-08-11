@@ -41,7 +41,7 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	if spec.HasPostOutputLifecycle {
 		return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-			spec.ConcurrencyKey, spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
+			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
 			append([]string(nil), spec.BaseArgv...), transport, spec.PostOutputLifecycle,
 			append([]ports.EnvironmentVariable(nil), spec.Environment...), spec.WorkingDirectory,
 			spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
@@ -50,14 +50,14 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	if spec.Family == FamilyKimi {
 		return NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-			spec.ConcurrencyKey, spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.KimiModel,
+			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.KimiModel,
 			append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
 			spec.WorkingDirectory, spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
 		)
 	}
 	return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-		spec.ConcurrencyKey, spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
+		spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
 		append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
 		spec.WorkingDirectory, spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
 	)

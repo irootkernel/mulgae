@@ -30,7 +30,6 @@ type productionCandidateTemplate struct {
 	transportChannel            ports.ProviderPacketChannel
 	transportArgvIndex          int
 	transportReference          string
-	concurrencyKey              ports.ConcurrencyKey
 	limits                      review.InvocationLimits
 	lifecycle                   *ports.BoundedPostOutputLifecycle
 	kimiModel                   string
@@ -184,7 +183,7 @@ func (template productionCandidateTemplate) definition(builder ports.ProviderRun
 	}
 	return builder.BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: string(template.family), Instance: template.instance, Executable: profile.Executable(), ExecutableSHA256: profile.SHA256(),
-		Launcher: profile.Launcher(), LauncherSHA256: profile.LauncherSHA256(), ConcurrencyKey: template.concurrencyKey,
+		Launcher: profile.Launcher(), LauncherSHA256: profile.LauncherSHA256(),
 		ProfileID: template.profileID, ProfileGeneration: productionProfileGeneration, RuntimeSafetyPolicyIdentity: template.runtimeSafetyPolicyIdentity,
 		KimiModel: template.kimiModel, BaseArgv: baseArgv, TransportChannel: template.transportChannel,
 		TransportArgvIndex: template.transportArgvIndex, TransportReference: template.transportReference,
@@ -262,14 +261,10 @@ func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[F
 				return nil, routeErr
 			}
 			instance := route.ProviderInstance()
-			concurrencyKey, keyErr := ports.ParseConcurrencyKey(instance)
-			if keyErr != nil {
-				return nil, keyErr
-			}
 			template := productionCandidateTemplate{
 				family: family, instance: instance, profileID: instance,
 				runtimeSafetyPolicyIdentity: identities[family], transportChannel: ports.ProviderPacketChannelArgvLiteral,
-				concurrencyKey: concurrencyKey, limits: limits, supportedRoles: []domain.Role{role},
+				limits: limits, supportedRoles: []domain.Role{role},
 			}
 			switch family {
 			case FamilyKimi:
@@ -336,7 +331,6 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		return fmt.Errorf("template count")
 	}
 	seenInstances := make(map[string]struct{}, len(templates))
-	seenKeys := make(map[string]struct{}, len(templates))
 	roleCoverage := make(map[Family]map[domain.Role]int, len(Families()))
 	for _, template := range templates {
 		if len(template.supportedRoles) != 1 {
@@ -349,18 +343,13 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" ||
 			template.transportChannel != ports.ProviderPacketChannelArgvLiteral || template.transportArgvIndex < 0 || template.transportReference != "" ||
-			template.instance != wantInstance || template.profileID != template.instance || !template.concurrencyKey.Valid() ||
-			template.concurrencyKey.String() != template.instance || len(template.supportedRoles) == 0 {
+			template.instance != wantInstance || template.profileID != template.instance || len(template.supportedRoles) == 0 {
 			return fmt.Errorf("invalid template policy identity")
 		}
 		if _, duplicate := seenInstances[template.instance]; duplicate {
 			return fmt.Errorf("duplicate template instance %q", template.instance)
 		}
 		seenInstances[template.instance] = struct{}{}
-		if _, duplicate := seenKeys[template.concurrencyKey.String()]; duplicate {
-			return fmt.Errorf("duplicate template concurrency key")
-		}
-		seenKeys[template.concurrencyKey.String()] = struct{}{}
 		if roleCoverage[template.family] == nil {
 			roleCoverage[template.family] = make(map[domain.Role]int)
 		}

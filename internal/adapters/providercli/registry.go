@@ -92,7 +92,6 @@ type RuntimeDefinition struct {
 	launcher, launcherSHA256, profileGeneration             string
 	runtimeSafetyPolicyIdentity                             string
 	kimiModel                                               string
-	concurrencyKey                                          ports.ConcurrencyKey
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
@@ -111,7 +110,6 @@ type RuntimeDefinition struct {
 // argv-literal print transport of the current provider families.
 func NewRuntimeDefinition(
 	family, instance, version, executable, executableSHA256 string,
-	concurrencyKey ports.ConcurrencyKey,
 	profileID string,
 	baseArgv []string,
 	environment []ports.EnvironmentVariable,
@@ -124,7 +122,7 @@ func NewRuntimeDefinition(
 		return RuntimeDefinition{}, err
 	}
 	return NewRuntimeDefinitionWithTransport(
-		family, instance, version, executable, executableSHA256, concurrencyKey, profileID,
+		family, instance, version, executable, executableSHA256, profileID,
 		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 }
@@ -133,7 +131,6 @@ func NewRuntimeDefinition(
 // profile with one explicit, immutable provider packet transport.
 func NewRuntimeDefinitionWithTransport(
 	family, instance, version, executable, executableSHA256 string,
-	concurrencyKey ports.ConcurrencyKey,
 	profileID string,
 	baseArgv []string,
 	transport RuntimeTransport,
@@ -144,7 +141,7 @@ func NewRuntimeDefinitionWithTransport(
 ) (RuntimeDefinition, error) {
 	definition := RuntimeDefinition{
 		family: family, instance: instance, version: version, executable: executable,
-		executableSHA256: executableSHA256, concurrencyKey: concurrencyKey, profileID: profileID,
+		executableSHA256: executableSHA256, profileID: profileID,
 		baseArgv:         append([]string(nil), baseArgv...),
 		transport:        transport,
 		environment:      append([]ports.EnvironmentVariable(nil), environment...),
@@ -161,7 +158,6 @@ func NewRuntimeDefinitionWithTransport(
 // invocation-bound workspace authority at execution time.
 func NewProductionRuntimeDefinition(
 	family, instance, version, executable, executableSHA256 string,
-	concurrencyKey ports.ConcurrencyKey,
 	profileID string,
 	baseArgv []string,
 	environment []ports.EnvironmentVariable,
@@ -170,7 +166,7 @@ func NewProductionRuntimeDefinition(
 	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinition(
-		family, instance, version, executable, executableSHA256, concurrencyKey, profileID,
+		family, instance, version, executable, executableSHA256, profileID,
 		baseArgv, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -185,12 +181,12 @@ func NewProductionRuntimeDefinition(
 // executable and launcher, and a profile generation.
 func NewProductionRuntimeDefinitionWithTransport(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	concurrencyKey ports.ConcurrencyKey, profileID, profileGeneration string, baseArgv []string,
+	profileID, profileGeneration string, baseArgv []string,
 	transport RuntimeTransport, environment []ports.EnvironmentVariable, workingDirectory string,
 	timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinitionWithTransport(
-		family, instance, version, executable, executableSHA256, concurrencyKey, profileID,
+		family, instance, version, executable, executableSHA256, profileID,
 		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -212,7 +208,7 @@ func NewProductionRuntimeDefinitionWithTransport(
 // production profile bound to one immutable runtime safety policy identity.
 func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	concurrencyKey ports.ConcurrencyKey, profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
+	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
 	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
 	workingDirectory string, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
@@ -221,7 +217,7 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	}
 	definition, err := NewProductionRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
-		concurrencyKey, profileID, profileGeneration, baseArgv, transport, environment,
+		profileID, profileGeneration, baseArgv, transport, environment,
 		workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -236,13 +232,13 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 // argv.
 func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	concurrencyKey ports.ConcurrencyKey, profileID, profileGeneration, runtimeSafetyPolicyIdentity, kimiModel string,
+	profileID, profileGeneration, runtimeSafetyPolicyIdentity, kimiModel string,
 	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
 	workingDirectory string, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
-		concurrencyKey, profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv,
+		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv,
 		transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -263,14 +259,14 @@ func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 // runtime safety policy identity, and bounded post-output lifecycle.
 func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	concurrencyKey ports.ConcurrencyKey, profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
+	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
 	baseArgv []string, transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
 	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
 	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
-		concurrencyKey, profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
+		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
 		environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -288,13 +284,13 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLife
 // strict-JSON lifecycle for AGY only.
 func NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 	family, instance, version, executable, executableSHA256 string,
-	concurrencyKey ports.ConcurrencyKey, profileID string, baseArgv []string,
+	profileID string, baseArgv []string,
 	transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
 	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
 	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinitionWithTransport(
-		family, instance, version, executable, executableSHA256, concurrencyKey, profileID,
+		family, instance, version, executable, executableSHA256, profileID,
 		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
@@ -308,16 +304,15 @@ func NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 	return definition, nil
 }
 
-func (d RuntimeDefinition) Family() string                       { return d.family }
-func (d RuntimeDefinition) Instance() string                     { return d.instance }
-func (d RuntimeDefinition) Version() string                      { return d.version }
-func (d RuntimeDefinition) Executable() string                   { return d.executable }
-func (d RuntimeDefinition) ExecutableSHA256() string             { return d.executableSHA256 }
-func (d RuntimeDefinition) ConcurrencyKey() ports.ConcurrencyKey { return d.concurrencyKey }
-func (d RuntimeDefinition) ProfileID() string                    { return d.profileID }
-func (d RuntimeDefinition) Launcher() string                     { return d.launcher }
-func (d RuntimeDefinition) LauncherSHA256() string               { return d.launcherSHA256 }
-func (d RuntimeDefinition) ProfileGeneration() string            { return d.profileGeneration }
+func (d RuntimeDefinition) Family() string            { return d.family }
+func (d RuntimeDefinition) Instance() string          { return d.instance }
+func (d RuntimeDefinition) Version() string           { return d.version }
+func (d RuntimeDefinition) Executable() string        { return d.executable }
+func (d RuntimeDefinition) ExecutableSHA256() string  { return d.executableSHA256 }
+func (d RuntimeDefinition) ProfileID() string         { return d.profileID }
+func (d RuntimeDefinition) Launcher() string          { return d.launcher }
+func (d RuntimeDefinition) LauncherSHA256() string    { return d.launcherSHA256 }
+func (d RuntimeDefinition) ProfileGeneration() string { return d.profileGeneration }
 func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
@@ -353,7 +348,7 @@ func (d RuntimeDefinition) validate() error {
 	if !validCanonicalAbsolute(d.executable) {
 		return fmt.Errorf("invalid executable")
 	}
-	if !d.concurrencyKey.Valid() || !validCanonicalAbsolute(d.workingDirectory) {
+	if !validCanonicalAbsolute(d.workingDirectory) {
 		return fmt.Errorf("invalid process location")
 	}
 	if d.timeout <= 0 || d.maxStdoutBytes <= 0 || d.maxStderrBytes <= 0 {
@@ -378,7 +373,7 @@ func (d RuntimeDefinition) validate() error {
 			return fmt.Errorf("invalid environment")
 		}
 	}
-	if _, err := ports.NewProcessRequest(d.executable, d.baseArgv, d.environment, d.workingDirectory, nil, d.timeout, d.maxStdoutBytes, d.maxStderrBytes, d.concurrencyKey); err != nil {
+	if _, err := ports.NewProcessRequest(d.executable, d.baseArgv, d.environment, d.workingDirectory, nil, d.timeout, d.maxStdoutBytes, d.maxStderrBytes); err != nil {
 		return fmt.Errorf("invalid process profile: %w", err)
 	}
 	if d.requiresSpawnVerification {
@@ -1263,12 +1258,11 @@ func processRequest(
 		return ports.NewProviderProcessRequestWithPostOutputLifecycle(
 			definition.executable, argv, environment, workingDirectory, binding,
 			lifecycle, definition.timeout, definition.maxStdoutBytes, definition.maxStderrBytes,
-			definition.concurrencyKey,
 		)
 	}
 	return ports.NewProviderProcessRequest(
 		definition.executable, argv, environment, workingDirectory, binding,
-		definition.timeout, definition.maxStdoutBytes, definition.maxStderrBytes, definition.concurrencyKey,
+		definition.timeout, definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
 }
 

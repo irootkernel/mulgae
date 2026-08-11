@@ -203,7 +203,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	}
 	configResult := runLiveMulgae(t, validator, environment, project, 0, "config", "--output", "json")
 	assertLiveConfigMatrix(t, configResult.Result.Policy)
-	assertLiveSixLaneConfig(t, project)
+	assertLiveSixRoleConfig(t, project)
 	doctorResult := runLiveMulgae(t, validator, environment, project, 4, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
@@ -219,7 +219,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
 	assertLiveRoleReportTransports(t, run, "review", true)
-	assertNoProjectLaneLocks(t, project)
+	assertNoProjectProviderLocks(t, project)
 	securityProvider := requireLiveSelectedProvider(t, run, "security")
 	assertLiveSecurityDefect(t, project, run, securityProvider)
 	status := runLiveMulgae(t, validator, environment, project, 0,
@@ -227,7 +227,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	)
 	assertLiveRoleReportURIEquality(t, status.Result.RoleReportURIs, run.envelope.Result.RoleReportURIs)
 	runLiveChildProductionWorkflows(t, validator, environment, project, run)
-	assertNoProjectLaneLocks(t, project)
+	assertNoProjectProviderLocks(t, project)
 	scenario.status = "passed"
 }
 
@@ -240,7 +240,7 @@ func runLiveChildProductionWorkflows(
 ) {
 	t.Helper()
 	// Exact/recompose replay the already-successful selected zcode-logic
-	// attempt. Root six-lane still requires AGY documentation completion under
+	// attempt. Root six-role still requires AGY documentation completion under
 	// safe workspace access; replaying that AGY attempt can stochastically hit
 	// a forbidden command-tool request and yield provider_output_missing.
 	sourceAttempt := requireLiveSelectedAttempt(t, root, "logic")
@@ -249,7 +249,7 @@ func runLiveChildProductionWorkflows(
 	// followup --finding remains structured-path only. Prefer a structured
 	// finding from the selected security provider; otherwise choose a
 	// deterministic structured finding from another successful selected
-	// role/provider. Reports-only security still satisfies the six-lane gate
+	// role/provider. Reports-only security still satisfies the six-role gate
 	// via verified role-report markers and must not alone skip followup.
 	if sourceFinding, ok := selectLiveFollowupSourceFinding(root); ok {
 		followup := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
@@ -631,7 +631,7 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	if attempt == maxAttempts {
 		scope.status = "failed"
 	}
-	t.Logf("focused live attempt %d/%d did not satisfy the recoverable six-lane gate; retrying the whole review: %s", attempt, maxAttempts, reason)
+	t.Logf("focused live attempt %d/%d did not satisfy the recoverable six-role gate; retrying the whole review: %s", attempt, maxAttempts, reason)
 	return livePublishedRun{}, scope.status, reason
 }
 
@@ -1484,7 +1484,7 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	}
 }
 
-func assertLiveSixLaneConfig(t *testing.T, project string) {
+func assertLiveSixRoleConfig(t *testing.T, project string) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
 	if err != nil {
@@ -1972,7 +1972,7 @@ func liveRoleFindingPresent(run livePublishedRun, role, provider string) bool {
 
 // Fixture-specific markers for the deliberate ReadReport path-traversal defect
 // in the live E2E report.go target. Arbitrary praise prose must not satisfy
-// the six-lane gate.
+// the six-role gate.
 const (
 	liveSecurityDefectPathMarker   = "report.go"
 	liveSecurityDefectSymbolMarker = "ReadReport"

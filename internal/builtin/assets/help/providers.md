@@ -22,9 +22,10 @@ another provider when one fails: the role is reported as failed with its typed
 failure reason, every other role continues on its own provider, and choosing a
 replacement is yours. The final report lists each failed role, the provider it
 ran on, why it stopped, and the `mulgae rerun` command to run it again
-elsewhere. Provider keys do not create queues or locks. Each run owns its
-provider registry and a temporary namespace generation for every configured
-provider instance, so independent runs may invoke the same provider
+elsewhere. Provider invocations carry no hidden scheduling key and create no
+provider queue or lock. Each run owns its provider registry and a temporary
+namespace generation for every configured provider instance, so independent
+runs may invoke the same provider
 concurrently. Duplicate instances in one registry are invalid; an impossible
 concurrent reuse inside that registry fails immediately instead of waiting.
 `max_active_lanes` remains the explicit process capacity. Project-local

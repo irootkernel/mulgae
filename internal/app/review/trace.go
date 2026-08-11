@@ -12,15 +12,15 @@ import (
 type CoordinatorEventKind string
 
 const (
-	CoordinatorEventRunStarted            CoordinatorEventKind = "run_started"
-	CoordinatorEventAttemptQueued         CoordinatorEventKind = "attempt_queued"
-	CoordinatorEventInvocationDispatched  CoordinatorEventKind = "invocation_dispatched"
-	CoordinatorEventInvocationCommitted   CoordinatorEventKind = "invocation_committed"
-	CoordinatorEventRepairQueued          CoordinatorEventKind = "repair_queued"
-	CoordinatorEventRoleTerminal          CoordinatorEventKind = "role_terminal"
-	CoordinatorEventCancellationRequested CoordinatorEventKind = "cancellation_requested"
-	CoordinatorEventLanesCloseAuthorized  CoordinatorEventKind = "lanes_close_authorized"
-	CoordinatorEventRunTerminal           CoordinatorEventKind = "run_terminal"
+	CoordinatorEventRunStarted             CoordinatorEventKind = "run_started"
+	CoordinatorEventAttemptQueued          CoordinatorEventKind = "attempt_queued"
+	CoordinatorEventInvocationDispatched   CoordinatorEventKind = "invocation_dispatched"
+	CoordinatorEventInvocationCommitted    CoordinatorEventKind = "invocation_committed"
+	CoordinatorEventRepairQueued           CoordinatorEventKind = "repair_queued"
+	CoordinatorEventRoleTerminal           CoordinatorEventKind = "role_terminal"
+	CoordinatorEventCancellationRequested  CoordinatorEventKind = "cancellation_requested"
+	CoordinatorEventWorkersCloseAuthorized CoordinatorEventKind = "workers_close_authorized"
+	CoordinatorEventRunTerminal            CoordinatorEventKind = "run_terminal"
 )
 
 // Valid reports whether kind is a coordinator-defined logical event kind.
@@ -33,7 +33,7 @@ func (kind CoordinatorEventKind) Valid() bool {
 		CoordinatorEventRepairQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
-		CoordinatorEventLanesCloseAuthorized,
+		CoordinatorEventWorkersCloseAuthorized,
 		CoordinatorEventRunTerminal:
 		return true
 	default:
@@ -124,7 +124,7 @@ func (event CoordinatorTraceEvent) validate() error {
 
 	var wantRole, wantAttempt, wantPurpose, wantCondition, wantReason, wantRunState bool
 	switch event.kind {
-	case CoordinatorEventRunStarted, CoordinatorEventLanesCloseAuthorized:
+	case CoordinatorEventRunStarted, CoordinatorEventWorkersCloseAuthorized:
 	case CoordinatorEventAttemptQueued:
 		wantRole, wantAttempt = true, true
 	case CoordinatorEventInvocationDispatched:

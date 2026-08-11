@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -87,75 +86,6 @@ func TestExtractProcessOutputJSONFrameSelectsTerminalObject(t *testing.T) {
 	}
 }
 
-func TestParseConcurrencyKeyNormalizesNFCAndASCIIcase(t *testing.T) {
-	upper, err := ParseConcurrencyKey("KIMI-MAIN")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lower, err := ParseConcurrencyKey("kimi-main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if upper != lower {
-		t.Fatalf("normalized keys differ: %q and %q", upper, lower)
-	}
-	if got, want := upper.String(), "kimi-main"; got != want {
-		t.Fatalf("String() = %q, want %q", got, want)
-	}
-
-	kelvin, err := ParseConcurrencyKey("\u212Aey")
-	if err != nil {
-		t.Fatalf("ParseConcurrencyKey() NFC canonical equivalent error = %v", err)
-	}
-	if got, want := kelvin.String(), "key"; got != want {
-		t.Fatalf("NFC-normalized key = %q, want %q", got, want)
-	}
-
-	for _, value := range []string{"k\u00e9y", "ke\u0301y", string([]byte{'k', 0xff, 'y'})} {
-		if _, err := ParseConcurrencyKey(value); err == nil {
-			t.Errorf("ParseConcurrencyKey(%q) succeeded for non-ASCII input", value)
-		}
-	}
-}
-
-func TestParseConcurrencyKeyAcceptsOnlyCanonicalGrammarAfterNormalization(t *testing.T) {
-	maximum := "a" + strings.Repeat("b", 62) + "z"
-	for _, value := range []string{"a", "1", "a.b", "a_b", "a-b", maximum} {
-		key, err := ParseConcurrencyKey(value)
-		if err != nil {
-			t.Errorf("ParseConcurrencyKey(%q) error = %v", value, err)
-			continue
-		}
-		if !key.Valid() {
-			t.Errorf("ParseConcurrencyKey(%q) produced invalid key", value)
-		}
-	}
-
-	for _, value := range []string{
-		"",
-		".key",
-		"-key",
-		"_key",
-		"key.",
-		"key-",
-		"key_",
-		"key/part",
-		"key part",
-		" key",
-		"key ",
-		"key\npart",
-		strings.Repeat("a", 65),
-	} {
-		if _, err := ParseConcurrencyKey(value); err == nil {
-			t.Errorf("ParseConcurrencyKey(%q) succeeded", value)
-		}
-	}
-
-	if (ConcurrencyKey{value: "KIMI"}).Valid() {
-		t.Error("noncanonical manually constructed key is valid")
-	}
-}
-
 func TestProviderRouteRetainsOnlySafeProviderIdentity(t *testing.T) {
 	route, err := NewProviderRoute("kimi-main")
 	if err != nil {
@@ -216,7 +146,6 @@ func TestEnvironmentVariableValidatesPortableNameAndNULFreeValue(t *testing.T) {
 }
 
 func TestNewProcessRequestCopiesInputsAndCompletesEnvironment(t *testing.T) {
-	key := schedulingTestConcurrencyKey(t)
 	environment := []EnvironmentVariable{
 		schedulingTestEnvironmentVariable(t, "ZED", "last"),
 		schedulingTestEnvironmentVariable(t, "ALPHA", "first"),
@@ -232,7 +161,6 @@ func TestNewProcessRequestCopiesInputsAndCompletesEnvironment(t *testing.T) {
 		3*time.Second,
 		1024,
 		2048,
-		key,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -251,9 +179,6 @@ func TestNewProcessRequestCopiesInputsAndCompletesEnvironment(t *testing.T) {
 	}
 	if got, want := request.MaxStderrBytes(), int64(2048); got != want {
 		t.Fatalf("MaxStderrBytes() = %d, want %d", got, want)
-	}
-	if got := request.ConcurrencyKey(); got != key {
-		t.Fatalf("ConcurrencyKey() = %q, want %q", got, key)
 	}
 	if !request.Valid() {
 		t.Fatal("valid request reports invalid")
@@ -372,7 +297,6 @@ func TestNewProcessRequestRejectsInvalidDirectExecutionInputs(t *testing.T) {
 		{name: "PWD differs from working directory", change: func(input *schedulingProcessRequestInput) {
 			input.environment = append(input.environment, schedulingTestEnvironmentVariable(t, "PWD", "/other"))
 		}},
-		{name: "invalid concurrency key", change: func(input *schedulingProcessRequestInput) { input.concurrencyKey = ConcurrencyKey{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := schedulingValidProcessRequestInput(t)
@@ -781,15 +705,6 @@ func schedulingStdinWriteSHA256(value []byte) string {
 	_, _ = hash.Write(value)
 	return hex.EncodeToString(hash.Sum(nil))
 }
-func schedulingTestConcurrencyKey(t *testing.T) ConcurrencyKey {
-	t.Helper()
-	key, err := ParseConcurrencyKey("kimi-main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return key
-}
-
 func schedulingTestEnvironmentVariable(t *testing.T, name, value string) EnvironmentVariable {
 	t.Helper()
 	variable, err := NewEnvironmentVariable(name, value)
@@ -808,7 +723,6 @@ type schedulingProcessRequestInput struct {
 	timeout          time.Duration
 	maxStdoutBytes   int64
 	maxStderrBytes   int64
-	concurrencyKey   ConcurrencyKey
 }
 
 func schedulingValidProcessRequestInput(t *testing.T) schedulingProcessRequestInput {
@@ -822,7 +736,6 @@ func schedulingValidProcessRequestInput(t *testing.T) schedulingProcessRequestIn
 		timeout:          time.Second,
 		maxStdoutBytes:   1,
 		maxStderrBytes:   1,
-		concurrencyKey:   schedulingTestConcurrencyKey(t),
 	}
 }
 
@@ -836,7 +749,6 @@ func (input schedulingProcessRequestInput) new() (ProcessRequest, error) {
 		input.timeout,
 		input.maxStdoutBytes,
 		input.maxStderrBytes,
-		input.concurrencyKey,
 	)
 }
 
@@ -852,11 +764,10 @@ func (schedulingProcessRunnerStub) Run(context.Context, ProcessRequest) (Process
 
 func TestNewProviderProcessRequestEnforcesOnePacketChannel(t *testing.T) {
 	packet := schedulingTestPacket(t, []byte("packet"))
-	key := schedulingTestConcurrencyKey(t)
 	newRequest := func(binding ProviderPacketBinding, argv []string, workingDirectory string) (ProcessRequest, error) {
 		return NewProviderProcessRequest(
 			"/usr/bin/provider", argv, nil, workingDirectory, binding,
-			time.Second, 1024, 1024, key,
+			time.Second, 1024, 1024,
 		)
 	}
 	argvBinding, err := NewArgvLiteralProviderPacketBinding(packet, 1)

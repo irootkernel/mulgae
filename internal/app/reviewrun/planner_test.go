@@ -185,7 +185,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *te
 		}
 	}
 	policy := plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY})
-	policy.MaxLanes = 6
+	policy.MaxWorkers = 6
 	planner, err := NewQualifiedPlanner(routes, policy)
 	if err != nil {
 		t.Fatal(err)
@@ -195,12 +195,12 @@ func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxLanes)
+	receipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxWorkers)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtime := &plannerCoordinatorRuntime{entered: make(chan review.InvocationJob, 6), release: make(chan struct{})}
-	coordinator, err := review.NewCoordinator(adapterruntime.SystemClock{}, adapterruntime.NewUUIDv7Generator(), runtime, plan.MaxLanes, receipt)
+	coordinator, err := review.NewCoordinator(adapterruntime.SystemClock{}, adapterruntime.NewUUIDv7Generator(), runtime, plan.MaxWorkers, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

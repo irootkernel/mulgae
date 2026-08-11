@@ -30,7 +30,7 @@ func (fixture nativeInvocationFixture) Validate() error { return nil }
 func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	identity := nativeInvocationIdentity(t, t.TempDir())
 	fixture := nativeInvocationFixture{identity: identity}
-	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
+	definition := testProfile(t, FamilyAgy, "agy_current", "", "")
 	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
@@ -121,8 +121,8 @@ func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing
 		t.Fatal(err)
 	}
 	definition, err := newTestProfileWithTransport(
-		t, FamilyAgy, "agy-headless", "agy-headless", []string{"/private/bin/agy"}, transport,
-	)
+		t, FamilyAgy, "agy-headless", []string{"/private/bin/agy"}, transport)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing
 }
 
 func TestNativeProbeInvocationRejectsInvalidAgySnapshotIdentity(t *testing.T) {
-	definition := testProfile(t, FamilyAgy, "agy_current", "agy-current", "", "")
+	definition := testProfile(t, FamilyAgy, "agy_current", "", "")
 	for _, identity := range []ports.WorkspaceSnapshotIdentity{
 		{},
 	} {
@@ -161,7 +161,7 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "fixture-packet", "--output-format", "stream-json"},
 		FamilyZcode: {"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
 	} {
-		definition := testProfile(t, family, "provider_current", "provider-current", "", "")
+		definition := testProfile(t, family, "provider_current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
 		if err != nil || !reflect.DeepEqual(argv, want) {
 			t.Fatalf("%s argv = %#v, err = %v, want %#v", family, argv, err, want)
@@ -183,7 +183,7 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 // tool-denied profile so the capability probe stays prompt-bound.
 func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
-	definition := testProfile(t, FamilyZcode, "zcode_current", "zcode-current", "", "")
+	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
 	want := []string{
@@ -203,7 +203,7 @@ func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
 
 func TestNativeProbeInvocationVersionArgvUsesClosedFamilyBase(t *testing.T) {
 	for _, family := range []string{FamilyKimi, FamilyZcode, FamilyAgy} {
-		definition := testProfile(t, family, family+"_current", family+"-current", "", "")
+		definition := testProfile(t, family, family+"_current", "", "")
 		argv, err := (NativeProbeInvocation{}).VersionArgv(definition)
 		want := append(definition.BaseArgv(), "--version")
 		if err != nil || !reflect.DeepEqual(argv, want) {
@@ -214,7 +214,7 @@ func TestNativeProbeInvocationVersionArgvUsesClosedFamilyBase(t *testing.T) {
 
 func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
-	definition := testProfile(t, FamilyZcode, "zcode_current", "zcode-current", "", "")
+	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
 	definition.launcher = "/private/bin/zcode-launcher"
 	definition.baseArgv = []string{definition.executable, definition.launcher}
 
@@ -248,7 +248,7 @@ func TestNativeProbeInvocationRejectsUnrecognizedBaseArguments(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			definition := testProfile(t, test.family, "provider_current", "provider-current", "", "")
+			definition := testProfile(t, test.family, "provider_current", "", "")
 			definition.baseArgv = append([]string{definition.executable}, test.args...)
 			if _, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture); err == nil {
 				t.Fatalf("accepted %s base argv %#v", test.name, definition.baseArgv)

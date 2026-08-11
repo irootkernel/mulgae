@@ -27,19 +27,19 @@ type coordinatorRunContextFactory func(context.Context, time.Duration) (context.
 // Coordinator owns one review run's mutable domain aggregates. Provider invocations
 // receive only immutable InvocationJobs and return immutable AttemptOutcomes.
 type Coordinator struct {
-	clock                             ports.Clock
-	ids                               CoordinatorIDIssuer
-	runtime                           InvocationRuntime
-	maxActiveLanes                    int
-	receipt                           RunBudgetReceipt
-	policy                            EvidencePolicy
-	resultCollectedHook               func(InvocationJob)
-	runContextFactory                 coordinatorRunContextFactory
-	beforeOutcomeCommitHook           func(InvocationJob)
-	waveReadyHook                     func([]InvocationJob)
-	lanesCloseAuthorizedHook          func()
-	beforeLanesCloseLinearizationHook func()
-	diagnostics                       ports.RuntimeDiagnosticSink
+	clock                               ports.Clock
+	ids                                 CoordinatorIDIssuer
+	runtime                             InvocationRuntime
+	maxActiveLanes                      int
+	receipt                             RunBudgetReceipt
+	policy                              EvidencePolicy
+	resultCollectedHook                 func(InvocationJob)
+	runContextFactory                   coordinatorRunContextFactory
+	beforeOutcomeCommitHook             func(InvocationJob)
+	waveReadyHook                       func([]InvocationJob)
+	workersCloseAuthorizedHook          func()
+	beforeWorkersCloseLinearizationHook func()
+	diagnostics                         ports.RuntimeDiagnosticSink
 }
 
 func coordinatorAdmissionContextError(ctx context.Context) error {
@@ -128,7 +128,7 @@ func NewCoordinatorWithEvidencePolicy(
 		return nil, fmt.Errorf("review coordinator: run budget receipt is not eligible")
 	}
 	if receipt.MaxActiveLanes() != maxActiveLanes {
-		return nil, fmt.Errorf("review coordinator: active lane capacity does not match run budget receipt")
+		return nil, fmt.Errorf("review coordinator: active worker capacity does not match run budget receipt")
 	}
 	if !validCoordinatorEvidencePolicy(policy) {
 		return nil, fmt.Errorf("review coordinator: evidence policy is invalid")
@@ -551,7 +551,7 @@ type coordinatorExecution struct {
 	callerCtx                context.Context
 	cancelled                bool
 	runStarted               bool
-	lanesCloseAuthorized     bool
+	workersCloseAuthorized   bool
 	runTerminalRecorded      bool
 	terminalRoles            map[domain.Role]struct{}
 	dispatchStopRecorded     bool
@@ -561,7 +561,7 @@ type coordinatorExecution struct {
 }
 
 // Execute runs every selected role. It owns all mutable Run and Attempt state
-// in this goroutine; lane workers only execute immutable jobs.
+// in this goroutine; invocation workers only execute immutable jobs.
 // Execute runs a new root review run.
 func (coordinator *Coordinator) Execute(
 	ctx context.Context,
@@ -776,10 +776,10 @@ func (coordinator *Coordinator) execute(
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: start run: %w", err)
 	}
 
-	scheduler := newLaneScheduler(workCtx, coordinator.runtime, coordinator.maxActiveLanes, coordinator.receipt.TotalInvocations())
-	lanesClosed := false
+	scheduler := newInvocationScheduler(workCtx, coordinator.runtime, coordinator.maxActiveLanes, coordinator.receipt.TotalInvocations())
+	workersClosed := false
 	defer func() {
-		if !lanesClosed {
+		if !workersClosed {
 			scheduler.cancelDispatch()
 			scheduler.close()
 		}
@@ -809,7 +809,7 @@ func (coordinator *Coordinator) execute(
 			threshold,
 			localPolicyPointer,
 		)
-		lanesClosed = true
+		workersClosed = true
 		result = aborted
 		err = errors.Join(err, finalizationErr)
 	}()
@@ -877,24 +877,24 @@ func (coordinator *Coordinator) execute(
 			return CoordinatorResult{}, err
 		}
 	}
-	if execution.coordinator.beforeLanesCloseLinearizationHook != nil {
-		execution.coordinator.beforeLanesCloseLinearizationHook()
+	if execution.coordinator.beforeWorkersCloseLinearizationHook != nil {
+		execution.coordinator.beforeWorkersCloseLinearizationHook()
 	}
-	// This context sample is the lane-close linearization point. A cancellation
+	// This context sample is the worker-close linearization point. A cancellation
 	// observed after authorization belongs after this coordinator execution.
 	if workCtx.Err() != nil {
 		if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
 			return CoordinatorResult{}, err
 		}
 	}
-	if err := execution.record(CoordinatorEventLanesCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
+	if err := execution.record(CoordinatorEventWorkersCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
 		return CoordinatorResult{}, err
 	}
-	if execution.coordinator.lanesCloseAuthorizedHook != nil {
-		execution.coordinator.lanesCloseAuthorizedHook()
+	if execution.coordinator.workersCloseAuthorizedHook != nil {
+		execution.coordinator.workersCloseAuthorizedHook()
 	}
 	scheduler.close()
-	lanesClosed = true
+	workersClosed = true
 
 	if err := execution.finishRun(); err != nil {
 		return CoordinatorResult{}, err
@@ -917,7 +917,7 @@ func sameCoordinatorRoleTasks(left, right []domain.RoleTask) bool {
 }
 
 func (execution *coordinatorExecution) abort(
-	scheduler *laneScheduler,
+	scheduler *invocationScheduler,
 	sessionID domain.SessionID,
 	runID domain.RunID,
 	threshold domain.Severity,
@@ -941,9 +941,9 @@ func (execution *coordinatorExecution) abort(
 			execution.cancelAll(scheduler, AttemptConditionInternalInvariant),
 		)
 	}
-	if !execution.lanesCloseAuthorized {
+	if !execution.workersCloseAuthorized {
 		finalizationErrors = append(finalizationErrors, execution.record(
-			CoordinatorEventLanesCloseAuthorized,
+			CoordinatorEventWorkersCloseAuthorized,
 			domain.Role(""),
 			nil,
 			nil,
@@ -1127,7 +1127,7 @@ func (execution *coordinatorExecution) invocationLimits(
 	return InvocationLimits{}, fmt.Errorf("review coordinator: invocation route has no validated budget for role %q", role)
 }
 
-func (execution *coordinatorExecution) dispatchWave(ctx context.Context, scheduler *laneScheduler, wave []InvocationJob) ([]InvocationJob, bool, error) {
+func (execution *coordinatorExecution) dispatchWave(ctx context.Context, scheduler *invocationScheduler, wave []InvocationJob) ([]InvocationJob, bool, error) {
 	dispatched := make([]InvocationJob, 0, len(wave))
 	startGate := make(chan struct{})
 	for _, job := range wave {
@@ -1164,7 +1164,7 @@ type coordinatorCollectedWave struct {
 }
 
 func (execution *coordinatorExecution) collectWave(
-	scheduler *laneScheduler,
+	scheduler *invocationScheduler,
 	wave []InvocationJob,
 ) (coordinatorCollectedWave, error) {
 	collected := coordinatorCollectedWave{
@@ -1179,10 +1179,10 @@ func (execution *coordinatorExecution) collectWave(
 		result := <-scheduler.results
 		job, exists := expected[result.job.Ordinal()]
 		if !exists {
-			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: lane result has unknown ordinal %d", result.job.Ordinal())
+			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: invocation result has unknown ordinal %d", result.job.Ordinal())
 		}
 		if _, duplicate := collected.outcomes[result.job.Ordinal()]; duplicate {
-			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: duplicate lane result ordinal %d", result.job.Ordinal())
+			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: duplicate invocation result ordinal %d", result.job.Ordinal())
 		}
 		normalized, err := execution.normalizedOutcome(job, result.outcome)
 		if err != nil {
@@ -1274,7 +1274,7 @@ func conditionRetainsAuthorityAfterContext(
 }
 
 func (execution *coordinatorExecution) commitWave(
-	scheduler *laneScheduler,
+	scheduler *invocationScheduler,
 	wave []InvocationJob,
 	collected coordinatorCollectedWave,
 ) ([]InvocationJob, error) {
@@ -1284,7 +1284,7 @@ func (execution *coordinatorExecution) commitWave(
 	for _, job := range ordered {
 		outcome, exists := collected.outcomes[job.Ordinal()]
 		if !exists {
-			return nil, fmt.Errorf("review coordinator: missing lane result ordinal %d", job.Ordinal())
+			return nil, fmt.Errorf("review coordinator: missing invocation result ordinal %d", job.Ordinal())
 		}
 		normalized, err := execution.normalizedOutcome(job, outcome)
 		if err != nil {
@@ -1373,7 +1373,7 @@ func (execution *coordinatorExecution) normalizedOutcome(job InvocationJob, outc
 		condition := AttemptConditionInternalInvariant
 		normalized, err := NewAttemptOutcome(job, nil, &condition)
 		if err != nil {
-			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize lane result: %w", err)
+			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize invocation result: %w", err)
 		}
 		return normalized, nil
 	}
@@ -1385,7 +1385,7 @@ func (execution *coordinatorExecution) normalizedOutcome(job InvocationJob, outc
 		condition := AttemptConditionInternalInvariant
 		normalized, err := NewAttemptOutcome(job, nil, &condition)
 		if err != nil {
-			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize lane output: %w", err)
+			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize invocation output: %w", err)
 		}
 		return normalized, nil
 	}
@@ -1393,13 +1393,13 @@ func (execution *coordinatorExecution) normalizedOutcome(job InvocationJob, outc
 	if condition != AttemptConditionValidReview {
 		normalized, err := NewAttemptOutcome(job, nil, &condition)
 		if err != nil {
-			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize lane evidence: %w", err)
+			return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize invocation evidence: %w", err)
 		}
 		return normalized, nil
 	}
 	normalized, err := NewAttemptOutcome(job, &output, nil)
 	if err != nil {
-		return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize lane output: %w", err)
+		return AttemptOutcome{}, fmt.Errorf("review coordinator: normalize invocation output: %w", err)
 	}
 	return normalized, nil
 }
@@ -1730,7 +1730,7 @@ func (execution *coordinatorExecution) conditionForTransition(
 }
 
 func (execution *coordinatorExecution) prepareOutcomeCommit(
-	scheduler *laneScheduler,
+	scheduler *invocationScheduler,
 	condition AttemptCondition,
 ) (AttemptCondition, bool, bool, error) {
 	effective, cancellationObserved, _, contextObserved, err := execution.conditionForTransition(condition)
@@ -1746,7 +1746,7 @@ func (execution *coordinatorExecution) prepareOutcomeCommit(
 }
 
 func (execution *coordinatorExecution) requestDispatchStop(
-	scheduler *laneScheduler,
+	scheduler *invocationScheduler,
 	condition AttemptCondition,
 ) error {
 	scheduler.cancelDispatch()
@@ -1778,7 +1778,7 @@ func (execution *coordinatorExecution) contextCondition() AttemptCondition {
 	return AttemptConditionCancelled
 }
 
-func (execution *coordinatorExecution) cancelAll(scheduler *laneScheduler, condition AttemptCondition) error {
+func (execution *coordinatorExecution) cancelAll(scheduler *invocationScheduler, condition AttemptCondition) error {
 	effective := condition
 	if execution.stopCondition.Valid() {
 		reduced, err := ReduceAttemptConditions(execution.stopCondition, condition)
@@ -2167,8 +2167,8 @@ func (execution *coordinatorExecution) record(
 	} else if !execution.runStarted {
 		return fmt.Errorf("review coordinator: record trace: run started is required first")
 	}
-	if execution.lanesCloseAuthorized && kind != CoordinatorEventRunTerminal {
-		return fmt.Errorf("review coordinator: record trace: lanes are already close-authorized")
+	if execution.workersCloseAuthorized && kind != CoordinatorEventRunTerminal {
+		return fmt.Errorf("review coordinator: record trace: workers are already close-authorized")
 	}
 
 	roleEvent := kind == CoordinatorEventAttemptQueued ||
@@ -2188,16 +2188,16 @@ func (execution *coordinatorExecution) record(
 	}
 
 	switch kind {
-	case CoordinatorEventLanesCloseAuthorized:
-		if execution.lanesCloseAuthorized {
-			return fmt.Errorf("review coordinator: record trace: lanes close is already authorized")
+	case CoordinatorEventWorkersCloseAuthorized:
+		if execution.workersCloseAuthorized {
+			return fmt.Errorf("review coordinator: record trace: workers close is already authorized")
 		}
 		if execution.run == nil || !execution.allRolesTerminal() {
-			return fmt.Errorf("review coordinator: record trace: lanes close requires every role terminal")
+			return fmt.Errorf("review coordinator: record trace: workers close requires every role terminal")
 		}
 	case CoordinatorEventRunTerminal:
-		if !execution.lanesCloseAuthorized {
-			return fmt.Errorf("review coordinator: record trace: run terminal requires lanes close authorization")
+		if !execution.workersCloseAuthorized {
+			return fmt.Errorf("review coordinator: record trace: run terminal requires workers close authorization")
 		}
 		if execution.run == nil || !coordinatorTerminalRunState(runState) || execution.run.State() != runState {
 			return fmt.Errorf("review coordinator: record trace: run terminal requires current terminal run state")
@@ -2239,8 +2239,8 @@ func (execution *coordinatorExecution) record(
 			execution.terminalRoles = make(map[domain.Role]struct{})
 		}
 		execution.terminalRoles[role] = struct{}{}
-	case CoordinatorEventLanesCloseAuthorized:
-		execution.lanesCloseAuthorized = true
+	case CoordinatorEventWorkersCloseAuthorized:
+		execution.workersCloseAuthorized = true
 	case CoordinatorEventRunTerminal:
 		execution.runTerminalRecorded = true
 	}

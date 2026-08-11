@@ -17,30 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
-	"golang.org/x/text/unicode/norm"
 )
-
-// ConcurrencyKey is temporary normalized process metadata retained below the
-// application route boundary. It is opaque so every equal key compares equal
-// without caller-defined spelling rules.
-type ConcurrencyKey struct{ value string }
-
-// ParseConcurrencyKey NFC-normalizes and ASCII-lowercases value before
-// validating the canonical lane-key grammar. It never trims or otherwise
-// aliases input.
-func ParseConcurrencyKey(value string) (ConcurrencyKey, error) {
-	normalized, err := normalizeConcurrencyKey(value)
-	if err != nil {
-		return ConcurrencyKey{}, fmt.Errorf("concurrency key: %w", err)
-	}
-	return ConcurrencyKey{value: normalized}, nil
-}
-
-// String returns the canonical lane-key value.
-func (key ConcurrencyKey) String() string { return key.value }
-
-// Valid reports whether key is a canonical concurrency key.
-func (key ConcurrencyKey) Valid() bool { return validateCanonicalConcurrencyKey(key.value) == nil }
 
 // ProviderRoute identifies one safe provider instance. It contains no
 // provider-family, scheduling, or live-runtime authority.
@@ -544,7 +521,6 @@ type ProcessRequest struct {
 	timeout                      time.Duration
 	maxStdoutBytes               int64
 	maxStderrBytes               int64
-	concurrencyKey               ConcurrencyKey
 	providerPacketBinding        ProviderPacketBinding
 	hasProviderPacketBinding     bool
 	postOutputLifecycle          BoundedPostOutputLifecycle
@@ -578,7 +554,6 @@ func NewProcessRequest(
 	stdin []byte,
 	timeout time.Duration,
 	maxStdoutBytes, maxStderrBytes int64,
-	concurrencyKey ConcurrencyKey,
 ) (ProcessRequest, error) {
 	if err := validateAbsoluteWorkingDirectory(workingDirectory); err != nil {
 		return ProcessRequest{}, fmt.Errorf("process request: working directory: %w", err)
@@ -614,7 +589,6 @@ func NewProcessRequest(
 		timeout:          timeout,
 		maxStdoutBytes:   maxStdoutBytes,
 		maxStderrBytes:   maxStderrBytes,
-		concurrencyKey:   concurrencyKey,
 	}
 	if err := validateProcessRequest(request); err != nil {
 		return ProcessRequest{}, fmt.Errorf("process request: %w", err)
@@ -626,7 +600,6 @@ func NewProcessRequest(
 func NewProviderProcessRequest(
 	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
 	binding ProviderPacketBinding, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
-	concurrencyKey ConcurrencyKey,
 ) (ProcessRequest, error) {
 	var stdin []byte
 	if binding.Channel() == ProviderPacketChannelStdin {
@@ -641,7 +614,6 @@ func NewProviderProcessRequest(
 		timeout,
 		maxStdoutBytes,
 		maxStderrBytes,
-		concurrencyKey,
 	)
 	if err != nil {
 		return ProcessRequest{}, err
@@ -659,11 +631,11 @@ func NewProviderProcessRequest(
 func NewProviderProcessRequestWithPostOutputLifecycle(
 	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
 	binding ProviderPacketBinding, lifecycle BoundedPostOutputLifecycle, timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64, concurrencyKey ConcurrencyKey,
+	maxStdoutBytes, maxStderrBytes int64,
 ) (ProcessRequest, error) {
 	request, err := NewProviderProcessRequest(
 		executable, argv, environment, workingDirectory, binding, timeout,
-		maxStdoutBytes, maxStderrBytes, concurrencyKey,
+		maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
 		return ProcessRequest{}, err
@@ -818,9 +790,6 @@ func (request ProcessRequest) MaxStderrBytes() int64 { return request.maxStderrB
 // SpoolStdout reports whether stdout is primary content rather than a bounded
 // control response.
 func (request ProcessRequest) SpoolStdout() bool { return request.spoolStdout }
-
-// ConcurrencyKey returns the validated lane key for this process request.
-func (request ProcessRequest) ConcurrencyKey() ConcurrencyKey { return request.concurrencyKey }
 
 // ProviderPacketBinding returns the optional provider packet binding.
 func (request ProcessRequest) ProviderPacketBinding() (ProviderPacketBinding, bool) {
@@ -1722,56 +1691,6 @@ func (failure *ProcessExecutionError) Stderr() []byte {
 	return cloneBytes(failure.stderr)
 }
 
-func normalizeConcurrencyKey(value string) (string, error) {
-	normalized := norm.NFC.String(value)
-	for index := 0; index < len(normalized); index++ {
-		if normalized[index] > 0x7f {
-			return "", fmt.Errorf("must contain ASCII characters only")
-		}
-	}
-	normalized = asciiLower(normalized)
-	if err := validateCanonicalConcurrencyKey(normalized); err != nil {
-		return "", err
-	}
-	return normalized, nil
-}
-
-func validateCanonicalConcurrencyKey(value string) error {
-	if len(value) == 0 || len(value) > 64 {
-		return fmt.Errorf("must contain 1 through 64 characters")
-	}
-	if !asciiLowerAlphaNumeric(value[0]) || !asciiLowerAlphaNumeric(value[len(value)-1]) {
-		return fmt.Errorf("must start and end with a lowercase ASCII letter or digit")
-	}
-	for index := 1; index < len(value)-1; index++ {
-		character := value[index]
-		if asciiLowerAlphaNumeric(character) || character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return fmt.Errorf("must match [a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
-	}
-	return nil
-}
-
-func asciiLower(value string) string {
-	for index := 0; index < len(value); index++ {
-		if value[index] >= 'A' && value[index] <= 'Z' {
-			bytes := []byte(value)
-			for index := range bytes {
-				if bytes[index] >= 'A' && bytes[index] <= 'Z' {
-					bytes[index] += 'a' - 'A'
-				}
-			}
-			return string(bytes)
-		}
-	}
-	return value
-}
-
-func asciiLowerAlphaNumeric(character byte) bool {
-	return character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
-}
-
 func validateEnvironmentVariable(name, value string) error {
 	if name == "" {
 		return fmt.Errorf("name must be non-empty")
@@ -1884,9 +1803,6 @@ func validateProcessRequest(request ProcessRequest) error {
 	}
 	if request.maxStderrBytes <= 0 {
 		return fmt.Errorf("maximum stderr bytes must be positive")
-	}
-	if !request.concurrencyKey.Valid() {
-		return fmt.Errorf("invalid concurrency key")
 	}
 	if request.hasProviderPacketBinding {
 		if err := validateProviderPacketRequestBinding(request, request.providerPacketBinding); err != nil {

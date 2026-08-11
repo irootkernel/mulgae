@@ -47,13 +47,9 @@ func (authenticator *KimiLoginAuthenticator) LoginProvider(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	key, err := ports.ParseConcurrencyKey("kimi-login")
-	if err != nil {
-		return fmt.Errorf("kimi login: concurrency key: %w", err)
-	}
 	request, err := ports.NewProcessRequest(
 		runtime.Executable(), []string{runtime.Executable(), "login"}, environment,
-		authenticator.nativeHome, nil, kimiLoginTimeout, kimiLoginOutputCap, kimiLoginOutputCap, key,
+		authenticator.nativeHome, nil, kimiLoginTimeout, kimiLoginOutputCap, kimiLoginOutputCap,
 	)
 	if err != nil {
 		return fmt.Errorf("kimi login: process request: %w", err)

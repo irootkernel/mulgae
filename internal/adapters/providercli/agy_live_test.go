@@ -112,10 +112,6 @@ func TestLiveAgyCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal("INCONCLUSIVE: hash AGY executable")
 	}
-	key, err := ports.ParseConcurrencyKey("agy-live-current")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +122,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 		providercli.FamilyAgy, "agy-live-current", "", binaryPath, binarySHA256, binaryPath, binarySHA256,
-		key, "agy-live-current", "live-current-v1", policy.Identity(), []string{binaryPath}, transport, lifecycle,
+		"agy-live-current", "live-current-v1", policy.Identity(), []string{binaryPath}, transport, lifecycle,
 		nil, namespaceRoot, 30*time.Second, 64<<10, 64<<10,
 	)
 	if err != nil {

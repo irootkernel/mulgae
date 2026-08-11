@@ -713,7 +713,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 	}
 	return productionRunPolicy{
 		planner: reviewrun.PlannerPolicy{
-			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxLanes: resolved.Runtime().MaxActiveLanes, Assignments: assignments, RequiredRoles: resolved.RequiredRoles(),
+			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxWorkers: resolved.Runtime().MaxActiveLanes, Assignments: assignments, RequiredRoles: resolved.RequiredRoles(),
 		},
 		requiredRoles:     resolved.RequiredRoles(),
 		enabledRoles:      enabled,

@@ -1171,7 +1171,7 @@ func TestPreparedCandidateAcceptsTerminalProviderTimeout(t *testing.T) {
 		t.Fatalf("pre-invocation timeout required nonexistent runtime artifacts: %v", err)
 	}
 	if candidate.roles[1].attempts[0].invocations[0].runtime != nil {
-		t.Fatal("timed-out pre-invocation lane acquired runtime artifacts")
+		t.Fatal("timed-out pre-invocation attempt acquired runtime artifacts")
 	}
 }
 

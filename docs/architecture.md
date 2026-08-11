@@ -95,10 +95,11 @@ re-derived after init.
 
 ## Concurrency, cancellation, and storage
 
-Application routes and budgets identify providers directly; they contain no
-concurrency key. Each run owns a registry and one temporary namespace generation
-per provider instance, so independent runs can invoke the same configured
-provider concurrently. A run cannot register one provider instance twice, and
+Application routes, budgets, runtime definitions, and process requests identify
+providers directly; they contain no concurrency or scheduling key. Each run
+owns a registry and one temporary namespace generation per provider instance,
+so independent runs can invoke the same configured provider concurrently. A run
+cannot register one provider instance twice, and
 an impossible concurrent reuse of one instance within the same registry fails
 immediately as an internal invariant instead of waiting. The coordinator
 enforces the explicit process capacity plus per-role and per-run invocation

@@ -11,7 +11,7 @@ import (
 )
 
 // runIdentityAuthority serializes the clock observation and UUIDv7 issuance
-// across coordinator and provider lane goroutines. The caller-supplied time is
+// across coordinator and provider worker goroutines. The caller-supplied time is
 // intentionally ignored: observing it before acquiring this lock would allow
 // concurrent calls to reach the monotonic generator in reverse clock order.
 type runIdentityAuthority struct {

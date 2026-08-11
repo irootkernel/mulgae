@@ -2913,10 +2913,10 @@ func canonicalTestTempDir(t *testing.T) string {
 	return filepath.Clean(path)
 }
 
-func assertNoProjectLaneLocks(t *testing.T, project string) {
+func assertNoProjectProviderLocks(t *testing.T, project string) {
 	t.Helper()
 	if _, err := os.Lstat(filepath.Join(project, "locks")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Mulgae created a lane-lock namespace in the review target: %v", err)
+		t.Fatalf("Mulgae created a provider-lock namespace in the review target: %v", err)
 	}
 }
 

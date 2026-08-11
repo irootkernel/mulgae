@@ -123,7 +123,7 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 		return inputs
 	case CoordinatorEventCancellationRequested:
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticRolePathCancelled, "", string(trace.condition))}
-	case CoordinatorEventLanesCloseAuthorized:
+	case CoordinatorEventWorkersCloseAuthorized:
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticReductionStarted, "", "")}
 	case CoordinatorEventRunTerminal:
 		return []domain.RuntimeDiagnosticEventInput{add(domain.RuntimeDiagnosticInfo, domain.DiagnosticReductionCompleted, string(trace.runState), "")}

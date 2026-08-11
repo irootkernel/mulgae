@@ -648,15 +648,11 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("current-qualifier")
-	if err != nil {
-		t.Fatal(err)
-	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		"kimi", "current-qualifier", "", "/private/bin/kimi",
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"/private/bin/kimi", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		key, "kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"},
+		"kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"},
 		transport, nil, "/private/work", time.Second, 1024, 1024,
 	)
 	if err != nil {
@@ -955,10 +951,6 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 
 func authorityProbeDefinition(t *testing.T, family Family, instance, version, workingDirectory string) (providercli.RuntimeDefinition, authorityProbeNamespace) {
 	t.Helper()
-	key, err := ports.ParseConcurrencyKey(instance)
-	if err != nil {
-		t.Fatal(err)
-	}
 	argvIndex := 4
 	if family == FamilyZCode {
 		argvIndex = 6
@@ -982,7 +974,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 		}
 		definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 			string(family), instance, version, "/private/bin/"+string(family), qualifierTestSHA, "/private/bin/"+string(family), qualifierTestSHA,
-			key, string(family)+"-profile", "profile-1", policy, []string{"/private/bin/" + string(family)}, transport, lifecycle, nil, workingDirectory, 3*time.Second, 4096, 4096,
+			string(family)+"-profile", "profile-1", policy, []string{"/private/bin/" + string(family)}, transport, lifecycle, nil, workingDirectory, 3*time.Second, 4096, 4096,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -999,7 +991,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		string(family), instance, version, executable, qualifierTestSHA, launcher, qualifierTestSHA,
-		key, string(family)+"-profile", "profile-1", policy, baseArgv, transport, nil, workingDirectory, time.Second, 4096, 4096,
+		string(family)+"-profile", "profile-1", policy, baseArgv, transport, nil, workingDirectory, time.Second, 4096, 4096,
 	)
 	if err != nil {
 		t.Fatal(err)

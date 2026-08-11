@@ -127,7 +127,7 @@ type PlannerPolicy struct {
 	Ceilings      review.HarnessCeilings
 	Threshold     domain.Severity
 	Policy        *domain.CIPolicy
-	MaxLanes      int
+	MaxWorkers    int
 	Assignments   []RoleProviderAssignment
 	RequiredRoles []domain.Role
 }
@@ -136,9 +136,9 @@ type PlannerPolicy struct {
 // trusted policy is supplied.
 func DefaultPlannerPolicy() PlannerPolicy {
 	return PlannerPolicy{
-		Ceilings:  review.DefaultHarnessCeilings(),
-		Threshold: domain.SeverityHigh,
-		MaxLanes:  1,
+		Ceilings:   review.DefaultHarnessCeilings(),
+		Threshold:  domain.SeverityHigh,
+		MaxWorkers: 1,
 	}
 }
 
@@ -271,7 +271,7 @@ func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primari
 		}
 		assignments, budgets = append(assignments, assignment), append(budgets, budget)
 	}
-	plan := ExecutionPlan{Assignments: assignments, Budgets: budgets, Ceilings: planner.policy.Ceilings, Threshold: planner.policy.Threshold, Policy: planner.policy.Policy, MaxLanes: planner.policy.MaxLanes}
+	plan := ExecutionPlan{Assignments: assignments, Budgets: budgets, Ceilings: planner.policy.Ceilings, Threshold: planner.policy.Threshold, Policy: planner.policy.Policy, MaxWorkers: planner.policy.MaxWorkers}
 	if _, err := validatePlan(plan, roles); err != nil {
 		return ExecutionPlan{}, err
 	}
@@ -286,10 +286,10 @@ func normalizePlannerPolicy(policy PlannerPolicy) (PlannerPolicy, error) {
 	if policy.Threshold == "" {
 		policy.Threshold = defaults.Threshold
 	}
-	if policy.MaxLanes == 0 {
-		policy.MaxLanes = defaults.MaxLanes
+	if policy.MaxWorkers == 0 {
+		policy.MaxWorkers = defaults.MaxWorkers
 	}
-	if !policy.Ceilings.Valid() || !policy.Threshold.Valid() || policy.MaxLanes < 1 {
+	if !policy.Ceilings.Valid() || !policy.Threshold.Valid() || policy.MaxWorkers < 1 {
 		return PlannerPolicy{}, fmt.Errorf("review run: invalid planner policy")
 	}
 	if err := validatePlannerAssignments(policy.Assignments); err != nil {

@@ -20,7 +20,6 @@ type ProviderRuntimeDefinition interface {
 	LauncherSHA256() string
 	ProfileGeneration() string
 	RuntimeSafetyPolicyIdentity() string
-	ConcurrencyKey() ConcurrencyKey
 	ProfileID() string
 	KimiModel() string
 	BaseArgv() []string
@@ -46,7 +45,6 @@ type ProviderRuntimeSpec struct {
 	ExecutableSHA256            string
 	Launcher                    string
 	LauncherSHA256              string
-	ConcurrencyKey              ConcurrencyKey
 	ProfileID                   string
 	ProfileGeneration           string
 	RuntimeSafetyPolicyIdentity string

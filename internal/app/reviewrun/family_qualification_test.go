@@ -333,10 +333,6 @@ func (d testRuntimeMutation) ProfileGeneration() string { return d.profileGenera
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
-func (d testRuntimeMutation) ConcurrencyKey() ports.ConcurrencyKey {
-	key, _ := ports.ParseConcurrencyKey(d.instance)
-	return key
-}
 func (d testRuntimeMutation) ProfileID() string  { return d.instance }
 func (d testRuntimeMutation) KimiModel() string  { return d.kimiModel }
 func (d testRuntimeMutation) BaseArgv() []string { return append([]string(nil), d.baseArgv...) }

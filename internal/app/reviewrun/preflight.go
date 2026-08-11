@@ -61,7 +61,7 @@ func PreflightConfiguredPlan(
 		Ceilings:    policy.Ceilings,
 		Threshold:   policy.Threshold,
 		Policy:      policy.Policy,
-		MaxLanes:    policy.MaxLanes,
+		MaxWorkers:  policy.MaxWorkers,
 	}
 	receipt, err := validatePlan(plan, selectedRoles)
 	if err != nil {

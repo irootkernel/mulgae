@@ -691,7 +691,7 @@ type ProviderOutputStagingLocator interface {
 // immutable provider-neutral execution facts. An ordinary provider or process
 // failure must be returned as a failed observation with a nil error; error is
 // reserved for a boundary or internal inability to produce a coherent
-// observation. Calls for distinct coordinator concurrency lanes may occur
+// observation. Calls for distinct provider invocations may occur
 // concurrently, so implementations must be concurrency-safe or serialize
 // internally.
 type ObservedReviewProvider interface {

@@ -130,11 +130,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("kimi-lane")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("kimi", "kimi-main", "", "/private/bin/kimi", qualifierTestSHA, "/private/bin/kimi", qualifierTestSHA, key, "kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"}, transport, nil, "/private/work", time.Second, 1024, 1024)
+	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("kimi", "kimi-main", "", "/private/bin/kimi", qualifierTestSHA, "/private/bin/kimi", qualifierTestSHA, "kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"}, transport, nil, "/private/work", time.Second, 1024, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

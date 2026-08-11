@@ -418,7 +418,7 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 	request, err := ports.NewProviderProcessRequest(
 		binary, []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", "stdout-ten-mib"},
 		[]ports.EnvironmentVariable{mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"), mustEnvironment(t, "GOCOVERDIR", t.TempDir())},
-		t.TempDir(), binding, processTestExecutionTimeout, 3, 1024, mustConcurrencyKey(t),
+		t.TempDir(), binding, processTestExecutionTimeout, 3, 1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -614,7 +614,6 @@ func TestRunnerStartFailureForArgvProviderPacketHasNoTransportReceipt(t *testing
 		processTestExecutionTimeout,
 		1024,
 		1024,
-		mustConcurrencyKey(t),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1778,10 +1777,6 @@ func newTestRunner(t *testing.T) *Runner {
 }
 func newStartFailureRequest(t *testing.T, executable, workingDirectory string) ports.ProcessRequest {
 	t.Helper()
-	key, err := ports.ParseConcurrencyKey("process-test")
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, err := ports.NewProcessRequest(
 		executable,
 		[]string{executable, "-test.run=^$"},
@@ -1791,7 +1786,6 @@ func newStartFailureRequest(t *testing.T, executable, workingDirectory string) p
 		processTestExecutionTimeout,
 		1024,
 		1024,
-		key,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1817,10 +1811,6 @@ func newHelperRequest(
 		mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
 		mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
 	}, environment...)
-	key, err := ports.ParseConcurrencyKey("process-test")
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, err := ports.NewProcessRequest(
 		binary,
 		argv,
@@ -1830,7 +1820,6 @@ func newHelperRequest(
 		timeout,
 		maxStdoutBytes,
 		maxStderrBytes,
-		key,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1861,7 +1850,6 @@ func newProviderHelperRequest(
 		processTestExecutionTimeout,
 		4096,
 		1024,
-		mustConcurrencyKey(t),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1906,7 +1894,6 @@ func newPostOutputProviderHelperRequest(
 		timeout,
 		maxStdoutBytes,
 		1024,
-		mustConcurrencyKey(t),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1921,15 +1908,6 @@ func runnerTestProviderPacket(t *testing.T, value []byte) ports.ProviderPacket {
 		t.Fatal(err)
 	}
 	return packet
-}
-
-func mustConcurrencyKey(t *testing.T) ports.ConcurrencyKey {
-	t.Helper()
-	key, err := ports.ParseConcurrencyKey("process-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return key
 }
 
 func helperBinary(t *testing.T) string {

@@ -47,7 +47,7 @@ func TestDeriveEquivalentRouteDirectExecutionAuthorityRejectsTransportMutation(t
 }
 
 func TestDeriveEquivalentRouteRejectsAGYCrossInstance(t *testing.T) {
-	source := testProfile(t, FamilyAgy, "agy-logic", "agy-lane", "1.1.4", "sha256:"+repeatHex('a'))
+	source := testProfile(t, FamilyAgy, "agy-logic", "1.1.4", "sha256:"+repeatHex('a'))
 	source.launcher = source.Executable()
 	source.launcherSHA256 = source.ExecutableSHA256()
 	source.profileID = "agy-logic"
@@ -101,7 +101,7 @@ func TestDeriveEquivalentRouteRejectsAGYCrossInstance(t *testing.T) {
 }
 
 func TestEquivalentFamilyRuntimeProfilesRequiresTransportIndex(t *testing.T) {
-	left := testProfile(t, FamilyKimi, "kimi-left", "lane", "", "")
+	left := testProfile(t, FamilyKimi, "kimi-left", "", "")
 	right := left
 	right.instance = "kimi-right"
 	if !equivalentFamilyRuntimeProfiles(left, right) {

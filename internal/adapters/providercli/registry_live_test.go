@@ -179,13 +179,9 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 	} else {
 		launcher = executable
 	}
-	key, err := ports.ParseConcurrencyKey(config.instance)
-	if err != nil {
-		t.Fatal(err)
-	}
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
-		Launcher: launcher, LauncherSHA256: launcherSHA, ConcurrencyKey: key, ProfileID: config.instance,
+		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
 		BaseArgv: baseArgv, TransportChannel: ports.ProviderPacketChannelArgvLiteral, TransportArgvIndex: config.transportIndex,
 		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second, MaxStdoutBytes: 64 << 10, MaxStderrBytes: 64 << 10,

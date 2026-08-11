@@ -251,10 +251,6 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("agy_offline_lane")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +264,7 @@ esac
 		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_CWD", workspace.WorkspaceSnapshotIdentity().SnapshotPath()), agyLifecycleEnv(t, "MULGAE_AGY_CHILD_PID", childPID),
 		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_PRINT_TIMEOUT", agyPrintTimeout(timeout).String()),
 	}
-	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, key, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout, stdoutCap, 256)
+	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout, stdoutCap, 256)
 	if err != nil {
 		t.Fatal(err)
 	}

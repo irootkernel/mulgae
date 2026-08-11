@@ -227,10 +227,6 @@ func TestCurrentProbeClassifiesSuccessfulAGYPermissionDenialBeforeOutputDecode(t
 		t.Fatal(err)
 	}
 	fixture := &currentProbeFixture{root: root, identity: identity}
-	key, err := ports.ParseConcurrencyKey("agy-current-permission")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +235,7 @@ func TestCurrentProbeClassifiesSuccessfulAGYPermissionDenialBeforeOutputDecode(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-current-permission", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current-permission", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +274,7 @@ func TestClassifyProbeFailureUsesProcessStderrWhenRunnerErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := &currentProbeFixture{root: root, identity: identity}
-	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "kimi_current", "agy-current-runner-error", "", ""))
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "kimi_current", "", ""))
 	runner := &erroringCurrentProbeRunner{
 		observation: testProcessObservation(t, nil, []byte("Error: 429 too many requests\n"), ports.ProcessTerminationExited, 1),
 		err:         errors.New("provider process failed"),
@@ -335,7 +331,7 @@ func currentProbeDefinitionWithExecutionIdentity(definition RuntimeDefinition) R
 }
 
 func TestCurrentProbeUsesBoundDescriptorsAndStrictKimiStream(t *testing.T) {
-	definition := testProfile(t, FamilyKimi, "kimi_current", "kimi-current", "", "")
+	definition := testProfile(t, FamilyKimi, "kimi_current", "", "")
 	definition = currentProbeDefinitionWithExecutionIdentity(definition)
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	if err := os.Mkdir(directory, 0700); err != nil {
@@ -406,7 +402,7 @@ func TestCurrentProbeUsesBoundDescriptorsAndStrictKimiStream(t *testing.T) {
 	}
 }
 func TestCurrentProbeZCodeMintsTypedDirectExecutionAuthority(t *testing.T) {
-	definition := testProfile(t, FamilyZcode, "kimi_current", "zcode-current", "", "")
+	definition := testProfile(t, FamilyZcode, "kimi_current", "", "")
 	definition = currentProbeDefinitionWithExecutionIdentity(definition)
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	if err := os.Mkdir(directory, 0700); err != nil {
@@ -460,10 +456,6 @@ func TestCurrentProbeAgyBindsProviderPacketAndRequiresLifecycleEvidence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("agy-current")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +464,7 @@ func TestCurrentProbeAgyBindsProviderPacketAndRequiresLifecycleEvidence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-current", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,10 +525,6 @@ func TestCurrentProbeAcceptsNarratedAGYCapabilityWithoutTerminalFrame(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("agy-narrated")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
@@ -545,7 +533,7 @@ func TestCurrentProbeAcceptsNarratedAGYCapabilityWithoutTerminalFrame(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-narrated", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-narrated", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,10 +595,6 @@ func TestCurrentProbeRejectsUnboundEvidenceAsOperationalCapabilityFailure(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("agy-unbound-evidence")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
@@ -619,7 +603,7 @@ func TestCurrentProbeRejectsUnboundEvidenceAsOperationalCapabilityFailure(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-unbound-evidence", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-unbound-evidence", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,10 +636,6 @@ func TestCurrentProbeRejectsPromptEchoAsOperationalCapabilityFailure(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ports.ParseConcurrencyKey("agy-prompt-echo")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
@@ -664,7 +644,7 @@ func TestCurrentProbeRejectsPromptEchoAsOperationalCapabilityFailure(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", key, "agy-prompt-echo", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-prompt-echo", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,10 +679,6 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 }
 
 func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
-	key, err := ports.ParseConcurrencyKey("agy-lifecycle-sequence")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
 	if err != nil {
 		t.Fatal(err)
@@ -712,9 +688,9 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
-		FamilyAgy, "agy_lifecycle_sequence", "", "/private/bin/agy", "", key, "agy-lifecycle-sequence",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096,
-	)
+		FamilyAgy, "agy_lifecycle_sequence", "", "/private/bin/agy", "", "agy-lifecycle-sequence",
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,10 +879,6 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 // probe that narrated its proof without emitting one still passes transport and
 // lifecycle validation; the bound fixture evidence decides acceptance later.
 func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
-	key, err := ports.ParseConcurrencyKey("agy-frameless-success")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
 	if err != nil {
 		t.Fatal(err)
@@ -916,9 +888,9 @@ func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
-		FamilyAgy, "agy_frameless_success", "", "/private/bin/agy", "", key, "agy-frameless-success",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096,
-	)
+		FamilyAgy, "agy_frameless_success", "", "/private/bin/agy", "", "agy-frameless-success",
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -961,7 +933,7 @@ func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
 }
 
 func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
-	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "kimi-transport", "", ""))
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "", ""))
 	packet, err := ports.NewProviderPacketFromBytes([]byte("fixture"))
 	if err != nil {
 		t.Fatal(err)
@@ -988,10 +960,6 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 }
 
 func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T) {
-	key, err := ports.ParseConcurrencyKey("agy-lifecycle-timeout")
-	if err != nil {
-		t.Fatal(err)
-	}
 	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
 	if err != nil {
 		t.Fatal(err)
@@ -1001,9 +969,9 @@ func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T
 		t.Fatal(err)
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
-		FamilyAgy, "agy_lifecycle_timeout", "", "/private/bin/agy", "", key, "agy-lifecycle-timeout",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096,
-	)
+		FamilyAgy, "agy_lifecycle_timeout", "", "/private/bin/agy", "", "agy-lifecycle-timeout",
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1081,7 +1049,7 @@ func TestAGYPermissionDiagnosticCannotMaskInvalidTransportEvidence(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "kimi_current", "agy-invalid-transport", "", ""))
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "kimi_current", "", ""))
 	observation := testProcessObservation(
 		t,
 		nil,
@@ -1146,7 +1114,7 @@ func TestCurrentProbeEnvironmentReceiptEvidenceBindsNamespaceGeneration(t *testi
 }
 
 func TestCurrentProbeDoesNotMintReceiptsWhenTransportValidationFails(t *testing.T) {
-	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "kimi-transport-failure", "", ""))
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "", ""))
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
@@ -1187,10 +1155,6 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherKey, err := ports.ParseConcurrencyKey("different-current-probe-lane")
-	if err != nil {
-		t.Fatal(err)
-	}
 	otherTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
 	if err != nil {
 		t.Fatal(err)
@@ -1223,7 +1187,6 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 		"executable-sha256":   func(d *RuntimeDefinition) { d.executableSHA256 = "sha256:other" },
 		"launcher":            func(d *RuntimeDefinition) { d.launcher = "/private/bin/other-launcher" },
 		"launcher-sha256":     func(d *RuntimeDefinition) { d.launcherSHA256 = "sha256:other-launcher" },
-		"concurrency-key":     func(d *RuntimeDefinition) { d.concurrencyKey = otherKey },
 		"workspace-authority": func(d *RuntimeDefinition) { d.requiresWorkspaceAuthority = !d.requiresWorkspaceAuthority },
 		"spawn-verification":  func(d *RuntimeDefinition) { d.requiresSpawnVerification = !d.requiresSpawnVerification },
 		"explicit-transport":  func(d *RuntimeDefinition) { d.productionExplicitTransport = !d.productionExplicitTransport },
@@ -1241,7 +1204,7 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 
 func currentProbeAuthorityForDefinition(t *testing.T) (RuntimeDefinition, CurrentProbeDirectExecutionAuthorityReceipt) {
 	t.Helper()
-	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "kimi-authority", "", ""))
+	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyKimi, "kimi_current", "", ""))
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
@@ -1449,7 +1412,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
 		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema},
 	} {
-		definition := testProfile(t, family, "kimi_current", "lane", "", "")
+		definition := testProfile(t, family, "kimi_current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
 		if err != nil || !reflect.DeepEqual(argv[len(definition.BaseArgv()):], want) {
 			t.Fatalf("%s argv=%q err=%v", family, argv, err)
@@ -1499,7 +1462,7 @@ func TestCurrentProbeRejectsPairwiseRoleWorkspaceReuseBeforeLaunch(t *testing.T)
 		t.Fatal(err)
 	}
 	result, err := probe.QualifyCurrent(context.Background(), CurrentProbeRequest{
-		Definition: testProfile(t, FamilyKimi, "kimi_current", "kimi-current", "", ""),
+		Definition: testProfile(t, FamilyKimi, "kimi_current", "", ""),
 		Namespace:  currentProbeNamespace{environment: currentProbeEnvironment(t)},
 		Fixture:    &currentProbeFixture{identity: baseIdentity, role: domain.RoleLogic},
 		RoleFixtures: []ProbeFixtureLease{

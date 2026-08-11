@@ -265,7 +265,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return inventory
 	}
 	defer drainRuntimeInventory()
-	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, runIDs, runtime, plan.MaxLanes, receipt, diagnostics.Sink())
+	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, runIDs, runtime, plan.MaxWorkers, receipt, diagnostics.Sink())
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
 	}

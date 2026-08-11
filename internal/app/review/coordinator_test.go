@@ -105,7 +105,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			}
 		}
 		repairIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventRepairQueued, domain.RoleLogic)
-		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventLanesCloseAuthorized, "")
+		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventWorkersCloseAuthorized, "")
 		if repairIndex >= closeIndex {
 			t.Fatalf("repair/close trace order = %d/%d", repairIndex, closeIndex)
 		}
@@ -249,7 +249,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("timeout-closes-its-role-before-lane-shutdown", func(t *testing.T) {
+	t.Run("timeout-closes-its-role-before-worker-shutdown", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 			if job.Role() == domain.RoleLogic {
@@ -267,9 +267,9 @@ func TestCoordinatorScenarios(t *testing.T) {
 			t.Fatal("a timeout was reported as an unusable provider")
 		}
 		terminalIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventRoleTerminal, domain.RoleLogic)
-		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventLanesCloseAuthorized, "")
+		closeIndex := coordinatorTraceEventIndex(t, result, CoordinatorEventWorkersCloseAuthorized, "")
 		if terminalIndex >= closeIndex {
-			t.Fatalf("role closed after lane close authorization: %d/%d", terminalIndex, closeIndex)
+			t.Fatalf("role closed after worker close authorization: %d/%d", terminalIndex, closeIndex)
 		}
 	})
 
@@ -283,7 +283,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 		second := coordinatorRandomCompletionResult(t, assignments, receipt, secondOrder)
 		if !reflect.DeepEqual(first.Findings(), second.Findings()) || !reflect.DeepEqual(first.Trace(), second.Trace()) ||
 			!reflect.DeepEqual(first.RoleSummaries(), second.RoleSummaries()) || first.Outcomes() != second.Outcomes() {
-			t.Fatal("aggregation changed with lane completion order")
+			t.Fatal("aggregation changed with invocation completion order")
 		}
 	})
 }
@@ -751,7 +751,7 @@ func TestCoordinatorMaxActiveLanes(t *testing.T) {
 	gotMaximum := maximum
 	mu.Unlock()
 	if gotMaximum != 2 {
-		t.Fatalf("maximum active lanes = %d, want 2", gotMaximum)
+		t.Fatalf("maximum active workers = %d, want 2", gotMaximum)
 	}
 }
 
@@ -783,7 +783,7 @@ func TestIntegrationCoordinatorSixDistinctProvidersEnterBarrier(t *testing.T) {
 			providers[job.Route().ProviderInstance()] = struct{}{}
 		case <-time.After(3 * time.Second):
 			close(release)
-			t.Fatal("six primary lanes did not all enter the barrier")
+			t.Fatal("six primary invocations did not all enter the barrier")
 		}
 	}
 	if len(roles) != 6 || len(providers) != 6 {
@@ -793,16 +793,16 @@ func TestIntegrationCoordinatorSixDistinctProvidersEnterBarrier(t *testing.T) {
 	close(release)
 	execution := <-done
 	if execution.err != nil || execution.result.RunState() != domain.RunCompleted {
-		t.Fatalf("six-lane execution = state:%q error:%v", execution.result.RunState(), execution.err)
+		t.Fatalf("six-role execution = state:%q error:%v", execution.result.RunState(), execution.err)
 	}
 }
 
-// TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes is
+// TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerInvocations is
 // the load-bearing guarantee of one-provider-per-role: provider families
 // authenticate and meter independently, so one family being unusable must leave
 // every role on the other families running and reported normally. login_required
 // is the sharpest case, because it used to cancel the whole run.
-func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes(t *testing.T) {
+func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerInvocations(t *testing.T) {
 	for _, condition := range []AttemptCondition{
 		AttemptConditionLoginRequired,
 		AttemptConditionAuthentication,
@@ -846,7 +846,7 @@ func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes(
 				case <-entered:
 				case <-time.After(3 * time.Second):
 					close(release)
-					t.Fatal("peer lanes did not all enter concurrently")
+					t.Fatal("peer invocations did not all enter concurrently")
 				}
 			}
 			close(release)
@@ -1840,7 +1840,7 @@ func TestCoordinatorRepairStartsOnlyAfterInitialWaveCompletes(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
+func TestCoordinatorRunDeadlineBeforeWorkerCloseForcesFailedRun(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -1850,7 +1850,7 @@ func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
 	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return deadlineSource, func() {}
 	}
-	coordinator.beforeLanesCloseLinearizationHook = deadlineSource.expire
+	coordinator.beforeWorkersCloseLinearizationHook = deadlineSource.expire
 
 	result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
 	if err != nil {
@@ -1872,7 +1872,7 @@ func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
 			if ok && condition == AttemptConditionTimeout {
 				cancellationIndex = index
 			}
-		case CoordinatorEventLanesCloseAuthorized:
+		case CoordinatorEventWorkersCloseAuthorized:
 			closeIndex = index
 		}
 	}
@@ -1898,7 +1898,7 @@ func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	coordinator.beforeLanesCloseLinearizationHook = cancel
+	coordinator.beforeWorkersCloseLinearizationHook = cancel
 
 	result, err := coordinator.Execute(ctx, coordinatorTestTarget(t), assignments, "", nil)
 	if err != nil {
@@ -1917,7 +1917,7 @@ func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
 			if ok {
 				stopConditions = append(stopConditions, condition)
 			}
-		case CoordinatorEventLanesCloseAuthorized:
+		case CoordinatorEventWorkersCloseAuthorized:
 			closeIndex = index
 		}
 	}
@@ -1927,7 +1927,7 @@ func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
 			stopConditions, closeIndex, want)
 	}
 }
-func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T) {
+func TestCoordinatorIgnoresCancellationAfterWorkerCloseLinearization(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
@@ -1935,7 +1935,7 @@ func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T)
 	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	coordinator.lanesCloseAuthorizedHook = cancel
+	coordinator.workersCloseAuthorizedHook = cancel
 
 	result, err := coordinator.Execute(ctx, coordinatorTestTarget(t), assignments, "", nil)
 	if err != nil {
@@ -1951,7 +1951,7 @@ func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T)
 		}
 	}
 }
-func TestCoordinatorsShareProcessActiveLaneLimit(t *testing.T) {
+func TestCoordinatorsShareProcessActiveWorkerLimit(t *testing.T) {
 	firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "capacity.first.")
 	secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "capacity.second.")
 	entered := make(chan struct{}, len(firstAssignments)+len(secondAssignments))
@@ -2000,10 +2000,10 @@ func TestCoordinatorsShareProcessActiveLaneLimit(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if maximum != processLimit {
-		t.Fatalf("process-wide active lane maximum = %d, want %d", maximum, processLimit)
+		t.Fatalf("process-wide active worker maximum = %d, want %d", maximum, processLimit)
 	}
 }
-func TestProcessActiveLaneAuthorityUsesOneMixedLimitPool(t *testing.T) {
+func TestProcessWorkerCapacityAuthorityUsesOneMixedLimitPool(t *testing.T) {
 	target := coordinatorTestTarget(t)
 	limits, err := NewInvocationLimits(time.Minute, 1, 1)
 	if err != nil {
@@ -2046,8 +2046,8 @@ func TestProcessActiveLaneAuthorityUsesOneMixedLimitPool(t *testing.T) {
 		return coordinatorSuccessOutcome(t, job)
 	}}
 
-	wide := newLaneScheduler(context.Background(), runtime, 3, 1)
-	narrow := newLaneScheduler(context.Background(), runtime, 1, 1)
+	wide := newInvocationScheduler(context.Background(), runtime, 3, 1)
+	narrow := newInvocationScheduler(context.Background(), runtime, 1, 1)
 	if !wide.submit(wideJob) || !narrow.submit(narrowJob) {
 		t.Fatal("mixed-limit scheduler rejected job")
 	}
@@ -2228,8 +2228,8 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 		if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err == nil {
 			t.Fatal("record accepted duplicate run start")
 		}
-		if err := execution.record(CoordinatorEventLanesCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err == nil {
-			t.Fatal("record authorized lanes close before roles were terminal")
+		if err := execution.record(CoordinatorEventWorkersCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err == nil {
+			t.Fatal("record authorized workers close before roles were terminal")
 		}
 		if err := execution.run.TransitionRole(domain.RoleLogic, domain.RoleTaskCancelled); err != nil {
 			t.Fatal(err)
@@ -2256,7 +2256,7 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 			t.Fatalf("role-terminal rejection mutated trace: %#v/%d", execution.trace, execution.nextEvent)
 		}
 		if err := execution.record(CoordinatorEventRunTerminal, domain.Role(""), nil, nil, nil, "", domain.RunRunning); err == nil {
-			t.Fatal("record accepted terminal before lanes close and terminal run state")
+			t.Fatal("record accepted terminal before workers close and terminal run state")
 		}
 	})
 
@@ -2306,11 +2306,11 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := execution.record(CoordinatorEventLanesCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
+			if err := execution.record(CoordinatorEventWorkersCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
 				t.Fatal(err)
 			}
-			if err := execution.record(CoordinatorEventLanesCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err == nil {
-				t.Fatal("record accepted duplicate lanes close authorization")
+			if err := execution.record(CoordinatorEventWorkersCloseAuthorized, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err == nil {
+				t.Fatal("record accepted duplicate workers close authorization")
 			}
 			if err := execution.run.Transition(closure.runState); err != nil {
 				t.Fatal(err)
@@ -2321,7 +2321,7 @@ func TestCoordinatorRecordStateMachine(t *testing.T) {
 			trace := execution.trace
 			if len(trace) != len(domain.CoreRoleOrder())+3 ||
 				trace[0].Kind() != CoordinatorEventRunStarted ||
-				trace[len(trace)-2].Kind() != CoordinatorEventLanesCloseAuthorized ||
+				trace[len(trace)-2].Kind() != CoordinatorEventWorkersCloseAuthorized ||
 				trace[len(trace)-1].Kind() != CoordinatorEventRunTerminal {
 				t.Fatalf("closure trace = %#v", trace)
 			}
@@ -2394,7 +2394,7 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		CoordinatorEventRepairQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
-		CoordinatorEventLanesCloseAuthorized,
+		CoordinatorEventWorkersCloseAuthorized,
 		CoordinatorEventRunTerminal,
 	} {
 		if err := eventFor(kind).validate(); err != nil {
@@ -2437,7 +2437,7 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		{name: "cancellation has role", kind: CoordinatorEventCancellationRequested, mutate: func(event *CoordinatorTraceEvent) {
 			event.role = domain.RoleLogic
 		}},
-		{name: "lanes close has condition", kind: CoordinatorEventLanesCloseAuthorized, mutate: func(event *CoordinatorTraceEvent) {
+		{name: "workers close has condition", kind: CoordinatorEventWorkersCloseAuthorized, mutate: func(event *CoordinatorTraceEvent) {
 			event.condition, event.hasCondition = cancelled, true
 		}},
 		{name: "run terminal missing state", kind: CoordinatorEventRunTerminal, mutate: func(event *CoordinatorTraceEvent) {
@@ -2453,10 +2453,10 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		})
 	}
 }
-func TestLaneConfigurationAndDeadlineReductionIsFailClosed(t *testing.T) {
+func TestInvocationConfigurationAndDeadlineReductionIsFailClosed(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
 	invalid := coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
-	scheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
+	scheduler := newInvocationScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
 	defer scheduler.close()
 
 	deadlineCtx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
@@ -2501,7 +2501,7 @@ func TestLaneConfigurationAndDeadlineReductionIsFailClosed(t *testing.T) {
 	}
 }
 
-func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *testing.T) {
+func TestInvocationTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
 	providerOutcome, err := NewProviderTimeoutAttemptOutcome(job, 750*time.Millisecond)
 	if err != nil {
@@ -2509,7 +2509,7 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 	}
 	invocationCtx, cancelInvocation := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelInvocation()
-	providerScheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
+	providerScheduler := newInvocationScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
 	preserved := providerScheduler.reduceOutcome(job, providerOutcome, invocationCtx, AttemptConditionProviderTimeout)
 	providerScheduler.close()
 	if _, ok := preserved.ProviderTimeoutFacts(); !ok {
@@ -2518,7 +2518,7 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 
 	parentCtx, cancelParent := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelParent()
-	parentScheduler := newLaneScheduler(parentCtx, &coordinatorTestRuntime{}, 1, 1)
+	parentScheduler := newInvocationScheduler(parentCtx, &coordinatorTestRuntime{}, 1, 1)
 	stripped := parentScheduler.reduceOutcome(job, providerOutcome, parentCtx, AttemptConditionProviderTimeout)
 	parentScheduler.close()
 	condition, ok := stripped.Condition()
@@ -2530,14 +2530,14 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 	}
 }
 
-func TestLaneAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
+func TestInvocationAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
 	entered := make(chan struct{}, 1)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		entered <- struct{}{}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	scheduler := newLaneScheduler(context.Background(), runtime, 1, 1)
+	scheduler := newInvocationScheduler(context.Background(), runtime, 1, 1)
 	start, accepted := scheduler.admit(job)
 	if !accepted {
 		t.Fatal("scheduler rejected admission")
@@ -2556,7 +2556,7 @@ func TestLaneAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
 	}
 }
 
-func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
+func TestInvocationEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		runtime InvocationRuntime
@@ -2606,7 +2606,7 @@ func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 				parent, cancelParent = context.WithTimeout(parent, test.parent)
 			}
 			defer cancelParent()
-			scheduler := newLaneScheduler(parent, test.runtime, 1, 1)
+			scheduler := newInvocationScheduler(parent, test.runtime, 1, 1)
 			if !scheduler.submit(job) {
 				t.Fatal("scheduler rejected job")
 			}
@@ -2620,7 +2620,7 @@ func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 	}
 }
 
-func TestLaneCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
+func TestWorkerCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
 	limits, err := NewInvocationLimits(25*time.Millisecond, 1, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -2653,7 +2653,7 @@ func TestLaneCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
 	}}
 	parent, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	scheduler := newLaneScheduler(parent, runtime, 1, 2)
+	scheduler := newInvocationScheduler(parent, runtime, 1, 2)
 	if !scheduler.submit(first) {
 		t.Fatal("scheduler rejected first job")
 	}
@@ -2743,7 +2743,7 @@ func TestCoordinatorInvalidProperties(t *testing.T) {
 	clock := coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)}
 	ids := &coordinatorTestIDs{}
 	if _, err := NewCoordinator(clock, ids, runtime, 0, receipt); err == nil {
-		t.Fatal("NewCoordinator accepted a zero active-lane limit")
+		t.Fatal("NewCoordinator accepted a zero active-worker limit")
 	}
 	if _, err := NewCoordinator(clock, ids, runtime, 1, RunBudgetReceipt{}); err == nil {
 		t.Fatal("NewCoordinator accepted an ineligible receipt")
@@ -3448,7 +3448,7 @@ func coordinatorRandomCompletionResult(t *testing.T, assignments []Assignment, r
 	for _, role := range releaseOrder {
 		close(releases[role])
 		if deliveredRole := <-delivered; deliveredRole != role {
-			t.Fatalf("lane result delivery = %q, want %q", deliveredRole, role)
+			t.Fatalf("invocation result delivery = %q, want %q", deliveredRole, role)
 		}
 	}
 	execution := <-done

@@ -25,7 +25,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 			template := templates[offset]
 			offset++
 			wantInstance := string(family) + "-" + string(role)
-			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || template.concurrencyKey.String() != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
+			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
 				t.Fatalf("template %s/%s = %#v", family, role, template)
 			}
 			if family == FamilyZCode && template.transportArgvIndex != 6 {
@@ -151,7 +151,7 @@ func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 	}
 	for _, candidate := range candidates {
 		instance := candidate.Definition.Instance()
-		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != "/private/bin/node" || candidate.Definition.Launcher() != ZCodeLauncher || candidate.Definition.ConcurrencyKey().String() != instance {
+		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != "/private/bin/node" || candidate.Definition.Launcher() != ZCodeLauncher {
 			t.Fatalf("ZCode candidate %s = roles %v definition %#v", instance, candidate.SupportedRoles, candidate.Definition)
 		}
 		if candidate.Limits.Timeout() != productionDefaultProviderTimeout || candidate.Definition.Timeout() != productionDefaultProviderTimeout {

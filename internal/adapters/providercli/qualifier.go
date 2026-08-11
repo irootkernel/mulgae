@@ -490,7 +490,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	var request ports.ProcessRequest
 	var requestErr error
 	if packet == nil {
-		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout, boundedProbeOutput(definition.MaxStdoutBytes()), boundedProbeOutput(definition.MaxStderrBytes()), definition.ConcurrencyKey())
+		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout, boundedProbeOutput(definition.MaxStdoutBytes()), boundedProbeOutput(definition.MaxStderrBytes()))
 	} else {
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
 	}
@@ -658,7 +658,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 	bytes, err := json.Marshal(struct {
 		Family, Instance, Version, Executable, ExecutableSHA256                  string
 		Launcher, LauncherSHA256, ProfileGeneration, RuntimeSafetyPolicyIdentity string
-		ConcurrencyKey, ProfileID                                                string
+		ProfileID                                                                string
 		BaseArgv, Environment                                                    []string
 		TransportChannel, TransportReference                                     string
 		TransportArgvIndex                                                       int
@@ -675,8 +675,8 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		Executable: definition.executable, ExecutableSHA256: definition.executableSHA256,
 		Launcher: definition.launcher, LauncherSHA256: definition.launcherSHA256,
 		ProfileGeneration: definition.profileGeneration, RuntimeSafetyPolicyIdentity: definition.runtimeSafetyPolicyIdentity,
-		ConcurrencyKey: definition.concurrencyKey.String(), ProfileID: definition.profileID,
-		BaseArgv: append([]string(nil), definition.baseArgv...), Environment: environmentValues,
+		ProfileID: definition.profileID,
+		BaseArgv:  append([]string(nil), definition.baseArgv...), Environment: environmentValues,
 		TransportChannel: string(definition.transport.channel), TransportReference: definition.transport.reference,
 		TransportArgvIndex: definition.transport.argvIndex, WorkingDirectory: definition.workingDirectory,
 		TimeoutNanoseconds: definition.timeout.Nanoseconds(), MaxStdoutBytes: definition.maxStdoutBytes,
@@ -829,9 +829,9 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 		return ports.ProcessRequest{}, err
 	}
 	if lifecycle, ok := def.PostOutputLifecycle(); ok {
-		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()), def.ConcurrencyKey())
+		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()))
 	}
-	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()), def.ConcurrencyKey())
+	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()))
 }
 
 func safeProbeDefinition(definition RuntimeDefinition) error {

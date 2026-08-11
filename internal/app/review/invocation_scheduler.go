@@ -6,59 +6,59 @@ import (
 	"sync"
 )
 
-// laneJob and laneResult are deliberately value-only boundaries. In particular,
+// workerJob and workerResult are deliberately value-only boundaries. In particular,
 // they cannot carry a mutable domain.Run, domain.Attempt, role aggregate, or
-// identity issuer into a lane goroutine.
-type laneJob struct {
+// identity issuer into a worker goroutine.
+type workerJob struct {
 	job   InvocationJob
 	start <-chan struct{}
 }
 
-type laneResult struct {
+type workerResult struct {
 	job     InvocationJob
 	outcome AttemptOutcome
 }
-type processLaneCapacityAuthority struct {
+type processWorkerCapacityAuthority struct {
 	mu      sync.Mutex
 	active  int
 	limits  map[int]int
 	changed chan struct{}
 }
 
-type processLaneCapacityRegistration struct {
-	authority *processLaneCapacityAuthority
+type processWorkerCapacityRegistration struct {
+	authority *processWorkerCapacityAuthority
 	limit     int
 	closed    bool
 }
 
-var coordinatorProcessLaneCapacity = &processLaneCapacityAuthority{
+var coordinatorProcessWorkerCapacity = &processWorkerCapacityAuthority{
 	limits:  make(map[int]int),
 	changed: make(chan struct{}),
 }
 
-func (authority *processLaneCapacityAuthority) register(
+func (authority *processWorkerCapacityAuthority) register(
 	maxActiveLanes int,
-) *processLaneCapacityRegistration {
+) *processWorkerCapacityRegistration {
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 	authority.limits[maxActiveLanes]++
 	authority.signalLocked()
-	return &processLaneCapacityRegistration{
+	return &processWorkerCapacityRegistration{
 		authority: authority,
 		limit:     maxActiveLanes,
 	}
 }
 
-func (registration *processLaneCapacityRegistration) acquire(ctx context.Context) error {
+func (registration *processWorkerCapacityRegistration) acquire(ctx context.Context) error {
 	if registration == nil || registration.authority == nil || ctx == nil {
-		return errors.New("review coordinator: invalid process lane capacity registration")
+		return errors.New("review coordinator: invalid process worker capacity registration")
 	}
 	authority := registration.authority
 	for {
 		authority.mu.Lock()
 		if registration.closed {
 			authority.mu.Unlock()
-			return errors.New("review coordinator: closed process lane capacity registration")
+			return errors.New("review coordinator: closed process worker capacity registration")
 		}
 		limit := authority.effectiveLimitLocked()
 		if authority.active < limit {
@@ -77,7 +77,7 @@ func (registration *processLaneCapacityRegistration) acquire(ctx context.Context
 	}
 }
 
-func (registration *processLaneCapacityRegistration) releaseSlot() {
+func (registration *processWorkerCapacityRegistration) releaseSlot() {
 	authority := registration.authority
 	authority.mu.Lock()
 	authority.active--
@@ -85,7 +85,7 @@ func (registration *processLaneCapacityRegistration) releaseSlot() {
 	authority.mu.Unlock()
 }
 
-func (registration *processLaneCapacityRegistration) unregister() {
+func (registration *processWorkerCapacityRegistration) unregister() {
 	if registration == nil || registration.authority == nil {
 		return
 	}
@@ -103,7 +103,7 @@ func (registration *processLaneCapacityRegistration) unregister() {
 	authority.signalLocked()
 }
 
-func (authority *processLaneCapacityAuthority) effectiveLimitLocked() int {
+func (authority *processWorkerCapacityAuthority) effectiveLimitLocked() int {
 	limit := 0
 	for candidate := range authority.limits {
 		if limit == 0 || candidate < limit {
@@ -113,44 +113,44 @@ func (authority *processLaneCapacityAuthority) effectiveLimitLocked() int {
 	return limit
 }
 
-func (authority *processLaneCapacityAuthority) signalLocked() {
+func (authority *processWorkerCapacityAuthority) signalLocked() {
 	close(authority.changed)
 	authority.changed = make(chan struct{})
 }
 
-// laneScheduler owns worker lifetime only. It has no domain-state, repair,
+// invocationScheduler owns worker lifetime only. It has no domain-state, repair,
 // aggregation, or finalization authority; all of those remain in the
 // coordinator goroutine.
-type laneScheduler struct {
+type invocationScheduler struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	runtime  InvocationRuntime
-	capacity *processLaneCapacityRegistration
+	capacity *processWorkerCapacityRegistration
 
-	results chan laneResult
-	jobs    chan laneJob
+	results chan workerResult
+	jobs    chan workerJob
 
 	mu      sync.Mutex
 	closed  bool
 	workers sync.WaitGroup
 }
 
-func newLaneScheduler(
+func newInvocationScheduler(
 	parent context.Context,
 	runtime InvocationRuntime,
 	maxActiveLanes, maxJobs int,
-) *laneScheduler {
+) *invocationScheduler {
 	ctx, cancel := context.WithCancel(parent)
 	if maxJobs < 1 {
 		maxJobs = 1
 	}
-	scheduler := &laneScheduler{
+	scheduler := &invocationScheduler{
 		ctx:      ctx,
 		cancel:   cancel,
 		runtime:  runtime,
-		capacity: coordinatorProcessLaneCapacity.register(maxActiveLanes),
-		results:  make(chan laneResult, maxJobs),
-		jobs:     make(chan laneJob, maxJobs),
+		capacity: coordinatorProcessWorkerCapacity.register(maxActiveLanes),
+		results:  make(chan workerResult, maxJobs),
+		jobs:     make(chan workerJob, maxJobs),
 	}
 	scheduler.workers.Add(maxActiveLanes)
 	for range maxActiveLanes {
@@ -160,7 +160,7 @@ func newLaneScheduler(
 }
 
 // admitWithGate queues a job behind a caller-owned start gate.
-func (scheduler *laneScheduler) admitWithGate(job InvocationJob, gate <-chan struct{}) bool {
+func (scheduler *invocationScheduler) admitWithGate(job InvocationJob, gate <-chan struct{}) bool {
 	if gate == nil {
 		return false
 	}
@@ -170,7 +170,7 @@ func (scheduler *laneScheduler) admitWithGate(job InvocationJob, gate <-chan str
 		return false
 	}
 	select {
-	case scheduler.jobs <- laneJob{job: job, start: gate}:
+	case scheduler.jobs <- workerJob{job: job, start: gate}:
 		scheduler.mu.Unlock()
 		return true
 	case <-scheduler.ctx.Done():
@@ -181,7 +181,7 @@ func (scheduler *laneScheduler) admitWithGate(job InvocationJob, gate <-chan str
 
 // admit queues a job behind a private start gate. Direct scheduler callers close
 // the returned gate only after they have linearized their dispatch authority.
-func (scheduler *laneScheduler) admit(job InvocationJob) (func(), bool) {
+func (scheduler *invocationScheduler) admit(job InvocationJob) (func(), bool) {
 	gate := make(chan struct{})
 	if !scheduler.admitWithGate(job, gate) {
 		return nil, false
@@ -196,7 +196,7 @@ func (scheduler *laneScheduler) admit(job InvocationJob) (func(), bool) {
 
 // submit is the immediate-admission helper for direct scheduler tests. The
 // coordinator uses admit so its trace always precedes runtime execution.
-func (scheduler *laneScheduler) submit(job InvocationJob) bool {
+func (scheduler *invocationScheduler) submit(job InvocationJob) bool {
 	start, accepted := scheduler.admit(job)
 	if !accepted {
 		return false
@@ -205,7 +205,7 @@ func (scheduler *laneScheduler) submit(job InvocationJob) bool {
 	return true
 }
 
-func (scheduler *laneScheduler) runWorker() {
+func (scheduler *invocationScheduler) runWorker() {
 	defer scheduler.workers.Done()
 	for queued := range scheduler.jobs {
 		select {
@@ -217,7 +217,7 @@ func (scheduler *laneScheduler) runWorker() {
 	}
 }
 
-func (scheduler *laneScheduler) runJob(job InvocationJob) {
+func (scheduler *invocationScheduler) runJob(job InvocationJob) {
 	if !job.Limits().Valid() {
 		scheduler.send(job, scheduler.conditionOutcome(job, AttemptConditionInternalInvariant))
 		return
@@ -256,11 +256,11 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 	scheduler.send(job, scheduler.reduceOutcome(job, outcome, scheduler.ctx, conditions...))
 }
 
-func (scheduler *laneScheduler) contextOutcome(job InvocationJob, ctx context.Context) AttemptOutcome {
+func (scheduler *invocationScheduler) contextOutcome(job InvocationJob, ctx context.Context) AttemptOutcome {
 	return scheduler.reduceOutcome(job, AttemptOutcome{}, ctx)
 }
 
-func (scheduler *laneScheduler) reduceOutcome(
+func (scheduler *invocationScheduler) reduceOutcome(
 	job InvocationJob,
 	outcome AttemptOutcome,
 	ctx context.Context,
@@ -277,7 +277,7 @@ func (scheduler *laneScheduler) reduceOutcome(
 	}
 	if len(facts) == 0 {
 		if ctxErr != nil {
-			return scheduler.conditionOutcome(job, laneContextCondition(ctxErr))
+			return scheduler.conditionOutcome(job, invocationContextCondition(ctxErr))
 		}
 		facts = append(facts, AttemptConditionInternalInvariant)
 	}
@@ -292,7 +292,7 @@ func (scheduler *laneScheduler) reduceOutcome(
 		condition = AttemptConditionTimeout
 	}
 	if ctxErr != nil {
-		contextCondition := laneContextCondition(ctxErr)
+		contextCondition := invocationContextCondition(ctxErr)
 		if !conditionRetainsAuthorityAfterContext(condition, contextCondition) {
 			condition = contextCondition
 		}
@@ -302,14 +302,14 @@ func (scheduler *laneScheduler) reduceOutcome(
 	}
 	return scheduler.conditionOutcome(job, condition)
 }
-func laneContextCondition(ctxErr error) AttemptCondition {
+func invocationContextCondition(ctxErr error) AttemptCondition {
 	if errors.Is(ctxErr, context.DeadlineExceeded) {
 		return AttemptConditionTimeout
 	}
 	return AttemptConditionCancelled
 }
 
-func (scheduler *laneScheduler) conditionOutcome(job InvocationJob, condition AttemptCondition) AttemptOutcome {
+func (scheduler *invocationScheduler) conditionOutcome(job InvocationJob, condition AttemptCondition) AttemptOutcome {
 	outcome, err := NewAttemptOutcome(job, nil, &condition)
 	if err == nil {
 		return outcome
@@ -317,19 +317,19 @@ func (scheduler *laneScheduler) conditionOutcome(job InvocationJob, condition At
 	return AttemptOutcome{}
 }
 
-func (scheduler *laneScheduler) send(job InvocationJob, outcome AttemptOutcome) {
+func (scheduler *invocationScheduler) send(job InvocationJob, outcome AttemptOutcome) {
 	// The receipt caps the number of possible jobs, and results has that exact
 	// capacity. Workers never close this shared channel.
-	scheduler.results <- laneResult{job: job, outcome: outcome}
+	scheduler.results <- workerResult{job: job, outcome: outcome}
 }
 
-func (scheduler *laneScheduler) cancelDispatch() {
+func (scheduler *invocationScheduler) cancelDispatch() {
 	scheduler.cancel()
 }
 
 // close is called only after the coordinator has decided no repair
 // can be generated. It joins workers but intentionally never closes results.
-func (scheduler *laneScheduler) close() {
+func (scheduler *invocationScheduler) close() {
 	scheduler.mu.Lock()
 	if scheduler.closed {
 		scheduler.mu.Unlock()

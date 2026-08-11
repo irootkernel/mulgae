@@ -41,15 +41,14 @@ func TestKimiLoginAuthenticatorRunsNativeLoginWithClosedEnvironment(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := testProfile(t, FamilyKimi, "kimi-main", "kimi-lane", "1.1.4", "")
+	definition := testProfile(t, FamilyKimi, "kimi-main", "1.1.4", "")
 	if err := authenticator.LoginProvider(context.Background(), definition); err != nil {
 		t.Fatal(err)
 	}
 	request := runner.request
 	if verifier.calls != 1 || request.Executable() != definition.Executable() ||
 		!reflect.DeepEqual(request.Argv(), []string{definition.Executable(), "login"}) ||
-		request.WorkingDirectory() != nativeHome || request.Timeout() != kimiLoginTimeout ||
-		request.ConcurrencyKey().String() != "kimi-login" {
+		request.WorkingDirectory() != nativeHome || request.Timeout() != kimiLoginTimeout {
 		t.Fatalf("login request = %#v verifier calls=%d", request, verifier.calls)
 	}
 	wantEnvironment := map[string]string{

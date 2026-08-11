@@ -27,7 +27,6 @@ func (qualificationRuntimeDefinitionStub) Launcher() string                    {
 func (qualificationRuntimeDefinitionStub) LauncherSHA256() string              { return "digest" }
 func (qualificationRuntimeDefinitionStub) ProfileGeneration() string           { return "generation" }
 func (qualificationRuntimeDefinitionStub) RuntimeSafetyPolicyIdentity() string { return "policy" }
-func (qualificationRuntimeDefinitionStub) ConcurrencyKey() ConcurrencyKey      { return ConcurrencyKey{} }
 func (qualificationRuntimeDefinitionStub) ProfileID() string                   { return "profile" }
 func (qualificationRuntimeDefinitionStub) KimiModel() string                   { return "" }
 func (qualificationRuntimeDefinitionStub) BaseArgv() []string                  { return nil }
