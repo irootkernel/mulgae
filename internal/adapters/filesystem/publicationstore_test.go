@@ -102,6 +102,48 @@ func TestPublicationStoreWithNextPublicationEpochAcceptsAnchoredProjectRoot(t *t
 	assertPrivateDirectory(t, filepath.Join(fixture.root, publicationLockDirectory))
 }
 
+func TestPublicationStoreLockWaitHonorsDeadlineWithoutCorruptingState(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	root := fixture.run.Root()
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), root, func(context.Context, uint64) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("initialize publication lock: %v", err)
+	}
+
+	lockFile, err := os.OpenFile(filepath.Join(fixture.root, publicationLockDirectory, publicationLockFile), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockFile.Close()
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatalf("hold publication lock: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	called := false
+	err = fixture.store.WithNextPublicationEpoch(ctx, root, func(context.Context, uint64) error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || called {
+		t.Fatalf("publication lock contention = called %t, error %v; want deadline before callback", called, err)
+	}
+	if _, err := os.Lstat(filepath.Join(fixture.root, "store", "epochs")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deadline waiter changed publication epochs: %v", err)
+	}
+
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_UN); err != nil {
+		t.Fatalf("release held publication lock: %v", err)
+	}
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), root, func(context.Context, uint64) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("publication store did not recover after contention: %v", err)
+	}
+}
+
 func TestParsePublicationEpochFilenameRejectsMalformedMembers(t *testing.T) {
 	for _, name := range []string{
 		"epoch_00000000000000000000.json",

@@ -944,6 +944,81 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 	}
 }
 
+func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	barrier := canonicalTestTempDir(t)
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	buildFakeZCodeWithBarrier(t, root, zcodeNode, zcodeLauncher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), barrier)
+
+	for _, runtimeRoot := range []struct {
+		name   string
+		useXDG bool
+	}{
+		{name: "XDG runtime directory", useXDG: true},
+		{name: "TMPDIR fallback", useXDG: false},
+	} {
+		t.Run(runtimeRoot.name, func(t *testing.T) {
+			for _, projects := range []struct {
+				name   string
+				shared bool
+			}{
+				{name: "different projects", shared: false},
+				{name: "same project", shared: true},
+			} {
+				t.Run(projects.name, func(t *testing.T) {
+					clearProviderBarrier(t, barrier)
+					sharedRuntimeRoot := canonicalTestTempDir(t)
+					environment := sharedMulgaeProcessEnv(t, installedUser.HomeDir, providerDirectory, sharedRuntimeRoot, runtimeRoot.useXDG)
+
+					firstProject := canonicalTestTempDir(t)
+					initializeReviewGitRepository(t, firstProject)
+					secondProject := firstProject
+					if !projects.shared {
+						secondProject = canonicalTestTempDir(t)
+						initializeReviewGitRepository(t, secondProject)
+					}
+					for _, project := range uniqueStrings(firstProject, secondProject) {
+						runTestCommand(t, project, "git", "add", "review.go")
+						runTestCommand(t, project, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "review target")
+						initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
+							"init", "--providers", "zcode", "--roles", "logic",
+							"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher)
+						if initialized.exitCode != 0 {
+							t.Fatalf("initialize concurrent review config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+						}
+					}
+
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the captured change.", "--output", "json"}
+					first := startMulgaeBinaryWithEnv(t, ctx, binary, firstProject, environment, arguments...)
+					second := startMulgaeBinaryWithEnv(t, ctx, binary, secondProject, environment, arguments...)
+					firstResult := waitMulgaeBinary(t, first)
+					secondResult := waitMulgaeBinary(t, second)
+					firstEnvelope := assertSuccessfulConcurrentReview(t, firstProject, firstResult)
+					secondEnvelope := assertSuccessfulConcurrentReview(t, secondProject, secondResult)
+					if *firstEnvelope.Result.SessionID == *secondEnvelope.Result.SessionID || *firstEnvelope.Result.RunID == *secondEnvelope.Result.RunID {
+						t.Fatalf("concurrent reviews reused identity: first=%#v second=%#v", firstEnvelope.Result, secondEnvelope.Result)
+					}
+
+					markers, err := filepath.Glob(filepath.Join(barrier, "*.ready"))
+					if err != nil || len(markers) != 2 {
+						t.Fatalf("provider overlap markers = %v, %v; want exactly two review processes", markers, err)
+					}
+					assertNoGlobalProviderLockNamespace(t, sharedRuntimeRoot, runtimeRoot.useXDG)
+				})
+			}
+		})
+	}
+}
+
 // ZCode roles deliver their report through the staged file Mulgae granted them
 // while the AGY-primary role keeps the stdout transport. The manifest records
 // which transport carried each published report.
@@ -2160,7 +2235,12 @@ func fakeZCodeStagedReport(role string) string {
 
 func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) {
 	t.Helper()
-	buildFakeZCodeWithStagedOutput(t, root, binary, launcher, logPath, mode, "write")
+	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, mode, "write", "")
+}
+
+func buildFakeZCodeWithBarrier(t *testing.T, root, binary, launcher, logPath, barrier string) {
+	t.Helper()
+	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, "success", "write", barrier)
 }
 
 // buildFakeZCodeWithStagedOutput builds the offline ZCode fake. staged selects
@@ -2170,6 +2250,11 @@ func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) 
 // also writes outside staging, and "extra" stages a second file beside the
 // report. Every variant still prints the ignored stdout session envelope.
 func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPath, mode, staged string) {
+	t.Helper()
+	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, mode, staged, "")
+}
+
+func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier string) {
 	t.Helper()
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
 	source := filepath.Join(t.TempDir(), "main.go")
@@ -2182,6 +2267,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type observation struct {
@@ -2192,6 +2278,7 @@ type observation struct {
 }
 
 const destinationMarker = "__FAKE_ZCODE_DESTINATION_MARKER__"
+const barrierDirectory = __FAKE_ZCODE_BARRIER__
 
 var roleGuide = regexp.MustCompile("Mulgae ROOT REVIEW ROLE GUIDE/[0-9]+: ([A-Z]+)")
 
@@ -2275,8 +2362,39 @@ func main() {
 	if destination == "" {
 		panic("ZCode review invocation omits the staged output destination")
 	}
+	waitForPeer()
 	stage(destination, report(prompt))
 	fmt.Print(__FAKE_ZCODE_STDOUT__)
+}
+
+func waitForPeer() {
+	if barrierDirectory == "" {
+		return
+	}
+	marker := filepath.Join(barrierDirectory, fmt.Sprintf("%d.ready", os.Getpid()))
+	if err := os.WriteFile(marker, []byte("ready\n"), 0600); err != nil {
+		panic(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		entries, err := os.ReadDir(barrierDirectory)
+		if err != nil {
+			panic(err)
+		}
+		ready := 0
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".ready") {
+				ready++
+			}
+		}
+		if ready >= 2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			panic("peer review provider did not start concurrently")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // stagedDestination returns the one absolute path the last trusted layer of a
@@ -2338,6 +2456,7 @@ func stage(destination, body string) {
 }
 `
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_DESTINATION_MARKER__", stagedOutputDestinationMarker)
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BARRIER__", strconv.Quote(barrier))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED_BODY__", strconv.Quote(fakeZCodeStagedReportTemplate))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STDOUT__", strconv.Quote(fakeZCodeIgnoredStdout))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
@@ -2630,6 +2749,12 @@ type binaryResult struct {
 	exitCode int
 }
 
+type runningBinary struct {
+	command *exec.Cmd
+	stdout  bytes.Buffer
+	stderr  bytes.Buffer
+}
+
 func runMulgaeBinary(t *testing.T, binary, workingDirectory string, arguments ...string) binaryResult {
 	t.Helper()
 	return runMulgaeBinaryWithEnv(t, binary, workingDirectory, isolatedMulgaeEnv(t), arguments...)
@@ -2654,6 +2779,55 @@ func runMulgaeBinaryWithEnv(t *testing.T, binary, workingDirectory string, envir
 	}
 	result.exitCode = exitError.ExitCode()
 	return result
+}
+
+func startMulgaeBinaryWithEnv(t *testing.T, ctx context.Context, binary, workingDirectory string, environment []string, arguments ...string) *runningBinary {
+	t.Helper()
+	running := &runningBinary{command: exec.CommandContext(ctx, binary, arguments...)}
+	running.command.Dir = workingDirectory
+	running.command.Env = environment
+	running.command.Stdout = &running.stdout
+	running.command.Stderr = &running.stderr
+	if err := running.command.Start(); err != nil {
+		t.Fatalf("start Mulgae %q: %v", arguments, err)
+	}
+	return running
+}
+
+func waitMulgaeBinary(t *testing.T, running *runningBinary) binaryResult {
+	t.Helper()
+	if running == nil || running.command == nil {
+		t.Fatal("wait for nil Mulgae process")
+	}
+	err := running.command.Wait()
+	result := binaryResult{stdout: running.stdout.Bytes(), stderr: running.stderr.Bytes()}
+	if err == nil {
+		return result
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("wait for Mulgae: %v", err)
+	}
+	result.exitCode = exitError.ExitCode()
+	return result
+}
+
+func assertSuccessfulConcurrentReview(t *testing.T, project string, result binaryResult) commandEnvelope {
+	t.Helper()
+	if result.exitCode != 0 || len(result.stderr) != 0 {
+		t.Fatalf("concurrent review = exit %d stdout %q stderr %q", result.exitCode, result.stdout, result.stderr)
+	}
+	var envelope commandEnvelope
+	if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+		t.Fatalf("decode concurrent review: %v: %q", err, result.stdout)
+	}
+	if envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" ||
+		envelope.Result.SessionID == nil || envelope.Result.RunID == nil ||
+		envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
+		t.Fatalf("concurrent review did not publish a successful result: %#v", envelope)
+	}
+	assertCommandRoleReportInventory(t, project, envelope)
+	return envelope
 }
 
 func isolatedMulgaeEnv(t *testing.T) []string {
@@ -2684,6 +2858,52 @@ func isolatedMulgaeEnvWith(t *testing.T, home, providerDirectory string) []strin
 	}
 }
 
+func sharedMulgaeProcessEnv(t *testing.T, home, providerDirectory, runtimeRoot string, useXDG bool) []string {
+	t.Helper()
+	environment := []string{
+		"HOME=" + home,
+		"TMPDIR=" + runtimeRoot,
+		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
+		"XDG_CONFIG_HOME=" + canonicalTestTempDir(t),
+		"PATH=" + providerDirectory + ":/usr/bin",
+		"NO_PROXY=*",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	}
+	if useXDG {
+		return append(environment, "XDG_RUNTIME_DIR="+runtimeRoot)
+	}
+	return append(environment, "XDG_RUNTIME_DIR=")
+}
+
+func uniqueStrings(values ...string) []string {
+	seen := make(map[string]bool, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			unique = append(unique, value)
+		}
+	}
+	return unique
+}
+
+func clearProviderBarrier(t *testing.T, barrier string) {
+	t.Helper()
+	entries, err := os.ReadDir(barrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".ready") {
+			t.Fatalf("unexpected provider barrier entry %q", entry.Name())
+		}
+		if err := os.Remove(filepath.Join(barrier, entry.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func canonicalTestTempDir(t *testing.T) string {
 	t.Helper()
 	path, err := filepath.EvalSymlinks(t.TempDir())
@@ -2697,6 +2917,27 @@ func assertNoProjectLaneLocks(t *testing.T, project string) {
 	t.Helper()
 	if _, err := os.Lstat(filepath.Join(project, "locks")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Mulgae created a lane-lock namespace in the review target: %v", err)
+	}
+}
+
+func assertNoGlobalProviderLockNamespace(t *testing.T, runtimeRoot string, useXDG bool) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(runtimeRoot, "mulgae"),
+		filepath.Join(runtimeRoot, "mulgae-"+strconv.Itoa(os.Geteuid())),
+	} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Mulgae created global provider lock namespace %q (XDG=%t): %v", path, useXDG, err)
+		}
+	}
+	entries, err := os.ReadDir(runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".mulgae-lane-") && strings.HasSuffix(entry.Name(), ".guard") {
+			t.Fatalf("Mulgae created global provider lock guard %q (XDG=%t)", entry.Name(), useXDG)
+		}
 	}
 }
 

@@ -294,7 +294,7 @@ func (graph *productionRuntimeGraph) childExecutor(ctx context.Context, artifact
 			return nil, nil, fmt.Errorf("child composition: provider output staging: %w", err)
 		}
 	}
-	coordinator, err := review.NewCoordinator(graph.clock, graph.ids, runtime, graph.locker, plan.MaxLanes, receipt)
+	coordinator, err := review.NewCoordinator(graph.clock, graph.ids, runtime, nil, plan.MaxLanes, receipt)
 	if err != nil {
 		return nil, nil, err
 	}

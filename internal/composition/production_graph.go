@@ -14,7 +14,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/lanelock"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/adapters/reviewinput"
@@ -42,60 +41,9 @@ type productionRuntimeGraph struct {
 	reviewValidator *validation.ReviewValidator
 	publisher       *publication.Service
 	diagnostics     ports.RuntimeDiagnosticSinkFactory
-	locker          ports.LaneLocker
 	templates       review.TemplateSet
 	clock           ports.Clock
 	ids             review.IdentityGenerator
-}
-
-func productionLaneLockRoot(writer ports.SecureFileWriter, installedUID uint64) (ports.AnchoredRoot, error) {
-	if writer == nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: secure writer is required")
-	}
-
-	basePath := os.Getenv("XDG_RUNTIME_DIR")
-	directoryName := "mulgae"
-	if basePath == "" {
-		basePath = os.Getenv("TMPDIR")
-		directoryName = "mulgae-" + strconv.FormatUint(installedUID, 10)
-	}
-	if basePath == "" {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime directory is unavailable")
-	}
-
-	cleanBase := filepath.Clean(basePath)
-	if !filepath.IsAbs(cleanBase) {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime directory is not absolute")
-	}
-	resolvedBase, err := filepath.EvalSymlinks(cleanBase)
-	if err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: resolve runtime directory: %w", err)
-	}
-	base, err := ports.NewAnchoredRoot(filepath.Clean(resolvedBase))
-	if err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: anchor runtime directory: %w", err)
-	}
-	relative, err := ports.NewSafeRelativePath(directoryName)
-	if err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime namespace: %w", err)
-	}
-	if err := writer.EnsurePrivateDir(base, relative); err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: create runtime namespace: %w", err)
-	}
-
-	rootPath := filepath.Join(base.String(), relative.String())
-	resolvedRoot, err := filepath.EvalSymlinks(rootPath)
-	if err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: resolve runtime namespace: %w", err)
-	}
-	if filepath.Clean(resolvedRoot) != rootPath {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: runtime namespace changed")
-	}
-	root, err := ports.NewAnchoredRoot(rootPath)
-	if err != nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("production lane lock root: anchor runtime namespace: %w", err)
-	}
-	return root, nil
 }
 
 func (graph *productionRuntimeGraph) cleanupRoots() error {
@@ -295,20 +243,12 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: diagnostics: %w", err)
 	}
-	laneLockRoot, err := productionLaneLockRoot(writer, installedUID)
-	if err != nil {
-		return nil, fmt.Errorf("production graph: lane lock root: %w", err)
-	}
-	locker, err := lanelock.New(laneLockRoot, writer)
-	if err != nil {
-		return nil, fmt.Errorf("production graph: lane locker: %w", err)
-	}
 	templates, err := reviewrun.LoadDefaultTemplateSet(ctx, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: templates: %w", err)
 	}
 	graph.detector, graph.inputs, graph.authority, graph.qualified, graph.candidates, graph.reviewValidator = detector, inputs, authority, qualified, candidates, reviewValidator
-	graph.publisher, graph.diagnostics, graph.locker, graph.templates = publisher, diagnostics, locker, templates
+	graph.publisher, graph.diagnostics, graph.templates = publisher, diagnostics, templates
 	return graph, nil
 }
 

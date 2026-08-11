@@ -23,7 +23,10 @@ failure reason, every other role continues on its own provider, and choosing a
 replacement is yours. The final report lists each failed role, the provider it
 ran on, why it stopped, and the `mulgae rerun` command to run it again
 elsewhere. Mulgae serializes invocations that share a provider instance or
-credential namespace.
+credential namespace within one Mulgae process. A Mulgae process in another
+project does not acquire or wait for a shared provider lock. Each process owns
+its temporary provider namespace, while project-local publication still
+serializes mutations of one project's durable artifacts.
 
 Provider families authenticate independently, so a login or quota failure on one
 family never cancels roles running on the others.

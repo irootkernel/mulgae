@@ -74,9 +74,10 @@ re-derived after init.
 5. Mulgae composes trusted prompt layers and one capture-owned immutable
    directory view shared by every role in the run. A single tree is available
    under `current/`; a Git comparison exposes both `before/` and `after/`.
-6. Provider executions run through bounded, serialized lanes with
-   adapter-owned tool boundaries and per-invocation process isolation against
-   that shared directory view.
+6. Provider executions run through bounded, process-local serialized lanes
+   with adapter-owned tool boundaries and per-invocation process isolation
+   against that shared directory view. Separate Mulgae processes do not share
+   provider locks.
 7. The provider result arrives on the transport declared for that route: a
    Mulgae-owned staged file the adapter validates and reads back after the
    process terminates, or process stdout.
@@ -95,9 +96,12 @@ re-derived after init.
 
 ## Concurrency, cancellation, and storage
 
-Provider instances have concurrency keys, so commands sharing credentials or a
-session cannot race. The coordinator enforces per-role and per-run invocation
-ceilings. Cancellation propagates to subprocesses and terminal publication.
+Within one Mulgae process, provider instances still have concurrency keys, so
+matching invocations are serialized by the coordinator. Separate processes and
+projects do not share provider locks; each process owns its temporary provider
+namespace. The coordinator enforces per-role and per-run invocation ceilings.
+Project-local publication retains its own lock because it mutates shared durable
+state. Cancellation propagates to subprocesses and terminal publication.
 
 `.mulgae/` contains configuration and durable review state. Temporary provider
 workspaces and namespaces live outside the project and are removed after use.

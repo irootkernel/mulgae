@@ -12,8 +12,10 @@ and publication.
 Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
 commands against that immutable directory view, isolated output, explicit
-credential projection, execution bounds, per-instance serialization,
-cancellation, and terminal process-state checks. Prompt packets identify the
+credential projection, execution bounds, process-local per-instance
+serialization, cancellation, and terminal process-state checks. Separate
+Mulgae processes never coordinate provider execution through a shared lock.
+Prompt packets identify the
 generated `._mulgae_review_target.txt` file by path, digest, and size rather than
 re-embedding patch, stdin, or old/new target bytes for every role. Providers read
 that file and surrounding project content selectively from the sealed directory

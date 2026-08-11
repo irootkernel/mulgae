@@ -124,7 +124,7 @@ func composeReviewRuns(
 		return nil, err
 	}
 	service, err := reviewrun.NewService(reviewrun.Dependencies{
-		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Locker: graph.locker, Publication: graph.publisher, Templates: graph.templates, Diagnostics: graph.diagnostics,
+		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher, Templates: graph.templates, Diagnostics: graph.diagnostics,
 	})
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("review composition: service: %w", err), graph.cleanupRoots())
