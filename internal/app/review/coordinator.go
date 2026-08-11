@@ -24,13 +24,12 @@ type CoordinatorIdentityIssuer = CoordinatorIDIssuer
 
 type coordinatorRunContextFactory func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 
-// Coordinator owns one review run's mutable domain aggregates. Provider lanes
+// Coordinator owns one review run's mutable domain aggregates. Provider invocations
 // receive only immutable InvocationJobs and return immutable AttemptOutcomes.
 type Coordinator struct {
 	clock                             ports.Clock
 	ids                               CoordinatorIDIssuer
 	runtime                           InvocationRuntime
-	locker                            ports.LaneLocker
 	maxActiveLanes                    int
 	receipt                           RunBudgetReceipt
 	policy                            EvidencePolicy
@@ -56,7 +55,6 @@ func NewCoordinator(
 	clock ports.Clock,
 	ids CoordinatorIDIssuer,
 	runtime InvocationRuntime,
-	locker ports.LaneLocker,
 	maxActiveLanes int,
 	receipt RunBudgetReceipt,
 ) (*Coordinator, error) {
@@ -64,7 +62,6 @@ func NewCoordinator(
 		clock,
 		ids,
 		runtime,
-		locker,
 		maxActiveLanes,
 		receipt,
 		DefaultEvidencePolicy(),
@@ -77,7 +74,6 @@ func NewCoordinatorWithRuntimeDiagnostics(
 	clock ports.Clock,
 	ids CoordinatorIDIssuer,
 	runtime InvocationRuntime,
-	locker ports.LaneLocker,
 	maxActiveLanes int,
 	receipt RunBudgetReceipt,
 	diagnostics ports.RuntimeDiagnosticSink,
@@ -85,7 +81,7 @@ func NewCoordinatorWithRuntimeDiagnostics(
 	if nilInterface(diagnostics) {
 		return nil, fmt.Errorf("review coordinator: nil runtime diagnostics")
 	}
-	coordinator, err := NewCoordinator(clock, ids, runtime, locker, maxActiveLanes, receipt)
+	coordinator, err := NewCoordinator(clock, ids, runtime, maxActiveLanes, receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +108,6 @@ func NewCoordinatorWithEvidencePolicy(
 	clock ports.Clock,
 	ids CoordinatorIDIssuer,
 	runtime InvocationRuntime,
-	locker ports.LaneLocker,
 	maxActiveLanes int,
 	receipt RunBudgetReceipt,
 	policy EvidencePolicy,
@@ -125,9 +120,6 @@ func NewCoordinatorWithEvidencePolicy(
 	}
 	if nilInvocationRuntime(runtime) {
 		return nil, fmt.Errorf("review coordinator: nil invocation runtime")
-	}
-	if locker != nil && nilInterface(locker) {
-		return nil, fmt.Errorf("review coordinator: nil lane locker")
 	}
 	if maxActiveLanes < 1 {
 		return nil, fmt.Errorf("review coordinator: max active lanes must be positive")
@@ -145,7 +137,6 @@ func NewCoordinatorWithEvidencePolicy(
 		clock:             clock,
 		ids:               ids,
 		runtime:           runtime,
-		locker:            locker,
 		maxActiveLanes:    maxActiveLanes,
 		receipt:           receipt,
 		policy:            cloneCoordinatorEvidencePolicy(policy),
@@ -682,7 +673,6 @@ func (coordinator *Coordinator) execute(
 ) (result CoordinatorResult, err error) {
 	if coordinator == nil || nilInterface(coordinator.clock) || nilInterface(coordinator.ids) ||
 		nilInvocationRuntime(coordinator.runtime) || coordinator.maxActiveLanes < 1 ||
-		(coordinator.locker != nil && nilInterface(coordinator.locker)) ||
 		coordinator.runContextFactory == nil ||
 		!validCoordinatorReceipt(coordinator.receipt) ||
 		!validCoordinatorEvidencePolicy(coordinator.policy) {
@@ -786,7 +776,7 @@ func (coordinator *Coordinator) execute(
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: start run: %w", err)
 	}
 
-	scheduler := newLaneScheduler(workCtx, coordinator.runtime, coordinator.locker, coordinator.maxActiveLanes, coordinator.receipt.TotalInvocations())
+	scheduler := newLaneScheduler(workCtx, coordinator.runtime, coordinator.maxActiveLanes, coordinator.receipt.TotalInvocations())
 	lanesClosed := false
 	defer func() {
 		if !lanesClosed {

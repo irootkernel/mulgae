@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,9 +20,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// ConcurrencyKey is the stable, normalized identity of one serialized provider
-// lane. It is opaque so every equal key compares equal without caller-defined
-// spelling rules.
+// ConcurrencyKey is the stable, normalized route and budget identity retained
+// by the v1 contract. It is opaque so every equal key compares equal without
+// caller-defined spelling rules.
 type ConcurrencyKey struct{ value string }
 
 // ParseConcurrencyKey NFC-normalizes and ASCII-lowercases value before
@@ -1728,64 +1727,6 @@ func (failure *ProcessExecutionError) Stderr() []byte {
 		return nil
 	}
 	return cloneBytes(failure.stderr)
-}
-
-// LaneAcquisitionFailureClass is the closed policy-relevant cause of a failed
-// cross-process lane acquisition.
-type LaneAcquisitionFailureClass string
-
-const (
-	LaneAcquisitionUnavailable   LaneAcquisitionFailureClass = "unavailable"
-	LaneAcquisitionConfiguration LaneAcquisitionFailureClass = "configuration"
-	LaneAcquisitionSecurity      LaneAcquisitionFailureClass = "security"
-	LaneAcquisitionInternal      LaneAcquisitionFailureClass = "internal"
-)
-
-// Valid reports whether the class is a closed lane-acquisition cause.
-func (class LaneAcquisitionFailureClass) Valid() bool {
-	return class == LaneAcquisitionUnavailable ||
-		class == LaneAcquisitionConfiguration ||
-		class == LaneAcquisitionSecurity ||
-		class == LaneAcquisitionInternal
-}
-
-// LaneAcquisitionFailure is implemented by adapter errors that carry a safe,
-// policy-relevant acquisition class without exposing raw filesystem text.
-type LaneAcquisitionFailure interface {
-	error
-	LaneAcquisitionFailureClass() LaneAcquisitionFailureClass
-}
-
-// ClassifyLaneAcquisitionFailure returns the closed class carried by err.
-// Unknown adapter errors fail closed as internal rather than becoming
-// provider unavailability that would be reported as the provider's fault.
-func ClassifyLaneAcquisitionFailure(err error) LaneAcquisitionFailureClass {
-	if err == nil {
-		return ""
-	}
-	var classified LaneAcquisitionFailure
-	if errors.As(err, &classified) {
-		class := classified.LaneAcquisitionFailureClass()
-		if class.Valid() {
-			return class
-		}
-	}
-	return LaneAcquisitionInternal
-}
-
-// LaneLocker acquires authoritative cross-process serialization for one
-// normalized lane key. Implementations must reject a nil context and must use
-// the operating-system lock primitive as authority; stale lock metadata is
-// diagnostic only and cannot block acquisition by itself.
-type LaneLocker interface {
-	Acquire(context.Context, ConcurrencyKey) (LaneLease, error)
-}
-
-// LaneLease is an acquired authoritative lane lock. The key identifies exactly
-// the lane held by the lease; Release relinquishes that authority.
-type LaneLease interface {
-	Key() ConcurrencyKey
-	Release() error
 }
 
 func normalizeConcurrencyKey(value string) (string, error) {

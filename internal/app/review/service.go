@@ -575,12 +575,11 @@ func requestRoleTasks(assignments []Assignment, templates TemplateSet) ([]domain
 		}
 		seen[assignment.role] = struct{}{}
 		if !assignment.primaryRoute.Valid() ||
-			assignment.primaryRoute.ProviderInstance() != assignment.providerInstance ||
-			assignment.primaryRoute.ConcurrencyKey().String() != legacyConcurrencyKey {
+			assignment.primaryRoute.ProviderInstance() != assignment.providerInstance {
 			return nil, newRoleFailure(
 				domain.FailureConfiguration,
 				"review.configuration",
-				"legacy service assignments must use the fixed legacy route",
+				"service assignments must use their scheduled provider route",
 				nil,
 			)
 		}

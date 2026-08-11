@@ -18,7 +18,7 @@ import (
 )
 
 func TestCoordinatorScenarios(t *testing.T) {
-	t.Run("same-key-serial", func(t *testing.T) {
+	t.Run("same-key-roles-use-capacity-only", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, true)
 		entered := make(chan struct{}, len(assignments))
 		release := make(chan struct{})
@@ -38,13 +38,15 @@ func TestCoordinatorScenarios(t *testing.T) {
 			mu.Unlock()
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+		coordinator := coordinatorTestCoordinator(t, runtime, 6, receipt)
 		done := make(chan coordinatorTestExecution, 1)
 		go func() {
 			result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
 			done <- coordinatorTestExecution{result: result, err: err}
 		}()
-		<-entered
+		for range assignments {
+			<-entered
+		}
 		close(release)
 		execution := <-done
 		if execution.err != nil {
@@ -53,8 +55,8 @@ func TestCoordinatorScenarios(t *testing.T) {
 		mu.Lock()
 		gotMaximum := maximum
 		mu.Unlock()
-		if gotMaximum != 1 || execution.result.RunState() != domain.RunCompleted {
-			t.Fatalf("maximum/run state = %d/%q, want 1/%q", gotMaximum, execution.result.RunState(), domain.RunCompleted)
+		if gotMaximum != len(assignments) || execution.result.RunState() != domain.RunCompleted {
+			t.Fatalf("maximum/run state = %d/%q, want %d/%q", gotMaximum, execution.result.RunState(), len(assignments), domain.RunCompleted)
 		}
 	})
 
@@ -78,7 +80,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			mu.Unlock()
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+		coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 		done := make(chan coordinatorTestExecution, 1)
 		go func() {
 			result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -113,7 +115,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			sequenceMu.Unlock()
 			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 		// One attempt carrying two invocations: the provider call and its one
 		// repair. There is no second attempt, because there is no second provider.
@@ -159,7 +161,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 		if !logic.Repaired() || len(logic.Attempts()) != 1 {
 			t.Fatalf("logic repair = repaired:%t attempts:%d", logic.Repaired(), len(logic.Attempts()))
@@ -179,7 +181,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			invocationMu.Unlock()
 			return coordinatorConditionOutcome(t, job, AttemptConditionSemanticContradiction)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 		if logic.State() != domain.RoleTaskFailed {
 			t.Fatalf("decoded validation role = %#v", logic)
@@ -220,7 +222,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 				availability: evidence.ImmutableTargetAvailable,
 			})
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		if result.ProviderUnusable() || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges {
 			t.Fatalf("provider blamed/content = %t/%q", result.ProviderUnusable(), result.Outcomes().ContentVerdict())
 		}
@@ -243,7 +245,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		security := coordinatorRoleByRole(t, result, domain.RoleSecurity)
 		if result.RunState() != domain.RunCancelled ||
 			security.ReasonCode() != string(AttemptConditionSecurityViolation) {
@@ -264,7 +266,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			<-ctx.Done()
 			return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
 		}}
-		coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+		coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan coordinatorTestExecution, 1)
 		go func() {
@@ -289,30 +291,6 @@ func TestCoordinatorScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("cross-process-lock-failure-typed", func(t *testing.T) {
-		assignments, receipt := coordinatorTestPlan(t, false)
-		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-			return coordinatorSuccessOutcome(t, job)
-		}}
-		locker := coordinatorFailingLocker{key: assignments[0].PrimaryRoute().ConcurrencyKey()}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, locker, 6)
-		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
-		if len(logic.Attempts()) != 1 || logic.Attempts()[0].State() != domain.AttemptFailed ||
-			logic.State() != domain.RoleTaskFailed ||
-			logic.FailureClass() != domain.FailureProviderUnavailable || logic.ReasonCode() != string(AttemptConditionProviderUnavailable) {
-			t.Fatalf("lock failure did not retain typed provider-unavailable terminal state: %#v", logic)
-		}
-		if !logic.ProviderUnusable() {
-			t.Fatal("an unavailable provider was not reported as unusable")
-		}
-		runtime.mu.Lock()
-		invocations := len(runtime.jobs)
-		runtime.mu.Unlock()
-		if invocations != 0 {
-			t.Fatalf("lock failure invoked runtime %d times", invocations)
-		}
-	})
-
 	t.Run("timeout-closes-its-role-before-lane-shutdown", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, false)
 		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
@@ -321,7 +299,7 @@ func TestCoordinatorScenarios(t *testing.T) {
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 		if logic.State() != domain.RoleTaskFailed || logic.FailureClass() != domain.FailureTimeout {
 			t.Fatalf("timed-out role = state:%q class:%q", logic.State(), logic.FailureClass())
@@ -379,7 +357,7 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	result, err := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt).ExecuteRun(
+	result, err := coordinatorTestCoordinator(t, runtime, len(assignments), receipt).ExecuteRun(
 		context.Background(), &root, assignments, domain.SeverityHigh, nil,
 	)
 	if err != nil {
@@ -429,7 +407,7 @@ func TestCoordinatorDiagnosticsPersistProviderFailureBeforeRoleTerminal(t *testi
 			}
 			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
 			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -490,7 +468,7 @@ func TestCoordinatorProviderFailuresRemainTypedAndActionable(t *testing.T) {
 				fallbackCalls++
 				return coordinatorConditionOutcome(t, job, failureCondition)
 			}}
-			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+			result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			if fallbackCalls == 0 || len(logic.Attempts()) != 1 {
 				t.Fatalf("role execution = calls:%d summary:%#v", fallbackCalls, logic)
@@ -538,7 +516,7 @@ func TestCoordinatorDiagnosticsPersistUnrepairableFailureBeforeRoleTerminal(t *t
 			}
 			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
 			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -585,7 +563,7 @@ func TestCoordinatorDiagnosticsReportRepairLifecycle(t *testing.T) {
 	}
 	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
 	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -624,7 +602,7 @@ func TestCoordinatorDiagnosticFailureStopsBeforeFollowUpScheduling(t *testing.T)
 	}
 	diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base, failOn: domain.DiagnosticAttemptFailed}
 	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -671,7 +649,7 @@ func TestCoordinatorDiagnosticsPersistInitiatingCauseBeforePeerCancellation(t *t
 			}
 			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
 			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
-				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, nil, len(assignments), receipt, diagnostics,
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -721,7 +699,7 @@ func TestCoordinatorProtectedConditionsNeverScheduleFollowup(t *testing.T) {
 				}
 				return coordinatorSuccessOutcome(t, job)
 			}}
-			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+			result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			for _, event := range result.Trace() {
 				if event.Kind() == CoordinatorEventRepairQueued {
@@ -748,7 +726,7 @@ func TestCoordinatorTerminalTraceClosesRun(t *testing.T) {
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 	for _, role := range result.RoleSummaries() {
 		for _, attempt := range role.Attempts() {
 			if attempt.State() != domain.AttemptSucceeded {
@@ -798,7 +776,7 @@ func TestCoordinatorMaxActiveLanes(t *testing.T) {
 		mu.Unlock()
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, 2, receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, 2, receipt)
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
 		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -831,7 +809,7 @@ func TestIntegrationCoordinatorSixDistinctPrimaryLanesEnterBarrier(t *testing.T)
 		<-release
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, 6, receipt)
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
 		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -899,7 +877,7 @@ func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerLanes(
 				}
 				return coordinatorSuccessOutcome(t, job)
 			}}
-			coordinator := coordinatorTestCoordinator(t, runtime, nil, 6, receipt)
+			coordinator := coordinatorTestCoordinator(t, runtime, 6, receipt)
 			done := make(chan coordinatorTestExecution, 1)
 			go func() {
 				result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -968,7 +946,7 @@ func TestCoordinatorResultDefensiveCopies(t *testing.T) {
 			availability: evidence.ImmutableTargetAvailable,
 		})
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, 6)
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, 6)
 	findings := result.Findings()
 	roles := result.RoleSummaries()
 	trace := result.Trace()
@@ -1011,7 +989,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 				availability: evidence.ImmutableTargetAvailable,
 			})
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 		if len(result.Findings()) != 1 || result.Findings()[0].EvidenceState() != domain.EvidenceVerified ||
 			len(result.Evidence()) != 1 || result.Evidence()[0].FindingID() != result.Findings()[0].ID() ||
 			coordinatorRoleByRole(t, result, domain.RoleLogic).ProviderUnusable() {
@@ -1058,7 +1036,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 					availability: test.availability,
 				})
 			}}
-			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+			result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			if !logic.Required() || logic.State() != domain.RoleTaskFailed ||
 				logic.ReasonCode() != string(AttemptConditionInvalidEvidenceClaim) ||
@@ -1084,7 +1062,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 				availability: evidence.ImmutableTargetUnavailable,
 			})
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 		if len(result.Findings()) != 1 || result.Findings()[0].EvidenceState() != domain.EvidenceUnverified ||
 			len(result.Evidence()) != 1 || result.Evidence()[0].FindingID() != result.Findings()[0].ID() ||
 			result.Outcomes().CoverageStatus() != domain.CoverageDegraded ||
@@ -1108,7 +1086,7 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 				availability: evidence.ImmutableTargetUnavailable,
 			})
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 		maintainability := coordinatorRoleByRole(t, result, domain.RoleMaintainability)
 		if result.RunState() != domain.RunCompleted ||
 			!maintainability.Valid() ||
@@ -1149,7 +1127,6 @@ func TestIntegrationCoordinatorEvidencePolicy(t *testing.T) {
 				coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)},
 				&coordinatorTestIDs{},
 				runtime,
-				nil,
 				len(assignments),
 				receipt,
 				policy,
@@ -1196,7 +1173,7 @@ func TestCoordinatorEvidenceInvariantFailsClosed(t *testing.T) {
 		outcome.output.evidence[0].findingID = "F002"
 		return outcome
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 	if logic.State() != domain.RoleTaskFailed || logic.FailureClass() != domain.FailureInternal ||
 		logic.ReasonCode() != string(AttemptConditionInternalInvariant) || logic.ProviderUnusable() ||
@@ -1224,7 +1201,7 @@ func TestCoordinatorEvidenceSubstitutionsRejectWithoutAcceptance(t *testing.T) {
 				return coordinatorSubstitutedEvidenceOutcome(job, substitution)
 			}}
 
-			result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+			result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 			if logic.State() != domain.RoleTaskFailed ||
 				logic.ReasonCode() != string(wantReason) ||
@@ -1244,7 +1221,7 @@ func TestCoordinatorVerifierOwnedTargetMismatchForbidsRepairAndFallback(t *testi
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 	if logic.State() != domain.RoleTaskFailed ||
 		logic.ReasonCode() != string(AttemptConditionInternalInvariant) ||
@@ -1277,7 +1254,7 @@ func TestCoordinatorEvidenceCancellationPreventsAcceptance(t *testing.T) {
 		cancel()
 		return outcome
 	}}
-	result, err := coordinatorTestCoordinator(t, runtime, nil, 1, receipt).Execute(
+	result, err := coordinatorTestCoordinator(t, runtime, 1, receipt).Execute(
 		ctx,
 		coordinatorTestTarget(t),
 		assignments,
@@ -1321,7 +1298,7 @@ func TestCoordinatorFinalEvidenceReIDPreservesBoundProof(t *testing.T) {
 			return coordinatorSuccessOutcome(t, job)
 		}
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 	findings := result.Findings()
 	groups := result.Evidence()
 	if len(findings) != 2 || len(groups) != 2 ||
@@ -1361,7 +1338,7 @@ func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
 		return coordinatorSuccessOutcome(t, job)
 	}}
 	policy := &domain.CIPolicy{RequestChangesFails: false, DegradedReviewFails: false, IncompleteReviewFails: false}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	target := coordinatorTestTarget(t)
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
@@ -1407,7 +1384,6 @@ func TestCoordinatorRejectsPrecancelledContextBeforeIssuingIDs(t *testing.T) {
 		coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)},
 		ids,
 		runtime,
-		nil,
 		len(assignments),
 		receipt,
 	)
@@ -1425,7 +1401,7 @@ func TestCoordinatorRejectsPrecancelledContextBeforeIssuingIDs(t *testing.T) {
 	}
 }
 
-func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
+func TestIndependentCoordinatorsDoNotShareProviderKeyWaiting(t *testing.T) {
 	t.Run("disjoint keys overlap", func(t *testing.T) {
 		firstAssignments, firstReceipt := coordinatorTestPlanInNamespace(t, "first.", false)
 		secondAssignments, secondReceipt := coordinatorTestPlanInNamespace(t, "second.", false)
@@ -1437,8 +1413,8 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 			return coordinatorSuccessOutcome(t, job)
 		}}
 		processLimit := len(firstAssignments) + len(secondAssignments)
-		first := coordinatorTestCoordinator(t, runtime, nil, processLimit, firstReceipt)
-		second := coordinatorTestCoordinator(t, runtime, nil, processLimit, secondReceipt)
+		first := coordinatorTestCoordinator(t, runtime, processLimit, firstReceipt)
+		second := coordinatorTestCoordinator(t, runtime, processLimit, secondReceipt)
 		done := make(chan coordinatorTestExecution, 2)
 		go func() {
 			result, err := first.Execute(context.Background(), coordinatorTestTarget(t), firstAssignments, "", nil)
@@ -1481,7 +1457,7 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 		}
 	})
 
-	t.Run("equal keys remain serialized", func(t *testing.T) {
+	t.Run("equal keys overlap across runs", func(t *testing.T) {
 		assignments, receipt := coordinatorTestPlan(t, false)
 		entered := make(chan struct{}, len(assignments)*2)
 		release := make(chan struct{})
@@ -1503,8 +1479,9 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 			mu.Unlock()
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		first := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
-		second := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+		processLimit := len(assignments) * 2
+		first := coordinatorTestCoordinator(t, runtime, processLimit, receipt)
+		second := coordinatorTestCoordinator(t, runtime, processLimit, receipt)
 		done := make(chan coordinatorTestExecution, 2)
 		for _, coordinator := range []*Coordinator{first, second} {
 			go func(coordinator *Coordinator) {
@@ -1512,7 +1489,7 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 				done <- coordinatorTestExecution{result: result, err: err}
 			}(coordinator)
 		}
-		for range assignments {
+		for range processLimit {
 			<-entered
 		}
 		close(release)
@@ -1531,8 +1508,8 @@ func TestCoordinatorsRespectSharedLaneAuthorityAcrossRuns(t *testing.T) {
 			t.Fatalf("observed %d keyed lanes, want %d", len(maximum), len(assignments))
 		}
 		for key, observed := range maximum {
-			if observed != 1 {
-				t.Fatalf("maximum concurrency for key %q = %d, want 1", key, observed)
+			if observed != 2 {
+				t.Fatalf("maximum concurrency for key %q = %d, want 2", key, observed)
 			}
 		}
 	})
@@ -1553,7 +1530,7 @@ func TestCoordinatorCommitsEveryCollectedStoppingWaveFact(t *testing.T) {
 			return coordinatorSuccessOutcome(t, job)
 		}
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
 		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -1610,7 +1587,7 @@ func TestCoordinatorStoppingTraceIsCanonicalAcrossDeliveryOrder(t *testing.T) {
 				return coordinatorSuccessOutcome(t, job)
 			}
 		}}
-		coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+		coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 		coordinator.resultCollectedHook = func(job InvocationJob) {
 			collected <- job.Role()
 		}
@@ -1681,7 +1658,7 @@ func TestCoordinatorCancelsOutstandingInvocationsOnFirstProtectedResult(t *testi
 		cancelled <- job.Role()
 		return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
 		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
@@ -1733,7 +1710,7 @@ func TestCoordinatorRechecksCancellationBeforeEachWaveCommit(t *testing.T) {
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	coordinator.beforeOutcomeCommitHook = func(job InvocationJob) {
@@ -1781,7 +1758,7 @@ func TestCoordinatorRunDeadlineAtCommitForbidsFollowup(t *testing.T) {
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return deadlineSource, func() {}
 	}
@@ -1817,7 +1794,7 @@ func TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart(t *testing.T) {
 		<-release
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	type readyObservation struct {
 		jobs           int
 		runtimeStarted bool
@@ -1860,13 +1837,58 @@ func TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart(t *testing.T) {
 	}
 }
 
+func TestCoordinatorRepairStartsOnlyAfterInitialWaveCompletes(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t, false)
+	logicInitialDone := make(chan struct{})
+	peerInitialStarted := make(chan struct{})
+	releasePeer := make(chan struct{})
+	repairStarted := make(chan struct{})
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		switch {
+		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+			close(logicInitialDone)
+			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRepair:
+			close(repairStarted)
+			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+		case job.Role() == domain.RoleSecurity:
+			close(peerInitialStarted)
+			<-releasePeer
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+	done := make(chan coordinatorTestExecution, 1)
+	go func() {
+		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+		done <- coordinatorTestExecution{result: result, err: err}
+	}()
+	<-logicInitialDone
+	<-peerInitialStarted
+	select {
+	case <-repairStarted:
+		close(releasePeer)
+		t.Fatal("repair started before every initial invocation completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releasePeer)
+	select {
+	case <-repairStarted:
+	case <-time.After(time.Second):
+		t.Fatal("repair did not start after the initial wave completed")
+	}
+	if execution := <-done; execution.err != nil {
+		t.Fatal(execution.err)
+	}
+}
+
 func TestCoordinatorRunDeadlineBeforeLaneCloseForcesFailedRun(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t, false)
 	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return deadlineSource, func() {}
 	}
@@ -1907,7 +1929,7 @@ func TestCoordinatorParentCancellationUpgradesPreCloseTimeout(t *testing.T) {
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return deadlineSource, func() {}
 	}
@@ -1952,7 +1974,7 @@ func TestCoordinatorIgnoresCancellationAfterLaneCloseLinearization(t *testing.T)
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	coordinator.lanesCloseAuthorizedHook = cancel
@@ -1995,8 +2017,8 @@ func TestCoordinatorsShareProcessActiveLaneLimit(t *testing.T) {
 	}}
 
 	const processLimit = 2
-	first := coordinatorTestCoordinator(t, runtime, nil, processLimit, firstReceipt)
-	second := coordinatorTestCoordinator(t, runtime, nil, processLimit, secondReceipt)
+	first := coordinatorTestCoordinator(t, runtime, processLimit, firstReceipt)
+	second := coordinatorTestCoordinator(t, runtime, processLimit, secondReceipt)
 	done := make(chan coordinatorTestExecution, 2)
 	go func() {
 		result, err := first.Execute(context.Background(), coordinatorTestTarget(t), firstAssignments, "", nil)
@@ -2066,8 +2088,8 @@ func TestProcessActiveLaneAuthorityUsesOneMixedLimitPool(t *testing.T) {
 		return coordinatorSuccessOutcome(t, job)
 	}}
 
-	wide := newLaneScheduler(context.Background(), runtime, nil, 3, 1)
-	narrow := newLaneScheduler(context.Background(), runtime, nil, 1, 1)
+	wide := newLaneScheduler(context.Background(), runtime, 3, 1)
+	narrow := newLaneScheduler(context.Background(), runtime, 1, 1)
 	if !wide.submit(wideJob) || !narrow.submit(narrowJob) {
 		t.Fatal("mixed-limit scheduler rejected job")
 	}
@@ -2164,7 +2186,7 @@ func TestCoordinatorRunDeadlinePreventsProviderFallback(t *testing.T) {
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 		return deadlineSource, func() {}
 	}
@@ -2204,7 +2226,6 @@ func TestCoordinatorPostAdmissionFailureReturnsTerminalSnapshot(t *testing.T) {
 		coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)},
 		ids,
 		runtime,
-		nil,
 		len(assignments),
 		receipt,
 	)
@@ -2479,45 +2500,10 @@ func TestCoordinatorTracePayloadMatrix(t *testing.T) {
 		})
 	}
 }
-func TestLaneReducerPreservesHigherPriorityReleaseFacts(t *testing.T) {
-	key, err := ports.ParseConcurrencyKey("lane")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, condition := range []AttemptCondition{
-		AttemptConditionSecurityViolation,
-		AttemptConditionMutationViolation,
-		AttemptConditionArtifactFailure,
-		AttemptConditionInternalInvariant,
-	} {
-		t.Run(string(condition), func(t *testing.T) {
-			job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
-			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, invocation InvocationJob) AttemptOutcome {
-				return coordinatorConditionOutcome(t, invocation, condition)
-			}}
-			scheduler := newLaneScheduler(
-				context.Background(),
-				runtime,
-				coordinatorReleaseFailLocker{key: key},
-				1,
-				1,
-			)
-			if !scheduler.submit(job) {
-				t.Fatal("scheduler rejected job")
-			}
-			result := <-scheduler.results
-			scheduler.close()
-			got, ok := result.outcome.Condition()
-			if !ok || got != condition {
-				t.Fatalf("release failure reduced %q to %q/%t", condition, got, ok)
-			}
-		})
-	}
-}
 func TestLaneConfigurationAndDeadlineReductionIsFailClosed(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
 	invalid := coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
-	scheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, nil, 1, 1)
+	scheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
 	defer scheduler.close()
 
 	deadlineCtx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
@@ -2570,7 +2556,7 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 	}
 	invocationCtx, cancelInvocation := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelInvocation()
-	providerScheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, nil, 1, 1)
+	providerScheduler := newLaneScheduler(context.Background(), &coordinatorTestRuntime{}, 1, 1)
 	preserved := providerScheduler.reduceOutcome(job, providerOutcome, invocationCtx, AttemptConditionProviderTimeout)
 	providerScheduler.close()
 	if _, ok := preserved.ProviderTimeoutFacts(); !ok {
@@ -2579,7 +2565,7 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 
 	parentCtx, cancelParent := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelParent()
-	parentScheduler := newLaneScheduler(parentCtx, &coordinatorTestRuntime{}, nil, 1, 1)
+	parentScheduler := newLaneScheduler(parentCtx, &coordinatorTestRuntime{}, 1, 1)
 	stripped := parentScheduler.reduceOutcome(job, providerOutcome, parentCtx, AttemptConditionProviderTimeout)
 	parentScheduler.close()
 	condition, ok := stripped.Condition()
@@ -2591,110 +2577,6 @@ func TestLaneTimeoutProvenancePreservesProviderFactsAndStripsParentFacts(t *test
 	}
 }
 
-func TestLaneRejectsTypedNilLeaseWithoutInvocation(t *testing.T) {
-	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
-	invoked := make(chan struct{}, 1)
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, _ InvocationJob) AttemptOutcome {
-		invoked <- struct{}{}
-		return AttemptOutcome{}
-	}}
-	scheduler := newLaneScheduler(context.Background(), runtime, coordinatorTypedNilLeaseLocker{}, 1, 1)
-	if !scheduler.submit(job) {
-		t.Fatal("scheduler rejected job")
-	}
-	result := <-scheduler.results
-	scheduler.close()
-	condition, ok := result.outcome.Condition()
-	if !ok || condition != AttemptConditionInternalInvariant {
-		t.Fatalf("typed-nil lease condition = %q/%t, want internal invariant", condition, ok)
-	}
-	select {
-	case <-invoked:
-		t.Fatal("typed-nil lease reached invocation runtime")
-	default:
-	}
-}
-
-func TestLaneRejectsWrongKeyLeaseWithoutInvocation(t *testing.T) {
-	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
-	otherKey, err := ports.ParseConcurrencyKey("other-lane")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease := &coordinatorWrongKeyLease{key: otherKey}
-	invoked := make(chan struct{}, 1)
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		invoked <- struct{}{}
-		return coordinatorSuccessOutcome(t, job)
-	}}
-	scheduler := newLaneScheduler(context.Background(), runtime, coordinatorWrongKeyLocker{lease: lease}, 1, 1)
-	if !scheduler.submit(job) {
-		t.Fatal("scheduler rejected job")
-	}
-	result := <-scheduler.results
-	scheduler.close()
-	condition, ok := result.outcome.Condition()
-	if !ok || condition != AttemptConditionInternalInvariant {
-		t.Fatalf("wrong-key lease condition = %q/%t, want internal invariant", condition, ok)
-	}
-	select {
-	case <-invoked:
-		t.Fatal("wrong-key lease reached invocation runtime")
-	default:
-	}
-	if releases := lease.releaseCount(); releases != 1 {
-		t.Fatalf("wrong-key lease releases = %d, want 1", releases)
-	}
-}
-func TestLaneAcquisitionConditionUsesClosedFailureClass(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		err  error
-		want AttemptCondition
-	}{
-		{
-			name: "unavailable",
-			err:  coordinatorLaneAcquisitionError{class: ports.LaneAcquisitionUnavailable},
-			want: AttemptConditionProviderUnavailable,
-		},
-		{
-			name: "configuration",
-			err:  coordinatorLaneAcquisitionError{class: ports.LaneAcquisitionConfiguration},
-			want: AttemptConditionConfigurationViolation,
-		},
-		{
-			name: "security",
-			err:  coordinatorLaneAcquisitionError{class: ports.LaneAcquisitionSecurity},
-			want: AttemptConditionSecurityViolation,
-		},
-		{
-			name: "internal",
-			err:  coordinatorLaneAcquisitionError{class: ports.LaneAcquisitionInternal},
-			want: AttemptConditionInternalInvariant,
-		},
-		{
-			name: "unknown",
-			err:  errors.New("unclassified lane error"),
-			want: AttemptConditionInternalInvariant,
-		},
-		{
-			name: "cancelled",
-			err:  context.Canceled,
-			want: AttemptConditionCancelled,
-		},
-		{
-			name: "timeout",
-			err:  context.DeadlineExceeded,
-			want: AttemptConditionTimeout,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := laneAcquisitionCondition(test.err); got != test.want {
-				t.Fatalf("laneAcquisitionCondition() = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
 func TestLaneAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
 	job := coordinatorTypesJob(t, domain.RoleLogic, "provider", 1)
 	entered := make(chan struct{}, 1)
@@ -2702,7 +2584,7 @@ func TestLaneAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
 		entered <- struct{}{}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	scheduler := newLaneScheduler(context.Background(), runtime, nil, 1, 1)
+	scheduler := newLaneScheduler(context.Background(), runtime, 1, 1)
 	start, accepted := scheduler.admit(job)
 	if !accepted {
 		t.Fatal("scheduler rejected admission")
@@ -2724,21 +2606,10 @@ func TestLaneAdmissionGatePrecedesRuntimeExecution(t *testing.T) {
 func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 	for _, test := range []struct {
 		name    string
-		locker  ports.LaneLocker
 		runtime InvocationRuntime
 		want    AttemptCondition
 		parent  time.Duration
 	}{
-		{
-			name:   "enclosing lock deadline",
-			locker: coordinatorContextBlockingLocker{},
-			runtime: &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-				t.Fatalf("lock timeout reached runtime for job %d", job.Ordinal())
-				return AttemptOutcome{}
-			}},
-			want:   AttemptConditionTimeout,
-			parent: 25 * time.Millisecond,
-		},
 		{
 			name: "provider observed timeout",
 			runtime: &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
@@ -2782,7 +2653,7 @@ func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 				parent, cancelParent = context.WithTimeout(parent, test.parent)
 			}
 			defer cancelParent()
-			scheduler := newLaneScheduler(parent, test.runtime, test.locker, 1, 1)
+			scheduler := newLaneScheduler(parent, test.runtime, 1, 1)
 			if !scheduler.submit(job) {
 				t.Fatal("scheduler rejected job")
 			}
@@ -2793,76 +2664,6 @@ func TestLaneEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.T) {
 				t.Fatalf("deadline condition = %q/%t, want %q", condition, ok, test.want)
 			}
 		})
-	}
-}
-
-func TestLaneAcquisitionDoesNotConsumeProviderTimeout(t *testing.T) {
-	limits, err := NewInvocationLimits(25*time.Millisecond, 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	job, err := NewInvocationJob(
-		domain.RoleLogic,
-		coordinatorTestRoute(t, "provider", "delayed-lock-lane"),
-		coordinatorTestTarget(t),
-		limits,
-		coordinatorTypesAttemptID(t, 43),
-		domain.InvocationInitial,
-		1,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		return coordinatorSuccessOutcome(t, job)
-	}}
-	parent, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	scheduler := newLaneScheduler(parent, runtime, coordinatorDelayedLocker{delay: 60 * time.Millisecond}, 1, 1)
-	if !scheduler.submit(job) {
-		t.Fatal("scheduler rejected job")
-	}
-	result := <-scheduler.results
-	scheduler.close()
-	if !result.outcome.Succeeded() {
-		condition, _ := result.outcome.Condition()
-		t.Fatalf("acquisition consumed provider timeout: condition=%q", condition)
-	}
-}
-
-func TestLaneContentionRefusesToTruncateProviderWindow(t *testing.T) {
-	limits, err := NewInvocationLimits(200*time.Millisecond, 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	job, err := NewInvocationJob(
-		domain.RoleLogic,
-		coordinatorTestRoute(t, "provider", "contended-window-lane"),
-		coordinatorTestTarget(t),
-		limits,
-		coordinatorTypesAttemptID(t, 44),
-		domain.InvocationInitial,
-		1,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	invoked := false
-	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
-		invoked = true
-		return coordinatorSuccessOutcome(t, job)
-	}}
-	parent, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	scheduler := newLaneScheduler(parent, runtime, coordinatorDelayedLocker{delay: 175 * time.Millisecond}, 1, 1)
-	if !scheduler.submit(job) {
-		t.Fatal("scheduler rejected job")
-	}
-	result := <-scheduler.results
-	scheduler.close()
-	condition, ok := result.outcome.Condition()
-	if invoked || !ok || condition != AttemptConditionTimeout {
-		t.Fatalf("contended provider window = invoked:%t condition:%q/%t", invoked, condition, ok)
 	}
 }
 
@@ -2899,7 +2700,7 @@ func TestLaneCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
 	}}
 	parent, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	scheduler := newLaneScheduler(parent, runtime, nil, 1, 2)
+	scheduler := newLaneScheduler(parent, runtime, 1, 2)
 	if !scheduler.submit(first) {
 		t.Fatal("scheduler rejected first job")
 	}
@@ -2936,7 +2737,7 @@ func TestCoordinatorOutcomeAxesKeepExhaustionAndFindingsIndependent(t *testing.T
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 	if result.RunState() != domain.RunFailed || !logic.Required() || logic.State() != domain.RoleTaskFailed ||
 		len(result.Findings()) != 1 || result.Findings()[0].EvidenceState() != domain.EvidenceVerified ||
@@ -2959,7 +2760,7 @@ func TestCoordinatorOptionalDegradationAndFourInvocationBound(t *testing.T) {
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 		if result.RunState() != domain.RunCompleted || result.Outcomes().CoverageStatus() != domain.CoverageDegraded {
 			t.Fatalf("optional incomplete result = run:%q coverage:%q", result.RunState(), result.Outcomes().CoverageStatus())
 		}
@@ -2973,7 +2774,7 @@ func TestCoordinatorOptionalDegradationAndFourInvocationBound(t *testing.T) {
 			}
 			return coordinatorSuccessOutcome(t, job)
 		}}
-		result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+		result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 		logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
 		if len(logic.Attempts()) != 1 || len(logic.Attempts()[0].Invocations()) != 2 {
 			t.Fatalf("logic did not stop at the two-invocation provider+repair bound: %#v", logic)
@@ -2988,16 +2789,16 @@ func TestCoordinatorInvalidProperties(t *testing.T) {
 	}}
 	clock := coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)}
 	ids := &coordinatorTestIDs{}
-	if _, err := NewCoordinator(clock, ids, runtime, nil, 0, receipt); err == nil {
+	if _, err := NewCoordinator(clock, ids, runtime, 0, receipt); err == nil {
 		t.Fatal("NewCoordinator accepted a zero active-lane limit")
 	}
-	if _, err := NewCoordinator(clock, ids, runtime, nil, 1, RunBudgetReceipt{}); err == nil {
+	if _, err := NewCoordinator(clock, ids, runtime, 1, RunBudgetReceipt{}); err == nil {
 		t.Fatal("NewCoordinator accepted an ineligible receipt")
 	}
-	if _, err := NewCoordinatorWithEvidencePolicy(clock, ids, runtime, nil, 1, receipt, EvidencePolicy{}); err == nil {
+	if _, err := NewCoordinatorWithEvidencePolicy(clock, ids, runtime, 1, receipt, EvidencePolicy{}); err == nil {
 		t.Fatal("NewCoordinatorWithEvidencePolicy accepted an invalid policy")
 	}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, 1, receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, 1, receipt)
 	if _, err := coordinator.Execute(context.Background(), domain.TargetIdentity{}, assignments, "", nil); err == nil {
 		t.Fatal("Execute accepted an invalid target")
 	}
@@ -3153,57 +2954,6 @@ func (runtime *coordinatorTestRuntime) Invoke(ctx context.Context, job Invocatio
 	return runtime.invoke(ctx, job)
 }
 
-type coordinatorFailingLocker struct{ key ports.ConcurrencyKey }
-
-func (locker coordinatorFailingLocker) Acquire(context.Context, ports.ConcurrencyKey) (ports.LaneLease, error) {
-	return nil, coordinatorLaneAcquisitionError{class: ports.LaneAcquisitionUnavailable}
-}
-
-type coordinatorLaneAcquisitionError struct {
-	class ports.LaneAcquisitionFailureClass
-}
-
-func (err coordinatorLaneAcquisitionError) Error() string {
-	return "cross-process lock acquisition failed"
-}
-
-func (err coordinatorLaneAcquisitionError) LaneAcquisitionFailureClass() ports.LaneAcquisitionFailureClass {
-	return err.class
-}
-
-type coordinatorReleaseFailLocker struct{ key ports.ConcurrencyKey }
-
-func (locker coordinatorReleaseFailLocker) Acquire(context.Context, ports.ConcurrencyKey) (ports.LaneLease, error) {
-	return &coordinatorTestLease{key: locker.key, releaseErr: errors.New("release failed")}, nil
-}
-
-type coordinatorTypedNilLeaseLocker struct{}
-
-func (coordinatorTypedNilLeaseLocker) Acquire(context.Context, ports.ConcurrencyKey) (ports.LaneLease, error) {
-	var lease *coordinatorTestLease
-	return lease, nil
-}
-
-type coordinatorContextBlockingLocker struct{}
-
-func (coordinatorContextBlockingLocker) Acquire(ctx context.Context, _ ports.ConcurrencyKey) (ports.LaneLease, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-type coordinatorDelayedLocker struct{ delay time.Duration }
-
-func (locker coordinatorDelayedLocker) Acquire(ctx context.Context, key ports.ConcurrencyKey) (ports.LaneLease, error) {
-	timer := time.NewTimer(locker.delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-timer.C:
-		return &coordinatorTestLease{key: key}, nil
-	}
-}
-
 type coordinatorManualDeadlineContext struct {
 	context.Context
 
@@ -3237,47 +2987,6 @@ func (ctx *coordinatorManualDeadlineContext) expire() {
 		close(ctx.done)
 		ctx.mu.Unlock()
 	})
-}
-
-type coordinatorTestLease struct {
-	key        ports.ConcurrencyKey
-	releaseErr error
-}
-
-func (lease *coordinatorTestLease) Key() ports.ConcurrencyKey { return lease.key }
-
-func (lease *coordinatorTestLease) Release() error { return lease.releaseErr }
-
-type coordinatorWrongKeyLocker struct {
-	lease *coordinatorWrongKeyLease
-}
-
-func (locker coordinatorWrongKeyLocker) Acquire(context.Context, ports.ConcurrencyKey) (ports.LaneLease, error) {
-	return locker.lease, nil
-}
-
-type coordinatorWrongKeyLease struct {
-	key ports.ConcurrencyKey
-
-	mu       sync.Mutex
-	releases int
-}
-
-func (lease *coordinatorWrongKeyLease) Key() ports.ConcurrencyKey {
-	return lease.key
-}
-
-func (lease *coordinatorWrongKeyLease) Release() error {
-	lease.mu.Lock()
-	defer lease.mu.Unlock()
-	lease.releases++
-	return nil
-}
-
-func (lease *coordinatorWrongKeyLease) releaseCount() int {
-	lease.mu.Lock()
-	defer lease.mu.Unlock()
-	return lease.releases
 }
 
 func coordinatorTestPlan(t *testing.T, sameLane bool) ([]Assignment, RunBudgetReceipt) {
@@ -3381,7 +3090,7 @@ func coordinatorTestTarget(t *testing.T) domain.TargetIdentity {
 	return target
 }
 
-func coordinatorTestCoordinator(t *testing.T, runtime InvocationRuntime, locker ports.LaneLocker, maxActive int, receipt RunBudgetReceipt) *Coordinator {
+func coordinatorTestCoordinator(t *testing.T, runtime InvocationRuntime, maxActive int, receipt RunBudgetReceipt) *Coordinator {
 	t.Helper()
 	capacityReceipt, err := PreflightRunBudgetWithCapacity(receipt.RoleBudgets(), receipt.Ceilings(), maxActive)
 	if err != nil {
@@ -3391,7 +3100,6 @@ func coordinatorTestCoordinator(t *testing.T, runtime InvocationRuntime, locker 
 		coordinatorTestClock{now: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)},
 		&coordinatorTestIDs{},
 		runtime,
-		locker,
 		maxActive,
 		capacityReceipt,
 	)
@@ -3406,11 +3114,10 @@ func coordinatorTestExecute(
 	assignments []Assignment,
 	receipt RunBudgetReceipt,
 	runtime InvocationRuntime,
-	locker ports.LaneLocker,
 	maxActive int,
 ) CoordinatorResult {
 	t.Helper()
-	result, err := coordinatorTestCoordinator(t, runtime, locker, maxActive, receipt).Execute(
+	result, err := coordinatorTestCoordinator(t, runtime, maxActive, receipt).Execute(
 		context.Background(), coordinatorTestTarget(t), assignments, "", nil,
 	)
 	if err != nil {
@@ -3669,7 +3376,7 @@ func coordinatorProtectedContextRaceResult(
 		<-ctx.Done()
 		return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, 1, receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, 1, receipt)
 	coordinator.resultCollectedHook = func(job InvocationJob) {
 		if job.Role() == origin {
 			originCollected <- struct{}{}
@@ -3783,7 +3490,7 @@ func coordinatorRandomCompletionResult(t *testing.T, assignments []Assignment, r
 			availability: evidence.ImmutableTargetAvailable,
 		})
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, nil, len(assignments), receipt)
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
 	coordinator.resultCollectedHook = func(job InvocationJob) {
 		delivered <- job.Role()
 	}
@@ -3833,7 +3540,7 @@ func TestCoordinatorRoleSummaryCarriesProviderOutputTransport(t *testing.T) {
 		}
 		return coordinatorStagedFileSuccessOutcome(job)
 	}}
-	result := coordinatorTestExecute(t, assignments, receipt, runtime, nil, len(assignments))
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
 	for _, summary := range result.RoleSummaries() {
 		want := ports.ProviderOutputTransportStdout
 		if summary.Role() == domain.RoleLogic {

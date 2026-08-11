@@ -24,26 +24,6 @@ type Assignment struct {
 	primaryRoute     ports.ProviderRoute
 }
 
-const legacyConcurrencyKey = "legacy"
-
-// NewAssignment constructs a legacy trusted role assignment. All legacy
-// assignments share the fixed legacy concurrency lane.
-func NewAssignment(role domain.Role, required bool, providerInstance string) (Assignment, error) {
-	task, err := domain.NewRoleTask(role, required, providerInstance)
-	if err != nil {
-		return Assignment{}, err
-	}
-	key, err := ports.ParseConcurrencyKey(legacyConcurrencyKey)
-	if err != nil {
-		return Assignment{}, fmt.Errorf("review assignment: legacy concurrency key: %w", err)
-	}
-	primary, err := ports.NewProviderRoute(task.PrimaryProvider(), key)
-	if err != nil {
-		return Assignment{}, err
-	}
-	return newScheduledAssignment(task, primary), nil
-}
-
 // NewScheduledAssignment constructs one trusted role assignment binding the
 // role to exactly one provider route.
 func NewScheduledAssignment(

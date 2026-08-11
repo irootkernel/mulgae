@@ -270,11 +270,11 @@ func testTrustedLayer(t *testing.T, id, content string) prompt.TrustedLayer {
 
 func requiredAssignments(t *testing.T) []Assignment {
 	t.Helper()
-	logic, err := NewAssignment(domain.RoleLogic, false, "fake.logic")
+	logic, err := NewScheduledAssignment(domain.RoleLogic, false, coordinatorTestRoute(t, "fake.logic", "fake-logic"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	security, err := NewAssignment(domain.RoleSecurity, false, "fake.security")
+	security, err := NewScheduledAssignment(domain.RoleSecurity, false, coordinatorTestRoute(t, "fake.security", "fake-security"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func allAssignments(t *testing.T) []Assignment {
 	t.Helper()
 	assignments := make([]Assignment, 0, len(domain.CoreRoleOrder()))
 	for _, role := range domain.CoreRoleOrder() {
-		assignment, err := NewAssignment(role, false, "fake."+string(role))
+		assignment, err := NewScheduledAssignment(role, false, coordinatorTestRoute(t, "fake."+string(role), "fake-"+string(role)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -354,7 +354,7 @@ func TestNewServiceRejectsNilDependencies(t *testing.T) {
 	}
 }
 
-func TestExecuteRejectsScheduledAssignmentsAtLegacyBoundary(t *testing.T) {
+func TestExecuteAcceptsExplicitScheduledAssignments(t *testing.T) {
 	security := requiredAssignments(t)[1]
 	for _, test := range []struct {
 		name string
@@ -369,16 +369,16 @@ func TestExecuteRejectsScheduledAssignmentsAtLegacyBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider := &recordingReviewProvider{}
+			provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: validNoFindingReview()}, {stdout: validNoFindingReview()}}}
 			_, err = newReviewService(t, provider).Execute(
 				context.Background(),
 				reviewRequest(t, []Assignment{logic, security}, ""),
 			)
-			if failureClass(t, err) != domain.FailureConfiguration {
-				t.Fatalf("legacy scheduled assignment failure = %q, want configuration", failureClass(t, err))
+			if err != nil {
+				t.Fatal(err)
 			}
-			if len(provider.invocations) != 0 {
-				t.Fatalf("legacy scheduled assignment invoked provider %d times", len(provider.invocations))
+			if len(provider.invocations) != 2 {
+				t.Fatalf("scheduled assignments invoked provider %d times, want 2", len(provider.invocations))
 			}
 		})
 	}
@@ -600,7 +600,7 @@ func TestExecuteRejectsStdinLengthMismatchAsArtifactFailure(t *testing.T) {
 
 func TestExecutePreservesAcceptedFindingsAfterLaterRoleFailure(t *testing.T) {
 	assignments := requiredAssignments(t)
-	maintainability, err := NewAssignment(domain.RoleMaintainability, false, "fake.maintainability")
+	maintainability, err := NewScheduledAssignment(domain.RoleMaintainability, false, coordinatorTestRoute(t, "fake.maintainability", "fake-maintainability"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -649,8 +649,8 @@ func (outcome AttemptOutcome) validFor(job InvocationJob) bool {
 	return outcome.condition.Valid() && outcome.condition != AttemptConditionValidReview
 }
 
-// InvocationRuntime executes immutable jobs. Calls for jobs in distinct
-// provider concurrency lanes may occur concurrently. The runtime MUST enforce
+// InvocationRuntime executes immutable jobs. Calls may occur concurrently up to
+// the coordinator's explicit process capacity. The runtime MUST enforce
 // job.Limits() timeout plus stdout/stderr diagnostic capture caps. Primary
 // provider report content is not bounded by the stdout diagnostic cap. Both the job and
 // outcome are value-only boundaries and must not carry mutable coordinator

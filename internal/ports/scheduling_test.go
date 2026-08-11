@@ -466,66 +466,6 @@ func TestProcessTerminationIsClosed(t *testing.T) {
 		}
 	}
 }
-func TestClassifyLaneAcquisitionFailureFailsClosed(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		err  error
-		want LaneAcquisitionFailureClass
-	}{
-		{
-			name: "unavailable",
-			err:  schedulingLaneAcquisitionError{class: LaneAcquisitionUnavailable},
-			want: LaneAcquisitionUnavailable,
-		},
-		{
-			name: "configuration",
-			err:  schedulingLaneAcquisitionError{class: LaneAcquisitionConfiguration},
-			want: LaneAcquisitionConfiguration,
-		},
-		{
-			name: "wrapped security",
-			err:  fmt.Errorf("acquire lane: %w", schedulingLaneAcquisitionError{class: LaneAcquisitionSecurity}),
-			want: LaneAcquisitionSecurity,
-		},
-		{
-			name: "internal",
-			err:  schedulingLaneAcquisitionError{class: LaneAcquisitionInternal},
-			want: LaneAcquisitionInternal,
-		},
-		{
-			name: "invalid class",
-			err:  schedulingLaneAcquisitionError{class: LaneAcquisitionFailureClass("invalid")},
-			want: LaneAcquisitionInternal,
-		},
-		{
-			name: "unknown error",
-			err:  errors.New("unknown"),
-			want: LaneAcquisitionInternal,
-		},
-		{
-			name: "nil",
-			want: "",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := ClassifyLaneAcquisitionFailure(test.err); got != test.want {
-				t.Fatalf("ClassifyLaneAcquisitionFailure() = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
-type schedulingLaneAcquisitionError struct {
-	class LaneAcquisitionFailureClass
-}
-
-func (err schedulingLaneAcquisitionError) Error() string {
-	return "lane acquisition failure"
-}
-
-func (err schedulingLaneAcquisitionError) LaneAcquisitionFailureClass() LaneAcquisitionFailureClass {
-	return err.class
-}
 func TestNewProcessSignalValidatesExactFacts(t *testing.T) {
 	signal, err := NewProcessSignal(15, "SIGTERM")
 	if err != nil {
@@ -908,8 +848,6 @@ func (input schedulingProcessRequestInput) new() (ProcessRequest, error) {
 
 var (
 	_ ProcessRunner = schedulingProcessRunnerStub{}
-	_ LaneLocker    = schedulingLaneLockerStub{}
-	_ LaneLease     = schedulingLaneLeaseStub{}
 )
 
 type schedulingProcessRunnerStub struct{}
@@ -918,17 +856,6 @@ func (schedulingProcessRunnerStub) Run(context.Context, ProcessRequest) (Process
 	return ProcessObservation{}, nil
 }
 
-type schedulingLaneLockerStub struct{}
-
-func (schedulingLaneLockerStub) Acquire(context.Context, ConcurrencyKey) (LaneLease, error) {
-	return schedulingLaneLeaseStub{}, nil
-}
-
-type schedulingLaneLeaseStub struct{}
-
-func (schedulingLaneLeaseStub) Key() ConcurrencyKey { return ConcurrencyKey{} }
-
-func (schedulingLaneLeaseStub) Release() error { return nil }
 func TestNewProviderProcessRequestEnforcesOnePacketChannel(t *testing.T) {
 	packet := schedulingTestPacket(t, []byte("packet"))
 	key := schedulingTestConcurrencyKey(t)

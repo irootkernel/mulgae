@@ -7,35 +7,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestNewAssignmentPreservesG004CompatibilityAndLegacyLane(t *testing.T) {
-	t.Parallel()
-
-	for _, role := range domain.CoreRoleOrder() {
-		t.Run(string(role), func(t *testing.T) {
-			assignment, err := NewAssignment(role, false, "fake."+string(role))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if assignment.Role() != role {
-				t.Fatalf("Role() = %q, want %q", assignment.Role(), role)
-			}
-			if assignment.Required() != role.RequiredFloor() {
-				t.Fatalf("Required() = %t, want %t", assignment.Required(), role.RequiredFloor())
-			}
-			if got, want := assignment.ProviderInstance(), "fake."+string(role); got != want {
-				t.Fatalf("ProviderInstance() = %q, want %q", got, want)
-			}
-			primary := assignment.PrimaryRoute()
-			if !primary.Valid() {
-				t.Fatal("PrimaryRoute() is invalid")
-			}
-			if got := primary.ConcurrencyKey().String(); got != legacyConcurrencyKey {
-				t.Fatalf("PrimaryRoute().ConcurrencyKey() = %q, want %q", got, legacyConcurrencyKey)
-			}
-		})
-	}
-}
-
 func TestNewScheduledAssignmentStoresTheSingleExplicitRoute(t *testing.T) {
 	t.Parallel()
 

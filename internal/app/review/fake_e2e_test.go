@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,6 +221,23 @@ func expectedE2ECall(provider string, role domain.Role, attemptID domain.Attempt
 	}
 }
 
+func e2eAssignment(t *testing.T, role domain.Role, provider string) review.Assignment {
+	t.Helper()
+	key, err := ports.ParseConcurrencyKey(strings.ReplaceAll(provider, ".", "-"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := ports.NewProviderRoute(provider, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := review.NewScheduledAssignment(role, false, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return assignment
+}
+
 func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	ctx := context.Background()
 	common := e2eLayer(t, "common", "Common review constraints.")
@@ -293,14 +311,8 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logic, err := review.NewAssignment(domain.RoleLogic, false, "fake.logic")
-	if err != nil {
-		t.Fatal(err)
-	}
-	security, err := review.NewAssignment(domain.RoleSecurity, false, "fake.security")
-	if err != nil {
-		t.Fatal(err)
-	}
+	logic := e2eAssignment(t, domain.RoleLogic, "fake.logic")
+	security := e2eAssignment(t, domain.RoleSecurity, "fake.security")
 	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, repairLayer, map[domain.Role]prompt.TrustedLayer{
 		domain.RoleLogic:    logicLayer,
 		domain.RoleSecurity: securityLayer,

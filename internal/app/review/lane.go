@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // laneJob and laneResult are deliberately value-only boundaries. In particular,
@@ -20,29 +18,6 @@ type laneResult struct {
 	job     InvocationJob
 	outcome AttemptOutcome
 }
-type processLaneState struct {
-	available  chan struct{}
-	references int
-}
-
-type processLaneAuthority struct {
-	mu    sync.Mutex
-	lanes map[string]*processLaneState
-}
-
-type processLaneLease struct {
-	authority *processLaneAuthority
-	key       ports.ConcurrencyKey
-	state     *processLaneState
-
-	mu       sync.Mutex
-	released bool
-}
-
-var coordinatorProcessLaneAuthority = &processLaneAuthority{
-	lanes: make(map[string]*processLaneState),
-}
-
 type processLaneCapacityAuthority struct {
 	mu      sync.Mutex
 	active  int
@@ -143,75 +118,6 @@ func (authority *processLaneCapacityAuthority) signalLocked() {
 	authority.changed = make(chan struct{})
 }
 
-func (authority *processLaneAuthority) acquire(
-	ctx context.Context,
-	key ports.ConcurrencyKey,
-) (*processLaneLease, error) {
-	if ctx == nil {
-		return nil, context.Canceled
-	}
-	if !key.Valid() {
-		return nil, errors.New("review coordinator: invalid process lane key")
-	}
-
-	authority.mu.Lock()
-	state := authority.lanes[key.String()]
-	if state == nil {
-		state = &processLaneState{available: make(chan struct{}, 1)}
-		state.available <- struct{}{}
-		authority.lanes[key.String()] = state
-	}
-	state.references++
-	authority.mu.Unlock()
-
-	select {
-	case <-ctx.Done():
-		authority.releaseReference(key, state, false)
-		return nil, ctx.Err()
-	case <-state.available:
-		if err := ctx.Err(); err != nil {
-			authority.releaseReference(key, state, true)
-			return nil, err
-		}
-		return &processLaneLease{authority: authority, key: key, state: state}, nil
-	}
-}
-
-func (authority *processLaneAuthority) releaseReference(
-	key ports.ConcurrencyKey,
-	state *processLaneState,
-	returnToken bool,
-) {
-	authority.mu.Lock()
-	defer authority.mu.Unlock()
-	if returnToken {
-		state.available <- struct{}{}
-	}
-	state.references--
-	if state.references == 0 && authority.lanes[key.String()] == state {
-		delete(authority.lanes, key.String())
-	}
-}
-
-func (lease *processLaneLease) Release() error {
-	if lease == nil || lease.authority == nil || lease.state == nil || !lease.key.Valid() {
-		return errors.New("review coordinator: invalid process lane lease")
-	}
-	lease.mu.Lock()
-	defer lease.mu.Unlock()
-	if lease.released {
-		return nil
-	}
-	lease.released = true
-	lease.authority.releaseReference(lease.key, lease.state, true)
-	return nil
-}
-
-type coordinatorLane struct {
-	key   ports.ConcurrencyKey
-	queue chan laneJob
-}
-
 // laneScheduler owns worker lifetime only. It has no domain-state, repair,
 // aggregation, or finalization authority; all of those remain in the
 // coordinator goroutine.
@@ -219,36 +125,38 @@ type laneScheduler struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	runtime  InvocationRuntime
-	locker   ports.LaneLocker
 	capacity *processLaneCapacityRegistration
 
 	results chan laneResult
+	jobs    chan laneJob
 
 	mu      sync.Mutex
 	closed  bool
-	lanes   map[string]*coordinatorLane
 	workers sync.WaitGroup
 }
 
 func newLaneScheduler(
 	parent context.Context,
 	runtime InvocationRuntime,
-	locker ports.LaneLocker,
 	maxActiveLanes, maxJobs int,
 ) *laneScheduler {
 	ctx, cancel := context.WithCancel(parent)
 	if maxJobs < 1 {
 		maxJobs = 1
 	}
-	return &laneScheduler{
+	scheduler := &laneScheduler{
 		ctx:      ctx,
 		cancel:   cancel,
 		runtime:  runtime,
-		locker:   locker,
 		capacity: coordinatorProcessLaneCapacity.register(maxActiveLanes),
 		results:  make(chan laneResult, maxJobs),
-		lanes:    make(map[string]*coordinatorLane),
+		jobs:     make(chan laneJob, maxJobs),
 	}
+	scheduler.workers.Add(maxActiveLanes)
+	for range maxActiveLanes {
+		go scheduler.runWorker()
+	}
+	return scheduler
 }
 
 // admitWithGate queues a job behind a caller-owned start gate.
@@ -257,25 +165,16 @@ func (scheduler *laneScheduler) admitWithGate(job InvocationJob, gate <-chan str
 		return false
 	}
 	scheduler.mu.Lock()
-	defer scheduler.mu.Unlock()
 	if scheduler.closed || scheduler.ctx.Err() != nil {
+		scheduler.mu.Unlock()
 		return false
 	}
-	key := job.Route().ConcurrencyKey()
-	lane := scheduler.lanes[key.String()]
-	if lane == nil {
-		lane = &coordinatorLane{
-			key:   key,
-			queue: make(chan laneJob, cap(scheduler.results)),
-		}
-		scheduler.lanes[key.String()] = lane
-		scheduler.workers.Add(1)
-		go scheduler.runLane(lane)
-	}
 	select {
-	case lane.queue <- laneJob{job: job, start: gate}:
+	case scheduler.jobs <- laneJob{job: job, start: gate}:
+		scheduler.mu.Unlock()
 		return true
 	case <-scheduler.ctx.Done():
+		scheduler.mu.Unlock()
 		return false
 	}
 }
@@ -306,32 +205,14 @@ func (scheduler *laneScheduler) submit(job InvocationJob) bool {
 	return true
 }
 
-func (scheduler *laneScheduler) runLane(lane *coordinatorLane) {
+func (scheduler *laneScheduler) runWorker() {
 	defer scheduler.workers.Done()
-	for {
+	for queued := range scheduler.jobs {
 		select {
-		case queued, open := <-lane.queue:
-			if !open {
-				return
-			}
-			select {
-			case <-queued.start:
-				scheduler.runJob(queued.job)
-			case <-scheduler.ctx.Done():
-				scheduler.send(queued.job, scheduler.contextOutcome(queued.job, scheduler.ctx))
-			}
+		case <-queued.start:
+			scheduler.runJob(queued.job)
 		case <-scheduler.ctx.Done():
-			for {
-				select {
-				case queued, open := <-lane.queue:
-					if !open {
-						return
-					}
-					scheduler.send(queued.job, scheduler.contextOutcome(queued.job, scheduler.ctx))
-				default:
-					return
-				}
-			}
+			scheduler.send(queued.job, scheduler.contextOutcome(queued.job, scheduler.ctx))
 		}
 	}
 }
@@ -342,28 +223,9 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 		return
 	}
 
-	// Process-lane, capacity, and cross-process lock acquisition are bounded by
-	// the enclosing run context. They deliberately do not consume the provider's
-	// configured process timeout; InvocationRuntime starts that timeout at the
-	// provider execution boundary.
-	if scheduler.ctx.Err() != nil {
-		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
-		return
-	}
-
-	processLease, err := coordinatorProcessLaneAuthority.acquire(
-		scheduler.ctx,
-		job.Route().ConcurrencyKey(),
-	)
-	if err != nil {
-		scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, laneAcquisitionCondition(err)))
-		return
-	}
-	defer func() {
-		if processLease.Release() != nil {
-			scheduler.cancel()
-		}
-	}()
+	// Capacity acquisition is bounded by the enclosing run context. It does not
+	// consume the provider's configured process timeout; InvocationRuntime starts
+	// that timeout at the provider execution boundary.
 	if scheduler.ctx.Err() != nil {
 		scheduler.send(job, scheduler.contextOutcome(job, scheduler.ctx))
 		return
@@ -379,29 +241,7 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 		return
 	}
 
-	var lease ports.LaneLease
-	if scheduler.locker != nil {
-		acquired, err := scheduler.locker.Acquire(scheduler.ctx, job.Route().ConcurrencyKey())
-		if err != nil {
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, laneAcquisitionCondition(err)))
-			return
-		}
-		if nilInterface(acquired) {
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
-			return
-		}
-		if acquired.Key().String() != job.Route().ConcurrencyKey().String() {
-			if acquired.Release() != nil {
-				scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
-				return
-			}
-			scheduler.send(job, scheduler.reduceOutcome(job, AttemptOutcome{}, scheduler.ctx, AttemptConditionInternalInvariant))
-			return
-		}
-		lease = acquired
-	}
-
-	// Contention belongs to the enclosing run budget. If it leaves less than a
+	// Capacity contention belongs to the enclosing run budget. If it leaves less than a
 	// complete provider window, fail before entering the runtime so the parent
 	// deadline cannot masquerade as or truncate a provider timeout.
 	if !contextCanRunFor(scheduler.ctx, job.Limits().Timeout()) {
@@ -413,29 +253,7 @@ func (scheduler *laneScheduler) runJob(job InvocationJob) {
 	if outcome.validFor(job) {
 		conditions[0] = coordinatorOutcomeCondition(outcome)
 	}
-	if lease != nil && lease.Release() != nil {
-		conditions = append(conditions, AttemptConditionConfigurationViolation)
-	}
 	scheduler.send(job, scheduler.reduceOutcome(job, outcome, scheduler.ctx, conditions...))
-}
-
-func laneAcquisitionCondition(err error) AttemptCondition {
-	if errors.Is(err, context.DeadlineExceeded) {
-		return AttemptConditionTimeout
-	}
-	if errors.Is(err, context.Canceled) {
-		return AttemptConditionCancelled
-	}
-	switch ports.ClassifyLaneAcquisitionFailure(err) {
-	case ports.LaneAcquisitionUnavailable:
-		return AttemptConditionProviderUnavailable
-	case ports.LaneAcquisitionConfiguration:
-		return AttemptConditionConfigurationViolation
-	case ports.LaneAcquisitionSecurity:
-		return AttemptConditionSecurityViolation
-	default:
-		return AttemptConditionInternalInvariant
-	}
 }
 
 func (scheduler *laneScheduler) contextOutcome(job InvocationJob, ctx context.Context) AttemptOutcome {
@@ -510,7 +328,7 @@ func (scheduler *laneScheduler) cancelDispatch() {
 }
 
 // close is called only after the coordinator has decided no repair
-// can be generated. It joins lanes but intentionally never closes results.
+// can be generated. It joins workers but intentionally never closes results.
 func (scheduler *laneScheduler) close() {
 	scheduler.mu.Lock()
 	if scheduler.closed {
@@ -518,9 +336,7 @@ func (scheduler *laneScheduler) close() {
 		return
 	}
 	scheduler.closed = true
-	for _, lane := range scheduler.lanes {
-		close(lane.queue)
-	}
+	close(scheduler.jobs)
 	scheduler.mu.Unlock()
 	scheduler.workers.Wait()
 	scheduler.capacity.unregister()

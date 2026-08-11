@@ -383,7 +383,15 @@ func reviewRunPlan(t *testing.T, roles []domain.Role) ExecutionPlan {
 	assignments := make([]review.Assignment, 0, len(roles))
 	budgets := make([]review.RoleBudget, 0, len(roles))
 	for _, role := range roles {
-		assignment, err := review.NewAssignment(role, false, "provider."+string(role))
+		key, err := ports.ParseConcurrencyKey("provider-" + string(role))
+		if err != nil {
+			t.Fatal(err)
+		}
+		route, err := ports.NewProviderRoute("provider."+string(role), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assignment, err := review.NewScheduledAssignment(role, false, route)
 		if err != nil {
 			t.Fatal(err)
 		}

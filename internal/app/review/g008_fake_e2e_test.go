@@ -171,7 +171,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if err != nil {
 		t.Fatal(err)
 	}
-	coordinator, err := review.NewCoordinator(e2eClock{now: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)}, ids, runtime, nil, 1, receipt)
+	coordinator, err := review.NewCoordinator(e2eClock{now: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)}, ids, runtime, 1, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

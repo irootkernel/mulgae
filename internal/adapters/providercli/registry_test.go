@@ -525,12 +525,11 @@ func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 	}
 }
 
-func TestRegistrySerializesEqualKeysAndAllowsDistinctKeys(t *testing.T) {
+func TestRegistryAllowsDistinctInstancesWithEqualKeys(t *testing.T) {
 	runner := newBarrierRunner()
 	kimi := testDefinition(t, FamilyKimi, "kimi_default", "shared_lane")
 	zcode := testDefinition(t, FamilyZcode, "zcode_default", "shared_lane")
-	agy := testDefinition(t, FamilyAgy, "agy_default", "other_lane")
-	registry, err := newRegistry(context.Background(), runner, kimi, zcode, agy)
+	registry, err := newRegistry(context.Background(), runner, kimi, zcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,24 +540,111 @@ func TestRegistrySerializesEqualKeysAndAllowsDistinctKeys(t *testing.T) {
 		defer calls.Done()
 		_, _ = registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
 	}()
-	<-runner.started
 	go func() {
 		defer calls.Done()
 		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	}()
-	select {
-	case <-runner.started:
-		t.Fatal("equal concurrency keys overlapped")
-	default:
-		if active := runner.activeCount(); active != 1 {
-			t.Fatalf("equal concurrency key active count = %d, want 1", active)
+	for range 2 {
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("distinct instances with equal keys did not overlap")
+		}
+	}
+	if active := runner.activeCount(); active != 2 {
+		t.Fatalf("equal-key active count = %d, want 2", active)
+	}
+	close(runner.release)
+	calls.Wait()
+}
+
+func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *testing.T) {
+	runner := newBarrierRunner()
+	definition := testDefinition(t, FamilyKimi, "kimi_default", "shared_lane")
+	first, err := newRegistry(context.Background(), runner, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newRegistry(context.Background(), runner, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.namespaceGenerations[definition.instance] == second.namespaceGenerations[definition.instance] ||
+		first.namespaces[definition.instance] == second.namespaces[definition.instance] {
+		t.Fatal("independent registries shared one provider namespace generation")
+	}
+	var calls sync.WaitGroup
+	calls.Add(2)
+	for _, registry := range []*Registry{first, second} {
+		registry := registry
+		go func() {
+			defer calls.Done()
+			_, _ = registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+		}()
+	}
+	for range 2 {
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("independent registries serialized the same provider instance")
 		}
 	}
 	close(runner.release)
 	calls.Wait()
+}
 
-	runner = newBarrierRunner()
-	registry.runner = runner
+func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
+	runner := newBarrierRunner()
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "shared_lane"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+		firstDone <- observeErr
+	}()
+	<-runner.started
+
+	refused := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+		refused <- observeErr
+	}()
+	select {
+	case observeErr := <-refused:
+		if got := providerRuntimeCause(observeErr); got != domain.DiagnosticCauseObservationMismatch {
+			t.Fatalf("duplicate active instance cause = %q, want internal observation mismatch", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("duplicate active instance waited instead of failing closed")
+	}
+	if active := runner.activeCount(); active != 1 {
+		t.Fatalf("active count after invariant refusal = %d, want 1", active)
+	}
+	close(runner.release)
+	if observeErr := <-firstDone; observeErr != nil {
+		t.Fatalf("first observe failed: %v", observeErr)
+	}
+
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+	if err != nil {
+		t.Fatalf("instance remained active after completion: %v", err)
+	}
+	if err := observed.Validate(); err != nil {
+		t.Fatalf("observation after completion is invalid: %v", err)
+	}
+}
+
+func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
+	runner := newBarrierRunner()
+	kimi := testDefinition(t, FamilyKimi, "kimi_default", "kimi_lane")
+	agy := testDefinition(t, FamilyAgy, "agy_default", "agy_lane")
+	registry, err := newRegistry(context.Background(), runner, kimi, agy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls sync.WaitGroup
 	calls.Add(2)
 	go func() {
 		defer calls.Done()
@@ -622,7 +708,7 @@ func TestRegistryRunsSixZCodeRoleInstancesConcurrentlyInSameGuardedCWD(t *testin
 	close(runner.release)
 	calls.Wait()
 }
-func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
+func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.T) {
 	runner := newBarrierRunner()
 	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default", "shared_lane"))
 	if err != nil {
@@ -636,23 +722,16 @@ func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 	}()
 	<-runner.started
 
-	ctx, cancel := context.WithCancel(context.Background())
-	queuedDone := make(chan error, 1)
-	go func() {
-		_, observeErr := registry.Observe(ctx, testInvocation(t, "kimi_default"))
-		queuedDone <- observeErr
-	}()
-	cancel()
-	if observeErr := <-queuedDone; observeErr == nil {
-		t.Fatal("queued cancellation succeeded")
+	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(observeErr) != domain.DiagnosticCauseObservationMismatch {
+		t.Fatalf("duplicate active invocation error = %v", observeErr)
 	}
 	select {
 	case <-runner.started:
-		t.Fatal("cancelled queued call reached runner")
+		t.Fatal("refused duplicate call reached runner")
 	default:
 	}
 	if active := runner.activeCount(); active != 1 {
-		t.Fatalf("active count after queued cancellation = %d, want 1", active)
+		t.Fatalf("active count after refusal = %d, want 1", active)
 	}
 
 	close(runner.release)
@@ -661,10 +740,10 @@ func TestRegistryObserveQueuedCancellationDoesNotRunOrLeakLane(t *testing.T) {
 	}
 	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
 	if err != nil {
-		t.Fatalf("lane was not released after cancellation: %v", err)
+		t.Fatalf("active instance was not released after completion: %v", err)
 	}
 	if err := observed.Validate(); err != nil {
-		t.Fatalf("observation after cancellation is invalid: %v", err)
+		t.Fatalf("observation after refusal is invalid: %v", err)
 	}
 }
 

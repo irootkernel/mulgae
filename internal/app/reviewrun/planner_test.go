@@ -204,7 +204,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixLaneCoordinatorUnchanged(t *te
 		t.Fatal(err)
 	}
 	runtime := &plannerCoordinatorRuntime{entered: make(chan review.InvocationJob, 6), release: make(chan struct{})}
-	coordinator, err := review.NewCoordinator(adapterruntime.SystemClock{}, adapterruntime.NewUUIDv7Generator(), runtime, nil, plan.MaxLanes, receipt)
+	coordinator, err := review.NewCoordinator(adapterruntime.SystemClock{}, adapterruntime.NewUUIDv7Generator(), runtime, plan.MaxLanes, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

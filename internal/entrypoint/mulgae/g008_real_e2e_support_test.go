@@ -488,7 +488,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coordinator, err := review.NewCoordinator(clock, ids, runtime, nil, 1, receipt)
+	coordinator, err := review.NewCoordinator(clock, ids, runtime, 1, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

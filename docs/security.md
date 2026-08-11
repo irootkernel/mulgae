@@ -13,8 +13,9 @@ Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
 commands against that immutable directory view, isolated output, explicit
 credential projection, execution bounds, process-local per-instance
-serialization, cancellation, and terminal process-state checks. Separate
-Mulgae processes never coordinate provider execution through a shared lock.
+namespace ownership, cancellation, and terminal process-state checks. Each run
+owns its provider registry and namespace generations; no provider-key queue or
+lock coordinates independent runs.
 Prompt packets identify the
 generated `._mulgae_review_target.txt` file by path, digest, and size rather than
 re-embedding patch, stdin, or old/new target bytes for every role. Providers read

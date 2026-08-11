@@ -68,7 +68,15 @@ func TestG008CompositionRejectsPartialOnlineAuthority(t *testing.T) {
 
 func TestG008CompositionComposesAllOnlineWorkflowServices(t *testing.T) {
 	composition := newG008Composition(t)
-	assignment, err := review.NewAssignment(domain.RoleLogic, true, "testing")
+	key, err := ports.ParseConcurrencyKey("testing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := ports.NewProviderRoute("testing", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := review.NewScheduledAssignment(domain.RoleLogic, true, route)
 	if err != nil {
 		t.Fatal(err)
 	}

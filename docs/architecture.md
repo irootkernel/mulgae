@@ -74,10 +74,9 @@ re-derived after init.
 5. Mulgae composes trusted prompt layers and one capture-owned immutable
    directory view shared by every role in the run. A single tree is available
    under `current/`; a Git comparison exposes both `before/` and `after/`.
-6. Provider executions run through bounded, process-local serialized lanes
-   with adapter-owned tool boundaries and per-invocation process isolation
-   against that shared directory view. Separate Mulgae processes do not share
-   provider locks.
+6. Provider executions run independently within the explicit
+   `max_active_lanes` process capacity, with adapter-owned tool boundaries and
+   per-invocation process isolation against that shared directory view.
 7. The provider result arrives on the transport declared for that route: a
    Mulgae-owned staged file the adapter validates and reads back after the
    process terminates, or process stdout.
@@ -96,10 +95,14 @@ re-derived after init.
 
 ## Concurrency, cancellation, and storage
 
-Within one Mulgae process, provider instances still have concurrency keys, so
-matching invocations are serialized by the coordinator. Separate processes and
-projects do not share provider locks; each process owns its temporary provider
-namespace. The coordinator enforces per-role and per-run invocation ceilings.
+Provider concurrency keys remain route and budget identity, but do not create
+queues or locks. Each run owns a registry and one temporary namespace generation
+per provider instance, so independent runs can invoke the same configured
+provider concurrently. A run cannot register one provider instance twice, and
+an impossible concurrent reuse of one instance within the same registry fails
+immediately as an internal invariant instead of waiting. The coordinator
+enforces the explicit process capacity plus per-role and per-run invocation
+ceilings, and schedules repair only after the initial wave is committed.
 Project-local publication retains its own lock because it mutates shared durable
 state. Cancellation propagates to subprocesses and terminal publication.
 

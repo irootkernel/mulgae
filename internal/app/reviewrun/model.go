@@ -338,7 +338,6 @@ type Dependencies struct {
 	Build               BuildIdentity
 	RunAuthorityFactory RunAuthorityFactory
 	Validator           *validation.ReviewValidator
-	Locker              ports.LaneLocker
 	Publication         publication.PublicationCommitter
 	Templates           review.TemplateSet
 	Diagnostics         ports.RuntimeDiagnosticSinkFactory

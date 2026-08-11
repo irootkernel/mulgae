@@ -472,10 +472,10 @@ func (namespace retainedQualificationNamespace) ValidateForSpawn() error {
 type Registry struct {
 	runner               ports.ProcessRunner
 	definitions          map[string]definition
-	lanes                map[ports.ConcurrencyKey]chan struct{}
 	namespaces           map[string]ports.ProviderNamespaceLease
 	namespaceGenerations map[string]string
 	namespaceReceipts    map[string]ports.ProviderNamespaceTerminalReceipt
+	activeInstances      map[string]struct{}
 	spawnVerifier        SpawnVerifier
 
 	stateMu    sync.Mutex
@@ -545,10 +545,10 @@ func newRegistryWithNamespaces(
 	registry := &Registry{
 		runner:               runner,
 		definitions:          make(map[string]definition, len(definitions)),
-		lanes:                make(map[ports.ConcurrencyKey]chan struct{}, len(definitions)),
 		namespaces:           make(map[string]ports.ProviderNamespaceLease, len(definitions)),
 		namespaceGenerations: make(map[string]string, len(definitions)),
 		namespaceReceipts:    make(map[string]ports.ProviderNamespaceTerminalReceipt, len(definitions)),
+		activeInstances:      make(map[string]struct{}, len(definitions)),
 		activeZero:           activeZero,
 		closeMu:              make(chan struct{}, 1),
 	}
@@ -577,9 +577,6 @@ func newRegistryWithNamespaces(
 		registry.definitions[definition.instance] = cloneDefinition(definition)
 		registry.namespaces[definition.instance] = namespace
 		registry.namespaceGenerations[definition.instance] = namespace.Generation()
-		if _, ok := registry.lanes[definition.concurrencyKey]; !ok {
-			registry.lanes[definition.concurrencyKey] = make(chan struct{}, 1)
-		}
 	}
 	return registry, nil
 }
@@ -858,21 +855,26 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if ctx == nil {
 		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: nil context")
 	}
+	definition, ok := r.definitions[invocation.ProviderInstance()]
+	if !ok {
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: unregistered provider instance %q", invocation.ProviderInstance()))
+	}
 	r.stateMu.Lock()
 	if r.closed {
 		r.stateMu.Unlock()
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: terminally drained"))
 	}
+	if _, active := r.activeInstances[definition.instance]; active {
+		r.stateMu.Unlock()
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseObservationMismatch, fmt.Errorf("provider registry: provider instance %q is already active in this run", definition.instance))
+	}
 	if r.active == 0 {
 		r.activeZero = make(chan struct{})
 	}
 	r.active++
+	r.activeInstances[definition.instance] = struct{}{}
 	r.stateMu.Unlock()
-	defer r.observeDone()
-	definition, ok := r.definitions[invocation.ProviderInstance()]
-	if !ok {
-		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: unregistered provider instance %q", invocation.ProviderInstance()))
-	}
+	defer r.observeDone(definition.instance)
 	if err := definition.validate(); err != nil {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: invalid registered definition: %w", err))
 	}
@@ -881,16 +883,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if nilProviderNamespaceLease(namespace) || namespace.Generation() != r.namespaceGenerations[definition.instance] {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
 	}
-	lane := r.lanes[definition.concurrencyKey]
-	if lane == nil {
-		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing concurrency lane"))
-	}
-	if err := acquireLane(ctx, lane); err != nil {
-		return ports.ProviderExecutionObservation{}, fmt.Errorf("provider registry: acquire concurrency lane: %w", err)
-	}
-	defer func() {
-		<-lane
-	}()
 	if namespace.Generation() != r.namespaceGenerations[definition.instance] {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
 	}
@@ -1323,9 +1315,10 @@ func (r *Registry) Close(ctx context.Context) (ports.ProviderRunTerminalReceipt,
 	return receipt, nil
 }
 
-func (r *Registry) observeDone() {
+func (r *Registry) observeDone(instance string) {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
+	delete(r.activeInstances, instance)
 	r.active--
 	if r.active == 0 {
 		close(r.activeZero)
@@ -2050,18 +2043,6 @@ func validProviderInstanceID(value string) bool {
 		return false
 	}
 	return true
-}
-
-func acquireLane(ctx context.Context, lane chan struct{}) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	select {
-	case lane <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func nilRunner(runner ports.ProcessRunner) bool {
