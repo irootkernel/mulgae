@@ -3382,12 +3382,14 @@ func TestG006OperationalFailureExitsAreNotCoerced(t *testing.T) {
 
 func TestProjectLocalCommandCancellationExitsAreNotCoerced(t *testing.T) {
 	for _, command := range []app.CommandName{app.CommandInit, app.CommandConfig, app.CommandDoctor} {
-		t.Run(string(command), func(t *testing.T) {
-			failure := executionFailureFor(command, context.Canceled, domain.FailureSecurityPolicy)
-			if failure.class != domain.FailureCancelled || failure.exit != app.ExitCodeCancellation || !permittedFailureExit(command, failure.exit) || projectedFailureExit(command, failure.exit) != app.ExitCodeCancellation {
-				t.Fatalf("cancellation projection = class %s exit %d", failure.class, failure.exit)
-			}
-		})
+		for _, cancellation := range []error{context.Canceled, context.DeadlineExceeded} {
+			t.Run(string(command)+"/"+cancellation.Error(), func(t *testing.T) {
+				failure := executionFailureFor(command, cancellation, domain.FailureSecurityPolicy)
+				if failure.class != domain.FailureCancelled || failure.exit != app.ExitCodeCancellation || !permittedFailureExit(command, failure.exit) || projectedFailureExit(command, failure.exit) != app.ExitCodeCancellation {
+					t.Fatalf("cancellation projection = class %s exit %d", failure.class, failure.exit)
+				}
+			})
+		}
 	}
 }
 

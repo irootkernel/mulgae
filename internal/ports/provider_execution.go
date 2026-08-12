@@ -847,8 +847,7 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 	if !hasTransport {
 		switch processObservation.Termination() {
 		case ProcessTerminationStartFailed, ProcessTerminationStartUnavailable, ProcessTerminationStartConfiguration,
-			ProcessTerminationStartSecurity, ProcessTerminationLockFailed, ProcessTerminationLockUnavailable,
-			ProcessTerminationLockConfiguration, ProcessTerminationLockSecurity:
+			ProcessTerminationStartSecurity:
 			if receipt.WrittenByteCount() != 0 {
 				return fmt.Errorf("legacy stdin receipt claims delivery before process start")
 			}
@@ -923,13 +922,11 @@ func providerExecutionStatusMatchesProcessObservation(
 		// reported by a process that ran and exited after a complete stdin
 		// write, the same shape as authentication, quota and rate limit.
 		return processObservation.Termination() == ProcessTerminationStartUnavailable ||
-			processObservation.Termination() == ProcessTerminationLockUnavailable ||
 			(processObservation.Termination() == ProcessTerminationExited &&
 				processObservation.StdinWriteReceipt().Complete())
 	case ProviderExecutionStatusSecurityViolation:
 		switch processObservation.Termination() {
 		case ProcessTerminationStartSecurity,
-			ProcessTerminationLockSecurity,
 			ProcessTerminationResidualProcessGroup:
 			return true
 		case ProcessTerminationExited:
@@ -939,7 +936,7 @@ func providerExecutionStatusMatchesProcessObservation(
 		}
 	case ProviderExecutionStatusConfigurationViolation:
 		switch processObservation.Termination() {
-		case ProcessTerminationStartConfiguration, ProcessTerminationLockConfiguration:
+		case ProcessTerminationStartConfiguration:
 			return true
 		case ProcessTerminationExited:
 			return processObservation.StdinWriteReceipt().Complete()
@@ -953,11 +950,10 @@ func providerExecutionStatusMatchesProcessObservation(
 		return processObservation.Termination() == ProcessTerminationExited &&
 			processObservation.StdinWriteReceipt().Complete()
 	case ProviderExecutionStatusInternalFailure:
-		// Signals and unclassified start/lock failures remain exact process
+		// Signals and unclassified start failures remain exact process
 		// facts and fail closed as internal rather than becoming unavailable.
 		return processObservation.Termination() == ProcessTerminationSignaled ||
 			processObservation.Termination() == ProcessTerminationStartFailed ||
-			processObservation.Termination() == ProcessTerminationLockFailed ||
 			(processObservation.Termination() == ProcessTerminationExited &&
 				processObservation.StdinWriteReceipt().Complete())
 	default:

@@ -1782,24 +1782,39 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			recommendedNextCommand: hint,
 		}
 	}
+	class := reducedFailureClass(err, fallback)
 	if diagnostic, ok := apppublication.FailureDiagnosticFromError(err); ok {
 		hint := "rerun the review"
 		if _, runID, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err); hasIdentity {
 			hint = "mulgae status --run " + runID.String() + " --output json"
 		}
-		return &executionFailure{
-			class:                  domain.FailureArtifact,
-			code:                   string(diagnostic.Cause()),
-			message:                diagnostic.Failure() + " at phase " + string(diagnostic.Phase()) + "; " + diagnostic.Mitigation() + ".",
-			humanMessage:           "mulgae: " + diagnostic.Failure() + " at phase " + string(diagnostic.Phase()),
-			retryable:              false,
-			hasRetryable:           true,
-			stage:                  string(diagnostic.Phase()),
-			exit:                   app.ExitCodeArtifact,
-			recommendedNextCommand: hint,
+		if class == domain.FailureCancelled {
+			return &executionFailure{
+				class:                  domain.FailureCancelled,
+				code:                   "request_cancelled",
+				message:                stableFailureMessage(domain.FailureCancelled),
+				humanMessage:           humanFailureMessage(domain.FailureCancelled),
+				retryable:              false,
+				hasRetryable:           true,
+				stage:                  string(diagnostic.Phase()),
+				exit:                   app.ExitCodeCancellation,
+				recommendedNextCommand: hint,
+			}
+		}
+		if class == domain.FailureArtifact {
+			return &executionFailure{
+				class:                  domain.FailureArtifact,
+				code:                   string(diagnostic.Cause()),
+				message:                diagnostic.Failure() + " at phase " + string(diagnostic.Phase()) + "; " + diagnostic.Mitigation() + ".",
+				humanMessage:           "mulgae: " + diagnostic.Failure() + " at phase " + string(diagnostic.Phase()),
+				retryable:              false,
+				hasRetryable:           true,
+				stage:                  string(diagnostic.Phase()),
+				exit:                   app.ExitCodeArtifact,
+				recommendedNextCommand: hint,
+			}
 		}
 	}
-	class := reducedFailureClass(err, fallback)
 	failure = &executionFailure{
 		class: class,
 		stage: "cli." + string(command),

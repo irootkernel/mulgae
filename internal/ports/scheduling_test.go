@@ -369,10 +369,6 @@ func TestProcessTerminationIsClosed(t *testing.T) {
 		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity,
 	} {
 		if !termination.Valid() {
 			t.Errorf("%q is invalid", termination)
@@ -520,7 +516,6 @@ func TestNewProcessObservationDistinguishesExitedAndNonExitedFacts(t *testing.T)
 		ProcessTerminationStdoutLimit,
 		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
-		ProcessTerminationLockFailed,
 	} {
 		observation, err := NewProcessObservation(
 			nil,

@@ -1,6 +1,7 @@
 package reviewrun
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -16,6 +17,10 @@ func TestRuntimeDiagnosticTerminalDecisionDistinguishesDiagnosticPersistence(t *
 	if state != domain.RunFailed || cause != domain.DiagnosticCausePersistenceFailed || phase != domain.DiagnosticPhaseDiagnostics {
 		t.Fatalf("diagnostic persistence decision = (%q, %q, %q)", state, cause, phase)
 	}
+	state, cause, phase = runtimeDiagnosticTerminalDecision(nil, Result{}, errors.Join(context.Canceled, diagnosticErr))
+	if state != domain.RunFailed || cause != domain.DiagnosticCausePersistenceFailed || phase != domain.DiagnosticPhaseDiagnostics {
+		t.Fatalf("mixed diagnostic persistence decision = (%q, %q, %q)", state, cause, phase)
+	}
 
 	publicationErr, err := domain.NewFailure("publication.install", domain.FailureArtifact, "publication failed", errors.New("injected"))
 	if err != nil {
@@ -24,6 +29,32 @@ func TestRuntimeDiagnosticTerminalDecisionDistinguishesDiagnosticPersistence(t *
 	state, cause, phase = runtimeDiagnosticTerminalDecision(nil, Result{}, publicationErr)
 	if state != domain.RunFailed || cause != "" || phase != "" {
 		t.Fatalf("unclassified publication decision = (%q, %q, %q), want no false diagnostic-persistence cause", state, cause, phase)
+	}
+
+	cancelledPublicationErr, err := domain.NewFailure("publish-next.lock", domain.FailureArtifact, "publication store lock failed", context.Canceled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, cause, phase = runtimeDiagnosticTerminalDecision(context.Background(), Result{}, cancelledPublicationErr)
+	if state != domain.RunFailed || cause != "" || phase != "" {
+		t.Fatalf("artifact publication decision = (%q, %q, %q), want failed without a false diagnostic cause", state, cause, phase)
+	}
+	for _, class := range []domain.FailureClass{domain.FailureSecurityPolicy, domain.FailureInternal} {
+		protected, createErr := domain.NewFailure("publish-next.lock", class, "protected publication failure", context.Canceled)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		state, cause, phase = runtimeDiagnosticTerminalDecision(context.Background(), Result{}, protected)
+		if state != domain.RunFailed || cause != "" || phase != "" {
+			t.Fatalf("%s publication decision = (%q, %q, %q), want failed", class, state, cause, phase)
+		}
+	}
+
+	for _, cancellation := range []error{context.Canceled, context.DeadlineExceeded} {
+		state, cause, phase = runtimeDiagnosticTerminalDecision(context.Background(), Result{}, cancellation)
+		if state != domain.RunCancelled || cause != "" || phase != "" {
+			t.Fatalf("pure cancellation decision for %v = (%q, %q, %q)", cancellation, state, cause, phase)
+		}
 	}
 }
 

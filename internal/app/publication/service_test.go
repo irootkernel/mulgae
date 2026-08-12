@@ -850,6 +850,50 @@ func TestPublishNextObservedClassifiesStoreLockFailure(t *testing.T) {
 	}
 }
 
+func TestPublicationFailureFromCausePreservesCanonicalPrecedence(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		cause error
+		want  domain.FailureClass
+	}{
+		{name: "pure cancellation", cause: context.Canceled, want: domain.FailureCancelled},
+		{name: "pure deadline", cause: context.DeadlineExceeded, want: domain.FailureCancelled},
+		{name: "artifact over cancellation", cause: errors.Join(context.Canceled, publicationTestFailure(t, domain.FailureArtifact)), want: domain.FailureArtifact},
+		{name: "security over cancellation", cause: errors.Join(context.Canceled, publicationTestFailure(t, domain.FailureSecurityPolicy)), want: domain.FailureSecurityPolicy},
+		{name: "internal over cancellation", cause: errors.Join(context.Canceled, publicationTestFailure(t, domain.FailureInternal)), want: domain.FailureInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := publicationFailureFromCause(
+				context.Background(),
+				"publish-next.lock",
+				domain.FailureArtifact,
+				"publication store lock failed",
+				test.cause,
+			)
+			var failure *domain.Failure
+			if !errors.As(err, &failure) || failure.Class() != test.want {
+				t.Fatalf("failure = %#v, want class %q", failure, test.want)
+			}
+			if diagnostic, ok := FailureDiagnosticFromError(err); !ok ||
+				diagnostic.Phase() != domain.DiagnosticPhasePublicationStoreLock ||
+				diagnostic.Cause() != domain.DiagnosticCausePublicationStoreLockFailed {
+				t.Fatalf("diagnostic = %#v, %t, want store-lock diagnostic", diagnostic, ok)
+			}
+		})
+	}
+}
+
+func publicationTestFailure(t *testing.T, class domain.FailureClass) error {
+	t.Helper()
+	failure, err := domain.NewFailure("publication.test", class, "injected failure", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failure
+}
+
 func TestPublishNextObservedClassifiesInstallationFailure(t *testing.T) {
 	t.Parallel()
 

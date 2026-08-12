@@ -599,7 +599,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		return runtimeCondition(job, diagnosticConditionForPersistence(err))
 	}
 	// Never start a provider with an enclosing deadline that would truncate its
-	// configured process window. Lock, capacity, and prompt preparation may use
+	// configured process window. Capacity waiting and prompt preparation may use
 	// the run budget, but their delay is reported as an execution timeout.
 	providerCtx, cancelProvider, fullWindow := newProviderExecutionContext(invocationCtx, job.Limits().Timeout())
 	if !fullWindow {
@@ -1506,6 +1506,9 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	if runtimeProviderObservedTimeout(err) {
 		return AttemptConditionProviderTimeout
 	}
+	if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
+		return AttemptConditionInternalInvariant
+	}
 	if ctx != nil && ctx.Err() != nil {
 		return runtimeContextCondition(ctx.Err())
 	}
@@ -1514,9 +1517,6 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 	}
 	if errors.Is(err, ports.ErrProviderLoginRequired) {
 		return AttemptConditionLoginRequired
-	}
-	if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
-		return AttemptConditionInternalInvariant
 	}
 	var providerFailure *ports.ProviderRuntimeError
 	if errors.As(err, &providerFailure) {

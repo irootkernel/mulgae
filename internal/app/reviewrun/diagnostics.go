@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	coreapp "github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -243,20 +244,20 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 		}
 		return domain.RunCompleted, "", ""
 	}
-	if diagnostic, ok := publication.FailureDiagnosticFromError(err); ok {
-		return domain.RunFailed, diagnostic.Cause(), diagnostic.Phase()
-	}
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
 		return domain.RunFailed, domain.DiagnosticCauseLoginRequired, ""
 	}
 	if cause := qualificationTerminalCause(err); cause.Valid() {
 		return domain.RunFailed, cause, ""
 	}
-	var failure *domain.Failure
-	if errors.As(err, &failure) {
-		switch failure.Class() {
+	class := runtimeDiagnosticFailureClass(err)
+	if class.Valid() {
+		switch class {
 		case domain.FailureArtifact:
-			if strings.HasPrefix(failure.Stage(), "reviewrun.diagnostics") || failure.Stage() == "publication.diagnostics" {
+			if diagnostic, ok := publication.FailureDiagnosticFromError(err); ok {
+				return domain.RunFailed, diagnostic.Cause(), diagnostic.Phase()
+			}
+			if runtimeDiagnosticPersistenceFailure(err) {
 				return domain.RunFailed, domain.DiagnosticCausePersistenceFailed, domain.DiagnosticPhaseDiagnostics
 			}
 			return domain.RunFailed, "", ""
@@ -269,10 +270,69 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 		}
 		return domain.RunFailed, "", ""
 	}
+	if diagnostic, ok := publication.FailureDiagnosticFromError(err); ok {
+		return domain.RunFailed, diagnostic.Cause(), diagnostic.Phase()
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || parent != nil && parent.Err() != nil {
 		return domain.RunCancelled, "", ""
 	}
 	return domain.RunFailed, "", ""
+}
+
+func runtimeDiagnosticFailureClass(err error) domain.FailureClass {
+	selected := domain.FailureClass("")
+	selectedRank := 0
+	var visit func(error)
+	visit = func(current error) {
+		if current == nil {
+			return
+		}
+		if failure, ok := current.(*domain.Failure); ok && failure != nil {
+			if rank := coreapp.FailurePrecedence(failure.Class()); rank > selectedRank {
+				selected = failure.Class()
+				selectedRank = rank
+			}
+		}
+		switch unwrapped := current.(type) {
+		case interface{ Unwrap() []error }:
+			for _, nested := range unwrapped.Unwrap() {
+				visit(nested)
+			}
+			return
+		case interface{ Unwrap() error }:
+			visit(unwrapped.Unwrap())
+			return
+		}
+		if errors.Is(current, context.Canceled) || errors.Is(current, context.DeadlineExceeded) {
+			if rank := coreapp.FailurePrecedence(domain.FailureCancelled); rank > selectedRank {
+				selected = domain.FailureCancelled
+				selectedRank = rank
+			}
+		}
+	}
+	visit(err)
+	return selected
+}
+
+func runtimeDiagnosticPersistenceFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if failure, ok := err.(*domain.Failure); ok && failure != nil &&
+		(strings.HasPrefix(failure.Stage(), "reviewrun.diagnostics") || failure.Stage() == "publication.diagnostics") {
+		return true
+	}
+	switch unwrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, nested := range unwrapped.Unwrap() {
+			if runtimeDiagnosticPersistenceFailure(nested) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return runtimeDiagnosticPersistenceFailure(unwrapped.Unwrap())
+	}
+	return false
 }
 
 func qualificationTerminalCause(err error) domain.RuntimeDiagnosticCause {

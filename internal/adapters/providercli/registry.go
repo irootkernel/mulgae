@@ -1753,9 +1753,7 @@ func classifyProviderFailure(
 	case ports.ProcessTerminationTimedOut:
 		return status, diagnostic, domain.DiagnosticCauseTimedOut
 	case ports.ProcessTerminationStartFailed, ports.ProcessTerminationStartUnavailable,
-		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity,
-		ports.ProcessTerminationLockFailed, ports.ProcessTerminationLockUnavailable,
-		ports.ProcessTerminationLockConfiguration, ports.ProcessTerminationLockSecurity:
+		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity:
 		return status, diagnostic, domain.DiagnosticCauseProviderSpawnFailed
 	case ports.ProcessTerminationResidualProcessGroup:
 		return status, diagnostic, domain.DiagnosticCauseProcessGroupCleanupFailed
@@ -1873,11 +1871,11 @@ func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatu
 		return ports.ProviderExecutionStatusCancelled
 	case ports.ProcessTerminationStdoutLimit, ports.ProcessTerminationStderrLimit, ports.ProcessTerminationStdinIncomplete:
 		return ports.ProviderExecutionStatusArtifactFailure
-	case ports.ProcessTerminationStartUnavailable, ports.ProcessTerminationLockUnavailable:
+	case ports.ProcessTerminationStartUnavailable:
 		return ports.ProviderExecutionStatusUnavailable
-	case ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationLockConfiguration:
+	case ports.ProcessTerminationStartConfiguration:
 		return ports.ProviderExecutionStatusConfigurationViolation
-	case ports.ProcessTerminationStartSecurity, ports.ProcessTerminationLockSecurity, ports.ProcessTerminationResidualProcessGroup:
+	case ports.ProcessTerminationStartSecurity, ports.ProcessTerminationResidualProcessGroup:
 		return ports.ProviderExecutionStatusSecurityViolation
 	default:
 		return ports.ProviderExecutionStatusInternalFailure
@@ -1921,11 +1919,11 @@ func diagnosticCode(observation ports.ProcessObservation) string {
 		return "stderr_limit"
 	case ports.ProcessTerminationStdinIncomplete:
 		return "stdin_incomplete"
-	case ports.ProcessTerminationStartUnavailable, ports.ProcessTerminationLockUnavailable:
+	case ports.ProcessTerminationStartUnavailable:
 		return "process_unavailable"
-	case ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationLockConfiguration:
+	case ports.ProcessTerminationStartConfiguration:
 		return "process_configuration"
-	case ports.ProcessTerminationStartSecurity, ports.ProcessTerminationLockSecurity, ports.ProcessTerminationResidualProcessGroup:
+	case ports.ProcessTerminationStartSecurity, ports.ProcessTerminationResidualProcessGroup:
 		return "process_security"
 	default:
 		return "process_internal"

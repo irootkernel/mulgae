@@ -826,10 +826,6 @@ const (
 	ProcessTerminationStderrLimit          ProcessTermination = "stderr_limit"
 	ProcessTerminationStdinIncomplete      ProcessTermination = "stdin_incomplete"
 	ProcessTerminationResidualProcessGroup ProcessTermination = "residual_process_group"
-	ProcessTerminationLockFailed           ProcessTermination = "lock_failed"
-	ProcessTerminationLockUnavailable      ProcessTermination = "lock_unavailable"
-	ProcessTerminationLockConfiguration    ProcessTermination = "lock_configuration"
-	ProcessTerminationLockSecurity         ProcessTermination = "lock_security"
 )
 
 // Valid reports whether termination is one of the closed process facts.
@@ -846,11 +842,7 @@ func (termination ProcessTermination) Valid() bool {
 		ProcessTerminationStdoutLimit,
 		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
-		ProcessTerminationResidualProcessGroup,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity:
+		ProcessTerminationResidualProcessGroup:
 		return true
 	default:
 		return false
@@ -1877,9 +1869,8 @@ func validateProviderPacketTransportReceipt(termination ProcessTermination, stdi
 	}
 	switch termination {
 	case ProcessTerminationStartFailed, ProcessTerminationStartUnavailable, ProcessTerminationStartConfiguration,
-		ProcessTerminationStartSecurity, ProcessTerminationLockFailed, ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration, ProcessTerminationLockSecurity:
-		return fmt.Errorf("start or lock failure cannot claim argv or prompt-file delivery")
+		ProcessTerminationStartSecurity:
+		return fmt.Errorf("start failure cannot claim argv or prompt-file delivery")
 	}
 	return nil
 }

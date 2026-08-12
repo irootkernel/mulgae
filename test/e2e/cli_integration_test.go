@@ -1019,6 +1019,140 @@ func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 	}
 }
 
+func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+	runTestCommand(t, project, "git", "add", "review.go")
+	runTestCommand(t, project, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "review target")
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success")
+	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"init", "--providers", "zcode", "--roles", "logic",
+		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher)
+	if initialized.exitCode != 0 {
+		t.Fatalf("initialize publication-lock config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
+	}
+
+	arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the captured change.", "--output", "json"}
+	baseline := assertSuccessfulConcurrentReview(t, project, runMulgaeBinaryWithEnv(t, binary, project, environment, arguments...))
+	baselineRoot := filepath.Join(project, ".mulgae", *baseline.Result.SessionID, *baseline.Result.RunID)
+	beforeBaseline := snapshotTestTreeMaterial(t, baselineRoot)
+	storeRoot := filepath.Join(project, ".mulgae", "store")
+
+	lockFile, err := os.OpenFile(filepath.Join(storeRoot, "locks", "store.lock"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("hold publication lock: %v", err)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) //nolint:errcheck -- best-effort test cleanup
+	beforeStore := snapshotTestTreeMaterial(t, storeRoot)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	running := startMulgaeBinaryWithEnv(t, ctx, binary, project, environment, arguments...)
+
+	var diagnosticLogPath string
+	deadline := time.Now().Add(20 * time.Second)
+	for diagnosticLogPath == "" && time.Now().Before(deadline) {
+		logs, globErr := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", "s_*", "r_*", "mulgae-runtime.jsonl"))
+		if globErr != nil {
+			t.Fatal(globErr)
+		}
+		for _, path := range logs {
+			if strings.Contains(path, *baseline.Result.RunID) {
+				continue
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr == nil && bytes.Contains(data, []byte(`"event":"workspace_cleanup_completed"`)) {
+				diagnosticLogPath = path
+				break
+			}
+		}
+		if diagnosticLogPath == "" {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if diagnosticLogPath == "" {
+		cancel()
+		result := waitMulgaeBinary(t, running)
+		t.Fatalf("review did not reach publication lock: exit=%d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
+	}
+	// Workspace cleanup is the final durable event before candidate preparation
+	// and publication. Give the process time to enter the held lock's bounded
+	// polling loop so this exercises lock-wait cancellation, not an earlier
+	// context checkpoint.
+	time.Sleep(100 * time.Millisecond)
+	if err := running.command.Process.Signal(syscall.Signal(0)); err != nil {
+		result := waitMulgaeBinary(t, running)
+		t.Fatalf("review exited before publication-lock cancellation: exit=%d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
+	}
+	if err := running.command.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("cancel publication-lock waiter: %v", err)
+	}
+	result := waitMulgaeBinary(t, running)
+	if result.exitCode != int(app.ExitCodeArtifact) || len(result.stderr) != 0 {
+		t.Fatalf("publication-lock waiter: exit=%d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
+	}
+	var envelope commandEnvelope
+	if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+		t.Fatalf("decode publication-lock envelope: %v: %q", err, result.stdout)
+	}
+	if envelope.Exit.Code != int(app.ExitCodeArtifact) || envelope.Exit.Kind != "artifact" ||
+		len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "artifact" || envelope.Reasons[0].Code != string(domain.DiagnosticCausePublicationStoreLockFailed) ||
+		envelope.Reasons[0].Retryable || envelope.Reasons[0].ArtifactURI == nil ||
+		envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
+		t.Fatalf("publication-lock envelope = %#v", envelope)
+	}
+	diagnosticRoot := filepath.Dir(diagnosticLogPath)
+	wantDiagnosticURI, err := filepath.Rel(project, diagnosticRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *envelope.Reasons[0].ArtifactURI != filepath.ToSlash(wantDiagnosticURI) {
+		t.Fatalf("publication diagnostic URI = %q, want %q", *envelope.Reasons[0].ArtifactURI, filepath.ToSlash(wantDiagnosticURI))
+	}
+	diagnosticLog, err := os.ReadFile(diagnosticLogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(diagnosticLog, []byte(`"event":"runtime_diagnostics_closed"`)) ||
+		!bytes.Contains(diagnosticLog, []byte(`"event":"run_stopped"`)) ||
+		!bytes.Contains(diagnosticLog, []byte(`"state":"failed"`)) ||
+		!bytes.Contains(diagnosticLog, []byte(`"cause":"publication_store_lock_failed"`)) {
+		t.Fatalf("publication-lock cancellation did not preserve the typed failure:\n%s", diagnosticLog)
+	}
+	for _, event := range []domain.RuntimeDiagnosticEventCode{
+		domain.DiagnosticPublicationPreparationStarted,
+		domain.DiagnosticPublicationStaged,
+		domain.DiagnosticPublicationInstalled,
+		domain.DiagnosticPublicationCommitted,
+	} {
+		if bytes.Contains(diagnosticLog, []byte(`"event":"`+string(event)+`"`)) {
+			t.Fatalf("publication diagnostics recorded %s before acquiring the lock:\n%s", event, diagnosticLog)
+		}
+	}
+	if got := snapshotTestTreeMaterial(t, baselineRoot); !reflect.DeepEqual(got, beforeBaseline) {
+		t.Fatalf("publication contention changed the committed baseline: before=%v after=%v", beforeBaseline, got)
+	}
+	if got := snapshotTestTreeMaterial(t, storeRoot); !reflect.DeepEqual(got, beforeStore) {
+		t.Fatalf("publication contention changed the epoch store: before=%v after=%v", beforeStore, got)
+	}
+}
+
 // ZCode roles deliver their report through the staged file Mulgae granted them
 // while the AGY-primary role keeps the stdout transport. The manifest records
 // which transport carried each published report.
@@ -1701,6 +1835,39 @@ func snapshotTestTree(t *testing.T, root string) []string {
 		t.Fatal(err)
 	}
 	return paths
+}
+
+func snapshotTestTreeMaterial(t *testing.T, root string) map[string]string {
+	t.Helper()
+	material := make(map[string]string)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(relative)
+		if entry.IsDir() {
+			material[name] = "directory"
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(data)
+		material[name] = hex.EncodeToString(digest[:])
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return material
 }
 
 func environmentValue(t *testing.T, environment []string, name string) string {

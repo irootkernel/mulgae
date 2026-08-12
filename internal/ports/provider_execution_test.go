@@ -674,10 +674,6 @@ func TestProviderExecutionObservationStatusTerminationCrossProduct(t *testing.T)
 		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity,
 	}
 
 	for _, status := range statuses {
@@ -734,10 +730,6 @@ func TestSuccessfulProviderExecutionObservationTerminationCrossProduct(t *testin
 		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity,
 	}
 
 	for _, termination := range terminations {
@@ -1023,10 +1015,6 @@ func TestFailedProviderExecutionObservationRejectsCompletedStdinBeforeStart(t *t
 		ProcessTerminationStartUnavailable,
 		ProcessTerminationStartConfiguration,
 		ProcessTerminationStartSecurity,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity,
 	} {
 		t.Run(string(termination), func(t *testing.T) {
 			process := newProviderExecutionTestProcess(
@@ -1508,16 +1496,13 @@ func providerExecutionTestStatusMatchesTermination(status ProviderExecutionStatu
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusUnavailable:
 		return termination == ProcessTerminationStartUnavailable ||
-			termination == ProcessTerminationLockUnavailable ||
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusSecurityViolation:
 		return termination == ProcessTerminationStartSecurity ||
-			termination == ProcessTerminationLockSecurity ||
 			termination == ProcessTerminationResidualProcessGroup ||
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusConfigurationViolation:
 		return termination == ProcessTerminationStartConfiguration ||
-			termination == ProcessTerminationLockConfiguration ||
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusAuthentication,
 		ProviderExecutionStatusQuota,
@@ -1527,8 +1512,7 @@ func providerExecutionTestStatusMatchesTermination(status ProviderExecutionStatu
 	case ProviderExecutionStatusInternalFailure:
 		return termination == ProcessTerminationExited ||
 			termination == ProcessTerminationSignaled ||
-			termination == ProcessTerminationStartFailed ||
-			termination == ProcessTerminationLockFailed
+			termination == ProcessTerminationStartFailed
 	default:
 		return false
 	}
@@ -1539,11 +1523,7 @@ func processTerminationPrecedesStdin(termination ProcessTermination) bool {
 	case ProcessTerminationStartFailed,
 		ProcessTerminationStartUnavailable,
 		ProcessTerminationStartConfiguration,
-		ProcessTerminationStartSecurity,
-		ProcessTerminationLockFailed,
-		ProcessTerminationLockUnavailable,
-		ProcessTerminationLockConfiguration,
-		ProcessTerminationLockSecurity:
+		ProcessTerminationStartSecurity:
 		return true
 	default:
 		return false
@@ -1609,7 +1589,7 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 			}
 		})
 	}
-	for _, termination := range []ProcessTermination{ProcessTerminationStartFailed, ProcessTerminationLockFailed} {
+	for _, termination := range []ProcessTermination{ProcessTerminationStartFailed} {
 		if _, err := NewProviderProcessObservation(
 			nil, nil, nil, termination, emptyReceipt(t), argvTransport,
 			providerExecutionTestStartedAt, providerExecutionTestEndedAt,

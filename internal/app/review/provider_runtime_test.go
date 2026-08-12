@@ -615,6 +615,19 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	if got := runtimeProviderErrorCondition(context.Background(), fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive)); got != AttemptConditionInternalInvariant {
 		t.Fatalf("duplicate provider instance condition = %q, want internal invariant", got)
 	}
+	contexts := []context.Context{}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	contexts = append(contexts, cancelled)
+	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancelDeadline()
+	contexts = append(contexts, deadline)
+	for _, ctx := range contexts {
+		got := runtimeProviderErrorCondition(ctx, fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive))
+		if got != AttemptConditionInternalInvariant {
+			t.Fatalf("duplicate provider instance under %v = %q, want internal invariant", ctx.Err(), got)
+		}
+	}
 	for _, cause := range []domain.RuntimeDiagnosticCause{
 		domain.DiagnosticCausePromptFilePreStartFailed,
 		domain.DiagnosticCausePromptFilePostEndFailed,
@@ -631,9 +644,7 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 			t.Fatalf("transport/lifecycle cause %q condition = %q, want security violation", cause, got)
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if got := runtimeProviderErrorCondition(ctx, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {
+	if got := runtimeProviderErrorCondition(cancelled, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {
 		t.Fatalf("cancelled workspace drift condition = %q, want cancelled", got)
 	}
 }

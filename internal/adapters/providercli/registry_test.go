@@ -521,7 +521,7 @@ func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 	}
 }
 
-func TestRegistryAllowsDistinctInstancesWithEqualKeys(t *testing.T) {
+func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 	runner := newBarrierRunner()
 	kimi := testDefinition(t, FamilyKimi, "kimi_default")
 	zcode := testDefinition(t, FamilyZcode, "zcode_default")
@@ -544,11 +544,11 @@ func TestRegistryAllowsDistinctInstancesWithEqualKeys(t *testing.T) {
 		select {
 		case <-runner.started:
 		case <-time.After(time.Second):
-			t.Fatal("distinct instances with equal keys did not overlap")
+			t.Fatal("distinct provider instances did not overlap")
 		}
 	}
 	if active := runner.activeCount(); active != 2 {
-		t.Fatalf("equal-key active count = %d, want 2", active)
+		t.Fatalf("distinct-instance active count = %d, want 2", active)
 	}
 	close(runner.release)
 	calls.Wait()
@@ -968,16 +968,12 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 		{"stdout cap", ports.ProcessTerminationStdoutLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stdout_limit", domain.DiagnosticCauseObservationInvalid},
 		{"stderr cap", ports.ProcessTerminationStderrLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stderr_limit", domain.DiagnosticCauseObservationInvalid},
 		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
-		{"lock unavailable", ports.ProcessTerminationLockUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
 		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
-		{"lock configuration", ports.ProcessTerminationLockConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
 		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
-		{"lock security", ports.ProcessTerminationLockSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
 		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProcessGroupCleanupFailed},
 		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
 		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
 		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
-		{"lock failed", ports.ProcessTerminationLockFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1146,9 +1142,7 @@ func testProcessObservation(t *testing.T, stdout, stderr []byte, termination por
 	endedAt := time.Unix(1, 0).UTC()
 	switch termination {
 	case ports.ProcessTerminationStartFailed, ports.ProcessTerminationStartUnavailable,
-		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity,
-		ports.ProcessTerminationLockFailed, ports.ProcessTerminationLockUnavailable,
-		ports.ProcessTerminationLockConfiguration, ports.ProcessTerminationLockSecurity:
+		ports.ProcessTerminationStartConfiguration, ports.ProcessTerminationStartSecurity:
 		observation, err := ports.NewProcessObservation(stdout, stderr, nil, termination, receipt, startedAt, endedAt)
 		if err != nil {
 			t.Fatal(err)

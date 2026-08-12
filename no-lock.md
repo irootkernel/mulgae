@@ -215,6 +215,26 @@ Commit summary:
 
 `Align no-lock guidance with the versioned runtime contract`
 
+### Goal 9 — MCRL-009: Preserve Failure Authority at No-Lock Boundaries
+
+- Reduce mixed publication failures through the canonical operational
+  precedence before projecting cancellation or publication diagnostics.
+- Keep a same-registry, same-instance overlap classified as a zero-wait
+  internal invariant even when its enclosing context is already cancelled or
+  expired.
+- Preserve provider-observed timeout classification and ordinary enclosing
+  cancellation behavior.
+- Remove the remaining stale lock and key terminology from the affected
+  runtime comments and regression names.
+- Verify the deadline path in layers: canonical publication reduction, runtime
+  and CLI projection tests, the filesystem publication-lock deadline test, and
+  the existing release-binary SIGINT E2E. Do not add a duplicate minute-long
+  binary deadline E2E.
+
+Commit summary:
+
+`Preserve failure authority across no-lock boundaries`
+
 ## Per-Goal Commit Procedure
 
 Follow this sequence for every executable Goal. Documentation-only remediation
