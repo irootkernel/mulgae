@@ -1478,16 +1478,13 @@ func runtimeErrorCondition(ctx context.Context, err error) AttemptCondition {
 // invalid provider output incorrectly authorizes a repair without a retained
 // validation repair plan.
 func runtimePromptErrorCondition(ctx context.Context, err error) AttemptCondition {
-	if ctx != nil && ctx.Err() != nil {
-		return runtimeContextCondition(ctx.Err())
-	}
+	condition := AttemptConditionInternalInvariant
 	if errors.Is(err, context.DeadlineExceeded) {
-		return AttemptConditionTimeout
+		condition = AttemptConditionTimeout
+	} else if errors.Is(err, context.Canceled) {
+		condition = AttemptConditionCancelled
 	}
-	if errors.Is(err, context.Canceled) {
-		return AttemptConditionCancelled
-	}
-	return AttemptConditionInternalInvariant
+	return runtimeConditionAfterContext(ctx, condition)
 }
 func isSecurityValidationError(err error) bool {
 	cause, ok := validation.RuntimeCause(err)
@@ -1498,35 +1495,43 @@ func sha256Identifier(bytes []byte) string {
 	return fmt.Sprintf("sha256:%x", sum)
 }
 func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondition {
-	// A typed provider timeout is an observation about the provider process, not
-	// merely an inference from the enclosing invocation context. The process and
-	// its context commonly reach their deadline together, so retain that more
-	// specific observation before consulting ctx.Err(). Untyped deadline errors
-	// still describe the enclosing execution budget below.
+	var condition AttemptCondition
 	if runtimeProviderObservedTimeout(err) {
-		return AttemptConditionProviderTimeout
+		condition = AttemptConditionProviderTimeout
+	} else if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
+		condition = AttemptConditionInternalInvariant
+	} else if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) || errors.Is(err, ports.ErrProviderPacketSecurity) {
+		condition = AttemptConditionSecurityViolation
+	} else if errors.Is(err, ports.ErrProviderLoginRequired) {
+		condition = AttemptConditionLoginRequired
+	} else {
+		var providerFailure *ports.ProviderRuntimeError
+		var processFailure *ports.ProcessExecutionError
+		switch {
+		case errors.As(err, &providerFailure):
+			condition = runtimeCauseCondition(providerFailure.Cause())
+		case errors.As(err, &processFailure):
+			condition = runtimeCauseCondition(processFailure.PrimaryCause())
+		case errors.Is(err, context.DeadlineExceeded):
+			condition = AttemptConditionTimeout
+		case errors.Is(err, context.Canceled):
+			condition = AttemptConditionCancelled
+		default:
+			condition = AttemptConditionInternalInvariant
+		}
 	}
-	if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
-		return AttemptConditionInternalInvariant
+	return runtimeConditionAfterContext(ctx, condition)
+}
+
+func runtimeConditionAfterContext(ctx context.Context, condition AttemptCondition) AttemptCondition {
+	if ctx == nil || ctx.Err() == nil {
+		return condition
 	}
-	if ctx != nil && ctx.Err() != nil {
-		return runtimeContextCondition(ctx.Err())
+	contextCondition := runtimeContextCondition(ctx.Err())
+	if conditionRetainsAuthorityAfterContext(condition, contextCondition) {
+		return condition
 	}
-	if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) || errors.Is(err, ports.ErrProviderPacketSecurity) {
-		return AttemptConditionSecurityViolation
-	}
-	if errors.Is(err, ports.ErrProviderLoginRequired) {
-		return AttemptConditionLoginRequired
-	}
-	var providerFailure *ports.ProviderRuntimeError
-	if errors.As(err, &providerFailure) {
-		return runtimeCauseCondition(providerFailure.Cause())
-	}
-	var processFailure *ports.ProcessExecutionError
-	if errors.As(err, &processFailure) {
-		return runtimeCauseCondition(processFailure.PrimaryCause())
-	}
-	return AttemptConditionInternalInvariant
+	return contextCondition
 }
 
 func runtimeProviderObservedTimeout(err error) bool {

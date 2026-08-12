@@ -605,7 +605,7 @@ func TestProviderInvocationWorkspaceSharedAcrossRoles(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testing.T) {
+func TestRuntimeProviderErrorConditionPreservesProtectedFailuresAcrossContext(t *testing.T) {
 	if got := runtimeProviderErrorCondition(context.Background(), errors.Join(ports.ErrWorkspaceSnapshotDrift, errors.New("provider unavailable"))); got != AttemptConditionSecurityViolation {
 		t.Fatalf("workspace drift condition = %q, want security violation", got)
 	}
@@ -615,17 +615,56 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 	if got := runtimeProviderErrorCondition(context.Background(), fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive)); got != AttemptConditionInternalInvariant {
 		t.Fatalf("duplicate provider instance condition = %q, want internal invariant", got)
 	}
-	contexts := []context.Context{}
+	providerSecurity, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseTransportReceiptMismatch, errors.New("closed local detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	processSecurity, err := ports.NewProcessExecutionError(domain.DiagnosticCausePromptFilePostEndFailed, "", nil, nil, errors.New("closed local detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerArtifact, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderOutputStagingCleanupFailed, errors.New("closed local detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	processArtifact, err := ports.NewProcessExecutionError(domain.DiagnosticCauseProviderOutputStagingCleanupFailed, "", nil, nil, errors.New("closed local detail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	contexts = append(contexts, cancelled)
 	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelDeadline()
-	contexts = append(contexts, deadline)
-	for _, ctx := range contexts {
-		got := runtimeProviderErrorCondition(ctx, fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive))
-		if got != AttemptConditionInternalInvariant {
-			t.Fatalf("duplicate provider instance under %v = %q, want internal invariant", ctx.Err(), got)
+	contexts := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"cancelled", cancelled},
+		{"deadline", deadline},
+	}
+	protected := []struct {
+		name string
+		err  error
+		want AttemptCondition
+	}{
+		{"workspace-drift", ports.ErrWorkspaceSnapshotDrift, AttemptConditionSecurityViolation},
+		{"packet-security", ports.ErrProviderPacketSecurity, AttemptConditionSecurityViolation},
+		{"provider-security", providerSecurity, AttemptConditionSecurityViolation},
+		{"process-security", processSecurity, AttemptConditionSecurityViolation},
+		{"provider-artifact", providerArtifact, AttemptConditionArtifactFailure},
+		{"process-artifact", processArtifact, AttemptConditionArtifactFailure},
+		{"duplicate-instance", fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive), AttemptConditionInternalInvariant},
+		{"unknown-internal", errors.New("unclassified provider failure"), AttemptConditionInternalInvariant},
+		{"login-required", ports.ErrProviderLoginRequired, AttemptConditionLoginRequired},
+	}
+	for _, contextTest := range contexts {
+		for _, test := range protected {
+			t.Run(contextTest.name+"/"+test.name, func(t *testing.T) {
+				if got := runtimeProviderErrorCondition(contextTest.ctx, test.err); got != test.want {
+					t.Fatalf("condition = %q, want %q", got, test.want)
+				}
+			})
 		}
 	}
 	for _, cause := range []domain.RuntimeDiagnosticCause{
@@ -643,9 +682,6 @@ func TestRuntimeProviderErrorConditionPreservesSecurityAndCancellation(t *testin
 		if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionSecurityViolation {
 			t.Fatalf("transport/lifecycle cause %q condition = %q, want security violation", cause, got)
 		}
-	}
-	if got := runtimeProviderErrorCondition(cancelled, ports.ErrWorkspaceSnapshotDrift); got != AttemptConditionCancelled {
-		t.Fatalf("cancelled workspace drift condition = %q, want cancelled", got)
 	}
 }
 
@@ -673,8 +709,16 @@ func TestRuntimeProviderErrorConditionDistinguishesObservedAndEnclosingTimeouts(
 	if got := runtimeProviderErrorCondition(ctx, processObserved); got != AttemptConditionProviderTimeout {
 		t.Fatalf("observed process timeout condition = %q, want provider timeout", got)
 	}
+	cancelled, cancelInvocation := context.WithCancel(context.Background())
+	cancelInvocation()
+	if got := runtimeProviderErrorCondition(cancelled, observed); got != AttemptConditionCancelled {
+		t.Fatalf("cancelled observed timeout condition = %q, want cancellation", got)
+	}
 	if got := runtimeProviderErrorCondition(ctx, context.DeadlineExceeded); got != AttemptConditionTimeout {
 		t.Fatalf("enclosing timeout condition = %q, want execution timeout", got)
+	}
+	if got := runtimeProviderErrorCondition(cancelled, context.Canceled); got != AttemptConditionCancelled {
+		t.Fatalf("enclosing cancellation condition = %q, want cancellation", got)
 	}
 }
 
@@ -869,6 +913,30 @@ func TestRuntimeCauseConditionPreservesValidationAndSpawnStages(t *testing.T) {
 func TestPromptConstructionFailureDoesNotAuthorizeProviderOutputRepair(t *testing.T) {
 	if got := runtimePromptErrorCondition(context.Background(), errors.New("identity issuance failed")); got != AttemptConditionInternalInvariant {
 		t.Fatalf("prompt construction failure condition = %q, want %q", got, AttemptConditionInternalInvariant)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancelDeadline()
+	contexts := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"cancelled", cancelled},
+		{"deadline", deadline},
+	}
+	for _, test := range contexts {
+		t.Run(test.name+"-with-internal-failure", func(t *testing.T) {
+			if got := runtimePromptErrorCondition(test.ctx, errors.New("identity issuance failed")); got != AttemptConditionInternalInvariant {
+				t.Fatalf("condition = %q, want %q", got, AttemptConditionInternalInvariant)
+			}
+		})
+	}
+	if got := runtimePromptErrorCondition(context.Background(), context.Canceled); got != AttemptConditionCancelled {
+		t.Fatalf("prompt cancellation condition = %q, want %q", got, AttemptConditionCancelled)
+	}
+	if got := runtimePromptErrorCondition(context.Background(), context.DeadlineExceeded); got != AttemptConditionTimeout {
+		t.Fatalf("prompt timeout condition = %q, want %q", got, AttemptConditionTimeout)
 	}
 	decision, err := DecideTransition(TransitionInput{Condition: AttemptConditionInternalInvariant})
 	if err != nil {

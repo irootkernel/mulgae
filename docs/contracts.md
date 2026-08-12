@@ -53,12 +53,12 @@ provider process that starts and reaches its own timeout remains a distinct
 provider-observed timeout.
 
 Independent failures are reduced through one operational precedence before
-runtime status or CLI exit projection: internal, security, artifact,
-cancellation, configuration, provider/readiness classes, then invalid provider
-output. Consequently, a cancellation or deadline observed while a typed
-publication, security, or internal failure is being returned does not hide the
-higher-precedence failure. Pure cancellation and deadline outcomes continue to
-use exit 9.
+runtime status or CLI exit projection: internal, artifact, security,
+cancellation, configuration, login-required, invalid provider output, then
+provider failure classes. Consequently, a cancellation or deadline observed
+while a typed publication, security, or internal failure is being returned does
+not hide the higher-precedence failure. Pure cancellation and deadline outcomes
+continue to use exit 9.
 
 ## Embedded versioned contracts
 
