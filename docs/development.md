@@ -116,6 +116,16 @@ tests in the owning application package.
 
 - Keep dependency direction intact; external behavior belongs behind a port.
 - Preserve project-local and provider isolation boundaries.
+- For provider-concurrency changes, prove overlap with separate coordinators
+  and registries and with two release-binary processes sharing the applicable
+  runtime environment. Cover both legacy runtime-root discovery branches when
+  proving that the removed global filesystem namespace is not recreated.
+- Keep publication tests separate from provider-execution concurrency: prove
+  different project roots publish independently and a same-root filesystem-lock
+  waiter honors cancellation or deadline without mutating committed artifacts.
+- Preserve canonical failure precedence in cancellation tests; test pure
+  cancellation independently from cancellation joined with artifact, security,
+  or internal failures.
 - Add negative fail-closed tests, not only success tests.
 - Update affected versioned contracts and docs with user-visible behavior.
 - Keep unrelated changes out of the commit.

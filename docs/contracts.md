@@ -33,6 +33,33 @@ See the complete
 [`local-config.yaml`](../internal/builtin/assets/examples/local-config.yaml)
 example.
 
+## Execution budgets and failure reduction
+
+Configuration v1 retains `resources.max_active_lanes` as the explicit number of
+provider invocations one Mulgae process may run at once. It is not a provider
+identity and does not coordinate another process or project. Machine command
+and review-preflight v2 documents describe execution as
+`budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
+`invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
+The array contains at most the seven unique review roles, with at most two
+invocations and one initial-to-repair transition per role path.
+
+The capacity-aware run deadline and `role_path_deadline` ceiling include the
+configured provider timeout for every possible invocation. Immediately before
+provider execution, Mulgae requires enough remaining enclosing budget to grant
+the complete provider timeout window. If that window cannot be guaranteed, the
+provider is not started and the enclosing execution timeout is reported. A
+provider process that starts and reaches its own timeout remains a distinct
+provider-observed timeout.
+
+Independent failures are reduced through one operational precedence before
+runtime status or CLI exit projection: internal, security, artifact,
+cancellation, configuration, provider/readiness classes, then invalid provider
+output. Consequently, a cancellation or deadline observed while a typed
+publication, security, or internal failure is being returned does not hide the
+higher-precedence failure. Pure cancellation and deadline outcomes continue to
+use exit 9.
+
 ## Embedded versioned contracts
 
 Schemas use JSON Schema Draft 2020-12 and live in

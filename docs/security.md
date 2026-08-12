@@ -15,7 +15,10 @@ commands against that immutable directory view, isolated output, explicit
 credential projection, execution bounds, process-local per-instance
 namespace ownership, cancellation, and terminal process-state checks. Each run
 owns its provider registry and namespace generations; no provider-key queue or
-lock coordinates independent runs.
+lock coordinates independent runs. That independence is deliberate even when
+provider processes ultimately use one installed account: Mulgae does not turn
+shared credentials into a hidden scheduling authority. Provider rejection,
+quota, and rate-limit responses remain typed outcomes of the affected run.
 Prompt packets identify the
 generated `._mulgae_review_target.txt` file by path, digest, and size rather than
 re-embedding patch, stdin, or old/new target bytes for every role. Providers read
@@ -102,6 +105,13 @@ temporary namespace. That namespace also supplies the disposable `HOME`,
 staging is removed with the namespace it belongs to and never reaches a
 credential or project location. Do not commit credentials, provider homes,
 `.mulgae/` artifacts, or exported review bundles.
+
+AGY is the exception to disposable `HOME`: its authenticated runtime is bound
+to the verified installed-user home while its workspace and staging remain
+Mulgae-owned and disposable. Separate AGY runs may therefore access the same
+provider-owned authentication state concurrently. Mulgae neither serializes
+that access nor treats it as publication authority; operators must account for
+provider-side concurrency and account limits.
 
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.

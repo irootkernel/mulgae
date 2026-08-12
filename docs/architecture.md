@@ -102,10 +102,25 @@ so independent runs can invoke the same configured provider concurrently. A run
 cannot register one provider instance twice, and
 an impossible concurrent reuse of one instance within the same registry fails
 immediately as an internal invariant instead of waiting. The coordinator
-enforces the explicit process capacity plus per-role and per-run invocation
-ceilings, and schedules repair only after the initial wave is committed.
-Project-local publication retains its own lock because it mutates shared durable
-state. Cancellation propagates to subprocesses and terminal publication.
+enforces the process-local `max_active_lanes` capacity plus per-role and per-run
+invocation ceilings, and schedules repair only after the initial wave is
+committed. There is no user-global capacity authority: provider-side
+concurrency or rate limits remain provider outcomes, and operators choose the
+number of Mulgae processes they run.
+
+Role-path deadlines are calculated from initial-to-repair dependencies and the
+process capacity. Before an invocation starts, the runtime still requires
+enough enclosing budget for the provider's complete configured timeout window;
+removing provider locks does not weaken that check. Provider-observed timeouts
+remain distinct from an enclosing deadline exhausted before provider start.
+
+Project-local publication retains a context-aware filesystem lock because it
+mutates shared durable state. It serializes publication to one project across
+processes without coordinating provider execution or different project roots.
+Cancellation propagates to subprocesses and terminal publication. When
+cancellation is observed together with a protected artifact, security, or
+internal failure, canonical failure precedence preserves the protected failure
+instead of projecting the operation as cancellation.
 
 `.mulgae/` contains configuration and durable review state. Temporary provider
 workspaces and namespaces live outside the project and are removed after use.

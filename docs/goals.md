@@ -14,8 +14,10 @@ result, evidence status, lineage, and a durable publication record.
 2. **Multiple review lenses.** Logic, security, maintainability, product,
    documentation, testing, and UI-focused artist roles inspect a target through
    explicit assignments.
-3. **Provider independence.** Kimi, ZCode, and AGY use separate adapters behind
-   common application ports.
+3. **Provider and run independence.** Kimi, ZCode, and AGY use separate
+   adapters behind common application ports. Independent runs and projects do
+   not consume one another's execution budget through a Mulgae-owned provider
+   queue or lock; concurrency remains bounded explicitly within each process.
 4. **Reproducible inputs.** Mulgae captures an immutable target and records
    prompts, provider identity, attempts, and hashes needed to understand it.
 5. **Fail-closed contracts.** Untrusted provider output is admitted only as
