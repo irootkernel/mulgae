@@ -200,8 +200,8 @@ func TestMakefileContract(t *testing.T) {
 	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
 		t.Fatal("test-int does not serialize race-instrumented package execution")
 	}
-	if !strings.Contains(text, "RELEASE_VERSION := v0.1.11") {
-		t.Fatal("Makefile does not declare the v0.1.11 release version")
+	if !strings.Contains(text, "RELEASE_VERSION := v0.1.12") {
+		t.Fatal("Makefile does not declare the v0.1.12 release version")
 	}
 	releaseStart := integrationEnd
 	releaseEnd := strings.Index(text, "\ntest-e2e:")
