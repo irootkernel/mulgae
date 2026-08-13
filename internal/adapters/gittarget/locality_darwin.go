@@ -206,13 +206,11 @@ func canonicalGitPath(value string) bool {
 	return value != "" && !path.IsAbs(value) && path.Clean(value) == value && !strings.Contains(value, "\\") && !strings.ContainsRune(value, 0) && value != ".." && !strings.HasPrefix(value, "../")
 }
 func privatePath(value string) bool {
-	return value == ".mulgae" || strings.HasPrefix(value, ".mulgae/")
+	first, _, _ := strings.Cut(value, "/")
+	return strings.EqualFold(first, ".mulgae") && value != ".mulgae/config.yaml"
 }
 
 func privatePathReason(value string) ports.ConfigLocalityReason {
-	if value == ".mulgae/config.yaml" {
-		return ports.ConfigLocalityTargetPrivateConfigForbidden
-	}
 	if privatePath(value) {
 		return ports.ConfigLocalityTargetPrivateNamespaceForbidden
 	}

@@ -17,7 +17,9 @@ mulgae providers --include-unverified --output json
 
 Do not install, upgrade, authenticate, or rewrite provider paths on the user's
 behalf unless separately authorized. A missing `.mulgae/config.yaml` means the
-workspace is not initialized; it does not authorize initialization.
+workspace has no shared project policy. A present project file with missing
+`.mulgae/local.yaml` means this machine still needs bootstrap. Neither state
+authorizes initialization.
 
 ## Initialize a workspace
 
@@ -29,11 +31,31 @@ mulgae init --output json
 mulgae init --providers zcode,agy --roles logic,security --output json
 ```
 
-`mulgae init` creates `.mulgae/config.yaml` atomically and never overwrites an
-existing configuration. Bare `mulgae init` enables only the required `logic`
-role, so list every intended role explicitly with `--roles`; `logic` is always
-included. If the outcome of an `init` is uncertain, inspect the file and run
+In a new project, `mulgae init` creates shared `.mulgae/config.yaml` and private
+mode-`0600` `.mulgae/local.yaml` without overwriting an existing complete pair.
+After a clone with only the shared file, the same command discovers the shared
+provider families and creates only `local.yaml`; project-policy options are
+rejected. Bare init for a new project enables only the required `logic` role,
+so list every intended role explicitly with `--roles`; `logic` is always
+included. If the outcome of init is uncertain, inspect both files and run
 `mulgae config --mode effective --output json`; do not retry blindly.
+
+The two files are individually atomic, not one joint filesystem transaction.
+`project_committed_local_missing` means shared policy committed without an
+admitted matching local file. Resolve any reported local-path collision, then
+rerun plain `mulgae init`; it must preserve the shared file and create only the
+machine-local file.
+
+When provider installations move or the shared provider family set changes,
+refresh only the machine file with explicit authorization:
+
+```bash
+mulgae init --refresh-local --output json
+```
+
+Refresh preserves `config.yaml`, atomically replaces only `local.yaml`, accepts
+machine-path overrides, and rejects project-policy options. Config v1 is
+rejected; there is no automatic migration.
 
 ## Start or associate a review
 

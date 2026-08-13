@@ -21,3 +21,13 @@ type YAMLCodec struct{}
 
 func (YAMLCodec) Decode(data []byte) (Config, error)            { return Decode(data) }
 func (YAMLCodec) EncodeCanonical(config Config) ([]byte, error) { return EncodeCanonical(config) }
+func (YAMLCodec) DecodeSplit(project, local []byte) (Config, error) {
+	return DecodeSplit(project, local)
+}
+func (YAMLCodec) EncodeSplit(config Config) ([]byte, []byte, error) { return EncodeSplit(config) }
+func (YAMLCodec) ProjectProviderIDs(project []byte) ([]string, error) {
+	return ProjectProviderIDs(project)
+}
+func (YAMLCodec) MergeProjectConfig(project []byte, local Config) (Config, error) {
+	return MergeProjectConfig(project, local)
+}

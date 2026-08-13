@@ -13,22 +13,29 @@ import (
 )
 
 type LocalConfigObservation struct {
-	present      bool
-	rootDevice   uint64
-	rootInode    uint64
-	rootUID      uint32
-	rootMode     uint32
-	mulgaeDevice uint64
-	mulgaeInode  uint64
-	mulgaeUID    uint32
-	mulgaeMode   uint32
-	configDevice uint64
-	configInode  uint64
-	configUID    uint32
-	configMode   uint32
-	configLinks  uint64
-	size         int64
-	digest       [sha256.Size]byte
+	present       bool
+	rootDevice    uint64
+	rootInode     uint64
+	rootUID       uint32
+	rootMode      uint32
+	mulgaeDevice  uint64
+	mulgaeInode   uint64
+	mulgaeUID     uint32
+	mulgaeMode    uint32
+	configDevice  uint64
+	configInode   uint64
+	configUID     uint32
+	configMode    uint32
+	configLinks   uint64
+	size          int64
+	digest        [sha256.Size]byte
+	projectDevice uint64
+	projectInode  uint64
+	projectUID    uint32
+	projectMode   uint32
+	projectLinks  uint64
+	projectSize   int64
+	projectDigest [sha256.Size]byte
 }
 
 func (observation LocalConfigObservation) Present() bool { return observation.present }
@@ -62,24 +69,41 @@ func (observation LocalConfigObservation) InstalledConfigIdentity() (ports.Confi
 
 type LocalConfigSource struct {
 	root        ports.AnchoredRoot
-	contents    []byte
+	project     []byte
+	local       []byte
 	observation LocalConfigObservation
 }
 
-// NewLocalConfigSource opens only <root>/.mulgae/config.yaml. It never consults
-// HOME, XDG, embedded defaults, legacy filenames, or Git-controlled content.
+// NewLocalConfigSource opens only the Config v2 project/local pair beneath
+// <root>/.mulgae. It never consults HOME, XDG, embedded defaults, or legacy
+// filenames.
 func NewLocalConfigSource(root ports.AnchoredRoot, allowAbsent bool) (*LocalConfigSource, error) {
 	if !root.Valid() {
 		return nil, fmt.Errorf("local config: invalid project root")
 	}
-	contents, observation, err := readLocalConfig(root, allowAbsent)
+	project, local, observation, err := readLocalConfig(root, allowAbsent)
 	if err != nil {
 		return nil, err
 	}
-	return &LocalConfigSource{root: root, contents: contents, observation: observation}, nil
+	return &LocalConfigSource{root: root, project: project, local: local, observation: observation}, nil
 }
 
 func (source *LocalConfigSource) Present() bool { return source != nil && source.observation.present }
+func (source *LocalConfigSource) ProjectPresent() bool {
+	return source != nil && len(source.project) != 0
+}
+func (source *LocalConfigSource) ProjectBytes() []byte {
+	if source == nil {
+		return nil
+	}
+	return append([]byte(nil), source.project...)
+}
+func (source *LocalConfigSource) LocalBytes() []byte {
+	if source == nil {
+		return nil
+	}
+	return append([]byte(nil), source.local...)
+}
 func (source *LocalConfigSource) Observation() LocalConfigObservation {
 	if source == nil {
 		return LocalConfigObservation{}
@@ -97,7 +121,15 @@ func (source *LocalConfigSource) Read() ([]byte, ports.ConfigFileIdentity, error
 	if err != nil {
 		return nil, ports.ConfigFileIdentity{}, err
 	}
-	return append([]byte(nil), source.contents...), identity, nil
+	decoded, err := DecodeSplit(source.project, source.local)
+	if err != nil {
+		return nil, ports.ConfigFileIdentity{}, err
+	}
+	contents, err := EncodeCanonical(decoded)
+	if err != nil {
+		return nil, ports.ConfigFileIdentity{}, err
+	}
+	return contents, identity, nil
 }
 func (source *LocalConfigSource) Proof() (ports.ConfigFileProof, error) {
 	return source.Observation().Proof()
@@ -109,11 +141,11 @@ func (source *LocalConfigSource) Revalidate() error {
 	if source == nil || !source.root.Valid() {
 		return fmt.Errorf("local config: invalid source")
 	}
-	contents, observation, err := readLocalConfig(source.root, true)
+	project, local, observation, err := readLocalConfig(source.root, true)
 	if err != nil {
 		return err
 	}
-	if observation != source.observation || !equalBytes(contents, source.contents) {
+	if observation != source.observation || !equalBytes(project, source.project) || !equalBytes(local, source.local) {
 		return fmt.Errorf("local config: source drifted")
 	}
 	return nil
@@ -125,73 +157,100 @@ func (SourceFactory) OpenConfigSource(root ports.AnchoredRoot, allowAbsent bool)
 	return NewLocalConfigSource(root, allowAbsent)
 }
 
-func readLocalConfig(root ports.AnchoredRoot, allowAbsent bool) ([]byte, LocalConfigObservation, error) {
+func readLocalConfig(root ports.AnchoredRoot, allowAbsent bool) ([]byte, []byte, LocalConfigObservation, error) {
 	rootFD, err := unix.Open(root.String(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: open project root: %w", err)
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: open project root: %w", err)
 	}
 	defer unix.Close(rootFD)
 	rootStat, err := statFD(rootFD)
 	if err != nil {
-		return nil, LocalConfigObservation{}, err
+		return nil, nil, LocalConfigObservation{}, err
 	}
 	rootMode := uint32(rootStat.Mode & 0o7777)
 	if rootStat.Mode&unix.S_IFMT != unix.S_IFDIR || rootStat.Uid != uint32(os.Geteuid()) || rootMode != 0o700 && rootMode != 0o750 && rootMode != 0o755 {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe project root")
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe project root")
 	}
 	observation := LocalConfigObservation{rootDevice: uint64(rootStat.Dev), rootInode: uint64(rootStat.Ino), rootUID: rootStat.Uid, rootMode: rootMode}
 	mulgaeFD, err := unix.Openat(rootFD, ".mulgae", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if allowAbsent && err == unix.ENOENT {
-			return nil, observation, nil
+			return nil, nil, observation, nil
 		}
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: open private directory: %w", err)
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: open private directory: %w", err)
 	}
 	defer unix.Close(mulgaeFD)
 	mulgaeStat, err := statFD(mulgaeFD)
 	if err != nil {
-		return nil, LocalConfigObservation{}, err
+		return nil, nil, LocalConfigObservation{}, err
 	}
-	if mulgaeStat.Mode&unix.S_IFMT != unix.S_IFDIR || mulgaeStat.Uid != uint32(os.Geteuid()) || mulgaeStat.Mode&0o7777 != 0o700 {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe private directory")
+	privateMode := uint32(mulgaeStat.Mode & 0o7777)
+	if mulgaeStat.Mode&unix.S_IFMT != unix.S_IFDIR || mulgaeStat.Uid != uint32(os.Geteuid()) || privateMode != 0o700 && privateMode != 0o755 {
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe private directory")
 	}
 	observation.mulgaeDevice, observation.mulgaeInode = uint64(mulgaeStat.Dev), uint64(mulgaeStat.Ino)
 	observation.mulgaeUID, observation.mulgaeMode = mulgaeStat.Uid, uint32(mulgaeStat.Mode&0o7777)
-	configFD, err := unix.Openat(mulgaeFD, "config.yaml", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	project, projectStat, err := readConfigFile(mulgaeFD, "config.yaml", false)
+	if err != nil {
+		if allowAbsent && err == unix.ENOENT && privateMode == 0o700 {
+			return nil, nil, observation, nil
+		}
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: project config: %w", err)
+	}
+	observation.projectDevice, observation.projectInode = uint64(projectStat.Dev), uint64(projectStat.Ino)
+	observation.projectUID, observation.projectMode, observation.projectLinks, observation.projectSize = projectStat.Uid, uint32(projectStat.Mode&0o7777), uint64(projectStat.Nlink), projectStat.Size
+	observation.projectDigest = sha256.Sum256(project)
+	local, localStat, err := readConfigFile(mulgaeFD, "local.yaml", true)
 	if err != nil {
 		if allowAbsent && err == unix.ENOENT {
-			return nil, observation, nil
+			return project, nil, observation, nil
 		}
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: open config: %w", err)
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: machine config: %w", err)
 	}
-	defer unix.Close(configFD)
-	configStat, err := statFD(configFD)
+	if privateMode != 0o700 {
+		return nil, nil, LocalConfigObservation{}, fmt.Errorf("local config: private directory must be mode 0700 when local config exists")
+	}
+	digest := sha256.Sum256(local)
+	observation.present = true
+	observation.configDevice, observation.configInode = uint64(localStat.Dev), uint64(localStat.Ino)
+	observation.configUID, observation.configMode, observation.configLinks, observation.size = localStat.Uid, uint32(localStat.Mode&0o7777), uint64(localStat.Nlink), localStat.Size
+	observation.digest = digest
+	return project, local, observation, nil
+}
+
+func readConfigFile(directoryFD int, name string, private bool) ([]byte, unix.Stat_t, error) {
+	fd, err := unix.Openat(directoryFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, LocalConfigObservation{}, err
+		return nil, unix.Stat_t{}, err
 	}
-	if configStat.Mode&unix.S_IFMT != unix.S_IFREG || configStat.Uid != uint32(os.Geteuid()) || configStat.Mode&0o7777 != 0o600 || configStat.Nlink != 1 || configStat.Size < 1 || configStat.Size > MaximumConfigBytes {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: unsafe config file")
-	}
-	contents := make([]byte, configStat.Size)
-	readFD, err := unix.Dup(configFD)
+	defer unix.Close(fd)
+	stat, err := statFD(fd)
 	if err != nil {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: duplicate config descriptor: %w", err)
+		return nil, unix.Stat_t{}, err
 	}
-	file := os.NewFile(uintptr(readFD), "config.yaml")
-	_, readErr := io.ReadFull(file, contents)
+	mode := uint32(stat.Mode & 0o7777)
+	modeAllowed := mode == 0o600
+	if !private {
+		modeAllowed = mode == 0o600 || mode == 0o644
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Uid != uint32(os.Geteuid()) || !modeAllowed || stat.Nlink != 1 || stat.Size < 1 || stat.Size > MaximumConfigBytes {
+		return nil, unix.Stat_t{}, fmt.Errorf("unsafe %s", name)
+	}
+	readFD, err := unix.Dup(fd)
+	if err != nil {
+		return nil, unix.Stat_t{}, err
+	}
+	file := os.NewFile(uintptr(readFD), name)
+	data := make([]byte, stat.Size)
+	_, readErr := io.ReadFull(file, data)
 	closeErr := file.Close()
 	if readErr != nil {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: read config: %w", readErr)
+		return nil, unix.Stat_t{}, readErr
 	}
 	if closeErr != nil {
-		return nil, LocalConfigObservation{}, fmt.Errorf("local config: close config reader: %w", closeErr)
+		return nil, unix.Stat_t{}, closeErr
 	}
-	digest := sha256.Sum256(contents)
-	observation.present = true
-	observation.configDevice, observation.configInode = uint64(configStat.Dev), uint64(configStat.Ino)
-	observation.configUID, observation.configMode, observation.configLinks, observation.size = configStat.Uid, uint32(configStat.Mode&0o7777), uint64(configStat.Nlink), configStat.Size
-	observation.digest = digest
-	return contents, observation, nil
+	return data, stat, nil
 }
 
 func statFD(fd int) (unix.Stat_t, error) {

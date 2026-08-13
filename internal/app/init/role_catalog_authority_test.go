@@ -96,7 +96,11 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed config: %v", err)
 	}
-	config, err := adapterconfig.Decode(data)
+	local, err := os.ReadFile(filepath.Join(root.String(), adapterconfig.LocalConfigRelativePath))
+	if err != nil {
+		t.Fatalf("read installed local config: %v", err)
+	}
+	config, err := adapterconfig.DecodeSplit(data, local)
 	if err != nil {
 		t.Fatalf("decode installed config: %v", err)
 	}

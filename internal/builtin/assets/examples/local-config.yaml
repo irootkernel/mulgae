@@ -1,41 +1,9 @@
-version: 1
-project:
-  name: "my-project"
-  context: ".mulgae-context.md"
+version: 2
 native_user:
   home: "/Users/example"
 providers:
   zcode:
     node_executable: "/opt/homebrew/bin/node"
     launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
-    timeout: "30m"
   agy:
     executable: "/opt/homebrew/bin/agy"
-execution:
-  workspace_access: "none"
-roles:
-  logic: {enabled: true, primary_provider: "zcode"}
-  security: {enabled: true, primary_provider: "zcode"}
-  maintainability: {enabled: true, primary_provider: "zcode"}
-  product: {enabled: true, primary_provider: "zcode"}
-  documentation: {enabled: true, primary_provider: "agy"}
-  testing: {enabled: true, primary_provider: "zcode"}
-review:
-  required_roles: ["logic"]
-  request_changes_on: ["high", "critical", "blocker"]
-validation:
-  evidence:
-    require_verified_for: ["high", "critical", "blocker"]
-  repair:
-    enabled: true
-    max_attempts: 1
-    same_provider: true
-resources:
-  max_active_lanes: 6
-  primary_repair_attempts: 1
-  role_max_invocations: 2
-  run_max_invocations: 12
-  run_total_output_cap: "64MiB"
-ci:
-  fail_on_severity: ["high", "critical", "blocker"]
-  degraded_review_fails: true

@@ -26,6 +26,7 @@ const (
 	ConfigInstallStageCollision          ConfigInstallStage = "collision"
 	ConfigInstallStageDirectorySync      ConfigInstallStage = "directory_sync"
 	ConfigInstallStageFinalReattestation ConfigInstallStage = "final_reattestation"
+	ConfigInstallStageBundlePartial      ConfigInstallStage = "bundle_partial"
 )
 
 type ConfigDirectoryIdentity struct {
@@ -179,4 +180,21 @@ type ConfigSource interface {
 // filesystem construction authority.
 type ConfigSourceFactory interface {
 	OpenConfigSource(AnchoredRoot, bool) (ConfigSource, error)
+}
+
+// SplitConfigSource exposes the separately admitted Config v2 authorities.
+type SplitConfigSource interface {
+	ConfigSource
+	ProjectPresent() bool
+	ProjectBytes() []byte
+	LocalBytes() []byte
+}
+
+// SplitConfigInstaller installs or refreshes Config v2 without allowing the
+// machine-local operation to rewrite shared project policy.
+type SplitConfigInstaller interface {
+	ConfigInstaller
+	InstallConfigBundle(context.Context, AnchoredRoot, ConfigDirectoryReceipt, []byte, []byte) (ConfigInstallReceipt, error)
+	InstallLocalConfig(context.Context, AnchoredRoot, ConfigDirectoryReceipt, []byte) (ConfigInstallReceipt, error)
+	RefreshLocalConfig(context.Context, AnchoredRoot, ConfigDirectoryReceipt, []byte) (ConfigInstallReceipt, error)
 }

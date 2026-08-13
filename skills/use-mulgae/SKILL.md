@@ -10,9 +10,10 @@ description: Use Mulgae safely for local multi-provider code reviews, run inspec
 1. Work from the canonical Git repository root.
 2. Confirm availability with `command -v mulgae` and `mulgae version --json`.
    Do not install or upgrade Mulgae automatically.
-3. Check for `.mulgae/config.yaml`. If it is absent, stop unless the user
-   explicitly requested initialization; then read
-   [lifecycle.md](references/lifecycle.md).
+3. Check for both `.mulgae/config.yaml` and `.mulgae/local.yaml`. If either is
+   absent, stop unless the user explicitly requested initialization; then read
+   [lifecycle.md](references/lifecycle.md). The first file is shared project
+   policy; the second is private machine configuration.
 4. Read admitted configuration with:
 
    ```bash
@@ -111,5 +112,7 @@ description: Use Mulgae safely for local multi-provider code reviews, run inspec
 - Preserve Mulgae's product boundary: it is a local advisory code-review CLI,
   not merge approval, consensus, a hosted service, a task manager, or an agent
   orchestrator.
-- Do not commit or share `.mulgae/`, provider homes, credentials, raw provider
-  transcripts, diagnostics, or exported review bundles.
+- Commit only `.mulgae/config.yaml`. Never commit or share
+  `.mulgae/local.yaml`, any other `.mulgae/**` path, provider homes,
+  credentials, raw provider transcripts, diagnostics, or exported review
+  bundles.

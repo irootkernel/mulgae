@@ -21,6 +21,10 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
+Commit the generated `.mulgae/config.yaml` project policy, but keep
+`.mulgae/local.yaml` and all runtime artifacts untracked. After cloning a
+configured project, run `mulgae init` to create the local file.
+
 Install with:
 
 ```bash

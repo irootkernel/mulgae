@@ -13,7 +13,7 @@ func TestProviderTimeoutProvenanceDistinguishesConfiguredAndDefaulted(t *testing
 		disposition string
 	}{
 		"providers.kimi.timeout":  {source: "default", disposition: "defaulted"},
-		"providers.zcode.timeout": {source: "local", disposition: "configured"},
+		"providers.zcode.timeout": {source: "project", disposition: "configured"},
 	}
 	for _, row := range rows {
 		expected, ok := want[row.Field]

@@ -295,7 +295,10 @@ func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(rootPath, ".mulgae", "config.yaml")
-	if err := os.WriteFile(configPath, []byte("version: 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(compositionProjectConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), []byte(compositionLocalConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	root, err := ports.NewAnchoredRoot(rootPath)
@@ -324,6 +327,32 @@ func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T
 		t.Fatalf("mutated=%t inner_called=%t", attestor.mutated, inner.called)
 	}
 }
+
+const compositionProjectConfig = `version: 2
+project: {name: "project"}
+providers: {agy: {}}
+execution: {workspace_access: "none"}
+roles:
+  logic: {enabled: true, primary_provider: "agy"}
+  security: {enabled: false, primary_provider: "agy"}
+  maintainability: {enabled: false, primary_provider: "agy"}
+  product: {enabled: false, primary_provider: "agy"}
+  documentation: {enabled: false, primary_provider: "agy"}
+  testing: {enabled: false, primary_provider: "agy"}
+review: {required_roles: ["logic"], request_changes_on: ["high", "critical", "blocker"]}
+validation:
+  evidence: {require_verified_for: ["high", "critical", "blocker"]}
+  repair: {enabled: true, max_attempts: 1, same_provider: true}
+resources: {max_active_lanes: 1, primary_repair_attempts: 1, role_max_invocations: 2, run_max_invocations: 2, run_total_output_cap: "64MiB"}
+ci: {fail_on_severity: ["high", "critical", "blocker"], degraded_review_fails: true}
+`
+
+const compositionLocalConfig = `version: 2
+native_user: {home: "/Users/test"}
+providers:
+  agy: {executable: "/bin/agy"}
+`
+
 func TestReviewCompositionConstructorFailureCleansTemporaryRoots(t *testing.T) {
 	workspace, err := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	if err != nil {

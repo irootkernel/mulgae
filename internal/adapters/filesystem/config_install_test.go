@@ -48,6 +48,118 @@ func TestInstallConfigRejectsTemporaryByteMutationBeforeInstall(t *testing.T) {
 	}
 }
 
+func TestInstallConfigBundlePreservesProjectReceiptWhenLocalWriteFails(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	defaultWrite := operations.write
+	writes := 0
+	operations.write = func(fd int, data []byte) (int, error) {
+		writes++
+		if writes == 2 {
+			return 0, errors.New("injected local write failure")
+		}
+		return defaultWrite(fd, data)
+	}
+	writer.operations = operations
+	project := []byte("version: 2\nproject: true\n")
+	receipt, installErr := writer.InstallConfigBundle(context.Background(), root, prepared, project, []byte("version: 2\nlocal: true\n"))
+	var typed *ports.ConfigInstallError
+	if installErr == nil || !receipt.Installed() || !errors.As(installErr, &typed) || typed.Stage() != ports.ConfigInstallStageBundlePartial || typed.DestinationState() != ports.ConfigDestinationPresent {
+		t.Fatalf("InstallConfigBundle() = (%#v, %v), want installed project/bundle_partial", receipt, installErr)
+	}
+	contents, readErr := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
+	if readErr != nil || string(contents) != string(project) {
+		t.Fatalf("project config = %q, %v", contents, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "local.yaml")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("local config exists after failed write: %v", statErr)
+	}
+}
+
+func TestInstallConfigBundlePreservesConcurrentLocalOnPartialCollision(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(rootPath, ".mulgae", "local.yaml")
+	if err := os.WriteFile(localPath, []byte("external\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receipt, installErr := writer.InstallConfigBundle(context.Background(), root, prepared, []byte("version: 2\nproject: true\n"), []byte("version: 2\nlocal: true\n"))
+	var typed *ports.ConfigInstallError
+	if installErr == nil || !receipt.Installed() || !errors.As(installErr, &typed) || typed.Stage() != ports.ConfigInstallStageBundlePartial {
+		t.Fatalf("InstallConfigBundle() = (%#v, %v), want installed project/bundle_partial", receipt, installErr)
+	}
+	contents, readErr := os.ReadFile(localPath)
+	if readErr != nil || string(contents) != "external\n" {
+		t.Fatalf("concurrent local config changed: %q, %v", contents, readErr)
+	}
+}
+
+func TestInstallConfigBundleKeepsInstalledUnconfirmedForLocalSyncFailure(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	defaultSync := operations.fsync
+	syncs := 0
+	operations.fsync = func(fd int) error {
+		syncs++
+		if syncs == 4 {
+			return errors.New("injected local directory sync failure")
+		}
+		return defaultSync(fd)
+	}
+	writer.operations = operations
+	receipt, installErr := writer.InstallConfigBundle(context.Background(), root, prepared, []byte("version: 2\nproject: true\n"), []byte("version: 2\nlocal: true\n"))
+	var typed *ports.ConfigInstallError
+	if installErr == nil || !receipt.Installed() || !errors.As(installErr, &typed) || typed.Stage() != ports.ConfigInstallStageDirectorySync {
+		t.Fatalf("InstallConfigBundle() = (%#v, %v), want installed local/directory_sync", receipt, installErr)
+	}
+}
+
+func TestInstallConfigBundlePreservesProjectReceiptOnProjectSyncFailure(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	defaultSync := operations.fsync
+	syncs := 0
+	operations.fsync = func(fd int) error {
+		syncs++
+		if syncs == 2 {
+			return errors.New("injected project directory sync failure")
+		}
+		return defaultSync(fd)
+	}
+	writer.operations = operations
+	receipt, installErr := writer.InstallConfigBundle(context.Background(), root, prepared, []byte("version: 2\nproject: true\n"), []byte("version: 2\nlocal: true\n"))
+	var typed *ports.ConfigInstallError
+	if installErr == nil || !receipt.Installed() || !errors.As(installErr, &typed) || typed.Stage() != ports.ConfigInstallStageDirectorySync {
+		t.Fatalf("InstallConfigBundle() = (%#v, %v), want installed project/directory_sync", receipt, installErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "local.yaml")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("local config exists after project sync failure: %v", statErr)
+	}
+}
+
 func TestInstallConfigClassifiesCancellationWithConcurrentDestinationAsCollision(t *testing.T) {
 	rootPath := configInstallTestRoot(t)
 	root := mustRoot(t, rootPath)
@@ -252,6 +364,91 @@ func TestInstallConfigRetainsInstalledBytesWhenDirectorySyncFails(t *testing.T) 
 	contents, readErr := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 	if readErr != nil || string(contents) != "version: 1\n" {
 		t.Fatalf("retained config = %q err %v", contents, readErr)
+	}
+}
+
+func TestRefreshLocalConfigAtomicallyReplacesPrivateFile(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(rootPath, ".mulgae", "local.yaml")
+	if err := os.WriteFile(localPath, []byte("version: 2\nold: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newData := []byte("version: 2\nnew: true\n")
+	receipt, err := writer.RefreshLocalConfig(context.Background(), root, prepared, newData)
+	if err != nil || !receipt.Installed() {
+		t.Fatalf("RefreshLocalConfig() = (%#v, %v)", receipt, err)
+	}
+	contents, err := os.ReadFile(localPath)
+	if err != nil || string(contents) != string(newData) {
+		t.Fatalf("local config = %q, %v", contents, err)
+	}
+	info, err := os.Stat(localPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("local config mode = %v, %v", info, err)
+	}
+}
+
+func TestRefreshLocalConfigRejectsUnsafeDestinationBeforeSwap(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(rootPath, ".mulgae", "local.yaml")
+	oldData := []byte("version: 2\nold: true\n")
+	if err := os.WriteFile(localPath, oldData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	operations.beforeInstall = func(int, string) {
+		if err := os.Chmod(localPath, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer.operations = operations
+	receipt, refreshErr := writer.RefreshLocalConfig(context.Background(), root, prepared, []byte("version: 2\nnew: true\n"))
+	if refreshErr == nil || receipt.Installed() {
+		t.Fatalf("RefreshLocalConfig() = (%#v, %v), want rejection", receipt, refreshErr)
+	}
+	contents, err := os.ReadFile(localPath)
+	if err != nil || string(contents) != string(oldData) {
+		t.Fatalf("old local config changed: %q, %v", contents, err)
+	}
+}
+
+func TestRefreshLocalConfigRejectsTemporaryMutationBeforeSwap(t *testing.T) {
+	rootPath := configInstallTestRoot(t)
+	root := mustRoot(t, rootPath)
+	writer := NewSecureWriter()
+	prepared, err := writer.PrepareConfigDirectory(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(rootPath, ".mulgae", "local.yaml")
+	oldData := []byte("version: 2\nold: true\n")
+	if err := os.WriteFile(localPath, oldData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operations := writer.operationSet()
+	operations.beforeInstall = func(directoryFD int, name string) {
+		overwriteSecureWriterFile(t, directoryFD, name, []byte("version: 2\nmutated: true\n"))
+	}
+	writer.operations = operations
+	receipt, refreshErr := writer.RefreshLocalConfig(context.Background(), root, prepared, []byte("version: 2\nnew: true\n"))
+	if refreshErr == nil || receipt.Installed() {
+		t.Fatalf("RefreshLocalConfig() = (%#v, %v), want rejection", receipt, refreshErr)
+	}
+	contents, err := os.ReadFile(localPath)
+	if err != nil || string(contents) != string(oldData) {
+		t.Fatalf("old local config changed: %q, %v", contents, err)
 	}
 }
 

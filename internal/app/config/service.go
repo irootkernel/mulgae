@@ -3,8 +3,11 @@ package config
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -76,7 +79,26 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	if err != nil {
 		return Resolution{}, err
 	}
-	return Resolution{config: resolved, sha256: observation.SHA256(), canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
+	sha256 := observation.SHA256()
+	if split, ok := source.(ports.SplitConfigSource); ok {
+		sha256 = BundleSHA256(split.ProjectBytes(), split.LocalBytes())
+	}
+	return Resolution{config: resolved, sha256: sha256, canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
+}
+
+// BundleSHA256 returns the stable identity of an ordered Config v2 pair.
+func BundleSHA256(project, local []byte) string {
+	digest := sha256.New()
+	digest.Write([]byte("Mulgae-CONFIG-v2\x00project\x00"))
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(project)))
+	digest.Write(size[:])
+	digest.Write(project)
+	digest.Write([]byte("\x00local\x00"))
+	binary.BigEndian.PutUint64(size[:], uint64(len(local)))
+	digest.Write(size[:])
+	digest.Write(local)
+	return fmt.Sprintf("sha256:%x", digest.Sum(nil))
 }
 
 func provenanceRows(config Config) []ProvenanceRow {
@@ -99,7 +121,10 @@ func provenanceRows(config Config) []ProvenanceRow {
 	}
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {
-		source, disposition, class := "local", "configured", "policy"
+		source, disposition, class := "project", "configured", "policy"
+		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.kimi.data_home" || field == "providers.zcode.node_executable" || field == "providers.zcode.launcher" {
+			source, class = "local", "machine"
+		}
 		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
 			source, disposition, class = "code", "fixed", "invariant"
 		}

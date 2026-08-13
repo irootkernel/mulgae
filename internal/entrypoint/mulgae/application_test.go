@@ -149,6 +149,20 @@ func (writer *receiptCapturingFoundationWriter) InstallConfig(ctx context.Contex
 	}
 	return receipt, err
 }
+func (writer *receiptCapturingFoundationWriter) InstallConfigBundle(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, project, local []byte) (ports.ConfigInstallReceipt, error) {
+	installer := writer.delegate.(ports.SplitConfigInstaller)
+	receipt, err := installer.InstallConfigBundle(ctx, root, prepared, project, local)
+	if writer.afterWrite != nil {
+		writer.afterWrite()
+	}
+	return receipt, err
+}
+func (writer *receiptCapturingFoundationWriter) InstallLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return writer.delegate.(ports.SplitConfigInstaller).InstallLocalConfig(ctx, root, prepared, data)
+}
+func (writer *receiptCapturingFoundationWriter) RefreshLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return writer.delegate.(ports.SplitConfigInstaller).RefreshLocalConfig(ctx, root, prepared, data)
+}
 
 func (writer *receiptCapturingFoundationWriter) reset() {
 	writer.requests = nil
@@ -231,9 +245,10 @@ type controlledFoundationWriter struct {
 
 type configFaultWriter struct {
 	writer             ports.SecureFileWriter
-	installer          ports.ConfigInstaller
+	installer          ports.SplitConfigInstaller
 	failPrepare        bool
 	failInstall        bool
+	failLocalInstall   bool
 	prepareCalls       int
 	installCalls       int
 	lastPrepareReceipt ports.ConfigDirectoryReceipt
@@ -271,6 +286,29 @@ func (writer *configFaultWriter) InstallConfig(ctx context.Context, root ports.A
 		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageDirectorySync, ports.ConfigDestinationPresent, errors.New("injected private directory sync failure"))
 	}
 	return receipt, err
+}
+func (writer *configFaultWriter) InstallConfigBundle(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, project, local []byte) (ports.ConfigInstallReceipt, error) {
+	writer.installCalls++
+	if writer.failLocalInstall {
+		writer.failLocalInstall = false
+		receipt, err := writer.installer.InstallConfig(ctx, root, prepared, project)
+		if err != nil {
+			return receipt, err
+		}
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageBundlePartial, ports.ConfigDestinationPresent, errors.New("injected local write failure"))
+	}
+	receipt, err := writer.installer.InstallConfigBundle(ctx, root, prepared, project, local)
+	if err == nil && writer.failInstall {
+		writer.failInstall = false
+		return receipt, ports.NewConfigInstallError(ports.ConfigInstallStageDirectorySync, ports.ConfigDestinationPresent, errors.New("injected private directory sync failure"))
+	}
+	return receipt, err
+}
+func (writer *configFaultWriter) InstallLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return writer.installer.InstallLocalConfig(ctx, root, prepared, data)
+}
+func (writer *configFaultWriter) RefreshLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return writer.installer.RefreshLocalConfig(ctx, root, prepared, data)
 }
 
 func (writer *controlledFoundationWriter) EnsurePrivateDir(ports.AnchoredRoot, ports.SafeRelativePath) error {
@@ -638,6 +676,57 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	}
 }
 
+func TestApplicationInitRefreshLocalPreservesSharedPolicy(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
+	localPath := filepath.Join(root, ".mulgae", "local.yaml")
+	projectBefore, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localBefore, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshed := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--agy-executable", "/bin/bash", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, refreshed, app.ExitCodeSuccess)
+	projectAfter, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localAfter, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(projectBefore, projectAfter) {
+		t.Fatal("refresh changed shared project policy")
+	}
+	if bytes.Equal(localBefore, localAfter) || !bytes.Contains(localAfter, []byte(`executable: "/bin/bash"`)) {
+		t.Fatalf("refreshed local config = %q", localAfter)
+	}
+}
+
+func TestApplicationInitRefreshRequiresExistingLocalConfig(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	result := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--agy-executable", "/bin/bash", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
+	var envelope struct {
+		Reasons []struct {
+			Code string `json:"code"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "init_local_missing" {
+		t.Fatalf("refresh failure reasons = %#v", envelope.Reasons)
+	}
+}
+
 func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -713,27 +802,48 @@ func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *te
 			t.Fatalf("installed-unconfirmed config was removed: %v", err)
 		}
 	})
+
+	t.Run("shared-only partial install is reported and recoverable", func(t *testing.T) {
+		writer := newConfigFaultWriter()
+		writer.failLocalInstall = true
+		fixture := newFoundationFixtureWithWriter(t, writer)
+		root := testAnchoredRoot(t)
+		argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+		result := fixture.application.Run(context.Background(), argv, root)
+		assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+		var envelope struct {
+			Reasons []struct {
+				Code string `json:"code"`
+			} `json:"reasons"`
+			Result appinit.InitializeProjectResult `json:"result"`
+		}
+		if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "init_local_write_failed" || envelope.Result.WriteState != "project_committed_local_missing" || envelope.Result.DestinationState != ports.ConfigDestinationPresent || envelope.Result.Committed {
+			t.Fatalf("partial bundle failure = reasons %#v result %#v", envelope.Reasons, envelope.Result)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".mulgae", "config.yaml")); err != nil {
+			t.Fatalf("partial install lost shared config: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".mulgae", "local.yaml")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("partial install created local config: %v", err)
+		}
+
+		retried := fixture.application.Run(context.Background(), []string{"init", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+		assertFoundationEnvelope(t, fixture, retried, app.ExitCodeSuccess)
+		if _, err := os.Stat(filepath.Join(root, ".mulgae", "local.yaml")); err != nil {
+			t.Fatalf("retry did not create local config: %v", err)
+		}
+	})
 }
 
-func TestApplicationInitAndDoctorPreserveExactPrivateTargetReason(t *testing.T) {
+func TestApplicationInitAndDoctorRejectPrivateRuntimeNamespace(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		reason string
 		setup  func(*testing.T, foundationFixture, string)
 	}{
-		{
-			name:   "exact config",
-			reason: string(ports.ConfigLocalityTargetPrivateConfigForbidden),
-			setup: func(t *testing.T, _ foundationFixture, root string) {
-				if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(root, ".mulgae", "config.yaml"), []byte("version: 1\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				runFoundationGit(t, root, "add", "-f", ".mulgae/config.yaml")
-			},
-		},
 		{
 			name:   "private namespace",
 			reason: string(ports.ConfigLocalityTargetPrivateNamespaceForbidden),
@@ -864,22 +974,27 @@ func TestApplicationConfigRejectsNativeAccountAndIdentityMismatch(t *testing.T) 
 	initialized := fixture.application.Run(ctx, []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
-	configPath := filepath.Join(root, ".mulgae", "config.yaml")
-	data, err := os.ReadFile(configPath)
+	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
+	localPath := filepath.Join(root, ".mulgae", "local.yaml")
+	projectData, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localData, err := os.ReadFile(localPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	codec := adapterconfig.YAMLCodec{}
-	config, err := codec.Decode(data)
+	config, err := codec.DecodeSplit(projectData, localData)
 	if err != nil {
 		t.Fatal(err)
 	}
 	config.NativeUser.Home = filepath.Join(t.TempDir(), "different-native-home")
-	data, err = codec.EncodeCanonical(config)
+	_, localData, err = codec.EncodeSplit(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(localPath, localData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -906,11 +1021,11 @@ func TestApplicationConfigRejectsNativeAccountAndIdentityMismatch(t *testing.T) 
 		t.Fatal(err)
 	}
 	config.NativeUser.Home = installed.HomeDir
-	data, err = codec.EncodeCanonical(config)
+	_, localData, err = codec.EncodeSplit(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(localPath, localData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErr: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "native home identity changed")}
@@ -1245,6 +1360,49 @@ func TestApplicationDoctorReturnsInlineValidatedUnverifiedResult(t *testing.T) {
 	doctorSchema := mustFoundationAssetID(t, doctorResultSchema)
 	if err := fixture.validator.Validate(context.Background(), doctorSchema, contents); err != nil {
 		t.Fatalf("persisted doctor result is not schema-valid: %v", err)
+	}
+}
+
+func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	if initialized.ExitCode() != app.ExitCodeSuccess {
+		t.Fatalf("init exit = %d: %s", initialized.ExitCode(), initialized.Stdout())
+	}
+	if err := os.Remove(filepath.Join(root, ".mulgae", "local.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeReadiness)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(diagnosed.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Config.Locality != "verified" ||
+		!reflect.DeepEqual(envelope.Result.Doctor.Config.ReasonCodes, []string{"local_config_missing"}) {
+		t.Fatalf("doctor result = %#v", envelope.Result.Doctor)
+	}
+	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
+	project, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project = bytes.Replace(project, []byte("version: 2"), []byte("version: 1"), 1)
+	if err := os.WriteFile(projectPath, project, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, legacy, app.ExitCodeReadiness)
+	if err := json.Unmarshal(legacy.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Doctor == nil || !reflect.DeepEqual(envelope.Result.Doctor.Config.ReasonCodes, []string{"config_yaml_invalid"}) {
+		t.Fatalf("legacy doctor result = %#v", envelope.Result.Doctor)
 	}
 }
 

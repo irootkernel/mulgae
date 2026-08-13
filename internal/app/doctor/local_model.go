@@ -111,7 +111,9 @@ func (result LocalDoctorResult) Validate() error {
 func validateConfigProjection(config LocalConfigProjection) error {
 	switch config.Status {
 	case "missing":
-		if config.Locality != "not_observed" || !reflect.DeepEqual(config.ReasonCodes, []string{"config_missing"}) {
+		validAbsent := config.Locality == "not_observed" && reflect.DeepEqual(config.ReasonCodes, []string{"config_missing"})
+		validLocalMissing := config.Locality == "verified" && reflect.DeepEqual(config.ReasonCodes, []string{"local_config_missing"})
+		if !validAbsent && !validLocalMissing {
 			return fmt.Errorf("local doctor result: invalid missing config")
 		}
 	case "invalid":

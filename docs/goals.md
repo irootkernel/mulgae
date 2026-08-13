@@ -25,7 +25,8 @@ result, evidence status, lineage, and a durable publication record.
    JSON structured extraction requires parsing, schema, semantic, and evidence
    checks. Prose does not invent findings. Security, configuration, and
    integrity failures never authorize publication.
-6. **Local ownership.** Configuration and artifacts remain in `.mulgae/`.
+6. **Local ownership.** Shared project policy and private machine/runtime state
+   remain project-local beneath `.mulgae/`; only the policy is Git-shareable.
 7. **Inspectable automation.** Human output is convenient; `--output json`
    provides stable versioned envelopes and typed exits.
 
@@ -47,8 +48,9 @@ Mulgae does not:
 The first public release is intentionally narrow:
 
 - one binary named `mulgae`;
-- one project-local config at `.mulgae/config.yaml`;
-- v1 configuration and independently versioned machine contracts;
+- Config v2 split between tracked `.mulgae/config.yaml` project policy and
+  untracked mode-`0600` `.mulgae/local.yaml` machine paths;
+- independently versioned machine contracts;
 - Kimi, ZCode, and AGY provider families;
 - macOS on Apple silicon;
 - manual Git tagging after the complete local release gate passes.

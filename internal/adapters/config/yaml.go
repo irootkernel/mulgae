@@ -42,8 +42,8 @@ var (
 	fixedSeverities = []string{"info", "low", "medium", "high", "critical", "blocker"}
 )
 
-// Decode admits the sole local configuration. Defaults are expanded in the
-// returned typed value while EncodeCanonical omits defaulted optional fields.
+// Decode admits an effective merged configuration. Defaults are expanded in
+// the returned typed value while EncodeCanonical omits defaulted optional fields.
 func Decode(data []byte) (Config, error) {
 	var zero Config
 	root, err := parseBoundedDocument(data)

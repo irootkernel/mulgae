@@ -6,7 +6,8 @@
 .codex
 .claude
 /.gaori/
-/.mulgae/
+/.mulgae/*
+!/.mulgae/config.yaml
 /no-lock.md
 /artifacts/
 /tmp/

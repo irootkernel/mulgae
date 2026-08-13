@@ -360,6 +360,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
 		"--zcode-node-executable": true, "--zcode-launcher": true,
 		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
+		"--refresh-local": false,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -381,6 +382,18 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 
 	request := InitRequest{
 		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: []string{"logic"},
+	}
+	for _, flag := range []string{"--name", "--context", "--providers", "--roles", "--project-kind", "--artist-brief", "--artist-design-specs", "--kimi-model", "--agy-permission-mode"} {
+		if _, present := options[flag]; present {
+			request.projectPolicyOptions = true
+			break
+		}
+	}
+	_, request.refreshLocal = options["--refresh-local"]
+	if request.refreshLocal {
+		if request.projectPolicyOptions {
+			return Invocation{}, usageError("init --refresh-local accepts only machine-local overrides")
+		}
 	}
 	if rolesValue, present := options["--roles"]; present {
 		request.roleIDs, err = parseCanonicalRolesCSV(rolesValue)
@@ -455,7 +468,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	if request.agyPermissionMode != "" && request.agyPermissionMode != "safe" && request.agyPermissionMode != "dangerously-skip-permissions" {
 		return Invocation{}, usageError("unsupported AGY permission mode")
 	}
-	if request.selectionMode == "auto" && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
+	if !request.refreshLocal && request.selectionMode == "auto" && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
 		return Invocation{}, usageError("Kimi override requires explicit Kimi selection")
 	}
 	if request.selectionMode == "selected" {
@@ -500,9 +513,10 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		Roles        []string      `json:"roles"`
 		Overrides    overridesJSON `json:"overrides"`
 		Overwrite    bool          `json:"overwrite"`
+		RefreshLocal *bool         `json:"refresh_local,omitempty"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{request.kimiExecutable, request.kimiModel, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.agyPermissionMode}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1751,6 +1765,13 @@ func optionalString(value string, present bool) *string {
 	}
 	copyValue := value
 	return &copyValue
+}
+
+func optionalBool(value bool) *bool {
+	if !value {
+		return nil
+	}
+	return &value
 }
 
 func intendedProvider(value string) bool {

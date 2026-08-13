@@ -258,26 +258,28 @@ func (request HelpRequest) Topic() string { return request.topic }
 // InitRequest contains the executable init fields. ContextPath is absent unless
 // the user explicitly supplied --context.
 type InitRequest struct {
-	projectRoot         string
-	projectName         string
-	contextPath         string
-	hasContextPath      bool
-	projectKind         string
-	hasProjectKind      bool
-	artistBriefPath     string
-	artistDesignGlobs   []string
-	selectionMode       string
-	providerIDs         []string
-	roleIDs             []string
-	nativeHome          string
-	hasNativeHome       bool
-	kimiExecutable      string
-	kimiModel           string
-	kimiDataHome        string
-	zcodeNodeExecutable string
-	zcodeLauncher       string
-	agyExecutable       string
-	agyPermissionMode   string
+	projectRoot          string
+	projectName          string
+	contextPath          string
+	hasContextPath       bool
+	projectKind          string
+	hasProjectKind       bool
+	artistBriefPath      string
+	artistDesignGlobs    []string
+	selectionMode        string
+	providerIDs          []string
+	roleIDs              []string
+	nativeHome           string
+	hasNativeHome        bool
+	kimiExecutable       string
+	kimiModel            string
+	kimiDataHome         string
+	zcodeNodeExecutable  string
+	zcodeLauncher        string
+	agyExecutable        string
+	agyPermissionMode    string
+	refreshLocal         bool
+	projectPolicyOptions bool
 }
 
 // ProjectRoot returns the canonical project root selected for initialization.
@@ -317,7 +319,9 @@ func (request InitRequest) ZCodeOverrides() (string, string) {
 func (request InitRequest) AGYOverrides() (string, string) {
 	return request.agyExecutable, request.agyPermissionMode
 }
-func (request InitRequest) Overwrite() bool { return false }
+func (request InitRequest) Overwrite() bool            { return false }
+func (request InitRequest) RefreshLocal() bool         { return request.refreshLocal }
+func (request InitRequest) ProjectPolicyOptions() bool { return request.projectPolicyOptions }
 
 // DoctorRequest contains the executable doctor fields.
 type DoctorRequest struct {

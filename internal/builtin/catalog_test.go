@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 64 {
-		t.Fatalf("manifest asset count = %d, want 64", len(manifest.Assets))
+	if len(manifest.Assets) != 65 {
+		t.Fatalf("manifest asset count = %d, want 65", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -322,8 +322,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 53 {
-		t.Fatalf("authoritative runtime source count = %d, want 53", len(authoritativeSources))
+	if len(authoritativeSources) != 54 {
+		t.Fatalf("authoritative runtime source count = %d, want 54", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -469,16 +469,18 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 	content := help.String()
 	for _, required := range []string{
-		"one configuration authority:\n`<canonical-project-root>/.mulgae/config.yaml`",
+		"two configuration authorities:",
+		"`<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project",
+		"`<canonical-project-root>/.mulgae/local.yaml` contains machine-local native",
 		"--providers auto|FAMILY[,FAMILY...]",
 		"`FAMILY := kimi | zcode | agy`",
 		"`execution.workspace_access` is required",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
 		"defaults to `safe` for workspace-first",
 		"`provider_permission_denied`, not as output decode failures",
-		"unconditional project-root\ndurability barrier",
+		"unconditional\nproject-root durability barrier",
 		"output delivery failure never rolls back a committed\nconfiguration",
-		"There is no migration or compatibility path",
+		"Config v1 is rejected; there is no automatic migration path",
 	} {
 		if !strings.Contains(content, required) {
 			t.Errorf("embedded help is missing %q", required)

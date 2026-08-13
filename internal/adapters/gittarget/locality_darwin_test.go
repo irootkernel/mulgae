@@ -27,14 +27,14 @@ func TestUnifiedDiffPrivatePathGuard(t *testing.T) {
 		{"deleted file diff", "diff --git a/old.go b/old.go\ndeleted file mode 100644\n--- a/old.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n", true, true},
 		{"quoted ordinary path", "diff --git \"a/file with space.go\" \"b/file with space.go\"\n--- \"a/file with space.go\"\n+++ \"b/file with space.go\"\n@@ -1 +1 @@\n-old\n+new\n", true, true},
 		{"quoted private path", "diff --git \"a/.mulgae/file with space\" \"b/.mulgae/file with space\"\n--- \"a/.mulgae/file with space\"\n+++ \"b/.mulgae/file with space\"\n@@ -1 +1 @@\n-old\n+new\n", true, false},
-		{"raw private diff", "--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-old\n+new\n", true, false},
-		{"config path", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-old\n+new\n", true, false},
+		{"raw config diff", "--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-old\n+new\n", true, true},
+		{"config path", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-old\n+new\n", true, true},
 		{"private descendant", "diff --git a/.mulgae/cache/x b/.mulgae/cache/x\n--- a/.mulgae/cache/x\n+++ b/.mulgae/cache/x\n@@ -1 +1 @@\n-old\n+new\n", true, false},
 		{"rename only", "diff --git a/old.go b/new.go\nsimilarity index 100%\nrename from old.go\nrename to new.go\n", true, true},
 		{"rename only into private namespace", "diff --git a/old.go b/.mulgae/cache/x\nsimilarity index 100%\nrename from old.go\nrename to .mulgae/cache/x\n", true, false},
 		{"copy only into private namespace", "diff --git a/old.go b/.mulgae/cache/x\nsimilarity index 100%\ncopy from old.go\ncopy to .mulgae/cache/x\n", true, false},
 		{"mode only", "diff --git a/main.go b/main.go\nold mode 100644\nnew mode 100755\n", true, true},
-		{"mode only private", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\nold mode 100644\nnew mode 100755\n", true, false},
+		{"mode only config", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\nold mode 100644\nnew mode 100755\n", true, true},
 		{"no-op private mode is malformed", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\nold mode 100644\nnew mode 100644\n", false, true},
 		{"empty new file", "diff --git a/empty b/empty\nnew file mode 100644\nindex 0000000..e69de29\n", true, true},
 		{"prose mention", "do not edit .mulgae/config.yaml\n", false, true},
@@ -69,9 +69,9 @@ func TestUnifiedDiffPrivatePathReason(t *testing.T) {
 		name, input string
 		want        ports.ConfigLocalityReason
 	}{
-		{"exact config", "diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-old\n+new\n", ports.ConfigLocalityTargetPrivateConfigForbidden},
 		{"private descendant", "diff --git a/old.go b/.mulgae/cache/x\nsimilarity index 100%\nrename from old.go\nrename to .mulgae/cache/x\n", ports.ConfigLocalityTargetPrivateNamespaceForbidden},
-		{"config dominates mixed section", "diff --git a/.mulgae/cache/x b/.mulgae/cache/x\nold mode 100644\nnew mode 100755\ndiff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\nold mode 100644\nnew mode 100755\n", ports.ConfigLocalityTargetPrivateConfigForbidden},
+		{"case alias", "diff --git a/.Mulgae/config.yaml b/.Mulgae/config.yaml\nold mode 100644\nnew mode 100755\n", ports.ConfigLocalityTargetPrivateNamespaceForbidden},
+		{"private path dominates allowed config", "diff --git a/.mulgae/cache/x b/.mulgae/cache/x\nold mode 100644\nnew mode 100755\ndiff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\nold mode 100644\nnew mode 100755\n", ports.ConfigLocalityTargetPrivateNamespaceForbidden},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			parsed, free := parseUnifiedDiffPrivatePathFree([]byte(test.input))
@@ -91,9 +91,9 @@ func TestGitLocalityAttestorRejectsLiveConfigAndRepositoryDrift(t *testing.T) {
 		mutate func(*testing.T, string)
 	}{
 		{
-			name: "config bytes",
+			name: "local config bytes",
 			mutate: func(t *testing.T, root string) {
-				writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 2\n")
+				writeReviewFile(t, filepath.Join(root, ".mulgae", "local.yaml"), "version: 2\n")
 			},
 		},
 		{
@@ -146,8 +146,9 @@ func TestGitLocalityAttestorRejectsPrivateIndexStagesAndApplicableCommit(t *test
 	t.Run("config index stage zero", func(t *testing.T) {
 		root, attestor, request, _ := localityFixture(t)
 		reviewGit(t, root, "add", "-f", ".mulgae/config.yaml")
-		_, err := attestor.Attest(context.Background(), request)
-		requireLocalityReason(t, err, ports.ConfigLocalityTargetPrivateConfigForbidden)
+		if _, err := attestor.Attest(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("config target diff", func(t *testing.T) {
@@ -157,8 +158,9 @@ func TestGitLocalityAttestorRejectsPrivateIndexStagesAndApplicableCommit(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = attestor.Attest(context.Background(), request)
-		requireLocalityReason(t, err, ports.ConfigLocalityTargetPrivateConfigForbidden)
+		if _, err = attestor.Attest(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("unmerged stages", func(t *testing.T) {
@@ -221,7 +223,8 @@ func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLo
 	if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 1\n")
+	writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), localityProjectConfig)
+	writeReviewFile(t, filepath.Join(root, ".mulgae", "local.yaml"), localityMachineConfig)
 	anchored := mustAnchoredRoot(t, root)
 	source, err := adapterconfig.NewLocalConfigSource(anchored, false)
 	if err != nil {
@@ -245,3 +248,46 @@ func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLo
 	}
 	return root, attestor, request, expected
 }
+
+const localityProjectConfig = `version: 2
+project:
+  name: "project"
+providers:
+  agy: {}
+execution:
+  workspace_access: "none"
+roles:
+  logic: {enabled: true, primary_provider: "agy"}
+  security: {enabled: false, primary_provider: "agy"}
+  maintainability: {enabled: false, primary_provider: "agy"}
+  product: {enabled: false, primary_provider: "agy"}
+  documentation: {enabled: false, primary_provider: "agy"}
+  testing: {enabled: false, primary_provider: "agy"}
+review:
+  required_roles: ["logic"]
+  request_changes_on: ["high", "critical", "blocker"]
+validation:
+  evidence:
+    require_verified_for: ["high", "critical", "blocker"]
+  repair:
+    enabled: true
+    max_attempts: 1
+    same_provider: true
+resources:
+  max_active_lanes: 1
+  primary_repair_attempts: 1
+  role_max_invocations: 2
+  run_max_invocations: 2
+  run_total_output_cap: "64MiB"
+ci:
+  fail_on_severity: ["high", "critical", "blocker"]
+  degraded_review_fails: true
+`
+
+const localityMachineConfig = `version: 2
+native_user:
+  home: "/Users/test"
+providers:
+  agy:
+    executable: "/bin/agy"
+`

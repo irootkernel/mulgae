@@ -99,7 +99,7 @@ func validateSpecs(specs []appinit.MutationOutcomeSpec) error {
 	if successes != 1 || deliveryFailures != 1 {
 		return fmt.Errorf("init contract generator: success/delivery cardinality = %d/%d, want 1/1", successes, deliveryFailures)
 	}
-	for _, state := range []string{"committed", "existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed"} {
+	for _, state := range []string{"committed", "existing_untouched", "not_committed", "project_committed_local_missing", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed"} {
 		found := false
 		for _, spec := range specs {
 			found = found || spec.WriteState == state
@@ -221,7 +221,7 @@ func renderSchemaBranches(specs []appinit.MutationOutcomeSpec) string {
 		`            { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }`,
 		`          ] },`,
 	}
-	states := []string{"not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed"}
+	states := []string{"not_committed", "project_committed_local_missing", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed"}
 	for index, state := range states {
 		comma := ","
 		if index == len(states)-1 {

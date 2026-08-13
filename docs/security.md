@@ -103,8 +103,10 @@ provider-specific files and environment required by the adapter into a
 temporary namespace. That namespace also supplies the disposable `HOME`,
 `TMPDIR`, and scratch area holding any per-invocation staging directory, so
 staging is removed with the namespace it belongs to and never reaches a
-credential or project location. Do not commit credentials, provider homes,
-`.mulgae/` artifacts, or exported review bundles.
+credential or project location. Commit only the machine-path-free project
+policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
+credentials, provider homes, any other `.mulgae/` artifacts, or exported review
+bundles.
 
 AGY is the exception to disposable `HOME`: its authenticated runtime is bound
 to the verified installed-user home while its workspace and staging remain
@@ -116,14 +118,16 @@ provider-side concurrency and account limits.
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.
 
-Tracked `.gitignore` and `.mulgaeignore` files are trusted capture-policy
-inputs, not provider evidence. Their presence does not invalidate a repository,
-but their paths and contents are omitted from Git targets, patch/stdin targets,
-captured snapshots, evidence, manifests, and provider workspaces. A patch or
-stdin target containing only excluded control content fails as
+Tracked `.gitignore`, `.mulgaeignore`, and the exact `.mulgae/config.yaml` file
+are trusted capture-policy inputs, not provider evidence. Their presence does
+not invalidate a repository, but their paths and contents are omitted from Git
+targets, patch/stdin targets, captured snapshots, evidence, manifests, and
+provider workspaces. Every other tracked `.mulgae/**` path remains forbidden. A
+patch or stdin target containing only excluded control content fails as
 `no_reviewable_content`; an equivalent Git target is a no-change capture.
-Reserved namespaces such as `.git/**` and `.mulgae/**`, malformed paths, path
-collisions, and selected symlinks remain fail-closed.
+Reserved namespaces such as `.git/**` and `.mulgae/**` other than the exact
+project policy exception, malformed paths, path collisions, and selected
+symlinks remain fail-closed.
 
 Review capture does not apply secret-pattern detection to source files,
 security fixtures, objectives, or provider packets. A configured provider is

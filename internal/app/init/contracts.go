@@ -166,6 +166,10 @@ func (result InitializeProjectResult) Validate() error {
 		if result.DestinationState == ports.ConfigDestinationPresent || len(result.ConfiguredProviderIDs) == 0 {
 			return fmt.Errorf("init result: invalid preinstall projection")
 		}
+	case "project_committed_local_missing":
+		if result.DestinationState != ports.ConfigDestinationPresent || len(result.ConfiguredProviderIDs) == 0 {
+			return fmt.Errorf("init result: invalid partial bundle projection")
+		}
 	case "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed":
 		if len(result.ConfiguredProviderIDs) == 0 {
 			return fmt.Errorf("init result: invalid root-barrier projection")

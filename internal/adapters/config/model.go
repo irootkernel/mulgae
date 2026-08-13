@@ -36,6 +36,7 @@ const (
 	MinimumProviderTimeout    = appconfig.MinimumProviderTimeout
 	MaximumProviderTimeout    = appconfig.MaximumProviderTimeout
 	ConfigRelativePath        = appconfig.ConfigRelativePath
+	LocalConfigRelativePath   = appconfig.LocalConfigRelativePath
 	MaximumConfigBytes        = appconfig.MaximumConfigBytes
 	ProjectKindNonUI          = appconfig.ProjectKindNonUI
 	ProjectKindUI             = appconfig.ProjectKindUI

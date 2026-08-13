@@ -125,6 +125,18 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/examples/project-config.yaml",
+      "disposition": "ADDED",
+      "media_type": "application/yaml",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "project-shared-configuration"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/examples/provider-contract-evidence.v1.valid.json",
       "disposition": "ADDED",
       "media_type": "application/json",

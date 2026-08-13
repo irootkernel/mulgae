@@ -1,10 +1,16 @@
 # Configuration
 
-Mulgae has one configuration authority:
-`<canonical-project-root>/.mulgae/config.yaml`.
+Mulgae Config v2 has two configuration authorities:
 
-`mulgae init` creates that file and never overwrites an existing configuration.
-There is no migration or compatibility path from pre-release configuration.
+- `<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project
+  policy.
+- `<canonical-project-root>/.mulgae/local.yaml` contains machine-local native
+  home and provider paths and must remain mode `0600` and untracked.
+
+`mulgae init` creates both files for a new project. When only the tracked project
+file exists after a clone, it creates the local file without changing project
+policy and rejects project-policy options.
+Config v1 is rejected; there is no automatic migration path.
 
 ```text
 mulgae init [--project-root PATH] [--name NAME]
@@ -12,6 +18,7 @@ mulgae init [--project-root PATH] [--name NAME]
   [--roles ROLE[,ROLE...]]
   [--context RELATIVE_PATH]
   [provider-specific overrides]
+  [--refresh-local]
   [--output human|json]
 ```
 
@@ -25,6 +32,16 @@ Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
 `execution.workspace_access` is required and must remain `none`.
 
+Use `mulgae init --refresh-local` after provider installations move or the
+shared provider family set changes. Refresh atomically replaces only
+`.mulgae/local.yaml`; it rejects project-policy options. Mulgae never edits
+`.gitignore`. Repositories should use:
+
+```gitignore
+/.mulgae/*
+!/.mulgae/config.yaml
+```
+
 Each configured provider accepts an optional `timeout` duration. The effective
 default is `15m`; valid values range inclusively from `1m` through `60m`.
 Default-valued fields are omitted from canonical YAML, while non-default values
@@ -33,10 +50,10 @@ such as the following are preserved canonically:
 ```yaml
 providers:
   zcode:
-    node_executable: "/opt/homebrew/bin/node"
-    launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
     timeout: "30m"
 ```
+
+Executable and launcher paths belong only in `local.yaml`.
 
 `mulgae config --mode effective` reports every configured provider family's
 effective timeout. Provenance reports the field as `defaulted` when omitted and
@@ -53,7 +70,6 @@ under the default. To opt into AGY's permission bypass, set:
 ```yaml
 providers:
   agy:
-    executable: "/opt/homebrew/bin/agy"
     permission_mode: "dangerously-skip-permissions"
 ```
 
@@ -62,9 +78,7 @@ Effective configuration reports both the selected mode and a warning when
 or shell tool requests outside Mulgae's read-oriented boundary. Provenance
 marks an omitted safe mode as `defaulted` and an explicit mode as `configured`.
 
-Existing Config v1 files that explicitly recorded
-`dangerously-skip-permissions` remain canonical byte-for-byte. Older canonical
-files that omitted the mode now select the safe default.
+Config v2 files that omit the mode select the safe default.
 
 For UI projects, `roles.artist.inputs.design_spec_globs` are discovery hints,
 not file-access rules. Default Git reviews always retain the configured artist;
@@ -74,6 +88,10 @@ Added images are primary `after` evidence; modified images provide both `before`
 and `after`. The artist may inspect any file in the captured workspace when
 history or a similar screen is useful.
 
-Initialization uses atomic installation and an unconditional project-root
-durability barrier. An output delivery failure never rolls back a committed
+Initialization installs each Config v2 file atomically and uses an unconditional
+project-root durability barrier. The two files cannot commit as one filesystem
+transaction: if project policy commits before the local write fails, init
+reports `project_committed_local_missing`. Resolve any reported local-path
+collision and rerun plain `mulgae init`; it preserves `config.yaml` and creates
+only `local.yaml`. An output delivery failure never rolls back a committed
 configuration.

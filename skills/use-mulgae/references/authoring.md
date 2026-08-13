@@ -28,16 +28,19 @@ mulgae init --providers zcode,agy \
 ```
 
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
-require the artist role. Initialization never overwrites an existing
-`.mulgae/config.yaml`.
+require the artist role. Initialization never overwrites an existing complete
+Config v2 pair.
 
 ## Change an existing configuration
 
-The sole runtime authority is `<canonical-project-root>/.mulgae/config.yaml`.
-Edit it only when the user explicitly authorizes the specific provider, role,
-artist-input, timeout, or policy change. Preserve Config v1 structure and use
-only fields demonstrated by the current effective configuration, embedded
-example, and `mulgae help config`.
+`<canonical-project-root>/.mulgae/config.yaml` owns shared provider families and
+models, roles, artist inputs, timeouts, validation, resources, and CI policy.
+Edit it only when the user explicitly authorizes that policy change. The
+untracked, mode-`0600` `.mulgae/local.yaml` owns only the native home and
+provider executable, launcher, and data-home paths. Prefer
+`mulgae init --refresh-local` over hand-editing those paths. Use only Config v2
+fields demonstrated by current effective configuration, the paired embedded
+examples, and `mulgae help config`; Config v1 is unsupported.
 
 After editing, re-read both admitted value and provenance:
 
@@ -49,6 +52,15 @@ mulgae review --stage --preflight --output json
 
 The final command is execution-free and confirms current role routing, provider
 timeouts, permission mode, and budgets for the selected target.
+
+Keep this root-anchored Git policy:
+
+```gitignore
+/.mulgae/*
+!/.mulgae/config.yaml
+```
+
+Commit only `config.yaml`; never commit `local.yaml` or runtime artifacts.
 
 ## Authoring boundaries
 

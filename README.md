@@ -134,8 +134,8 @@ root, which also holds each role's review guidance. Every role lists an ordered
 `provider_preferences`; `mulgae init` intersects that order with the providers it
 actually configured and takes the first match as the role's provider. Editing
 that file and rebuilding changes what `mulgae init` writes. It never changes an
-existing `.mulgae/config.yaml`, which remains the sole authority once a project
-is initialized.
+existing `.mulgae/config.yaml`, which remains the shared project-policy
+authority once a project is initialized.
 
 Each role runs on exactly one provider, and Mulgae never switches providers on
 its own. A published review therefore reflects one reviewer per role rather than
@@ -145,15 +145,49 @@ continues on its own provider; the report's "Provider issues" section names each
 failed role, the provider it ran on, why it stopped, and the `mulgae rerun`
 command to run it again on a provider you choose.
 
-A configuration written before this rule carries `roles.<role>.fallback_provider`
-and `resources.fallback_repair_attempts`. Both keys are gone, and a configuration
-that still holds either is rejected rather than reread with them ignored. Run
-`mulgae init` in a fresh directory to generate a current configuration, or delete
-those keys and set `role_max_invocations` to 2 and `run_max_invocations` to twice
-your enabled role count.
+Legacy Config v1 files, including files with fallback-provider fields, are
+rejected rather than partially interpreted. Back up the old private file and
+initialize Config v2 deliberately; Mulgae does not migrate it automatically.
 
-`mulgae init` creates the only configuration authority:
-`.mulgae/config.yaml`. It never overwrites an existing configuration.
+`mulgae init` creates Config v2 as two authorities: the shareable project policy
+at `.mulgae/config.yaml` and machine-local paths at `.mulgae/local.yaml`. It
+never overwrites an existing complete configuration. On a clone that already
+contains the project policy, `mulgae init` discovers the configured provider
+families and creates only the local file; project-policy options are rejected.
+Each file is installed atomically. Because the two pathnames cannot commit as a
+single filesystem transaction, interruption after the shared file commits may
+leave a supported shared-only state. A failed command reports
+`project_committed_local_missing`; rerun `mulgae init` after resolving any
+reported local-path collision to create only `local.yaml`.
+
+Track only the project policy. Keep every runtime artifact and the local file
+out of Git with these root-anchored rules:
+
+```gitignore
+/.mulgae/*
+!/.mulgae/config.yaml
+```
+
+Then commit `.gitignore` and `.mulgae/config.yaml`. The shared file carries
+roles, provider families and models, timeouts, review/validation policy,
+resource budgets, and CI policy. It never contains credentials, the native user
+home, provider executables, launchers, or provider data-home paths. Those remain
+in the mode-`0600` `.mulgae/local.yaml`, so collaborators share review policy
+without assuming identical account names or installation paths.
+
+After cloning, run `mulgae init` once to create `.mulgae/local.yaml`. If the
+shared provider set changes or local installations move, explicitly refresh
+only the machine file:
+
+```bash
+mulgae init --refresh-local
+mulgae config --mode provenance
+```
+
+`--refresh-local` preserves `.mulgae/config.yaml` and atomically replaces only
+the admitted local file. It accepts machine-path overrides but rejects project
+policy options. Config v1 is not migrated or read: back it up, remove the old
+private configuration, and initialize Config v2 deliberately.
 
 Every review command requires exactly one target:
 
@@ -166,9 +200,11 @@ Every review command requires exactly one target:
 --stdin                  a patch read from standard input
 ```
 
-Tracked `.gitignore` and `.mulgaeignore` files remain trusted capture controls
-and are never sent to providers. Their presence does not invalidate `--dirty`;
-their paths and contents are removed from captured files and patch targets.
+Tracked `.gitignore`, `.mulgaeignore`, and exact `.mulgae/config.yaml` files
+remain trusted capture controls and are never sent to providers. Their presence
+does not invalidate `--dirty`; their paths and contents are removed from
+captured files and patch targets. Every other tracked `.mulgae/**` path is
+rejected.
 Patch/stdin input containing only excluded control changes fails with
 `no_reviewable_content`.
 
@@ -190,9 +226,9 @@ Copy this minimal project-wide template into the reviewed project's
 
 - Use Mulgae only when the user explicitly requests it. Confirm that `mulgae`
   is available; never install it automatically.
-- Run Mulgae from the Git repository root. Confirm that
-  `.mulgae/config.yaml` exists; never run `mulgae init` without explicit user
-  intent.
+- Run Mulgae from the Git repository root. Confirm that both
+  `.mulgae/config.yaml` and `.mulgae/local.yaml` exist; never run `mulgae init`
+  without explicit user intent.
 - Derive each action from current machine-readable configuration, preflight,
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
   `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
@@ -206,8 +242,9 @@ Copy this minimal project-wide template into the reviewed project's
 - Require explicit user intent before cleanup, cancellation, configuration or
   goal changes, or another lifecycle-changing action. Re-read status after
   every mutation and never blindly retry an uncertain mutation.
-- Do not commit or share `.mulgae/`, provider credential directories, raw
-  transcripts, or exported review bundles.
+- Commit only `.mulgae/config.yaml`. Never commit or share
+  `.mulgae/local.yaml`, any other `.mulgae/**` path, provider credential
+  directories, raw transcripts, or exported review bundles.
 ````
 
 For the complete reusable workflow, see the
@@ -295,8 +332,9 @@ mulgae export --run r_...
 Exports default to `.mulgae/exports/<run-id>.zip` with a neighboring
 `.manifest.json` sidecar. Use `--output-path <relative-path>` only when you
 intentionally want the export elsewhere beneath the project root. Mulgae does
-not edit Git ignore configuration, so add `/.mulgae/` to the repository's ignore
-rules and never commit its contents.
+not edit Git ignore configuration. Use the allowlist rules shown in Quick start,
+commit only `.mulgae/config.yaml`, and keep every other `.mulgae/**` path
+private.
 
 Create a focused follow-up after changing the code:
 

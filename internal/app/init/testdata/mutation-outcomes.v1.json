@@ -68,6 +68,16 @@
   },
   {
     "kind": "initialization_failed",
+    "write_state": "project_committed_local_missing",
+    "code": "init_local_write_failed",
+    "committed": false,
+    "destination_state": "present",
+    "class": "artifact_failure",
+    "message": "The shared Mulgae project policy was installed, but the machine-local configuration could not be written.",
+    "retryable": true
+  },
+  {
+    "kind": "initialization_failed",
     "write_state": "not_committed",
     "code": "init_private_dir_raced",
     "committed": false,

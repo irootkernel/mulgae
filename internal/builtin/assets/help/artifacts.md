@@ -5,6 +5,8 @@ A published run has the form:
 
 ```text
 .mulgae/
+  config.yaml
+  local.yaml
   exports/
     r_<uuidv7>.zip
     r_<uuidv7>.manifest.json
@@ -59,5 +61,6 @@ state remains protected.
 `export --run <id>` creates a redacted bundle and its manifest beneath
 `.mulgae/exports/` by default. Pass `--output-path <relative-path>` to place an
 intentional copy elsewhere beneath the project root. Mulgae does not modify Git
-ignore configuration; repository owners should ignore `/.mulgae/` and must not
-commit or share its contents.
+ignore configuration. Use `/.mulgae/*` followed by
+`!/.mulgae/config.yaml`; commit only that shared policy file and never commit or
+share `local.yaml` or any other `.mulgae/**` content.

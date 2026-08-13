@@ -83,7 +83,8 @@ func NewConfigFileProof(present bool, rootDevice, rootInode uint64, rootUID, roo
 		return ConfigFileProof{}, fmt.Errorf("config file proof: missing root identity")
 	}
 	privatePresent := privateDevice != 0 || privateInode != 0 || privateUID != 0 || privateMode != 0
-	if privatePresent && (privateDevice == 0 || privateInode == 0 || privateUID != rootUID || privateMode != 0o700) {
+	privateModeAllowed := privateMode == 0o700 || !present && privateMode == 0o755
+	if privatePresent && (privateDevice == 0 || privateInode == 0 || privateUID != rootUID || !privateModeAllowed) {
 		return ConfigFileProof{}, fmt.Errorf("config file proof: incomplete private directory identity")
 	}
 	if present && (!privatePresent || configDevice == 0 || configInode == 0 || configUID != rootUID || configMode != 0o600 || configLinks != 1 || configSize < 1 || configSHA256 == "") {

@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -1486,14 +1485,7 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 
 func assertLiveSixRoleConfig(t *testing.T, project string) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
-	if err != nil {
-		t.Fatalf("read live config: %v", err)
-	}
-	config, err := adapterconfig.Decode(data)
-	if err != nil {
-		t.Fatalf("decode live config: %v", err)
-	}
+	config := readE2EConfig(t, project)
 	if config.Resources.MaxActiveLanes != 6 {
 		t.Fatalf("max_active_lanes = %d, want 6", config.Resources.MaxActiveLanes)
 	}

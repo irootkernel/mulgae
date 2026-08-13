@@ -64,6 +64,9 @@ func TestParseInitForms(t *testing.T) {
 	if request.Overwrite() {
 		t.Fatal("init overwrite must remain false")
 	}
+	if request.ProjectPolicyOptions() {
+		t.Fatal("default init unexpectedly records project-policy options")
+	}
 	assertRequestJSON(t, defaults, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
 	invocation := mustParse(t, []string{
@@ -76,6 +79,9 @@ func TestParseInitForms(t *testing.T) {
 	}
 	if got, want := request.ProjectName(), "other-project"; got != want {
 		t.Fatalf("init project name = %q, want %q", got, want)
+	}
+	if !request.ProjectPolicyOptions() {
+		t.Fatal("explicit init omitted project-policy option marker")
 	}
 	if got, present := request.ContextPath(); !present || got != "src/review" {
 		t.Fatalf("init context = %q, %t; want src/review, true", got, present)
@@ -99,6 +105,26 @@ func TestParseInitForms(t *testing.T) {
 		t.Fatalf("UI init roles = %#v, %t", uiRequest, ok)
 	}
 	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_brief":"docs/ux-ui-info.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+
+	refresh := mustParse(t, []string{"init", "--refresh-local", "--agy-executable", "/opt/homebrew/bin/agy", "--output", "json"})
+	refreshRequest, ok := refresh.Init()
+	if !ok || !refreshRequest.RefreshLocal() {
+		t.Fatalf("refresh init request = %#v, %t", refreshRequest, ok)
+	}
+	if refreshRequest.ProjectPolicyOptions() {
+		t.Fatal("local refresh unexpectedly records project-policy options")
+	}
+	assertRequestJSON(t, refresh, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{"agy_executable":"/opt/homebrew/bin/agy"},"overwrite":false,"refresh_local":true,"output_format":"json"}`)
+	for _, arguments := range [][]string{
+		{"init", "--refresh-local", "--name", "other"},
+		{"init", "--refresh-local", "--providers", "agy"},
+		{"init", "--refresh-local", "--roles", "logic,security"},
+		{"init", "--refresh-local", "--agy-permission-mode", "safe"},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
 	for _, roles := range []string{"logic,logic", "unknown"} {
 		if _, err := Parse([]string{"init", "--roles", roles}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("init --roles %q error = %v, want usage", roles, err)

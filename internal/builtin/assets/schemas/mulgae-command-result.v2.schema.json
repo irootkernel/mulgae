@@ -144,7 +144,7 @@
                   "properties": {
                     "config_sha256": { "$ref": "#/$defs/sha256" },
                     "configured_provider_ids": { "minItems": 1 },
-                    "write_state": { "enum": ["existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] }
+                    "write_state": { "enum": ["existing_untouched", "not_committed", "project_committed_local_missing", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] }
                   }
                 }
               }
@@ -1133,6 +1133,61 @@
                 },
                 "write_state": {
                   "const": "not_committed"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "exit": {
+              "properties": {
+                "code": {
+                  "const": 7
+                },
+                "kind": {
+                  "const": "artifact"
+                }
+              }
+            },
+            "reasons": {
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "properties": {
+                    "artifact_uri": {
+                      "const": null
+                    },
+                    "category": {
+                      "const": "artifact"
+                    },
+                    "code": {
+                      "const": "init_local_write_failed"
+                    },
+                    "message": {
+                      "const": "The shared Mulgae project policy was installed, but the machine-local configuration could not be written."
+                    },
+                    "retryable": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            },
+            "result": {
+              "properties": {
+                "committed": {
+                  "const": false
+                },
+                "destination_state": {
+                  "const": "present"
+                },
+                "kind": {
+                  "const": "initialization_failed"
+                },
+                "write_state": {
+                  "const": "project_committed_local_missing"
                 }
               }
             }
@@ -3154,6 +3209,7 @@
             }
           },
           "overwrite": { "type": "boolean" },
+          "refresh_local": { "type": "boolean" },
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
@@ -3392,6 +3448,7 @@
             { "properties": { "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
           ] },
           { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "not_committed" }, "committed": { "const": false }, "destination_state": { "enum": ["absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
+          { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "project_committed_local_missing" }, "committed": { "const": false }, "destination_state": { "enum": ["present"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
           { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_created_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
           { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "private_dir_existing_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","absent","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } },
           { "properties": { "kind": { "const": "initialization_failed" }, "write_state": { "const": "installed_unconfirmed" }, "committed": { "const": false }, "destination_state": { "enum": ["present","not_observed"] }, "config_sha256": { "$ref": "#/$defs/sha256" }, "candidate_provider_ids": { "minItems": 1 }, "configured_provider_ids": { "minItems": 1 }, "discovery": { "minItems": 3 } } }
@@ -3404,7 +3461,7 @@
           "candidate_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
           "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
           "configured_role_ids": { "oneOf": [{ "maxItems": 0 }, { "$ref": "#/$defs/canonical_role_ids" }] },
-          "write_state": { "enum": ["not_attempted", "existing_untouched", "not_committed", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] },
+          "write_state": { "enum": ["not_attempted", "existing_untouched", "not_committed", "project_committed_local_missing", "private_dir_created_unconfirmed", "private_dir_existing_unconfirmed", "installed_unconfirmed", "committed"] },
           "committed": { "type": "boolean" },
           "destination_state": { "enum": ["present", "absent", "not_observed"] },
           "discovery": {

@@ -4,8 +4,8 @@ Mulgae supports the `kimi`, `zcode`, and `agy` provider families. Provider
 executables must be installed and authenticated before review.
 
 Automatic initialization selects ZCode and AGY and requires both to be
-available. Kimi is retained for existing Config v1 files and explicit
-`mulgae init --providers kimi` compatibility; it is not part of auto selection.
+available. Kimi is retained for explicit `mulgae init --providers kimi`
+compatibility; it is not part of auto selection.
 
 ```bash
 mulgae providers
@@ -37,8 +37,8 @@ family never cancels roles running on the others.
 The initial assignment comes from the build-owned role document, which lists an
 ordered provider preference per role. `mulgae init` intersects that order with
 the providers it configured and takes the first match as the role's provider.
-That is a generation-time default only: after init the project configuration is
-the sole authority and is never re-derived.
+That is a generation-time default only: after init the shared project policy is
+the sole routing authority and is never re-derived.
 
 ZCode and AGY reviews run against Mulgae's immutable captured directory view
 with adapter-owned tool boundaries. Providers may selectively read/search that

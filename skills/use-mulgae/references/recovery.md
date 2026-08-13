@@ -50,6 +50,14 @@ review-like command is a new run, not a retry of the same mutation.
   `mulgae doctor --output json`, and
   `mulgae providers --include-unverified --output json`; fix only the reported
   prerequisite with explicit authorization.
+- If shared `.mulgae/config.yaml` exists but `.mulgae/local.yaml` is missing,
+  bootstrap it with authorized `mulgae init`. If local provider paths are stale
+  or no longer match the shared provider set, use authorized
+  `mulgae init --refresh-local`; never rewrite the shared policy as recovery.
+- For `project_committed_local_missing`, preserve the committed shared policy.
+  If an unadmitted `local.yaml` pathname caused a collision, move that exact
+  file aside only with explicit authorization; then retry plain `mulgae init`
+  to create the matching local authority.
 - For cleanup uncertainty, repeat the dry-run. Never resume a private tombstone
   or delete protected paths manually.
 - For publication statuses that expose a recovery action, report that action.

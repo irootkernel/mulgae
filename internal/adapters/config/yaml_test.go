@@ -85,7 +85,7 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !bytes.Equal(rendered, canonical) {
-		t.Fatalf("omitted Config v1 bytes changed:\n%s", rendered)
+		t.Fatalf("omitted Config v2 bytes changed:\n%s", rendered)
 	}
 
 	legacyExplicit := bytes.Replace(
@@ -106,7 +106,7 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !bytes.Equal(renderedLegacy, legacyExplicit) {
-		t.Fatalf("legacy explicit Config v1 bytes changed:\n%s", renderedLegacy)
+		t.Fatalf("explicit Config v2 bytes changed:\n%s", renderedLegacy)
 	}
 
 	config.Providers.AGY.PermissionMode = SafeAGYPermissionMode
@@ -297,7 +297,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
 		}
 	}
-	future := strings.Replace(string(encoded), "version: 1", "version: 2", 1)
+	future := strings.Replace(string(encoded), "version: 2", "version: 3", 1)
 	if _, err := Decode([]byte(future)); err == nil {
 		t.Fatal("future config version was accepted")
 	}

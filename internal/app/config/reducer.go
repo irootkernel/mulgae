@@ -1,4 +1,4 @@
-// Package config admits one project-local configuration and projects the fixed
+// Package config admits the project-local Config v2 pair and projects the fixed
 // runtime policy consumed by review composition.
 package config
 

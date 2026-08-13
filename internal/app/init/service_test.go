@@ -3,8 +3,10 @@ package init
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -192,11 +196,12 @@ func (attestor testAttestor) Revalidate(ctx context.Context, request ports.Confi
 }
 
 type testInstaller struct {
-	rootError    bool
-	existing     bool
-	installError error
-	prepareCalls int
-	installCalls int
+	rootError         bool
+	existing          bool
+	installError      error
+	localInstallError error
+	prepareCalls      int
+	installCalls      int
 }
 
 type afterInstallTestInstaller struct {
@@ -219,6 +224,15 @@ func (installer *afterPrepareTestInstaller) PrepareConfigDirectory(ctx context.C
 func (installer *afterPrepareTestInstaller) InstallConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
 	return installer.delegate.InstallConfig(ctx, root, prepared, data)
 }
+func (installer *afterPrepareTestInstaller) InstallConfigBundle(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, project, local []byte) (ports.ConfigInstallReceipt, error) {
+	return installer.delegate.InstallConfigBundle(ctx, root, prepared, project, local)
+}
+func (installer *afterPrepareTestInstaller) InstallLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return installer.delegate.InstallLocalConfig(ctx, root, prepared, data)
+}
+func (installer *afterPrepareTestInstaller) RefreshLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return installer.delegate.RefreshLocalConfig(ctx, root, prepared, data)
+}
 
 func (installer *afterInstallTestInstaller) PrepareConfigDirectory(ctx context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
 	return installer.delegate.PrepareConfigDirectory(ctx, root)
@@ -229,6 +243,23 @@ func (installer *afterInstallTestInstaller) InstallConfig(ctx context.Context, r
 		err = installer.after(root, data)
 	}
 	return receipt, err
+}
+func (installer *afterInstallTestInstaller) InstallConfigBundle(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, project, local []byte) (ports.ConfigInstallReceipt, error) {
+	receipt, err := installer.delegate.InstallConfigBundle(ctx, root, prepared, project, local)
+	if err == nil && installer.after != nil {
+		err = installer.after(root, local)
+	}
+	return receipt, err
+}
+func (installer *afterInstallTestInstaller) InstallLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	receipt, err := installer.delegate.InstallLocalConfig(ctx, root, prepared, data)
+	if err == nil && installer.after != nil {
+		err = installer.after(root, data)
+	}
+	return receipt, err
+}
+func (installer *afterInstallTestInstaller) RefreshLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	return installer.delegate.RefreshLocalConfig(ctx, root, prepared, data)
 }
 
 func (installer *testInstaller) PrepareConfigDirectory(_ context.Context, root ports.AnchoredRoot) (ports.ConfigDirectoryReceipt, error) {
@@ -289,6 +320,108 @@ func (installer *testInstaller) InstallConfig(_ context.Context, root ports.Anch
 		return ports.ConfigInstallReceipt{}, err
 	}
 	return ports.NewVerifiedConfigInstallReceipt(expected, configIdentity)
+}
+
+func (installer *testInstaller) InstallConfigBundle(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, project, local []byte) (ports.ConfigInstallReceipt, error) {
+	if installer.installError != nil {
+		return ports.ConfigInstallReceipt{}, installer.installError
+	}
+	if err := os.WriteFile(filepath.Join(root.String(), ".mulgae", "config.yaml"), project, 0o600); err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	directory, ok := prepared.Identity()
+	if !ok {
+		return ports.ConfigInstallReceipt{}, errors.New("missing prepared identity")
+	}
+	_, _, uid, _ := directory.PrivateDirectory()
+	sum := sha256.Sum256(project)
+	projectIdentity, err := ports.NewConfigFileIdentity(1, 1, uid, 0o600, 1, int64(len(project)), fmt.Sprintf("sha256:%x", sum))
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	projectReceipt, err := ports.NewVerifiedConfigInstallReceipt(directory, projectIdentity)
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	localReceipt, err := installer.InstallLocalConfig(ctx, root, prepared, local)
+	if err == nil || localReceipt.Installed() {
+		return localReceipt, err
+	}
+	return projectReceipt, ports.NewConfigInstallError(ports.ConfigInstallStageBundlePartial, ports.ConfigDestinationPresent, err)
+}
+
+func (installer *testInstaller) InstallLocalConfig(_ context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	installer.installCalls++
+	if installer.localInstallError != nil {
+		return ports.ConfigInstallReceipt{}, installer.localInstallError
+	}
+	if installer.installError != nil {
+		return ports.ConfigInstallReceipt{}, installer.installError
+	}
+	path := filepath.Join(root.String(), ".mulgae", "local.yaml")
+	if _, err := os.Lstat(path); err == nil {
+		return ports.ConfigInstallReceipt{}, ports.NewConfigInstallError(ports.ConfigInstallStageCollision, ports.ConfigDestinationPresent, os.ErrExist)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	installed, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	identity, err := installed.Observation().InstalledConfigIdentity()
+	if err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	expected, _ := prepared.Identity()
+	return ports.NewVerifiedConfigInstallReceipt(expected, identity)
+}
+
+func (installer *testInstaller) RefreshLocalConfig(ctx context.Context, root ports.AnchoredRoot, prepared ports.ConfigDirectoryReceipt, data []byte) (ports.ConfigInstallReceipt, error) {
+	if err := os.Remove(filepath.Join(root.String(), ".mulgae", "local.yaml")); err != nil {
+		return ports.ConfigInstallReceipt{}, err
+	}
+	return installer.InstallLocalConfig(ctx, root, prepared, data)
+}
+
+func TestInitializeProjectReportsAndRecoversSharedOnlyPartialInstall(t *testing.T) {
+	rootPath := t.TempDir()
+	if err := os.Chmod(rootPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := &testInstaller{localInstallError: ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationAbsent, errors.New("injected local write failure"))}
+	service, err := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, initErr := service.InitializeProject(context.Background(), agyInitRequest(root))
+	var failure *Failure
+	if initErr == nil || !errors.As(initErr, &failure) || failure.Code() != "init_local_write_failed" || failure.Class() != domain.FailureArtifact || !failure.Retryable() {
+		t.Fatalf("failure = %#v, %v", failure, initErr)
+	}
+	if result.WriteState != "project_committed_local_missing" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
+		t.Fatalf("partial result = %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(rootPath, ".mulgae", "config.yaml")); err != nil {
+		t.Fatalf("shared project policy missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootPath, ".mulgae", "local.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("local config exists after partial install: %v", err)
+	}
+
+	installer.localInstallError = nil
+	installer.existing = true
+	recovered, recoverErr := service.InitializeProject(context.Background(), agyInitRequest(root))
+	if recoverErr != nil || !recovered.Committed || recovered.WriteState != "committed" {
+		t.Fatalf("shared-only recovery = %#v, %v", recovered, recoverErr)
+	}
+	if _, err := os.Stat(filepath.Join(rootPath, ".mulgae", "local.yaml")); err != nil {
+		t.Fatalf("recovered local config missing: %v", err)
+	}
 }
 
 func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing.T) {
@@ -369,11 +502,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if !result.Committed || result.WriteState != "committed" || !reflect.DeepEqual(result.ConfiguredProviderIDs, ids) {
 			t.Fatalf("mask %d result=%#v", mask, result)
 		}
-		data, err := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
-		if err != nil {
-			t.Fatalf("mask %d read config: %v", mask, err)
-		}
-		decoded, err := adapterconfig.Decode(data)
+		decoded, err := readInstalledConfig(rootPath)
 		if err != nil || decoded.Version != adapterconfig.ConfigVersion {
 			t.Fatalf("mask %d decode config: version=%d err=%v", mask, decoded.Version, err)
 		}
@@ -432,11 +561,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 			if !reflect.DeepEqual(result.ConfiguredRoleIDs, selected) {
 				t.Fatalf("configured roles = %v, want %v", result.ConfiguredRoleIDs, selected)
 			}
-			data, err := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			config, err := adapterconfig.Decode(data)
+			config, err := readInstalledConfig(rootPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -660,11 +785,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if contains(inspector.calls, "kimi") || len(inspector.legacyCalls) != 0 {
 			t.Fatalf("auto discovery observed Kimi or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
 		}
-		data, readErr := os.ReadFile(filepath.Join(rootPath, ".mulgae", "config.yaml"))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		config, decodeErr := adapterconfig.Decode(data)
+		config, decodeErr := readInstalledConfig(rootPath)
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
@@ -694,6 +815,74 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 			t.Fatalf("auto discovery observed Kimi: %v", inspector.calls)
 		}
 	})
+}
+
+func readInstalledConfig(root string) (adapterconfig.Config, error) {
+	project, err := os.ReadFile(filepath.Join(root, ".mulgae", "config.yaml"))
+	if err != nil {
+		return adapterconfig.Config{}, err
+	}
+	local, err := os.ReadFile(filepath.Join(root, ".mulgae", "local.yaml"))
+	if err != nil {
+		return adapterconfig.Config{}, err
+	}
+	return adapterconfig.DecodeSplit(project, local)
+}
+
+func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o755)
+	baseRequest := InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
+	config, err := candidateConfig(baseRequest, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", Timeout: "15m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, _, err := adapterconfig.EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(rootPath, ".mulgae", "config.yaml")
+	if err := os.WriteFile(projectPath, project, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	service, err := NewService(filesystem.NewSecureWriter(), testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
+	request.ProjectPolicyOptions = true
+	if result, err := service.InitializeProject(context.Background(), request); err == nil || result.Committed {
+		t.Fatalf("bootstrap with project-policy options = %#v, %v", result, err)
+	}
+	if _, err := os.Lstat(filepath.Join(rootPath, ".mulgae", "local.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected bootstrap created local config: %v", err)
+	}
+	request.ProjectPolicyOptions = false
+	result, err := service.InitializeProject(context.Background(), request)
+	if err != nil || !result.Committed {
+		t.Fatalf("bootstrap = %#v, %v", result, err)
+	}
+	if info, err := os.Stat(filepath.Join(rootPath, ".mulgae")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("private directory = %v, %v", info, err)
+	}
+	if current, _ := os.ReadFile(projectPath); !bytes.Equal(current, project) {
+		t.Fatal("bootstrap changed project policy")
+	}
+	request.RefreshLocal = true
+	request.Overrides.AGYExecutable = "/opt/agy"
+	result, err = service.InitializeProject(context.Background(), request)
+	if err != nil || !result.Committed {
+		t.Fatalf("refresh = %#v, %v", result, err)
+	}
+	resolved, err := readInstalledConfig(rootPath)
+	if err != nil || resolved.Providers.AGY.Executable != "/opt/agy" {
+		t.Fatalf("refreshed config = %#v, %v", resolved, err)
+	}
+	if current, _ := os.ReadFile(projectPath); !bytes.Equal(current, project) {
+		t.Fatal("refresh changed project policy")
+	}
 }
 
 func TestValidateSelectionRejectsKimiOverridesInAutoMode(t *testing.T) {
@@ -844,7 +1033,11 @@ func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
-	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), []byte("x"), 0o600)
+	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
+	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "15m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	project, local, _ := adapterconfig.EncodeSplit(config)
+	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), project, 0o600)
+	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), local, 0o600)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	service, _ := NewService(&testInstaller{existing: true}, testInspector{absent: true}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}})
@@ -918,7 +1111,7 @@ func TestInitializeProjectClassifiesReplacementConfigAsLocalityDrift(t *testing.
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
-		result.WriteState != "existing_untouched" || result.DestinationState != ports.ConfigDestinationPresent || installer.delegate.installCalls != 0 {
+		result.WriteState != "private_dir_created_unconfirmed" || result.DestinationState != ports.ConfigDestinationAbsent || installer.delegate.installCalls != 0 {
 		t.Fatalf("result=%#v err=%v install_calls=%d", result, err, installer.delegate.installCalls)
 	}
 }
@@ -928,7 +1121,7 @@ func TestInitializeProjectRejectsSameByteConfigIdentitySubstitution(t *testing.T
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	installer := &afterInstallTestInstaller{delegate: &testInstaller{}, after: func(root ports.AnchoredRoot, data []byte) error {
-		path := filepath.Join(root.String(), ".mulgae", "config.yaml")
+		path := filepath.Join(root.String(), ".mulgae", "local.yaml")
 		if err := os.Rename(path, path+".original"); err != nil {
 			return err
 		}
@@ -961,7 +1154,7 @@ func TestInitializeProjectRequiresTerminalLocalityRevalidation(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	attestor := &scriptedAttestor{failRevalidateAt: 4}
+	attestor := &scriptedAttestor{failRevalidateAt: 5}
 	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
 	_, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "config.yaml"))
@@ -1021,7 +1214,7 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 	validator := &recordingPrevalidator{}
 	service := &Service{prevalidator: validator}
 	base := InitializeProjectResult{
-		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: digest([]byte("config")),
+		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: appconfig.BundleSHA256([]byte("config"), nil),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
@@ -1046,7 +1239,7 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 		}
 		seen[key] = true
 	}
-	for _, code := range []string{"init_destination_exists", "init_write_failed", "init_private_dir_raced", "init_private_dir_commit_unconfirmed", "init_existing_private_dir_commit_unconfirmed", "init_commit_unconfirmed", "config_locality_drifted", "target_private_config_forbidden", "target_private_namespace_forbidden", "init_result_delivery_failed"} {
+	for _, code := range []string{"init_destination_exists", "init_write_failed", "init_local_write_failed", "init_private_dir_raced", "init_private_dir_commit_unconfirmed", "init_existing_private_dir_commit_unconfirmed", "init_commit_unconfirmed", "config_locality_drifted", "target_private_config_forbidden", "target_private_namespace_forbidden", "init_result_delivery_failed"} {
 		found := false
 		for key := range seen {
 			if strings.Contains(key, "/"+code+"/") {
@@ -1061,7 +1254,7 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 
 func TestPrevalidatedOutcomeRejectsContradictoryFailureTuple(t *testing.T) {
 	result := InitializeProjectResult{
-		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: digest([]byte("config")),
+		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: appconfig.BundleSHA256([]byte("config"), nil),
 		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,

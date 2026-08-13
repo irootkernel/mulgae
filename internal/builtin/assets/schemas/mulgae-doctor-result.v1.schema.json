@@ -28,6 +28,7 @@
       },
       "oneOf": [
         { "properties": { "status": { "const": "missing" }, "locality": { "const": "not_observed" }, "reason_codes": { "prefixItems": [{ "const": "config_missing" }], "minItems": 1, "maxItems": 1, "items": false } } },
+        { "properties": { "status": { "const": "missing" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "const": "local_config_missing" }], "minItems": 1, "maxItems": 1, "items": false } } },
         { "properties": { "status": { "const": "invalid" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "const": "config_yaml_invalid" }], "minItems": 1, "maxItems": 1, "items": false } } },
         { "properties": { "status": { "const": "unsafe" }, "locality": { "enum": ["rejected", "verified"] }, "reason_codes": { "minItems": 1 } } },
         { "properties": { "status": { "const": "drifted" }, "locality": { "const": "drifted" }, "reason_codes": { "prefixItems": [{ "const": "config_locality_drifted" }], "minItems": 1, "maxItems": 1, "items": false } } },

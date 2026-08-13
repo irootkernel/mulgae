@@ -819,9 +819,10 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	zcodeNode, zcodeLauncher := request.ZCodeOverrides()
 	agyExecutable, agyPermission := request.AGYOverrides()
 
-	// Destination proof precedes native-account inspection so an existing
-	// project-local authority wins deterministically and native failures can
-	// truthfully report an observed-absent destination.
+	// Destination proof precedes native-account inspection so create-once init
+	// detects an existing pair deterministically and native failures can
+	// truthfully report an observed-absent destination. Explicit refresh proceeds
+	// against the admitted pair.
 	initialSource, err := adapterconfig.NewLocalConfigSource(root, true)
 	if err != nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local Mulgae configuration failed locality admission.", false)
@@ -841,7 +842,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if err := revalidateConfigLocality(ctx, initialSource, attestor, initialRequest, initialLocality); err != nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_drifted"), "The project-local Mulgae configuration failed locality admission.", false)
 	}
-	if initialSource.Present() {
+	if initialSource.Present() && !request.RefreshLocal() {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationPresent, domain.FailureConfiguration, "init_destination_exists", "The project-local Mulgae configuration already exists.", false)
 	}
 	nativeUser, err := user.Current()
@@ -920,10 +921,12 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	}
 	initialized, err := service.InitializeProject(ctx, appinit.InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, ProjectKind: projectKind, ArtistBriefPath: artistBriefPath, ArtistDesignSpecGlobs: artistDesignGlobs, NativeHome: nativeHome,
-		NativeHomeAsserted: nativeHomeAsserted,
-		Selection:          selection,
-		RoleIDs:            request.Roles(),
-		Overrides:          appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission},
+		NativeHomeAsserted:   nativeHomeAsserted,
+		Selection:            selection,
+		RoleIDs:              request.Roles(),
+		Overrides:            appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission},
+		RefreshLocal:         request.RefreshLocal(),
+		ProjectPolicyOptions: request.ProjectPolicyOptions(),
 	})
 	if err != nil {
 		data, marshalErr := json.Marshal(initialized)
@@ -1156,7 +1159,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		Readiness:             doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_missing"}},
 		Diagnostics:           []doctor.LocalDiagnostic{{Code: "config_missing", Category: "readiness", Message: "Project-local Mulgae configuration is missing.", Redacted: true}},
 	}
-	source, err := adapterconfig.NewLocalConfigSource(root, false)
+	source, err := adapterconfig.NewLocalConfigSource(root, true)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return base, base.Validate()
@@ -1168,13 +1171,12 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration failed security admission.", Redacted: true}}
 		return base, base.Validate()
 	}
+	if !source.ProjectPresent() {
+		return base, base.Validate()
+	}
 	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
 	if !ok {
 		return doctor.LocalDoctorResult{}, fmt.Errorf("doctor locality attestor unavailable")
-	}
-	data, identity, err := source.Read()
-	if err != nil {
-		return doctor.LocalDoctorResult{}, err
 	}
 	proof, err := source.Proof()
 	if err != nil {
@@ -1201,20 +1203,25 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration changed during admission.", Redacted: true}}
 		return base, base.Validate()
 	}
-	config, err := adapterconfig.Decode(data)
-	if err != nil {
-		if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
-			reason := string(admission.Reason())
-			base.Config.Status, base.Config.Locality = "unsafe", "verified"
-			base.Config.ReasonCodes = []string{reason}
-			base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-			base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration contains prohibited credential material.", Redacted: true}}
+	if !source.Present() {
+		if _, err := adapterconfig.ProjectProviderIDs(source.ProjectBytes()); err != nil {
+			base = rejectDoctorConfig(base, err)
 			return base, base.Validate()
 		}
-		base.Config.Status, base.Config.Locality = "invalid", "verified"
-		base.Config.ReasonCodes = []string{"config_yaml_invalid"}
-		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_yaml_invalid"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "config_yaml_invalid", Category: "configuration", Message: "Project-local Mulgae configuration is invalid.", Redacted: true}}
+		base.Config.Status, base.Config.Locality = "missing", "verified"
+		base.Config.ReasonCodes = []string{"local_config_missing"}
+		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"local_config_missing"}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "local_config_missing", Category: "configuration", Message: "Machine-local Mulgae configuration is missing; run mulgae init.", Redacted: true}}
+		return base, base.Validate()
+	}
+	data, identity, err := source.Read()
+	if err != nil {
+		base = rejectDoctorConfig(base, err)
+		return base, base.Validate()
+	}
+	config, err := adapterconfig.Decode(data)
+	if err != nil {
+		base = rejectDoctorConfig(base, err)
 		return base, base.Validate()
 	}
 	if err := revalidateConfigLocality(ctx, source, attestor, request, locality); err != nil {
@@ -1375,6 +1382,22 @@ func configLocalityFailureCode(err error, fallback string) string {
 		return string(reason)
 	}
 	return fallback
+}
+
+func rejectDoctorConfig(base doctor.LocalDoctorResult, err error) doctor.LocalDoctorResult {
+	if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
+		reason := string(admission.Reason())
+		base.Config.Status, base.Config.Locality = "unsafe", "verified"
+		base.Config.ReasonCodes = []string{reason}
+		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
+		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration contains prohibited credential material.", Redacted: true}}
+		return base
+	}
+	base.Config.Status, base.Config.Locality = "invalid", "verified"
+	base.Config.ReasonCodes = []string{"config_yaml_invalid"}
+	base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_yaml_invalid"}}
+	base.Diagnostics = []doctor.LocalDiagnostic{{Code: "config_yaml_invalid", Category: "configuration", Message: "Project-local Mulgae configuration is invalid.", Redacted: true}}
+	return base
 }
 
 func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {
@@ -2008,6 +2031,8 @@ func initFailureHuman(result appinit.InitializeProjectResult, code string) strin
 		return "mulgae: private Mulgae directory durability is unconfirmed"
 	case "init_commit_unconfirmed":
 		return "mulgae: .mulgae/config.yaml was installed but durability is unconfirmed"
+	case "init_local_write_failed":
+		return "mulgae: .mulgae/config.yaml was installed but .mulgae/local.yaml could not be written"
 	default:
 		return "mulgae: initialization failed (" + code + ")"
 	}

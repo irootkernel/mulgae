@@ -39,16 +39,18 @@ authorize repair or publication. Checksums, safe paths, schema identities,
 semantic ownership, and evidence must all agree before a final artifact is
 committed.
 
-Do not commit `.mulgae/`, provider credential directories, raw transcripts, or
+Commit only `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`, any other
+`.mulgae/**` path, provider credential directories, raw transcripts, or
 exported review bundles.
 
-Tracked `.gitignore` and `.mulgaeignore` files are capture-policy controls, not
-review evidence. Mulgae accepts them as ordinary tracked controls but excludes
-their paths and contents from every provider target, snapshot, evidence record,
-manifest, and workspace. A patch or stdin target containing only excluded
-control content fails as `no_reviewable_content`; a Git target with only those
-changes is reported as no change. Unsafe reserved namespaces and selected
-symlinks still fail closed.
+Tracked `.gitignore`, `.mulgaeignore`, and exact `.mulgae/config.yaml` files are
+capture-policy controls, not review evidence. Mulgae accepts them as ordinary
+tracked controls but excludes their paths and contents from every provider
+target, snapshot, evidence record, manifest, and workspace. A patch or stdin
+target containing only excluded control content fails as
+`no_reviewable_content`; a Git target with only those changes is reported as no
+change. Every other tracked `.mulgae/**` path and selected unsafe symlink still
+fails closed.
 
 Review capture does not block source code or test fixtures because they look
 like credentials. The selected providers receive every path in the immutable

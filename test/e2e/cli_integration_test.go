@@ -182,14 +182,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 				if !slices.Equal(envelope.Request.Selection.ProviderIDs, test.expected) || !slices.Equal(envelope.Result.Selected, test.expected) || !slices.Equal(envelope.Result.Candidates, test.expected) || !slices.Equal(envelope.Result.Configured, test.expected) {
 					t.Fatalf("canonical provider order = request %v selected %v candidates %v configured %v, want %v", envelope.Request.Selection.ProviderIDs, envelope.Result.Selected, envelope.Result.Candidates, envelope.Result.Configured, test.expected)
 				}
-				data, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				config, err := (adapterconfig.YAMLCodec{}).Decode(data)
-				if err != nil {
-					t.Fatal(err)
-				}
+				config := readE2EConfig(t, project)
 				if got := config.Providers.Families(); !slices.Equal(got, test.expected) {
 					t.Fatalf("config provider order = %v, want %v", got, test.expected)
 				}
@@ -251,13 +244,9 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 					if result.exitCode != 0 || len(result.stderr) != 0 || len(result.stdout) == 0 {
 						t.Fatalf("auto %s = exit %d stdout %q stderr %q", test.name, result.exitCode, result.stdout, result.stderr)
 					}
-					data, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
-					if err != nil {
-						t.Fatal(err)
-					}
-					config, err := (adapterconfig.YAMLCodec{}).Decode(data)
-					if err != nil || !slices.Equal(config.Providers.Families(), test.candidates) {
-						t.Fatalf("auto config families = %v err=%v, want %v", config.Providers.Families(), err, test.candidates)
+					config := readE2EConfig(t, project)
+					if !slices.Equal(config.Providers.Families(), test.candidates) {
+						t.Fatalf("auto config families = %v, want %v", config.Providers.Families(), test.candidates)
 					}
 					if config.Roles.Logic.PrimaryProvider != "zcode" {
 						t.Fatalf("auto logic assignment = %#v", config.Roles.Logic)
@@ -372,6 +361,10 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(project, ".mulgae", "config.yaml")); err != nil {
 			t.Fatalf("committed config missing after delivery failure: %v", err)
+		}
+		localInfo, err := os.Stat(filepath.Join(project, ".mulgae", "local.yaml"))
+		if err != nil || localInfo.Mode().Perm() != 0o600 {
+			t.Fatalf("committed local config = %v, %v", localInfo, err)
 		}
 	})
 
@@ -545,7 +538,7 @@ func TestIntegrationMulgaeProductionReviewSubprocessKimiQualificationNonAdmissio
 	if err != nil {
 		t.Fatalf("read Kimi qualification artifact directory: %v", err)
 	}
-	if len(entries) != 2 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || !entries[1].IsDir() {
+	if len(entries) != 3 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || !entries[1].IsDir() || entries[2].Name() != "local.yaml" {
 		t.Fatalf("Kimi qualification rejection created unexpected artifacts: %v", entries)
 	}
 	diagnosticRuns, err := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", "s_*", "r_*"))
@@ -1365,7 +1358,7 @@ func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(entries) != 2 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" {
+			if len(entries) != 3 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || entries[2].Name() != "local.yaml" {
 				t.Fatalf("staging violation created publication artifacts: %v", entries)
 			}
 			diagnosticRoot := filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI))
@@ -1459,11 +1452,11 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if err != nil {
 		t.Fatal(err)
 	}
-	launcherLine := "    launcher: \"" + zcodeLauncher + "\"\n"
-	if !bytes.Contains(configBytes, []byte(launcherLine)) {
-		t.Fatalf("config omits ZCode launcher line:\n%s", configBytes)
+	const defaultZCode = "  zcode: {}\n"
+	if !bytes.Contains(configBytes, []byte(defaultZCode)) {
+		t.Fatalf("config omits default ZCode policy:\n%s", configBytes)
 	}
-	configBytes = bytes.Replace(configBytes, []byte(launcherLine), []byte(launcherLine+"    timeout: \"30m\"\n"), 1)
+	configBytes = bytes.Replace(configBytes, []byte(defaultZCode), []byte("  zcode:\n    timeout: \"30m\"\n"), 1)
 	mustWriteTestFile(t, configPath, configBytes)
 
 	mustWriteTestFile(t, filepath.Join(project, ".gitignore"), []byte("git-ignored.txt\n# dirty control\n"))
@@ -2908,6 +2901,23 @@ func mustAssetID(t *testing.T, value string) ports.AssetID {
 
 func terminalLF(value []byte) []byte {
 	return append(bytes.TrimRight(append([]byte(nil), value...), "\n"), '\n')
+}
+
+func readE2EConfig(t *testing.T, project string) adapterconfig.Config {
+	t.Helper()
+	projectData, err := os.ReadFile(filepath.Join(project, ".mulgae", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read project config: %v", err)
+	}
+	localData, err := os.ReadFile(filepath.Join(project, ".mulgae", "local.yaml"))
+	if err != nil {
+		t.Fatalf("read local config: %v", err)
+	}
+	config, err := adapterconfig.DecodeSplit(projectData, localData)
+	if err != nil {
+		t.Fatalf("decode Config v2 pair: %v", err)
+	}
+	return config
 }
 
 type binaryResult struct {

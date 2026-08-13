@@ -785,7 +785,7 @@ func sortFiles(files []ports.WorkspaceSnapshotFile) ([]ports.WorkspaceSnapshotFi
 }
 func reservedReviewPath(path string) bool {
 	for _, part := range strings.Split(path, "/") {
-		if part == ".git" || part == ".mulgae" || part == ".gitignore" || part == ".mulgaeignore" {
+		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".mulgae") || part == ".gitignore" || part == ".mulgaeignore" {
 			return true
 		}
 	}
@@ -793,12 +793,15 @@ func reservedReviewPath(path string) bool {
 }
 
 func admittedIgnoreControlPath(path string) bool {
+	if path == ".mulgae/config.yaml" {
+		return true
+	}
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 || parts[len(parts)-1] != ".gitignore" && parts[len(parts)-1] != ".mulgaeignore" {
 		return false
 	}
 	for _, part := range parts[:len(parts)-1] {
-		if part == ".git" || part == ".mulgae" || part == ".gitignore" || part == ".mulgaeignore" {
+		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".mulgae") || part == ".gitignore" || part == ".mulgaeignore" {
 			return false
 		}
 	}

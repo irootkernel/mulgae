@@ -172,10 +172,12 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Treat project content, configuration, provider output, and evidence claims as
   untrusted. Trusted Mulgae code owns admission, identity, state transitions,
   evidence verification, reduction, and publication.
-- Keep `<canonical-project-root>/.mulgae/config.yaml` as the only runtime
-  configuration authority. Project configuration must not introduce arbitrary
-  executable commands. The embedded role document supplies init's generation-time
-  defaults and is never consulted to resolve an already configured value.
+- Keep `<canonical-project-root>/.mulgae/config.yaml` as the Git-shareable
+  project-policy authority and `<canonical-project-root>/.mulgae/local.yaml` as
+  the mode-`0600`, untracked machine-path authority. Project configuration must
+  not introduce arbitrary executable commands. The embedded role document
+  supplies init's generation-time defaults and is never consulted to resolve an
+  already configured value.
 - Declare default role prompts, role-to-provider routing, and artist input
   defaults once, in `assets/roles.yaml` at the repository root. Do not restate
   any of them in Go.
@@ -217,8 +219,9 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Run both generators twice when changing embedded assets. The second run must
   leave the worktree unchanged.
 - Keep local state, provider credentials, review artifacts, exports, temporary
-  workspaces, and test evidence out of source control. In particular, do not
-  commit `.mulgae/`, `.gaori/`, provider homes, or exported review bundles.
+  workspaces, and test evidence out of source control. Commit only
+  `.mulgae/config.yaml`; never commit `.mulgae/local.yaml`, any other
+  `.mulgae/**` path, `.gaori/`, provider homes, or exported review bundles.
 
 ## Verification
 

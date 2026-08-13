@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
+func TestServiceResolvesCanonicalConfigV2Pair(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin source")
 	}
@@ -20,11 +20,14 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
 	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", PermissionModeExplicit: true}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
-	data, err := adapterconfig.EncodeCanonical(config)
+	projectData, localData, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), projectData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), localData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -46,20 +49,20 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 			break
 		}
 	}
-	if permissionProvenance.Source != "local" || permissionProvenance.Disposition != "configured" {
+	if permissionProvenance.Source != "project" || permissionProvenance.Disposition != "configured" {
 		t.Fatalf("safe permission provenance = %#v", permissionProvenance)
 	}
 	policy := resolution.Config().Redacted().Policy
 	if policy.AGYPermissionMode != appconfig.SafeAGYPermissionMode || len(policy.Warnings) != 0 {
 		t.Fatalf("safe effective policy = %#v", policy)
 	}
-	configPath := filepath.Join(rootPath, ".mulgae", "config.yaml")
+	configPath := filepath.Join(rootPath, ".mulgae", "local.yaml")
 	if err := os.Rename(configPath, configPath+".original"); err != nil {
 		t.Fatal(err)
 	}
 	replacement := config
-	replacement.Project.Name = "replacement"
-	replacementData, err := adapterconfig.EncodeCanonical(replacement)
+	replacement.NativeUser.Home = "/Users/replacement"
+	_, replacementData, err := adapterconfig.EncodeSplit(replacement)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,5 +71,17 @@ func TestServiceResolvesSoleCanonicalLocalSource(t *testing.T) {
 	}
 	if _, err := appconfig.NewService(adapterconfig.YAMLCodec{}).Resolve(context.Background(), appconfig.ResolveRequest{Source: source}); err == nil {
 		t.Fatal("resolution reopened and admitted a replacement config instead of rejecting source drift")
+	}
+}
+
+func TestBundleSHA256BindsAuthorityOrderAndBoundaries(t *testing.T) {
+	baseline := appconfig.BundleSHA256([]byte("ab"), []byte("c"))
+	for name, candidate := range map[string]string{
+		"boundary": appconfig.BundleSHA256([]byte("a"), []byte("bc")),
+		"order":    appconfig.BundleSHA256([]byte("c"), []byte("ab")),
+	} {
+		if candidate == baseline {
+			t.Fatalf("%s did not change bundle identity", name)
+		}
 	}
 }

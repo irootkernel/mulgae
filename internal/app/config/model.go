@@ -10,7 +10,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-// Config is the sole project-local Mulgae configuration authority.
+// Config is the admitted effective value merged from Config v2's project and
+// machine-local authorities.
 type Config struct {
 	Version    int              `yaml:"version" json:"version"`
 	Project    ProjectConfig    `yaml:"project" json:"project"`
@@ -104,7 +105,7 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion    = 1
+	ConfigVersion    = 2
 	DefaultKimiModel = "kimi-code/kimi-for-coding"
 	// DefaultAGYPermissionMode keeps AGY headless reviews inside Mulgae's
 	// read-oriented permission boundary. The immutable snapshot and --sandbox
@@ -117,12 +118,13 @@ const (
 	MinimumProviderTimeout    = time.Minute
 	MaximumProviderTimeout    = 60 * time.Minute
 	ConfigRelativePath        = ".mulgae/config.yaml"
+	LocalConfigRelativePath   = ".mulgae/local.yaml"
 	MaximumConfigBytes        = 1 << 20
 	ProjectKindNonUI          = "non_ui"
 	ProjectKindUI             = "ui"
 )
 
-// ParseProviderTimeout resolves an optional Config v1 provider timeout. An
+// ParseProviderTimeout resolves an optional Config v2 provider timeout. An
 // omitted value uses the fixed 15-minute default; admitted explicit values are
 // bounded inclusively between one and sixty minutes.
 func ParseProviderTimeout(value string) (time.Duration, error) {
@@ -136,7 +138,7 @@ func ParseProviderTimeout(value string) (time.Duration, error) {
 	return timeout, nil
 }
 
-// ProviderTimeoutText returns the stable Config v1 spelling for a valid
+// ProviderTimeoutText returns the stable Config v2 spelling for a valid
 // provider timeout. Whole-minute values use the concise "30m" form.
 func ProviderTimeoutText(timeout time.Duration) string {
 	return canonicalProviderTimeout(timeout)
@@ -192,7 +194,7 @@ func coreRoleIDs() []string {
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
-// every Config v1 role while enabling only the canonical project role set.
+// every Config v2 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
 //
 // Each role resolves independently from its own build-owned preference order, so
@@ -361,4 +363,14 @@ func AsAdmissionError(err error) (*AdmissionError, bool) {
 type Codec interface {
 	Decode([]byte) (Config, error)
 	EncodeCanonical(Config) ([]byte, error)
+}
+
+// SplitCodec owns the disk projection and merge rules for Config v2's paired
+// authorities.
+type SplitCodec interface {
+	Codec
+	DecodeSplit([]byte, []byte) (Config, error)
+	EncodeSplit(Config) ([]byte, []byte, error)
+	ProjectProviderIDs([]byte) ([]string, error)
+	MergeProjectConfig([]byte, Config) (Config, error)
 }

@@ -1,11 +1,10 @@
-// Package init implements create-once project-local configuration discovery and
-// crash-truthful installation.
+// Package init implements project-local configuration discovery, bootstrap,
+// machine-local refresh, and crash-truthful installation.
 package init
 
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"reflect"
@@ -49,10 +48,12 @@ type InitializeProjectRequest struct {
 	NativeHome            string
 	// NativeHomeAsserted records whether --native-home was supplied and verified
 	// equal to the installed account home by the command boundary.
-	NativeHomeAsserted bool
-	Selection          Selection
-	RoleIDs            []string
-	Overrides          Overrides
+	NativeHomeAsserted   bool
+	Selection            Selection
+	RoleIDs              []string
+	Overrides            Overrides
+	RefreshLocal         bool
+	ProjectPolicyOptions bool
 }
 
 type DiscoveryRow struct {
@@ -151,11 +152,13 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if ctx == nil || service == nil || !request.ProjectRoot.Valid() || request.ProjectName == "" || request.NativeHome == "" {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, nil)
 	}
-	selected, err := validateSelection(request.Selection, request.Overrides)
+	selected := []string(nil)
+	var err error
+	selected, err = validateSelection(request.Selection, Overrides{})
 	if err != nil {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
 	}
-	result.SelectedProviderIDs = selected
+	result.SelectedProviderIDs = append([]string{}, selected...)
 	roles, err := validateRoleSelection(request.RoleIDs)
 	if err != nil {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
@@ -183,10 +186,30 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if err != nil {
 		return result, newFailure(domain.FailureSecurityPolicy, "config_locality_unsafe", false, err)
 	}
-	if source.Present() {
+	splitSource, ok := source.(ports.SplitConfigSource)
+	if !ok {
+		return result, newFailure(domain.FailureInternal, "init_split_config_unavailable", false, nil)
+	}
+	splitCodec, ok := service.codec.(appconfig.SplitCodec)
+	if !ok {
+		return result, newFailure(domain.FailureInternal, "init_split_config_unavailable", false, nil)
+	}
+	splitInstaller, ok := service.installer.(ports.SplitConfigInstaller)
+	if !ok {
+		return result, newFailure(domain.FailureInternal, "init_split_config_unavailable", false, nil)
+	}
+	projectPresent := splitSource.ProjectPresent()
+	projectBytes := splitSource.ProjectBytes()
+	if source.Present() && !request.RefreshLocal {
 		result.WriteState = "existing_untouched"
 		result.DestinationState = ports.ConfigDestinationPresent
 		return result, newFailure(domain.FailureConfiguration, "init_destination_exists", false, nil)
+	}
+	if request.RefreshLocal && !source.Present() {
+		return result, newFailure(domain.FailureConfiguration, "init_local_missing", false, nil)
+	}
+	if projectPresent && request.ProjectPolicyOptions {
+		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, fmt.Errorf("project policy already exists"))
 	}
 	proof, err := source.Proof()
 	if err != nil {
@@ -197,6 +220,21 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if err != nil {
 		return result, newFailure(domain.FailureSecurityPolicy, localityFailureCode(err, "config_locality_unsafe"), false, err)
 	}
+	if err := service.revalidateLocality(ctx, source, localityRequest, initialContext); err != nil {
+		return result, newFailure(domain.FailureSecurityPolicy, localityFailureCode(err, "config_locality_drifted"), false, err)
+	}
+	if projectPresent {
+		families, familyErr := splitCodec.ProjectProviderIDs(projectBytes)
+		if familyErr != nil {
+			return result, newFailure(domain.FailureConfiguration, "config_yaml_invalid", false, familyErr)
+		}
+		request.Selection = Selection{Mode: SelectionSelected, ProviderIDs: families}
+	}
+	selected, err = validateSelection(request.Selection, request.Overrides)
+	if err != nil {
+		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
+	}
+	result.SelectedProviderIDs = append([]string{}, selected...)
 	result.DestinationState = ports.ConfigDestinationAbsent
 	candidates, discovery, err := service.discover(ctx, request)
 	result.Discovery = discovery
@@ -212,14 +250,20 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if err != nil {
 		return result, newFailure(domain.FailureInternal, "init_role_catalog_invalid", false, err)
 	}
-	canonical, err := RenderConfigYAML(service.codec, config)
+	if projectPresent {
+		config, err = splitCodec.MergeProjectConfig(projectBytes, config)
+		if err != nil {
+			return result, newFailure(domain.FailureConfiguration, "config_yaml_invalid", false, err)
+		}
+	}
+	projectCanonical, localCanonical, err := splitCodec.EncodeSplit(config)
 	if err != nil {
 		return result, newFailure(domain.FailureConfiguration, "config_yaml_invalid", false, err)
 	}
 	if err := service.revalidateLocality(ctx, source, localityRequest, initialContext); err != nil {
 		return result, newFailure(domain.FailureSecurityPolicy, localityFailureCode(err, "config_locality_drifted"), false, err)
 	}
-	admitted, err := service.codec.Decode(canonical)
+	admitted, err := splitCodec.DecodeSplit(projectCanonical, localCanonical)
 	if err != nil {
 		code := "config_yaml_invalid"
 		class := domain.FailureConfiguration
@@ -229,12 +273,13 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		}
 		return result, newFailure(class, code, false, err)
 	}
-	roundTrip, err := service.codec.EncodeCanonical(admitted)
-	if err != nil || !bytes.Equal(canonical, roundTrip) {
+	roundTripProject, roundTripLocal, err := splitCodec.EncodeSplit(admitted)
+	if err != nil || !bytes.Equal(projectCanonical, roundTripProject) || !bytes.Equal(localCanonical, roundTripLocal) {
 		return result, newFailure(domain.FailureInternal, "init_result_prevalidation_failed", false, err)
 	}
-	result.ConfigSHA256 = digest(canonical)
+	result.ConfigSHA256 = appconfig.BundleSHA256(projectCanonical, localCanonical)
 	result.ConfiguredProviderIDs = admitted.Providers.Families()
+	result.ConfiguredRoleIDs = enabledConfigRoles(admitted)
 	markConfigured(result.Discovery, result.ConfiguredProviderIDs)
 	if err := service.prevalidateMutationResults(ctx, result); err != nil {
 		return baseResult(request), newFailure(domain.FailureInternal, "init_result_prevalidation_failed", false, err)
@@ -263,7 +308,7 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		}
 		return directoryLocalityFailure(result, directory, destination, errors.Join(err, errors.New("prepared directory identity changed")))
 	}
-	if preparedSource.Present() {
+	if preparedSource.Present() && !request.RefreshLocal {
 		return mutationFailure(result, "existing_untouched", ports.ConfigDestinationPresent, "init_destination_exists", nil)
 	}
 	preparedProof, err := preparedSource.Proof()
@@ -281,9 +326,21 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	if err := service.revalidateLocality(ctx, preparedSource, preparedRequest, preparedContext); err != nil {
 		return directoryLocalityFailure(result, directory, ports.ConfigDestinationAbsent, err)
 	}
-	receipt, installErr := service.installer.InstallConfig(ctx, request.ProjectRoot, directory, canonical)
+	var receipt ports.ConfigInstallReceipt
+	var installErr error
+	switch {
+	case request.RefreshLocal:
+		receipt, installErr = splitInstaller.RefreshLocalConfig(ctx, request.ProjectRoot, directory, localCanonical)
+	case projectPresent:
+		receipt, installErr = splitInstaller.InstallLocalConfig(ctx, request.ProjectRoot, directory, localCanonical)
+	default:
+		receipt, installErr = splitInstaller.InstallConfigBundle(ctx, request.ProjectRoot, directory, projectCanonical, localCanonical)
+	}
 	if installErr != nil {
 		result.DestinationState = destinationFromError(installErr)
+		if installErrorStage(installErr) == ports.ConfigInstallStageBundlePartial {
+			return mutationFailure(result, "project_committed_local_missing", ports.ConfigDestinationPresent, "init_local_write_failed", installErr)
+		}
 		if installErrorStage(installErr) == ports.ConfigInstallStagePreparedIdentity {
 			return directoryLocalityFailure(result, directory, result.DestinationState, installErr)
 		}
@@ -307,7 +364,8 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		return mutationFailure(result, "installed_unconfirmed", ports.ConfigDestinationNotObserved, "config_locality_drifted", err)
 	}
 	finalBytes, finalObservation, err := finalSource.Read()
-	if err != nil || !bytes.Equal(finalBytes, canonical) || !matchesInstallReceipt(finalObservation, receipt) {
+	finalCanonical, canonicalErr := service.codec.EncodeCanonical(admitted)
+	if err != nil || canonicalErr != nil || !bytes.Equal(finalBytes, finalCanonical) || !matchesInstallReceipt(finalObservation, receipt) {
 		return mutationFailure(result, "installed_unconfirmed", ports.ConfigDestinationPresent, "config_locality_drifted", errors.Join(err, errors.New("installed config identity changed")))
 	}
 	finalProof, err := finalSource.Proof()
@@ -332,6 +390,16 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	result.DestinationState = ports.ConfigDestinationPresent
 	_ = service.clock.Now()
 	return result, nil
+}
+
+func enabledConfigRoles(config appconfig.Config) []string {
+	roles := make([]string, 0, len(domain.FixedRoleOrder()))
+	for index, role := range domain.FixedRoleOrder() {
+		if config.Roles.Ordered()[index].Enabled {
+			roles = append(roles, string(role))
+		}
+	}
+	return roles
 }
 
 func (service *Service) revalidateLocality(ctx context.Context, source ports.ConfigSource, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
@@ -393,6 +461,7 @@ func MutationOutcomeSpecs() []MutationOutcomeSpec {
 	add("existing_untouched", []ports.ConfigDestinationState{ports.ConfigDestinationPresent}, domain.FailureConfiguration, "init_destination_exists", false)
 	addLocality("existing_untouched", []ports.ConfigDestinationState{ports.ConfigDestinationPresent})
 	add("not_committed", []ports.ConfigDestinationState{ports.ConfigDestinationAbsent, ports.ConfigDestinationNotObserved}, domain.FailureArtifact, "init_write_failed", true)
+	add("project_committed_local_missing", []ports.ConfigDestinationState{ports.ConfigDestinationPresent}, domain.FailureArtifact, "init_local_write_failed", true)
 	add("not_committed", []ports.ConfigDestinationState{ports.ConfigDestinationNotObserved}, domain.FailureArtifact, "init_private_dir_raced", true)
 	for _, state := range []string{"private_dir_created_unconfirmed", "private_dir_existing_unconfirmed"} {
 		rootCode := "init_existing_private_dir_commit_unconfirmed"
@@ -712,8 +781,6 @@ func contains(values []string, value string) bool {
 	}
 	return false
 }
-func digest(data []byte) string      { sum := sha256Sum(data); return fmt.Sprintf("sha256:%x", sum) }
-func sha256Sum(data []byte) [32]byte { return sha256.Sum256(data) }
 func discoveryReason(selection Selection, ids []string) string {
 	if selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "agy")) {
 		return "init_auto_provider_topology_unavailable"
@@ -732,6 +799,8 @@ func initFailureMessage(code string) string {
 		return "The embedded Mulgae role catalog is invalid."
 	case "init_destination_exists":
 		return "The project-local Mulgae configuration already exists."
+	case "init_local_missing":
+		return "Machine-local Mulgae configuration is missing; run init without --refresh-local first."
 	case "init_discovery_empty":
 		return "No supported provider was discovered."
 	case "init_auto_provider_topology_unavailable":
@@ -746,6 +815,8 @@ func initFailureMessage(code string) string {
 		return "The existing private Mulgae directory could not be durably confirmed."
 	case "init_write_failed":
 		return "The project-local Mulgae configuration could not be written."
+	case "init_local_write_failed":
+		return "The shared Mulgae project policy was installed, but the machine-local configuration could not be written."
 	case "init_commit_unconfirmed":
 		return "The installed Mulgae configuration could not be durably confirmed."
 	case "init_result_prevalidation_failed":

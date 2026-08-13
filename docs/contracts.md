@@ -2,7 +2,7 @@
 
 ## Versioning
 
-The public contract surface starts at v1. Configuration uses `version: 1`;
+The public contract surface starts at v1. Configuration uses `version: 2`;
 machine documents use identifiers such as `mulgae-run-manifest.v1`; prompts and
 role definitions also carry v1 identities.
 
@@ -12,30 +12,58 @@ versions.
 
 ## Configuration
 
-There is one configuration authority:
+Configuration has two authorities:
 
 ```text
 <canonical-project-root>/.mulgae/config.yaml
+<canonical-project-root>/.mulgae/local.yaml
 ```
 
-`mulgae init` creates it without overwriting an existing file. Configuration
-selects provider paths and models, role assignments, validation policy,
-resource ceilings, and CI thresholds. It cannot add arbitrary provider
-commands. Use `mulgae config --mode effective` for the admitted value and
-`mulgae config --mode provenance` for its source.
+The Git-shareable `config.yaml` selects provider families and models, role
+assignments, validation policy, resource ceilings, and CI thresholds. The
+untracked, mode-`0600` `local.yaml` supplies the native home and provider
+executable, launcher, and data-home paths. Neither file can add arbitrary
+provider commands. Mulgae admits them only as a matching pair and reports their
+merged value through `config --mode effective` and field ownership through
+`config --mode provenance`.
+
+`mulgae init` creates both files in a new project. When a clone already has the
+shared file, init creates only the missing local file and rejects project-policy
+options. `init --refresh-local` atomically replaces only `local.yaml` and
+rejects project-policy options. Config v1 is rejected and is never migrated
+automatically.
+
+Each Config v2 pathname is installed atomically, but initial creation of the two
+files is not one filesystem transaction. If `config.yaml` commits and the local
+install fails before commitment, init returns `committed: false`,
+`write_state: project_committed_local_missing`, `destination_state: present`,
+and retryable reason `init_local_write_failed`. Here `destination_state`
+describes the stable `config_uri`; the write state records that no matching
+local authority was admitted. After resolving any conflicting local pathname,
+plain `mulgae init` resumes from this supported shared-only state without
+rewriting project policy. A failure after `local.yaml` installs remains
+`installed_unconfirmed` because the complete pair may already be durable.
+
+The existing `config_uri` remains `.mulgae/config.yaml` as the stable public
+project-policy URI. Configuration SHA-256 fields bind a domain-separated,
+ordered framing of both canonical files so a change to either authority changes
+the effective configuration identity. Provenance uses `project`, `local`,
+`default`, and `code` sources.
 
 The build-owned role document at `assets/roles.yaml` supplies the *initial*
 role-to-provider assignment and artist input defaults that `mulgae init` writes.
-That is a generation-time default only: once the file exists, it is the sole
-authority and is never re-derived from embedded bytes.
+That is a generation-time default only: once the shared file exists, its policy
+is never re-derived from embedded bytes.
 
-See the complete
+See the complete shared
+[`project-config.yaml`](../internal/builtin/assets/examples/project-config.yaml)
+and machine-local
 [`local-config.yaml`](../internal/builtin/assets/examples/local-config.yaml)
-example.
+examples.
 
 ## Execution budgets and failure reduction
 
-Configuration v1 retains `resources.max_active_lanes` as the explicit number of
+Configuration v2 retains `resources.max_active_lanes` as the explicit number of
 provider invocations one Mulgae process may run at once. It is not a provider
 identity and does not coordinate another process or project. Machine command
 and review-preflight v2 documents describe execution as
@@ -123,7 +151,8 @@ most one top-level final review. Failed or repaired candidates remain beneath
 `export --run <id>` writes the redacted bundle and its sidecar manifest beneath
 `.mulgae/exports/` unless the operator supplies a safe project-relative
 `--output-path`. Mulgae does not modify project Git ignore configuration;
-repositories should ignore `/.mulgae/`.
+repositories should ignore `/.mulgae/*` and re-include only
+`!/.mulgae/config.yaml`.
 
 `target/captured-review.json` is a reference-only v2 capture manifest. Exact
 target, workspace, project-context, and evidence bytes are stored once under
@@ -140,9 +169,11 @@ or stdin ceiling. Every eligible regular file is preserved byte-for-byte in the
 immutable snapshot; Git comparisons expose complete `before/` and `after/`
 trees, while single-tree reviews expose `current/`. `.mulgaeignore`, reserved
 namespaces, canonical-path checks, and special-file rejection remain the source
-admission boundaries. Operational execution, provider output, diagnostics,
-structured publication members, and fixed-size storage reads retain their
-separate limits.
+admission boundaries. The exact tracked `.mulgae/config.yaml` path is an
+admitted capture control and is excluded from provider inputs; every other
+tracked `.mulgae/**` path is rejected. Operational execution, provider output,
+diagnostics, structured publication members, and fixed-size storage reads
+retain their separate limits.
 
 Target material, capture manifests and blobs, artist inputs, prompt stdin, and
 the support index are source-sized support artifacts and are persisted at their

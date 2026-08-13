@@ -163,30 +163,49 @@ func TestReviewCaptureDirtyAcceptsTrackedIgnoreControlsAndExcludesTheirMaterial(
 	}
 }
 
+func TestFilterReviewPatchExcludesTrackedProjectConfigControl(t *testing.T) {
+	patch := []byte("diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-version: 1\n+version: 2\n")
+	filtered, err := filterReviewPatch(patch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 0 {
+		t.Fatalf("project config reached provider patch: %q", filtered)
+	}
+}
+
 func TestReviewCaptureGitTargetsNeverTransmitControlFileChanges(t *testing.T) {
 	for _, target := range []ports.ReviewTargetSelectorKind{ports.ReviewTargetStage, ports.ReviewTargetDirty, ports.ReviewTargetDiff} {
 		t.Run(string(target), func(t *testing.T) {
 			root := reviewCaptureRepository(t)
+			if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
+				t.Fatal(err)
+			}
 			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
 			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 2\nproject:\n  name: project\n")
 			reviewGit(t, root, "add", ".gitignore", ".mulgaeignore")
+			reviewGit(t, root, "add", "-f", ".mulgae/config.yaml")
 			reviewGit(t, root, "commit", "-m", "Track controls")
 			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n# changed\n")
 			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n# changed\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 2\nproject:\n  name: changed\n")
 			writeReviewFile(t, filepath.Join(root, "tracked.txt"), "reviewable change\n")
 
 			value := string(target)
 			switch target {
 			case ports.ReviewTargetStage:
 				reviewGit(t, root, "add", ".gitignore", ".mulgaeignore", "tracked.txt")
+				reviewGit(t, root, "add", "-f", ".mulgae/config.yaml")
 			case ports.ReviewTargetDiff:
 				reviewGit(t, root, "add", ".gitignore", ".mulgaeignore", "tracked.txt")
+				reviewGit(t, root, "add", "-f", ".mulgae/config.yaml")
 				reviewGit(t, root, "commit", "-m", "Change controls")
 				value = "HEAD~1..HEAD"
 			}
 			material := captureReviewMaterial(t, root, target, value)
 			patch := string(material.Target().Bytes())
-			if !strings.Contains(patch, "tracked.txt") || strings.Contains(patch, ".gitignore") || strings.Contains(patch, ".mulgaeignore") || strings.Contains(patch, "# changed") {
+			if !strings.Contains(patch, "tracked.txt") || strings.Contains(patch, ".gitignore") || strings.Contains(patch, ".mulgaeignore") || strings.Contains(patch, ".mulgae/config.yaml") || strings.Contains(patch, "# changed") {
 				t.Fatalf("%s target patch = %q", target, patch)
 			}
 		})

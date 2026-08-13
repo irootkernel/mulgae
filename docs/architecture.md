@@ -63,8 +63,9 @@ embedded file.
 The document is a generation-time authority only. `mulgae init` derives the
 default provider assignment it writes into a new project from the preference
 order intersected with the providers it configured. Nothing resolves a
-configured value from embedded bytes, and `.mulgae/config.yaml` is never
-re-derived after init.
+configured value from embedded bytes, and the policy in `.mulgae/config.yaml`
+is never re-derived after init. Machine paths are independently admitted from
+the untracked `.mulgae/local.yaml` authority.
 
 ## Review flow
 
@@ -123,8 +124,10 @@ cancellation is observed together with a protected artifact, security, or
 internal failure, canonical failure precedence preserves the protected failure
 instead of projecting the operation as cancellation.
 
-`.mulgae/` contains configuration and durable review state. Temporary provider
-workspaces and namespaces live outside the project and are removed after use.
+`.mulgae/config.yaml` contains Git-shareable policy. `.mulgae/local.yaml`
+contains private machine paths, while the remaining `.mulgae/` tree contains
+durable review state. Temporary provider workspaces and namespaces live outside
+the project and are removed after use.
 
 Runtime assets are ordinary files under `internal/builtin/assets`, included with
 `go:embed`. `CHECKSUMS.sha256` is generated from those files and validated
