@@ -246,12 +246,18 @@ func TestParseG008RequestForms(t *testing.T) {
 	}
 	assertRequestJSON(t, all, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"clean","older_than_days":null,"all":true,"dry_run":true,"output_format":"human"}`)
 
-	export := mustParse(t, []string{"export", "--run", testRunID, "--output-path", "exports/review.zip"})
+	export := mustParse(t, []string{"export", "--run", testRunID})
 	exportRequest, ok := export.Export()
-	if !ok || exportRequest.RunID() != testRunID || exportRequest.OutputPath() != "exports/review.zip" || !exportRequest.Redacted() {
+	if !ok || exportRequest.RunID() != testRunID || exportRequest.OutputPath() != ".mulgae/exports/"+testRunID+".zip" || !exportRequest.Redacted() {
 		t.Fatalf("export request = %#v, %t; want fixed redacted export", exportRequest, ok)
 	}
-	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":".mulgae/exports/r_019f596a-cf80-7c67-b265-f37053d51ccf.zip","redacted":true,"output_format":"human"}`)
+
+	explicitExport := mustParse(t, []string{"export", "--run", testRunID, "--output-path", "exports/review.zip"})
+	explicitExportRequest, ok := explicitExport.Export()
+	if !ok || explicitExportRequest.OutputPath() != "exports/review.zip" {
+		t.Fatalf("explicit export request = %#v, %t; want preserved output path", explicitExportRequest, ok)
+	}
 }
 
 type parserTestResolver struct {
@@ -306,11 +312,11 @@ func TestParseResolvedFreezesCanonicalG008Requests(t *testing.T) {
 	}
 	assertRequestJSON(t, rerun, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"rerun","source_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","source_attempt_id":"a_019f596a-cf80-7c67-b265-f37053d51ccf","replay_mode":"exact","output_format":"human"}`)
 
-	export, err := ParseResolved(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/review.zip"}, testProjectRoot, testRequestID, resolver)
+	export, err := ParseResolved(context.Background(), []string{"export", "--run", "latest"}, testProjectRoot, testRequestID, resolver)
 	if err != nil {
 		t.Fatalf("ParseResolved export error = %v", err)
 	}
-	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":"exports/review.zip","redacted":true,"output_format":"human"}`)
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"export","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","output_path":".mulgae/exports/r_019f596a-cf80-7c67-b265-f37053d51ccf.zip","redacted":true,"output_format":"human"}`)
 }
 func TestParseReviewRequests(t *testing.T) {
 	defaults := mustParse(t, []string{"review", "--dirty"})

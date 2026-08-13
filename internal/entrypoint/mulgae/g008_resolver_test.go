@@ -129,6 +129,17 @@ func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 	if selected != second.RunID.String() {
 		t.Fatalf("latest = %s, want UUIDv7 tiebreak winner %s", selected, second.RunID)
 	}
+	explicit, err := resolver.ResolveRun(context.Background(), first.RunID.String())
+	if err != nil || explicit != first.RunID.String() {
+		t.Fatalf("explicit run = %q, %v; want %s", explicit, err, first.RunID)
+	}
+	projectStore := filepath.Join(filepath.Dir(fixture.root.String()), "store")
+	if _, err := os.Lstat(projectStore); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("project-root store stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root.String(), "store", "locks", "store.lock")); err != nil {
+		t.Fatalf("artifact-root publication lock: %v", err)
+	}
 
 	manifestTime, err := committedCreatedAt(mustG008CommittedManifest(t, fixture, second))
 	if err != nil {

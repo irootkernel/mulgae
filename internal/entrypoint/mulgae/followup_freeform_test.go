@@ -102,7 +102,7 @@ func TestFollowupFreeFormPrimaryPublishesReportsOnlyAndStructuredPaths(t *testin
 				t.Fatal(err)
 			}
 			dependencies, err := NewG008Dependencies(G008Composition{
-				Root: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids,
+				ArtifactRoot: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids,
 				PublicationAuthority: fixture.store, ExportInstaller: mustG008RealExportInstaller(t, fixture),
 				Online: &G008OnlineAuthority{
 					FollowupTargetCapturer: g008RealFollowupCapturer{},

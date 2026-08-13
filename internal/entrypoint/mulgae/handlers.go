@@ -572,12 +572,12 @@ func (application *Application) handleExport(ctx context.Context, invocation Inv
 	if application.exports == nil {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("export service unavailable"), domain.FailureArtifact)}
 	}
-	root, err := ports.NewAnchoredRoot(canonicalProjectRoot)
+	projectRoot, artifactRoot, err := publicationRoots(canonicalProjectRoot)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
 	result, err := application.exports.ExportRedactedRun(ctx, RedactedExportRequest{
-		RunID: request.RunID(), OutputPath: request.OutputPath(), Redacted: request.Redacted(), ProjectRoot: root,
+		RunID: request.RunID(), OutputPath: request.OutputPath(), Redacted: request.Redacted(), ProjectRoot: projectRoot, ArtifactRoot: artifactRoot,
 	})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}

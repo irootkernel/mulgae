@@ -31,11 +31,11 @@ type G008RunEnumerator interface {
 // G008RequestResolver resolves CLI selectors using the P2 query service. Its
 // captured stdin is owned by this resolver and is never kept in package state.
 type G008RequestResolver struct {
-	root       ports.AnchoredRoot
-	queries    *appquery.Service
-	enumerator G008RunEnumerator
-	reader     io.Reader
-	stdinLimit int64
+	artifactRoot ports.AnchoredRoot
+	queries      *appquery.Service
+	enumerator   G008RunEnumerator
+	reader       io.Reader
+	stdinLimit   int64
 
 	captureOnce  sync.Once
 	captureMu    sync.Mutex
@@ -50,9 +50,9 @@ type G008RequestResolver struct {
 // NewG008RequestResolver constructs the production selector resolver. The
 // optional positive limit supports bounded integration fixtures; production
 // capture has no fixed source-size ceiling.
-func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, enumerator G008RunEnumerator, reader io.Reader, limit ...int64) (*G008RequestResolver, error) {
-	if !root.Valid() {
-		return nil, fmt.Errorf("G008 request resolver: invalid root")
+func NewG008RequestResolver(artifactRoot ports.AnchoredRoot, queries *appquery.Service, enumerator G008RunEnumerator, reader io.Reader, limit ...int64) (*G008RequestResolver, error) {
+	if !artifactRoot.Valid() {
+		return nil, fmt.Errorf("G008 request resolver: invalid artifact root")
 	}
 	if queries == nil {
 		return nil, fmt.Errorf("G008 request resolver: query service is required")
@@ -70,7 +70,7 @@ func NewG008RequestResolver(root ports.AnchoredRoot, queries *appquery.Service, 
 	if len(limit) == 1 {
 		stdinLimit = limit[0]
 	}
-	return &G008RequestResolver{root: root, queries: queries, enumerator: enumerator, reader: reader, stdinLimit: stdinLimit}, nil
+	return &G008RequestResolver{artifactRoot: artifactRoot, queries: queries, enumerator: enumerator, reader: reader, stdinLimit: stdinLimit}, nil
 }
 
 // ResolveRun resolves an explicit canonical ID through the query boundary, or
@@ -84,17 +84,17 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 		if err != nil {
 			return "", fmt.Errorf("resolve run: invalid run ID: %w", err)
 		}
-		run, err := resolver.queries.ResolveRun(ctx, resolver.root, runID)
+		run, err := resolver.queries.ResolveRun(ctx, resolver.artifactRoot, runID)
 		if err != nil {
 			return "", fmt.Errorf("resolve run: %w", err)
 		}
-		if !run.Valid() || run.Root() != resolver.root || run.RunID() != runID {
+		if !run.Valid() || run.Root() != resolver.artifactRoot || run.RunID() != runID {
 			return "", fmt.Errorf("resolve run: query returned an invalid run scope")
 		}
 		return run.RunID().String(), nil
 	}
 
-	candidates, enumerationDiagnostics, err := resolver.enumerator.Enumerate(ctx, resolver.root)
+	candidates, enumerationDiagnostics, err := resolver.enumerator.Enumerate(ctx, resolver.artifactRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve latest run: enumerate candidates: %w", err)
 	}
@@ -108,7 +108,7 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		run, resolveErr := resolver.queries.ResolveRun(ctx, resolver.root, candidate.RunID)
+		run, resolveErr := resolver.queries.ResolveRun(ctx, resolver.artifactRoot, candidate.RunID)
 		if resolveErr != nil {
 			if candidateIsCorruptRun(resolveErr) {
 				diagnostics = append(diagnostics, candidatePath(candidate)+": cannot resolve canonical run")
@@ -116,7 +116,7 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 			}
 			return "", fmt.Errorf("resolve latest run candidate %s: %w", candidatePath(candidate), resolveErr)
 		}
-		if !run.Valid() || run.Root() != resolver.root || run.SessionID() != candidate.SessionID || run.RunID() != candidate.RunID {
+		if !run.Valid() || run.Root() != resolver.artifactRoot || run.SessionID() != candidate.SessionID || run.RunID() != candidate.RunID {
 			return "", fmt.Errorf("resolve latest run candidate %s: query returned an invalid run scope", candidatePath(candidate))
 		}
 		review, readErr := resolver.queries.ReadCommitted(ctx, run)
@@ -166,13 +166,13 @@ func attemptSelectorIsUnavailable(err error) bool {
 }
 
 // ResolvePublicationRun resolves an explicit canonical run within this
-// resolver's anchored root. It shares the resolver's P2 query authority and
+// resolver's artifact root. It shares the resolver's P2 query authority and
 // deliberately does not enumerate the run namespace.
 func (resolver *G008RequestResolver) ResolvePublicationRun(ctx context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
 	if err := resolver.preflight(ctx); err != nil {
 		return ports.PublicationRun{}, err
 	}
-	if root != resolver.root {
+	if root != resolver.artifactRoot {
 		return ports.PublicationRun{}, fmt.Errorf("resolve publication run: root does not match resolver")
 	}
 	run, err := resolver.queries.ResolveRun(ctx, root, runID)
@@ -198,7 +198,7 @@ func (resolver *G008RequestResolver) ResolveAttempt(ctx context.Context, runSele
 	if !role.Valid() || strings.TrimSpace(provider) == "" {
 		return "", fmt.Errorf("resolve attempt: invalid role/provider selector")
 	}
-	run, err := resolver.queries.ResolveRun(ctx, resolver.root, runID)
+	run, err := resolver.queries.ResolveRun(ctx, resolver.artifactRoot, runID)
 	if err != nil {
 		return "", fmt.Errorf("resolve attempt: resolve run: %w", err)
 	}
@@ -298,7 +298,7 @@ func (candidate latestCommittedRun) after(other latestCommittedRun) bool {
 }
 
 func (resolver *G008RequestResolver) preflight(ctx context.Context) error {
-	if resolver == nil || resolver.queries == nil || resolver.enumerator == nil || !resolver.root.Valid() {
+	if resolver == nil || resolver.queries == nil || resolver.enumerator == nil || !resolver.artifactRoot.Valid() {
 		return fmt.Errorf("G008 request resolver: unavailable")
 	}
 	if ctx == nil {

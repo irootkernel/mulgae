@@ -289,7 +289,14 @@ Inspect a run with its exact ID:
 mulgae status --run r_...
 mulgae findings --run r_... --severity high
 mulgae report --run r_... --output-path reports/review.md
+mulgae export --run r_...
 ```
+
+Exports default to `.mulgae/exports/<run-id>.zip` with a neighboring
+`.manifest.json` sidecar. Use `--output-path <relative-path>` only when you
+intentionally want the export elsewhere beneath the project root. Mulgae does
+not edit Git ignore configuration, so add `/.mulgae/` to the repository's ignore
+rules and never commit its contents.
 
 Create a focused follow-up after changing the code:
 

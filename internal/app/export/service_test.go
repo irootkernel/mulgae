@@ -228,6 +228,7 @@ type exportWriter struct {
 	ensureErr error
 	writeErr  error
 	writes    [][]byte
+	installs  []ExportInstallRequest
 }
 
 func (writer *exportWriter) EnsurePrivateDir(ports.AnchoredRoot, ports.SafeRelativePath) error {
@@ -247,6 +248,7 @@ func (writer *exportWriter) Write(_ context.Context, request ports.SecureWriteRe
 	return receipt, nil, err
 }
 func (writer *exportWriter) Install(ctx context.Context, request ExportInstallRequest) (ExportInstallResult, error) {
+	writer.installs = append(writer.installs, request)
 	if writer.ensureErr != nil {
 		return ExportInstallResult{}, writer.ensureErr
 	}
@@ -256,7 +258,7 @@ func (writer *exportWriter) Install(ctx context.Context, request ExportInstallRe
 	if err := ctx.Err(); err != nil {
 		return ExportInstallResult{}, err
 	}
-	bundleReceipt, err := ports.NewSecureWriteReceipt(request.Root, request.BundlePath, digest(request.Bundle), int64(len(request.Bundle)), "export_bundle", request.SourceIDs)
+	bundleReceipt, err := ports.NewSecureWriteReceipt(request.DestinationRoot, request.BundlePath, digest(request.Bundle), int64(len(request.Bundle)), "export_bundle", request.SourceIDs)
 	if err != nil {
 		return ExportInstallResult{}, err
 	}
@@ -265,7 +267,7 @@ func (writer *exportWriter) Install(ctx context.Context, request ExportInstallRe
 	if err != nil {
 		return ExportInstallResult{}, err
 	}
-	manifestReceipt, err := ports.NewSecureWriteReceipt(request.Root, request.ManifestPath, digest(manifest), int64(len(manifest)), "export_manifest", request.SourceIDs)
+	manifestReceipt, err := ports.NewSecureWriteReceipt(request.DestinationRoot, request.ManifestPath, digest(manifest), int64(len(manifest)), "export_manifest", request.SourceIDs)
 	if err != nil {
 		return ExportInstallResult{}, err
 	}
@@ -302,6 +304,10 @@ func TestExportRedactedRunUsesCommittedReaderAndSecureWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	storeRoot, err := ports.NewAnchoredRoot("/tmp/mulgae-export-store")
+	if err != nil {
+		t.Fatal(err)
+	}
 	bundlePath, err := ports.NewSafeRelativePath("exports/review.zip")
 	if err != nil {
 		t.Fatal(err)
@@ -311,8 +317,8 @@ func TestExportRedactedRunUsesCommittedReaderAndSecureWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := service.ExportRedactedRun(context.Background(), ExportRequest{
-		Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID},
-		Root:   root, BundlePath: bundlePath, ManifestPath: manifestPath,
+		Source:          ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID},
+		DestinationRoot: root, StoreRoot: storeRoot, BundlePath: bundlePath, ManifestPath: manifestPath,
 		ExportID: validOptions().ExportID, CreatedAt: validOptions().CreatedAt,
 	})
 	if err != nil {
@@ -320,6 +326,9 @@ func TestExportRedactedRunUsesCommittedReaderAndSecureWriter(t *testing.T) {
 	}
 	if len(writer.writes) != 2 || !bytes.Equal(writer.writes[0], result.Bundle.Bytes) || !bytes.Equal(writer.writes[1], result.ManifestBytes) {
 		t.Fatal("secure writer did not receive the completed bundle and sidecar")
+	}
+	if len(writer.installs) != 1 || writer.installs[0].DestinationRoot != root || writer.installs[0].StoreRoot != storeRoot {
+		t.Fatalf("installer roots = %#v", writer.installs)
 	}
 	if result.Manifest.SecureWriter.ReceiptSHA256 != result.BundleReceipt.SHA256() {
 		t.Fatal("manifest receipt does not bind bundle receipt")
@@ -459,9 +468,26 @@ func TestExportRedactedRunFailsClosedForUnsafeAndInterruptedWrites(t *testing.T)
 		t.Fatal(err)
 	}
 	request := ExportRequest{
-		Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID},
-		Root:   root, BundlePath: bundlePath, ManifestPath: manifestPath,
+		Source:          ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID},
+		DestinationRoot: root, StoreRoot: root, BundlePath: bundlePath, ManifestPath: manifestPath,
 		ExportID: validOptions().ExportID, CreatedAt: validOptions().CreatedAt,
+	}
+	for name, mutate := range map[string]func(*ExportRequest){
+		"missing destination root": func(request *ExportRequest) { request.DestinationRoot = ports.AnchoredRoot{} },
+		"missing store root":       func(request *ExportRequest) { request.StoreRoot = ports.AnchoredRoot{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := request
+			mutate(&invalid)
+			writer := &exportWriter{}
+			service, err := NewService(exportReader{source: source}, writer, 1<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.ExportRedactedRun(context.Background(), invalid); !errors.Is(err, ErrSecureInstall) || len(writer.installs) != 0 {
+				t.Fatalf("invalid roots result = %v, installs = %d", err, len(writer.installs))
+			}
+		})
 	}
 	t.Run("malicious committed projection path", func(t *testing.T) {
 		unsafe := validProjection()
@@ -514,13 +540,13 @@ func (installer recoverableExportInstaller) Install(ctx context.Context, request
 	}
 	state := installer.state
 	if state.bundle == nil {
-		receipt, err := ports.NewSecureWriteReceipt(request.Root, request.BundlePath, digest(request.Bundle), int64(len(request.Bundle)), "export_bundle", request.SourceIDs)
+		receipt, err := ports.NewSecureWriteReceipt(request.DestinationRoot, request.BundlePath, digest(request.Bundle), int64(len(request.Bundle)), "export_bundle", request.SourceIDs)
 		if err != nil {
 			return ExportInstallResult{}, err
 		}
 		state.bundle = append([]byte(nil), request.Bundle...)
 		state.bundleReceipt = receipt
-	} else if !bytes.Equal(state.bundle, request.Bundle) || state.bundleReceipt.Root() != request.Root || state.bundleReceipt.Destination() != request.BundlePath {
+	} else if !bytes.Equal(state.bundle, request.Bundle) || state.bundleReceipt.Root() != request.DestinationRoot || state.bundleReceipt.Destination() != request.BundlePath {
 		return ExportInstallResult{}, errors.New("bundle no-replace conflict")
 	} else {
 		state.bundleAdoptions++
@@ -537,13 +563,13 @@ func (installer recoverableExportInstaller) Install(ctx context.Context, request
 		return ExportInstallResult{}, err
 	}
 	if state.manifest == nil {
-		receipt, err := ports.NewSecureWriteReceipt(request.Root, request.ManifestPath, digest(manifest), int64(len(manifest)), "export_manifest", request.SourceIDs)
+		receipt, err := ports.NewSecureWriteReceipt(request.DestinationRoot, request.ManifestPath, digest(manifest), int64(len(manifest)), "export_manifest", request.SourceIDs)
 		if err != nil {
 			return ExportInstallResult{}, err
 		}
 		state.manifest = append([]byte(nil), manifest...)
 		state.manifestReceipt = receipt
-	} else if !bytes.Equal(state.manifest, manifest) || state.manifestReceipt.Root() != request.Root || state.manifestReceipt.Destination() != request.ManifestPath {
+	} else if !bytes.Equal(state.manifest, manifest) || state.manifestReceipt.Root() != request.DestinationRoot || state.manifestReceipt.Destination() != request.ManifestPath {
 		return ExportInstallResult{}, errors.New("manifest no-replace conflict")
 	}
 	return ExportInstallResult{BundleReceipt: state.bundleReceipt, ManifestReceipt: state.manifestReceipt, ManifestBytes: append([]byte(nil), state.manifest...)}, nil
@@ -557,7 +583,7 @@ func exportRequestFor(t *testing.T, source VerifiedSourceProjection) ExportReque
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ExportRequest{Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID}, Root: root, BundlePath: bundle, ManifestPath: manifest, ExportID: validOptions().ExportID, CreatedAt: validOptions().CreatedAt}
+	return ExportRequest{Source: ExportSource{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID}, DestinationRoot: root, StoreRoot: root, BundlePath: bundle, ManifestPath: manifest, ExportID: validOptions().ExportID, CreatedAt: validOptions().CreatedAt}
 }
 
 func TestExportRedactedRunRecoversAfterBundleInstallFailure(t *testing.T) {

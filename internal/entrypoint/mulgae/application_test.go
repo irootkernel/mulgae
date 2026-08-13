@@ -3902,14 +3902,15 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 		{name: "rerun JSON", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"}, kind: "rerun_started", exit: app.ExitCodeReadiness, json: true, reason: "required_role_incomplete"},
 		{name: "clean human", argv: []string{"clean", "--older-than", "30d"}, human: "clean completed: removed 3 runs and 8192 bytes", kind: "clean_completed"},
 		{name: "clean JSON", argv: []string{"clean", "--all", "--dry-run", "--output", "json"}, kind: "clean_completed", json: true},
-		{name: "export human", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip"}, human: "export created: exports/redacted.zip", kind: "export_created"},
-		{name: "export JSON", argv: []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json"}, kind: "export_created", json: true},
+		{name: "export human", argv: []string{"export", "--run", "latest"}, human: "export created: .mulgae/exports/" + testRunID + ".zip", kind: "export_created"},
+		{name: "export JSON", argv: []string{"export", "--run", "latest", "--output", "json"}, kind: "export_created", json: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fakes := newG008WorkflowFakes(t)
 			fixture := newG008Fixture(t, fakes)
-			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
+			canonicalRoot := testAnchoredRoot(t)
+			result := fixture.application.Run(context.Background(), test.argv, canonicalRoot)
 			if test.json {
 				assertFoundationEnvelope(t, fixture, result, test.exit)
 				if got := commandResultKind(t, result.Stdout()); got != test.kind {
@@ -3927,6 +3928,9 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 				t.Fatal("Result.Stdout exposed mutable application-owned bytes")
 			}
 			assertG008FakeRequest(t, test.name, fakes)
+			if strings.HasPrefix(test.name, "export") && fakes.export.requests[0].ProjectRoot.String() != canonicalRoot {
+				t.Fatalf("export project root = %q, want %q", fakes.export.requests[0].ProjectRoot.String(), canonicalRoot)
+			}
 		})
 	}
 }
@@ -4333,7 +4337,9 @@ func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 		if len(fakes.export.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" {
 			t.Fatalf("export calls = requests %#v runs %#v", fakes.export.requests, fakes.resolver.runCalls)
 		}
-		if request := fakes.export.requests[0]; request.RunID != testRunID || request.OutputPath != "exports/redacted.zip" || !request.Redacted {
+		request := fakes.export.requests[0]
+		if request.RunID != testRunID || request.OutputPath != ".mulgae/exports/"+testRunID+".zip" || !request.Redacted ||
+			!request.ProjectRoot.Valid() || request.ArtifactRoot.String() != filepath.Join(request.ProjectRoot.String(), ".mulgae") {
 			t.Fatalf("export request = %#v", request)
 		}
 	default:
@@ -4442,11 +4448,21 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 		}
 		assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeUsage)
 	}
-	stdout, stderr, exit := run("export", "--run", testRunID, "--output-path", "exports/redacted.zip", "--output", "json")
+	exportRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(exportRoot, ".mulgae"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, exit := runAt(exportRoot, "export", "--run", testRunID, "--output-path", "exports/redacted.zip", "--output", "json")
 	if exit != app.ExitCodeArtifact || len(stderr) != 0 {
 		t.Fatalf("production export = exit %d stderr %q", exit, stderr)
 	}
 	assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeArtifact)
+	if _, err := os.Lstat(filepath.Join(exportRoot, "store")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("production export project-root store stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, ".mulgae", "store", "locks", "store.lock")); err != nil {
+		t.Fatalf("production export artifact-root publication lock: %v", err)
+	}
 	cleanRoot := t.TempDir()
 	if err := os.Mkdir(filepath.Join(cleanRoot, ".mulgae"), 0o700); err != nil {
 		t.Fatal(err)
@@ -4469,16 +4485,29 @@ func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejects
 	if err != nil {
 		t.Fatal(err)
 	}
+	projectRoot, err := ports.NewAnchoredRoot(filepath.Dir(fixture.root.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := service.ExportRedactedRun(context.Background(), RedactedExportRequest{
-		ProjectRoot: fixture.root, RunID: root.RunID.String(), OutputPath: "exports/no-findings.zip", Redacted: true,
+		ProjectRoot: projectRoot, ArtifactRoot: fixture.root, RunID: root.RunID.String(), OutputPath: ".mulgae/exports/" + root.RunID.String() + ".zip", Redacted: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Redacted || result.BundleURI != "exports/no-findings.zip" || result.ExportManifestURI != "exports/no-findings.manifest.json" {
+	if !result.Redacted || result.BundleURI != ".mulgae/exports/"+root.RunID.String()+".zip" || result.ExportManifestURI != ".mulgae/exports/"+root.RunID.String()+".manifest.json" {
 		t.Fatalf("no-findings export result = %#v", result)
 	}
-	manifestBytes, err := os.ReadFile(filepath.Join(fixture.root.String(), result.ExportManifestURI))
+	if _, err := os.Stat(filepath.Join(projectRoot.String(), result.BundleURI)); err != nil {
+		t.Fatalf("read no-findings export bundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root.String(), "store", "locks", "export-install.lock")); err != nil {
+		t.Fatalf("artifact-root export lock: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(projectRoot.String(), "store")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("project-root store stat error = %v, want not exist", err)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(projectRoot.String(), result.ExportManifestURI))
 	if err != nil {
 		t.Fatalf("read no-findings export manifest: %v", err)
 	}

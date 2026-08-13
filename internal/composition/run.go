@@ -107,15 +107,15 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		writeDiagnostic(stderr, "mulgae: export installer is unavailable\n")
 		return 10
 	}
-	runSelector := filesystem.NewRunSelector(root)
-	requestResolver, err := mulgae.NewG008RequestResolver(root, queryService, runSelector, stdin)
+	artifactRoot, err := publicationArtifactRoot(root)
 	if err != nil {
-		writeDiagnostic(stderr, "mulgae: G008 request resolver is unavailable\n")
+		writeDiagnostic(stderr, "mulgae: artifact root is unavailable\n")
 		return 10
 	}
-	artifactRoot, err := childPublicationRoot(root)
+	runSelector := filesystem.NewRunSelector(artifactRoot)
+	requestResolver, err := mulgae.NewG008RequestResolver(artifactRoot, queryService, runSelector, stdin)
 	if err != nil {
-		writeDiagnostic(stderr, "mulgae: cleanup artifact root is unavailable\n")
+		writeDiagnostic(stderr, "mulgae: G008 request resolver is unavailable\n")
 		return 10
 	}
 	cleanupStore, err := filesystem.NewCleanupStore(artifactRoot, publicationStore, clock)
@@ -124,7 +124,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	g008Dependencies, err := mulgae.NewG008Dependencies(mulgae.G008Composition{
-		Root:                 root,
+		ArtifactRoot:         artifactRoot,
 		Queries:              queryService,
 		RequestResolver:      requestResolver,
 		Clock:                clock,
@@ -139,14 +139,13 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	build, buildErr := buildIdentityFrom(info, overrides.Version, overrides.Revision)
-	childArtifactRoot := artifactRoot
-	childSources, err := mulgae.NewG008Sources(childArtifactRoot, productionChildRunResolver{queries: queryService}, queryService)
+	childSources, err := mulgae.NewG008Sources(artifactRoot, productionChildRunResolver{queries: queryService}, queryService)
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: child workflow sources are unavailable\n")
 		return 10
 	}
 	childComposer := productionChildComposer{
-		build: build, root: root, artifactRoot: childArtifactRoot, catalog: catalog, validator: validator, projectReader: gitAdapter,
+		build: build, root: root, artifactRoot: artifactRoot, catalog: catalog, validator: validator, projectReader: gitAdapter,
 		clock: clock, ids: ids, writer: writer, publicationStore: publicationStore, stdin: requestResolver, sources: childSources,
 	}
 	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
@@ -203,9 +202,9 @@ func (resolver productionChildRunResolver) ResolvePublicationRun(ctx context.Con
 	return resolver.queries.ResolveRun(ctx, root, runID)
 }
 
-func childPublicationRoot(projectRoot ports.AnchoredRoot) (ports.AnchoredRoot, error) {
+func publicationArtifactRoot(projectRoot ports.AnchoredRoot) (ports.AnchoredRoot, error) {
 	if !projectRoot.Valid() {
-		return ports.AnchoredRoot{}, fmt.Errorf("child publication root: invalid project root")
+		return ports.AnchoredRoot{}, fmt.Errorf("publication artifact root: invalid project root")
 	}
 	return ports.NewAnchoredRoot(filepath.Join(projectRoot.String(), ".mulgae"))
 }

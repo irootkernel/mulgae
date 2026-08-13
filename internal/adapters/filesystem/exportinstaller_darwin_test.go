@@ -19,22 +19,28 @@ import (
 )
 
 func TestExportInstallerInstallsPairWithExactReceiptsAndAdoptsIdenticalRetry(t *testing.T) {
-	root := privateTempRoot(t)
+	destinationRoot := privateTempRoot(t)
+	storeRoot := privateTempRoot(t)
 	installer, err := NewExportInstaller(NewSecureWriter())
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := exportInstallerRequest(t, root, "exports/bundle.tar", "exports/manifest.json", []byte("bundle bytes\n"))
+	request := exportInstallerRequest(t, destinationRoot, "exports/bundle.tar", "exports/manifest.json", []byte("bundle bytes\n"))
+	request.StoreRoot = mustRoot(t, storeRoot)
 
 	first, err := installer.Install(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
 	assertExportInstallResult(t, first, request)
-	assertPrivateDirectory(t, filepath.Join(root, "exports"))
-	assertPrivateRegularFile(t, filepath.Join(root, "exports", "bundle.tar"))
-	assertPrivateRegularFile(t, filepath.Join(root, "exports", "manifest.json"))
-	assertExportJournalAbsent(t, root, request)
+	assertPrivateDirectory(t, filepath.Join(destinationRoot, "exports"))
+	assertPrivateRegularFile(t, filepath.Join(destinationRoot, "exports", "bundle.tar"))
+	assertPrivateRegularFile(t, filepath.Join(destinationRoot, "exports", "manifest.json"))
+	assertPrivateRegularFile(t, filepath.Join(storeRoot, "store", "locks", exportLockFile))
+	assertExportJournalAbsent(t, storeRoot, request)
+	if _, err := os.Lstat(filepath.Join(destinationRoot, "store")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination-root store stat error = %v, want not exist", err)
+	}
 
 	second, err := installer.Install(context.Background(), request)
 	if err != nil {
@@ -44,6 +50,7 @@ func TestExportInstallerInstallsPairWithExactReceiptsAndAdoptsIdenticalRetry(t *
 	if !bytes.Equal(first.ManifestBytes, second.ManifestBytes) || first.BundleReceipt.SHA256() != second.BundleReceipt.SHA256() || first.ManifestReceipt.SHA256() != second.ManifestReceipt.SHA256() {
 		t.Fatal("identical retry did not adopt the exact installed pair")
 	}
+	assertExportJournalAbsent(t, storeRoot, request)
 }
 
 func TestExportInstallerRejectsMismatchedExistingBundleWithoutReplacement(t *testing.T) {
@@ -196,14 +203,16 @@ func TestExportInstallerRecoversAfterWriterInterruptions(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			root := privateTempRoot(t)
+			destinationRoot := privateTempRoot(t)
+			storeRoot := privateTempRoot(t)
 			writer := NewSecureWriter()
 			test.inject(writer)
 			installer, err := NewExportInstaller(writer)
 			if err != nil {
 				t.Fatal(err)
 			}
-			request := exportInstallerRequest(t, root, "exports/bundle.tar", "exports/manifest.json", []byte("bundle bytes\n"))
+			request := exportInstallerRequest(t, destinationRoot, "exports/bundle.tar", "exports/manifest.json", []byte("bundle bytes\n"))
+			request.StoreRoot = mustRoot(t, storeRoot)
 
 			result, err := installer.Install(context.Background(), request)
 			if err == nil {
@@ -212,8 +221,8 @@ func TestExportInstallerRecoversAfterWriterInterruptions(t *testing.T) {
 			if !zeroReceipt(result.BundleReceipt) || !zeroReceipt(result.ManifestReceipt) || result.ManifestBytes != nil {
 				t.Fatalf("Install() result = %#v, want no partial success", result)
 			}
-			assertExportJournalPresent(t, root, request)
-			test.want(t, root, request)
+			assertExportJournalPresent(t, storeRoot, request)
+			test.want(t, destinationRoot, request)
 
 			restarted, restartErr := NewExportInstaller(NewSecureWriter())
 			if restartErr != nil {
@@ -224,7 +233,10 @@ func TestExportInstallerRecoversAfterWriterInterruptions(t *testing.T) {
 				t.Fatalf("Install() restart recovery error = %v", err)
 			}
 			assertExportInstallResult(t, result, request)
-			assertExportJournalAbsent(t, root, request)
+			assertExportJournalAbsent(t, storeRoot, request)
+			if _, err := os.Lstat(filepath.Join(destinationRoot, "store")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("destination-root store stat error = %v, want not exist", err)
+			}
 		})
 	}
 }
@@ -449,12 +461,13 @@ func TestExportInstallerRetainsJournalUntilBothMembersVerify(t *testing.T) {
 func exportInstallerRequest(t *testing.T, root, bundlePath, manifestPath string, bundle []byte) appexport.ExportInstallRequest {
 	t.Helper()
 	return appexport.ExportInstallRequest{
-		Root:         mustRoot(t, root),
-		BundlePath:   mustRelativePath(t, bundlePath),
-		ManifestPath: mustRelativePath(t, manifestPath),
-		Bundle:       append([]byte(nil), bundle...),
-		SourceIDs:    []string{"export:test"},
-		MaxBytes:     1 << 20,
+		DestinationRoot: mustRoot(t, root),
+		StoreRoot:       mustRoot(t, root),
+		BundlePath:      mustRelativePath(t, bundlePath),
+		ManifestPath:    mustRelativePath(t, manifestPath),
+		Bundle:          append([]byte(nil), bundle...),
+		SourceIDs:       []string{"export:test"},
+		MaxBytes:        1 << 20,
 		ManifestForBundleReceipt: func(receipt ports.SecureWriteReceipt) ([]byte, error) {
 			return []byte(fmt.Sprintf("bundle_sha256=%s\nbundle_bytes=%d\n", receipt.SHA256(), receipt.ByteLength())), nil
 		},
@@ -478,8 +491,8 @@ func assertExportInstallResult(t *testing.T, result appexport.ExportInstallResul
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertExportInstallerReceipt(t, result.BundleReceipt, request.Root, request.BundlePath, request.Bundle, "export_bundle", request.SourceIDs)
-	assertExportInstallerReceipt(t, result.ManifestReceipt, request.Root, request.ManifestPath, manifest, "export_manifest", request.SourceIDs)
+	assertExportInstallerReceipt(t, result.BundleReceipt, request.DestinationRoot, request.BundlePath, request.Bundle, "export_bundle", request.SourceIDs)
+	assertExportInstallerReceipt(t, result.ManifestReceipt, request.DestinationRoot, request.ManifestPath, manifest, "export_manifest", request.SourceIDs)
 	if !bytes.Equal(result.ManifestBytes, manifest) {
 		t.Fatalf("manifest bytes = %q, want %q", result.ManifestBytes, manifest)
 	}
@@ -487,7 +500,7 @@ func assertExportInstallResult(t *testing.T, result appexport.ExportInstallResul
 		path string
 		want []byte
 	}{{request.BundlePath.String(), request.Bundle}, {request.ManifestPath.String(), manifest}} {
-		got, readErr := os.ReadFile(filepath.Join(request.Root.String(), member.path))
+		got, readErr := os.ReadFile(filepath.Join(request.DestinationRoot.String(), member.path))
 		if readErr != nil || !bytes.Equal(got, member.want) {
 			t.Fatalf("installed %s = %q, read error = %v", member.path, got, readErr)
 		}

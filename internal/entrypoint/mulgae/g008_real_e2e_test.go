@@ -23,6 +23,7 @@ import (
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
@@ -99,7 +100,7 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 	dependencies, err := NewG008Dependencies(G008Composition{
-		Root: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids, PublicationAuthority: fixture.store,
+		ArtifactRoot: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids, PublicationAuthority: fixture.store,
 		ExportInstaller: mustG008RealExportInstaller(t, fixture),
 		Online: &G008OnlineAuthority{
 			FollowupTargetCapturer: g008RealFollowupCapturer{}, DeltaTargetCapturer: g008RealDeltaCapturer{target: fixture.deltaTarget}, DeltaComparator: g008RealComparator{},
@@ -318,13 +319,17 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 					projection.CurrentIdentity.CurrentExcerptSHA256 != evidence[0].CurrentExcerptSHA256() {
 					t.Fatalf("followup export identities/evidence = %#v", projection)
 				}
+				destinationRoot, err := ports.NewAnchoredRoot(projectRoot)
+				if err != nil {
+					t.Fatal(err)
+				}
 				exportResult, err := dependencies.Exports.ExportRedactedRun(context.Background(), RedactedExportRequest{
-					ProjectRoot: fixture.root, RunID: committed.RunID().String(), OutputPath: "exports/followup.zip", Redacted: true,
+					ProjectRoot: destinationRoot, ArtifactRoot: fixture.root, RunID: committed.RunID().String(), OutputPath: "exports/followup.zip", Redacted: true,
 				})
 				if err != nil {
 					t.Fatalf("export followup: %v", err)
 				}
-				manifestBytes, err := os.ReadFile(filepath.Join(fixture.root.String(), exportResult.ExportManifestURI))
+				manifestBytes, err := os.ReadFile(filepath.Join(projectRoot, exportResult.ExportManifestURI))
 				if err != nil {
 					t.Fatalf("read followup manifest: %v", err)
 				}
@@ -338,6 +343,15 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 					manifest.SourceIdentity != projection.SourceIdentity ||
 					manifest.CurrentIdentity != projection.CurrentIdentity {
 					t.Fatalf("followup export = result %#v manifest %#v", exportResult, manifest)
+				}
+				if _, err := os.Stat(filepath.Join(projectRoot, exportResult.BundleURI)); err != nil {
+					t.Fatalf("read followup export bundle: %v", err)
+				}
+				if _, err := os.Stat(filepath.Join(fixture.root.String(), "store", "locks", "export-install.lock")); err != nil {
+					t.Fatalf("artifact-root export lock: %v", err)
+				}
+				if _, err := os.Lstat(filepath.Join(projectRoot, "store")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("project-root store stat error = %v, want not exist", err)
 				}
 			case "delta":
 				if committed.ContentVerdict() != domain.ContentRequestChanges || committed.CIDecision() != domain.CIFail ||

@@ -37,11 +37,13 @@ type ExportInstaller interface {
 	Install(context.Context, ExportInstallRequest) (ExportInstallResult, error)
 }
 
-// ExportInstallRequest is the complete composite effect. Bundle is caller-owned
-// immutable input. ManifestForBundleReceipt must be called with the actual
-// bundle receipt, never a predicted digest.
+// ExportInstallRequest is the complete composite effect. DestinationRoot owns
+// the exported pair, while StoreRoot owns internal lock and recovery state.
+// Bundle is caller-owned immutable input. ManifestForBundleReceipt must be
+// called with the actual bundle receipt, never a predicted digest.
 type ExportInstallRequest struct {
-	Root                     ports.AnchoredRoot
+	DestinationRoot          ports.AnchoredRoot
+	StoreRoot                ports.AnchoredRoot
 	BundlePath               ports.SafeRelativePath
 	ManifestPath             ports.SafeRelativePath
 	Bundle                   []byte
@@ -65,16 +67,17 @@ type ExportSource struct {
 	ReviewID  string
 }
 
-// ExportRequest gives the service a validated destination pair. Both files are
-// immutable secure-writer outputs; the manifest is a sidecar and not a member
-// of the bundle.
+// ExportRequest gives the service a validated destination pair and an internal
+// store root. Both files are immutable secure-writer outputs; the manifest is a
+// sidecar and not a member of the bundle.
 type ExportRequest struct {
-	Source       ExportSource
-	Root         ports.AnchoredRoot
-	BundlePath   ports.SafeRelativePath
-	ManifestPath ports.SafeRelativePath
-	ExportID     string
-	CreatedAt    time.Time
+	Source          ExportSource
+	DestinationRoot ports.AnchoredRoot
+	StoreRoot       ports.AnchoredRoot
+	BundlePath      ports.SafeRelativePath
+	ManifestPath    ports.SafeRelativePath
+	ExportID        string
+	CreatedAt       time.Time
 }
 
 // ExportResult is returned only after both immutable files have accepted,
@@ -137,7 +140,7 @@ func (service *Service) ExportRedactedRun(ctx context.Context, request ExportReq
 
 	var manifest ExportManifest
 	installed, err := service.installer.Install(ctx, ExportInstallRequest{
-		Root: request.Root, BundlePath: request.BundlePath, ManifestPath: request.ManifestPath,
+		DestinationRoot: request.DestinationRoot, StoreRoot: request.StoreRoot, BundlePath: request.BundlePath, ManifestPath: request.ManifestPath,
 		Bundle: append([]byte(nil), bundle.Bytes...), SourceIDs: []string{source.RunID, source.ReviewID}, MaxBytes: service.maxBytes,
 		ManifestForBundleReceipt: func(receipt ports.SecureWriteReceipt) ([]byte, error) {
 			if err := validateBundleReceipt(receipt, request, bundle); err != nil {
@@ -176,7 +179,7 @@ func (service *Service) ExportRedactedRun(ctx context.Context, request ExportReq
 }
 
 func validateBundleReceipt(receipt ports.SecureWriteReceipt, request ExportRequest, bundle Bundle) error {
-	if receipt.Root() != request.Root || receipt.Destination() != request.BundlePath || receipt.Channel() != "export_bundle" || receipt.SHA256() != digest(bundle.Bytes) || receipt.ByteLength() != int64(len(bundle.Bytes)) {
+	if receipt.Root() != request.DestinationRoot || receipt.Destination() != request.BundlePath || receipt.Channel() != "export_bundle" || receipt.SHA256() != digest(bundle.Bytes) || receipt.ByteLength() != int64(len(bundle.Bytes)) {
 		return fmt.Errorf("%w: invalid bundle receipt", ErrSecureInstall)
 	}
 	return nil
@@ -191,14 +194,14 @@ func bindAndVerifyInstalledManifest(template ExportManifest, installed ExportIns
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal manifest: %v", ErrSecureInstall, err)
 	}
-	if installed.ManifestReceipt.Root() != request.Root || installed.ManifestReceipt.Destination() != request.ManifestPath || installed.ManifestReceipt.Channel() != "export_manifest" || installed.ManifestReceipt.SHA256() != digest(want) || installed.ManifestReceipt.ByteLength() != int64(len(want)) || !reflect.DeepEqual(installed.ManifestBytes, want) {
+	if installed.ManifestReceipt.Root() != request.DestinationRoot || installed.ManifestReceipt.Destination() != request.ManifestPath || installed.ManifestReceipt.Channel() != "export_manifest" || installed.ManifestReceipt.SHA256() != digest(want) || installed.ManifestReceipt.ByteLength() != int64(len(want)) || !reflect.DeepEqual(installed.ManifestBytes, want) {
 		return nil, fmt.Errorf("%w: invalid manifest receipt", ErrSecureInstall)
 	}
 	return append([]byte(nil), want...), nil
 }
 
 func validateExportRequest(request ExportRequest) error {
-	if !request.Root.Valid() || !request.BundlePath.Valid() || !request.ManifestPath.Valid() || request.BundlePath == request.ManifestPath {
+	if !request.DestinationRoot.Valid() || !request.StoreRoot.Valid() || !request.BundlePath.Valid() || !request.ManifestPath.Valid() || request.BundlePath == request.ManifestPath {
 		return fmt.Errorf("%w: invalid or colliding destination", ErrSecureInstall)
 	}
 	if !idPatterns["session"].MatchString(request.Source.SessionID) || !idPatterns["run"].MatchString(request.Source.RunID) || !idPatterns["review"].MatchString(request.Source.ReviewID) || !idPatterns["export"].MatchString(request.ExportID) || request.CreatedAt.IsZero() {

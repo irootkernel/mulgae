@@ -96,6 +96,9 @@ may change only explicitly allowed provider-owned paths.
         status.json
         mulgae-runtime.jsonl
         attempts/
+  exports/
+    r_<uuidv7>.zip
+    r_<uuidv7>.manifest.json
   s_<uuidv7>/
     r_<uuidv7>/
       manifest.json
@@ -116,6 +119,11 @@ may change only explicitly allowed provider-owned paths.
 `manifest.json` is the run index and integrity record. A completed run has at
 most one top-level final review. Failed or repaired candidates remain beneath
 `attempts/`.
+
+`export --run <id>` writes the redacted bundle and its sidecar manifest beneath
+`.mulgae/exports/` unless the operator supplies a safe project-relative
+`--output-path`. Mulgae does not modify project Git ignore configuration;
+repositories should ignore `/.mulgae/`.
 
 `target/captured-review.json` is a reference-only v2 capture manifest. Exact
 target, workspace, project-context, and evidence bytes are stored once under

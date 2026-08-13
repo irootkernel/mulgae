@@ -38,7 +38,7 @@ type G008OnlineAuthority struct {
 // G008Composition is the complete input for the G008 Dependencies projection.
 // Export and selector resolution remain available without online authority.
 type G008Composition struct {
-	Root                 ports.AnchoredRoot
+	ArtifactRoot         ports.AnchoredRoot
 	Queries              *appquery.Service
 	RequestResolver      *G008RequestResolver
 	Clock                ports.Clock
@@ -55,8 +55,8 @@ type G008Composition struct {
 // NewG008Dependencies composes only G008 command capabilities. Callers merge
 // its result with the independently constructed foundation Dependencies.
 func NewG008Dependencies(composition G008Composition) (Dependencies, error) {
-	if !composition.Root.Valid() {
-		return Dependencies{}, fmt.Errorf("G008 composition: invalid root")
+	if !composition.ArtifactRoot.Valid() {
+		return Dependencies{}, fmt.Errorf("G008 composition: invalid artifact root")
 	}
 	if composition.Queries == nil {
 		return Dependencies{}, fmt.Errorf("G008 composition: query service is required")
@@ -64,8 +64,8 @@ func NewG008Dependencies(composition G008Composition) (Dependencies, error) {
 	if composition.RequestResolver == nil {
 		return Dependencies{}, fmt.Errorf("G008 composition: request resolver is required")
 	}
-	if composition.RequestResolver.root != composition.Root || composition.RequestResolver.queries != composition.Queries {
-		return Dependencies{}, fmt.Errorf("G008 composition: request resolver does not match root and query service")
+	if composition.RequestResolver.artifactRoot != composition.ArtifactRoot || composition.RequestResolver.queries != composition.Queries {
+		return Dependencies{}, fmt.Errorf("G008 composition: request resolver does not match artifact root and query service")
 	}
 	if nilApplicationDependency(composition.Clock) || nilApplicationDependency(composition.IDs) || nilApplicationDependency(composition.PublicationAuthority) {
 		return Dependencies{}, fmt.Errorf("G008 composition: clock, ID generator, and publication authority are required")
@@ -100,7 +100,7 @@ func NewG008Dependencies(composition G008Composition) (Dependencies, error) {
 	if nilApplicationDependency(authority.FollowupTargetCapturer) || nilApplicationDependency(authority.DeltaTargetCapturer) || nilApplicationDependency(authority.DeltaComparator) || authority.ChildExecutor == nil || authority.FollowupExecutor == nil || len(authority.RerunAssignments) == 0 {
 		return Dependencies{}, fmt.Errorf("G008 composition: incomplete online authority")
 	}
-	sources, err := NewG008Sources(composition.Root, composition.RequestResolver, composition.Queries)
+	sources, err := NewG008Sources(composition.ArtifactRoot, composition.RequestResolver, composition.Queries)
 	if err != nil {
 		return Dependencies{}, fmt.Errorf("G008 composition: sources: %w", err)
 	}

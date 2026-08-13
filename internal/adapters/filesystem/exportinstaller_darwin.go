@@ -29,8 +29,8 @@ const (
 var exportInstallProcessMu sync.Mutex
 
 // ExportInstaller installs an immutable bundle and its receipt-bound manifest as
-// one recoverable export pair. Its journal is intentionally internal to the
-// approved root and is removed only after both destinations are verified.
+// one recoverable export pair. Its journal is confined to the store root and is
+// removed only after both destinations are verified.
 type ExportInstaller struct {
 	writer ports.SecureFileWriter
 }
@@ -62,13 +62,13 @@ func (installer *ExportInstaller) Install(ctx context.Context, request appexport
 	if err := ctx.Err(); err != nil {
 		return appexport.ExportInstallResult{}, err
 	}
-	if !request.Root.Valid() || !request.BundlePath.Valid() || !request.ManifestPath.Valid() || request.BundlePath == request.ManifestPath || request.MaxBytes <= 0 || len(request.Bundle) == 0 || len(request.SourceIDs) == 0 || request.ManifestForBundleReceipt == nil || int64(len(request.Bundle)) > request.MaxBytes {
+	if !request.DestinationRoot.Valid() || !request.StoreRoot.Valid() || !request.BundlePath.Valid() || !request.ManifestPath.Valid() || request.BundlePath == request.ManifestPath || request.MaxBytes <= 0 || len(request.Bundle) == 0 || len(request.SourceIDs) == 0 || request.ManifestForBundleReceipt == nil || int64(len(request.Bundle)) > request.MaxBytes {
 		return appexport.ExportInstallResult{}, fmt.Errorf("export installer: invalid request")
 	}
 
 	exportInstallProcessMu.Lock()
 	defer exportInstallProcessMu.Unlock()
-	lock, err := acquireExportLock(ctx, request.Root, installer.writer)
+	lock, err := acquireExportLock(ctx, request.StoreRoot, installer.writer)
 	if err != nil {
 		return appexport.ExportInstallResult{}, err
 	}
@@ -88,14 +88,14 @@ func (installer *ExportInstaller) Install(ctx context.Context, request appexport
 	if int64(len(journalBytes)) > journalMaxBytes {
 		journalMaxBytes = int64(len(journalBytes))
 	}
-	if _, err := installer.writeOrAdopt(ctx, request.Root, journalPath, journalBytes, journalMaxBytes, "export_install_journal", request.SourceIDs); err != nil {
+	if _, err := installer.writeOrAdopt(ctx, request.StoreRoot, journalPath, journalBytes, journalMaxBytes, "export_install_journal", request.SourceIDs); err != nil {
 		return appexport.ExportInstallResult{}, fmt.Errorf("export installer record journal: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return appexport.ExportInstallResult{}, err
 	}
 
-	bundleReceipt, err := installer.writeOrAdopt(ctx, request.Root, request.BundlePath, request.Bundle, request.MaxBytes, "export_bundle", request.SourceIDs)
+	bundleReceipt, err := installer.writeOrAdopt(ctx, request.DestinationRoot, request.BundlePath, request.Bundle, request.MaxBytes, "export_bundle", request.SourceIDs)
 	if err != nil {
 		return appexport.ExportInstallResult{}, fmt.Errorf("export installer bundle: %w", err)
 	}
@@ -109,14 +109,14 @@ func (installer *ExportInstaller) Install(ctx context.Context, request appexport
 	if err := ctx.Err(); err != nil {
 		return appexport.ExportInstallResult{}, err
 	}
-	manifestReceipt, err := installer.writeOrAdopt(ctx, request.Root, request.ManifestPath, manifestBytes, request.MaxBytes, "export_manifest", request.SourceIDs)
+	manifestReceipt, err := installer.writeOrAdopt(ctx, request.DestinationRoot, request.ManifestPath, manifestBytes, request.MaxBytes, "export_manifest", request.SourceIDs)
 	if err != nil {
 		return appexport.ExportInstallResult{}, fmt.Errorf("export installer manifest install: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return appexport.ExportInstallResult{}, err
 	}
-	if err := removeExportJournal(request.Root, journalPath); err != nil {
+	if err := removeExportJournal(request.StoreRoot, journalPath); err != nil {
 		return appexport.ExportInstallResult{}, fmt.Errorf("export installer cleanup journal: %w", err)
 	}
 	return appexport.ExportInstallResult{BundleReceipt: bundleReceipt, ManifestReceipt: manifestReceipt, ManifestBytes: append([]byte(nil), manifestBytes...)}, nil

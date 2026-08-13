@@ -43,6 +43,9 @@ func (adapter *redactedExportAdapter) ExportRedactedRun(ctx context.Context, req
 	if ctx == nil {
 		return RedactedExportResult{}, context.Canceled
 	}
+	if !request.ProjectRoot.Valid() || !request.ArtifactRoot.Valid() {
+		return RedactedExportResult{}, fmt.Errorf("redacted export service: invalid project or artifact root")
+	}
 	runID, err := domain.ParseRunID(request.RunID)
 	if err != nil {
 		return RedactedExportResult{}, err
@@ -55,7 +58,7 @@ func (adapter *redactedExportAdapter) ExportRedactedRun(ctx context.Context, req
 	if err != nil {
 		return RedactedExportResult{}, err
 	}
-	run, err := adapter.queries.ResolveRun(ctx, request.ProjectRoot, runID)
+	run, err := adapter.queries.ResolveRun(ctx, request.ArtifactRoot, runID)
 	if err != nil {
 		return RedactedExportResult{}, err
 	}
@@ -76,8 +79,8 @@ func (adapter *redactedExportAdapter) ExportRedactedRun(ctx context.Context, req
 		return RedactedExportResult{}, err
 	}
 	result, err := service.ExportRedactedRun(ctx, appexport.ExportRequest{
-		Source: appexport.ExportSource{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String()},
-		Root:   request.ProjectRoot, BundlePath: bundlePath, ManifestPath: manifestPath,
+		Source:          appexport.ExportSource{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String()},
+		DestinationRoot: request.ProjectRoot, StoreRoot: request.ArtifactRoot, BundlePath: bundlePath, ManifestPath: manifestPath,
 		ExportID: "x_" + strings.TrimPrefix(requestID, "i_"), CreatedAt: now,
 	})
 	if err != nil {

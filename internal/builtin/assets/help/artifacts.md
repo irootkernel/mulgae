@@ -5,6 +5,9 @@ A published run has the form:
 
 ```text
 .mulgae/
+  exports/
+    r_<uuidv7>.zip
+    r_<uuidv7>.manifest.json
   s_<uuidv7>/
     r_<uuidv7>/
       manifest.json
@@ -53,4 +56,8 @@ removes safely deletable terminal runs older than 30 whole days; add `--dry-run`
 for a read-only summary. `clean --all` removes every safely deletable terminal
 run regardless of age. Active, incomplete, corrupt, unknown, and required lineage
 state remains protected.
-`export` creates a redacted bundle at a safe project-relative path.
+`export --run <id>` creates a redacted bundle and its manifest beneath
+`.mulgae/exports/` by default. Pass `--output-path <relative-path>` to place an
+intentional copy elsewhere beneath the project root. Mulgae does not modify Git
+ignore configuration; repository owners should ignore `/.mulgae/` and must not
+commit or share its contents.

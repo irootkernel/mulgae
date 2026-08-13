@@ -1437,8 +1437,10 @@ func parseExport(arguments []string, requestID string) (Invocation, error) {
 		return Invocation{}, err
 	}
 	outputPath, present := options["--output-path"]
-	if !present || !validRelativePath(outputPath) {
-		return Invocation{}, usageError("export requires a safe relative --output-path")
+	if !present {
+		outputPath = path.Join(".mulgae", "exports", runID+".zip")
+	} else if !validRelativePath(outputPath) {
+		return Invocation{}, usageError("export --output-path must be a safe relative path")
 	}
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {

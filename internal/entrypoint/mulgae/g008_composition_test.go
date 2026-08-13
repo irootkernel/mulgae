@@ -58,6 +58,18 @@ func TestG008CompositionRejectsMissingPublicationAuthority(t *testing.T) {
 	}
 }
 
+func TestG008CompositionRejectsResolverForDifferentArtifactRoot(t *testing.T) {
+	composition := newG008Composition(t)
+	otherRoot, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition.ArtifactRoot = otherRoot
+	if _, err := NewG008Dependencies(composition); err == nil {
+		t.Fatal("composition accepted a resolver bound to a different artifact root")
+	}
+}
+
 func TestG008CompositionRejectsPartialOnlineAuthority(t *testing.T) {
 	composition := newG008Composition(t)
 	composition.Online = &G008OnlineAuthority{FollowupTargetCapturer: compositionFollowupCapturer{}}
@@ -95,7 +107,7 @@ func TestG008CompositionComposesAllOnlineWorkflowServices(t *testing.T) {
 
 func TestG008RuntimePromptSourceRejectsMissingExplicitAuthorities(t *testing.T) {
 	composition := newG008Composition(t)
-	sources, err := NewG008Sources(composition.Root, composition.RequestResolver, composition.Queries)
+	sources, err := NewG008Sources(composition.ArtifactRoot, composition.RequestResolver, composition.Queries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +149,7 @@ func newG008Composition(t *testing.T) G008Composition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return G008Composition{Root: root, Queries: queries, RequestResolver: resolver, Clock: clock, IDs: ids, ExportInstaller: installer, PublicationAuthority: store}
+	return G008Composition{ArtifactRoot: root, Queries: queries, RequestResolver: resolver, Clock: clock, IDs: ids, ExportInstaller: installer, PublicationAuthority: store}
 }
 
 var _ ports.Clock = runtimeadapter.SystemClock{}

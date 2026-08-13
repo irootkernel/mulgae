@@ -812,10 +812,11 @@ type RetentionService interface {
 
 // RedactedExportRequest is the complete schema-backed export selection.
 type RedactedExportRequest struct {
-	RunID       string
-	OutputPath  string
-	Redacted    bool
-	ProjectRoot ports.AnchoredRoot
+	RunID        string
+	OutputPath   string
+	Redacted     bool
+	ProjectRoot  ports.AnchoredRoot
+	ArtifactRoot ports.AnchoredRoot
 }
 
 // RedactedExportResult is the authoritative persisted export projection.

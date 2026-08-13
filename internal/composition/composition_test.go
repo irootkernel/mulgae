@@ -25,18 +25,18 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestChildPublicationRootUsesPrivateMulgaeNamespace(t *testing.T) {
+func TestPublicationArtifactRootUsesPrivateMulgaeNamespace(t *testing.T) {
 	projectPath := filepath.Join(t.TempDir(), "project")
 	project, err := ports.NewAnchoredRoot(projectPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := childPublicationRoot(project)
+	root, err := publicationArtifactRoot(project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(projectPath, ".mulgae"); root.String() != want {
-		t.Fatalf("child publication root = %q, want %q", root.String(), want)
+		t.Fatalf("publication artifact root = %q, want %q", root.String(), want)
 	}
 }
 
