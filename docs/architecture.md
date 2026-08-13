@@ -48,6 +48,7 @@ root.
 | `assets` | Repository-root human-authored role document, embedded into the binary |
 | `internal/roles` | Role document schema, parsing, and whole-catalog validation |
 | `internal/app/roleassets` | Single application-layer reader of the role document |
+| `skills` | Optional, source-distributed AI-agent operating guidance; not a runtime authority or embedded binary asset |
 | `test/e2e` | Black-box binary integration, artist fixture, and live-provider E2E tests |
 
 ## Role catalog

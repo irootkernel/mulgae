@@ -175,59 +175,98 @@ Patch/stdin input containing only excluded control changes fails with
 Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
 
-## AI agent instructions
+## Optional: configure an AI coding agent
 
-Copy the following block into a project's `AGENTS.md` or `CLAUDE.md` to tell AI
-agents how to use Mulgae safely and consistently:
+Installing Mulgae does not modify a project's `AGENTS.md` and does not install
+an agent skill. Mulgae works normally without either integration. You may use
+the `AGENTS.md` template below, the source-distributed skill, both together, or
+neither.
+
+Copy this minimal project-wide template into the reviewed project's
+`AGENTS.md` when you want an agent to operate Mulgae there:
 
 ````markdown
 ### Mulgae code review
 
-Use Mulgae only when the user explicitly asks for a Mulgae review.
-
-- Run Mulgae from the Git repository root. Verify that `mulgae` is installed and
-  `.mulgae/config.yaml` exists before starting. If either prerequisite is
-  missing, stop and tell the user what is required. Do not run `mulgae init`
-  unless the user separately and explicitly asks you to initialize the project.
-- Select exactly one target that matches the requested scope: use `--diff
-  origin/main...HEAD` for a branch or pull request (replacing `origin/main` with
-  the actual base), `--stage` for staged changes, `--dirty` for staged and
-  unstaged changes, or `--workspace` only when the user explicitly requests all
-  tracked files at the current workspace state.
-- State the review goal with `--objective` and use `--output json`. For example:
-
-  ```bash
-  mulgae review --diff origin/main...HEAD \
-    --objective "Review this change before merge." \
-    --output json
-  ```
-
-- Read the JSON result even when Mulgae exits with status 1: status 1 is a policy
-  outcome, not an execution failure. Treat any status other than 0 or 1 as an
-  operational failure; report it instead of bypassing Mulgae.
-- Preserve the exact run ID returned by the review. Inspect that run with:
-
-  ```bash
-  mulgae status --run r_... --output json
-  mulgae findings --run r_... --severity low --output json
-  ```
-
-- Treat every finding as an advisory hypothesis. Verify it against the captured
-  target and current code before changing anything, and make fixes only within
-  the user's authorized scope. Report findings that are valid, invalid, or
-  outside scope.
-- After an authorized fix, use the original run ID and finding ID with a target
-  that contains the fix. For an uncommitted fix, for example:
-
-  ```bash
-  mulgae followup --run r_... --finding F001 --dirty \
-    --objective "Check whether the original finding is resolved." \
-    --output json
-  ```
-
+- Use Mulgae only when the user explicitly requests it. Confirm that `mulgae`
+  is available; never install it automatically.
+- Run Mulgae from the Git repository root. Confirm that
+  `.mulgae/config.yaml` exists; never run `mulgae init` without explicit user
+  intent.
+- Derive each action from current machine-readable configuration, preflight,
+  and run status. Select exactly one review target (`--diff BASE...HEAD`,
+  `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
+  `--output json`.
+- Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
+  outcome, not an execution failure. Treat other non-zero exits per
+  `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with
+  `mulgae status --run r_... --output json`.
+- Treat Mulgae as advisory. Verify findings against the captured target before
+  changing code, and record only claims supported by current evidence.
+- Require explicit user intent before cleanup, cancellation, configuration or
+  goal changes, or another lifecycle-changing action. Re-read status after
+  every mutation and never blindly retry an uncertain mutation.
 - Do not commit or share `.mulgae/`, provider credential directories, raw
   transcripts, or exported review bundles.
 ````
+
+For the complete reusable workflow, see the
+[`use-mulgae` skill directory](skills/use-mulgae/). It is included in the
+source repository and source archives, but it is not embedded in or installed
+with the Mulgae binary. Agent skill discovery paths differ, so consult your
+agent's documentation and replace the destination below with that agent's
+configured skill directory. The default `main` reference installs the latest
+guidance; replace it with a release tag newer than `v0.1.12` when you need a
+version matched to an installed Mulgae release — earlier releases do not ship
+the skill:
+
+```bash
+(
+set -eu
+
+agent_skills_dir=/path/to/your/agent/skills
+mulgae_skill_dir="$agent_skills_dir/use-mulgae"
+mulgae_ref=main
+
+mkdir -p "$agent_skills_dir"
+mulgae_stage_dir="$(mktemp -d "$agent_skills_dir/.use-mulgae.install.XXXXXX")"
+mulgae_staged_skill="$mulgae_stage_dir/use-mulgae"
+mulgae_previous_skill="$mulgae_stage_dir/previous"
+mulgae_installed=false
+
+cleanup_mulgae_skill_install() {
+  mulgae_install_status=$?
+  if [ "$mulgae_installed" != true ] && \
+    [ -e "$mulgae_previous_skill" ] && [ ! -e "$mulgae_skill_dir" ]; then
+    mv "$mulgae_previous_skill" "$mulgae_skill_dir" || true
+  fi
+  if [ "$mulgae_installed" = true ] || [ ! -e "$mulgae_previous_skill" ]; then
+    rm -rf "$mulgae_stage_dir"
+  else
+    echo "Mulgae skill backup preserved at $mulgae_previous_skill" >&2
+  fi
+  return "$mulgae_install_status"
+}
+trap cleanup_mulgae_skill_install EXIT
+
+mkdir -p "$mulgae_staged_skill/references"
+curl -fsSLo "$mulgae_staged_skill/SKILL.md" \
+  "https://raw.githubusercontent.com/irootkernel/mulgae/$mulgae_ref/skills/use-mulgae/SKILL.md"
+
+for reference in lifecycle authoring recovery; do
+  curl -fsSLo "$mulgae_staged_skill/references/$reference.md" \
+    "https://raw.githubusercontent.com/irootkernel/mulgae/$mulgae_ref/skills/use-mulgae/references/$reference.md"
+done
+
+if [ -e "$mulgae_skill_dir" ]; then
+  mv "$mulgae_skill_dir" "$mulgae_previous_skill"
+fi
+mv "$mulgae_staged_skill" "$mulgae_skill_dir"
+mulgae_installed=true
+rm -rf "$mulgae_stage_dir"
+trap - EXIT
+)
+```
 
 ## Review results
 
