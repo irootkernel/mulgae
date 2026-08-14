@@ -180,6 +180,108 @@ func TestServeRunReviewPreservesRequestChangesOutcome(t *testing.T) {
 	}
 }
 
+func TestServeRunReviewSendsProgressOnlyWhenRequested(t *testing.T) {
+	backend := &toolBackendFake{}
+	reader, input := io.Pipe()
+	output := make(chan []byte, 4)
+	done := make(chan error, 1)
+	config := toolTestConfig(t, backend)
+	go func() {
+		done <- Serve(context.Background(), reader, channelWriter{output: output}, config)
+	}()
+	if _, err := io.WriteString(input, latestRequest(1, "server/discover", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	receiveMCPMessage(t, output)
+	call := latestRequestWithProgress(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"}}}`, "review-progress")
+	if _, err := io.WriteString(input, call); err != nil {
+		t.Fatal(err)
+	}
+
+	first := decodeResponse(t, receiveMCPMessage(t, output))
+	second := decodeResponse(t, receiveMCPMessage(t, output))
+	response := decodeResponse(t, receiveMCPMessage(t, output))
+	for index, notification := range []map[string]any{first, second} {
+		if notification["method"] != "notifications/progress" {
+			t.Fatalf("message %d = %#v, want progress notification", index, notification)
+		}
+		params := notification["params"].(map[string]any)
+		if params["progressToken"] != "review-progress" || params["progress"] != float64(index) {
+			t.Fatalf("progress %d = %#v", index, params)
+		}
+	}
+	if response["id"] != float64(2) || response["result"] == nil || backend.runReviewCalls != 1 {
+		t.Fatalf("run_review response = %#v, calls = %d", response, backend.runReviewCalls)
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP shutdown")
+	}
+}
+
+func TestServeInvalidRunReviewDoesNotClaimProgressAdmission(t *testing.T) {
+	backend := &toolBackendFake{}
+	discover := latestRequest(1, "server/discover", `{}`)
+	call := latestRequestWithProgress(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"stdin"}}}`, "review-progress")
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, call)[1])
+	result := response["result"].(map[string]any)
+	if result["isError"] != true || backend.runReviewCalls != 0 {
+		t.Fatalf("invalid run_review response = %#v, calls = %d", response, backend.runReviewCalls)
+	}
+}
+
+func TestServeRunReviewCancellationReachesBackendContext(t *testing.T) {
+	backend := &toolBackendFake{runReviewStarted: make(chan struct{}), runReviewCancelled: make(chan error, 1)}
+	reader, input := io.Pipe()
+	output := make(chan []byte, 4)
+	done := make(chan error, 1)
+	config := toolTestConfig(t, backend)
+	go func() {
+		done <- Serve(context.Background(), reader, channelWriter{output: output}, config)
+	}()
+	if _, err := io.WriteString(input, latestRequest(1, "server/discover", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	receiveMCPMessage(t, output)
+	if _, err := io.WriteString(input, latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-backend.runReviewStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for review start")
+	}
+	if _, err := io.WriteString(input, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2,"reason":"operator cancelled"}}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-backend.runReviewCancelled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("backend cancellation = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for backend cancellation")
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP shutdown")
+	}
+}
+
 func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"
 	backend := &toolBackendFake{resource: ResourceResult{
@@ -365,6 +467,23 @@ func latestRequest(id int, method, params string) string {
 	return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":%s}`+"\n", id, method, params)
 }
 
+func latestRequestWithProgress(id int, method, params, token string) string {
+	meta := `"_meta":{"progressToken":` + fmt.Sprintf("%q", token) + `,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`
+	params = strings.TrimSuffix(params, `}`) + `,` + meta + `}`
+	return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":%s}`+"\n", id, method, params)
+}
+
+func receiveMCPMessage(t *testing.T, output <-chan []byte) []byte {
+	t.Helper()
+	select {
+	case message := <-output:
+		return message
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP message")
+		return nil
+	}
+}
+
 func toolTestConfig(t *testing.T, backend Backend) Config {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)
@@ -383,19 +502,27 @@ func toolTestConfig(t *testing.T, backend Backend) Config {
 }
 
 type toolBackendFake struct {
-	runReviewOutcome string
-	runReviewCalls   int
-	preflightCalls   int
-	getRunData       map[string]any
-	getRunErr        error
-	getRunCalls      int
-	resource         ResourceResult
-	resourceErr      error
-	resourceCalls    int
+	runReviewOutcome   string
+	runReviewCalls     int
+	runReviewStarted   chan struct{}
+	runReviewCancelled chan error
+	preflightCalls     int
+	getRunData         map[string]any
+	getRunErr          error
+	getRunCalls        int
+	resource           ResourceResult
+	resourceErr        error
+	resourceCalls      int
 }
 
-func (fake *toolBackendFake) RunReview(context.Context, string, RunReviewInput) (BackendResult, error) {
+func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, _ RunReviewInput) (BackendResult, error) {
 	fake.runReviewCalls++
+	if fake.runReviewStarted != nil {
+		close(fake.runReviewStarted)
+		<-ctx.Done()
+		fake.runReviewCancelled <- ctx.Err()
+		return BackendResult{}, ctx.Err()
+	}
 	outcome := fake.runReviewOutcome
 	if outcome == "" {
 		outcome = toolOutcomeSuccess

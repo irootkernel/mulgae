@@ -23,6 +23,14 @@ bind the finding to the current target SHA-256; stale, malformed, oversized, or
 relocated content fails closed without reflecting the requested URI or native
 path.
 
+Optional `run_review` progress notifications contain only fixed Mulgae
+lifecycle messages, an admitted bounded client token, and a monotonic counter;
+they do not expose paths, source, provider output, run identity, or artifact
+content.
+Notification delivery failure cannot weaken review or publication policy.
+Standard MCP request cancellation reaches the existing fail-closed execution
+context rather than a transport-owned background job.
+
 ## Provider isolation
 
 Providers do not receive live access to the project tree. Mulgae captures the

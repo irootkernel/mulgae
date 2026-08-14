@@ -120,6 +120,15 @@ publication policy. Review calls run in the foreground so request completion
 replaces completion polling, while preflight, list, lookup, and resource reads
 remain bounded read-only projections.
 
+When `run_review` carries an MCP progress token, the entrypoint emits a fixed
+admission message, monotonically increasing periodic heartbeats with an unknown
+total, and a final completion or stopped message before returning the tool
+result. Notifications are best-effort observations and never change review
+state or failure precedence. The SDK maps `notifications/cancelled` for the
+request directly onto the handler context; that same context reaches capture,
+provider subprocesses, and terminal publication. Mulgae does not maintain a
+second cancellation registry or detach review work from the requesting client.
+
 Preflight omits the unbounded per-file inventory from its MCP result and returns
 only target identity, file-set counts and byte totals, generated paths,
 transmission routes, and execution budget. Committed report and evidence bytes

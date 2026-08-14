@@ -83,3 +83,9 @@ in chunks of at most 16 KiB, with SHA-256, offset, total length, completion, and
 continuation metadata. All tools use the common
 `mulgae-mcp-tool-result.v1` structured envelope, where `request_changes` is a
 completed review rather than a transport failure.
+
+Clients that attach a progress token to `run_review` receive an admission
+notification, monotonic periodic heartbeats, and a terminal notification before
+the result. Cancelling the MCP request cancels that foreground review and its
+provider processes. Progress is optional and best-effort; it never changes the
+review outcome or publication authority.

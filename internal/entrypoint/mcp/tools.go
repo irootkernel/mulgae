@@ -80,7 +80,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 		return
 	}
 	addTool(server, toolRunReview, "Capture and run one foreground Mulgae review for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false,
-		func(ctx context.Context, requestID string, raw json.RawMessage) (string, map[string]any, error) {
+		func(ctx context.Context, requestID string, raw json.RawMessage, startProgress func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
 				return "", nil, err
@@ -88,11 +88,12 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			if err := validateRunReviewInput(input); err != nil {
 				return "", nil, err
 			}
+			startProgress()
 			result, err := backend.RunReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
 		}, newRequestID)
 	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(runReviewInputSchema), outputSchema, true,
-		func(ctx context.Context, requestID string, raw json.RawMessage) (string, map[string]any, error) {
+		func(ctx context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
 				return "", nil, err
@@ -104,7 +105,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			return result.Outcome, result.Data, err
 		}, newRequestID)
 	addTool(server, toolListRuns, "List a bounded page of safely admitted Mulgae runs for this server's fixed project root.", json.RawMessage(listRunsInputSchema), outputSchema, true,
-		func(ctx context.Context, _ string, raw json.RawMessage) (string, map[string]any, error) {
+		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			input := ListRunsInput{Limit: 20}
 			if err := decodeArguments(raw, &input); err != nil {
 				return "", nil, err
@@ -116,7 +117,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
 	addTool(server, toolGetRun, "Get the safely verified status and public artifact identities for one Mulgae run.", json.RawMessage(getRunInputSchema), outputSchema, true,
-		func(ctx context.Context, _ string, raw json.RawMessage) (string, map[string]any, error) {
+		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input GetRunInput
 			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) {
 				return "", nil, errInvalidToolArguments
@@ -125,7 +126,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
 	addTool(server, toolListFindings, "List bounded committed finding summaries without returning report or source bodies.", json.RawMessage(listFindingsInputSchema), outputSchema, true,
-		func(ctx context.Context, _ string, raw json.RawMessage) (string, map[string]any, error) {
+		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			input := ListFindingsInput{MinimumSeverity: "low"}
 			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) ||
 				!oneOf(input.MinimumSeverity, "low", "medium", "high", "critical", "blocker") {
@@ -136,7 +137,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 		}, newRequestID)
 }
 
-type toolCall func(context.Context, string, json.RawMessage) (string, map[string]any, error)
+type toolCall func(context.Context, string, json.RawMessage, func()) (string, map[string]any, error)
 
 func addTool(
 	server *mcpsdk.Server,
@@ -164,7 +165,16 @@ func addTool(
 		if err != nil || !matches(requestIDPattern, requestID) {
 			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "Mulgae request identity is unavailable"}
 		}
-		outcome, data, callErr := call(ctx, requestID, request.Params.Arguments)
+		finishProgress := func(string) {}
+		startProgress := func() {
+			finishProgress = startReviewProgress(ctx, request)
+		}
+		outcome, data, callErr := call(ctx, requestID, request.Params.Arguments, startProgress)
+		if callErr != nil {
+			finishProgress("Mulgae review stopped.")
+		} else {
+			finishProgress("Mulgae review completed.")
+		}
 		var result ToolResult
 		if callErr != nil {
 			result, err = newToolFailure(name, requestID, publicToolError(callErr, name))

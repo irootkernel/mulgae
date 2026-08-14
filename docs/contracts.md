@@ -106,6 +106,17 @@ summaries, and no tool result embeds report or source bodies. `request_changes`
 means the review completed with a policy rejection; it is not an MCP call
 failure.
 
+`run_review` honors a standard integer or at-most-128-byte string progress token
+in request metadata; other token values are ignored. If admitted, progress
+starts at zero, increases monotonically through periodic heartbeats, has no
+declared total, and ends with a completion or stopped notification before a
+non-cancelled tool result. Without a progress token no progress notification is
+sent. A standard MCP cancellation notification for the call cancels its
+foreground context; cancellation does not create a detached run, and no
+terminal progress notification is attempted after the context is cancelled.
+Progress delivery is best-effort and cannot alter the tool outcome or canonical
+failure precedence.
+
 The `verified_review_report` template uses
 `mulgae://runs/{run_id}/report{?offset}`. The
 `verified_finding_evidence` template uses
