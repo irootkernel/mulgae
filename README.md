@@ -352,18 +352,16 @@ Copy this minimal project-wide template into the reviewed project's
 For the complete reusable workflow, see the
 [`use-mulgae` skill directory](skills/use-mulgae/). It is included in the
 source repository and source archives, but it is not embedded in or installed
-with the Mulgae binary. Agent skill discovery paths differ, so consult your
-agent's documentation and replace the destination below with that agent's
-configured skill directory. The default `main` reference installs the latest
-guidance; replace it with a release tag newer than `v0.1.12` when you need a
-version matched to an installed Mulgae release — earlier releases do not ship
-the skill:
+with the Mulgae binary. Install it under `~/.agents/skills/` as shown below.
+The default `main` reference installs the latest guidance; replace it with a
+release tag newer than `v0.1.12` when you need a version matched to an installed
+Mulgae release — earlier releases do not ship the skill:
 
 ```bash
 (
 set -eu
 
-agent_skills_dir=/path/to/your/agent/skills
+agent_skills_dir="$HOME/.agents/skills"
 mulgae_skill_dir="$agent_skills_dir/use-mulgae"
 mulgae_ref=main
 
