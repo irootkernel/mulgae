@@ -185,30 +185,13 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	reviewRuns := application.reviewRuns
-	if preparer, ok := reviewRuns.(ReviewRunServicePreparer); ok {
-		reviewRuns, err = preparer.PrepareReviewRun(ctx, projectRoot)
-		if err != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
-		}
-	}
-	artifactDirectory, err := ports.NewSafeRelativePath(".mulgae")
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	if err := application.writer.EnsurePrivateDir(projectRoot, artifactDirectory); err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureArtifact, "private publication root unavailable", err), domain.FailureArtifact)}
-	}
-	result, err := reviewRuns.StartReviewRun(ctx, request, projectRoot)
+	result, err := application.StartReviewRun(ctx, request, projectRoot)
 	if err != nil {
 		failureData, dataErr := reviewFailureResultJSON(err)
 		if dataErr != nil {
 			return execution{failure: executionFailureFor(invocation.Command(), dataErr, domain.FailureInternal)}
 		}
 		return execution{failureData: failureData, failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review", domain.FailureProviderUnavailable, "review service failed", err), domain.FailureProviderUnavailable)}
-	}
-	if err := result.Validate(); err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 	sessionID, runID := result.SessionID(), result.RunID()
 	runManifestURI, reviewArtifactURI := result.RunManifestURI(), result.ReviewArtifactURI()
@@ -255,6 +238,42 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		committedReasons:       reasons,
 		committedReasonDetails: reasonDetails,
 	}
+}
+
+// StartReviewRun preserves the CLI review preparation, private publication
+// root, execution, and terminal validation sequence for other local entrypoints.
+func (application *Application) StartReviewRun(
+	ctx context.Context,
+	request ReviewRequest,
+	projectRoot ports.AnchoredRoot,
+) (ReviewRunResult, error) {
+	if application == nil || nilApplicationDependency(application.reviewRuns) ||
+		nilApplicationDependency(application.writer) || !projectRoot.Valid() {
+		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "review application is unavailable", nil)
+	}
+	reviewRuns := application.reviewRuns
+	var err error
+	if preparer, ok := reviewRuns.(ReviewRunServicePreparer); ok {
+		reviewRuns, err = preparer.PrepareReviewRun(ctx, projectRoot)
+		if err != nil {
+			return ReviewRunResult{}, classifyHandlerFailure("review.start", domain.FailureProviderUnavailable, "review service preparation failed", err)
+		}
+	}
+	artifactDirectory, err := ports.NewSafeRelativePath(".mulgae")
+	if err != nil {
+		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "private publication path is invalid", err)
+	}
+	if err := application.writer.EnsurePrivateDir(projectRoot, artifactDirectory); err != nil {
+		return ReviewRunResult{}, classifyHandlerFailure("review.start", domain.FailureArtifact, "private publication root unavailable", err)
+	}
+	result, err := reviewRuns.StartReviewRun(ctx, request, projectRoot)
+	if err != nil {
+		return ReviewRunResult{}, classifyHandlerFailure("review.start", domain.FailureProviderUnavailable, "review service failed", err)
+	}
+	if err := result.Validate(); err != nil {
+		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "review result is invalid", err)
+	}
+	return result, nil
 }
 
 func reviewFailureResultJSON(err error) ([]byte, error) {

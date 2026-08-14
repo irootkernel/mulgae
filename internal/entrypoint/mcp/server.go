@@ -18,9 +18,12 @@ const ProtocolVersion = "2026-07-28"
 
 // Config fixes process-scoped MCP server identity and project authority.
 type Config struct {
-	Name        string
-	Version     string
-	ProjectRoot string
+	Name             string
+	Version          string
+	ProjectRoot      string
+	Backend          Backend
+	NewRequestID     func() (string, error)
+	ToolResultSchema json.RawMessage
 }
 
 // Serve runs one attached stdio MCP server until input closes or the context is
@@ -32,6 +35,10 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 	if config.Name == "" || config.Version == "" || !filepath.IsAbs(config.ProjectRoot) {
 		return errors.New("serve MCP: invalid server configuration")
 	}
+	toolConfigurationPresent := config.Backend != nil || config.NewRequestID != nil || len(config.ToolResultSchema) != 0
+	if toolConfigurationPresent && (config.Backend == nil || config.NewRequestID == nil || len(config.ToolResultSchema) == 0) {
+		return errors.New("serve MCP: incomplete tool configuration")
+	}
 
 	server := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: config.Name, Version: config.Version},
@@ -42,6 +49,7 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 		},
 	)
 	server.AddReceivingMiddleware(admitLatestProtocol)
+	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
 
 	transport := latestTransport{Transport: &mcpsdk.IOTransport{
 		Reader: asReadCloser(reader),

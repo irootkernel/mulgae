@@ -97,7 +97,13 @@ MCP tool results, provider/platform evidence, provider review values, repair
 and validation values, run/final artifacts, clean/export values, and the
 embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
 content envelope for MCP tools. It binds a Mulgae-issued request identity and
-tool name to `success`, `request_changes`, or a typed `error` outcome.
+tool name to `success`, `request_changes`, or a typed `error` outcome. The
+initial tool grammar comprises `run_review`, `list_runs`, `get_run`, and
+`list_findings`. Review targets are workspace, stage, dirty, diff, or patch;
+stdio is reserved for JSON-RPC and is not a review target. Run pages admit a
+limit from 1 through 100, finding responses admit at most 1,000 summaries, and
+no initial query tool returns report or source bodies. `request_changes` means
+the review completed with a policy rejection; it is not an MCP call failure.
 
 Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path

@@ -110,9 +110,13 @@ normal attached-client shutdown; cancellation uses Mulgae exit 9, malformed or
 failed transport uses exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
-diagnostics use stderr. This foundation has no registered review tools; later
-tool wiring must call existing application services rather than moving policy
-into the transport package.
+diagnostics use stderr. The transport exposes `run_review`, `list_runs`,
+`get_run`, and `list_findings`. The MCP package owns strict tool grammar and the
+common result envelope; composition binds those tools to the same review and
+verified publication-query services used by the CLI. It does not duplicate
+capture, execution, query, or publication policy. Review calls run in the
+foreground so request completion replaces completion polling, while list and
+lookup calls remain bounded read-only projections.
 
 ## Concurrency, cancellation, and storage
 

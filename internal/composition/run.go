@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"syscall"
 
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
@@ -64,11 +65,23 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	signal.Ignore(syscall.SIGPIPE)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if len(arguments) > 0 && arguments[0] == "mcp" {
-		return runMCP(ctx, arguments[1:], stdin, stdout, stderr, version.Version)
-	}
+	mcpMode := len(arguments) > 0 && arguments[0] == "mcp"
 	root, err := currentRoot()
+	if mcpMode {
+		command, parseErr := mcpentry.Parse(arguments[1:])
+		if parseErr != nil {
+			writeDiagnostic(stderr, "mulgae: usage: mulgae mcp [--project-root ABSOLUTE_PATH]\n")
+			return 2
+		}
+		if explicit, present := command.ProjectRoot(); present {
+			root, err = canonicalRoot(explicit)
+		}
+	}
 	if err != nil {
+		if mcpMode {
+			writeDiagnostic(stderr, "mulgae: MCP project root is unavailable\n")
+			return 2
+		}
 		writeDiagnostic(stderr, "mulgae: current directory is unavailable\n")
 		return 10
 	}
@@ -117,7 +130,11 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	runSelector := filesystem.NewRunSelector(artifactRoot)
-	requestResolver, err := mulgae.NewG008RequestResolver(artifactRoot, queryService, runSelector, stdin)
+	requestInput := stdin
+	if mcpMode {
+		requestInput = strings.NewReader("")
+	}
+	requestResolver, err := mulgae.NewG008RequestResolver(artifactRoot, queryService, runSelector, requestInput)
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: G008 request resolver is unavailable\n")
 		return 10
@@ -162,6 +179,8 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	}, func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewPreflightService, error) {
 		return composeReviewPreflight(reviewContext, reviewRoot, gitAdapter, requestResolver)
 	})
+	publicationQueries := mulgae.NewPublicationQueryService(queryService)
+	publicationReports := mulgae.NewPublicationReportService(reportService)
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
 		Clock:                clock,
 		RequestIDGenerator:   ids,
@@ -178,9 +197,9 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		FollowupRuns:       deferredFollowupRunService{composer: childComposer},
 		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
 		Reruns:             deferredRerunService{composer: childComposer},
-		PublicationQueries: mulgae.NewPublicationQueryService(queryService),
+		PublicationQueries: publicationQueries,
 		DiagnosticQueries:  filesystem.NewDiagnosticStatusReader(),
-		PublicationReports: mulgae.NewPublicationReportService(reportService),
+		PublicationReports: publicationReports,
 		Retention:          g008Dependencies.Retention,
 		Exports:            g008Dependencies.Exports,
 	})
@@ -188,32 +207,35 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		writeDiagnostic(stderr, "mulgae: application is unavailable\n")
 		return 10
 	}
+	if mcpMode {
+		backend, err := newMCPBackend(root, artifactRoot, application, publicationQueries, runSelector)
+		if err != nil {
+			writeDiagnostic(stderr, "mulgae: MCP application services are unavailable\n")
+			return 10
+		}
+		schemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json")
+		if err != nil {
+			writeDiagnostic(stderr, "mulgae: MCP result contract is unavailable\n")
+			return 10
+		}
+		_, resultSchema, err := catalog.Read(ctx, schemaID)
+		if err != nil {
+			writeDiagnostic(stderr, "mulgae: MCP result contract is unavailable\n")
+			return 10
+		}
+		return runMCP(ctx, stdin, stdout, stderr, mcpentry.Config{
+			Name: productName, Version: version.Version, ProjectRoot: root.String(), Backend: backend,
+			NewRequestID:     func() (string, error) { return ids.NewRequestID(clock.Now()) },
+			ToolResultSchema: resultSchema,
+		})
+	}
 
 	result := application.Run(ctx, arguments, root.String())
 	return deliverResult(stdout, stderr, result, arguments)
 }
 
-func runMCP(ctx context.Context, arguments []string, stdin io.Reader, stdout, stderr io.Writer, version string) int {
-	command, err := mcpentry.Parse(arguments)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: usage: mulgae mcp [--project-root ABSOLUTE_PATH]\n")
-		return 2
-	}
-	root, err := currentRoot()
-	if explicit, present := command.ProjectRoot(); present {
-		root, err = canonicalRoot(explicit)
-	}
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: MCP project root is unavailable\n")
-		return 2
-	}
-	if err := ports.ValidateResourceLimits(); err != nil {
-		writeDiagnostic(stderr, "mulgae: runtime resource limits are incompatible\n")
-		return 10
-	}
-	if err := mcpentry.Serve(ctx, stdin, stdout, mcpentry.Config{
-		Name: productName, Version: version, ProjectRoot: root.String(),
-	}); err != nil {
+func runMCP(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, config mcpentry.Config) int {
+	if err := mcpentry.Serve(ctx, stdin, stdout, config); err != nil {
 		if ctx.Err() != nil {
 			return 9
 		}

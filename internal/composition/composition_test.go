@@ -5,7 +5,10 @@ package composition
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,14 +47,14 @@ func TestPublicationArtifactRootUsesPrivateMulgaeNamespace(t *testing.T) {
 func TestRunMCPUsesExplicitRootAndKeepsStdoutProtocolOnly(t *testing.T) {
 	root := canonicalTestTempDir(t)
 	var stdout, stderr bytes.Buffer
-	exit := runMCP(context.Background(), []string{"--project-root", root}, strings.NewReader(""), &stdout, &stderr, "test")
+	exit := Run([]string{"mulgae", "mcp", "--project-root", root}, strings.NewReader(""), &stdout, &stderr, BuildOverrides{Version: "test"})
 	if exit != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("MCP EOF = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	exit = runMCP(context.Background(), []string{"--project-root", "relative"}, strings.NewReader(""), &stdout, &stderr, "test")
+	exit = Run([]string{"mulgae", "mcp", "--project-root", "relative"}, strings.NewReader(""), &stdout, &stderr, BuildOverrides{Version: "test"})
 	if exit != 2 || stdout.Len() != 0 || stderr.String() != "mulgae: usage: mulgae mcp [--project-root ABSOLUTE_PATH]\n" {
 		t.Fatalf("MCP usage = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
 	}
@@ -62,17 +65,73 @@ func TestRunMCPUsesExplicitRootAndKeepsStdoutProtocolOnly(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	exit = runMCP(context.Background(), []string{"--project-root", file}, strings.NewReader(""), &stdout, &stderr, "test")
+	exit = Run([]string{"mulgae", "mcp", "--project-root", file}, strings.NewReader(""), &stdout, &stderr, BuildOverrides{Version: "test"})
 	if exit != 2 || stdout.Len() != 0 || stderr.String() != "mulgae: MCP project root is unavailable\n" {
 		t.Fatalf("MCP file root = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	exit = runMCP(context.Background(), []string{"--project-root", root}, strings.NewReader("{\n"), &stdout, &stderr, "test")
+	exit = Run([]string{"mulgae", "mcp", "--project-root", root}, strings.NewReader("{\n"), &stdout, &stderr, BuildOverrides{Version: "test"})
 	if exit != 10 || stdout.Len() != 0 || stderr.String() != "mulgae: MCP transport failed\n" {
 		t.Fatalf("MCP malformed input = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
 	}
+}
+
+func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	reader, input := io.Pipe()
+	responses := make(chan []byte, 2)
+	done := make(chan int, 1)
+	go func() {
+		done <- Run([]string{"mulgae", "mcp", "--project-root", root}, reader, mcpCompositionWriter{responses}, io.Discard, BuildOverrides{Version: "test"})
+	}()
+	request := func(id int, method string) map[string]any {
+		t.Helper()
+		raw := `{"jsonrpc":"2.0","id":` + fmt.Sprint(id) + `,"method":"` + method + `","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}` + "\n"
+		if _, err := io.WriteString(input, raw); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case response := <-responses:
+			var decoded map[string]any
+			if err := json.Unmarshal(response, &decoded); err != nil {
+				t.Fatalf("decode MCP response %q: %v", response, err)
+			}
+			return decoded
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for production MCP response")
+			return nil
+		}
+	}
+	request(1, "server/discover")
+	response := request(2, "tools/list")
+	tools := response["result"].(map[string]any)["tools"].([]any)
+	names := make([]string, 0, len(tools))
+	for _, raw := range tools {
+		names = append(names, raw.(map[string]any)["name"].(string))
+	}
+	if strings.Join(names, ",") != "get_run,list_findings,list_runs,run_review" {
+		t.Fatalf("production MCP tools = %v", names)
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case exit := <-done:
+		if exit != 0 {
+			t.Fatalf("production MCP exit = %d", exit)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for production MCP shutdown")
+	}
+}
+
+type mcpCompositionWriter struct{ responses chan<- []byte }
+
+func (writer mcpCompositionWriter) Write(value []byte) (int, error) {
+	writer.responses <- append([]byte(nil), value...)
+	return len(value), nil
 }
 
 // TestConfiguredQualificationRolesFollowTheProviderMatrix proves qualification

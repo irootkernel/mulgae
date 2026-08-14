@@ -221,8 +221,23 @@ mulgae mcp --project-root /absolute/path/to/repository
 
 The server speaks newline-delimited JSON-RPC on stdout and accepts only MCP
 protocol `2026-07-28`. Diagnostics use stderr. The process fixes the canonical
-project root at startup and exits when its client closes stdin. This transport
-foundation does not register review tools yet.
+project root at startup and exits when its client closes stdin. It exposes four
+bounded tools:
+
+- `run_review` captures and completes one foreground review for `workspace`,
+  `stage`, `dirty`, `diff`, or `patch`; MCP stdin is transport-only and cannot
+  be a review target.
+- `list_runs` returns a newest-first page of safely admitted runs, with a limit
+  from 1 through 100 and an opaque continuation cursor.
+- `get_run` returns verified publication state and public artifact identities.
+- `list_findings` returns at most 1,000 committed finding summaries at or above
+  a selected severity; it does not return report or source bodies.
+
+Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
+`request_changes` is a completed review outcome, while failures use bounded,
+typed, redacted errors. Because `run_review` holds the request open until the
+review reaches a terminal result, clients do not need to poll run state merely
+to learn that the requested review completed.
 
 ## Optional: configure an AI coding agent
 

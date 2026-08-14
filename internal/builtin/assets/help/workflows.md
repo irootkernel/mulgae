@@ -72,5 +72,10 @@ mulgae mcp --project-root /absolute/path/to/repository
 
 The process accepts MCP `2026-07-28` only, writes newline-delimited JSON-RPC to
 stdout, writes bounded diagnostics to stderr, and stops when the client closes
-stdin. The project root is fixed at startup. This transport foundation does not
-register review tools yet.
+stdin. The project root is fixed at startup. It provides `run_review`,
+`list_runs`, `get_run`, and `list_findings`. `run_review` completes in the
+foreground and accepts workspace, stage, dirty, diff, or patch targets; stdin
+is reserved for JSON-RPC and cannot carry review content. Query tools return
+bounded verified projections, not report or source bodies. All tools use the
+common `mulgae-mcp-tool-result.v1` structured envelope, where
+`request_changes` is a completed review rather than a transport failure.

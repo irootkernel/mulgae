@@ -8,6 +8,12 @@ import (
 
 const toolResultSchemaVersion = "mulgae-mcp-tool-result.v1"
 
+const (
+	toolOutcomeSuccess        = "success"
+	toolOutcomeRequestChanges = "request_changes"
+	toolOutcomeError          = "error"
+)
+
 // ToolResult is the common structured-content envelope for Mulgae MCP tools.
 type ToolResult struct {
 	SchemaVersion string         `json:"schema_version"`
@@ -40,11 +46,11 @@ func (result ToolResult) Validate() error {
 		return fmt.Errorf("MCP tool result: invalid request ID")
 	}
 	switch result.Outcome {
-	case "success", "request_changes":
+	case toolOutcomeSuccess, toolOutcomeRequestChanges:
 		if result.Data == nil || result.Error != nil {
 			return fmt.Errorf("MCP tool result: successful outcome has invalid payload")
 		}
-	case "error":
+	case toolOutcomeError:
 		if result.Data != nil || result.Error == nil {
 			return fmt.Errorf("MCP tool result: error outcome has invalid payload")
 		}
@@ -55,6 +61,34 @@ func (result ToolResult) Validate() error {
 		return fmt.Errorf("MCP tool result: invalid outcome")
 	}
 	return nil
+}
+
+func newToolSuccess(tool, requestID, outcome string, data map[string]any) (ToolResult, error) {
+	result := ToolResult{
+		SchemaVersion: toolResultSchemaVersion,
+		Tool:          tool,
+		RequestID:     requestID,
+		Outcome:       outcome,
+		Data:          cloneMap(data),
+	}
+	if err := result.Validate(); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
+}
+
+func newToolFailure(tool, requestID string, failure ToolError) (ToolResult, error) {
+	result := ToolResult{
+		SchemaVersion: toolResultSchemaVersion,
+		Tool:          tool,
+		RequestID:     requestID,
+		Outcome:       toolOutcomeError,
+		Error:         &failure,
+	}
+	if err := result.Validate(); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
 }
 
 func (failure ToolError) validate() error {
@@ -85,4 +119,15 @@ func oneOf(value string, permitted ...string) bool {
 		}
 	}
 	return false
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	if source == nil {
+		return nil
+	}
+	destination := make(map[string]any, len(source))
+	for key, value := range source {
+		destination[key] = value
+	}
+	return destination
 }
