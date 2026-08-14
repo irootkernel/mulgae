@@ -8,7 +8,8 @@ policy, schema compilation, identity, evidence verification, state reduction,
 and publication.
 
 The attached MCP boundary is local stdio only. It fixes one canonical project
-root before serving requests, accepts only protocol `2026-07-28`, and reserves
+root before serving requests, admits only protocols `2026-07-28`, `2025-11-25`,
+and `2025-06-18`, rejects a version change within one session, and reserves
 stdout exclusively for newline-delimited JSON-RPC. Client parameters remain
 untrusted and do not acquire provider, publication, configuration, approval, or
 path authority merely by crossing the MCP transport. Tool arguments are

@@ -70,7 +70,8 @@ mulgae mcp
 mulgae mcp --project-root /absolute/path/to/repository
 ```
 
-The process accepts MCP `2026-07-28` only, writes newline-delimited JSON-RPC to
+The process prefers MCP `2026-07-28` and accepts `2025-11-25` and `2025-06-18`
+for current client compatibility. It writes newline-delimited JSON-RPC to
 stdout, writes bounded diagnostics to stderr, and stops when the client closes
 stdin. The project root is fixed at startup. It provides `preflight_review`,
 `run_review`, `list_runs`, `get_run`, and `list_findings`. Preflight is

@@ -28,11 +28,21 @@ make test-unit
 make test-int
 make test-e2e
 make test-kimi
+make test-mcp-clients
 ```
 
 `make test-kimi` is an opt-in compatibility check and is not part of
 `make test`. Do not call a change release-ready when the mandatory ZCode/AGY
 live gate was skipped.
+
+`make test-mcp-clients` is an opt-in local compatibility check and is not part
+of `make test`. It builds the exact current Mulgae binary, isolates client
+configuration in temporary directories, and verifies startup and tool discovery
+through the installed Codex and Claude Code executables. Override their absolute
+paths with `MULGAE_MCP_CODEX_BINARY` and `MULGAE_MCP_CLAUDE_BINARY`. The check
+does not invoke a model or provider, mutate user client configuration, or prove
+a live review; deterministic MCP tests cover tool calls, resources, progress,
+and cancellation.
 
 ### Optional Gaori evidence compression
 

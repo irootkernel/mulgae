@@ -103,11 +103,15 @@ the untracked `.mulgae/local.yaml` authority.
 `mulgae mcp [--project-root ABSOLUTE_PATH]` starts one process-scoped stdio
 server. Composition resolves the selected path to a canonical anchored root
 before constructing the server; the root cannot change during the process.
-`internal/entrypoint/mcp` owns newline-delimited JSON-RPC and accepts only MCP
-`2026-07-28`. It advertises that version through `server/discover` and rejects
-legacy `initialize` with the structured unsupported-version code. EOF is a
-normal attached-client shutdown; cancellation uses Mulgae exit 9, malformed or
-failed transport uses exit 10, and invalid command grammar uses exit 2.
+`internal/entrypoint/mcp` owns newline-delimited JSON-RPC. It advertises
+`2026-07-28`, `2025-11-25`, and `2025-06-18` in newest-first order, negotiates
+those exact versions, rejects older or session-incoherent requests with the
+structured unsupported-version code, and keeps the latest protocol as its
+preferred contract. The two legacy versions are a bounded compatibility floor
+for current Codex and Claude Code stdio clients, not a generic compatibility
+shim. EOF is a normal attached-client shutdown; cancellation uses Mulgae exit
+9, malformed or failed transport uses exit 10, and invalid command grammar uses
+exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,

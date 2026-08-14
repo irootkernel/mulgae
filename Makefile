@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.12
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-kimi
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-kimi test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -99,3 +99,22 @@ test-kimi:
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLiveKimiCapability$$' ./internal/adapters/providercli
 	@printf '%s\n' '[test-kimi] completed'
+
+test-mcp-clients:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }
+	@mcp_tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$mcp_tmp"' EXIT; \
+	mcp_binary="$$mcp_tmp/mulgae"; \
+	mcp_commit="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$mcp_commit" -o "$$mcp_binary" .; \
+	codex_bin="$${MULGAE_MCP_CODEX_BINARY:-$$(command -v codex)}"; \
+	claude_bin="$${MULGAE_MCP_CLAUDE_BINARY:-$$(command -v claude)}"; \
+	for client in "$$codex_bin" "$$claude_bin"; do \
+		test -n "$$client" && test -x "$$client" || { echo "test-mcp-clients requires executable Codex and Claude clients" >&2; exit 1; }; \
+		case "$$client" in /*) ;; *) echo "test-mcp-clients requires absolute client paths" >&2; exit 1;; esac; \
+	done; \
+	MULGAE_MCP_CLIENT_BINARY="$$mcp_binary" \
+		MULGAE_MCP_CODEX_BINARY="$$codex_bin" \
+		MULGAE_MCP_CLAUDE_BINARY="$$claude_bin" \
+		$(GO) test -v -tags=mcpclientcheck -count=1 ./internal/mcpclientcheck
+	@printf '%s\n' '[test-mcp-clients] completed'

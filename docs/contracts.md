@@ -106,6 +106,12 @@ summaries, and no tool result embeds report or source bodies. `request_changes`
 means the review completed with a policy rejection; it is not an MCP call
 failure.
 
+The attached transport prefers MCP `2026-07-28` and admits only that version,
+`2025-11-25`, or `2025-06-18`. Discovery lists all three newest first. A legacy
+`initialize` fixes its negotiated version for the session; a later request
+cannot claim a different version. Older versions receive the structured
+unsupported-version error and the supported-version list.
+
 `run_review` honors a standard integer or at-most-128-byte string progress token
 in request metadata; other token values are ignored. If admitted, progress
 starts at zero, increases monotonically through periodic heartbeats, has no

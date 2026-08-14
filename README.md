@@ -219,10 +219,11 @@ mulgae mcp
 mulgae mcp --project-root /absolute/path/to/repository
 ```
 
-The server speaks newline-delimited JSON-RPC on stdout and accepts only MCP
-protocol `2026-07-28`. Diagnostics use stderr. The process fixes the canonical
-project root at startup and exits when its client closes stdin. It exposes five
-bounded tools:
+The server speaks newline-delimited JSON-RPC on stdout. It prefers MCP protocol
+`2026-07-28` and accepts `2025-11-25` and `2025-06-18` for current stdio client
+compatibility; older versions fail with a structured unsupported-version error.
+Diagnostics use stderr. The process fixes the canonical project root at startup
+and exits when its client closes stdin. It exposes five bounded tools:
 
 - `preflight_review` captures and summarizes the execution-free target,
   transmission plan, and budget without invoking providers or publishing a run.
@@ -252,6 +253,51 @@ heartbeats, and a terminal notification before its result. Cancelling the MCP
 request cancels the same foreground review context and its provider processes;
 no separate Mulgae cancellation tool or polling loop is required.
 
+### Configure Codex
+
+Codex's default MCP tool timeout is too short for a foreground multi-provider
+review. Add an absolute Mulgae binary and project root to a trusted project
+`.codex/config.toml`, and set the tool timeout above the `run_deadline` reported
+by preflight. The 15-hour value below covers Mulgae's current maximum admitted
+run ceiling:
+
+```toml
+[mcp_servers.mulgae]
+command = "/absolute/path/to/mulgae"
+args = ["mcp", "--project-root", "/absolute/path/to/repository"]
+cwd = "/absolute/path/to/repository"
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 54000
+```
+
+Codex also supports `codex mcp add mulgae -- /absolute/path/to/mulgae mcp
+--project-root /absolute/path/to/repository`; add the timeout to the resulting
+configuration before running a review. See the official
+[Codex MCP configuration](https://developers.openai.com/codex/mcp/).
+
+### Configure Claude Code
+
+Add a project-scoped `.mcp.json` with the same absolute process and project
+binding. Claude Code expresses the per-server hard timeout in milliseconds:
+
+```json
+{
+  "mcpServers": {
+    "mulgae": {
+      "type": "stdio",
+      "command": "/absolute/path/to/mulgae",
+      "args": ["mcp", "--project-root", "/absolute/path/to/repository"],
+      "timeout": 54000000
+    }
+  }
+}
+```
+
+Progress notifications keep an active stdio call observable but do not extend
+Claude Code's hard timeout, so keep it above the admitted preflight deadline.
+See the official [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp).
+
 ## Optional: configure an AI coding agent
 
 Installing Mulgae does not modify a project's `AGENTS.md` and does not install
@@ -274,6 +320,11 @@ Copy this minimal project-wide template into the reviewed project's
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
   `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
   `--output json`.
+- Prefer attached Mulgae MCP tools when available: call `preflight_review`, then
+  call `run_review` once and wait for its foreground result without polling.
+  Preserve the exact run ID, inspect it with `get_run` and `list_findings`, and
+  follow resource `nextURI` values exactly. Fall back to the CLI when MCP is
+  unavailable; MCP cannot accept the `stdin` review target.
 - Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with

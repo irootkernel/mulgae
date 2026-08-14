@@ -13,8 +13,14 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// ProtocolVersion is the only MCP protocol version accepted by Mulgae.
+// ProtocolVersion is the newest MCP protocol version accepted by Mulgae.
 const ProtocolVersion = "2026-07-28"
+
+var supportedProtocolVersions = []string{
+	ProtocolVersion,
+	"2025-11-25",
+	"2025-06-18",
+}
 
 // Config fixes process-scoped MCP server identity and project authority.
 type Config struct {
@@ -48,11 +54,11 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 			Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
 	)
-	server.AddReceivingMiddleware(admitLatestProtocol)
+	server.AddReceivingMiddleware(admitSupportedProtocol)
 	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
 	registerResources(server, config.Backend)
 
-	transport := latestTransport{Transport: &mcpsdk.IOTransport{
+	transport := compatibleTransport{Transport: &mcpsdk.IOTransport{
 		Reader: asReadCloser(reader),
 		Writer: noCloseWriter{Writer: writer},
 	}}
@@ -67,29 +73,22 @@ func cleanTransportEOF(err error) bool {
 	return errors.Is(err, closing) && err.Error() == "server is closing: EOF"
 }
 
-type latestTransport struct {
+type compatibleTransport struct {
 	mcpsdk.Transport
 }
 
-func (latestTransport) SupportsProtocolVersion(version string) bool {
-	return version == ProtocolVersion
+func (compatibleTransport) SupportsProtocolVersion(version string) bool {
+	return supportedProtocolVersion(version)
 }
 
-func admitLatestProtocol(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+func admitSupportedProtocol(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	return func(ctx context.Context, method string, request mcpsdk.Request) (mcpsdk.Result, error) {
-		requested := ""
-		if method != "initialize" {
-			if params := request.GetParams(); params != nil {
-				requested, _ = params.GetMeta()[mcpsdk.MetaKeyProtocolVersion].(string)
-			}
-			if requested == ProtocolVersion {
-				return next(ctx, method, request)
-			}
-		} else if params, ok := request.GetParams().(*mcpsdk.InitializeParams); ok && params != nil {
-			requested = params.ProtocolVersion
+		requested, coherent := requestProtocolVersion(method, request)
+		if coherent && supportedProtocolVersion(requested) {
+			return next(ctx, method, request)
 		}
 		data, err := json.Marshal(mcpsdk.UnsupportedProtocolVersionData{
-			Supported: []string{ProtocolVersion},
+			Supported: append([]string(nil), supportedProtocolVersions...),
 			Requested: requested,
 		})
 		if err != nil {
@@ -101,6 +100,46 @@ func admitLatestProtocol(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 			Data:    data,
 		}
 	}
+}
+
+func requestProtocolVersion(method string, request mcpsdk.Request) (string, bool) {
+	if request == nil {
+		return "", false
+	}
+	if method == "initialize" {
+		params, ok := request.GetParams().(*mcpsdk.InitializeParams)
+		if !ok || params == nil {
+			return "", false
+		}
+		return params.ProtocolVersion, true
+	}
+
+	requested := ""
+	if versioned, ok := request.(interface{ ProtocolVersion() string }); ok {
+		requested = versioned.ProtocolVersion()
+	}
+	sessionVersion := ""
+	if session, ok := request.GetSession().(*mcpsdk.ServerSession); ok && session != nil {
+		if initialized := session.InitializeParams(); initialized != nil {
+			sessionVersion = initialized.ProtocolVersion
+		}
+	}
+	if sessionVersion != "" {
+		if requested != "" && requested != sessionVersion {
+			return requested, false
+		}
+		return sessionVersion, true
+	}
+	return requested, requested != ""
+}
+
+func supportedProtocolVersion(version string) bool {
+	for _, supported := range supportedProtocolVersions {
+		if version == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func asReadCloser(reader io.Reader) io.ReadCloser {

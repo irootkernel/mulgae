@@ -1,6 +1,6 @@
 ---
 name: use-mulgae
-description: Use Mulgae safely for local multi-provider code reviews, run inspection, findings follow-up, configuration diagnosis, cleanup planning, and recovery. Trigger when a user asks an AI coding agent to run, inspect, continue, diagnose, configure, clean up, or recover a Mulgae workflow in a project.
+description: Use Mulgae safely through attached MCP tools or the CLI for local multi-provider code reviews, run inspection, findings follow-up, configuration diagnosis, cleanup planning, and recovery. Trigger when a user asks an AI coding agent to run, inspect, continue, diagnose, configure, clean up, or recover a Mulgae workflow in a project.
 ---
 
 # Use Mulgae
@@ -25,7 +25,34 @@ description: Use Mulgae safely for local multi-provider code reviews, run inspec
    memory. Preserve exact session (`s_...`), run (`r_...`), attempt (`a_...`),
    and finding (`F...`) IDs.
 
-## Run the normal workflow
+## Prefer the attached MCP workflow
+
+1. Use attached Mulgae MCP tools when they are available for the canonical
+   project. Match exactly one target: `workspace`, `stage`, `dirty`, `diff`, or
+   `patch`. MCP stdin is transport-only and cannot be a review target.
+2. Call `preflight_review` with the selected `target` and the same optional
+   `objective` and `roles` intended for execution. Inspect capture counts,
+   routing, warnings, and the admitted run deadline before provider work.
+3. If the plan matches the authorized scope, call `run_review` once with the
+   same arguments. Wait for its foreground result. Do not poll `list_runs` or
+   `get_run` while it is active; progress notifications are observation only.
+4. Read the common structured envelope even when the outcome is
+   `request_changes`. Preserve the exact returned run ID. Do not retry a lost or
+   uncertain `run_review`: a second call creates another run.
+5. After the foreground call returns, call `get_run` and `list_findings` with
+   the exact run ID. Use `minimum_severity: low` for the broadest finding query.
+   Follow a resource's canonical `nextURI` exactly until `complete` is true when
+   the report or verified evidence is needed; do not invent offsets or paths.
+6. Cancel the MCP request only on explicit user intent. Cancellation reaches
+   the same foreground review and provider processes; it does not roll back an
+   already committed publication.
+
+## Fall back to the CLI
+
+Use the CLI when Mulgae MCP tools are unavailable, when the authorized target
+is stdin, or for commands outside the MCP surface such as follow-up, report, and
+export. Do not start a second MCP server from a shell when an attached server is
+already available.
 
 1. Match exactly one target to the authorized scope: `--diff RANGE`, `--stage`,
    `--dirty`, `--workspace`, `--patch PATH`, or `--stdin`.

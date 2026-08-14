@@ -20,14 +20,20 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-func TestServeAdvertisesOnlyLatestProtocol(t *testing.T) {
+func TestServeAdvertisesExplicitClientProtocolRange(t *testing.T) {
 	request := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}` + "\n"
 	output := serveRequest(t, request)
 	response := decodeResponse(t, output)
 	result := response["result"].(map[string]any)
 	versions := result["supportedVersions"].([]any)
-	if len(versions) != 1 || versions[0] != ProtocolVersion {
-		t.Fatalf("supported versions = %#v, want [%q]", versions, ProtocolVersion)
+	wantVersions := []string{"2026-07-28", "2025-11-25", "2025-06-18"}
+	if len(versions) != len(wantVersions) {
+		t.Fatalf("supported versions = %#v, want %v", versions, wantVersions)
+	}
+	for index, want := range wantVersions {
+		if versions[index] != want {
+			t.Fatalf("supported versions = %#v, want %v", versions, wantVersions)
+		}
 	}
 	if _, present := result["capabilities"].(map[string]any)["logging"]; present {
 		t.Fatal("latest server unexpectedly advertises deprecated logging capability")
@@ -37,8 +43,49 @@ func TestServeAdvertisesOnlyLatestProtocol(t *testing.T) {
 	}
 }
 
-func TestServeRejectsLegacyInitializeWithSupportedVersion(t *testing.T) {
-	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}` + "\n"
+func TestServeNegotiatesSupportedLegacyInitialize(t *testing.T) {
+	for _, version := range []string{"2025-11-25", "2025-06-18"} {
+		t.Run(version, func(t *testing.T) {
+			request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + version + `","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}` + "\n"
+			response := decodeResponse(t, serveRequest(t, request))
+			result := response["result"].(map[string]any)
+			if result["protocolVersion"] != version {
+				t.Fatalf("initialize result = %#v, want protocol %q", result, version)
+			}
+		})
+	}
+}
+
+func TestServeAcceptsInitializedNotificationWithoutParams(t *testing.T) {
+	reader, input := io.Pipe()
+	output := make(chan []byte, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), reader, channelWriter{output: output}, testConfig())
+	}()
+	write := func(message string) {
+		t.Helper()
+		if _, err := io.WriteString(input, message+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"codex-mcp-client","version":"0.147.0"}}}`)
+	_ = receiveMCPMessage(t, output)
+	write(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	write(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"progressToken":0}}}`)
+	if response := decodeResponse(t, receiveMCPMessage(t, output)); response["error"] != nil {
+		t.Fatalf("tools/list after initialized notification = %#v", response)
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServeRejectsProtocolBelowClientCompatibilityFloor(t *testing.T) {
+	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}` + "\n"
 	response := decodeResponse(t, serveRequest(t, request))
 	errorValue := response["error"].(map[string]any)
 	if errorValue["code"] != float64(mcpsdk.CodeUnsupportedProtocolVersion) {
@@ -46,7 +93,7 @@ func TestServeRejectsLegacyInitializeWithSupportedVersion(t *testing.T) {
 	}
 	data := errorValue["data"].(map[string]any)
 	versions := data["supported"].([]any)
-	if len(versions) != 1 || versions[0] != ProtocolVersion || data["requested"] != "2025-11-25" {
+	if len(versions) != 3 || versions[0] != ProtocolVersion || versions[2] != "2025-06-18" || data["requested"] != "2025-03-26" {
 		t.Fatalf("unsupported version data = %#v", data)
 	}
 }
