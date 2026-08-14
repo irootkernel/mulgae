@@ -2,6 +2,7 @@ package mcpentry
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -182,6 +183,36 @@ func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *test
 	}
 	if _, err := ProjectDiagnosticRunStatus(statusWithP2, sessionID, runID); err == nil {
 		t.Fatal("diagnostic-only projection accepted an installed P2 URI")
+	}
+	cancelled, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunCancelled,
+		StartedAt: startedAt, UpdatedAt: completedAt, CompletedAt: completedAt, HasCompletedAt: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected, err := ProjectDiagnosticRunStatus(cancelled, sessionID, runID); err != nil || projected["run_state"] != string(domain.RunCancelled) {
+		t.Fatalf("cancelled diagnostic projection = %#v, %v", projected, err)
+	}
+	running, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunRunning,
+		StartedAt: startedAt, UpdatedAt: startedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProjectDiagnosticRunStatus(running, sessionID, runID); !errors.Is(err, ErrRunStatusUnavailable) {
+		t.Fatalf("running diagnostic projection error = %v, want %v", err, ErrRunStatusUnavailable)
+	}
+	completed, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunCompleted,
+		StartedAt: startedAt, UpdatedAt: completedAt, CompletedAt: completedAt, HasCompletedAt: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProjectDiagnosticRunStatus(completed, sessionID, runID); err == nil || errors.Is(err, ErrRunStatusUnavailable) {
+		t.Fatalf("unpublished completed diagnostic projection error = %v", err)
 	}
 }
 

@@ -123,12 +123,12 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 		return nil, fmt.Errorf("MCP diagnostic run status has publication authority")
 	}
 	completedAt, hasCompletedAt := status.CompletedAt()
-	var completedAtValue any
-	if hasCompletedAt {
-		if completedAt.IsZero() || completedAt.Location() != time.UTC || completedAt.Before(status.UpdatedAt()) {
-			return nil, fmt.Errorf("MCP diagnostic run completion is invalid")
-		}
-		completedAtValue = completedAt.Format(time.RFC3339Nano)
+	if (status.State() == domain.RunPending || status.State() == domain.RunRunning) && !hasCompletedAt {
+		return nil, ErrRunStatusUnavailable
+	}
+	if status.State() != domain.RunFailed && status.State() != domain.RunCancelled || !hasCompletedAt ||
+		completedAt.IsZero() || completedAt.Location() != time.UTC || completedAt.Before(status.UpdatedAt()) {
+		return nil, fmt.Errorf("MCP diagnostic run completion is invalid")
 	}
 	roles := status.SelectedRoles()
 	selectedRoles := make([]string, 0, len(roles))
@@ -160,7 +160,7 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "rerun_review",
 		"final_artifact_uri": nil, "report_resource_uri": nil, "content_verdict": nil, "coverage_status": nil, "ci_decision": nil,
 		"role_report_uris": []any{}, "started_at": status.StartedAt().Format(time.RFC3339Nano),
-		"updated_at": status.UpdatedAt().Format(time.RFC3339Nano), "completed_at": completedAtValue,
+		"updated_at": status.UpdatedAt().Format(time.RFC3339Nano), "completed_at": completedAt.Format(time.RFC3339Nano),
 		"selected_roles": selectedRoles, "role_path_total": total, "role_path_completed": completed, "role_path_failed": failed,
 		"last_seq": status.LastSequence(), "terminal_cause": terminalCause, "terminal_phase": terminalPhase,
 		"dropped_events": status.DroppedEvents(), "diagnostic_only": true, "publication_authority": false,

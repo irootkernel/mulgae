@@ -257,6 +257,9 @@ func (backend *mcpBackend) GetRun(ctx context.Context, input mcpentry.GetRunInpu
 		}
 		diagnosticStatus, diagnosticErr := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
 		if diagnosticErr != nil {
+			if solelyWraps(diagnosticErr, context.Canceled) || solelyWraps(diagnosticErr, context.DeadlineExceeded) {
+				return nil, diagnosticErr
+			}
 			if solelyWraps(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound) {
 				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
 			}
@@ -264,6 +267,9 @@ func (backend *mcpBackend) GetRun(ctx context.Context, input mcpentry.GetRunInpu
 		}
 		projected, projectionErr := mcpentry.ProjectDiagnosticRunStatus(diagnosticStatus, diagnosticStatus.SessionID(), runID)
 		if projectionErr != nil {
+			if errors.Is(projectionErr, mcpentry.ErrRunStatusUnavailable) {
+				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
+			}
 			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is invalid", projectionErr)
 		}
 		return projected, nil

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -269,6 +270,7 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
 	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
 	backend, err := newMCPBackend(
 		projectRoot, artifactRoot, &mulgaeentry.Application{},
@@ -285,6 +287,45 @@ func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {
 	backend.diagnostics = &mcpDiagnosticQueryFake{err: errors.Join(ports.ErrRuntimeDiagnosticRunNotFound, errors.New("diagnostic corrupt"))}
 	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); err == nil || errors.Is(err, mcpentry.ErrRunStatusUnavailable) {
 		t.Fatalf("ambiguous diagnostic status error = %v", err)
+	}
+	now := time.Date(2026, time.August, 14, 5, 0, 0, 0, time.UTC)
+	running, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunRunning, StartedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.diagnostics = &mcpDiagnosticQueryFake{status: running}
+	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); !errors.Is(err, mcpentry.ErrRunStatusUnavailable) {
+		t.Fatalf("running diagnostic status error = %v, want %v", err, mcpentry.ErrRunStatusUnavailable)
+	}
+}
+
+func TestMCPBackendGetRunPreservesSoleDiagnosticCancellation(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	backend, err := newMCPBackend(
+		projectRoot, artifactRoot, &mulgaeentry.Application{},
+		&mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound},
+		&mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cancellation := range []error{context.Canceled, context.DeadlineExceeded, fmt.Errorf("query: %w", context.Canceled)} {
+		backend.diagnostics = &mcpDiagnosticQueryFake{err: cancellation}
+		_, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
+		var failure *domain.Failure
+		if !errors.Is(err, cancellation) || errors.As(err, &failure) {
+			t.Fatalf("diagnostic cancellation = %v, want unwrapped %v", err, cancellation)
+		}
+	}
+	backend.diagnostics = &mcpDiagnosticQueryFake{err: errors.Join(context.Canceled, errors.New("diagnostic corrupt"))}
+	_, err = backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
+		t.Fatalf("joined diagnostic cancellation = %v, want artifact failure", err)
 	}
 }
 

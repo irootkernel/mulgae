@@ -203,8 +203,8 @@ func renderToolResult(result ToolResult) (*mcpsdk.CallToolResult, error) {
 
 var (
 	errInvalidToolArguments = errors.New("invalid MCP tool arguments")
-	// ErrRunStatusUnavailable identifies a run identity whose publication and
-	// bounded diagnostic status are both absent.
+	// ErrRunStatusUnavailable identifies a run identity with neither publication
+	// nor a completed diagnostic failure status safe for recovery.
 	ErrRunStatusUnavailable = errors.New("run status unavailable")
 )
 

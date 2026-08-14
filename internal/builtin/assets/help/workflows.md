@@ -85,10 +85,11 @@ continuation metadata. All tools use the common
 `mulgae-mcp-tool-result.v1` structured envelope, where `request_changes` is a
 completed review rather than a transport failure. Errors include nullable
 session and run IDs. When a failed `run_review` returns both, inspect that exact
-run with `get_run`. A diagnostic-only result has no publication authority or
-findings; `run_status_unavailable` means allocation succeeded but no durable
-published or diagnostic status survived. Never retry `run_review`, because a
-second call creates a new run.
+run with `get_run`. A diagnostic-only result is limited to a completed `failed`
+or `cancelled` status and has no publication authority or findings;
+`run_status_unavailable` means allocation succeeded but no durable published or
+terminal diagnostic status survived. Never retry `run_review`, because a second
+call creates a new run.
 
 Clients that attach a progress token to `run_review` receive an admission
 notification, monotonic periodic heartbeats, and a terminal notification before
