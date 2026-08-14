@@ -65,6 +65,43 @@ func TestProductionDependencyDirection(t *testing.T) {
 	}
 }
 
+func TestMCPContractProjectionOwnership(t *testing.T) {
+	root := repositoryRoot(t)
+	composition, err := os.ReadFile(filepath.Join(root, "internal", "composition", "mcp_backend.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"crypto/sha256",
+		"net/url",
+		"func parseMCPResourceURI",
+		"func chunkMCPResource",
+		"func validateMCPPublicationPair",
+	} {
+		if strings.Contains(string(composition), forbidden) {
+			t.Errorf("composition owns MCP contract token %q", forbidden)
+		}
+	}
+	for path, required := range map[string][]string{
+		filepath.Join(root, "internal", "entrypoint", "mcp", "resources.go"): {
+			"func ParseResourceURI", "func projectResource", "func resourceChunkEnd",
+		},
+		filepath.Join(root, "internal", "entrypoint", "mcp", "projection.go"): {
+			"func ProjectRunStatus", "func ProjectFindings",
+		},
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, token := range required {
+			if !strings.Contains(string(data), token) {
+				t.Errorf("%s missing MCP contract owner %q", path, token)
+			}
+		}
+	}
+}
+
 func hasBuildIgnoreConstraint(source []byte) bool {
 	for _, line := range strings.Split(string(source), "\n") {
 		trimmed := strings.TrimSpace(line)

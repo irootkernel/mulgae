@@ -36,7 +36,7 @@ type Backend interface {
 	ListRuns(context.Context, ListRunsInput) (map[string]any, error)
 	GetRun(context.Context, GetRunInput) (map[string]any, error)
 	ListFindings(context.Context, ListFindingsInput) (map[string]any, error)
-	ReadResource(context.Context, string) (ResourceResult, error)
+	ReadResource(context.Context, ResourceRequest) (ResourceContent, error)
 }
 
 // BackendResult carries a successful tool outcome and its public data object.

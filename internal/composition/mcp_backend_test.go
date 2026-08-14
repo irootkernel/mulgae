@@ -122,7 +122,7 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 	}
 	status, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
 	if err != nil || status["final_artifact_uri"] == nil || status["ci_decision"] != string(domain.CIPass) ||
-		status["report_resource_uri"] != reportResourceURI(runID.String(), 0) {
+		status["report_resource_uri"] != mustMCPReportResourceURI(t, runID.String()) {
 		t.Fatalf("run status = %#v, %v", status, err)
 	}
 	findings, err := backend.ListFindings(context.Background(), mcpentry.ListFindingsInput{RunID: runID.String(), MinimumSeverity: "high"})
@@ -130,8 +130,8 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 		t.Fatalf("findings = %#v, %v", findings, err)
 	}
 	rows := findings["findings"].([]any)
-	if rows[0].(map[string]any)["evidence_resource_uri"] != evidenceResourceURI(
-		runID.String(), "F001", queries.findings.TargetSHA256, 0,
+	if rows[0].(map[string]any)["evidence_resource_uri"] != mustMCPEvidenceResourceURI(
+		t, runID.String(), "F001", queries.findings.TargetSHA256,
 	) {
 		t.Fatalf("finding resource link = %#v", rows[0])
 	}
@@ -186,7 +186,7 @@ func TestMCPBackendRejectsMalformedPublicProjections(t *testing.T) {
 	}
 }
 
-func TestMCPBackendChunksVerifiedReportAndEvidenceResources(t *testing.T) {
+func TestMCPBackendReturnsVerifiedReportAndEvidenceContent(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
 	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
@@ -205,51 +205,46 @@ func TestMCPBackendChunksVerifiedReportAndEvidenceResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reportURI := reportResourceURI(runID.String(), 0)
-	first, err := backend.ReadResource(context.Background(), reportURI)
-	if err != nil || len(first.Text) > mcpentry.MaxResourceChunkBytes || !strings.HasSuffix(first.Text, "a") {
-		t.Fatalf("first report chunk = %d bytes, %v", len(first.Text), err)
+	reportURI := mustMCPReportResourceURI(t, runID.String())
+	reportRequest, err := mcpentry.ParseResourceURI(reportURI)
+	if err != nil {
+		t.Fatal(err)
 	}
-	nextReport, ok := first.Meta["io.mulgae/nextURI"].(string)
-	if !ok || nextReport == "" {
-		t.Fatalf("report continuation = %#v", first.Meta)
-	}
-	second, err := backend.ReadResource(context.Background(), nextReport)
-	if err != nil || first.Text+second.Text != string(reportBytes) || second.Meta["io.mulgae/nextURI"] != nil {
-		t.Fatalf("second report chunk = %#v, %v", second, err)
+	report, err := backend.ReadResource(context.Background(), reportRequest)
+	if err != nil || report.MIMEType != "text/markdown" || !report.Text || !bytes.Equal(report.Bytes, reportBytes) {
+		t.Fatalf("report content = %#v, %v", report, err)
 	}
 
-	evidenceURI := evidenceResourceURI(runID.String(), "F001", targetSHA256, 0)
-	firstEvidence, err := backend.ReadResource(context.Background(), evidenceURI)
-	if err != nil || len(firstEvidence.Blob) != mcpentry.MaxResourceChunkBytes {
-		t.Fatalf("first evidence chunk = %d bytes, %v", len(firstEvidence.Blob), err)
+	evidenceURI := mustMCPEvidenceResourceURI(t, runID.String(), "F001", targetSHA256)
+	evidenceRequest, err := mcpentry.ParseResourceURI(evidenceURI)
+	if err != nil {
+		t.Fatal(err)
 	}
-	nextEvidence := firstEvidence.Meta["io.mulgae/nextURI"].(string)
-	secondEvidence, err := backend.ReadResource(context.Background(), nextEvidence)
-	combined := append(append([]byte(nil), firstEvidence.Blob...), secondEvidence.Blob...)
-	if err != nil || !bytes.Equal(combined, evidenceBytes) || secondEvidence.Meta["io.mulgae/nextURI"] != nil {
-		t.Fatalf("evidence continuation = %#v, %v", secondEvidence.Meta, err)
+	evidence, err := backend.ReadResource(context.Background(), evidenceRequest)
+	if err != nil || evidence.MIMEType != "application/octet-stream" || evidence.Text || !bytes.Equal(evidence.Bytes, evidenceBytes) {
+		t.Fatalf("evidence content = %#v, %v", evidence, err)
 	}
 	if queries.excerptTarget != targetSHA256 || queries.excerptFinding != "F001" {
 		t.Fatalf("excerpt verification inputs = %q/%q", queries.excerptFinding, queries.excerptTarget)
 	}
-	if _, err := backend.ReadResource(context.Background(), reportURI+"?offset=01"); err == nil {
-		t.Fatal("non-canonical resource offset was accepted")
+}
+
+func mustMCPReportResourceURI(t *testing.T, runID string) string {
+	t.Helper()
+	uri, err := mcpentry.NewReportResourceURI(runID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := backend.ReadResource(context.Background(), reportResourceURI(runID.String(), 1)); err == nil {
-		t.Fatal("unissued resource continuation was accepted")
+	return uri
+}
+
+func mustMCPEvidenceResourceURI(t *testing.T, runID, findingID, targetSHA256 string) string {
+	t.Helper()
+	uri, err := mcpentry.NewEvidenceResourceURI(runID, findingID, targetSHA256)
+	if err != nil {
+		t.Fatal(err)
 	}
-	invalidURIs := []string{
-		reportURI + "?unknown=true",
-		"mulgae://runs/%72_019f596a-cfe4-7c9c-b82e-7149158243ba/report",
-		strings.Replace(evidenceURI, "sha256%3Aaaaaaaaa", "sha256%3AAAAAAAAA", 1),
-		reportResourceURI(runID.String(), 0) + "#fragment",
-	}
-	for _, invalidURI := range invalidURIs {
-		if _, err := backend.ReadResource(context.Background(), invalidURI); err == nil {
-			t.Fatalf("invalid resource URI was accepted: %q", invalidURI)
-		}
-	}
+	return uri
 }
 
 type mcpQueryFake struct {

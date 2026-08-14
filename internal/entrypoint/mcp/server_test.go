@@ -401,9 +401,8 @@ func TestServeRunReviewCancellationReachesBackendContext(t *testing.T) {
 
 func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"
-	backend := &toolBackendFake{resource: ResourceResult{
-		URI: uri, MIMEType: "text/markdown", Text: "# Review\n",
-		Meta: map[string]any{"io.mulgae/offset": 0, "io.mulgae/totalBytes": 9, "io.mulgae/nextURI": nil},
+	backend := &toolBackendFake{resource: ResourceContent{
+		MIMEType: "text/markdown", Bytes: []byte("# Review\n"), Text: true,
 	}}
 	requests := []string{
 		latestRequest(1, "server/discover", `{}`),
@@ -448,11 +447,24 @@ func TestServeResourceFailureIsTypedBoundedAndNonReflective(t *testing.T) {
 	}
 }
 
+func TestServeMalformedResourceURIPreservesConfigurationRejection(t *testing.T) {
+	backend := &toolBackendFake{}
+	discover := latestRequest(1, "server/discover", `{}`)
+	read := latestRequest(2, "resources/read", `{"uri":"mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report?offset=01"}`)
+	response := serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, read)[1]
+	decoded := decodeResponse(t, response)
+	resourceError := decoded["error"].(map[string]any)
+	data := resourceError["data"].(map[string]any)
+	if resourceError["code"] != float64(jsonrpc.CodeInvalidParams) || data["class"] != "usage" ||
+		data["code"] != "configuration_rejected" || backend.resourceCalls != 0 {
+		t.Fatalf("malformed resource error = %s, calls = %d", response, backend.resourceCalls)
+	}
+}
+
 func TestServeReadsEvidenceResourceTemplateWithQueryBinding(t *testing.T) {
 	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/findings/F001/evidence?target_sha256=sha256%3Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	backend := &toolBackendFake{resource: ResourceResult{
-		URI: uri, MIMEType: "application/octet-stream", Blob: []byte{0x00, 0xff, 0x01},
-		Meta: map[string]any{"io.mulgae/offset": 0, "io.mulgae/complete": true},
+	backend := &toolBackendFake{resource: ResourceContent{
+		MIMEType: "application/octet-stream", Bytes: []byte{0x00, 0xff, 0x01},
 	}}
 	discover := latestRequest(1, "server/discover", `{}`)
 	read := latestRequest(2, "resources/read", `{"uri":"`+uri+`"}`)
@@ -640,7 +652,7 @@ type toolBackendFake struct {
 	getRunData         map[string]any
 	getRunErr          error
 	getRunCalls        int
-	resource           ResourceResult
+	resource           ResourceContent
 	resourceErr        error
 	resourceCalls      int
 }
@@ -681,7 +693,7 @@ func (fake *toolBackendFake) ListFindings(context.Context, ListFindingsInput) (m
 	return map[string]any{"findings": []any{}}, nil
 }
 
-func (fake *toolBackendFake) ReadResource(context.Context, string) (ResourceResult, error) {
+func (fake *toolBackendFake) ReadResource(context.Context, ResourceRequest) (ResourceContent, error) {
 	fake.resourceCalls++
 	return fake.resource, fake.resourceErr
 }

@@ -303,6 +303,45 @@ func TestPublicationConstructorsRejectInvalidValuesAndDefensivelyCopy(t *testing
 	}
 }
 
+func TestPublicationRecoveryCompatibleEnumeratesClassifierPairs(t *testing.T) {
+	t.Parallel()
+
+	compatible := map[PublicationStatus][]RecoveryAction{
+		PublicationNotPublished: {
+			RecoveryActionResumeCollection,
+			RecoveryActionRestageValidatedCandidate,
+		},
+		PublicationStaged:    {RecoveryActionInstallStagedFinal},
+		PublicationInstalled: {RecoveryActionCommitCompositeEpoch},
+		PublicationCommitted: {RecoveryActionReconstructCompletedStatus},
+		PublicationCorrupt:   {RecoveryActionEmitImmutableCorruptionDiagnostic},
+	}
+	actions := []RecoveryAction{
+		RecoveryActionNone,
+		RecoveryActionResumeCollection,
+		RecoveryActionRestageValidatedCandidate,
+		RecoveryActionInstallStagedFinal,
+		RecoveryActionCommitCompositeEpoch,
+		RecoveryActionReconstructCompletedStatus,
+		RecoveryActionEmitImmutableCorruptionDiagnostic,
+		"unknown",
+	}
+	for status, wantActions := range compatible {
+		for _, action := range actions {
+			want := false
+			for _, compatibleAction := range wantActions {
+				want = want || action == compatibleAction
+			}
+			if got := PublicationRecoveryCompatible(status, action); got != want {
+				t.Errorf("PublicationRecoveryCompatible(%q, %q) = %t, want %t", status, action, got, want)
+			}
+		}
+	}
+	if PublicationRecoveryCompatible("unknown", RecoveryActionNone) {
+		t.Fatal("unknown publication status was compatible")
+	}
+}
+
 func TestReduceOperationalExitPairwisePrecedenceAndReasonRetention(t *testing.T) {
 	t.Parallel()
 

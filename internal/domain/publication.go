@@ -111,6 +111,26 @@ func (action RecoveryAction) Valid() bool {
 	}
 }
 
+// PublicationRecoveryCompatible reports whether action is the classifier-owned
+// recovery action for status. It is the shared compatibility boundary for
+// public projections of a publication decision.
+func PublicationRecoveryCompatible(status PublicationStatus, action RecoveryAction) bool {
+	switch status {
+	case PublicationNotPublished:
+		return action == RecoveryActionResumeCollection || action == RecoveryActionRestageValidatedCandidate
+	case PublicationStaged:
+		return action == RecoveryActionInstallStagedFinal
+	case PublicationInstalled:
+		return action == RecoveryActionCommitCompositeEpoch
+	case PublicationCommitted:
+		return action == RecoveryActionReconstructCompletedStatus
+	case PublicationCorrupt:
+		return action == RecoveryActionEmitImmutableCorruptionDiagnostic
+	default:
+		return false
+	}
+}
+
 // OperationalExitCode is one typed operational exit. Its priority is defined
 // only by ReduceOperationalExit.
 type OperationalExitCode int
@@ -324,25 +344,28 @@ func (decision PublicationDecision) validate() error {
 	if !decision.action.Valid() {
 		return fmt.Errorf("unknown recovery action %q", decision.action)
 	}
+	if !PublicationRecoveryCompatible(decision.status, decision.action) {
+		return fmt.Errorf("recovery action %q is incompatible with publication status %q", decision.action, decision.status)
+	}
 	switch decision.status {
 	case PublicationCommitted:
-		if decision.authority != PublicationAuthorityP2 || decision.action != RecoveryActionReconstructCompletedStatus || decision.exitCode == nil || !isStoredNormalExit(*decision.exitCode) || len(decision.reasons) != 0 {
+		if decision.authority != PublicationAuthorityP2 || decision.exitCode == nil || !isStoredNormalExit(*decision.exitCode) || len(decision.reasons) != 0 {
 			return fmt.Errorf("committed requires P2 reconstruction and stored normal exit")
 		}
 	case PublicationInstalled:
-		if decision.authority != PublicationAuthorityP1 || decision.action != RecoveryActionCommitCompositeEpoch || decision.exitCode != nil || len(decision.reasons) != 0 {
+		if decision.authority != PublicationAuthorityP1 || decision.exitCode != nil || len(decision.reasons) != 0 {
 			return fmt.Errorf("installed requires P1 composite commit without terminal exit")
 		}
 	case PublicationStaged:
-		if decision.authority != PublicationAuthorityP0 || decision.action != RecoveryActionInstallStagedFinal || decision.exitCode != nil || len(decision.reasons) != 0 {
+		if decision.authority != PublicationAuthorityP0 || decision.exitCode != nil || len(decision.reasons) != 0 {
 			return fmt.Errorf("staged requires P0 install without terminal exit")
 		}
 	case PublicationNotPublished:
-		if decision.authority != PublicationAuthorityNone || (decision.action != RecoveryActionResumeCollection && decision.action != RecoveryActionRestageValidatedCandidate) || decision.exitCode != nil || len(decision.reasons) != 0 {
+		if decision.authority != PublicationAuthorityNone || decision.exitCode != nil || len(decision.reasons) != 0 {
 			return fmt.Errorf("not published requires no authority and low-hint recovery")
 		}
 	case PublicationCorrupt:
-		if decision.authority != PublicationAuthorityNone || decision.action != RecoveryActionEmitImmutableCorruptionDiagnostic || decision.exitCode == nil || *decision.exitCode != ExitArtifactFailure {
+		if decision.authority != PublicationAuthorityNone || decision.exitCode == nil || *decision.exitCode != ExitArtifactFailure {
 			return fmt.Errorf("corrupt requires diagnostic and artifact exit 7")
 		}
 		if err := validatePublicationReasonCodes(decision.reasons); err != nil {
