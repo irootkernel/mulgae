@@ -128,6 +128,31 @@ func TestServeTreatsEOFAsCleanAndMalformedInputAsFailure(t *testing.T) {
 	}
 }
 
+func TestBoundedMCPReaderRejectsUnterminatedFrameAtEOF(t *testing.T) {
+	reader := newBoundedMCPReader(io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0"}`)))
+	data, err := io.ReadAll(reader)
+	if !errors.Is(err, errMCPFrameTruncated) {
+		t.Fatalf("unterminated frame = %q, %v; want %v", data, err, errMCPFrameTruncated)
+	}
+	if len(data) != 0 {
+		t.Fatalf("unterminated frame leaked %q", data)
+	}
+}
+
+func TestServeRejectsUnterminatedRunReviewBeforeDispatch(t *testing.T) {
+	backend := &toolBackendFake{}
+	discover := latestRequest(1, "server/discover", `{}`)
+	call := strings.TrimSuffix(latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"}}}`), "\n")
+	var output bytes.Buffer
+	err := Serve(context.Background(), strings.NewReader(discover+call), &output, toolTestConfig(t, backend))
+	if !errors.Is(err, errMCPFrameTruncated) {
+		t.Fatalf("unterminated run_review error = %v, want %v", err, errMCPFrameTruncated)
+	}
+	if backend.runReviewCalls != 0 {
+		t.Fatalf("unterminated run_review calls = %d, want 0", backend.runReviewCalls)
+	}
+}
+
 func TestServeRejectsOversizedFrameBeforeDispatch(t *testing.T) {
 	base := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
 	for _, terminator := range []string{"\n", ""} {

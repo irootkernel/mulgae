@@ -109,9 +109,10 @@ those exact versions, rejects older or session-incoherent requests with the
 structured unsupported-version code, and keeps the latest protocol as its
 preferred contract. The two legacy versions are a bounded compatibility floor
 for current Codex and Claude Code stdio clients, not a generic compatibility
-shim. EOF is a normal attached-client shutdown; cancellation uses Mulgae exit
-9, malformed or failed transport uses exit 10, and invalid command grammar uses
-exit 2.
+shim. Empty EOF is a normal attached-client shutdown. A nonempty record that
+reaches EOF without LF termination is rejected before dispatch as malformed
+transport. Cancellation uses Mulgae exit 9, malformed or failed transport uses
+exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,

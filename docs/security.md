@@ -10,10 +10,12 @@ and publication.
 The attached MCP boundary is local stdio only. It fixes one canonical project
 root before serving requests, admits only protocols `2026-07-28`, `2025-11-25`,
 and `2025-06-18`, rejects a version change within one session, and reserves
-stdout exclusively for newline-delimited JSON-RPC. Client parameters remain
-untrusted and do not acquire provider, publication, configuration, approval, or
-path authority merely by crossing the MCP transport. Tool arguments are
-strictly decoded and bounded. `run_review` admits no stdin target, and query
+stdout exclusively for newline-delimited JSON-RPC. Each nonempty input record
+must be LF-terminated; an unterminated record at EOF is rejected before parsing
+or dispatch. Client parameters remain untrusted and do not acquire provider,
+publication, configuration, approval, or path authority merely by crossing the
+MCP transport. Tool arguments are strictly decoded and bounded. `run_review`
+admits no stdin target, and query
 tools expose only verified, project-confined status, artifact identities, and
 bounded finding summaries. Native paths, provider transcripts, report bodies,
 and captured source are not part of these tool results. Report and evidence

@@ -19,7 +19,10 @@ const ProtocolVersion = "2026-07-28"
 
 const maxMCPFrameBytes = 1 << 20
 
-var errMCPFrameTooLarge = errors.New("MCP frame exceeds the input limit")
+var (
+	errMCPFrameTooLarge  = errors.New("MCP frame exceeds the input limit")
+	errMCPFrameTruncated = errors.New("MCP frame is not newline terminated")
+)
 
 var supportedProtocolVersions = []string{
 	ProtocolVersion,
@@ -116,7 +119,15 @@ func (reader *boundedMCPReader) Read(destination []byte) (int, error) {
 			reader.pendingErr = errMCPFrameTooLarge
 			return 0, reader.pendingErr
 		}
-		if err != nil && !errors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) {
+			if len(frame) == 0 {
+				reader.pendingErr = io.EOF
+				return 0, reader.pendingErr
+			}
+			reader.pendingErr = errMCPFrameTruncated
+			return 0, reader.pendingErr
+		}
+		if err != nil {
 			reader.pendingErr = err
 			return 0, err
 		}

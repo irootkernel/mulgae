@@ -122,7 +122,10 @@ The attached transport prefers MCP `2026-07-28` and admits only that version,
 `2025-11-25`, or `2025-06-18`. Discovery lists all three newest first. A legacy
 `initialize` fixes its negotiated version for the session; a later request
 cannot claim a different version. Older versions receive the structured
-unsupported-version error and the supported-version list.
+unsupported-version error and the supported-version list. Each input record
+must end with LF and remain within the transport frame bound. Empty EOF is a
+clean client shutdown; EOF after any nonempty unterminated record is a malformed
+transport and the record is never dispatched.
 
 `run_review` honors a standard integer or at-most-128-byte string progress token
 in request metadata; other token values are ignored. If admitted, progress
