@@ -26,7 +26,7 @@ const (
 	maxOutputBytes  = 1 << 20
 )
 
-func TestCodexConnectsAndDiscoversMulgae(t *testing.T) {
+func TestCodexInitializesRequiredMulgaeServer(t *testing.T) {
 	mulgae := requiredExecutable(t, mulgaeBinaryEnv)
 	codex := requiredExecutable(t, codexBinaryEnv)
 	project := newGitProject(t)
@@ -49,13 +49,13 @@ func TestCodexConnectsAndDiscoversMulgae(t *testing.T) {
 		"-c", "mcp_servers.mulgae.startup_timeout_sec=30",
 		"-c", fmt.Sprintf("mcp_servers.mulgae.tool_timeout_sec=%d", toolTimeoutSec),
 	}, project, []string{"CODEX_HOME=" + configHome})
-	if !strings.Contains(output, `"role": "developer"`) {
-		t.Fatalf("Codex did not produce its discovered prompt input: %q", output)
+	if err := validateCodexPromptInput(output); err != nil {
+		t.Fatalf("Codex did not produce valid prompt input: %v", err)
 	}
-	t.Logf("certified %s", strings.TrimSpace(version))
+	t.Logf("initialized required Mulgae server through %s", strings.TrimSpace(version))
 }
 
-func TestClaudeConnectsAndAcceptsLongToolTimeout(t *testing.T) {
+func TestClaudeReportsConnectedMulgaeServer(t *testing.T) {
 	mulgae := requiredExecutable(t, mulgaeBinaryEnv)
 	claude := requiredExecutable(t, claudeBinaryEnv)
 	project := newGitProject(t)
@@ -73,9 +73,60 @@ func TestClaudeConnectsAndAcceptsLongToolTimeout(t *testing.T) {
 	setClaudeTimeout(t, filepath.Join(configHome, ".claude.json"))
 	output := run(t, claude, []string{"mcp", "get", "mulgae"}, project, environment)
 	if !strings.Contains(output, "Connected") {
-		t.Fatalf("Claude did not report a connected Mulgae server: %q", output)
+		t.Fatal("Claude did not report a connected Mulgae server")
 	}
-	t.Logf("certified Claude Code %s", strings.TrimSpace(version))
+	t.Logf("connected Mulgae server through Claude Code %s", strings.TrimSpace(version))
+}
+
+func validateCodexPromptInput(output string) error {
+	var messages []struct {
+		Type    string `json:"type"`
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(output), &messages); err != nil {
+		return fmt.Errorf("decode JSON: %w", err)
+	}
+	for _, message := range messages {
+		if message.Type != "message" || message.Role != "developer" {
+			continue
+		}
+		for _, content := range message.Content {
+			if content.Type == "input_text" && content.Text != "" {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("developer input message is missing")
+}
+
+func TestValidateCodexPromptInput(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		output  string
+		wantErr bool
+	}{
+		{
+			name:   "developer input",
+			output: `[{"type":"message","role":"developer","content":[{"type":"input_text","text":"instructions"}]}]`,
+		},
+		{
+			name:    "substring is not structure",
+			output:  `[{"type":"message","role":"user","content":[{"type":"input_text","text":"role: developer"}]}]`,
+			wantErr: true,
+		},
+		{name: "malformed JSON", output: `[`, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateCodexPromptInput(test.output)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCodexPromptInput() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
 }
 
 func newGitProject(t *testing.T) string {
