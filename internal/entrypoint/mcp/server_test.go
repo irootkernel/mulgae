@@ -399,6 +399,49 @@ func TestServeRunReviewCancellationReachesBackendContext(t *testing.T) {
 	}
 }
 
+func TestServeParentCancellationCancelsActiveRunReview(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	backend := &toolBackendFake{runReviewStarted: make(chan struct{}), runReviewCancelled: make(chan error, 1)}
+	reader, input := io.Pipe()
+	t.Cleanup(func() { _ = input.Close() })
+	output := make(chan []byte, 2)
+	done := make(chan error, 1)
+	config := toolTestConfig(t, backend)
+	go func() {
+		done <- Serve(ctx, reader, channelWriter{output: output}, config)
+	}()
+	if _, err := io.WriteString(input, latestRequest(1, "server/discover", `{}`)); err != nil {
+		t.Fatal(err)
+	}
+	receiveMCPMessage(t, output)
+	if _, err := io.WriteString(input, latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-backend.runReviewStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for review start")
+	}
+
+	cancel()
+	select {
+	case err := <-backend.runReviewCancelled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("backend cancellation = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("parent cancellation did not reach active review")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve cancellation = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for parent-cancelled MCP shutdown")
+	}
+}
+
 func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"
 	backend := &toolBackendFake{resource: ResourceContent{

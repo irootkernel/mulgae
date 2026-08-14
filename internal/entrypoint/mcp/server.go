@@ -59,7 +59,7 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 			Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
 	)
-	server.AddReceivingMiddleware(admitSupportedProtocol)
+	server.AddReceivingMiddleware(bindServeContext(ctx), admitSupportedProtocol)
 	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
 	registerResources(server, config.Backend)
 
@@ -71,6 +71,22 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 		return fmt.Errorf("serve MCP: %w", err)
 	}
 	return nil
+}
+
+func bindServeContext(serveCtx context.Context) mcpsdk.Middleware {
+	return func(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+		return func(requestCtx context.Context, method string, request mcpsdk.Request) (mcpsdk.Result, error) {
+			handlerCtx, cancel := context.WithCancelCause(requestCtx)
+			stop := context.AfterFunc(serveCtx, func() {
+				cancel(context.Cause(serveCtx))
+			})
+			defer func() {
+				stop()
+				cancel(nil)
+			}()
+			return next(handlerCtx, method, request)
+		}
+	}
 }
 
 type boundedMCPReader struct {

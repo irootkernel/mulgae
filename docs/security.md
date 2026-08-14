@@ -35,7 +35,10 @@ they do not expose paths, source, provider output, run identity, or artifact
 content.
 Notification delivery failure cannot weaken review or publication policy.
 Standard MCP request cancellation reaches the existing fail-closed execution
-context rather than a transport-owned background job.
+context rather than a transport-owned background job. The entrypoint also joins
+the persistent SDK handler context to the process context so SIGINT or SIGTERM
+cancels the same provider and publication work instead of merely closing the
+transport around an active review.
 
 ## Provider isolation
 

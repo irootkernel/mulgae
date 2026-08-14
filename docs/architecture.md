@@ -132,6 +132,11 @@ state or failure precedence. The SDK maps `notifications/cancelled` for the
 request directly onto the handler context; that same context reaches capture,
 provider subprocesses, and terminal publication. Mulgae does not maintain a
 second cancellation registry or detach review work from the requesting client.
+The persistent SDK transport deliberately separates its connection context from
+active handler contexts, so the entrypoint additionally joins every request to
+the process-scoped `Serve` context. Client `notifications/cancelled` and process
+SIGINT or SIGTERM therefore remain distinct cancellation sources that converge
+on the same foreground review context.
 
 Preflight omits the unbounded per-file inventory from its MCP result and returns
 only target identity, file-set counts and byte totals, generated paths,
