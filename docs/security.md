@@ -24,6 +24,11 @@ bind the finding to the current target SHA-256; stale, malformed, oversized, or
 relocated content fails closed without reflecting the requested URI or native
 path.
 
+Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
+`run_review` includes both session and run IDs when allocation occurred and is
+never marked retryable; provider details, runtime diagnostics, and native paths
+remain private.
+
 Optional `run_review` progress notifications contain only fixed Mulgae
 lifecycle messages, an admitted bounded client token, and a monotonic counter;
 they do not expose paths, source, provider output, run identity, or artifact

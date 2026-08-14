@@ -28,16 +28,23 @@ func TestToolResultExampleIsSemanticallyValidAndTamperingFailsClosed(t *testing.
 	for name, mutate := range map[string]func(*ToolResult){
 		"request identity": func(result *ToolResult) { result.RequestID = "client-owned" },
 		"tool name":        func(result *ToolResult) { result.Tool = "PreflightReview" },
-		"success error": func(result *ToolResult) {
-			result.Error = &ToolError{Class: "internal", Code: "unexpected", Stage: "execution", Message: "Unexpected failure."}
-		},
 		"error data": func(result *ToolResult) {
-			result.Outcome = "error"
-			result.Error = &ToolError{Class: "internal", Code: "unexpected", Stage: "execution", Message: "Unexpected failure."}
+			result.Data = map[string]any{"unexpected": true}
+		},
+		"incomplete failure identity": func(result *ToolResult) {
+			result.Error.RunID = nil
+		},
+		"invalid failure identity": func(result *ToolResult) {
+			invalid := "client-owned"
+			result.Error.RunID = &invalid
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid
+			if valid.Error != nil {
+				failure := *valid.Error
+				candidate.Error = &failure
+			}
 			mutate(&candidate)
 			if err := candidate.Validate(); err == nil {
 				t.Fatal("tampered tool result was accepted")

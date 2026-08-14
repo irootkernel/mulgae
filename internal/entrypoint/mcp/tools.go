@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -257,7 +258,7 @@ func validateRunReviewInput(input RunReviewInput) error {
 
 func publicToolError(err error, tool string) ToolError {
 	if errors.Is(err, errInvalidToolArguments) {
-		return ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false}
+		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
 	stage := "query"
 	if tool == toolRunReview {
@@ -266,19 +267,31 @@ func publicToolError(err error, tool string) ToolError {
 	if class, available := reducedToolFailureClass(err); available {
 		switch class {
 		case domain.FailureSecurityPolicy:
-			return ToolError{Class: "security", Code: "security_rejected", Stage: "admission", Message: "Mulgae rejected the request at a security boundary.", Retryable: false}
+			return finalizePublicToolError(err, tool, ToolError{Class: "security", Code: "security_rejected", Stage: "admission", Message: "Mulgae rejected the request at a security boundary.", Retryable: false})
 		case domain.FailureConfiguration:
-			return ToolError{Class: "usage", Code: "configuration_rejected", Stage: "admission", Message: "The project configuration or request is invalid.", Retryable: false}
+			return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "configuration_rejected", Stage: "admission", Message: "The project configuration or request is invalid.", Retryable: false})
 		case domain.FailureArtifact:
-			return ToolError{Class: "artifact", Code: "artifact_unavailable", Stage: stage, Message: "The requested verified artifact is unavailable.", Retryable: false}
+			return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: "artifact_unavailable", Stage: stage, Message: "The requested verified artifact is unavailable.", Retryable: false})
 		case domain.FailureCancelled:
-			return ToolError{Class: "cancellation", Code: "request_cancelled", Stage: stage, Message: "The tool request was cancelled.", Retryable: false}
+			return finalizePublicToolError(err, tool, ToolError{Class: "cancellation", Code: "request_cancelled", Stage: stage, Message: "The tool request was cancelled.", Retryable: false})
 		case domain.FailureProviderUnavailable, domain.FailureInvalidOutput, domain.FailureTimeout,
 			domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
-			return ToolError{Class: "readiness", Code: "review_unavailable", Stage: "execution", Message: "The review could not complete with the configured provider.", Retryable: true}
+			return finalizePublicToolError(err, tool, ToolError{Class: "readiness", Code: "review_unavailable", Stage: "execution", Message: "The review could not complete with the configured provider.", Retryable: true})
 		}
 	}
-	return ToolError{Class: "internal", Code: "internal_failure", Stage: stage, Message: "Mulgae could not complete the tool request.", Retryable: false}
+	return finalizePublicToolError(err, tool, ToolError{Class: "internal", Code: "internal_failure", Stage: stage, Message: "Mulgae could not complete the tool request.", Retryable: false})
+}
+
+func finalizePublicToolError(err error, tool string, failure ToolError) ToolError {
+	if tool != toolRunReview {
+		return failure
+	}
+	failure.Retryable = false
+	if sessionID, runID, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
+		session, run := sessionID.String(), runID.String()
+		failure.SessionID, failure.RunID = &session, &run
+	}
+	return failure
 }
 
 func reducedToolFailureClass(err error) (domain.FailureClass, bool) {

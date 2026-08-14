@@ -83,7 +83,10 @@ return bounded verified projections, not report or source bodies. Their
 in chunks of at most 16 KiB, with SHA-256, offset, total length, completion, and
 continuation metadata. All tools use the common
 `mulgae-mcp-tool-result.v1` structured envelope, where `request_changes` is a
-completed review rather than a transport failure.
+completed review rather than a transport failure. Errors include nullable
+session and run IDs. When a failed `run_review` returns both, inspect that exact
+run with `get_run`; never retry `run_review`, because a second call creates a
+new run.
 
 Clients that attach a progress token to `run_review` receive an admission
 notification, monotonic periodic heartbeats, and a terminal notification before

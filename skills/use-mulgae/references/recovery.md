@@ -8,7 +8,8 @@ failed.
 
 1. Stop issuing mutations. Preserve the complete command envelope, exit code,
    and any exact session, run, and attempt IDs already returned.
-2. Re-read the exact run:
+2. Re-read the exact run, including an identity returned on a failed MCP
+   `run_review`:
 
    ```bash
    mulgae status --run r_... --output json

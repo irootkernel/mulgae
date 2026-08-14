@@ -27,11 +27,13 @@ type ToolResult struct {
 // ToolError is a bounded, typed MCP tool failure without native paths or raw
 // provider output.
 type ToolError struct {
-	Class     string `json:"class"`
-	Code      string `json:"code"`
-	Stage     string `json:"stage"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	Class     string  `json:"class"`
+	Code      string  `json:"code"`
+	Stage     string  `json:"stage"`
+	Message   string  `json:"message"`
+	Retryable bool    `json:"retryable"`
+	SessionID *string `json:"session_id"`
+	RunID     *string `json:"run_id"`
 }
 
 // Validate enforces the semantic relationships in the public tool envelope.
@@ -103,6 +105,13 @@ func (failure ToolError) validate() error {
 	}
 	if strings.TrimSpace(failure.Message) == "" || len(failure.Message) > 512 {
 		return fmt.Errorf("MCP tool error: invalid message")
+	}
+	if (failure.SessionID == nil) != (failure.RunID == nil) {
+		return fmt.Errorf("MCP tool error: incomplete run identity")
+	}
+	if failure.SessionID != nil && (!matches(`^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, *failure.SessionID) ||
+		!matches(`^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, *failure.RunID)) {
+		return fmt.Errorf("MCP tool error: invalid run identity")
 	}
 	return nil
 }

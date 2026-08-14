@@ -98,8 +98,12 @@ and validation values, run/final artifacts, clean/export values, and the
 embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
 content envelope for MCP tools. It binds a Mulgae-issued request identity and
 tool name to `success`, `request_changes`, or a typed `error` outcome. The
-initial tool grammar comprises `preflight_review`, `run_review`, `list_runs`,
-`get_run`, and `list_findings`. Review targets are workspace, stage, dirty,
+error object always carries nullable `session_id` and `run_id` fields. They are
+both non-null only when Mulgae allocated that exact run before failure, allowing
+read-only recovery with `get_run`; `run_review` failures are not retryable
+because another call creates a distinct run. The initial tool grammar comprises
+`preflight_review`, `run_review`, `list_runs`, `get_run`, and `list_findings`.
+Review targets are workspace, stage, dirty,
 diff, or patch; stdio is reserved for JSON-RPC and is not a review target. Run
 pages admit a limit from 1 through 100, finding responses admit at most 1,000
 summaries, and no tool result embeds report or source bodies. `request_changes`

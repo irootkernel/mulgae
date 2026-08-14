@@ -37,7 +37,8 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    same arguments. Wait for its foreground result. Do not poll `list_runs` or
    `get_run` while it is active; progress notifications are observation only.
 4. Read the common structured envelope even when the outcome is
-   `request_changes`. Preserve the exact returned run ID. Do not retry a lost or
+   `request_changes` or `error`. Preserve the exact returned run ID, including
+   the identity attached to a failed `run_review`. Do not retry a lost or
    uncertain `run_review`: a second call creates another run.
 5. After the foreground call returns, call `get_run` and `list_findings` with
    the exact run ID. Use `minimum_severity: low` for the broadest finding query.

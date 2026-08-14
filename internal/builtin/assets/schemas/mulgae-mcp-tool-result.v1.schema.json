@@ -36,7 +36,7 @@
     "error": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["class", "code", "stage", "message", "retryable"],
+      "required": ["class", "code", "stage", "message", "retryable", "session_id", "run_id"],
       "properties": {
         "class": {
           "enum": ["usage", "policy", "readiness", "artifact", "security", "cancellation", "internal"]
@@ -53,8 +53,27 @@
           "minLength": 1,
           "maxLength": 512
         },
-        "retryable": { "type": "boolean" }
-      }
+        "retryable": { "type": "boolean" },
+        "session_id": {
+          "oneOf": [
+            { "type": "string", "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+            { "type": "null" }
+          ]
+        },
+        "run_id": {
+          "oneOf": [
+            { "type": "string", "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "session_id": { "type": "null" } }, "required": ["session_id"] },
+          "then": { "properties": { "run_id": { "type": "null" } } },
+          "else": { "properties": { "run_id": { "type": "string" } } }
+        }
+      ]
     }
   },
   "allOf": [

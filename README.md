@@ -245,13 +245,17 @@ are UTF-8 Markdown; evidence chunks preserve exact bytes.
 
 Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
 `request_changes` is a completed review outcome, while failures use bounded,
-typed, redacted errors. Because `run_review` holds the request open until the
-review reaches a terminal result, clients do not need to poll run state merely
-to learn that the requested review completed. When a client supplies an MCP
-progress token, `run_review` sends an admitted notification, monotonic periodic
-heartbeats, and a terminal notification before its result. Cancelling the MCP
-request cancels the same foreground review context and its provider processes;
-no separate Mulgae cancellation tool or polling loop is required.
+typed, redacted errors. Error results carry nullable `session_id` and `run_id`
+fields; when a failed `run_review` allocated a run, both identify the exact run
+to inspect with `get_run`. A failed `run_review` is never marked retryable
+because another call creates a new run. Because `run_review` holds the request
+open until the review reaches a terminal result, clients do not need to poll run
+state merely to learn that the requested review completed. When a client
+supplies an MCP progress token, `run_review` sends an admitted notification,
+monotonic periodic heartbeats, and a terminal notification before its result.
+Cancelling the MCP request cancels the same foreground review context and its
+provider processes; no separate Mulgae cancellation tool or polling loop is
+required.
 
 ### Configure Codex
 

@@ -1,10 +1,16 @@
 {
   "schema_version": "mulgae-mcp-tool-result.v1",
-  "tool": "preflight_review",
+  "tool": "run_review",
   "request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf",
-  "outcome": "success",
-  "data": {
-    "status": "eligible"
-  },
-  "error": null
+  "outcome": "error",
+  "data": null,
+  "error": {
+    "class": "readiness",
+    "code": "review_unavailable",
+    "stage": "execution",
+    "message": "The review could not complete with the configured provider.",
+    "retryable": false,
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+  }
 }

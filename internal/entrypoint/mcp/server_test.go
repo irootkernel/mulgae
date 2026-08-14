@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -268,6 +269,34 @@ func TestServeRunReviewPreservesRequestChangesOutcome(t *testing.T) {
 	}
 }
 
+func TestServeRunReviewFailurePreservesAllocatedIdentityWithoutRetry(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeout, err := domain.NewFailure("provider.execute", domain.FailureTimeout, "private provider failure", errors.New("private provider output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &toolBackendFake{runReviewErr: reviewrun.NewAllocatedRunIdentityError(sessionID, runID, timeout)}
+	discover := latestRequest(1, "server/discover", `{}`)
+	call := latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"},"roles":["logic"]}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, call)[1])
+	result := response["result"].(map[string]any)
+	structured := result["structuredContent"].(map[string]any)
+	failure := structured["error"].(map[string]any)
+	if failure["session_id"] != sessionID.String() || failure["run_id"] != runID.String() || failure["retryable"] != false {
+		t.Fatalf("run_review failure = %#v", structured)
+	}
+	if strings.Contains(string(response["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)), "private") {
+		t.Fatalf("run_review failure leaked private details: %#v", structured)
+	}
+}
+
 func TestServeRunReviewSendsProgressOnlyWhenRequested(t *testing.T) {
 	backend := &toolBackendFake{}
 	reader, input := io.Pipe()
@@ -495,6 +524,18 @@ func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
 	if cancelled.Class != "cancellation" || cancelled.Stage != "execution" {
 		t.Fatalf("cancelled failure = %#v", cancelled)
 	}
+	timeout, err := domain.NewFailure("provider.execute", domain.FailureTimeout, "private", errors.New("private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runFailure := publicToolError(timeout, toolRunReview)
+	if runFailure.Retryable || runFailure.SessionID != nil || runFailure.RunID != nil {
+		t.Fatalf("unidentified run failure = %#v", runFailure)
+	}
+	preflightFailure := publicToolError(timeout, toolPreflight)
+	if !preflightFailure.Retryable || preflightFailure.SessionID != nil || preflightFailure.RunID != nil {
+		t.Fatalf("read-only preflight failure = %#v", preflightFailure)
+	}
 }
 
 func testConfig() Config {
@@ -591,6 +632,7 @@ func toolTestConfig(t *testing.T, backend Backend) Config {
 
 type toolBackendFake struct {
 	runReviewOutcome   string
+	runReviewErr       error
 	runReviewCalls     int
 	runReviewStarted   chan struct{}
 	runReviewCancelled chan error
@@ -610,6 +652,9 @@ func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, _ RunRevie
 		<-ctx.Done()
 		fake.runReviewCancelled <- ctx.Err()
 		return BackendResult{}, ctx.Err()
+	}
+	if fake.runReviewErr != nil {
+		return BackendResult{}, fake.runReviewErr
 	}
 	outcome := fake.runReviewOutcome
 	if outcome == "" {
