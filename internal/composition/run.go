@@ -24,6 +24,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
+	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	"github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -63,6 +64,9 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	signal.Ignore(syscall.SIGPIPE)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(arguments) > 0 && arguments[0] == "mcp" {
+		return runMCP(ctx, arguments[1:], stdin, stdout, stderr, version.Version)
+	}
 	root, err := currentRoot()
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: current directory is unavailable\n")
@@ -189,6 +193,36 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	return deliverResult(stdout, stderr, result, arguments)
 }
 
+func runMCP(ctx context.Context, arguments []string, stdin io.Reader, stdout, stderr io.Writer, version string) int {
+	command, err := mcpentry.Parse(arguments)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: usage: mulgae mcp [--project-root ABSOLUTE_PATH]\n")
+		return 2
+	}
+	root, err := currentRoot()
+	if explicit, present := command.ProjectRoot(); present {
+		root, err = canonicalRoot(explicit)
+	}
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: MCP project root is unavailable\n")
+		return 2
+	}
+	if err := ports.ValidateResourceLimits(); err != nil {
+		writeDiagnostic(stderr, "mulgae: runtime resource limits are incompatible\n")
+		return 10
+	}
+	if err := mcpentry.Serve(ctx, stdin, stdout, mcpentry.Config{
+		Name: productName, Version: version, ProjectRoot: root.String(),
+	}); err != nil {
+		if ctx.Err() != nil {
+			return 9
+		}
+		writeDiagnostic(stderr, "mulgae: MCP transport failed\n")
+		return 10
+	}
+	return 0
+}
+
 func writeDiagnostic(stderr io.Writer, message string) {
 	_, _ = io.WriteString(stderr, message)
 }
@@ -244,9 +278,17 @@ func currentRoot() (ports.AnchoredRoot, error) {
 	if err != nil {
 		return ports.AnchoredRoot{}, err
 	}
-	resolved, err := filepath.EvalSymlinks(workingDirectory)
+	return canonicalRoot(workingDirectory)
+}
+
+func canonicalRoot(root string) (ports.AnchoredRoot, error) {
+	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return ports.AnchoredRoot{}, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return ports.AnchoredRoot{}, fmt.Errorf("canonical root is not a directory")
 	}
 	absolute, err := filepath.Abs(resolved)
 	if err != nil {

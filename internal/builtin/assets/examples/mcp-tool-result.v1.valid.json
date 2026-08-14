@@ -1,0 +1,10 @@
+{
+  "schema_version": "mulgae-mcp-tool-result.v1",
+  "tool": "preflight_review",
+  "request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "outcome": "success",
+  "data": {
+    "status": "ready"
+  },
+  "error": null
+}

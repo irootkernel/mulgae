@@ -80,6 +80,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "example:doctor-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "example:file-catalog.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json", "example:mcp-tool-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", "example:provider-contract-evidence.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "example:provider-followup-output.v1.valid.json"},

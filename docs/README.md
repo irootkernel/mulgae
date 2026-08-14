@@ -27,7 +27,9 @@ The implementation is authoritative for runtime behavior:
 - `internal/composition` owns executable bootstrap and concrete production
   wiring.
 - `internal/builtin/assets` owns embedded versioned runtime contracts.
-- `internal/entrypoint/mulgae` owns command grammar and result projection.
+- `internal/entrypoint/mulgae` owns CLI grammar and result projection.
+- `internal/entrypoint/mcp` owns attached MCP grammar, transport, and result
+  projection.
 
 Contributor documents explain these boundaries but do not create a parallel
 runtime contract. When behavior changes, update code, tests, embedded contracts,

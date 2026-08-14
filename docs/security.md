@@ -7,6 +7,12 @@ untrusted. Trusted code owns configuration admission, target capture, execution
 policy, schema compilation, identity, evidence verification, state reduction,
 and publication.
 
+The attached MCP boundary is local stdio only. It fixes one canonical project
+root before serving requests, accepts only protocol `2026-07-28`, and reserves
+stdout exclusively for newline-delimited JSON-RPC. Client parameters remain
+untrusted and do not acquire provider, publication, configuration, approval, or
+path authority merely by crossing the MCP transport.
+
 ## Provider isolation
 
 Providers do not receive live access to the project tree. Mulgae captures the

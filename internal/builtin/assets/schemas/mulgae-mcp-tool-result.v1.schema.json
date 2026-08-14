@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json",
+  "title": "Mulgae MCP Tool Result v1",
+  "description": "The common structured-content envelope returned by Mulgae MCP tools.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tool", "request_id", "outcome", "data", "error"],
+  "properties": {
+    "schema_version": { "const": "mulgae-mcp-tool-result.v1" },
+    "tool": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "outcome": {
+      "enum": ["success", "request_changes", "error"]
+    },
+    "data": {
+      "oneOf": [
+        { "type": "object", "maxProperties": 64 },
+        { "type": "null" }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/$defs/error" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "code", "stage", "message", "retryable"],
+      "properties": {
+        "class": {
+          "enum": ["usage", "policy", "readiness", "artifact", "security", "cancellation", "internal"]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "stage": {
+          "enum": ["admission", "execution", "validation", "publication", "query", "transport"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "error" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "data": { "type": "null" },
+          "error": { "$ref": "#/$defs/error" }
+        }
+      },
+      "else": {
+        "properties": {
+          "data": { "type": "object", "maxProperties": 64 },
+          "error": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

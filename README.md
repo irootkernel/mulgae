@@ -2,7 +2,7 @@
 
 ![Six seal reviewers independently inspect an immutable code snapshot and file separate reports in a local archive.](docs/assets/mulgae-hero.webp)
 
-Mulgae is a local, multi-provider AI code review CLI. It captures an immutable
+Mulgae is a local, multi-provider AI code review CLI and attached MCP server. It captures an immutable
 review target, asks role-specific reviewers to inspect it, publishes their
 free-form role reports, optionally validates structured findings and their
 evidence, and commits durable artifacts under `.mulgae/`.
@@ -210,6 +210,19 @@ Patch/stdin input containing only excluded control changes fails with
 
 Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
+
+An MCP client can start one attached stdio server for the current canonical
+project root, or select another root explicitly:
+
+```bash
+mulgae mcp
+mulgae mcp --project-root /absolute/path/to/repository
+```
+
+The server speaks newline-delimited JSON-RPC on stdout and accepts only MCP
+protocol `2026-07-28`. Diagnostics use stderr. The process fixes the canonical
+project root at startup and exits when its client closes stdin. This transport
+foundation does not register review tools yet.
 
 ## Optional: configure an AI coding agent
 

@@ -28,7 +28,8 @@ result, evidence status, lineage, and a durable publication record.
 6. **Local ownership.** Shared project policy and private machine/runtime state
    remain project-local beneath `.mulgae/`; only the policy is Git-shareable.
 7. **Inspectable automation.** Human output is convenient; `--output json`
-   provides stable versioned envelopes and typed exits.
+   provides stable versioned envelopes and typed exits, while an attached
+   stdio MCP process provides request/response automation without CLI polling.
 
 ## Non-goals
 
@@ -47,7 +48,7 @@ Mulgae does not:
 
 The first public release is intentionally narrow:
 
-- one binary named `mulgae`;
+- one binary named `mulgae`, including the `mulgae mcp` attached transport;
 - Config v2 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;

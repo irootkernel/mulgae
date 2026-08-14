@@ -8,12 +8,14 @@ Mulgae follows a domain-first, ports-and-adapters design:
 main
   -> internal/composition
       -> internal/entrypoint/mulgae
+      -> internal/entrypoint/mcp
       -> internal/app/*
       -> internal/adapters/*
       -> internal/builtin
 
 internal/entrypoint/mulgae -> internal/app/* -> internal/domain
                                              -> internal/ports
+internal/entrypoint/mcp ----------------------> external MCP SDK
 internal/adapters/* --------------------------> internal/ports
 ```
 
@@ -31,6 +33,7 @@ root.
 | `main.go` | Darwin/arm64 process shim and release linker variables |
 | `internal/composition` | Executable bootstrap, build identity, and production graph |
 | `internal/entrypoint/mulgae` | CLI grammar, dispatch, output, selector resolution |
+| `internal/entrypoint/mcp` | Attached stdio MCP grammar, protocol admission, and tool projection |
 | `internal/app/reviewrun` | Target capture, planning, qualification, prompts, orchestration |
 | `internal/app/review` | Assignments, coordination, aggregation, results |
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
@@ -94,6 +97,22 @@ the untracked `.mulgae/local.yaml` authority.
     final review, recording the transport that carried each accepted role
     report. Captured content is retained as a reference-only manifest plus
     deduplicated SHA-256 blobs for immutable child-run reconstruction.
+
+## Attached MCP transport
+
+`mulgae mcp [--project-root ABSOLUTE_PATH]` starts one process-scoped stdio
+server. Composition resolves the selected path to a canonical anchored root
+before constructing the server; the root cannot change during the process.
+`internal/entrypoint/mcp` owns newline-delimited JSON-RPC and accepts only MCP
+`2026-07-28`. It advertises that version through `server/discover` and rejects
+legacy `initialize` with the structured unsupported-version code. EOF is a
+normal attached-client shutdown; cancellation uses Mulgae exit 9, malformed or
+failed transport uses exit 10, and invalid command grammar uses exit 2.
+
+Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
+diagnostics use stderr. This foundation has no registered review tools; later
+tool wiring must call existing application services rather than moving policy
+into the transport package.
 
 ## Concurrency, cancellation, and storage
 

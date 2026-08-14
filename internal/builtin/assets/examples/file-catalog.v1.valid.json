@@ -100,6 +100,18 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/examples/mcp-tool-result.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json",
+      "pair": "sot/schemas/mulgae-mcp-tool-result.v1.schema.json",
+      "consumers": [
+        "mcp-tool-result-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/examples/local-config.yaml",
       "disposition": "ADDED",
       "media_type": "application/yaml",
@@ -495,6 +507,18 @@
         "checksum-generator",
         "integrity-validator",
         "trace-validator"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/mulgae-mcp-tool-result.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json",
+      "pair": "sot/examples/mcp-tool-result.v1.valid.json",
+      "consumers": [
+        "mcp-tool-result-validator"
       ],
       "checksum_inclusion": true,
       "exclusion_reason": null

@@ -92,10 +92,12 @@ continue to use exit 9.
 
 Schemas use JSON Schema Draft 2020-12 and live in
 [`internal/builtin/assets/schemas`](../internal/builtin/assets/schemas).
-The catalog contains one current schema/example pair for command and doctor
-results, provider/platform evidence, provider review values, repair and
-validation values, run/final artifacts, clean/export values, and the embedded
-file catalog.
+The catalog contains one current schema/example pair for command, doctor, and
+MCP tool results, provider/platform evidence, provider review values, repair
+and validation values, run/final artifacts, clean/export values, and the
+embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
+content envelope for MCP tools. It binds a Mulgae-issued request identity and
+tool name to `success`, `request_changes`, or a typed `error` outcome.
 
 Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path

@@ -61,3 +61,16 @@ mulgae rerun --run latest --role logic --provider zcode
 `followup` checks one finding, `delta` reviews changes relative to a prior run,
 and `rerun` repeats one prior attempt. Use `--output json` for machine-readable
 command envelopes.
+
+An MCP client may start one attached stdio process rooted at the current
+canonical project directory or an explicit absolute path:
+
+```bash
+mulgae mcp
+mulgae mcp --project-root /absolute/path/to/repository
+```
+
+The process accepts MCP `2026-07-28` only, writes newline-delimited JSON-RPC to
+stdout, writes bounded diagnostics to stderr, and stops when the client closes
+stdin. The project root is fixed at startup. This transport foundation does not
+register review tools yet.

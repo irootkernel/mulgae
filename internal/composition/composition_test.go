@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -37,6 +38,40 @@ func TestPublicationArtifactRootUsesPrivateMulgaeNamespace(t *testing.T) {
 	}
 	if want := filepath.Join(projectPath, ".mulgae"); root.String() != want {
 		t.Fatalf("publication artifact root = %q, want %q", root.String(), want)
+	}
+}
+
+func TestRunMCPUsesExplicitRootAndKeepsStdoutProtocolOnly(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	var stdout, stderr bytes.Buffer
+	exit := runMCP(context.Background(), []string{"--project-root", root}, strings.NewReader(""), &stdout, &stderr, "test")
+	if exit != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("MCP EOF = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exit = runMCP(context.Background(), []string{"--project-root", "relative"}, strings.NewReader(""), &stdout, &stderr, "test")
+	if exit != 2 || stdout.Len() != 0 || stderr.String() != "mulgae: usage: mulgae mcp [--project-root ABSOLUTE_PATH]\n" {
+		t.Fatalf("MCP usage = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
+	}
+
+	file := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(file, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	exit = runMCP(context.Background(), []string{"--project-root", file}, strings.NewReader(""), &stdout, &stderr, "test")
+	if exit != 2 || stdout.Len() != 0 || stderr.String() != "mulgae: MCP project root is unavailable\n" {
+		t.Fatalf("MCP file root = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exit = runMCP(context.Background(), []string{"--project-root", root}, strings.NewReader("{\n"), &stdout, &stderr, "test")
+	if exit != 10 || stdout.Len() != 0 || stderr.String() != "mulgae: MCP transport failed\n" {
+		t.Fatalf("MCP malformed input = exit %d stdout %q stderr %q", exit, stdout.String(), stderr.String())
 	}
 }
 
