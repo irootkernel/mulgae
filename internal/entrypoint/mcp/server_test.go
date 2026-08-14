@@ -127,6 +127,47 @@ func TestServeTreatsEOFAsCleanAndMalformedInputAsFailure(t *testing.T) {
 	}
 }
 
+func TestServeRejectsOversizedFrameBeforeDispatch(t *testing.T) {
+	base := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	for _, terminator := range []string{"\n", ""} {
+		name := "unterminated"
+		if terminator != "" {
+			name = "newline"
+		}
+		t.Run(name, func(t *testing.T) {
+			request := strings.Repeat(" ", maxMCPFrameBytes+1) + base + terminator
+			var output bytes.Buffer
+			err := Serve(context.Background(), strings.NewReader(request), &output, testConfig())
+			if !errors.Is(err, errMCPFrameTooLarge) {
+				t.Fatalf("oversized MCP frame error = %v, want %v", err, errMCPFrameTooLarge)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("oversized MCP frame wrote %q", output.String())
+			}
+		})
+	}
+}
+
+func TestServeAcceptsMaximumSizedFrameAndCRLF(t *testing.T) {
+	base := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	for _, terminator := range []string{"\n", "\r\n"} {
+		t.Run(fmt.Sprintf("terminator-%q", terminator), func(t *testing.T) {
+			padding := maxMCPFrameBytes - len(base) - len(terminator)
+			if padding < 0 {
+				t.Fatal("test request exceeds the MCP frame limit")
+			}
+			request := strings.Repeat(" ", padding) + base + terminator
+			if len(request) != maxMCPFrameBytes {
+				t.Fatalf("request length = %d, want %d", len(request), maxMCPFrameBytes)
+			}
+			response := decodeResponse(t, serveRequest(t, request))
+			if response["error"] != nil {
+				t.Fatalf("maximum-sized MCP frame = %#v", response)
+			}
+		})
+	}
+}
+
 func TestServeCancellationClosesBlockingInput(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	reader, input := io.Pipe()

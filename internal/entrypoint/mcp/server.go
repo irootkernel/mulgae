@@ -1,6 +1,7 @@
 package mcpentry
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,10 @@ import (
 
 // ProtocolVersion is the newest MCP protocol version accepted by Mulgae.
 const ProtocolVersion = "2026-07-28"
+
+const maxMCPFrameBytes = 1 << 20
+
+var errMCPFrameTooLarge = errors.New("MCP frame exceeds the input limit")
 
 var supportedProtocolVersions = []string{
 	ProtocolVersion,
@@ -59,13 +64,61 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 	registerResources(server, config.Backend)
 
 	transport := compatibleTransport{Transport: &mcpsdk.IOTransport{
-		Reader: asReadCloser(reader),
+		Reader: newBoundedMCPReader(asReadCloser(reader)),
 		Writer: noCloseWriter{Writer: writer},
 	}}
 	if err := server.Run(ctx, transport); err != nil && !cleanTransportEOF(err) {
 		return fmt.Errorf("serve MCP: %w", err)
 	}
 	return nil
+}
+
+type boundedMCPReader struct {
+	source     io.ReadCloser
+	reader     *bufio.Reader
+	pending    []byte
+	pendingErr error
+}
+
+func newBoundedMCPReader(source io.ReadCloser) io.ReadCloser {
+	return &boundedMCPReader{
+		source: source,
+		reader: bufio.NewReaderSize(source, maxMCPFrameBytes+1),
+	}
+}
+
+func (reader *boundedMCPReader) Read(destination []byte) (int, error) {
+	if len(destination) == 0 {
+		return 0, nil
+	}
+	if len(reader.pending) == 0 {
+		if reader.pendingErr != nil {
+			return 0, reader.pendingErr
+		}
+		frame, err := reader.reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) || len(frame) > maxMCPFrameBytes {
+			reader.pendingErr = errMCPFrameTooLarge
+			return 0, reader.pendingErr
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			reader.pendingErr = err
+			return 0, err
+		}
+		if len(frame) == 0 {
+			reader.pendingErr = err
+			return 0, err
+		}
+		reader.pending = frame
+		reader.pendingErr = err
+	}
+
+	written := copy(destination, reader.pending)
+	reader.pending = reader.pending[written:]
+	return written, nil
+}
+
+func (reader *boundedMCPReader) Close() error {
+	return reader.source.Close()
 }
 
 func cleanTransportEOF(err error) bool {
