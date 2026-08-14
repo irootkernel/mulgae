@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -114,7 +115,7 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 			t.Fatalf("tool output schema = %#v", tool["outputSchema"])
 		}
 	}
-	if strings.Join(names, ",") != "get_run,list_findings,list_runs,run_review" {
+	if strings.Join(names, ",") != "get_run,list_findings,list_runs,preflight_review,run_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -176,6 +177,96 @@ func TestServeRunReviewPreservesRequestChangesOutcome(t *testing.T) {
 	structured := result["structuredContent"].(map[string]any)
 	if structured["outcome"] != toolOutcomeRequestChanges || result["isError"] != nil || backend.runReviewCalls != 1 {
 		t.Fatalf("run_review result = %#v, calls = %d", result, backend.runReviewCalls)
+	}
+}
+
+func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
+	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"
+	backend := &toolBackendFake{resource: ResourceResult{
+		URI: uri, MIMEType: "text/markdown", Text: "# Review\n",
+		Meta: map[string]any{"io.mulgae/offset": 0, "io.mulgae/totalBytes": 9, "io.mulgae/nextURI": nil},
+	}}
+	requests := []string{
+		latestRequest(1, "server/discover", `{}`),
+		latestRequest(2, "tools/call", `{"name":"preflight_review","arguments":{"target":{"kind":"stage"}}}`),
+		latestRequest(3, "resources/templates/list", `{}`),
+		latestRequest(4, "resources/read", `{"uri":"`+uri+`"}`),
+	}
+	responses := serveRequestsWithConfig(t, toolTestConfig(t, backend), requests...)
+	preflight := decodeResponse(t, responses[1])["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if preflight["tool"] != toolPreflight || preflight["outcome"] != toolOutcomeSuccess || backend.preflightCalls != 1 {
+		t.Fatalf("preflight result = %#v, calls = %d", preflight, backend.preflightCalls)
+	}
+	templates := decodeResponse(t, responses[2])["result"].(map[string]any)["resourceTemplates"].([]any)
+	if len(templates) != 2 || templates[0].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
+		templates[1].(map[string]any)["uriTemplate"] != reportResourceTemplate {
+		t.Fatalf("resource templates = %#v", templates)
+	}
+	contents := decodeResponse(t, responses[3])["result"].(map[string]any)["contents"].([]any)
+	if len(contents) != 1 || contents[0].(map[string]any)["text"] != "# Review\n" || backend.resourceCalls != 1 {
+		t.Fatalf("resource contents = %#v, calls = %d", contents, backend.resourceCalls)
+	}
+}
+
+func TestServeResourceFailureIsTypedBoundedAndNonReflective(t *testing.T) {
+	secret := "/Users/private/project?token=secret"
+	failure, err := domain.NewFailure("query.resource", domain.FailureArtifact, secret, errors.New(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &toolBackendFake{resourceErr: failure}
+	discover := latestRequest(1, "server/discover", `{}`)
+	read := latestRequest(2, "resources/read", `{"uri":"mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"}`)
+	response := serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, read)[1]
+	decoded := decodeResponse(t, response)
+	resourceError := decoded["error"].(map[string]any)
+	if resourceError["code"] != float64(jsonrpc.CodeInvalidParams) || strings.Contains(string(response), secret) {
+		t.Fatalf("resource error = %s", response)
+	}
+	data := resourceError["data"].(map[string]any)
+	if data["class"] != "artifact" || data["code"] != "artifact_unavailable" {
+		t.Fatalf("resource error data = %#v", data)
+	}
+}
+
+func TestServeReadsEvidenceResourceTemplateWithQueryBinding(t *testing.T) {
+	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/findings/F001/evidence?target_sha256=sha256%3Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	backend := &toolBackendFake{resource: ResourceResult{
+		URI: uri, MIMEType: "application/octet-stream", Blob: []byte{0x00, 0xff, 0x01},
+		Meta: map[string]any{"io.mulgae/offset": 0, "io.mulgae/complete": true},
+	}}
+	discover := latestRequest(1, "server/discover", `{}`)
+	read := latestRequest(2, "resources/read", `{"uri":"`+uri+`"}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, read)[1])
+	contents := response["result"].(map[string]any)["contents"].([]any)
+	if len(contents) != 1 || contents[0].(map[string]any)["blob"] != "AP8B" {
+		t.Fatalf("evidence resource = %#v", contents)
+	}
+}
+
+func TestResourceResultRejectsAmbiguousOrUnboundedContent(t *testing.T) {
+	uri := "mulgae://runs/r_019f596a-cf80-7c67-b265-f37053d51ccf/report"
+	base := ResourceResult{URI: uri, MIMEType: "text/markdown", Text: "ok", Meta: map[string]any{"io.mulgae/offset": 0}}
+	if err := base.validate(uri); err != nil {
+		t.Fatalf("valid resource result = %v", err)
+	}
+	for name, mutate := range map[string]func(*ResourceResult){
+		"URI mismatch": func(result *ResourceResult) { result.URI += "?offset=1" },
+		"both forms":   func(result *ResourceResult) { result.Blob = []byte("duplicate") },
+		"empty": func(result *ResourceResult) {
+			result.Text = ""
+		},
+		"oversized": func(result *ResourceResult) {
+			result.Text = strings.Repeat("x", MaxResourceChunkBytes+1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := base
+			mutate(&candidate)
+			if err := candidate.validate(uri); err == nil {
+				t.Fatal("invalid resource result was accepted")
+			}
+		})
 	}
 }
 
@@ -294,9 +385,13 @@ func toolTestConfig(t *testing.T, backend Backend) Config {
 type toolBackendFake struct {
 	runReviewOutcome string
 	runReviewCalls   int
+	preflightCalls   int
 	getRunData       map[string]any
 	getRunErr        error
 	getRunCalls      int
+	resource         ResourceResult
+	resourceErr      error
+	resourceCalls    int
 }
 
 func (fake *toolBackendFake) RunReview(context.Context, string, RunReviewInput) (BackendResult, error) {
@@ -306,6 +401,11 @@ func (fake *toolBackendFake) RunReview(context.Context, string, RunReviewInput) 
 		outcome = toolOutcomeSuccess
 	}
 	return BackendResult{Outcome: outcome, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
+}
+
+func (fake *toolBackendFake) PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error) {
+	fake.preflightCalls++
+	return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"status": "eligible"}}, nil
 }
 
 func (fake *toolBackendFake) ListRuns(context.Context, ListRunsInput) (map[string]any, error) {
@@ -319,6 +419,11 @@ func (fake *toolBackendFake) GetRun(context.Context, GetRunInput) (map[string]an
 
 func (fake *toolBackendFake) ListFindings(context.Context, ListFindingsInput) (map[string]any, error) {
 	return map[string]any{"findings": []any{}}, nil
+}
+
+func (fake *toolBackendFake) ReadResource(context.Context, string) (ResourceResult, error) {
+	fake.resourceCalls++
+	return fake.resource, fake.resourceErr
 }
 
 type channelWriter struct {

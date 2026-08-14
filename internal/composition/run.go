@@ -208,7 +208,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	if mcpMode {
-		backend, err := newMCPBackend(root, artifactRoot, application, publicationQueries, runSelector)
+		backend, err := newMCPBackend(root, artifactRoot, application, publicationQueries, publicationReports, runSelector)
 		if err != nil {
 			writeDiagnostic(stderr, "mulgae: MCP application services are unavailable\n")
 			return 10

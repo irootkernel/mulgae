@@ -50,6 +50,7 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 	)
 	server.AddReceivingMiddleware(admitLatestProtocol)
 	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
+	registerResources(server, config.Backend)
 
 	transport := latestTransport{Transport: &mcpsdk.IOTransport{
 		Reader: asReadCloser(reader),

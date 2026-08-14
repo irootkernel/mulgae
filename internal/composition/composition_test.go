@@ -81,7 +81,7 @@ func TestRunMCPUsesExplicitRootAndKeepsStdoutProtocolOnly(t *testing.T) {
 func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	root := canonicalTestTempDir(t)
 	reader, input := io.Pipe()
-	responses := make(chan []byte, 2)
+	responses := make(chan []byte, 3)
 	done := make(chan int, 1)
 	go func() {
 		done <- Run([]string{"mulgae", "mcp", "--project-root", root}, reader, mcpCompositionWriter{responses}, io.Discard, BuildOverrides{Version: "test"})
@@ -111,8 +111,13 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	for _, raw := range tools {
 		names = append(names, raw.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "get_run,list_findings,list_runs,run_review" {
+	if strings.Join(names, ",") != "get_run,list_findings,list_runs,preflight_review,run_review" {
 		t.Fatalf("production MCP tools = %v", names)
+	}
+	response = request(3, "resources/templates/list")
+	templates := response["result"].(map[string]any)["resourceTemplates"].([]any)
+	if len(templates) != 2 {
+		t.Fatalf("production MCP resource templates = %#v", templates)
 	}
 	if err := input.Close(); err != nil {
 		t.Fatal(err)

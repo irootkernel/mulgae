@@ -15,7 +15,13 @@ path authority merely by crossing the MCP transport. Tool arguments are
 strictly decoded and bounded. `run_review` admits no stdin target, and query
 tools expose only verified, project-confined status, artifact identities, and
 bounded finding summaries. Native paths, provider transcripts, report bodies,
-and captured source are not part of these tool results.
+and captured source are not part of these tool results. Report and evidence
+bodies are available only through project-confined `mulgae://` templates. Each
+read re-verifies the committed source, admits only canonical byte offsets, and
+returns at most 16 KiB with integrity and continuation metadata. Evidence URIs
+bind the finding to the current target SHA-256; stale, malformed, oversized, or
+relocated content fails closed without reflecting the requested URI or native
+path.
 
 ## Provider isolation
 

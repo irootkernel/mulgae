@@ -221,9 +221,11 @@ mulgae mcp --project-root /absolute/path/to/repository
 
 The server speaks newline-delimited JSON-RPC on stdout and accepts only MCP
 protocol `2026-07-28`. Diagnostics use stderr. The process fixes the canonical
-project root at startup and exits when its client closes stdin. It exposes four
+project root at startup and exits when its client closes stdin. It exposes five
 bounded tools:
 
+- `preflight_review` captures and summarizes the execution-free target,
+  transmission plan, and budget without invoking providers or publishing a run.
 - `run_review` captures and completes one foreground review for `workspace`,
   `stage`, `dirty`, `diff`, or `patch`; MCP stdin is transport-only and cannot
   be a review target.
@@ -232,6 +234,13 @@ bounded tools:
 - `get_run` returns verified publication state and public artifact identities.
 - `list_findings` returns at most 1,000 committed finding summaries at or above
   a selected severity; it does not return report or source bodies.
+
+Committed run and finding results include `mulgae://` resource URIs. The
+`verified_review_report` and `verified_finding_evidence` templates read only
+integrity-checked content and return at most 16 KiB per request. Resource
+metadata includes the full-content SHA-256, byte offset, total byte length,
+completion flag, and a canonical `nextURI` when another chunk exists. Reports
+are UTF-8 Markdown; evidence chunks preserve exact bytes.
 
 Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
 `request_changes` is a completed review outcome, while failures use bounded,

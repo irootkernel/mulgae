@@ -78,6 +78,7 @@ type FindingsView struct {
 	RunID             string
 	Findings          []FindingView
 	ReviewArtifactURI string
+	TargetSHA256      string
 }
 
 // PublicationReportService is the command-facing projection of the G006 report
@@ -171,6 +172,7 @@ func (adapter publicationQueryAdapter) ListFindings(
 		RunID:             review.RunID().String(),
 		Findings:          make([]FindingView, len(findings)),
 		ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(),
+		TargetSHA256:      review.TargetSHA256(),
 	}
 	for index, finding := range findings {
 		view.Findings[index] = FindingView{

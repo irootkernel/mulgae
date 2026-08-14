@@ -98,12 +98,24 @@ and validation values, run/final artifacts, clean/export values, and the
 embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
 content envelope for MCP tools. It binds a Mulgae-issued request identity and
 tool name to `success`, `request_changes`, or a typed `error` outcome. The
-initial tool grammar comprises `run_review`, `list_runs`, `get_run`, and
-`list_findings`. Review targets are workspace, stage, dirty, diff, or patch;
-stdio is reserved for JSON-RPC and is not a review target. Run pages admit a
-limit from 1 through 100, finding responses admit at most 1,000 summaries, and
-no initial query tool returns report or source bodies. `request_changes` means
-the review completed with a policy rejection; it is not an MCP call failure.
+initial tool grammar comprises `preflight_review`, `run_review`, `list_runs`,
+`get_run`, and `list_findings`. Review targets are workspace, stage, dirty,
+diff, or patch; stdio is reserved for JSON-RPC and is not a review target. Run
+pages admit a limit from 1 through 100, finding responses admit at most 1,000
+summaries, and no tool result embeds report or source bodies. `request_changes`
+means the review completed with a policy rejection; it is not an MCP call
+failure.
+
+The `verified_review_report` template uses
+`mulgae://runs/{run_id}/report{?offset}`. The
+`verified_finding_evidence` template uses
+`mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,offset}`.
+Every read re-resolves the project-confined run and reuses the verified report
+or current-target excerpt service. A response contains at most 16 KiB and
+publishes the full-content SHA-256, byte offset, chunk byte length, total byte
+length, completion flag, and canonical next URI in `io.mulgae/*` metadata.
+Offsets are zero-based byte offsets and must be a canonical continuation; a
+report offset cannot split UTF-8. Evidence is returned as an exact-byte blob.
 
 Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path

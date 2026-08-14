@@ -148,16 +148,10 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		if err != nil {
 			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 		}
-		preflight, ok := application.reviewRuns.(ReviewPreflightService)
-		if !ok || nilApplicationDependency(preflight) {
-			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), errors.New("review preflight authority unavailable"), domain.FailureProviderUnavailable)}
-		}
-		result, err := preflight.PreflightReview(ctx, request, projectRoot)
+		result, err := application.PreflightReview(ctx, request, projectRoot)
 		if err != nil {
-			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review.preflight", domain.FailureConfiguration, "review preflight failed", err), domain.FailureConfiguration)}
-		}
-		if err := result.Validate(); err != nil {
-			if validation, ok := err.(*reviewPreflightValidationFailure); ok {
+			var validation *reviewPreflightValidationFailure
+			if errors.As(err, &validation) {
 				message := "Review preflight validation failed at stage review.preflight.validate: invariant=" + validation.invariant
 				if validation.hasLimitFacts {
 					message += fmt.Sprintf(
@@ -173,7 +167,7 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 					recommendedNextCommand: "mulgae doctor",
 				}}
 			}
-			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+			return execution{failureData: reviewPreflightFailureJSON(), failure: executionFailureFor(invocation.Command(), classifyHandlerFailure("cli.review.preflight", domain.FailureConfiguration, "review preflight failed", err), domain.FailureConfiguration)}
 		}
 		data, err := reviewPreflightSuccessJSON(result)
 		if err != nil {
@@ -238,6 +232,30 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 		committedReasons:       reasons,
 		committedReasonDetails: reasonDetails,
 	}
+}
+
+// PreflightReview captures and validates the execution-free review projection
+// through the same configured authority used by the CLI.
+func (application *Application) PreflightReview(
+	ctx context.Context,
+	request ReviewRequest,
+	projectRoot ports.AnchoredRoot,
+) (ReviewPreflightResult, error) {
+	if application == nil || !projectRoot.Valid() || !request.Preflight() || nilApplicationDependency(application.reviewRuns) {
+		return ReviewPreflightResult{}, typedHandlerFailure("review.preflight", domain.FailureInternal, "review preflight application is unavailable", nil)
+	}
+	preflight, ok := application.reviewRuns.(ReviewPreflightService)
+	if !ok || nilApplicationDependency(preflight) {
+		return ReviewPreflightResult{}, typedHandlerFailure("review.preflight", domain.FailureProviderUnavailable, "review preflight authority is unavailable", nil)
+	}
+	result, err := preflight.PreflightReview(ctx, request, projectRoot)
+	if err != nil {
+		return ReviewPreflightResult{}, classifyHandlerFailure("review.preflight", domain.FailureConfiguration, "review preflight failed", err)
+	}
+	if err := result.Validate(); err != nil {
+		return ReviewPreflightResult{}, typedHandlerFailure("review.preflight.validate", domain.FailureInternal, "review preflight projection is invalid", err)
+	}
+	return result, nil
 }
 
 // StartReviewRun preserves the CLI review preparation, private publication
@@ -1556,7 +1574,8 @@ func (application *Application) handleRoles(invocation Invocation) execution {
 	return execution{human: []byte(human.String()), data: data}
 }
 
-const maxReportMarkdownBytes int64 = 8 << 20
+// MaxReportMarkdownBytes is the shared bound for rendered report projections.
+const MaxReportMarkdownBytes int64 = 8 << 20
 
 func (application *Application) handleStatus(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
 	request, available := invocation.Status()
@@ -1618,7 +1637,7 @@ func (application *Application) handleReport(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
-	if rendered.RunID != request.RunID() || len(rendered.Markdown) == 0 || int64(len(rendered.Markdown)) > maxReportMarkdownBytes {
+	if rendered.RunID != request.RunID() || len(rendered.Markdown) == 0 || int64(len(rendered.Markdown)) > MaxReportMarkdownBytes {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("rendered report is not bound to the selected run"), domain.FailureArtifact)}
 	}
 	receipt, err := application.persistReportMarkdown(ctx, projectRoot, destination, rendered.SourceIDs, rendered.Markdown)
@@ -2162,7 +2181,7 @@ func (application *Application) persistReportMarkdown(
 	sourceIDs []string,
 	contents []byte,
 ) (ports.SecureWriteReceipt, error) {
-	if len(contents) == 0 || int64(len(contents)) > maxReportMarkdownBytes {
+	if len(contents) == 0 || int64(len(contents)) > MaxReportMarkdownBytes {
 		return ports.SecureWriteReceipt{}, typedHandlerFailure("cli.report", domain.FailureArtifact, "report bytes exceed the write limit", nil)
 	}
 	if reportOutputUsesControlNamespace(destination.String()) {
@@ -2182,7 +2201,7 @@ func (application *Application) persistReportMarkdown(
 		destination,
 		"report_markdown",
 		bytes.NewReader(contents),
-		maxReportMarkdownBytes,
+		MaxReportMarkdownBytes,
 		cloneApplicationStrings(sourceIDs),
 		func(cause error) {
 			aborted = true

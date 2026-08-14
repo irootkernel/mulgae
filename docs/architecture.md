@@ -110,13 +110,24 @@ normal attached-client shutdown; cancellation uses Mulgae exit 9, malformed or
 failed transport uses exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
-diagnostics use stderr. The transport exposes `run_review`, `list_runs`,
-`get_run`, and `list_findings`. The MCP package owns strict tool grammar and the
-common result envelope; composition binds those tools to the same review and
-verified publication-query services used by the CLI. It does not duplicate
-capture, execution, query, or publication policy. Review calls run in the
-foreground so request completion replaces completion polling, while list and
-lookup calls remain bounded read-only projections.
+diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
+`list_runs`, `get_run`, and `list_findings`, plus bounded verified report and
+finding-evidence resource templates. The MCP package owns strict tool and URI
+grammar, chunk limits, and the common result envelope; composition binds those
+surfaces to the same preflight, review, report, and verified publication-query
+services used by the CLI. It does not duplicate capture, execution, query, or
+publication policy. Review calls run in the foreground so request completion
+replaces completion polling, while preflight, list, lookup, and resource reads
+remain bounded read-only projections.
+
+Preflight omits the unbounded per-file inventory from its MCP result and returns
+only target identity, file-set counts and byte totals, generated paths,
+transmission routes, and execution budget. Committed report and evidence bytes
+are re-verified for every resource read and divided into canonical byte-offset
+chunks no larger than 16 KiB. UTF-8 report chunks never split a code point;
+evidence uses the MCP blob form to preserve exact bytes. Full-content digest,
+offset, total length, completion, and continuation URI travel as resource
+metadata rather than being mixed into the content.
 
 ## Concurrency, cancellation, and storage
 

@@ -18,6 +18,7 @@ import (
 
 const (
 	toolRunReview    = "run_review"
+	toolPreflight    = "preflight_review"
 	toolListRuns     = "list_runs"
 	toolGetRun       = "get_run"
 	toolListFindings = "list_findings"
@@ -30,9 +31,11 @@ const (
 // project-root confinement and return only public, bounded values.
 type Backend interface {
 	RunReview(context.Context, string, RunReviewInput) (BackendResult, error)
+	PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error)
 	ListRuns(context.Context, ListRunsInput) (map[string]any, error)
 	GetRun(context.Context, GetRunInput) (map[string]any, error)
 	ListFindings(context.Context, ListFindingsInput) (map[string]any, error)
+	ReadResource(context.Context, string) (ResourceResult, error)
 }
 
 // BackendResult carries a successful tool outcome and its public data object.
@@ -86,6 +89,18 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 				return "", nil, err
 			}
 			result, err := backend.RunReview(ctx, requestID, input)
+			return result.Outcome, result.Data, err
+		}, newRequestID)
+	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(runReviewInputSchema), outputSchema, true,
+		func(ctx context.Context, requestID string, raw json.RawMessage) (string, map[string]any, error) {
+			var input RunReviewInput
+			if err := decodeArguments(raw, &input); err != nil {
+				return "", nil, err
+			}
+			if err := validateRunReviewInput(input); err != nil {
+				return "", nil, err
+			}
+			result, err := backend.PreflightReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
 		}, newRequestID)
 	addTool(server, toolListRuns, "List a bounded page of safely admitted Mulgae runs for this server's fixed project root.", json.RawMessage(listRunsInputSchema), outputSchema, true,

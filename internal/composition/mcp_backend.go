@@ -4,10 +4,16 @@ package composition
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -21,6 +27,7 @@ type mcpBackend struct {
 	artifactRoot ports.AnchoredRoot
 	application  *mulgaeentry.Application
 	queries      mulgaeentry.PublicationQueryService
+	reports      mulgaeentry.PublicationReportService
 	enumerator   *filesystem.RunSelector
 }
 
@@ -28,14 +35,74 @@ func newMCPBackend(
 	projectRoot, artifactRoot ports.AnchoredRoot,
 	application *mulgaeentry.Application,
 	queries mulgaeentry.PublicationQueryService,
+	reports mulgaeentry.PublicationReportService,
 	enumerator *filesystem.RunSelector,
 ) (*mcpBackend, error) {
-	if !projectRoot.Valid() || !artifactRoot.Valid() || application == nil || queries == nil || enumerator == nil {
+	if !projectRoot.Valid() || !artifactRoot.Valid() || application == nil || queries == nil || reports == nil || enumerator == nil {
 		return nil, fmt.Errorf("MCP backend: incomplete dependencies")
 	}
 	return &mcpBackend{
 		projectRoot: projectRoot, artifactRoot: artifactRoot, application: application,
-		queries: queries, enumerator: enumerator,
+		queries: queries, reports: reports, enumerator: enumerator,
+	}, nil
+}
+
+func (backend *mcpBackend) PreflightReview(
+	ctx context.Context,
+	requestID string,
+	input mcpentry.RunReviewInput,
+) (mcpentry.BackendResult, error) {
+	if err := backend.preflight(ctx); err != nil {
+		return mcpentry.BackendResult{}, err
+	}
+	arguments, err := mcpReviewArguments(input)
+	if err != nil {
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, "MCP preflight target is invalid", err)
+	}
+	arguments = append(arguments, "--preflight")
+	invocation, err := mulgaeentry.Parse(arguments, backend.projectRoot.String(), requestID)
+	if err != nil {
+		class := domain.FailureInternal
+		if errors.Is(err, mulgaeentry.ErrUsage) {
+			class = domain.FailureConfiguration
+		}
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", class, "MCP preflight request is invalid", err)
+	}
+	request, available := invocation.Review()
+	if !available || !request.Preflight() {
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.preflight", domain.FailureInternal, "MCP preflight request is unavailable", nil)
+	}
+	result, err := backend.application.PreflightReview(ctx, request, backend.projectRoot)
+	if err != nil {
+		return mcpentry.BackendResult{}, err
+	}
+	data, err := summarizeMCPPreflight(result)
+	if err != nil {
+		return mcpentry.BackendResult{}, err
+	}
+	return mcpentry.BackendResult{Outcome: "success", Data: data}, nil
+}
+
+func summarizeMCPPreflight(result mulgaeentry.ReviewPreflightResult) (map[string]any, error) {
+	fileSets := make([]any, 0, len(result.FileSets))
+	for _, set := range result.FileSets {
+		var totalBytes int64
+		for _, file := range set.Files {
+			if file.Size > 0 && totalBytes > math.MaxInt64-file.Size {
+				return nil, newMCPFailure("mcp.preflight", domain.FailureInternal, "MCP preflight file summary overflowed", nil)
+			}
+			totalBytes += file.Size
+		}
+		fileSets = append(fileSets, map[string]any{
+			"id": set.ID, "policy_identity": set.PolicyIdentity,
+			"file_count": len(set.Files), "total_bytes": totalBytes,
+		})
+	}
+	return map[string]any{
+		"status": result.Status, "qualification": result.Qualification, "target": result.Target,
+		"agy_permission_mode": result.AGYPermissionMode, "warnings": result.Warnings,
+		"file_sets": fileSets, "generated_files": result.GeneratedFiles,
+		"transmissions": result.Transmissions, "budget": result.Budget,
 	}, nil
 }
 
@@ -85,7 +152,8 @@ func (backend *mcpBackend) RunReview(
 	return mcpentry.BackendResult{Outcome: outcome, Data: map[string]any{
 		"session_id": result.SessionID(), "run_id": result.RunID(),
 		"run_manifest_uri": result.RunManifestURI(), "review_artifact_uri": result.ReviewArtifactURI(),
-		"role_report_uris": reports, "terminal_exit_code": int(decision.Code()), "reasons": reasons,
+		"role_report_uris": reports, "report_resource_uri": reportResourceURI(result.RunID(), 0),
+		"terminal_exit_code": int(decision.Code()), "reasons": reasons,
 	}}, nil
 }
 
@@ -200,7 +268,7 @@ func (backend *mcpBackend) ListFindings(ctx context.Context, input mcpentry.List
 		return nil, err
 	}
 	artifactPath, pathErr := ports.NewSafeRelativePath(view.ReviewArtifactURI)
-	if view.RunID != input.RunID || pathErr != nil || artifactPath.String() != view.ReviewArtifactURI ||
+	if view.RunID != input.RunID || !validMCPSHA256(view.TargetSHA256) || pathErr != nil || artifactPath.String() != view.ReviewArtifactURI ||
 		!strings.HasPrefix(view.ReviewArtifactURI, ".mulgae/") || len(view.Findings) > 1000 {
 		return nil, fmt.Errorf("MCP findings projection is invalid")
 	}
@@ -213,12 +281,53 @@ func (backend *mcpBackend) ListFindings(ctx context.Context, input mcpentry.List
 		}
 		findings = append(findings, map[string]any{
 			"id": finding.ID, "severity": string(finding.Severity), "title": finding.Title,
+			"evidence_resource_uri": evidenceResourceURI(view.RunID, finding.ID, view.TargetSHA256, 0),
 		})
 	}
 	return map[string]any{
 		"run_id": view.RunID, "minimum_severity": input.MinimumSeverity,
-		"finding_count": len(findings), "findings": findings, "review_artifact_uri": view.ReviewArtifactURI,
+		"target_sha256": view.TargetSHA256, "finding_count": len(findings),
+		"findings": findings, "review_artifact_uri": view.ReviewArtifactURI,
 	}, nil
+}
+
+func (backend *mcpBackend) ReadResource(ctx context.Context, rawURI string) (mcpentry.ResourceResult, error) {
+	if err := backend.preflight(ctx); err != nil {
+		return mcpentry.ResourceResult{}, err
+	}
+	request, err := parseMCPResourceURI(rawURI)
+	if err != nil {
+		return mcpentry.ResourceResult{}, newMCPFailure("mcp.resource", domain.FailureConfiguration, "MCP resource URI is invalid", err)
+	}
+	run, err := backend.resolveRun(ctx, request.runID)
+	if err != nil {
+		return mcpentry.ResourceResult{}, err
+	}
+	var contents []byte
+	mimeType := "application/octet-stream"
+	text := false
+	switch request.kind {
+	case "report":
+		rendered, renderErr := backend.reports.Render(ctx, run)
+		if renderErr != nil {
+			return mcpentry.ResourceResult{}, renderErr
+		}
+		if rendered.RunID != request.runID || len(rendered.Markdown) == 0 || int64(len(rendered.Markdown)) > mulgaeentry.MaxReportMarkdownBytes || !utf8.Valid(rendered.Markdown) {
+			return mcpentry.ResourceResult{}, newMCPFailure("mcp.resource", domain.FailureArtifact, "verified report projection is invalid", nil)
+		}
+		contents, mimeType, text = rendered.Markdown, "text/markdown", true
+	case "evidence":
+		contents, err = backend.queries.RenderExcerpt(ctx, run, request.findingID, request.targetSHA256)
+		if err != nil {
+			return mcpentry.ResourceResult{}, err
+		}
+		if len(contents) == 0 || int64(len(contents)) > ports.PublicationStoreMaxReadBytes {
+			return mcpentry.ResourceResult{}, newMCPFailure("mcp.resource", domain.FailureArtifact, "verified evidence projection is invalid", nil)
+		}
+	default:
+		return mcpentry.ResourceResult{}, newMCPFailure("mcp.resource", domain.FailureConfiguration, "MCP resource kind is invalid", nil)
+	}
+	return chunkMCPResource(request, rawURI, mimeType, contents, text)
 }
 
 func (backend *mcpBackend) resolveRun(ctx context.Context, raw string) (ports.PublicationRun, error) {
@@ -238,7 +347,7 @@ func (backend *mcpBackend) resolveRun(ctx context.Context, raw string) (ports.Pu
 
 func (backend *mcpBackend) preflight(ctx context.Context) error {
 	if backend == nil || ctx == nil || !backend.projectRoot.Valid() || !backend.artifactRoot.Valid() ||
-		backend.application == nil || backend.queries == nil || backend.enumerator == nil {
+		backend.application == nil || backend.queries == nil || backend.reports == nil || backend.enumerator == nil {
 		return fmt.Errorf("MCP backend is unavailable")
 	}
 	return ctx.Err()
@@ -278,6 +387,11 @@ func runStatusData(status mulgaeentry.RunStatusView, expectedSessionID domain.Se
 	data := map[string]any{
 		"session_id": status.SessionID, "run_id": status.RunID,
 		"publication_status": string(status.PublicationState), "recovery_action": string(status.RecoveryAction),
+	}
+	if status.PublicationState == domain.PublicationCommitted {
+		data["report_resource_uri"] = reportResourceURI(status.RunID, 0)
+	} else {
+		data["report_resource_uri"] = nil
 	}
 	if status.HasRunState {
 		data["run_state"] = string(status.RunState)
@@ -350,6 +464,179 @@ func validMCPFindingID(value string) bool {
 		}
 	}
 	return true
+}
+
+func validMCPSHA256(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range value[len("sha256:"):] {
+		if character < '0' || character > '9' {
+			if character < 'a' || character > 'f' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+type mcpResourceRequest struct {
+	kind         string
+	runID        string
+	findingID    string
+	targetSHA256 string
+	offset       int
+}
+
+func parseMCPResourceURI(raw string) (mcpResourceRequest, error) {
+	if len(raw) == 0 || len(raw) > 8192 {
+		return mcpResourceRequest{}, fmt.Errorf("resource URI length is invalid")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "mulgae" || parsed.Host != "runs" || parsed.User != nil || parsed.Fragment != "" {
+		return mcpResourceRequest{}, fmt.Errorf("resource URI authority is invalid")
+	}
+	segments := strings.Split(strings.TrimPrefix(parsed.EscapedPath(), "/"), "/")
+	if len(segments) != 2 && len(segments) != 4 {
+		return mcpResourceRequest{}, fmt.Errorf("resource URI path is invalid")
+	}
+	for index, segment := range segments {
+		decoded, decodeErr := url.PathUnescape(segment)
+		if decodeErr != nil || decoded != segment {
+			return mcpResourceRequest{}, fmt.Errorf("resource URI path encoding is invalid")
+		}
+		segments[index] = decoded
+	}
+	if _, err := domain.ParseRunID(segments[0]); err != nil {
+		return mcpResourceRequest{}, fmt.Errorf("resource run ID is invalid")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return mcpResourceRequest{}, fmt.Errorf("resource URI query is invalid")
+	}
+	offset, err := parseMCPResourceOffset(query)
+	if err != nil {
+		return mcpResourceRequest{}, err
+	}
+	request := mcpResourceRequest{runID: segments[0], offset: offset}
+	switch {
+	case len(segments) == 2 && segments[1] == "report":
+		if len(query) > 1 || query.Has("target_sha256") {
+			return mcpResourceRequest{}, fmt.Errorf("report resource query is invalid")
+		}
+		request.kind = "report"
+		if raw != reportResourceURI(request.runID, request.offset) {
+			return mcpResourceRequest{}, fmt.Errorf("report resource URI is not canonical")
+		}
+	case len(segments) == 4 && segments[1] == "findings" && segments[3] == "evidence":
+		if !validMCPFindingID(segments[2]) || len(query) > 2 || len(query["target_sha256"]) != 1 ||
+			!validMCPSHA256(query.Get("target_sha256")) {
+			return mcpResourceRequest{}, fmt.Errorf("evidence resource query is invalid")
+		}
+		request.kind, request.findingID, request.targetSHA256 = "evidence", segments[2], query.Get("target_sha256")
+		if raw != evidenceResourceURI(request.runID, request.findingID, request.targetSHA256, request.offset) {
+			return mcpResourceRequest{}, fmt.Errorf("evidence resource URI is not canonical")
+		}
+	default:
+		return mcpResourceRequest{}, fmt.Errorf("resource URI path is invalid")
+	}
+	return request, nil
+}
+
+func parseMCPResourceOffset(query url.Values) (int, error) {
+	values, present := query["offset"]
+	if !present {
+		return 0, nil
+	}
+	if len(values) != 1 || values[0] == "" || len(values[0]) > 8 {
+		return 0, fmt.Errorf("resource offset is invalid")
+	}
+	offset, err := strconv.Atoi(values[0])
+	if err != nil || offset < 0 || int64(offset) > ports.PublicationStoreMaxReadBytes {
+		return 0, fmt.Errorf("resource offset is invalid")
+	}
+	return offset, nil
+}
+
+func reportResourceURI(runID string, offset int) string {
+	uri := "mulgae://runs/" + runID + "/report"
+	if offset != 0 {
+		uri += "?offset=" + strconv.Itoa(offset)
+	}
+	return uri
+}
+
+func evidenceResourceURI(runID, findingID, targetSHA256 string, offset int) string {
+	uri := "mulgae://runs/" + runID + "/findings/" + findingID + "/evidence?target_sha256=" + url.QueryEscape(targetSHA256)
+	if offset != 0 {
+		uri += "&offset=" + strconv.Itoa(offset)
+	}
+	return uri
+}
+
+func chunkMCPResource(
+	request mcpResourceRequest,
+	rawURI, mimeType string,
+	contents []byte,
+	text bool,
+) (mcpentry.ResourceResult, error) {
+	if !canonicalMCPResourceOffset(contents, text, request.offset) {
+		return mcpentry.ResourceResult{}, newMCPFailure("mcp.resource", domain.FailureConfiguration, "resource offset is invalid", nil)
+	}
+	end := mcpResourceChunkEnd(contents, text, request.offset)
+	chunk := append([]byte(nil), contents[request.offset:end]...)
+	digest := sha256.Sum256(contents)
+	var nextURI any
+	if end < len(contents) {
+		if request.kind == "report" {
+			nextURI = reportResourceURI(request.runID, end)
+		} else {
+			nextURI = evidenceResourceURI(request.runID, request.findingID, request.targetSHA256, end)
+		}
+	}
+	result := mcpentry.ResourceResult{
+		URI: rawURI, MIMEType: mimeType,
+		Meta: map[string]any{
+			"io.mulgae/sha256": "sha256:" + hex.EncodeToString(digest[:]),
+			"io.mulgae/offset": request.offset, "io.mulgae/chunkBytes": len(chunk),
+			"io.mulgae/totalBytes": len(contents), "io.mulgae/complete": end == len(contents),
+			"io.mulgae/nextURI": nextURI,
+		},
+	}
+	if text {
+		result.Text = string(chunk)
+	} else {
+		result.Blob = chunk
+	}
+	return result, nil
+}
+
+func canonicalMCPResourceOffset(contents []byte, text bool, offset int) bool {
+	if offset < 0 || offset >= len(contents) {
+		return false
+	}
+	for current := 0; current < len(contents); current = mcpResourceChunkEnd(contents, text, current) {
+		if current == offset {
+			return true
+		}
+		if current > offset {
+			return false
+		}
+	}
+	return false
+}
+
+func mcpResourceChunkEnd(contents []byte, text bool, offset int) int {
+	end := offset + mcpentry.MaxResourceChunkBytes
+	if end > len(contents) {
+		end = len(contents)
+	}
+	if text {
+		for end < len(contents) && end > offset && !utf8.RuneStart(contents[end]) {
+			end--
+		}
+	}
+	return end
 }
 
 func newMCPFailure(stage string, class domain.FailureClass, reason string, cause error) error {
