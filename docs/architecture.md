@@ -119,7 +119,10 @@ diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
 finding-evidence resource templates. The MCP package owns strict tool and URI
 grammar, chunk limits, and the common result envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
-services used by the CLI. It does not duplicate capture, execution, query, or
+services used by the CLI. `get_run` first resolves publication and falls back to
+the bounded runtime-diagnostic query only for the typed publication-not-found
+case. Publication corruption, security failures, and other query failures never
+enter the fallback. It does not duplicate capture, execution, query, or
 publication policy. Review calls run in the foreground so request completion
 replaces completion polling, while preflight, list, lookup, and resource reads
 remain bounded read-only projections.

@@ -99,10 +99,16 @@ embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
 content envelope for MCP tools. It binds a Mulgae-issued request identity and
 tool name to `success`, `request_changes`, or a typed `error` outcome. The
 error object always carries nullable `session_id` and `run_id` fields. They are
-both non-null only when Mulgae allocated that exact run before failure, allowing
-read-only recovery with `get_run`; `run_review` failures are not retryable
-because another call creates a distinct run. The initial tool grammar comprises
-`preflight_review`, `run_review`, `list_runs`, `get_run`, and `list_findings`.
+both non-null only when Mulgae allocated that exact run before failure. `get_run`
+returns `kind: status_read` for publication-backed state or, only when
+publication is absent and bounded diagnostic status survived,
+`kind: diagnostic_status_read` with `publication_authority: false`, no artifact
+or report URI, and `recovery_action: rerun_review`. If neither status exists it
+returns the non-retryable artifact error `run_status_unavailable`; allocation
+identity alone does not claim durable queryability. `run_review` failures are
+not retryable because another call creates a distinct run. The initial tool
+grammar comprises `preflight_review`, `run_review`, `list_runs`, `get_run`, and
+`list_findings`.
 Review targets are workspace, stage, dirty,
 diff, or patch; stdio is reserved for JSON-RPC and is not a review target. Run
 pages admit a limit from 1 through 100, finding responses admit at most 1,000

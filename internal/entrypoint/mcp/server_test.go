@@ -567,6 +567,10 @@ func TestToolAdmissionRejectsAmbiguousOrUnboundedArguments(t *testing.T) {
 }
 
 func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
+	unavailable := publicToolError(fmt.Errorf("query failed: %w", ErrRunStatusUnavailable), toolGetRun)
+	if unavailable.Class != "artifact" || unavailable.Code != "run_status_unavailable" || unavailable.Stage != "query" || unavailable.Retryable {
+		t.Fatalf("unavailable run status failure = %#v", unavailable)
+	}
 	artifact, err := domain.NewFailure("query.read", domain.FailureArtifact, "artifact failed", errors.New("private"))
 	if err != nil {
 		t.Fatal(err)

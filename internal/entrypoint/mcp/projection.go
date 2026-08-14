@@ -3,6 +3,7 @@ package mcpentry
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -66,6 +67,7 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 		return nil, fmt.Errorf("MCP non-committed run status exposed committed fields")
 	}
 	data := map[string]any{
+		"kind":       "status_read",
 		"session_id": status.SessionID, "run_id": status.RunID,
 		"publication_status": string(status.PublicationState), "recovery_action": string(status.RecoveryAction),
 	}
@@ -107,6 +109,62 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 	}
 	data["role_report_uris"] = roleReports
 	return data, nil
+}
+
+// ProjectDiagnosticRunStatus validates and renders the bounded status of an
+// unpublished run. It deliberately carries no publication authority or paths.
+func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expectedSessionID domain.SessionID, expectedRunID domain.RunID) (map[string]any, error) {
+	if status.SessionID() != expectedSessionID || status.RunID() != expectedRunID ||
+		!status.State().Valid() || status.StartedAt().IsZero() || status.UpdatedAt().Before(status.StartedAt()) ||
+		status.StartedAt().Location() != time.UTC || status.UpdatedAt().Location() != time.UTC || len(status.SelectedRoles()) > 7 {
+		return nil, fmt.Errorf("MCP diagnostic run status projection is invalid")
+	}
+	if _, installed := status.P2URI(); installed {
+		return nil, fmt.Errorf("MCP diagnostic run status has publication authority")
+	}
+	completedAt, hasCompletedAt := status.CompletedAt()
+	var completedAtValue any
+	if hasCompletedAt {
+		if completedAt.IsZero() || completedAt.Location() != time.UTC || completedAt.Before(status.UpdatedAt()) {
+			return nil, fmt.Errorf("MCP diagnostic run completion is invalid")
+		}
+		completedAtValue = completedAt.Format(time.RFC3339Nano)
+	}
+	roles := status.SelectedRoles()
+	selectedRoles := make([]string, 0, len(roles))
+	for _, role := range roles {
+		if !role.Valid() {
+			return nil, fmt.Errorf("MCP diagnostic run role is invalid")
+		}
+		selectedRoles = append(selectedRoles, string(role))
+	}
+	total, completed, failed := status.RolePathCounts()
+	if total < 0 || completed < 0 || failed < 0 || completed+failed > total {
+		return nil, fmt.Errorf("MCP diagnostic run role-path counts are invalid")
+	}
+	var terminalCause, terminalPhase any
+	if cause := status.TerminalCause(); cause != "" {
+		if !cause.Valid() {
+			return nil, fmt.Errorf("MCP diagnostic run terminal cause is invalid")
+		}
+		terminalCause = string(cause)
+	}
+	if phase := status.TerminalPhase(); phase != "" {
+		if !phase.Valid() || terminalCause == nil {
+			return nil, fmt.Errorf("MCP diagnostic run terminal phase is invalid")
+		}
+		terminalPhase = string(phase)
+	}
+	return map[string]any{
+		"kind": "diagnostic_status_read", "session_id": status.SessionID().String(), "run_id": status.RunID().String(),
+		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "rerun_review",
+		"final_artifact_uri": nil, "report_resource_uri": nil, "content_verdict": nil, "coverage_status": nil, "ci_decision": nil,
+		"role_report_uris": []any{}, "started_at": status.StartedAt().Format(time.RFC3339Nano),
+		"updated_at": status.UpdatedAt().Format(time.RFC3339Nano), "completed_at": completedAtValue,
+		"selected_roles": selectedRoles, "role_path_total": total, "role_path_completed": completed, "role_path_failed": failed,
+		"last_seq": status.LastSequence(), "terminal_cause": terminalCause, "terminal_phase": terminalPhase,
+		"dropped_events": status.DroppedEvents(), "diagnostic_only": true, "publication_authority": false,
+	}, nil
 }
 
 // FindingProjection is one verified finding summary selected by application policy.

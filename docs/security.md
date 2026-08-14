@@ -27,7 +27,12 @@ path.
 Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
 `run_review` includes both session and run IDs when allocation occurred and is
 never marked retryable; provider details, runtime diagnostics, and native paths
-remain private.
+remain private. `get_run` may expose the separate bounded diagnostic status
+projection only after a typed publication-not-found result. That projection has
+no publication authority, artifact URI, report URI, findings, raw event stream,
+or provider transcript. Other publication failures remain fail-closed, and an
+allocated identity without durable diagnostic status returns
+`run_status_unavailable` instead of inventing state.
 
 Optional `run_review` progress notifications contain only fixed Mulgae
 lifecycle messages, an admitted bounded client token, and a monotonic counter;

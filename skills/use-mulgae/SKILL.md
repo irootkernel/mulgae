@@ -40,8 +40,11 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    `request_changes` or `error`. Preserve the exact returned run ID, including
    the identity attached to a failed `run_review`. Do not retry a lost or
    uncertain `run_review`: a second call creates another run.
-5. After the foreground call returns, call `get_run` and `list_findings` with
-   the exact run ID. Use `minimum_severity: low` for the broadest finding query.
+5. After the foreground call returns, call `get_run` with the exact run ID. Call
+   `list_findings` only when the result has publication authority; a
+   diagnostic-only result has no findings. Treat `run_status_unavailable` as an
+   allocated identity without durable status and stop rather than retrying the
+   review. Use `minimum_severity: low` for the broadest permitted finding query.
    Follow a resource's canonical `nextURI` exactly until `complete` is true when
    the report or verified evidence is needed; do not invent offsets or paths.
 6. Cancel the MCP request only on explicit user intent. Cancellation reaches

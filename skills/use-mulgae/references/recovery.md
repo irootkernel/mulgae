@@ -9,11 +9,15 @@ failed.
 1. Stop issuing mutations. Preserve the complete command envelope, exit code,
    and any exact session, run, and attempt IDs already returned.
 2. Re-read the exact run, including an identity returned on a failed MCP
-   `run_review`:
+   `run_review`, with MCP `get_run`. When MCP is unavailable, use:
 
    ```bash
    mulgae status --run r_... --output json
    ```
+
+   `run_status_unavailable` means Mulgae allocated the returned identity but no
+   durable publication or bounded diagnostic status survived. Report that
+   limit; do not infer state or retry the review.
 
 3. Trust the current `publication_status`, `diagnostic_only`,
    `publication_authority`, stable reasons, and `recovery_action`; do not infer
@@ -39,8 +43,9 @@ review-like command is a new run, not a retry of the same mutation.
 
 ## Recover the smallest supported unit
 
-- For `diagnostic_only: true`, no publication authority exists and findings
-  cannot be queried. Follow `recovery_action: rerun_review` only after the user
+- For `diagnostic_only: true`, no publication authority exists, artifact and
+  report URIs are absent, and findings cannot be queried. Follow
+  `recovery_action: rerun_review` only after the user
   authorizes a new review; retain the failed run as diagnostic evidence.
 - For a committed run with one failed role, use the rerun command printed in
   the report, substituting its `<family>` placeholder, or the source run and

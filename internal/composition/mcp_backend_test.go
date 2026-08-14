@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -41,7 +42,7 @@ func TestMCPBackendClassifiesCanonicalReviewGrammarRejection(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
 	backend, err := newMCPBackend(
-		projectRoot, artifactRoot, &mulgaeentry.Application{}, &mcpQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
+		projectRoot, artifactRoot, &mulgaeentry.Application{}, &mcpQueryFake{}, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 			Findings:     []mulgaeentry.FindingView{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression"}},
 		},
 	}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestMCPBackendRejectsMalformedPublicProjections(t *testing.T) {
 			Findings:     []mulgaeentry.FindingView{{ID: "F001", Severity: domain.SeverityLow, Title: "Below threshold"}},
 		},
 	}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestMCPBackendReturnsVerifiedReportAndEvidenceContent(t *testing.T) {
 	evidenceBytes := bytes.Repeat([]byte{0x00, 0xff, 0x7f}, mcpentry.MaxResourceChunkBytes/3+10)
 	queries := &mcpQueryFake{run: run, excerpt: evidenceBytes}
 	reports := &mcpReportFake{rendered: mulgaeentry.RenderedReport{Markdown: reportBytes, RunID: runID.String()}}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, reports, filesystem.NewRunSelector())
+	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, reports, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +230,64 @@ func TestMCPBackendReturnsVerifiedReportAndEvidenceContent(t *testing.T) {
 	}
 }
 
+func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	now := time.Date(2026, time.August, 14, 5, 0, 0, 0, time.UTC)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
+		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
+		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 3, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := &mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound}
+	diagnostics := &mcpDiagnosticQueryFake{status: status}
+	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
+	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["run_id"] != runID.String() || diagnostics.calls != 1 {
+		t.Fatalf("diagnostic get_run = %#v, %v; calls = %d", projected, err, diagnostics.calls)
+	}
+
+	publicationCorrupt := errors.Join(ports.ErrPublicationRunNotFound, errors.New("publication corrupt"))
+	queries.resolveErr = publicationCorrupt
+	diagnostics.calls = 0
+	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); !errors.Is(err, publicationCorrupt) {
+		t.Fatalf("non-not-found publication error = %v", err)
+	}
+	if diagnostics.calls != 0 {
+		t.Fatalf("diagnostic fallback calls = %d, want 0", diagnostics.calls)
+	}
+}
+
+func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	backend, err := newMCPBackend(
+		projectRoot, artifactRoot, &mulgaeentry.Application{},
+		&mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound},
+		&mcpDiagnosticQueryFake{err: ports.ErrRuntimeDiagnosticRunNotFound},
+		&mcpReportFake{}, filesystem.NewRunSelector(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); !errors.Is(err, mcpentry.ErrRunStatusUnavailable) {
+		t.Fatalf("missing diagnostic status error = %v", err)
+	}
+	backend.diagnostics = &mcpDiagnosticQueryFake{err: errors.Join(ports.ErrRuntimeDiagnosticRunNotFound, errors.New("diagnostic corrupt"))}
+	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); err == nil || errors.Is(err, mcpentry.ErrRunStatusUnavailable) {
+		t.Fatalf("ambiguous diagnostic status error = %v", err)
+	}
+}
+
 func mustMCPReportResourceURI(t *testing.T, runID string) string {
 	t.Helper()
 	uri, err := mcpentry.NewReportResourceURI(runID)
@@ -249,12 +308,24 @@ func mustMCPEvidenceResourceURI(t *testing.T, runID, findingID, targetSHA256 str
 
 type mcpQueryFake struct {
 	run            ports.PublicationRun
+	resolveErr     error
 	status         mulgaeentry.RunStatusView
 	findings       mulgaeentry.FindingsView
 	excerpt        []byte
 	excerptErr     error
 	excerptFinding string
 	excerptTarget  string
+}
+
+type mcpDiagnosticQueryFake struct {
+	status ports.RuntimeDiagnosticRunStatus
+	err    error
+	calls  int
+}
+
+func (fake *mcpDiagnosticQueryFake) ReadRunStatus(context.Context, ports.AnchoredRoot, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	fake.calls++
+	return fake.status, fake.err
 }
 
 type mcpReportFake struct {
@@ -267,7 +338,7 @@ func (fake *mcpReportFake) Render(context.Context, ports.PublicationRun) (mulgae
 }
 
 func (fake *mcpQueryFake) ResolveRun(context.Context, ports.AnchoredRoot, domain.RunID) (ports.PublicationRun, error) {
-	return fake.run, nil
+	return fake.run, fake.resolveErr
 }
 
 func (fake *mcpQueryFake) ReadRunStatus(context.Context, ports.PublicationRun) (mulgaeentry.RunStatusView, error) {

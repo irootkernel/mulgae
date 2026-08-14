@@ -23,6 +23,7 @@ type mcpBackend struct {
 	artifactRoot ports.AnchoredRoot
 	application  *mulgaeentry.Application
 	queries      mulgaeentry.PublicationQueryService
+	diagnostics  ports.RuntimeDiagnosticQuery
 	reports      mulgaeentry.PublicationReportService
 	enumerator   *filesystem.RunSelector
 }
@@ -31,15 +32,16 @@ func newMCPBackend(
 	projectRoot, artifactRoot ports.AnchoredRoot,
 	application *mulgaeentry.Application,
 	queries mulgaeentry.PublicationQueryService,
+	diagnostics ports.RuntimeDiagnosticQuery,
 	reports mulgaeentry.PublicationReportService,
 	enumerator *filesystem.RunSelector,
 ) (*mcpBackend, error) {
-	if !projectRoot.Valid() || !artifactRoot.Valid() || application == nil || queries == nil || reports == nil || enumerator == nil {
+	if !projectRoot.Valid() || !artifactRoot.Valid() || application == nil || queries == nil || diagnostics == nil || reports == nil || enumerator == nil {
 		return nil, fmt.Errorf("MCP backend: incomplete dependencies")
 	}
 	return &mcpBackend{
 		projectRoot: projectRoot, artifactRoot: artifactRoot, application: application,
-		queries: queries, reports: reports, enumerator: enumerator,
+		queries: queries, diagnostics: diagnostics, reports: reports, enumerator: enumerator,
 	}, nil
 }
 
@@ -246,13 +248,48 @@ func (backend *mcpBackend) GetRun(ctx context.Context, input mcpentry.GetRunInpu
 	}
 	run, err := backend.resolveRun(ctx, input.RunID)
 	if err != nil {
-		return nil, err
+		if !solelyWraps(err, ports.ErrPublicationRunNotFound) {
+			return nil, err
+		}
+		runID, parseErr := domain.ParseRunID(input.RunID)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		diagnosticStatus, diagnosticErr := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
+		if diagnosticErr != nil {
+			if solelyWraps(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound) {
+				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
+			}
+			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is unavailable", diagnosticErr)
+		}
+		projected, projectionErr := mcpentry.ProjectDiagnosticRunStatus(diagnosticStatus, diagnosticStatus.SessionID(), runID)
+		if projectionErr != nil {
+			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is invalid", projectionErr)
+		}
+		return projected, nil
 	}
 	status, err := backend.queries.ReadRunStatus(ctx, run)
 	if err != nil {
 		return nil, err
 	}
 	return projectMCPRunStatus(status, run.SessionID(), run.RunID())
+}
+
+func solelyWraps(err, target error) bool {
+	for err != nil {
+		if err == target {
+			return true
+		}
+		if _, joined := err.(interface{ Unwrap() []error }); joined {
+			return false
+		}
+		wrapped, ok := err.(interface{ Unwrap() error })
+		if !ok {
+			return false
+		}
+		err = wrapped.Unwrap()
+	}
+	return false
 }
 
 func (backend *mcpBackend) ListFindings(ctx context.Context, input mcpentry.ListFindingsInput) (map[string]any, error) {
@@ -335,7 +372,7 @@ func (backend *mcpBackend) resolveRun(ctx context.Context, raw string) (ports.Pu
 
 func (backend *mcpBackend) preflight(ctx context.Context) error {
 	if backend == nil || ctx == nil || !backend.projectRoot.Valid() || !backend.artifactRoot.Valid() ||
-		backend.application == nil || backend.queries == nil || backend.reports == nil || backend.enumerator == nil {
+		backend.application == nil || backend.queries == nil || backend.diagnostics == nil || backend.reports == nil || backend.enumerator == nil {
 		return fmt.Errorf("MCP backend is unavailable")
 	}
 	return ctx.Err()

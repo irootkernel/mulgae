@@ -232,7 +232,8 @@ and exits when its client closes stdin. It exposes five bounded tools:
   be a review target.
 - `list_runs` returns a newest-first page of safely admitted runs, with a limit
   from 1 through 100 and an opaque continuation cursor.
-- `get_run` returns verified publication state and public artifact identities.
+- `get_run` returns verified publication state and public artifact identities,
+  or a bounded diagnostic-only status when that run never published.
 - `list_findings` returns at most 1,000 committed finding summaries at or above
   a selected severity; it does not return report or source bodies.
 
@@ -247,7 +248,11 @@ Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
 `request_changes` is a completed review outcome, while failures use bounded,
 typed, redacted errors. Error results carry nullable `session_id` and `run_id`
 fields; when a failed `run_review` allocated a run, both identify the exact run
-to inspect with `get_run`. A failed `run_review` is never marked retryable
+to inspect with `get_run`. Diagnostic-only results set
+`publication_authority: false`, expose no artifact or report URI, and cannot be
+used with `list_findings`. If diagnostic persistence also failed, `get_run`
+returns `run_status_unavailable`; the returned identity remains valid but has
+no durable status to inspect. A failed `run_review` is never marked retryable
 because another call creates a new run. Because `run_review` holds the request
 open until the review reaches a terminal result, clients do not need to poll run
 state merely to learn that the requested review completed. When a client
@@ -326,9 +331,10 @@ Copy this minimal project-wide template into the reviewed project's
   `--output json`.
 - Prefer attached Mulgae MCP tools when available: call `preflight_review`, then
   call `run_review` once and wait for its foreground result without polling.
-  Preserve the exact run ID, inspect it with `get_run` and `list_findings`, and
-  follow resource `nextURI` values exactly. Fall back to the CLI when MCP is
-  unavailable; MCP cannot accept the `stdin` review target.
+  Preserve the exact run ID, inspect it with `get_run`, call `list_findings`
+  only for publication-backed status, and follow resource `nextURI` values
+  exactly. Fall back to the CLI when MCP is unavailable; MCP cannot accept the
+  `stdin` review target.
 - Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with

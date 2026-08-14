@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -127,13 +129,69 @@ func TestProjectRunStatusValidatesPublicationPolicyAndPublicShape(t *testing.T) 
 		}},
 	}
 	projected, err := ProjectRunStatus(status, sessionID, runID)
-	if err != nil || projected["run_id"] != testMCPRunID || projected["report_resource_uri"] == nil {
+	if err != nil || projected["kind"] != "status_read" || projected["run_id"] != testMCPRunID || projected["report_resource_uri"] == nil {
 		t.Fatalf("run status projection = %#v, %v", projected, err)
 	}
 	status.RecoveryAction = domain.RecoveryActionNone
 	if _, err := ProjectRunStatus(status, sessionID, runID); err == nil {
 		t.Fatal("invalid publication/recovery pair was accepted")
 	}
+}
+
+func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *testing.T) {
+	sessionID, err := domain.ParseSessionID(testMCPSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID(testMCPRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Date(2026, time.August, 14, 5, 0, 0, 0, time.UTC)
+	completedAt := startedAt.Add(time.Second)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed,
+		StartedAt: startedAt, UpdatedAt: completedAt, CompletedAt: completedAt, HasCompletedAt: true,
+		SelectedRoles: []domain.Role{domain.RoleSecurity}, RolePathTotal: 1, RolePathFailed: 1,
+		LastSequence: 7, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed, DroppedEvents: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := ProjectDiagnosticRunStatus(status, sessionID, runID)
+	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["diagnostic_only"] != true ||
+		projected["publication_authority"] != false || projected["publication_status"] != nil ||
+		projected["final_artifact_uri"] != nil || projected["report_resource_uri"] != nil ||
+		projected["recovery_action"] != "rerun_review" || projected["terminal_cause"] != string(domain.DiagnosticCauseProviderSpawnFailed) {
+		t.Fatalf("diagnostic run status projection = %#v, %v", projected, err)
+	}
+	if _, err := ProjectDiagnosticRunStatus(status, sessionID, mustProjectionRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243bb")); err == nil {
+		t.Fatal("diagnostic projection accepted a mismatched run identity")
+	}
+	p2URI, err := ports.NewSafeRelativePath("s/r/final.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusWithP2, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed,
+		StartedAt: startedAt, UpdatedAt: completedAt, CompletedAt: completedAt, HasCompletedAt: true,
+		P2URI: p2URI, HasP2URI: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProjectDiagnosticRunStatus(statusWithP2, sessionID, runID); err == nil {
+		t.Fatal("diagnostic-only projection accepted an installed P2 URI")
+	}
+}
+
+func mustProjectionRunID(t *testing.T, value string) domain.RunID {
+	t.Helper()
+	runID, err := domain.ParseRunID(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runID
 }
 
 func TestProjectFindingsValidatesSelectedPublicRows(t *testing.T) {

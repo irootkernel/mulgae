@@ -181,6 +181,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	})
 	publicationQueries := mulgae.NewPublicationQueryService(queryService)
 	publicationReports := mulgae.NewPublicationReportService(reportService)
+	diagnosticQueries := filesystem.NewDiagnosticStatusReader()
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
 		Clock:                clock,
 		RequestIDGenerator:   ids,
@@ -198,7 +199,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
 		Reruns:             deferredRerunService{composer: childComposer},
 		PublicationQueries: publicationQueries,
-		DiagnosticQueries:  filesystem.NewDiagnosticStatusReader(),
+		DiagnosticQueries:  diagnosticQueries,
 		PublicationReports: publicationReports,
 		Retention:          g008Dependencies.Retention,
 		Exports:            g008Dependencies.Exports,
@@ -208,7 +209,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	if mcpMode {
-		backend, err := newMCPBackend(root, artifactRoot, application, publicationQueries, publicationReports, runSelector)
+		backend, err := newMCPBackend(root, artifactRoot, application, publicationQueries, diagnosticQueries, publicationReports, runSelector)
 		if err != nil {
 			writeDiagnostic(stderr, "mulgae: MCP application services are unavailable\n")
 			return 10

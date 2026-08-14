@@ -117,7 +117,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			data, err := backend.ListRuns(ctx, input)
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolGetRun, "Get the safely verified status and public artifact identities for one Mulgae run.", json.RawMessage(getRunInputSchema), outputSchema, true,
+	addTool(server, toolGetRun, "Get the safely verified publication or bounded diagnostic status for one Mulgae run.", json.RawMessage(getRunInputSchema), outputSchema, true,
 		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input GetRunInput
 			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) {
@@ -201,7 +201,12 @@ func renderToolResult(result ToolResult) (*mcpsdk.CallToolResult, error) {
 	}, nil
 }
 
-var errInvalidToolArguments = errors.New("invalid MCP tool arguments")
+var (
+	errInvalidToolArguments = errors.New("invalid MCP tool arguments")
+	// ErrRunStatusUnavailable identifies a run identity whose publication and
+	// bounded diagnostic status are both absent.
+	ErrRunStatusUnavailable = errors.New("run status unavailable")
+)
 
 func decodeArguments(raw json.RawMessage, destination any) error {
 	if len(raw) == 0 {
@@ -257,6 +262,9 @@ func validateRunReviewInput(input RunReviewInput) error {
 }
 
 func publicToolError(err error, tool string) ToolError {
+	if errors.Is(err, ErrRunStatusUnavailable) {
+		return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: "run_status_unavailable", Stage: "query", Message: "No published or diagnostic status is available for the requested run.", Retryable: false})
+	}
 	if errors.Is(err, errInvalidToolArguments) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
