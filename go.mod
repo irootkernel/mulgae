@@ -1,6 +1,6 @@
 module github.com/irootkernel/mulgae
 
-go 1.26
+go 1.26.6
 
 require (
 	github.com/dlclark/regexp2 v1.11.5

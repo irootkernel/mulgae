@@ -81,7 +81,7 @@ after changing the reasoning setting in another ZCode session.
 
 ## Install
 
-Mulgae requires Go 1.26 or newer.
+Mulgae requires Go 1.26.6 or newer.
 
 ```bash
 go install github.com/irootkernel/mulgae@latest

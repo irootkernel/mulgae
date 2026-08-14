@@ -221,8 +221,8 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 2 {
-		t.Fatal("release and E2E binaries do not share RELEASE_VERSION")
+	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 3 {
+		t.Fatal("release, E2E, and MCP client binaries do not share RELEASE_VERSION")
 	}
 	kimiStart := strings.Index(text, "\ntest-kimi:")
 	if kimiStart < 0 {

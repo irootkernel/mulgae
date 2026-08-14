@@ -3,7 +3,7 @@
 ## Requirements
 
 - macOS on Apple silicon for the complete release gate
-- Go 1.26 or newer
+- Go 1.26.6 or newer
 - Git
 - authenticated ZCode and AGY installations for the mandatory live tests
 - an authenticated Kimi installation only for the opt-in compatibility test
