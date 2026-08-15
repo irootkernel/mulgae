@@ -52,9 +52,10 @@ Gaori can wrap long or noisy local test commands so coding agents and developers
 can inspect bounded summaries before opening complete logs. It does not replace
 the Make targets above or change their pass/fail result.
 
-Use the locally installed Gaori without enforcing a specific version. Local
-Gaori configuration and evidence live below the ignored `.gaori/` directory.
-Provision `.gaori/tester.yaml` with these commands:
+Use the locally installed Gaori without enforcing a specific version. Portable
+configuration lives in the tracked `.gaori/tester.yaml`; evidence and
+machine-local state remain ignored below `.gaori/`. The repository configuration
+defines these commands:
 
 | Command ID | Wrapped command | Parser | Tags | Timeout |
 |---|---|---|---|---:|

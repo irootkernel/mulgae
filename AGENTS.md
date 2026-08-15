@@ -115,6 +115,19 @@ verification.
   reports, schemas, and artifacts in English unless master explicitly requests
   another language.
 
+## Development skill references
+
+- Use `$root-kernel:dev-setup` to diagnose or configure development tooling.
+- Use `$use-gaori` when a selected long or noisy check is routed through Gaori
+  or existing Gaori evidence must be inspected.
+- Use `$use-podway` for Podway Procedure v2 session operation, authoring,
+  lifecycle, diagnosis, or recovery; Root Kernel workflow skills retain their
+  stricter roadmap, ownership, and approval rules.
+- In repositories opted into Root Kernel Podway procedures, treat the roadmap as
+  lifecycle authority, Podway as active execution and evidence state, and the
+  Codex goal as a temporary projection of actionable work.
+- Repository-specific rules below override defaults from the referenced skills.
+
 ## Repository Authorities
 
 Start with `docs/README.md`, which maps the contributor documentation and defines
@@ -219,9 +232,13 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Run both generators twice when changing embedded assets. The second run must
   leave the worktree unchanged.
 - Keep local state, provider credentials, review artifacts, exports, temporary
-  workspaces, and test evidence out of source control. Commit only
-  `.mulgae/config.yaml`; never commit `.mulgae/local.yaml`, any other
-  `.mulgae/**` path, `.gaori/`, provider homes, or exported review bundles.
+  workspaces, and test evidence out of source control. The only trackable
+  development-tool state is `.mulgae/config.yaml`, `.gaori/tester.yaml`,
+  `.gaori/tester/rules/*.yaml`, `.podway/config.yaml`, `.podway/.gitignore`, and
+  `.podway/procedures/*.yaml`. Never commit `.mulgae/local.yaml`, any other
+  `.mulgae/**` path, `.gaori/toolchain.yaml`, `.gaori/rule-proposals/`,
+  `.gaori/runs/`, any other Gaori runtime or evidence path, `.podway/runtime/`,
+  provider homes, or exported review bundles.
 
 ## Verification
 
@@ -280,15 +297,14 @@ The wrapped command's exit code is authoritative for pass/fail.
 `extractor_status` describes evidence quality only. Tags do not select a parser,
 and a specialized parser does not fall back to `generic` after a miss.
 
-When a command passes, do not open its generated logs by default. When it does not
-pass, inspect `*.summary.md` first, then `*.summary.json` or a bounded excerpt. Read
-only a bounded raw-log section when compact evidence is insufficient or degraded.
-Raw logs are unredacted and may contain secrets.
-
-Keep the entire `.gaori/` directory out of Git. In the final report, include the
-Gaori command, process exit code, artifact status, extractor status, relevant
-summary and raw-log paths, and skipped checks. Gaori evidence alone does not
-establish review acceptance, release readiness, or runtime activation.
+Follow `$use-gaori` for evidence inspection. Raw logs are unredacted and may
+contain secrets. Keep portable `.gaori/tester.yaml` and specifically reviewed
+active rule YAML trackable; keep every other `.gaori/` path local and ignored.
+Active rule YAML is executable extraction policy and requires specific intent
+and review. In the final report, include the Gaori command, process exit code,
+artifact status, extractor status, relevant summary and raw-log paths, and
+skipped checks. Gaori evidence alone does not establish review acceptance,
+release readiness, or runtime activation.
 
 ## Commit Messages: Lore Format
 

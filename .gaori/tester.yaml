@@ -1,0 +1,45 @@
+version: 2
+commands:
+  prepare:
+    command: ["make", "test-prepare"]
+    tags: [go, static]
+    parser: generic
+    timeout_sec: 3600
+  unit:
+    command: ["make", "test-unit"]
+    tags: [go, unit]
+    parser: go-test
+    timeout_sec: 6000
+  integration:
+    command: ["make", "test-int"]
+    tags: [go, integration]
+    parser: go-test
+    timeout_sec: 6000
+  release:
+    command: ["make", "test-release"]
+    tags: [go, release]
+    parser: generic
+    timeout_sec: 1800
+  e2e:
+    command: ["make", "test-e2e"]
+    tags: [go, e2e, live]
+    parser: go-test
+    timeout_sec: 11400
+  kimi:
+    command: ["make", "test-kimi"]
+    tags: [go, e2e, live, kimi]
+    parser: go-test
+    timeout_sec: 6000
+  full:
+    command: ["make", "test"]
+    tags: [go, full, live]
+    parser: generic
+    timeout_sec: 28800
+redaction:
+  patterns:
+    - name: credential-assignment
+      regex: '(?i)\b(authorization|api[_-]?key|token|secret|password)=\S+'
+      replace: '$1=<redacted>'
+    - name: bearer-token
+      regex: '(?i)(Bearer)\s+\S+'
+      replace: '$1 <redacted>'
