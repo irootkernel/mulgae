@@ -16,15 +16,18 @@ mulgae config --mode provenance --output json
 ```
 
 For a new workspace, `mulgae init` selects only compiled provider families and
-compiled roles. Automatic provider selection requires ZCode and AGY; Kimi and
-Codex must be selected explicitly. The compiled catalog holds seven roles, and
-bare `mulgae init` enables only the required `logic` role, so list every
-intended role explicitly. Example:
+compiled roles. Mulgae supports Kimi, ZCode, AGY, and Codex. Automatic provider
+selection requires ZCode and AGY; select Kimi or Codex explicitly with
+`--providers kimi` or `--providers codex`. The compiled catalog holds seven
+roles, and bare `mulgae init` enables only the required `logic` role, so list
+every intended role explicitly. Examples:
 
 ```bash
 mulgae init --providers zcode,agy \
   --roles logic,security,maintainability,product,documentation,testing \
   --output json
+mulgae init --providers kimi --roles logic --output json
+mulgae init --providers codex --roles logic,security --output json
 ```
 
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
