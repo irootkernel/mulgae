@@ -23,20 +23,23 @@ const (
 	SelectionSelected SelectionMode = "selected"
 )
 
-var familyOrder = []string{"kimi", "zcode", "agy"}
+var familyOrder = []string{"kimi", "zcode", "agy", "codex"}
 
 type Selection struct {
 	Mode        SelectionMode
 	ProviderIDs []string
 }
 type Overrides struct {
-	KimiExecutable      string
-	KimiModel           string
-	KimiDataHome        string
-	ZCodeNodeExecutable string
-	ZCodeLauncher       string
-	AGYExecutable       string
-	AGYPermissionMode   string
+	KimiExecutable       string
+	KimiModel            string
+	KimiDataHome         string
+	ZCodeNodeExecutable  string
+	ZCodeLauncher        string
+	AGYExecutable        string
+	AGYPermissionMode    string
+	CodexExecutable      string
+	CodexModel           string
+	CodexReasoningEffort string
 }
 type InitializeProjectRequest struct {
 	ProjectRoot           ports.AnchoredRoot
@@ -57,19 +60,20 @@ type InitializeProjectRequest struct {
 }
 
 type DiscoveryRow struct {
-	Family               string `json:"family"`
-	Selected             bool   `json:"selected"`
-	Candidate            bool   `json:"candidate"`
-	Configured           bool   `json:"configured"`
-	Status               string `json:"status"`
-	Reason               string `json:"reason,omitempty"`
-	ExecutableSource     string `json:"executable_source,omitempty"`
-	ModelSource          string `json:"model_source,omitempty"`
-	DataHomeSource       string `json:"data_home_source,omitempty"`
-	NodeExecutableSource string `json:"node_executable_source,omitempty"`
-	LauncherSource       string `json:"launcher_source,omitempty"`
-	NativeHomeSource     string `json:"native_home_source,omitempty"`
-	PermissionModeSource string `json:"permission_mode_source,omitempty"`
+	Family                string `json:"family"`
+	Selected              bool   `json:"selected"`
+	Candidate             bool   `json:"candidate"`
+	Configured            bool   `json:"configured"`
+	Status                string `json:"status"`
+	Reason                string `json:"reason,omitempty"`
+	ExecutableSource      string `json:"executable_source,omitempty"`
+	ModelSource           string `json:"model_source,omitempty"`
+	DataHomeSource        string `json:"data_home_source,omitempty"`
+	NodeExecutableSource  string `json:"node_executable_source,omitempty"`
+	LauncherSource        string `json:"launcher_source,omitempty"`
+	NativeHomeSource      string `json:"native_home_source,omitempty"`
+	PermissionModeSource  string `json:"permission_mode_source,omitempty"`
+	ReasoningEffortSource string `json:"reasoning_effort_source,omitempty"`
 }
 type InitializeProjectResult struct {
 	Kind                  string                       `json:"kind"`
@@ -496,6 +500,7 @@ type candidates struct {
 	kimi  *appconfig.KimiProviderConfig
 	zcode *appconfig.ZCodeProviderConfig
 	agy   *appconfig.AGYProviderConfig
+	codex *appconfig.CodexProviderConfig
 }
 
 func (service *Service) discover(ctx context.Context, request InitializeProjectRequest) (candidates, []DiscoveryRow, error) {
@@ -503,7 +508,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 	for _, id := range request.Selection.ProviderIDs {
 		wanted[id] = true
 	}
-	rows := make([]DiscoveryRow, 0, 3)
+	rows := make([]DiscoveryRow, 0, 4)
 	var found candidates
 	var discoveryErrors []error
 	var securityErrors []error
@@ -617,6 +622,34 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.Candidate = true
 				row.Status = "candidate"
 			}
+		case "codex":
+			executable := ""
+			row.ExecutableSource = "not_discovered"
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyCodex, request.Overrides.CodexExecutable, "")
+			if request.Overrides.CodexExecutable != "" {
+				row.ExecutableSource = "override"
+			}
+			if profileErr != nil {
+				discoveryErrors = append(discoveryErrors, profileErr)
+			} else if profile.Executable() != "" {
+				executable = profile.Executable()
+				if request.Overrides.CodexExecutable == "" {
+					row.ExecutableSource = "startup_path"
+				}
+			}
+			row.ModelSource = "provider_default"
+			if request.Overrides.CodexModel != "" {
+				row.ModelSource = "override"
+			}
+			row.ReasoningEffortSource = "provider_default"
+			if request.Overrides.CodexReasoningEffort != "" {
+				row.ReasoningEffortSource = "override"
+			}
+			if executable != "" {
+				found.codex = &appconfig.CodexProviderConfig{Executable: executable, Model: request.Overrides.CodexModel, ReasoningEffort: request.Overrides.CodexReasoningEffort, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
+				row.Candidate = true
+				row.Status = "candidate"
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -651,12 +684,16 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 		row.ExecutableSource = "not_selected"
 		row.NativeHomeSource = "not_selected"
 		row.PermissionModeSource = "not_selected"
+	case "codex":
+		row.ExecutableSource = "not_selected"
+		row.ModelSource = "not_selected"
+		row.ReasoningEffortSource = "not_selected"
 	}
 	return row
 }
 
 func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDefaults, value candidates) (appconfig.Config, error) {
-	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy}
+	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy, Codex: value.codex}
 	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
 	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, providers.Families(), selectedRoles)
 	if err != nil {
@@ -719,7 +756,7 @@ func validateRoleSelection(roles []string) ([]string, error) {
 	return append([]string(nil), roles...), nil
 }
 func candidateIDs(value candidates) []string {
-	ids := make([]string, 0, 3)
+	ids := make([]string, 0, 4)
 	if value.kimi != nil {
 		ids = append(ids, "kimi")
 	}
@@ -729,6 +766,9 @@ func candidateIDs(value candidates) []string {
 	if value.agy != nil {
 		ids = append(ids, "agy")
 	}
+	if value.codex != nil {
+		ids = append(ids, "codex")
+	}
 	return ids
 }
 func validateSelection(selection Selection, overrides Overrides) ([]string, error) {
@@ -736,7 +776,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" {
+		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -761,6 +801,9 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	}
 	if !contains(selected, "agy") && (overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "") {
 		return nil, fmt.Errorf("agy override")
+	}
+	if !contains(selected, "codex") && (overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "") {
+		return nil, fmt.Errorf("codex override")
 	}
 	return selected, nil
 }

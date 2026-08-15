@@ -24,6 +24,7 @@ const (
 	FamilyKimi  = "kimi"
 	FamilyZcode = "zcode"
 	FamilyAgy   = "agy"
+	FamilyCodex = "codex"
 )
 
 var errInvalidZcodeEnvelope = errors.New("invalid ZCode headless envelope")
@@ -92,6 +93,8 @@ type RuntimeDefinition struct {
 	launcher, launcherSHA256, profileGeneration             string
 	runtimeSafetyPolicyIdentity                             string
 	kimiModel                                               string
+	codexModel                                              string
+	codexReasoningEffort                                    string
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
@@ -249,6 +252,30 @@ func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 	return definition, nil
 }
 
+// NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy binds
+// optional operator-selected Codex model settings to an isolated runtime.
+func NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
+	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
+	profileID, profileGeneration, runtimeSafetyPolicyIdentity, codexModel, codexReasoningEffort string,
+	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
+	workingDirectory string, timeout time.Duration,
+) (RuntimeDefinition, error) {
+	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
+		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
+		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
+		environment, workingDirectory, timeout,
+	)
+	if err != nil {
+		return RuntimeDefinition{}, err
+	}
+	definition.codexModel = codexModel
+	definition.codexReasoningEffort = codexReasoningEffort
+	if err := definition.validate(); err != nil {
+		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
+	}
+	return definition, nil
+}
+
 // NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle
 // constructs the AGY production profile with an explicit transport, immutable
 // runtime safety policy identity, and bounded post-output lifecycle.
@@ -309,9 +336,11 @@ func (d RuntimeDefinition) ProfileGeneration() string { return d.profileGenerati
 func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
-func (d RuntimeDefinition) KimiModel() string           { return d.kimiModel }
-func (d RuntimeDefinition) Transport() RuntimeTransport { return d.transport }
-func (d RuntimeDefinition) BaseArgv() []string          { return append([]string(nil), d.baseArgv...) }
+func (d RuntimeDefinition) KimiModel() string            { return d.kimiModel }
+func (d RuntimeDefinition) CodexModel() string           { return d.codexModel }
+func (d RuntimeDefinition) CodexReasoningEffort() string { return d.codexReasoningEffort }
+func (d RuntimeDefinition) Transport() RuntimeTransport  { return d.transport }
+func (d RuntimeDefinition) BaseArgv() []string           { return append([]string(nil), d.baseArgv...) }
 func (d RuntimeDefinition) Environment() []ports.EnvironmentVariable {
 	return append([]ports.EnvironmentVariable(nil), d.environment...)
 }
@@ -388,6 +417,12 @@ func (d RuntimeDefinition) validate() error {
 	}
 	if d.family != FamilyKimi && d.kimiModel != "" {
 		return fmt.Errorf("Kimi model is bound to another family")
+	}
+	if d.family != FamilyCodex && (d.codexModel != "" || d.codexReasoningEffort != "") {
+		return fmt.Errorf("Codex settings are bound to another family")
+	}
+	if d.codexReasoningEffort != "" && !validCodexReasoningEffort(d.codexReasoningEffort) {
+		return fmt.Errorf("invalid Codex reasoning effort")
 	}
 	return nil
 }
@@ -1229,7 +1264,7 @@ func processRequest(
 	if err != nil {
 		return ports.ProcessRequest{}, fmt.Errorf("construct packet transport: %w", err)
 	}
-	environment, err := isolatedProcessEnvironment(definition.environment, namespaceEnvironment)
+	environment, err := isolatedProcessEnvironment(definition.family, definition.environment, namespaceEnvironment)
 	if err != nil {
 		return ports.ProcessRequest{}, err
 	}
@@ -1372,7 +1407,7 @@ func nilProviderNamespaceLease(lease ports.ProviderNamespaceLease) bool {
 }
 
 func isolatedProcessEnvironment(
-	configured, namespace []ports.EnvironmentVariable,
+	family string, configured, namespace []ports.EnvironmentVariable,
 ) ([]ports.EnvironmentVariable, error) {
 	if len(namespace) == 0 {
 		return nil, fmt.Errorf("provider registry: empty namespace environment")
@@ -1404,6 +1439,20 @@ func isolatedProcessEnvironment(
 		}
 		environment = append(environment, variable)
 	}
+	if family == FamilyCodex {
+		home := ""
+		for _, variable := range namespace {
+			if variable.Name() == "HOME" {
+				home = variable.Value()
+				break
+			}
+		}
+		codexHome, err := ports.NewEnvironmentVariable("CODEX_HOME", filepath.Join(home, ".codex"))
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid Codex home")
+		}
+		environment = append(environment, codexHome)
+	}
 	return environment, nil
 }
 
@@ -1419,7 +1468,7 @@ func namespaceEnvironmentName(name string) bool {
 
 func unsafeNamespaceEnvironmentName(name string) bool {
 	return name == "HOME" || name == "TMPDIR" || name == "TMP" || name == "TEMP" ||
-		strings.HasPrefix(name, "XDG_") || name == "MULGAE_PROVIDER_SCRATCH"
+		strings.HasPrefix(name, "XDG_") || name == "MULGAE_PROVIDER_SCRATCH" || name == "CODEX_HOME"
 }
 
 func workspaceGuardError(operation string, cause error) error {
@@ -1557,6 +1606,8 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 		}
 		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--print", value)
 		return append(argv, controls...), nil
+	case FamilyCodex:
+		return appendCodexInvocation(argv, workingDirectory, definition.codexModel, definition.codexReasoningEffort), nil
 	default:
 		return nil, fmt.Errorf("unknown provider family")
 	}
@@ -1592,6 +1643,8 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
 		}
 		return result, true, nil
+	case FamilyCodex:
+		return append([]byte(nil), stdout...), true, nil
 	default:
 		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
@@ -1952,6 +2005,8 @@ func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 		// Safe AGY argv omits --dangerously-skip-permissions; print lands at +11.
 		// Explicit headless bypass uses +12 and remains opt-in only.
 		return baseArgvLength + 11, nil
+	case FamilyCodex:
+		return 0, fmt.Errorf("codex requires stdin transport")
 	default:
 		return 0, fmt.Errorf("unsupported family")
 	}
@@ -1967,7 +2022,7 @@ func validPromptFileReference(value string) bool {
 }
 
 func validFamily(value string) bool {
-	return value == FamilyKimi || value == FamilyZcode || value == FamilyAgy
+	return value == FamilyKimi || value == FamilyZcode || value == FamilyAgy || value == FamilyCodex
 }
 
 func nilSpawnVerifier(verifier SpawnVerifier) bool {
@@ -2031,6 +2086,8 @@ func supportedFamilyOrder(family string) int {
 		return 1
 	case FamilyAgy:
 		return 2
+	case FamilyCodex:
+		return 3
 	default:
 		return -1
 	}

@@ -282,6 +282,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	directories := []string{
 		"home", "home/.kimi-code", "home/.kimi-code/credentials",
 		"home/.zcode", "home/.zcode/cli", "home/.gemini", "home/.gemini/antigravity-cli",
+		"home/.codex",
 		"settings", "auth", "cache", "tmp", "scratch",
 	}
 	directoryInfo := make(map[string]os.FileInfo, len(directories))

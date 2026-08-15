@@ -11,7 +11,9 @@ Mulgae reports findings and recommendations only.
 ## Start
 
 Automatic initialization requires both ZCode and AGY. Kimi compatibility is
-available only through an explicit `--providers kimi` selection.
+available only through an explicit `--providers kimi` selection. Codex is
+available through an explicit `--providers codex` selection and does not alter
+the automatic topology.
 
 ```bash
 mulgae init

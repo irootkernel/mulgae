@@ -959,6 +959,29 @@ func TestValidateProbeTransportWithoutLifecycle(t *testing.T) {
 	)
 }
 
+func TestBoundProbeProviderRequestUsesCodexStdinTransport(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := newTestProfileWithTransport(t, FamilyCodex, "codex_current", []string{"/private/bin/codex"}, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("fixture packet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := appendCodexInvocation(definition.BaseArgv(), "/private/work", "", "")
+	request, err := boundProbeProviderRequest(definition, packet, argv, "@roadmap.md", nil, "/private/work", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(request.Stdin(), packet.Bytes()) || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
+		t.Fatalf("Codex capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
+	}
+}
+
 func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T) {
 	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
 	if err != nil {
@@ -1375,6 +1398,16 @@ func TestVersionAtLeastHonorsAGYFloorPrereleaseAndBuildMetadata(t *testing.T) {
 		if got := VersionAtLeast(version, 1, 1, 4); got != want {
 			t.Fatalf("VersionAtLeast(%q) = %t, want %t", version, got, want)
 		}
+	}
+}
+
+func TestPlainSemverAcceptsCodexCLIIdentityPrefixOnlyForCodex(t *testing.T) {
+	observation := testProcessObservation(t, []byte("codex-cli 0.147.0\n"), nil, ports.ProcessTerminationExited, 0)
+	if got, err := plainSemver(FamilyCodex, observation); err != nil || got != "0.147.0" {
+		t.Fatalf("Codex version = %q, %v", got, err)
+	}
+	if _, err := plainSemver(FamilyKimi, observation); err == nil {
+		t.Fatal("Codex identity prefix was accepted for another family")
 	}
 }
 

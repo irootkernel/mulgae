@@ -20,12 +20,14 @@ func (access WorkspaceAccess) Valid() bool {
 }
 
 type ResolvedRole struct {
-	enabled         bool
-	primaryProvider string
+	enabled           bool
+	primaryProvider   string
+	credentialProfile string
 }
 
-func (role ResolvedRole) Enabled() bool           { return role.enabled }
-func (role ResolvedRole) PrimaryProvider() string { return role.primaryProvider }
+func (role ResolvedRole) Enabled() bool             { return role.enabled }
+func (role ResolvedRole) PrimaryProvider() string   { return role.primaryProvider }
+func (role ResolvedRole) CredentialProfile() string { return role.credentialProfile }
 
 type RuntimePolicy struct{ MaxActiveLanes int }
 
@@ -51,7 +53,11 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 	roles := make(map[domain.Role]ResolvedRole, len(domain.FixedRoleOrder()))
 	for _, role := range domain.FixedRoleOrder() {
 		configured := configuredRole(raw.Roles, role)
-		roles[role] = ResolvedRole{enabled: configured.Enabled, primaryProvider: configured.PrimaryProvider}
+		profile := configured.CredentialProfile
+		if configured.PrimaryProvider == "codex" && profile == "" && raw.Providers.Codex != nil {
+			profile = raw.Providers.Codex.DefaultCredentialProfile
+		}
+		roles[role] = ResolvedRole{enabled: configured.Enabled, primaryProvider: configured.PrimaryProvider, credentialProfile: profile}
 	}
 	return ResolvedConfig{
 		raw: cloneConfig(raw), roles: roles,
@@ -76,6 +82,10 @@ func configuredProviderTimeout(providers ProvidersConfig, family string) string 
 	case "agy":
 		if providers.AGY != nil {
 			return providers.AGY.Timeout
+		}
+	case "codex":
+		if providers.Codex != nil {
+			return providers.Codex.Timeout
 		}
 	}
 	return ""
@@ -172,6 +182,11 @@ func cloneConfig(value Config) Config {
 		provider := *value.Providers.AGY
 		copyValue.Providers.AGY = &provider
 	}
+	if value.Providers.Codex != nil {
+		provider := *value.Providers.Codex
+		provider.CredentialHomes = cloneCredentialHomes(value.Providers.Codex.CredentialHomes)
+		copyValue.Providers.Codex = &provider
+	}
 	copyValue.Review.RequiredRoles = append([]string(nil), value.Review.RequiredRoles...)
 	copyValue.Review.RequestChangesOn = append([]string(nil), value.Review.RequestChangesOn...)
 	copyValue.Validation.Evidence.RequireVerifiedFor = append([]string(nil), value.Validation.Evidence.RequireVerifiedFor...)
@@ -182,4 +197,11 @@ func cloneConfig(value Config) Config {
 		copyValue.Roles.Artist.Inputs = &inputs
 	}
 	return copyValue
+}
+
+func cloneCredentialHomes(values []CodexCredentialHomeConfig) []CodexCredentialHomeConfig {
+	if len(values) == 0 {
+		return nil
+	}
+	return append([]CodexCredentialHomeConfig(nil), values...)
 }

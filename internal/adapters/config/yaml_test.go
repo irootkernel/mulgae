@@ -126,6 +126,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 		Kimi:  &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: DefaultKimiDataHome(config.NativeUser.Home), Timeout: "1m"},
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
 		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "60m"},
+		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	config.Resources.RoleMaxInvocations = 2
@@ -134,7 +135,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "60m"`} {
+	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "60m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
 		if !bytes.Contains(canonical, []byte(field)) {
 			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
 		}
@@ -152,6 +153,71 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	}
 	if timeout, _ := ParseProviderTimeout(decoded.Providers.ZCode.Timeout); timeout != 30*time.Minute {
 		t.Fatalf("zcode timeout = %s", timeout)
+	}
+	if decoded.Providers.Codex.Model != "gpt-5.3-codex" || decoded.Providers.Codex.ReasoningEffort != "high" {
+		t.Fatalf("Codex settings = %#v", decoded.Providers.Codex)
+	}
+}
+
+func TestCodexCredentialProfilesRoundTripAcrossSplitAuthorities(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{Codex: &CodexProviderConfig{
+		Executable: "/usr/local/bin/codex", DefaultCredentialProfile: "personal",
+		CredentialHomes: []CodexCredentialHomeConfig{{Profile: "personal", Home: "/Users/test/.codex"}, {Profile: "work", Home: "/Users/test/.codex-work"}},
+		ReasoningEffort: "high", Timeout: "20m",
+	}}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	config.Roles.Security.CredentialProfile = "work"
+	project, local, err := EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`default_credential_profile: "personal"`, `credential_profile: "work"`} {
+		if !bytes.Contains(project, []byte(fragment)) {
+			t.Fatalf("project config omitted %s:\n%s", fragment, project)
+		}
+	}
+	for _, fragment := range []string{`credential_homes:`, `profile: "personal"`, `home: "/Users/test/.codex"`, `profile: "work"`, `home: "/Users/test/.codex-work"`} {
+		if !bytes.Contains(local, []byte(fragment)) {
+			t.Fatalf("local config omitted %s:\n%s", fragment, local)
+		}
+	}
+	decoded, err := DecodeSplit(project, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workHome, _ := decoded.Providers.Codex.CredentialHome("work")
+	if decoded.Providers.Codex.DefaultCredentialProfile != "personal" || decoded.Roles.Security.CredentialProfile != "work" || workHome != "/Users/test/.codex-work" {
+		t.Fatalf("credential profiles did not round trip: %#v", decoded.Providers.Codex)
+	}
+	effective, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(effective); err != nil {
+		t.Fatalf("effective credential profile config did not round trip: %v\n%s", err, effective)
+	}
+}
+
+func TestCodexCredentialProfilesRejectIncompleteOrCrossFamilyAssignments(t *testing.T) {
+	base := validConfig()
+	base.Providers = ProvidersConfig{Codex: &CodexProviderConfig{
+		Executable: "/usr/local/bin/codex", DefaultCredentialProfile: "codex",
+		CredentialHomes: []CodexCredentialHomeConfig{{Profile: "codex", Home: "/Users/test/.codex"}, {Profile: "unused", Home: "/Users/test/.codex-unused"}},
+	}}
+	base.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), base.Providers.Families())
+	if _, _, err := EncodeSplit(base); err == nil {
+		t.Fatal("unused credential profile was accepted")
+	}
+	base.Providers.Codex.CredentialHomes = []CodexCredentialHomeConfig{{Profile: "codex", Home: "/Users/test/.codex"}}
+	base.Roles.Logic.CredentialProfile = "missing"
+	if _, _, err := EncodeSplit(base); err == nil {
+		t.Fatal("missing role credential profile was accepted")
+	}
+	base = validConfig()
+	base.Roles.Logic.CredentialProfile = "codex"
+	if _, _, err := EncodeSplit(base); err == nil {
+		t.Fatal("non-Codex role credential profile was accepted")
 	}
 }
 

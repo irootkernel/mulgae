@@ -68,6 +68,9 @@ test-e2e:
 	agy_bin="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy)}"; \
 	test -n "$$agy_bin" && test -x "$$agy_bin" || { echo "test-e2e requires the AGY executable" >&2; exit 1; }; \
 	case "$$agy_bin" in /*) ;; *) echo "test-e2e requires an absolute AGY executable" >&2; exit 1;; esac; \
+	codex_bin="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
+	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e requires the Codex executable" >&2; exit 1; }; \
+	case "$$codex_bin" in /*) ;; *) echo "test-e2e requires an absolute Codex executable" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
 		MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
@@ -79,8 +82,8 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
-	MULGAE_LIVE_AGY_BIN="$$agy_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Agy)Capability$$' ./internal/adapters/providercli || { \
+	MULGAE_LIVE_AGY_BIN="$$agy_bin" MULGAE_LIVE_CODEX_BIN="$$codex_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestLive(ZCode|Agy|Codex)Capability$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

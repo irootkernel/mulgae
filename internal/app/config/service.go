@@ -108,13 +108,14 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"providers.kimi.timeout",
 		"providers.zcode.configured", "providers.zcode.node_executable", "providers.zcode.launcher", "providers.zcode.timeout",
 		"providers.agy.configured", "providers.agy.executable", "providers.agy.permission_mode", "providers.agy.timeout",
+		"providers.codex.configured", "providers.codex.executable", "providers.codex.default_credential_profile", "providers.codex.credential_homes", "providers.codex.model", "providers.codex.reasoning_effort", "providers.codex.timeout",
 		"execution.workspace_access",
-		"roles.logic.enabled", "roles.logic.primary_provider",
-		"roles.security.enabled", "roles.security.primary_provider",
-		"roles.maintainability.enabled", "roles.maintainability.primary_provider",
-		"roles.product.enabled", "roles.product.primary_provider",
-		"roles.documentation.enabled", "roles.documentation.primary_provider",
-		"roles.testing.enabled", "roles.testing.primary_provider",
+		"roles.logic.enabled", "roles.logic.primary_provider", "roles.logic.credential_profile",
+		"roles.security.enabled", "roles.security.primary_provider", "roles.security.credential_profile",
+		"roles.maintainability.enabled", "roles.maintainability.primary_provider", "roles.maintainability.credential_profile",
+		"roles.product.enabled", "roles.product.primary_provider", "roles.product.credential_profile",
+		"roles.documentation.enabled", "roles.documentation.primary_provider", "roles.documentation.credential_profile",
+		"roles.testing.enabled", "roles.testing.primary_provider", "roles.testing.credential_profile",
 		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
 		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "ci.fail_on_severity", "ci.degraded_review_fails",
 		"execution.strategy", "runtime.path_policy", "runtime.environment_policy", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
@@ -122,25 +123,53 @@ func provenanceRows(config Config) []ProvenanceRow {
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {
 		source, disposition, class := "project", "configured", "policy"
-		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.kimi.data_home" || field == "providers.zcode.node_executable" || field == "providers.zcode.launcher" {
+		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.kimi.data_home" || field == "providers.zcode.node_executable" || field == "providers.zcode.launcher" || field == "providers.codex.credential_homes" {
 			source, class = "local", "machine"
 		}
 		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
 			source, disposition, class = "code", "fixed", "invariant"
 		}
-		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil {
+		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
-		if field == "providers.kimi.timeout" && config.Providers.Kimi == nil || field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.agy.timeout" && config.Providers.AGY == nil {
+		if field == "providers.kimi.timeout" && config.Providers.Kimi == nil || field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.agy.timeout" && config.Providers.AGY == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
+			disposition = "absent"
+		}
+		if config.Providers.Codex != nil && (field == "providers.codex.model" && config.Providers.Codex.Model == "" || field == "providers.codex.reasoning_effort" && config.Providers.Codex.ReasoningEffort == "") {
+			source, disposition = "default", "defaulted"
+		}
+		if config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile == "" && (field == "providers.codex.default_credential_profile" || field == "providers.codex.credential_homes") {
+			disposition = "absent"
+		}
+		if strings.HasSuffix(field, ".credential_profile") && roleCredentialProfile(config.Roles, field) == "" {
 			disposition = "absent"
 		}
 		if field == "providers.kimi.model" && config.Providers.Kimi != nil && config.Providers.Kimi.Model == DefaultKimiModel || field == "providers.kimi.data_home" && config.Providers.Kimi != nil && config.Providers.Kimi.DataHome == DefaultKimiDataHome(config.NativeUser.Home) || field == "providers.agy.permission_mode" && config.Providers.AGY != nil && config.Providers.AGY.PermissionMode == DefaultAGYPermissionMode && !config.Providers.AGY.PermissionModeExplicit {
 			source, disposition = "default", "defaulted"
 		}
-		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			source, disposition = "default", "defaulted"
 		}
 		rows = append(rows, ProvenanceRow{Field: field, Source: source, Disposition: disposition, ValueClass: class})
 	}
 	return rows
+}
+
+func roleCredentialProfile(roles RolesConfig, field string) string {
+	switch field {
+	case "roles.logic.credential_profile":
+		return roles.Logic.CredentialProfile
+	case "roles.security.credential_profile":
+		return roles.Security.CredentialProfile
+	case "roles.maintainability.credential_profile":
+		return roles.Maintainability.CredentialProfile
+	case "roles.product.credential_profile":
+		return roles.Product.CredentialProfile
+	case "roles.documentation.credential_profile":
+		return roles.Documentation.CredentialProfile
+	case "roles.testing.credential_profile":
+		return roles.Testing.CredentialProfile
+	default:
+		return ""
+	}
 }

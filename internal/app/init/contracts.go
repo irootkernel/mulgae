@@ -45,6 +45,11 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 			// though new init results emit safe_default.
 			{JSONName: "permission_mode_source", Values: []string{"explicit", "headless_default", "safe_default", "not_selected"}},
 		}},
+		{Family: "codex", Fields: []DiscoverySourceFieldSpec{
+			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
+		}},
 	}
 	for index := range specs {
 		specs[index].Fields = append([]DiscoverySourceFieldSpec(nil), specs[index].Fields...)
@@ -209,13 +214,14 @@ func canonicalRoleIDs(values []string) bool {
 
 func validDiscoverySources(row DiscoveryRow) bool {
 	fields := map[string]string{
-		"executable_source":      row.ExecutableSource,
-		"model_source":           row.ModelSource,
-		"data_home_source":       row.DataHomeSource,
-		"node_executable_source": row.NodeExecutableSource,
-		"launcher_source":        row.LauncherSource,
-		"native_home_source":     row.NativeHomeSource,
-		"permission_mode_source": row.PermissionModeSource,
+		"executable_source":       row.ExecutableSource,
+		"model_source":            row.ModelSource,
+		"data_home_source":        row.DataHomeSource,
+		"node_executable_source":  row.NodeExecutableSource,
+		"launcher_source":         row.LauncherSource,
+		"native_home_source":      row.NativeHomeSource,
+		"permission_mode_source":  row.PermissionModeSource,
+		"reasoning_effort_source": row.ReasoningEffortSource,
 	}
 	var selected *DiscoverySourceSpec
 	for _, spec := range DiscoverySourceSpecs() {

@@ -133,8 +133,8 @@ already available.
   cancellation, cleanup, provider or role changes, or any requested reset,
   service control, goal change, or repair. Read
   [lifecycle.md](references/lifecycle.md) before lifecycle actions.
-- Read [authoring.md](references/authoring.md) only for provider, role, artist,
-  or configuration authoring requests.
+- Read [authoring.md](references/authoring.md) only for provider, credential
+  profile, role, artist, or configuration authoring requests.
 - Read [recovery.md](references/recovery.md) when state is stale, a mutation's
   outcome is unknown, publication is incomplete, or a provider failed.
 - Re-read effective configuration or exact run status after every mutation.

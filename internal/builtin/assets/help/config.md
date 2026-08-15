@@ -23,11 +23,12 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := kimi | zcode | agy`
+`FAMILY := kimi | zcode | agy | codex`
 
 `--providers auto` discovers exactly ZCode and AGY and fails closed unless both
 are available. Select Kimi explicitly to create a Kimi-backed compatibility
-configuration.
+configuration. Select Codex explicitly with `--providers codex`; auto selection
+remains unchanged.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
@@ -56,6 +57,50 @@ providers:
 
 Executable and launcher paths belong only in `local.yaml`.
 Provider stdout and stderr have no configuration field or product byte ceiling.
+
+Codex accepts optional project-policy `model` and `reasoning_effort` fields and
+a machine-local `executable`. Valid reasoning efforts are `minimal`, `low`,
+`medium`, `high`, and `xhigh`. Omitting model or reasoning effort preserves the
+Codex CLI default. For example:
+
+```yaml
+providers:
+  codex:
+    model: "gpt-5.3-codex"
+    reasoning_effort: "high"
+```
+
+Several authenticated Codex environments can share the same executable and
+project model policy. Set `default_credential_profile` in `.mulgae/config.yaml`,
+use an optional role-level `credential_profile` override, and list the exact
+machine-local homes in `.mulgae/local.yaml`:
+
+```yaml
+# project policy
+providers:
+  codex:
+    default_credential_profile: "personal"
+roles:
+  logic: {enabled: true, primary_provider: "codex"}
+  security: {enabled: true, primary_provider: "codex", credential_profile: "work"}
+```
+
+```yaml
+# local machine paths
+providers:
+  codex:
+    executable: "/Users/operator/.local/bin/codex"
+    credential_homes:
+      - profile: "personal"
+        home: "/Users/operator/.codex"
+      - profile: "work"
+        home: "/Users/operator/.codex-work"
+```
+
+Profile IDs are operator-chosen authentication aliases, not executable names;
+they use lowercase kebab-case. The profile list is lexical and must exactly
+cover the default and role overrides. Mulgae uses only each home's `auth.json`;
+it does not inherit that home's Codex settings or extensions.
 
 `mulgae config --mode effective` reports every configured provider family's
 effective timeout. Provenance reports the field as `defaulted` when omitted and

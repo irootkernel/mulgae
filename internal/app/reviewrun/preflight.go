@@ -36,7 +36,7 @@ func PreflightConfiguredPlan(
 		if !ok {
 			return ExecutionPlan{}, review.RunBudgetReceipt{}, fmt.Errorf("review run: no configured provider assignment for role %q", role)
 		}
-		primaryRoute, primaryBudget, err := configuredPreflightRoute(role, configured.Primary(), providerTimeouts)
+		primaryRoute, primaryBudget, err := configuredPreflightRoute(role, configured, providerTimeouts)
 		if err != nil {
 			return ExecutionPlan{}, review.RunBudgetReceipt{}, err
 		}
@@ -81,10 +81,10 @@ func configuredAssignmentForRole(assignments []RoleProviderAssignment, role doma
 
 func configuredPreflightRoute(
 	role domain.Role,
-	family Family,
+	assignment RoleProviderAssignment,
 	providerTimeouts map[Family]time.Duration,
 ) (ports.ProviderRoute, review.RouteBudget, error) {
-	route, limits, err := productionRouteAndLimits(family, role, providerTimeouts)
+	route, limits, err := productionRouteAndLimitsForInstance(assignment.Primary(), role, assignment.ProviderInstance(), providerTimeouts)
 	if err != nil {
 		return ports.ProviderRoute{}, review.RouteBudget{}, err
 	}

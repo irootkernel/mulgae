@@ -22,6 +22,7 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 		FamilyKimi:  10 * time.Minute,
 		FamilyZCode: 30 * time.Minute,
 		FamilyAGY:   15 * time.Minute,
+		FamilyCodex: 20 * time.Minute,
 	}
 	plan, receipt, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic, domain.RoleDocumentation})
 	if err != nil {
@@ -42,5 +43,22 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	assertPreflightRoute(1, "agy-documentation", 15*time.Minute)
 	if receipt.TotalInvocations() != 4 {
 		t.Fatalf("budget total invocations = %d", receipt.TotalInvocations())
+	}
+}
+
+func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing.T) {
+	policy := DefaultPlannerPolicy()
+	logic, err := NewRoleProviderAssignmentWithCredentialProfile(domain.RoleLogic, FamilyCodex, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Assignments = []RoleProviderAssignment{logic}
+	timeouts := map[Family]time.Duration{FamilyKimi: 15 * time.Minute, FamilyZCode: 15 * time.Minute, FamilyAGY: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
+	plan, _, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Assignments[0].ProviderInstance(); got != "codex-work-logic" {
+		t.Fatalf("provider instance = %q", got)
 	}
 }

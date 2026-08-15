@@ -24,13 +24,13 @@ const artistDefaultInputs = "    default_inputs:\n      task_path: ux-ui-info.md
 // individual roles so each test varies exactly one thing.
 func catalogFixture(overrides map[string]string) string {
 	defaults := map[string]string{
-		"logic":           roleEntry("logic", 1, "always", "[kimi, zcode, agy]", ""),
-		"security":        roleEntry("security", 2, "always", "[zcode, agy, kimi]", ""),
-		"maintainability": roleEntry("maintainability", 3, "always", "[zcode, agy, kimi]", ""),
-		"product":         roleEntry("product", 4, "always", "[zcode, agy, kimi]", ""),
-		"documentation":   roleEntry("documentation", 5, "always", "[agy, zcode, kimi]", ""),
-		"testing":         roleEntry("testing", 6, "always", "[zcode, agy, kimi]", ""),
-		"artist":          roleEntry("artist", 7, "project_kind_ui", "[agy, zcode]", artistDefaultInputs),
+		"logic":           roleEntry("logic", 1, "always", "[kimi, zcode, agy, codex]", ""),
+		"security":        roleEntry("security", 2, "always", "[zcode, agy, kimi, codex]", ""),
+		"maintainability": roleEntry("maintainability", 3, "always", "[zcode, agy, kimi, codex]", ""),
+		"product":         roleEntry("product", 4, "always", "[zcode, agy, kimi, codex]", ""),
+		"documentation":   roleEntry("documentation", 5, "always", "[agy, zcode, kimi, codex]", ""),
+		"testing":         roleEntry("testing", 6, "always", "[zcode, agy, kimi, codex]", ""),
+		"artist":          roleEntry("artist", 7, "project_kind_ui", "[agy, zcode, codex]", artistDefaultInputs),
 	}
 	document := "schema_version: " + SchemaVersion + "\nroles:\n"
 	for _, role := range domain.FixedRoleOrder() {
@@ -68,8 +68,8 @@ func TestParseCatalogEnforcesArtistExclusiveDefaultInputs(t *testing.T) {
 	t.Parallel()
 
 	for name, overrides := range map[string]map[string]string{
-		"artist without default inputs": {"artist": roleEntry("artist", 7, "project_kind_ui", "[agy, zcode]", "")},
-		"core role with default inputs": {"logic": roleEntry("logic", 1, "always", "[kimi, zcode, agy]", artistDefaultInputs)},
+		"artist without default inputs": {"artist": roleEntry("artist", 7, "project_kind_ui", "[agy, zcode, codex]", "")},
+		"core role with default inputs": {"logic": roleEntry("logic", 1, "always", "[kimi, zcode, agy, codex]", artistDefaultInputs)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
@@ -149,7 +149,7 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 			}
 		})
 	}
-	for _, preferences := range []string{"[kimi, zcode, agy]", "[agy, kimi, zcode]", "[zcode, agy, kimi]"} {
+	for _, preferences := range []string{"[kimi, zcode, agy, codex]", "[agy, kimi, zcode, codex]", "[codex, zcode, agy, kimi]"} {
 		overrides := map[string]string{"logic": roleEntry("logic", 1, "always", preferences, "")}
 		if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err != nil {
 			t.Fatalf("core preferences %q were rejected: %v", preferences, err)
@@ -162,7 +162,7 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 func TestParseCatalogAcceptsEitherArtistPreferenceOrder(t *testing.T) {
 	t.Parallel()
 
-	for _, preferences := range []string{"[agy, zcode]", "[zcode, agy]", "[agy]", "[zcode]"} {
+	for _, preferences := range []string{"[agy, zcode, codex]", "[zcode, codex, agy]", "[agy]", "[zcode]", "[codex]"} {
 		overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", preferences, artistDefaultInputs)}
 		definitions, err := ParseCatalog([]byte(catalogFixture(overrides)))
 		if err != nil {
@@ -174,7 +174,7 @@ func TestParseCatalogAcceptsEitherArtistPreferenceOrder(t *testing.T) {
 			t.Fatalf("artist preferences = %v, want %v", got, want)
 		}
 	}
-	for _, preferences := range []string{"[kimi, agy]", "[agy, zcode, kimi]", "[]"} {
+	for _, preferences := range []string{"[kimi, agy]", "[agy, zcode, kimi]", "[agy, codex, kimi]", "[]"} {
 		overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", preferences, artistDefaultInputs)}
 		if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
 			t.Fatalf("artist preferences %q were accepted", preferences)

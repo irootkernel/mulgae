@@ -16,6 +16,7 @@ const (
 	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceAGY   CredentialSourceFamily = "agy"
+	CredentialSourceCodex CredentialSourceFamily = "codex"
 )
 
 // NewCredentialProjectingNamespaceFactory fails closed where descriptor-based

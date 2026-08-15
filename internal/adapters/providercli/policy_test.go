@@ -125,6 +125,24 @@ func TestDirectExecutionEnvironmentAuthorityFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCodexProcessEnvironmentPinsDisposableCodexHome(t *testing.T) {
+	root := "/private/mulgae-owned-namespace"
+	namespaceEnvironment := directExecutionNamespaceEnvironment(t, root, filepath.Join(root, "home"))
+	configured := []ports.EnvironmentVariable{mustEnvironment(t, "CODEX_HOME", "/Users/operator/.codex")}
+	environment, err := isolatedProcessEnvironment(FamilyCodex, configured, namespaceEnvironment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := make(map[string]string, len(environment))
+	for _, variable := range environment {
+		values[variable.Name()] = variable.Value()
+	}
+	want := filepath.Join(root, "home", ".codex")
+	if values["CODEX_HOME"] != want {
+		t.Fatalf("CODEX_HOME = %q, want %q", values["CODEX_HOME"], want)
+	}
+}
+
 func directExecutionNamespaceEnvironment(t *testing.T, root, home string) []ports.EnvironmentVariable {
 	t.Helper()
 	return []ports.EnvironmentVariable{

@@ -150,7 +150,8 @@
               "enum": [
                 "kimi",
                 "zcode",
-                "agy"
+                "agy",
+                "codex"
               ]
             },
             {
@@ -200,7 +201,7 @@
         },
         "path": {
           "type": "string",
-          "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/(?:kimi|zcode|agy)/secure-writer-index\\.json$"
+          "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/(?:kimi|zcode|agy|codex)/secure-writer-index\\.json$"
         },
         "file_sha256": {
           "$ref": "#/$defs/nullable_sha256"
@@ -770,6 +771,29 @@
       ],
       "items": false
     },
+    "codex_tuple_key": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        {
+          "const": "codex"
+        },
+        {
+          "const": "local-default"
+        },
+        {
+          "$ref": "#/$defs/nonempty_text"
+        },
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "const": "codex-default"
+        }
+      ],
+      "items": false
+    },
     "provider_base": {
       "type": "object",
       "additionalProperties": false,
@@ -787,7 +811,8 @@
           "enum": [
             "kimi",
             "zcode",
-            "agy"
+            "agy",
+            "codex"
           ]
         },
         "tuple_key": {
@@ -992,6 +1017,66 @@
         }
       ]
     },
+    "codex_provider": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/provider_base"
+        },
+        {
+          "properties": {
+            "family": {
+              "const": "codex"
+            },
+            "tuple_key": {
+              "$ref": "#/$defs/codex_tuple_key"
+            },
+            "wrapper_argv_sha256": {
+              "const": "a2752b481a51e75c195879d8eb64d3b05dc00b42c421cb632ab548213756268a"
+            },
+            "probe_runner": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/probe_runner"
+                },
+                {
+                  "properties": {
+                    "argv": {
+                      "prefixItems": [
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        {
+                          "const": "codex"
+                        }
+                      ]
+                    },
+                    "argv_sha256": {
+                      "const": "a2752b481a51e75c195879d8eb64d3b05dc00b42c421cb632ab548213756268a"
+                    }
+                  }
+                }
+              ]
+            },
+            "secure_writer_index": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/secure_writer_index"
+                },
+                {
+                  "properties": {
+                    "path": {
+                      "pattern": "^\\.gjc/[^\\u0000\\r\\n]+/evidence/g0/candidates/[0-9a-f]{40}/providers/codex/secure-writer-index\\.json$"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "provider": {
       "oneOf": [
         {
@@ -1002,6 +1087,9 @@
         },
         {
           "$ref": "#/$defs/agy_provider"
+        },
+        {
+          "$ref": "#/$defs/codex_provider"
         }
       ]
     }

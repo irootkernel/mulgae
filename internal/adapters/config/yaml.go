@@ -419,11 +419,47 @@ func validate(config *Config) error {
 		}
 		config.Providers.AGY.Timeout = ProviderTimeoutText(timeout)
 	}
+	if config.Providers.Codex != nil {
+		if !canonicalAbsolute(config.Providers.Codex.Executable) {
+			return fmt.Errorf("codex executable")
+		}
+		if config.Providers.Codex.Model != "" && !validModel(config.Providers.Codex.Model) {
+			return fmt.Errorf("codex model")
+		}
+		if effort := config.Providers.Codex.ReasoningEffort; effort != "" && effort != "minimal" && effort != "low" && effort != "medium" && effort != "high" && effort != "xhigh" {
+			return fmt.Errorf("codex reasoning effort")
+		}
+		timeout, err := ParseProviderTimeout(config.Providers.Codex.Timeout)
+		if err != nil {
+			return fmt.Errorf("codex timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.Codex.Timeout = ProviderTimeoutText(timeout)
+		named := config.Providers.Codex.DefaultCredentialProfile != "" || len(config.Providers.Codex.CredentialHomes) != 0
+		if named {
+			if !validCredentialProfileID(config.Providers.Codex.DefaultCredentialProfile) || len(config.Providers.Codex.CredentialHomes) == 0 {
+				return fmt.Errorf("codex credential profiles")
+			}
+			lastProfile := ""
+			for _, entry := range config.Providers.Codex.CredentialHomes {
+				if !validCredentialProfileID(entry.Profile) || !canonicalAbsolute(entry.Home) || lastProfile != "" && entry.Profile <= lastProfile {
+					return fmt.Errorf("codex credential profile")
+				}
+				lastProfile = entry.Profile
+			}
+			if _, ok := config.Providers.Codex.CredentialHome(config.Providers.Codex.DefaultCredentialProfile); !ok {
+				return fmt.Errorf("codex default credential profile")
+			}
+		}
+	}
 	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
 		return fmt.Errorf("workspace")
 	}
 	configuredRoles := config.Roles.Ordered()
 	enabledRoleCount := 0
+	referencedCredentialProfiles := make(map[string]struct{})
+	if config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile != "" {
+		referencedCredentialProfiles[config.Providers.Codex.DefaultCredentialProfile] = struct{}{}
+	}
 	for index, role := range configuredRoles {
 		if index == len(configuredRoles)-1 {
 			if err := validateArtistRole(config, role); err != nil {
@@ -436,9 +472,21 @@ func validate(config *Config) error {
 		if !config.Providers.HasFamily(role.PrimaryProvider) {
 			return fmt.Errorf("role")
 		}
+		if role.CredentialProfile != "" {
+			if role.PrimaryProvider != "codex" || config.Providers.Codex == nil || config.Providers.Codex.DefaultCredentialProfile == "" || !validCredentialProfileID(role.CredentialProfile) {
+				return fmt.Errorf("role credential profile")
+			}
+			if _, ok := config.Providers.Codex.CredentialHome(role.CredentialProfile); !ok {
+				return fmt.Errorf("role credential profile")
+			}
+			referencedCredentialProfiles[role.CredentialProfile] = struct{}{}
+		}
 		if role.Enabled {
 			enabledRoleCount++
 		}
+	}
+	if config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile != "" && len(referencedCredentialProfiles) != len(config.Providers.Codex.CredentialHomes) {
+		return fmt.Errorf("unused codex credential profile")
 	}
 	if !config.Roles.Logic.Enabled {
 		return fmt.Errorf("role floor")
@@ -473,18 +521,18 @@ func validate(config *Config) error {
 
 func validateArtistRole(config *Config, role RoleConfig) error {
 	if config.Project.Kind == ProjectKindNonUI {
-		if role.Enabled || role.PrimaryProvider != "" || role.Inputs != nil {
+		if role.Enabled || role.PrimaryProvider != "" || role.CredentialProfile != "" || role.Inputs != nil {
 			return fmt.Errorf("artist is only valid for UI projects")
 		}
 		return nil
 	}
 	if !role.Enabled {
-		if role.PrimaryProvider != "" || role.Inputs != nil {
+		if role.PrimaryProvider != "" || role.CredentialProfile != "" || role.Inputs != nil {
 			return fmt.Errorf("disabled UI artist role has configuration")
 		}
 		return nil
 	}
-	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode") || role.Inputs == nil {
+	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode" && role.PrimaryProvider != "codex") || role.Inputs == nil {
 		return fmt.Errorf("UI project artist role")
 	}
 	if !safeContext(role.Inputs.TaskPath) || len(role.Inputs.DesignSpecGlobs) == 0 || len(role.Inputs.DesignSpecGlobs) > 16 {
@@ -501,6 +549,19 @@ func validateArtistRole(config *Config, role RoleConfig) error {
 		seen[pattern] = struct{}{}
 	}
 	return nil
+}
+
+func validCredentialProfileID(value string) bool {
+	if len(value) == 0 || len(value) > 32 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func safeArtistGlob(value string) bool {
@@ -611,6 +672,27 @@ func EncodeCanonical(config Config) ([]byte, error) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}
 	}
+	if provider := config.Providers.Codex; provider != nil {
+		out.WriteString("  codex:\n    executable: " + q(provider.Executable) + "\n")
+		if provider.DefaultCredentialProfile != "" {
+			out.WriteString("    default_credential_profile: " + q(provider.DefaultCredentialProfile) + "\n")
+		}
+		if len(provider.CredentialHomes) != 0 {
+			out.WriteString("    credential_homes:\n")
+			for _, entry := range provider.CredentialHomes {
+				out.WriteString("      - profile: " + q(entry.Profile) + "\n        home: " + q(entry.Home) + "\n")
+			}
+		}
+		if provider.Model != "" {
+			out.WriteString("    model: " + q(provider.Model) + "\n")
+		}
+		if provider.ReasoningEffort != "" {
+			out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+		}
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+		}
+	}
 	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
 	for index, role := range fixedRoles {
 		configured := config.Roles.Ordered()[index]
@@ -619,10 +701,17 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		}
 		if role == "artist" {
 			out.WriteString("  artist:\n    enabled: true\n    primary_provider: " + q(configured.PrimaryProvider) + "\n")
+			if configured.CredentialProfile != "" {
+				out.WriteString("    credential_profile: " + q(configured.CredentialProfile) + "\n")
+			}
 			out.WriteString("    inputs:\n      task_path: " + q(configured.Inputs.TaskPath) + "\n      design_spec_globs: " + quotedList(configured.Inputs.DesignSpecGlobs) + "\n")
 			continue
 		}
-		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider) + "}\n")
+		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider))
+		if configured.CredentialProfile != "" {
+			out.WriteString(", credential_profile: " + q(configured.CredentialProfile))
+		}
+		out.WriteString("}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
 	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")

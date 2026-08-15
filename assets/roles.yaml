@@ -3,7 +3,7 @@ roles:
   - id: logic
     order: 1
     activation: always
-    provider_preferences: [kimi, zcode, agy]
+    provider_preferences: [kimi, zcode, agy, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: LOGIC
       Responsibility
@@ -22,7 +22,7 @@ roles:
   - id: security
     order: 2
     activation: always
-    provider_preferences: [zcode, agy, kimi]
+    provider_preferences: [zcode, agy, kimi, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: SECURITY
       Responsibility
@@ -41,7 +41,7 @@ roles:
   - id: maintainability
     order: 3
     activation: always
-    provider_preferences: [zcode, agy, kimi]
+    provider_preferences: [zcode, agy, kimi, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: MAINTAINABILITY
       Responsibility
@@ -60,7 +60,7 @@ roles:
   - id: product
     order: 4
     activation: always
-    provider_preferences: [zcode, agy, kimi]
+    provider_preferences: [zcode, agy, kimi, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: PRODUCT
       Responsibility
@@ -79,7 +79,7 @@ roles:
   - id: documentation
     order: 5
     activation: always
-    provider_preferences: [agy, zcode, kimi]
+    provider_preferences: [agy, zcode, kimi, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: DOCUMENTATION
       Responsibility
@@ -98,7 +98,7 @@ roles:
   - id: testing
     order: 6
     activation: always
-    provider_preferences: [zcode, agy, kimi]
+    provider_preferences: [zcode, agy, kimi, codex]
     system_prompt: |-
       Mulgae ROOT REVIEW ROLE GUIDE/4: TESTING
       Responsibility
@@ -117,7 +117,7 @@ roles:
   - id: artist
     order: 7
     activation: project_kind_ui
-    provider_preferences: [agy, zcode]
+    provider_preferences: [agy, zcode, codex]
     default_inputs:
       task_path: ux-ui-info.md
       design_spec_globs:

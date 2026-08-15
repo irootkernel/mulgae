@@ -122,6 +122,8 @@ func credentialDestination(destination ports.CredentialProjectionDestination) (s
 		return "home/.kimi-code/credentials/kimi-code.json", true
 	case ports.CredentialProjectionZCodeConfig:
 		return "home/.zcode/cli/config.json", true
+	case ports.CredentialProjectionCodexAuth:
+		return "home/.codex/auth.json", true
 	default:
 		return "", false
 	}

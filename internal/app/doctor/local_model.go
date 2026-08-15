@@ -75,7 +75,7 @@ func (result LocalDoctorResult) Validate() error {
 	if result.SchemaVersion != LocalSchemaVersion || result.CheckedAt.IsZero() || result.ProjectRootURI != "." || result.Config.URI != ".mulgae/config.yaml" || result.Config.Authority != "project_local" {
 		return fmt.Errorf("local doctor result: invalid identity")
 	}
-	if len(result.ProviderInventory) != 3 || result.ProviderInventory[0].Family != "kimi" || result.ProviderInventory[1].Family != "zcode" || result.ProviderInventory[2].Family != "agy" {
+	if len(result.ProviderInventory) != 4 || result.ProviderInventory[0].Family != "kimi" || result.ProviderInventory[1].Family != "zcode" || result.ProviderInventory[2].Family != "agy" || result.ProviderInventory[3].Family != "codex" {
 		return fmt.Errorf("local doctor result: invalid provider inventory")
 	}
 	if !canonicalProviderIDs(result.ConfiguredProviderIDs) || len(result.PlatformEvidence) != 1 || result.PlatformEvidence[0].Cell == "" || result.ToolsLock.State != "not_observed" {
@@ -204,7 +204,7 @@ func validateDiagnostics(readiness LocalReadiness, diagnostics []LocalDiagnostic
 
 func canonicalProviderIDs(ids []string) bool {
 	position := -1
-	order := []string{"kimi", "zcode", "agy"}
+	order := []string{"kimi", "zcode", "agy", "codex"}
 	for _, id := range ids {
 		found := -1
 		for index, family := range order {

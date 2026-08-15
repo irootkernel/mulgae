@@ -553,6 +553,14 @@
         { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }], "items": false },
         { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }], "items": false },
         { "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }], "items": false }
+        ,{ "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 4, "maxItems": 4, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }, { "const": "codex" }], "items": false }
       ]
     },
     "canonical_role_ids": {
@@ -608,6 +616,22 @@
         "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
         "native_home_source": { "enum": ["os_account","verified_equal_input","not_selected"] },
         "permission_mode_source": { "enum": ["explicit","headless_default","safe_default","not_selected"] }
+      }
+    },
+    "init_discovery_codex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family","selected","candidate","configured","status","executable_source","model_source","reasoning_effort_source"],
+      "properties": {
+        "family": { "const": "codex" },
+        "selected": { "type": "boolean" },
+        "candidate": { "type": "boolean" },
+        "configured": { "type": "boolean" },
+        "status": { "enum": ["not_selected", "unavailable", "candidate"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" },
+        "executable_source": { "enum": ["override","startup_path","not_discovered","not_selected"] },
+        "model_source": { "enum": ["override","provider_default","not_selected"] },
+        "reasoning_effort_source": { "enum": ["override","provider_default","not_selected"] }
       }
     },
     "path": {
@@ -3124,7 +3148,7 @@
             "properties": {
               "role":{"$ref":"#/$defs/role"},"route_kind":{"const":"primary"},
               "provider_instance":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,127}$"},
-              "provider_family":{"enum":["kimi","zcode","agy"]},
+              "provider_family":{"enum":["kimi","zcode","agy","codex"]},
               "configured_timeout":{"$ref":"#/$defs/review_preflight_duration"},
               "permission_mode":{"enum":["not_applicable","safe","dangerously-skip-permissions"]},
               "target_channel":{"const":"prompt"},"file_set_id":{"$ref":"#/$defs/sha256"}
@@ -3194,7 +3218,7 @@
           "selection": {
             "oneOf": [
               { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "const": "auto" } } },
-              { "type": "object", "additionalProperties": false, "required": ["mode", "provider_ids"], "properties": { "mode": { "const": "selected" }, "provider_ids": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "enum": ["kimi", "zcode", "agy"] } } } }
+              { "type": "object", "additionalProperties": false, "required": ["mode", "provider_ids"], "properties": { "mode": { "const": "selected" }, "provider_ids": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "enum": ["kimi", "zcode", "agy", "codex"] } } } }
             ]
           },
           "roles": { "$ref": "#/$defs/canonical_role_ids" },
@@ -3203,7 +3227,8 @@
             "properties": {
               "kimi_executable": { "$ref": "#/$defs/path" }, "kimi_model": { "type": "string", "minLength": 1, "maxLength": 128 }, "kimi_data_home": { "$ref": "#/$defs/path" },
               "zcode_node_executable": { "$ref": "#/$defs/path" }, "zcode_launcher": { "$ref": "#/$defs/path" },
-              "agy_executable": { "$ref": "#/$defs/path" }, "agy_permission_mode": { "enum": ["safe", "dangerously-skip-permissions"] }
+              "agy_executable": { "$ref": "#/$defs/path" }, "agy_permission_mode": { "enum": ["safe", "dangerously-skip-permissions"] },
+              "codex_executable": { "$ref": "#/$defs/path" }, "codex_model": { "type": "string", "minLength": 1, "maxLength": 128 }, "codex_reasoning_effort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] }
             }
           },
           "overwrite": { "type": "boolean" },
@@ -3466,10 +3491,11 @@
             "type": "array",
             "oneOf": [
               { "maxItems": 0 },
-              { "minItems": 3, "maxItems": 3, "prefixItems": [
+              { "minItems": 4, "maxItems": 4, "prefixItems": [
                 { "$ref": "#/$defs/init_discovery_kimi" },
                 { "$ref": "#/$defs/init_discovery_zcode" },
-                { "$ref": "#/$defs/init_discovery_agy" }
+                { "$ref": "#/$defs/init_discovery_agy" },
+                { "$ref": "#/$defs/init_discovery_codex" }
               ], "items": false }
             ]
           }

@@ -28,6 +28,15 @@ merged value through `config --mode effective` and field ownership through
 `config --mode provenance`. Provider stdout and stderr have no configurable or
 fixed product byte ceiling.
 
+Codex may additionally declare a Git-shareable
+`default_credential_profile` and role-level `credential_profile` overrides.
+The matching local authority contains the exact, lexically ordered
+`credential_homes` entries. Those paths identify credential sources only:
+Mulgae projects `<home>/auth.json`, never the home's `config.toml`, rules,
+skills, plugins, or other contents. When the named fields are absent, the
+legacy singleton uses `<native_user.home>/.codex`. Named and legacy forms are
+both Config v3; partially named or unmatched pairs are rejected.
+
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
 options. `init --refresh-local` atomically replaces only `local.yaml` and
@@ -364,7 +373,7 @@ Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
-environment, working directory, lifecycle, model,
+environment, working directory, lifecycle, model, Codex reasoning effort,
 executable/launcher identity, and runtime safety policy identity. ZCode may
 share one probe across sibling role instances only when that full shareable
 profile matches; AGY profiles also include provider instance because AGY control
@@ -373,7 +382,12 @@ bind currentProbeRuntimeDefinitionIdentity for the exact destination runtime,
 including instance. Sibling routes receive a new authority only through an
 adapter-owned derivation that revalidates shareable equivalence and exact
 destination Matches. Application-layer identity rewriting cannot copy authority.
-ZCode and AGY family probes run concurrently when both are required. Capability
+Named Codex credential profiles additionally participate in qualification-group
+identity. Roles using the same credential profile may share one probe; roles
+using different profiles never share qualification or direct-execution
+authority. Their provider instances use `codex-<profile>-<role>`. Legacy Codex
+configuration retains `codex-<role>`.
+Required family probes, including Codex, run concurrently. Capability
 readiness is decided by bound immutable fixture evidence: free-form or narrated
 provider output is accepted when it proves immutable fixture nonce/input binding
 together with transport, lifecycle, authentication, version, and required

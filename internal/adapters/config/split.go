@@ -26,6 +26,7 @@ type projectProvidersConfig struct {
 	Kimi  *projectKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *projectZCodeConfig `yaml:"zcode,omitempty"`
 	AGY   *projectAGYConfig   `yaml:"agy,omitempty"`
+	Codex *projectCodexConfig `yaml:"codex,omitempty"`
 }
 
 type projectKimiConfig struct {
@@ -42,6 +43,13 @@ type projectAGYConfig struct {
 	Timeout        string `yaml:"timeout,omitempty"`
 }
 
+type projectCodexConfig struct {
+	DefaultCredentialProfile string `yaml:"default_credential_profile,omitempty"`
+	Model                    string `yaml:"model,omitempty"`
+	ReasoningEffort          string `yaml:"reasoning_effort,omitempty"`
+	Timeout                  string `yaml:"timeout,omitempty"`
+}
+
 type machineConfig struct {
 	Version    int                    `yaml:"version"`
 	NativeUser NativeUserConfig       `yaml:"native_user"`
@@ -52,6 +60,7 @@ type machineProvidersConfig struct {
 	Kimi  *machineKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *machineZCodeConfig `yaml:"zcode,omitempty"`
 	AGY   *machineAGYConfig   `yaml:"agy,omitempty"`
+	Codex *machineCodexConfig `yaml:"codex,omitempty"`
 }
 
 type machineKimiConfig struct {
@@ -66,6 +75,16 @@ type machineZCodeConfig struct {
 
 type machineAGYConfig struct {
 	Executable string `yaml:"executable"`
+}
+
+type machineCodexConfig struct {
+	Executable      string                  `yaml:"executable"`
+	CredentialHomes []machineCredentialHome `yaml:"credential_homes,omitempty"`
+}
+
+type machineCredentialHome struct {
+	Profile string `yaml:"profile"`
+	Home    string `yaml:"home"`
 }
 
 func DecodeSplit(projectData, localData []byte) (Config, error) {
@@ -121,6 +140,9 @@ func ProjectProviderIDs(projectData []byte) ([]string, error) {
 	if project.Providers.AGY != nil {
 		families = append(families, "agy")
 	}
+	if project.Providers.Codex != nil {
+		families = append(families, "codex")
+	}
 	if len(families) == 0 {
 		return nil, reject(ReasonYAMLInvalid)
 	}
@@ -162,7 +184,8 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	}
 	if (project.Providers.Kimi == nil) != (local.Providers.Kimi == nil) ||
 		(project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
-		(project.Providers.AGY == nil) != (local.Providers.AGY == nil) {
+		(project.Providers.AGY == nil) != (local.Providers.AGY == nil) ||
+		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
 	if project.Providers.Kimi != nil {
@@ -173,6 +196,22 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	}
 	if project.Providers.AGY != nil {
 		config.Providers.AGY = &AGYProviderConfig{Executable: local.Providers.AGY.Executable, PermissionMode: project.Providers.AGY.PermissionMode, Timeout: project.Providers.AGY.Timeout}
+	}
+	if project.Providers.Codex != nil {
+		credentialHomes := make([]CodexCredentialHomeConfig, 0, len(local.Providers.Codex.CredentialHomes))
+		seenProfiles := make(map[string]struct{}, len(local.Providers.Codex.CredentialHomes))
+		for _, entry := range local.Providers.Codex.CredentialHomes {
+			if _, duplicate := seenProfiles[entry.Profile]; duplicate {
+				return Config{}, fmt.Errorf("duplicate Codex credential profile")
+			}
+			seenProfiles[entry.Profile] = struct{}{}
+			credentialHomes = append(credentialHomes, CodexCredentialHomeConfig{Profile: entry.Profile, Home: entry.Home})
+		}
+		config.Providers.Codex = &CodexProviderConfig{
+			Executable: local.Providers.Codex.Executable, DefaultCredentialProfile: project.Providers.Codex.DefaultCredentialProfile,
+			CredentialHomes: credentialHomes, Model: project.Providers.Codex.Model,
+			ReasoningEffort: project.Providers.Codex.ReasoningEffort, Timeout: project.Providers.Codex.Timeout,
+		}
 	}
 	return config, nil
 }
@@ -236,6 +275,26 @@ func encodeProjectConfig(config Config) []byte {
 			}
 		}
 	}
+	if provider := config.Providers.Codex; provider != nil {
+		out.WriteString("  codex:")
+		if provider.DefaultCredentialProfile == "" && provider.Model == "" && provider.ReasoningEffort == "" && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString(" {}\n")
+		} else {
+			out.WriteString("\n")
+			if provider.DefaultCredentialProfile != "" {
+				out.WriteString("    default_credential_profile: " + q(provider.DefaultCredentialProfile) + "\n")
+			}
+			if provider.Model != "" {
+				out.WriteString("    model: " + q(provider.Model) + "\n")
+			}
+			if provider.ReasoningEffort != "" {
+				out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+			}
+			if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+				out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+			}
+		}
+	}
 	appendPolicyYAML(&out, config)
 	return []byte(out.String())
 }
@@ -250,10 +309,17 @@ func appendPolicyYAML(out *strings.Builder, config Config) {
 		}
 		if role == "artist" {
 			out.WriteString("  artist:\n    enabled: true\n    primary_provider: " + q(configured.PrimaryProvider) + "\n")
+			if configured.CredentialProfile != "" {
+				out.WriteString("    credential_profile: " + q(configured.CredentialProfile) + "\n")
+			}
 			out.WriteString("    inputs:\n      task_path: " + q(configured.Inputs.TaskPath) + "\n      design_spec_globs: " + quotedList(configured.Inputs.DesignSpecGlobs) + "\n")
 			continue
 		}
-		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider) + "}\n")
+		out.WriteString("  " + role + ": {enabled: " + strconv.FormatBool(configured.Enabled) + ", primary_provider: " + q(configured.PrimaryProvider))
+		if configured.CredentialProfile != "" {
+			out.WriteString(", credential_profile: " + q(configured.CredentialProfile))
+		}
+		out.WriteString("}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
 	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
@@ -276,6 +342,15 @@ func encodeMachineConfig(config Config) []byte {
 	}
 	if provider := config.Providers.AGY; provider != nil {
 		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
+	}
+	if provider := config.Providers.Codex; provider != nil {
+		out.WriteString("  codex:\n    executable: " + q(provider.Executable) + "\n")
+		if len(provider.CredentialHomes) != 0 {
+			out.WriteString("    credential_homes:\n")
+			for _, entry := range provider.CredentialHomes {
+				out.WriteString("      - profile: " + q(entry.Profile) + "\n        home: " + q(entry.Home) + "\n")
+			}
+		}
 	}
 	return []byte(out.String())
 }

@@ -5,7 +5,7 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.26.6 or newer
 - Git
-- authenticated ZCode and AGY installations for the mandatory live tests
+- authenticated ZCode, AGY, and Codex installations for the mandatory live tests
 - an authenticated Kimi installation only for the opt-in compatibility test
 
 ## Local checks
@@ -18,7 +18,8 @@ make test
 
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, an exact-binary production
-workflow, and independent live capability certification for ZCode and AGY.
+workflow, and independent live capability certification for ZCode, AGY, and
+Codex.
 
 Smaller targets are available while iterating:
 
@@ -32,8 +33,8 @@ make test-mcp-clients
 ```
 
 `make test-kimi` is an opt-in compatibility check and is not part of
-`make test`. Do not call a change release-ready when the mandatory ZCode/AGY
-live gate was skipped.
+`make test`. Do not call a change release-ready when the mandatory
+ZCode/AGY/Codex live gate was skipped.
 
 `make test-mcp-clients` is an opt-in local compatibility check and is not part
 of `make test`. It builds the exact current Mulgae binary, isolates client

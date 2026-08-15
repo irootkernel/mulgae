@@ -30,7 +30,8 @@ type familyQualificationGroup struct {
 // timeout, profile id, and configured version are excluded so
 // sibling role routes can share one probe; transport, argv, environment,
 // working directory, output bounds, lifecycle, model, digests, and safety
-// identity remain part of the share key.
+// identity remain part of the share key. Codex credential-profile identity is
+// included so different authenticated homes never share qualification.
 func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) familyRuntimeProfileKey {
 	environment := definition.Environment()
 	environmentValues := make([]string, len(environment))
@@ -70,6 +71,9 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 	// share one family probe across provider instances.
 	if definition.Family() == string(FamilyAGY) {
 		parts = append(parts, definition.Instance())
+	}
+	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
+		parts = append(parts, definition.ProfileID())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return familyRuntimeProfileKey("sha256:" + hex.EncodeToString(sum[:]))

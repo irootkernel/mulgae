@@ -10,6 +10,7 @@ const (
 	FamilyKimi  Family = "kimi"
 	FamilyZCode Family = "zcode"
 	FamilyAGY   Family = "agy"
+	FamilyCodex Family = "codex"
 )
 
 // SupportState is the non-authoritative availability projection of doctor evidence.
@@ -25,7 +26,8 @@ const (
 type PromptTransport string
 
 const (
-	PromptTransportArgv PromptTransport = "argv"
+	PromptTransportArgv  PromptTransport = "argv"
+	PromptTransportStdin PromptTransport = "stdin"
 )
 
 // ResultTransport identifies the fixed provider result transport.
@@ -34,6 +36,7 @@ type ResultTransport string
 const (
 	ResultTransportKimiStreamJSONAssistantContent ResultTransport = "kimi_stream_json_assistant_content"
 	ResultTransportStrictJSON                     ResultTransport = "strict_json"
+	ResultTransportStdout                         ResultTransport = "stdout"
 )
 
 // Profile is the immutable application view of a trusted provider profile.

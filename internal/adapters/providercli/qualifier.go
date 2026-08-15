@@ -276,6 +276,13 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.TransportReference() != right.TransportReference() {
 		return false
 	}
+	if left.Family() == FamilyCodex {
+		leftNamed := left.ProfileID() != left.Instance()
+		rightNamed := right.ProfileID() != right.Instance()
+		if leftNamed != rightNamed || leftNamed && left.ProfileID() != right.ProfileID() {
+			return false
+		}
+	}
 	if !reflect.DeepEqual(left.BaseArgv(), right.BaseArgv()) {
 		return false
 	}
@@ -345,7 +352,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		return CurrentProbeResult{}, securityProbeFailure("fixture", "role fixtures are not independently bound", err)
 	}
 	namespaceEnvironment := namespace.Environment()
-	environment, err := isolatedProcessEnvironment(definition.Environment(), namespaceEnvironment)
+	environment, err := isolatedProcessEnvironment(definition.Family(), definition.Environment(), namespaceEnvironment)
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("environment", "isolated environment rejected", err)
 	}
@@ -358,7 +365,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, err
 	}
-	version, err := plainSemver(versionObservation)
+	version, err := plainSemver(definition.Family(), versionObservation)
 	if err != nil {
 		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), err, versionObservation.Stderr(), versionObservation.Stdout())
 	}
@@ -696,10 +703,7 @@ func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string)
 
 func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet ports.ProviderPacket, observation ports.ProcessObservation) error {
 	transport, ok := observation.ProviderPacketTransportReceipt()
-	expectedChannel := ports.ProviderPacketChannelArgvLiteral
-	if definition.Family() == FamilyAgy {
-		expectedChannel = ports.ProviderPacketChannelPromptFile
-	}
+	expectedChannel := qualificationTransportChannel(definition.Family())
 	if !ok || !transport.Valid() || transport.Channel() != expectedChannel || transport.PacketIdentity() != packet.Identity() {
 		return probeEvidenceFailure(domain.DiagnosticCauseTransportReceiptMismatch, "missing or mismatched provider packet transport receipt")
 	}
@@ -795,30 +799,36 @@ func probeEvidenceFailure(cause domain.RuntimeDiagnosticCause, message string) e
 	return newProviderOutputFailure(cause, errors.New(message))
 }
 func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacket, argv []string, reference string, environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration) (ports.ProcessRequest, error) {
-	channel := ports.ProviderPacketChannelArgvLiteral
+	channel := qualificationTransportChannel(def.Family())
 	needle := string(packet.Bytes())
-	if def.Family() == FamilyAgy {
-		channel = ports.ProviderPacketChannelPromptFile
+	if channel == ports.ProviderPacketChannelPromptFile {
 		needle = reference
 	}
 	index := -1
-	for candidate, argument := range argv {
-		if argument == needle {
-			if index >= 0 {
-				return ports.ProcessRequest{}, fmt.Errorf("duplicate provider packet argv")
+	if channel != ports.ProviderPacketChannelStdin {
+		for candidate, argument := range argv {
+			if argument == needle {
+				if index >= 0 {
+					return ports.ProcessRequest{}, fmt.Errorf("duplicate provider packet argv")
+				}
+				index = candidate
 			}
-			index = candidate
 		}
-	}
-	if index < 0 {
-		return ports.ProcessRequest{}, fmt.Errorf("missing provider packet argv")
+		if index < 0 {
+			return ports.ProcessRequest{}, fmt.Errorf("missing provider packet argv")
+		}
 	}
 	var binding ports.ProviderPacketBinding
 	var err error
-	if channel == ports.ProviderPacketChannelPromptFile {
+	switch channel {
+	case ports.ProviderPacketChannelPromptFile:
 		binding, err = ports.NewPromptFileProviderPacketBinding(packet, index, reference, workingDirectory)
-	} else {
+	case ports.ProviderPacketChannelArgvLiteral:
 		binding, err = ports.NewArgvLiteralProviderPacketBinding(packet, index)
+	case ports.ProviderPacketChannelStdin:
+		binding, err = ports.NewStdinProviderPacketBinding(packet)
+	default:
+		return ports.ProcessRequest{}, fmt.Errorf("unsupported provider packet transport")
 	}
 	if err != nil {
 		return ports.ProcessRequest{}, err
@@ -827,6 +837,17 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout)
 	}
 	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout)
+}
+
+func qualificationTransportChannel(family string) ports.ProviderPacketChannel {
+	switch family {
+	case FamilyAgy:
+		return ports.ProviderPacketChannelPromptFile
+	case FamilyCodex:
+		return ports.ProviderPacketChannelStdin
+	default:
+		return ports.ProviderPacketChannelArgvLiteral
+	}
 }
 
 func safeProbeDefinition(definition RuntimeDefinition) error {
@@ -919,8 +940,11 @@ func boundedProbeTimeout(timeout time.Duration) time.Duration {
 	}
 	return timeout
 }
-func plainSemver(observation ports.ProcessObservation) (string, error) {
+func plainSemver(family string, observation ports.ProcessObservation) (string, error) {
 	version := strings.TrimSpace(string(observation.Stdout()))
+	if family == FamilyCodex {
+		version = strings.TrimPrefix(version, "codex-cli ")
+	}
 	if !observation.Succeeded() || !semverOutput.MatchString(version) {
 		return "", fmt.Errorf("invalid plain semver version output")
 	}

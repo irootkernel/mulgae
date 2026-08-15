@@ -78,6 +78,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 			return nil, err
 		}
 		return append(argv, "--output-format", "json", "--json-schema", agyQualificationJSONSchema), nil
+	case FamilyCodex:
+		return appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort()), nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
@@ -129,7 +131,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyKimi, FamilyAgy:
+	case FamilyKimi, FamilyAgy, FamilyCodex:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}
@@ -143,6 +145,36 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
 	return baseArgv, nil
+}
+
+func appendCodexInvocation(argv []string, workingDirectory, model, reasoningEffort string) []string {
+	result := append([]string(nil), argv...)
+	result = append(result, "-a", "never", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check", "--color", "never", "-C", workingDirectory)
+	for _, feature := range []string{"apps", "browser_use", "computer_use", "hooks", "image_generation", "multi_agent", "plugins", "skill_search"} {
+		result = append(result, "--disable", feature)
+	}
+	result = append(result,
+		"-c", `permissions.mulgae={extends=":read-only",filesystem={"~/.codex"="deny"}}`,
+		"-c", `default_permissions="mulgae"`,
+		"-c", "project_doc_max_bytes=0",
+		"-c", "shell_environment_policy.inherit=none",
+	)
+	if model != "" {
+		result = append(result, "-m", model)
+	}
+	if reasoningEffort != "" {
+		result = append(result, "-c", fmt.Sprintf("model_reasoning_effort=%q", reasoningEffort))
+	}
+	return append(result, "-")
+}
+
+func validCodexReasoningEffort(value string) bool {
+	switch value {
+	case "minimal", "low", "medium", "high", "xhigh":
+		return true
+	default:
+		return false
+	}
 }
 
 func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, nativeReference string) ([]string, error) {

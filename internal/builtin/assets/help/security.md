@@ -35,6 +35,12 @@ an accepted owner decision and applies to ZCode review invocations only. AGY
 and Kimi are unchanged: AGY stays in `--sandbox` plan mode with safe
 permissions, where headless `write_file` is auto-denied.
 
+Codex uses a disposable `CODEX_HOME`, a read-only permission profile over the
+immutable workspace, approvals set to `never`, and an explicit model-tool deny
+for the projected credential directory. User configuration, rules, project
+instructions, web, apps, plugins, browser, hooks, image generation, and
+multi-agent features are disabled.
+
 Security, configuration, artifact, cancellation, and internal failures do not
 authorize repair or publication. Checksums, safe paths, schema identities,
 semantic ownership, and evidence must all agree before a final artifact is
@@ -43,6 +49,14 @@ committed.
 Commit only `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`, any other
 `.mulgae/**` path, provider credential directories, raw transcripts, or
 exported review bundles.
+
+Codex authentication comes only from a descriptor-anchored `auth.json`. Legacy
+configuration uses native `~/.codex`; named credential profiles use their exact
+machine-local homes. Mulgae copies only `auth.json` into a profile-specific
+disposable namespace with mode `0600`; profiles never share qualification or
+execution authority, and the provider permission model does not accept API-key
+environment credentials for the Codex adapter. Codex config, rules, skills, and
+plugins are not copied.
 
 Tracked `.gitignore`, `.mulgaeignore`, and exact `.mulgae/config.yaml` files are
 capture-policy controls, not review evidence. Mulgae accepts them as ordinary

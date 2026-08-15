@@ -80,6 +80,7 @@ var trustedProfiles = []profileDefinition{
 	{family: FamilyKimi, id: "kimi-default", promptTransport: PromptTransportArgv, resultTransport: ResultTransportKimiStreamJSONAssistantContent},
 	{family: FamilyZCode, id: "zcode-default", promptTransport: PromptTransportArgv, resultTransport: ResultTransportStrictJSON},
 	{family: FamilyAGY, id: "agy-default", promptTransport: PromptTransportArgv, resultTransport: ResultTransportStrictJSON},
+	{family: FamilyCodex, id: "codex-default", promptTransport: PromptTransportStdin, resultTransport: ResultTransportStdout},
 }
 
 func (definition profileDefinition) profile(evidence doctor.ProviderEvidence, found bool) Profile {

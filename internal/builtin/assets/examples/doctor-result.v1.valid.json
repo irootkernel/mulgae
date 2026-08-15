@@ -19,7 +19,8 @@
   "provider_inventory": [
     {"family": "kimi", "state": "eligible", "reason": "identity_admitted"},
     {"family": "zcode", "state": "not_configured", "reason": "not_configured"},
-    {"family": "agy", "state": "not_configured", "reason": "not_configured"}
+    {"family": "agy", "state": "not_configured", "reason": "not_configured"},
+    {"family": "codex", "state": "not_configured", "reason": "not_configured"}
   ],
   "assignment": {"state": "ready", "resilience": "ready"},
   "platform_evidence": [{"cell": "darwin-arm64", "native": true}],

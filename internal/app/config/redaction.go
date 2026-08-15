@@ -25,8 +25,9 @@ type RedactedProviderTimeout struct {
 	Timeout string `json:"timeout" yaml:"timeout"`
 }
 type RedactedRoleAssignment struct {
-	Role            domain.Role `json:"role" yaml:"role"`
-	PrimaryProvider string      `json:"primary_provider" yaml:"primary_provider"`
+	Role              domain.Role `json:"role" yaml:"role"`
+	PrimaryProvider   string      `json:"primary_provider" yaml:"primary_provider"`
+	CredentialProfile string      `json:"credential_profile,omitempty" yaml:"credential_profile,omitempty"`
 }
 
 func Redact(resolved ResolvedConfig) RedactedConfig {
@@ -36,7 +37,7 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 		if !ok {
 			continue
 		}
-		assignments = append(assignments, RedactedRoleAssignment{Role: role, PrimaryProvider: resolvedRole.PrimaryProvider()})
+		assignments = append(assignments, RedactedRoleAssignment{Role: role, PrimaryProvider: resolvedRole.PrimaryProvider(), CredentialProfile: resolvedRole.CredentialProfile()})
 	}
 	timeouts := make([]RedactedProviderTimeout, 0, resolved.raw.Providers.Count())
 	for _, family := range resolved.raw.Providers.Families() {

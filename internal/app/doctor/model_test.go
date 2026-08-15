@@ -187,10 +187,10 @@ func TestDoctorResultRejectsSecretBearingDiagnosticMessage(t *testing.T) {
 
 func TestDoctorResultAllowsNonIntendedEvidenceInReadyProjection(t *testing.T) {
 	result := readyModelResult(t)
-	uri := "https://evidence.example/providers/codex"
+	uri := "https://evidence.example/providers/claude"
 	digest := "sha256:" + strings.Repeat("f", 64)
 	result.ProviderEvidence = append(result.ProviderEvidence, ProviderEvidence{
-		ProviderID:      "codex",
+		ProviderID:      "claude",
 		Intended:        false,
 		AssignmentState: AssignmentIneligible,
 		EvidenceState:   EvidenceStateInconclusive,
@@ -293,12 +293,13 @@ func readyModelResult(t *testing.T) DoctorResult {
 		SchemaVersion:         SchemaVersion,
 		CheckedAt:             time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC),
 		ProjectRoot:           "/project",
-		IntendedProviderIDs:   []string{"kimi", "zcode", "agy"},
+		IntendedProviderIDs:   []string{"kimi", "zcode", "agy", "codex"},
 		UnverifiedProviderIDs: []string{},
 		ProviderEvidence: []ProviderEvidence{
 			{ProviderID: "kimi", Intended: true, AssignmentState: AssignmentEligible, EvidenceState: EvidenceStatePass, EvidenceURI: &providerURI, EvidenceSHA256: &providerSHA, ReasonCodes: []string{}},
 			{ProviderID: "zcode", Intended: true, AssignmentState: AssignmentEligible, EvidenceState: EvidenceStatePass, EvidenceURI: &providerURI, EvidenceSHA256: &providerSHA, ReasonCodes: []string{}},
 			{ProviderID: "agy", Intended: true, AssignmentState: AssignmentEligible, EvidenceState: EvidenceStatePass, EvidenceURI: &providerURI, EvidenceSHA256: &providerSHA, ReasonCodes: []string{}},
+			{ProviderID: "codex", Intended: true, AssignmentState: AssignmentEligible, EvidenceState: EvidenceStatePass, EvidenceURI: &providerURI, EvidenceSHA256: &providerSHA, ReasonCodes: []string{}},
 		},
 		PlatformEvidence: []PlatformEvidence{
 			{Cell: PlatformLinuxAMD64, Native: false, EvidenceState: EvidenceStateUnverified, ReasonCodes: []string{"intended_future", "not_supported", "release_ineligible"}},

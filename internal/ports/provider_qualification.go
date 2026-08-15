@@ -47,6 +47,8 @@ type ProviderRuntimeSpec struct {
 	ProfileGeneration           string
 	RuntimeSafetyPolicyIdentity string
 	KimiModel                   string
+	CodexModel                  string
+	CodexReasoningEffort        string
 	BaseArgv                    []string
 	TransportChannel            ProviderPacketChannel
 	TransportArgvIndex          int

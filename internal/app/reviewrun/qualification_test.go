@@ -11,7 +11,7 @@ import (
 )
 
 func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
-	want := []Family{FamilyKimi, FamilyZCode, FamilyAGY}
+	want := []Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyCodex}
 	if got := Families(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Families() = %v, want %v", got, want)
 	}
@@ -19,6 +19,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 		{Family: FamilyKimi, Minimum: "0.23.6", VerifiedLatest: "0.28.0"},
 		{Family: FamilyZCode, Minimum: "0.15.2", VerifiedLatest: "0.16.1"},
 		{Family: FamilyAGY, Minimum: "1.1.4", VerifiedLatest: "1.1.12"},
+		{Family: FamilyCodex, Minimum: "0.147.0", VerifiedLatest: "0.147.0"},
 	}
 	for _, want := range guidance {
 		got, ok := Guidance(want.Family)
@@ -531,6 +532,7 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 		"node":        discoveredExecutable(t, "node", "/new/location/node", "0.15.2"),
 		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.15.2"),
 		"agy":         discoveredExecutable(t, "agy", "/new/location/agy", "1.1.4"),
+		"codex":       discoveredExecutable(t, "codex", "/new/location/codex", "0.147.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {

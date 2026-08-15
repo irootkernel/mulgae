@@ -1651,8 +1651,8 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"kimi", "zcode", "agy"}
-	if len(lines) != len(wantFamilies)+3 || lines[3] != "code: readiness_unverified" || lines[4] != "stage: cli.providers" || lines[5] != "hint: run mulgae doctor" {
+	wantFamilies := []string{"kimi", "zcode", "agy", "codex"}
+	if len(lines) != len(wantFamilies)+3 || lines[4] != "code: readiness_unverified" || lines[5] != "stage: cli.providers" || lines[6] != "hint: run mulgae doctor" {
 		t.Fatalf("providers human rows = %q, want provider rows plus actionable failure details", human.Stdout())
 	}
 	for index, family := range wantFamilies {
@@ -1707,10 +1707,10 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.ReadyProviderCount != 3 ||
+	if providersEnvelope.Result.ReadyProviderCount != 4 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
-		t.Fatalf("providers result = %#v, want 3 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+		t.Fatalf("providers result = %#v, want 4 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -1731,7 +1731,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want missing", got)
 	}
 
-	wantCalls := []string{"kimi", "zcode", "agy"}
+	wantCalls := []string{"kimi", "zcode", "agy", "codex"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)

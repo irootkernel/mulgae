@@ -1,11 +1,12 @@
 # Providers and role paths
 
-Mulgae supports the `kimi`, `zcode`, and `agy` provider families. Provider
+Mulgae supports the `kimi`, `zcode`, `agy`, and `codex` provider families. Provider
 executables must be installed and authenticated before review.
 
 Automatic initialization selects ZCode and AGY and requires both to be
 available. Kimi is retained for explicit `mulgae init --providers kimi`
 compatibility; it is not part of auto selection.
+Codex is also explicit-only and does not change the ZCode/AGY auto topology.
 
 ```bash
 mulgae providers
@@ -40,7 +41,7 @@ the providers it configured and takes the first match as the role's provider.
 That is a generation-time default only: after init the shared project policy is
 the sole routing authority and is never re-derived.
 
-ZCode and AGY reviews run against Mulgae's immutable captured directory view
+ZCode, AGY, and Codex reviews run against Mulgae's immutable captured directory view
 with adapter-owned tool boundaries. Providers may selectively read/search that
 view; they do not receive live project-tree access, shell, or network
 authority from Mulgae. A single tree is under `current/`; Git comparisons are
@@ -59,7 +60,7 @@ Role reports reach Mulgae over a per-family transport recorded in
   `role-reports/<role>.md`, and always removes staging. ZCode's write authority
   is not path-scoped by the provider; containment is Mulgae-side. ZCode
   qualification is unchanged and remains fully tool-denied.
-- AGY and Kimi: `stdout`, unchanged. Headless AGY auto-denies `write_file` in
+- AGY, Kimi, and Codex: `stdout`. Headless AGY auto-denies `write_file` in
   safe mode.
 - Exact replay (`rerun --exact`) is always `stdout`.
 
@@ -76,3 +77,21 @@ induce workspace or tool reads. ZCode capability remains tool-denied; selective
 workspace reads apply only to review invocations. Kimi has no adapter-owned
 workspace read tools; its process working directory is still the immutable
 workspace view.
+
+Codex 0.147.0 or newer uses stdin for the review packet and exact stdout for the
+role report. A legacy configuration projects only native
+`~/.codex/auth.json`. To route roles through several authenticated environments,
+set an operator-chosen `default_credential_profile` and optional role-level
+`credential_profile` aliases in `.mulgae/config.yaml`, then map those aliases in
+lexical order under `providers.codex.credential_homes` in private
+`.mulgae/local.yaml`. Every profile uses the same real `codex` executable; do
+not configure profile-specific wrappers. Run `mulgae help config` for the exact
+two-file example.
+
+Mulgae projects only the selected profile's `auth.json` into a disposable
+`CODEX_HOME`, ignores user configuration, rules, and project instructions, sets
+approvals to `never`, applies an adapter-owned read-only permission profile that
+denies credential-directory access to model tools, and disables web, apps,
+plugins, browser, hooks, image generation, and multi-agent features. Optional
+model and reasoning-effort settings are shared project policy; omission
+preserves Codex CLI defaults.

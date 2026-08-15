@@ -92,6 +92,20 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
+	codex := mustParse(t, []string{"init", "--providers", "codex", "--codex-executable", "/opt/homebrew/bin/codex", "--codex-model", "gpt-5.3-codex", "--codex-reasoning-effort", "xhigh"})
+	codexRequest, ok := codex.Init()
+	if !ok {
+		t.Fatal("Codex init invocation has no init request")
+	}
+	executable, model, effort := codexRequest.CodexOverrides()
+	if executable != "/opt/homebrew/bin/codex" || model != "gpt-5.3-codex" || effort != "xhigh" {
+		t.Fatalf("Codex overrides = %q/%q/%q", executable, model, effort)
+	}
+	assertRequestJSON(t, codex, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["codex"]},"roles":["logic"],"overrides":{"codex_executable":"/opt/homebrew/bin/codex","codex_model":"gpt-5.3-codex","codex_reasoning_effort":"xhigh"},"overwrite":false,"output_format":"human"}`)
+	if _, err := Parse([]string{"init", "--providers", "codex", "--codex-reasoning-effort", "maximum"}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+		t.Fatalf("invalid Codex reasoning effort error = %v, want usage", err)
+	}
+
 	subset := mustParse(t, []string{"init", "--roles", "testing,security,logic"})
 	subsetRequest, ok := subset.Init()
 	if !ok || !reflect.DeepEqual(subsetRequest.Roles(), []string{"logic", "security", "testing"}) {
@@ -718,7 +732,6 @@ func TestParseRejectsMalformedInput(t *testing.T) {
 		{name: "init positional", arguments: []string{"init", "extra"}},
 		{name: "repeated intended provider", arguments: []string{"init", "--providers", "kimi,kimi"}},
 		{name: "empty intended provider", arguments: []string{"init", "--providers", "kimi,"}},
-		{name: "unsupported intended provider codex", arguments: []string{"init", "--providers", "codex"}},
 		{name: "unsupported intended provider claude", arguments: []string{"init", "--providers", "claude"}},
 		{name: "unsupported intended provider unknown", arguments: []string{"init", "--providers", "unknown"}},
 		{name: "removed optional providers flag", arguments: []string{"init", "--optional-providers", "codex"}},

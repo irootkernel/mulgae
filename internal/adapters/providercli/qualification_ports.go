@@ -55,6 +55,14 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 			spec.WorkingDirectory, spec.Timeout,
 		)
 	}
+	if spec.Family == FamilyCodex {
+		return NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
+			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
+			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.CodexModel, spec.CodexReasoningEffort,
+			append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
+			spec.WorkingDirectory, spec.Timeout,
+		)
+	}
 	return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
 		spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
@@ -71,6 +79,8 @@ func credentialFamilyForRuntime(family string) (CredentialSourceFamily, error) {
 		return CredentialSourceZCode, nil
 	case FamilyAgy:
 		return CredentialSourceAGY, nil
+	case FamilyCodex:
+		return CredentialSourceCodex, nil
 	default:
 		return "", fmt.Errorf("provider runtime builder: unsupported family %q", family)
 	}

@@ -56,6 +56,35 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	}
 }
 
+func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := buildArgv(definition{
+		family: FamilyCodex, baseArgv: []string{"/private/bin/codex"}, transport: transport,
+		codexModel: "gpt-5.3-codex", codexReasoningEffort: "high", timeout: 30 * time.Minute,
+	}, "/private/work", []byte("review bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/private/bin/codex", "-a", "never", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
+		"--skip-git-repo-check", "--color", "never", "-C", "/private/work",
+		"--disable", "apps", "--disable", "browser_use", "--disable", "computer_use", "--disable", "hooks",
+		"--disable", "image_generation", "--disable", "multi_agent", "--disable", "plugins", "--disable", "skill_search",
+		"-c", `permissions.mulgae={extends=":read-only",filesystem={"~/.codex"="deny"}}`,
+		"-c", `default_permissions="mulgae"`, "-c", "project_doc_max_bytes=0", "-c", "shell_environment_policy.inherit=none",
+		"-m", "gpt-5.3-codex", "-c", `model_reasoning_effort="high"`, "-",
+	}
+	if !equalStrings(got, want) {
+		t.Fatalf("Codex argv = %q, want %q", got, want)
+	}
+	if occurrences := packetOccurrences(got, "review bytes"); occurrences != 0 {
+		t.Fatalf("Codex argv contains stdin packet %d times", occurrences)
+	}
+}
+
 func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t *testing.T) {
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
@@ -166,8 +195,13 @@ func TestProviderResultStrictness(t *testing.T) {
 		t.Fatalf("Kimi tool stream result = %q, isolated=%t, err=%v", content, isolated, err)
 	}
 	want := []byte("{\"findings\":[]}")
+	codexRaw := []byte("Codex review result\n")
+	got, isolated, err := providerResult(FamilyCodex, codexRaw)
+	if err != nil || !isolated || !bytes.Equal(got, codexRaw) {
+		t.Fatalf("Codex result = %q, isolated=%t, err=%v", got, isolated, err)
+	}
 	zcodeRaw := []byte("```json\n{\"findings\":[]}\n```")
-	got, isolated, err := providerResult(FamilyZcode, zcodeRaw)
+	got, isolated, err = providerResult(FamilyZcode, zcodeRaw)
 	if err != nil || isolated || !bytes.Equal(got, zcodeRaw) {
 		t.Fatalf("ZCode bare fence result = %q, isolated=%t, err=%v", got, isolated, err)
 	}

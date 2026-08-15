@@ -273,6 +273,24 @@ func TestAGYInstancesDoNotShareFamilyProfileKey(t *testing.T) {
 	}
 }
 
+func TestCodexCredentialProfilesPartitionFamilyQualification(t *testing.T) {
+	logic := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic), func(d *testRuntimeMutation) {
+		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-personal-logic", "codex-personal"
+	})
+	securitySame := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-personal-security", "codex-personal"
+	})
+	securityOther := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-work-security", "codex-work"
+	})
+	if familyRuntimeProfileKeyFor(logic.Definition) != familyRuntimeProfileKeyFor(securitySame.Definition) {
+		t.Fatal("same Codex credential profile did not share qualification key")
+	}
+	if familyRuntimeProfileKeyFor(logic.Definition) == familyRuntimeProfileKeyFor(securityOther.Definition) {
+		t.Fatal("different Codex credential profiles shared qualification key")
+	}
+}
+
 func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Role) QualifiedRunCandidate {
 	t.Helper()
 	instance := string(family) + "-" + string(role)
@@ -306,6 +324,7 @@ type testRuntimeMutation struct {
 	launcher                    string
 	launcherSHA256              string
 	profileGeneration           string
+	profileID                   string
 	runtimeSafetyPolicyIdentity string
 	kimiModel                   string
 	baseArgv                    []string
@@ -329,7 +348,12 @@ func (d testRuntimeMutation) ProfileGeneration() string { return d.profileGenera
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
-func (d testRuntimeMutation) ProfileID() string  { return d.instance }
+func (d testRuntimeMutation) ProfileID() string {
+	if d.profileID != "" {
+		return d.profileID
+	}
+	return d.instance
+}
 func (d testRuntimeMutation) KimiModel() string  { return d.kimiModel }
 func (d testRuntimeMutation) BaseArgv() []string { return append([]string(nil), d.baseArgv...) }
 func (d testRuntimeMutation) Environment() []ports.EnvironmentVariable {
@@ -354,7 +378,7 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		family: definition.Family(), instance: definition.Instance(), version: definition.Version(),
 		executable: definition.Executable(), executableSHA256: definition.ExecutableSHA256(),
 		launcher: definition.Launcher(), launcherSHA256: definition.LauncherSHA256(),
-		profileGeneration: definition.ProfileGeneration(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
+		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
 		kimiModel: definition.KimiModel(), baseArgv: append([]string(nil), definition.BaseArgv()...),
 		transportChannel: definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),

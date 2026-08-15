@@ -205,6 +205,7 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 		reviewrun.FamilyKimi:  appconfig.DefaultProviderTimeout,
 		reviewrun.FamilyZCode: 30 * time.Minute,
 		reviewrun.FamilyAGY:   appconfig.DefaultProviderTimeout,
+		reviewrun.FamilyCodex: appconfig.DefaultProviderTimeout,
 	}
 	if !reflect.DeepEqual(policy.providerTimeouts, want) {
 		t.Fatalf("production provider timeouts = %#v, want %#v", policy.providerTimeouts, want)

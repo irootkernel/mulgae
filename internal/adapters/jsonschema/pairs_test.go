@@ -33,6 +33,7 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 				map[string]any{"family": "kimi", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "executable_source": "not_selected", "model_source": "not_selected", "data_home_source": "not_selected"},
 				map[string]any{"family": "zcode", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "node_executable_source": "not_selected", "launcher_source": "not_selected"},
 				map[string]any{"family": "agy", "selected": true, "candidate": true, "configured": true, "status": "candidate", "executable_source": "override", "native_home_source": "os_account", "permission_mode_source": "safe_default"},
+				map[string]any{"family": "codex", "selected": false, "candidate": false, "configured": false, "status": "not_selected", "executable_source": "not_selected", "model_source": "not_selected", "reasoning_effort_source": "not_selected"},
 			},
 		},
 	}

@@ -25,6 +25,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("agy", doctor.EvidenceStateInconclusive, doctor.AssignmentIneligible),
+		evidence("codex", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 	)})
 
 	result, err := service.ListProviderProfiles(context.Background(), true)
@@ -32,7 +33,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := len(profiles), 3; got != want {
+	if got, want := len(profiles), 4; got != want {
 		t.Fatalf("profiles length = %d, want %d", got, want)
 	}
 	want := []struct {
@@ -45,6 +46,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		{FamilyKimi, "kimi-default", PromptTransportArgv, ResultTransportKimiStreamJSONAssistantContent, SupportSupported},
 		{FamilyZCode, "zcode-default", PromptTransportArgv, ResultTransportStrictJSON, SupportUnsupported},
 		{FamilyAGY, "agy-default", PromptTransportArgv, ResultTransportStrictJSON, SupportUnsupported},
+		{FamilyCodex, "codex-default", PromptTransportStdin, ResultTransportStdout, SupportUnverified},
 	}
 	for index, expected := range want {
 		profile := profiles[index]
@@ -59,20 +61,21 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("agy", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
+		evidence("codex", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 	)})
 
 	all, err := service.ListProviderProfiles(context.Background(), true)
 	if err != nil {
 		t.Fatalf("all profiles error = %v", err)
 	}
-	if got, want := profileSupports(all.Profiles()), []SupportState{SupportSupported, SupportUnsupported, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(all.Profiles()), []SupportState{SupportSupported, SupportUnsupported, SupportUnverified, SupportSupported}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	filtered, err := service.ListProviderProfiles(context.Background(), false)
 	if err != nil {
 		t.Fatalf("filtered profiles error = %v", err)
 	}
-	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyKimi, FamilyZCode}; !reflect.DeepEqual(got, want) {
+	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyKimi, FamilyZCode, FamilyCodex}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered families = %v, want %v", got, want)
 	}
 }
@@ -93,7 +96,7 @@ func TestListProviderProfilesAbsentEvidenceIsUnverified(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	if got := profiles[1].AssignmentState(); got != doctor.AssignmentIntendedButUnverified {
@@ -107,7 +110,7 @@ func TestListProviderProfilesRejectsMalformedProviderInventories(t *testing.T) {
 		result doctor.DoctorResult
 	}{
 		{"duplicate evidence", diagnosis(evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
-		{"unknown evidence", diagnosis(evidence("codex", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
+		{"unknown evidence", diagnosis(evidence("claude", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
 		{"out of order evidence", diagnosis(evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
 		{"duplicate intended", doctor.DoctorResult{IntendedProviderIDs: []string{"kimi", "kimi"}}},
 		{"unknown unverified", doctor.DoctorResult{UnverifiedProviderIDs: []string{"claude"}}},

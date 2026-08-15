@@ -23,6 +23,7 @@ const (
 	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceAGY   CredentialSourceFamily = "agy"
+	CredentialSourceCodex CredentialSourceFamily = "codex"
 )
 
 type credentialProjectingNamespaceFactory struct {
@@ -40,6 +41,7 @@ type projectionRootAuthority struct {
 	path     string
 	identity fileIdentity
 	info     os.FileInfo
+	uid      uint32
 }
 
 type nativeHomeAuthority struct {
@@ -76,6 +78,9 @@ var credentialSources = map[CredentialSourceFamily][]credentialSource{
 		{ports.CredentialProjectionZCodeConfig, []string{".zcode", "cli", "config.json"}},
 	},
 	CredentialSourceAGY: {},
+	CredentialSourceCodex: {
+		{ports.CredentialProjectionCodexAuth, []string{".codex", "auth.json"}},
+	},
 }
 
 var _ ports.ProviderNamespaceFactory = (*credentialProjectingNamespaceFactory)(nil)
@@ -83,8 +88,8 @@ var _ ports.ProviderNamespaceFactory = (*credentialProjectingNamespaceFactory)(n
 // NewCredentialProjectingNamespaceFactory wraps base so every returned lease is
 // seeded only from the declared, descriptor-anchored runtime home.
 //
-// This retained constructor supplies canonical defaults only for Kimi and
-// ZCode; AGY requires an explicit native-home binding.
+// This retained constructor supplies canonical defaults for projected-home
+// families; AGY requires an explicit native-home binding.
 func NewCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily) (ports.ProviderNamespaceFactory, error) {
 	policies := make(map[string]RuntimeSafetyPolicy, len(instanceFamilies))
 	for instance, family := range instanceFamilies {
@@ -98,7 +103,7 @@ func NewCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 }
 
 // NewCredentialProjectingNamespaceFactoryWithPolicies wraps base with exact,
-// immutable per-instance runtime safety policies for Kimi and ZCode. AGY
+// immutable per-instance runtime safety policies for projected-home families. AGY
 // requires NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes.
 func NewCredentialProjectingNamespaceFactoryWithPolicies(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nil, nil)
@@ -113,8 +118,8 @@ func NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base port
 
 // NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots binds
 // provider-native read-only projection roots admitted from local
-// configuration. Kimi entries name the exact data_home; ZCode continues to
-// use runtimeHome and AGY has no projected credential source.
+// configuration. Kimi entries name the exact data_home, Codex entries name the
+// exact CODEX_HOME, and AGY has no projected credential source.
 func NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 }
@@ -155,7 +160,7 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 			nativeAuthorities[instance] = authority
 		}
 		if rootPath, mapped := sourceRoots[instance]; mapped {
-			if family != CredentialSourceKimi || !canonicalAbsolutePath(rootPath) {
+			if family != CredentialSourceKimi && family != CredentialSourceCodex || !canonicalAbsolutePath(rootPath) {
 				return nil, fmt.Errorf("credential source factory: invalid configured source root")
 			}
 			root, openErr := openAbsoluteDirectory(rootPath)
@@ -164,11 +169,13 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 			}
 			rootIdentity, identityErr := identityOf(root)
 			rootInfo, infoErr := root.Stat()
+			var rootStat unix.Stat_t
+			statErr := unix.Fstat(int(root.Fd()), &rootStat)
 			_ = root.Close()
-			if identityErr != nil || infoErr != nil || !rootInfo.IsDir() {
+			if identityErr != nil || infoErr != nil || statErr != nil || !rootInfo.IsDir() || family == CredentialSourceCodex && rootStat.Uid != uint32(unix.Geteuid()) {
 				return nil, fmt.Errorf("credential source factory: unsafe configured source root")
 			}
-			configuredRoots[instance] = projectionRootAuthority{path: rootPath, identity: rootIdentity, info: rootInfo}
+			configuredRoots[instance] = projectionRootAuthority{path: rootPath, identity: rootIdentity, info: rootInfo, uid: rootStat.Uid}
 		}
 		families[instance] = family
 		policies[instance] = cloneRuntimeSafetyPolicy(policy)
@@ -275,7 +282,9 @@ func (factory *credentialProjectingNamespaceFactory) revalidateHome(instance str
 		defer root.Close()
 		actual, identityErr := identityOf(root)
 		info, infoErr := root.Stat()
-		if identityErr != nil || infoErr != nil || actual != configured.identity || !os.SameFile(info, configured.info) {
+		var stat unix.Stat_t
+		statErr := unix.Fstat(int(root.Fd()), &stat)
+		if identityErr != nil || infoErr != nil || statErr != nil || actual != configured.identity || !os.SameFile(info, configured.info) || stat.Uid != configured.uid {
 			return fmt.Errorf("credential source factory: configured source root drift")
 		}
 	}
@@ -319,7 +328,7 @@ func captureNativeHome(path string) (nativeHomeAuthority, error) {
 func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context, lease ports.ProviderNamespaceLease, instance string, family CredentialSourceFamily, source credentialSource) error {
 	rootPath, rootIdentity := factory.runtimeHome, factory.homeIdentity
 	components := append([]string(nil), source.components...)
-	if configured, ok := factory.configuredRoots[instance]; ok && family == CredentialSourceKimi {
+	if configured, ok := factory.configuredRoots[instance]; ok && (family == CredentialSourceKimi || family == CredentialSourceCodex) {
 		rootPath, rootIdentity = configured.path, configured.identity
 		components = components[1:]
 	}
@@ -337,7 +346,7 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 		}
 	}()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes || family == CredentialSourceCodex && info.Mode().Perm() != 0600 {
 		return fmt.Errorf("unsafe credential source")
 	}
 	digest, err := digestCredentialSource(file, info.Size())

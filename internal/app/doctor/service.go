@@ -394,7 +394,7 @@ func validateCatalog(ctx context.Context, catalog ports.ContractCatalog) bool {
 }
 
 func validateIntendedProviderIDs() bool {
-	if len(intendedProviderIDs) != 3 {
+	if len(intendedProviderIDs) != 4 {
 		return false
 	}
 	seen := make(map[string]struct{}, len(intendedProviderIDs))

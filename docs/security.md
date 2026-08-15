@@ -93,6 +93,11 @@ say that no provider ever holds it.
   not used for role output.
 - Kimi is unchanged and has no adapter-owned workspace tools; its process
   working directory is still the immutable workspace view.
+- Codex runs with approvals disabled and an adapter-owned read-only permission
+  profile over the immutable workspace. Its projected `~/.codex` directory is
+  explicitly denied to model tools. User configuration, rules, project
+  instructions, web, apps, plugins, browser, hooks, image generation, and
+  multi-agent features are disabled for every invocation.
 
 ### Staging boundary
 
@@ -150,6 +155,17 @@ credential or project location. Commit only the machine-path-free project
 policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
 credentials, provider homes, any other `.mulgae/` artifacts, or exported review
 bundles.
+
+Codex authentication is copied from a descriptor-anchored credential home into
+the invocation's disposable `CODEX_HOME`. Legacy configuration uses native
+`~/.codex/auth.json`; named profiles use the exact machine-local home configured
+for that profile. Each profile gets a distinct provider instance, qualification
+group, and namespace, so authentication authority is never derived across
+profiles even when they share one executable. Mulgae does not admit an API-key
+environment variable, and Codex model tools cannot read the projected credential
+directory. Only `auth.json` is copied; user config, rules, skills, and plugins are
+not projected. The copy is mode `0600`, remains bound to its namespace
+generation, and is removed during terminal namespace cleanup.
 
 AGY is the exception to disposable `HOME`: its authenticated runtime is bound
 to the verified installed-user home while its workspace and staging remain

@@ -25,6 +25,7 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 		{"kimi_config", CredentialSourceKimi, ".kimi-code/config.toml", ports.CredentialProjectionKimiConfig},
 		{"kimi_credentials", CredentialSourceKimi, ".kimi-code/credentials/kimi-code.json", ports.CredentialProjectionKimiCredentials},
 		{"zcode_config", CredentialSourceZCode, ".zcode/cli/config.json", ports.CredentialProjectionZCodeConfig},
+		{"codex_auth", CredentialSourceCodex, ".codex/auth.json", ports.CredentialProjectionCodexAuth},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -91,6 +92,43 @@ func TestKimiCredentialProjectionUsesConfiguredDataHome(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(concrete.root, "home", ".kimi-code", "config.toml"))
 	if err != nil || string(data) != "configured" {
 		t.Fatalf("configured Kimi data home was not authoritative: %q, %v", data, err)
+	}
+}
+
+func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin descriptor traversal is required")
+	}
+	runtimeHome := credentialSourceTempDir(t)
+	configuredHome := credentialSourceTempDir(t)
+	writeCredentialSource(t, runtimeHome, ".codex/auth.json", "ambient")
+	writeCredentialSource(t, configuredHome, "auth.json", "configured")
+	writeCredentialSource(t, configuredHome, "config.toml", "must-not-project")
+	base, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
+		base, runtimeHome,
+		map[string]CredentialSourceFamily{"codex-work-logic": CredentialSourceCodex},
+		map[string]RuntimeSafetyPolicy{"codex-work-logic": mustCredentialSourcePolicy(t, CredentialSourceCodex)},
+		nil, map[string]string{"codex-work-logic": configuredHome},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "codex-work-logic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.DrainTerminal(context.Background())
+	concrete := lease.(*namespaceLease)
+	data, err := os.ReadFile(filepath.Join(concrete.root, "home", ".codex", "auth.json"))
+	if err != nil || string(data) != "configured" {
+		t.Fatalf("configured Codex home was not authoritative: %q, %v", data, err)
+	}
+	if _, err := os.Lstat(filepath.Join(concrete.root, "home", ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("Codex config was projected: %v", err)
 	}
 }
 func TestAGYUsesInstalledHomeWithoutCredentialProjection(t *testing.T) {

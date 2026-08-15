@@ -113,11 +113,11 @@ func composeProductionRuntimeGraph(
 		}
 	}()
 
-	policies := make(map[reviewrun.Family]providercli.RuntimeSafetyPolicy, 3)
+	policies := make(map[reviewrun.Family]providercli.RuntimeSafetyPolicy, 4)
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyKimi, providercli.CredentialSourceKimi}, {reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyAGY, providercli.CredentialSourceAGY}} {
+	}{{reviewrun.FamilyKimi, providercli.CredentialSourceKimi}, {reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyAGY, providercli.CredentialSourceAGY}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -167,6 +167,14 @@ func composeProductionRuntimeGraph(
 		familyName := configured.PrimaryProvider
 		family := reviewrun.Family(familyName)
 		instance := familyName + "-" + string(role)
+		credentialProfile := ""
+		if family == reviewrun.FamilyCodex && policy.config.Providers.Codex != nil && policy.config.Providers.Codex.DefaultCredentialProfile != "" {
+			credentialProfile = configured.CredentialProfile
+			if credentialProfile == "" {
+				credentialProfile = policy.config.Providers.Codex.DefaultCredentialProfile
+			}
+			instance = familyName + "-" + credentialProfile + "-" + string(role)
+		}
 		switch family {
 		case reviewrun.FamilyKimi:
 			provider := policy.config.Providers.Kimi
@@ -175,6 +183,11 @@ func composeProductionRuntimeGraph(
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
 		case reviewrun.FamilyAGY:
 			instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
+		case reviewrun.FamilyCodex:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCodex, policies[family]
+			if credentialProfile != "" {
+				sourceRoots[instance], _ = policy.config.Providers.Codex.CredentialHome(credentialProfile)
+			}
 		default:
 			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
@@ -257,9 +270,16 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 		return nil, fmt.Errorf("production graph: source-bound authority is unavailable")
 	}
 	family := reviewrun.Family("")
-	for _, candidate := range []reviewrun.Family{reviewrun.FamilyKimi, reviewrun.FamilyZCode, reviewrun.FamilyAGY} {
-		current := string(candidate) + "-" + string(role)
-		if providerInstance == current || legacyProviderInstanceFamily(providerInstance) == candidate {
+	for _, candidate := range []reviewrun.Family{reviewrun.FamilyKimi, reviewrun.FamilyZCode, reviewrun.FamilyAGY, reviewrun.FamilyCodex} {
+		legacyCurrent := string(candidate) + "-" + string(role)
+		current := legacyCurrent
+		if candidate == reviewrun.FamilyCodex {
+			profiles := configuredCodexCredentialProfiles(graph.policy.config)
+			if profile := profiles[role]; profile != "" {
+				current = string(candidate) + "-" + profile + "-" + string(role)
+			}
+		}
+		if providerInstance == current || providerInstance == legacyCurrent || legacyProviderInstanceFamily(providerInstance) == candidate {
 			family = candidate
 			break
 		}
@@ -270,7 +290,11 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 	policy := graph.policy.planner
 	policy.Assignments = nil
 	for _, configuredRole := range reviewrun.SupportedProductionRoles(family) {
-		assignment, err := reviewrun.NewRoleProviderAssignment(configuredRole, family)
+		profile := ""
+		if family == reviewrun.FamilyCodex {
+			profile = configuredCodexCredentialProfiles(graph.policy.config)[configuredRole]
+		}
+		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(configuredRole, family, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -287,6 +311,8 @@ func legacyProviderInstanceFamily(instance string) reviewrun.Family {
 		return reviewrun.FamilyZCode
 	case "agy-default":
 		return reviewrun.FamilyAGY
+	case "codex-default":
+		return reviewrun.FamilyCodex
 	default:
 		return ""
 	}

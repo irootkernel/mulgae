@@ -268,9 +268,9 @@ func TestMakefileContract(t *testing.T) {
 	e2eTarget := text[releaseEnd:kimiStart]
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
-		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`,
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`, "codex_bin=", `test -n "$$codex_bin"`,
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN", "MULGAE_LIVE_CODEX_BIN",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
 		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {

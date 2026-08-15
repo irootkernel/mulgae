@@ -278,6 +278,9 @@ type InitRequest struct {
 	zcodeLauncher        string
 	agyExecutable        string
 	agyPermissionMode    string
+	codexExecutable      string
+	codexModel           string
+	codexReasoningEffort string
 	refreshLocal         bool
 	projectPolicyOptions bool
 }
@@ -318,6 +321,9 @@ func (request InitRequest) ZCodeOverrides() (string, string) {
 }
 func (request InitRequest) AGYOverrides() (string, string) {
 	return request.agyExecutable, request.agyPermissionMode
+}
+func (request InitRequest) CodexOverrides() (string, string, string) {
+	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
 }
 func (request InitRequest) Overwrite() bool            { return false }
 func (request InitRequest) RefreshLocal() bool         { return request.refreshLocal }

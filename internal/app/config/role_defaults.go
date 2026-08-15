@@ -38,7 +38,7 @@ type RoleDefaults struct{ entries map[domain.Role]RoleDefault }
 
 // NewRoleDefaults validates and deep-copies a complete set of role defaults.
 //
-// Every core role must name all three provider families. That keeps the
+// Every core role must name all provider families. That keeps the
 // derivation total: the intersection with any non-empty configured family set is
 // never empty, so a role can never resolve to no primary provider.
 func NewRoleDefaults(entries map[domain.Role]RoleDefault) (RoleDefaults, error) {
@@ -75,10 +75,10 @@ func (defaults RoleDefaults) Role(role domain.Role) (RoleDefault, bool) {
 }
 
 func validateRoleDefault(role domain.Role, entry RoleDefault) error {
-	allowed := []string{"kimi", "zcode", "agy"}
+	allowed := []string{"kimi", "zcode", "agy", "codex"}
 	required := len(allowed)
 	if role == domain.RoleArtist {
-		allowed = []string{"agy", "zcode"}
+		allowed = []string{"agy", "zcode", "codex"}
 		required = 1
 	}
 	if len(entry.ProviderPreferences) < required || len(entry.ProviderPreferences) > len(allowed) {

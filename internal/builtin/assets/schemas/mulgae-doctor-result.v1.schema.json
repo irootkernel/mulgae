@@ -37,11 +37,12 @@
     },
     "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
     "provider_inventory": {
-      "type": "array", "minItems": 3, "maxItems": 3,
+      "type": "array", "minItems": 4, "maxItems": 4,
       "prefixItems": [
         { "$ref": "#/$defs/provider_kimi" },
         { "$ref": "#/$defs/provider_zcode" },
-        { "$ref": "#/$defs/provider_agy" }
+        { "$ref": "#/$defs/provider_agy" },
+        { "$ref": "#/$defs/provider_codex" }
       ],
       "items": false
     },
@@ -118,18 +119,28 @@
         { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }], "items": false },
         { "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }], "items": false },
         { "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }], "items": false }
+        ,{ "minItems": 1, "maxItems": 1, "prefixItems": [{ "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "kimi" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "zcode" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 2, "maxItems": 2, "prefixItems": [{ "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "kimi" }, { "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 3, "maxItems": 3, "prefixItems": [{ "const": "zcode" }, { "const": "agy" }, { "const": "codex" }], "items": false }
+        ,{ "minItems": 4, "maxItems": 4, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }, { "const": "codex" }], "items": false }
       ]
     },
     "provider": { "type": "object", "additionalProperties": false, "required": ["family", "state", "reason"], "properties": { "family": { "type": "string" }, "state": { "enum": ["eligible", "unavailable", "not_configured", "not_observed"] }, "reason": { "type": "string" } } },
     "provider_kimi": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "kimi" } } }] },
     "provider_zcode": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "zcode" } } }] },
     "provider_agy": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "agy" } } }] },
+    "provider_codex": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "codex" } } }] },
     "not_observed_inventory": {
-      "type": "array", "minItems": 3, "maxItems": 3,
+      "type": "array", "minItems": 4, "maxItems": 4,
       "prefixItems": [
         { "properties": { "family": { "const": "kimi" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } },
         { "properties": { "family": { "const": "zcode" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } },
-        { "properties": { "family": { "const": "agy" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } }
+        { "properties": { "family": { "const": "agy" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } },
+        { "properties": { "family": { "const": "codex" }, "state": { "const": "not_observed" }, "reason": { "const": "config_not_ready" } } }
       ],
       "items": false
     }

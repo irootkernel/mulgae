@@ -18,13 +18,78 @@ provider families:
 - Kimi CLI
 - ZCode
 - AGY
+- Codex CLI
 
 The default `mulgae init` topology requires authenticated ZCode and AGY
 installations. Kimi remains available only when selected explicitly with
-`--providers kimi`. Mulgae records provider identity and capabilities at runtime
+`--providers kimi`; Codex is likewise selected explicitly with
+`--providers codex`. Mulgae records provider identity and capabilities at runtime
 and fails closed when a required capability is unavailable. Other operating
 systems, architectures, and provider families are not supported by the initial
 release.
+
+### Use Codex from Mulgae
+
+Install Codex CLI 0.147.0 or newer and sign in with the CLI before initializing
+Mulgae. A legacy single-profile configuration uses Codex's native
+`~/.codex/auth.json` login state. Mulgae does not accept an API-key environment
+variable or a project-configured credential.
+
+```bash
+codex --version
+mulgae init --providers codex
+mulgae providers --include-unverified
+```
+
+The model and reasoning effort are optional. Omitting them preserves Codex CLI's
+current defaults. Set them at initialization only when the project requires a
+pinned choice:
+
+```bash
+mulgae init --providers codex \
+  --codex-model gpt-5.3-codex \
+  --codex-reasoning-effort high
+```
+
+Codex receives the review packet on stdin and returns its final report on
+stdout. Each invocation uses a disposable `CODEX_HOME`, a descriptor-anchored
+copy of `auth.json`, the immutable captured workspace, a read-only permission
+profile, and disabled web, app, plugin, browser, hook, image-generation, and
+multi-agent features. Project instructions and user configuration are ignored.
+
+To use more than one authenticated Codex environment, declare the default
+credential profile in the Git-shareable project policy and bind each profile to
+an explicit `CODEX_HOME` in the private local configuration:
+
+```yaml
+# .mulgae/config.yaml
+providers:
+  codex:
+    default_credential_profile: "personal"
+roles:
+  logic: {enabled: true, primary_provider: "codex"}
+  security: {enabled: true, primary_provider: "codex", credential_profile: "work"}
+```
+
+```yaml
+# .mulgae/local.yaml
+providers:
+  codex:
+    executable: "/Users/operator/.local/bin/codex"
+    credential_homes:
+      - profile: "personal"
+        home: "/Users/operator/.codex"
+      - profile: "work"
+        home: "/Users/operator/.codex-work"
+```
+
+Profile IDs are operator-chosen authentication aliases, not executable names;
+they use lowercase kebab-case. The local entries must match the default profile
+plus every role override exactly and remain in lexical order. Mulgae
+reads only `auth.json` from each configured home. Model, reasoning, and timeout
+remain shared Codex project policy; `config.toml`, rules, skills, plugins,
+hooks, and ambient `CODEX_HOME` are not inherited. Use the real `codex` binary
+for every profile rather than a wrapper that rewrites `CODEX_HOME`.
 
 ### Use ZCode from Mulgae
 

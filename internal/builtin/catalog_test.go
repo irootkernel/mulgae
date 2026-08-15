@@ -473,7 +473,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 		"`<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project",
 		"`<canonical-project-root>/.mulgae/local.yaml` contains machine-local native",
 		"--providers auto|FAMILY[,FAMILY...]",
-		"`FAMILY := kimi | zcode | agy`",
+		"`FAMILY := kimi | zcode | agy | codex`",
 		"`execution.workspace_access` is required",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
 		"defaults to `safe` for workspace-first",

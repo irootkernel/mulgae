@@ -855,6 +855,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	kimiExecutable, kimiModel, kimiDataHome := request.KimiOverrides()
 	zcodeNode, zcodeLauncher := request.ZCodeOverrides()
 	agyExecutable, agyPermission := request.AGYOverrides()
+	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
 
 	// Destination proof precedes native-account inspection so create-once init
 	// detects an existing pair deterministically and native failures can
@@ -961,7 +962,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		NativeHomeAsserted:   nativeHomeAsserted,
 		Selection:            selection,
 		RoleIDs:              request.Roles(),
-		Overrides:            appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission},
+		Overrides:            appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
 	})
@@ -1189,7 +1190,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		SchemaVersion: doctor.LocalSchemaVersion, CheckedAt: now, ProjectRootURI: ".",
 		Config:                doctor.LocalConfigProjection{Status: "missing", URI: adapterconfig.ConfigRelativePath, Authority: "project_local", Locality: "not_observed", TargetCommitOIDs: []string{}, ReasonCodes: []string{"config_missing"}},
 		ConfiguredProviderIDs: []string{},
-		ProviderInventory:     []doctor.LocalProviderInventoryRow{{Family: "kimi", State: "not_observed", Reason: "config_not_ready"}, {Family: "zcode", State: "not_observed", Reason: "config_not_ready"}, {Family: "agy", State: "not_observed", Reason: "config_not_ready"}},
+		ProviderInventory:     []doctor.LocalProviderInventoryRow{{Family: "kimi", State: "not_observed", Reason: "config_not_ready"}, {Family: "zcode", State: "not_observed", Reason: "config_not_ready"}, {Family: "agy", State: "not_observed", Reason: "config_not_ready"}, {Family: "codex", State: "not_observed", Reason: "config_not_ready"}},
 		Assignment:            doctor.LocalAssignmentProjection{State: "not_observed", Resilience: "not_observed"},
 		PlatformEvidence:      []doctor.LocalPlatformEvidence{{Cell: runtime.GOOS + "-" + runtime.GOARCH, Native: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"}},
 		ToolsLock:             doctor.LocalToolsLock{State: "not_observed"},
@@ -1310,6 +1311,9 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	if provider := config.Providers.AGY; provider != nil {
 		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
 	}
+	if provider := config.Providers.Codex; provider != nil {
+		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
+	}
 	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, application.inspector, configured)
 	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
 	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
@@ -1322,10 +1326,10 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	for _, profile := range profiles {
 		profileByFamily[string(profile.Family())] = profile
 	}
-	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 3)
+	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 4)
 	eligible := 0
 	unsafeAdmission := len(securityDiscoveryFamilies) > 0
-	for _, family := range []string{"kimi", "zcode", "agy"} {
+	for _, family := range []string{"kimi", "zcode", "agy", "codex"} {
 		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
 			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{Family: family, State: "not_configured", Reason: "not_configured"})
 			continue

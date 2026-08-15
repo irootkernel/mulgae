@@ -36,6 +36,7 @@ type ProvidersConfig struct {
 	Kimi  *KimiProviderConfig  `yaml:"kimi,omitempty" json:"kimi,omitempty"`
 	ZCode *ZCodeProviderConfig `yaml:"zcode,omitempty" json:"zcode,omitempty"`
 	AGY   *AGYProviderConfig   `yaml:"agy,omitempty" json:"agy,omitempty"`
+	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
 }
 type KimiProviderConfig struct {
 	Executable string `yaml:"executable" json:"executable"`
@@ -54,6 +55,28 @@ type AGYProviderConfig struct {
 	Timeout                string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	PermissionModeExplicit bool   `yaml:"-" json:"-"`
 }
+type CodexProviderConfig struct {
+	Executable               string                      `yaml:"executable" json:"executable"`
+	DefaultCredentialProfile string                      `yaml:"default_credential_profile,omitempty" json:"default_credential_profile,omitempty"`
+	CredentialHomes          []CodexCredentialHomeConfig `yaml:"credential_homes,omitempty" json:"credential_homes,omitempty"`
+	Model                    string                      `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort          string                      `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	Timeout                  string                      `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+}
+type CodexCredentialHomeConfig struct {
+	Profile string `yaml:"profile" json:"profile"`
+	Home    string `yaml:"home" json:"home"`
+}
+
+func (provider CodexProviderConfig) CredentialHome(profile string) (string, bool) {
+	for _, entry := range provider.CredentialHomes {
+		if entry.Profile == profile {
+			return entry.Home, true
+		}
+	}
+	return "", false
+}
+
 type ExecutionConfig struct {
 	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"`
 }
@@ -67,9 +90,10 @@ type RolesConfig struct {
 	Artist          RoleConfig `yaml:"artist,omitempty" json:"artist,omitempty"`
 }
 type RoleConfig struct {
-	Enabled         bool                `yaml:"enabled" json:"enabled"`
-	PrimaryProvider string              `yaml:"primary_provider" json:"primary_provider"`
-	Inputs          *ArtistInputsConfig `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Enabled           bool                `yaml:"enabled" json:"enabled"`
+	PrimaryProvider   string              `yaml:"primary_provider" json:"primary_provider"`
+	CredentialProfile string              `yaml:"credential_profile,omitempty" json:"credential_profile,omitempty"`
+	Inputs            *ArtistInputsConfig `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 }
 type ArtistInputsConfig struct {
 	TaskPath        string   `yaml:"task_path" json:"task_path"`
@@ -205,7 +229,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	lastOrdinal := -1
 	for _, family := range families {
 		ordinal := -1
-		for index, candidate := range []string{"kimi", "zcode", "agy"} {
+		for index, candidate := range []string{"kimi", "zcode", "agy", "codex"} {
 			if family == candidate {
 				ordinal = index
 				break
@@ -275,7 +299,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 			return RolesConfig{}, err
 		}
 		if assignment.PrimaryProvider == "" {
-			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy or zcode")
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy, zcode, or codex")
 		}
 		artist = assignment
 		artist.Enabled = true
@@ -297,7 +321,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 
 func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }
 func (providers ProvidersConfig) Families() []string {
-	result := make([]string, 0, 3)
+	result := make([]string, 0, 4)
 	if providers.Kimi != nil {
 		result = append(result, "kimi")
 	}
@@ -306,6 +330,9 @@ func (providers ProvidersConfig) Families() []string {
 	}
 	if providers.AGY != nil {
 		result = append(result, "agy")
+	}
+	if providers.Codex != nil {
+		result = append(result, "codex")
 	}
 	return result
 }

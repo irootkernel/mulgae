@@ -35,6 +35,7 @@ type liveCapabilityConfig struct {
 	launcherEnv    string
 	dataHomeEnv    string
 	transportIndex int
+	transport      ports.ProviderPacketChannel
 	minimumVersion [3]int
 	kimiModel      string
 	protectedPaths func(string, string) []string
@@ -58,6 +59,17 @@ func TestLiveZCodeCapability(t *testing.T) {
 		minimumVersion: [3]int{0, 15, 2},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
+		},
+	})
+}
+
+func TestLiveCodexCapability(t *testing.T) {
+	certifyLiveCapability(t, liveCapabilityConfig{
+		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
+		executableEnv: "MULGAE_LIVE_CODEX_BIN", transport: ports.ProviderPacketChannelStdin, transportIndex: -1,
+		minimumVersion: [3]int{0, 147, 0},
+		protectedPaths: func(home, _ string) []string {
+			return []string{filepath.Join(home, ".codex", "auth.json")}
 		},
 	})
 }
@@ -179,11 +191,15 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 	} else {
 		launcher = executable
 	}
+	transportChannel := config.transport
+	if transportChannel == "" {
+		transportChannel = ports.ProviderPacketChannelArgvLiteral
+	}
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
 		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
-		BaseArgv: baseArgv, TransportChannel: ports.ProviderPacketChannelArgvLiteral, TransportArgvIndex: config.transportIndex,
+		BaseArgv: baseArgv, TransportChannel: transportChannel, TransportArgvIndex: config.transportIndex,
 		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second,
 	})
 	if err != nil {
@@ -226,6 +242,12 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
+		if count := len(recording.observations); count > 0 {
+			observation := recording.observations[count-1]
+			exitCode, exited := observation.ExitCode()
+			t.Logf("%s failed observation: launches=%d termination=%s exited=%t exit_code=%d stdout_bytes=%d stderr_bytes=%d stdin_complete=%t",
+				config.family, count, observation.Termination(), exited, exitCode, len(observation.Stdout()), len(observation.Stderr()), observation.StdinWriteReceipt().Complete())
+		}
 		t.Fatal(liveProbeFailureMessage(string(config.family)+" live capability certification", err))
 	}
 	if !providercli.VersionAtLeast(result.Version, config.minimumVersion[0], config.minimumVersion[1], config.minimumVersion[2]) {
@@ -240,7 +262,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		}
 	}
 	transport, ok := recording.observations[1].ProviderPacketTransportReceipt()
-	if !ok || !transport.Valid() || transport.Channel() != ports.ProviderPacketChannelArgvLiteral {
+	if !ok || !transport.Valid() || transport.Channel() != transportChannel {
 		t.Fatalf("%s capability transport receipt is invalid", config.family)
 	}
 	liveCapabilityRequireReceipts(t, config.family, result.Receipts)

@@ -72,6 +72,7 @@ var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolic
 		CredentialSourceKimi:  {family: CredentialSourceKimi, bytes: []byte("{\"family\":\"kimi\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
 		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
 		CredentialSourceAGY:   {family: CredentialSourceAGY, bytes: []byte("{\"authentication_context\":\"installed_user_home\",\"policy_scope\":\"namespace_auth_only\"}\n")},
+		CredentialSourceCodex: {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)

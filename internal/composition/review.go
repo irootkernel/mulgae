@@ -571,6 +571,9 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if provider := source.config.Providers.AGY; provider != nil {
 		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
 	}
+	if provider := source.config.Providers.Codex; provider != nil {
+		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
+	}
 	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
 	if err != nil {
 		return nil, err
@@ -579,8 +582,14 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if provider := source.config.Providers.Kimi; provider != nil {
 		kimiModel = provider.Model
 	}
-	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(
+	codexModel, codexReasoningEffort := "", ""
+	if provider := source.config.Providers.Codex; provider != nil {
+		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
+	}
+	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(
 		providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel,
+		codexModel, codexReasoningEffort,
+		configuredCodexCredentialProfiles(source.config),
 		cloneProviderTimeouts(source.providerTimeouts),
 	)
 	if err != nil {
@@ -663,6 +672,25 @@ func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []d
 	return roles, primaryBase
 }
 
+func configuredCodexCredentialProfiles(config adapterconfig.Config) map[domain.Role]string {
+	if config.Providers.Codex == nil || config.Providers.Codex.DefaultCredentialProfile == "" {
+		return nil
+	}
+	profiles := make(map[domain.Role]string)
+	for index, role := range domain.FixedRoleOrder() {
+		configured := config.Roles.Ordered()[index]
+		if configured.PrimaryProvider != "codex" {
+			continue
+		}
+		profile := configured.CredentialProfile
+		if profile == "" {
+			profile = config.Providers.Codex.DefaultCredentialProfile
+		}
+		profiles[role] = profile
+	}
+	return profiles
+}
+
 func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRunPolicy, error) {
 	requestChanges := resolved.RequestChangesOn()
 	if len(requestChanges) == 0 {
@@ -688,7 +716,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		if !definition.Enabled() {
 			continue
 		}
-		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()))
+		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(role, reviewrun.Family(definition.PrimaryProvider()), definition.CredentialProfile())
 		if err != nil {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role provider assignment is invalid", err)
 		}

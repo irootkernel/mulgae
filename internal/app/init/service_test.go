@@ -463,7 +463,7 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 	}
 }
 
-func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
+func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
 	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +472,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for mask := 1; mask < 8; mask++ {
+	for mask := 1; mask < 16; mask++ {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
@@ -490,6 +490,10 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if mask&4 != 0 {
 			ids = append(ids, "agy")
 			overrides.AGYExecutable = "/bin/agy"
+		}
+		if mask&8 != 0 {
+			ids = append(ids, "codex")
+			overrides.CodexExecutable = "/bin/codex"
 		}
 		service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 		if err != nil {
@@ -519,6 +523,8 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 				timeout = decoded.Providers.ZCode.Timeout
 			case "agy":
 				timeout = decoded.Providers.AGY.Timeout
+			case "codex":
+				timeout = decoded.Providers.Codex.Timeout
 			}
 			if timeout != "15m" {
 				t.Fatalf("mask %d %s timeout=%q", mask, family, timeout)
@@ -650,7 +656,7 @@ func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *
 	if !reflect.DeepEqual(inspector.calls, []string{"/bin/agy"}) || len(inspector.legacyCalls) != 0 {
 		t.Fatalf("observations=%v legacy=%v", inspector.calls, inspector.legacyCalls)
 	}
-	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" {
+	if len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -720,7 +726,7 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 	}
 }
 
-func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
+func TestInitializeProjectDiscoveryFailureStillReturnsFourRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -733,7 +739,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	if err == nil {
 		t.Fatal("selected provider discovery failure accepted")
 	}
-	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" {
+	if len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" || result.Discovery[3].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -779,7 +785,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if initErr != nil {
 			t.Fatal(initErr)
 		}
-		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode", "agy"}) || len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "candidate" {
+		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode", "agy"}) || len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" {
 			t.Fatalf("result=%#v", result)
 		}
 		if contains(inspector.calls, "kimi") || len(inspector.legacyCalls) != 0 {
@@ -897,7 +903,7 @@ func TestValidateSelectionRejectsKimiOverridesInAutoMode(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsThreeRows(t *testing.T) {
+func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsFourRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -920,7 +926,7 @@ func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsThreeRows(t *testing.
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
 		t.Fatalf("failure=%T %v", err, err)
 	}
-	if len(result.Discovery) != 3 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" {
+	if len(result.Discovery) != 4 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -957,6 +963,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		{Family: "kimi", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "default_k3", DataHomeSource: "startup_environment"},
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", NodeExecutableSource: "override", LauncherSource: "override"},
 		{Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", NativeHomeSource: "verified_equal_input", PermissionModeSource: "explicit"},
+		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
 		t.Fatalf("discovery=%#v, want %#v", result.Discovery, want)
@@ -1207,7 +1214,7 @@ func admittedAGYDiscoveryRows() []DiscoveryRow {
 		Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate",
 		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "safe_default",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy}
+	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy, notSelectedDiscoveryRow("codex")}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {

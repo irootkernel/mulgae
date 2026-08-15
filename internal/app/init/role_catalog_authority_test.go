@@ -73,11 +73,11 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	edited := rewrittenRoleCatalog{
 		inner: builtin.NewCatalog(),
 		replace: func(raw []byte) []byte {
-			original := []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [zcode, agy, kimi]\n")
+			original := []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [zcode, agy, kimi, codex]\n")
 			if !bytes.Contains(raw, original) {
 				t.Fatalf("role document does not carry the expected testing entry")
 			}
-			return bytes.Replace(raw, original, []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [kimi, agy, zcode]\n"), 1)
+			return bytes.Replace(raw, original, []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [kimi, agy, zcode, codex]\n"), 1)
 		},
 	}
 	service, root, overrides := initServiceWithCatalog(t, edited)
