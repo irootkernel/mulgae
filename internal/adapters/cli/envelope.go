@@ -12,7 +12,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const commandResultSchemaVersion = "mulgae-command-result.v2"
+const commandResultSchemaVersion = "mulgae-command-result.v3"
 
 // SchemaValidator validates raw JSON against a catalog schema. It is satisfied
 // by adapters/jsonschema.Validator without coupling this CLI adapter to it.

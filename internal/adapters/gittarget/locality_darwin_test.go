@@ -93,7 +93,7 @@ func TestGitLocalityAttestorRejectsLiveConfigAndRepositoryDrift(t *testing.T) {
 		{
 			name: "local config bytes",
 			mutate: func(t *testing.T, root string) {
-				writeReviewFile(t, filepath.Join(root, ".mulgae", "local.yaml"), "version: 2\n")
+				writeReviewFile(t, filepath.Join(root, ".mulgae", "local.yaml"), "version: 3\n")
 			},
 		},
 		{
@@ -249,7 +249,7 @@ func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLo
 	return root, attestor, request, expected
 }
 
-const localityProjectConfig = `version: 2
+const localityProjectConfig = `version: 3
 project:
   name: "project"
 providers:
@@ -278,13 +278,12 @@ resources:
   primary_repair_attempts: 1
   role_max_invocations: 2
   run_max_invocations: 2
-  run_total_output_cap: "64MiB"
 ci:
   fail_on_severity: ["high", "critical", "blocker"]
   degraded_review_fails: true
 `
 
-const localityMachineConfig = `version: 2
+const localityMachineConfig = `version: 3
 native_user:
   home: "/Users/test"
 providers:

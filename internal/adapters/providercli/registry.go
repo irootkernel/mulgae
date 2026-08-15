@@ -98,7 +98,6 @@ type RuntimeDefinition struct {
 	environment                                             []ports.EnvironmentVariable
 	workingDirectory                                        string
 	timeout                                                 time.Duration
-	maxStdoutBytes, maxStderrBytes                          int64
 	postOutputLifecycle                                     ports.BoundedPostOutputLifecycle
 	hasPostOutputLifecycle                                  bool
 	requiresWorkspaceAuthority                              bool
@@ -115,7 +114,6 @@ func NewRuntimeDefinition(
 	environment []ports.EnvironmentVariable,
 	workingDirectory string,
 	timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	transport, err := defaultRuntimeTransport(family, len(baseArgv))
 	if err != nil {
@@ -123,7 +121,7 @@ func NewRuntimeDefinition(
 	}
 	return NewRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, profileID,
-		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		baseArgv, transport, environment, workingDirectory, timeout,
 	)
 }
 
@@ -137,7 +135,6 @@ func NewRuntimeDefinitionWithTransport(
 	environment []ports.EnvironmentVariable,
 	workingDirectory string,
 	timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition := RuntimeDefinition{
 		family: family, instance: instance, version: version, executable: executable,
@@ -146,7 +143,6 @@ func NewRuntimeDefinitionWithTransport(
 		transport:        transport,
 		environment:      append([]ports.EnvironmentVariable(nil), environment...),
 		workingDirectory: workingDirectory, timeout: timeout,
-		maxStdoutBytes: maxStdoutBytes, maxStderrBytes: maxStderrBytes,
 	}
 	if err := definition.validate(); err != nil {
 		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
@@ -163,11 +159,10 @@ func NewProductionRuntimeDefinition(
 	environment []ports.EnvironmentVariable,
 	workingDirectory string,
 	timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinition(
 		family, instance, version, executable, executableSHA256, profileID,
-		baseArgv, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		baseArgv, environment, workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -183,11 +178,11 @@ func NewProductionRuntimeDefinitionWithTransport(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
 	profileID, profileGeneration string, baseArgv []string,
 	transport RuntimeTransport, environment []ports.EnvironmentVariable, workingDirectory string,
-	timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
+	timeout time.Duration,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, profileID,
-		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		baseArgv, transport, environment, workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -210,7 +205,7 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
 	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
 	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
-	workingDirectory string, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
+	workingDirectory string, timeout time.Duration,
 ) (RuntimeDefinition, error) {
 	if runtimeSafetyPolicyIdentity == "" {
 		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: runtime safety policy identity is required")
@@ -218,7 +213,7 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	definition, err := NewProductionRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
 		profileID, profileGeneration, baseArgv, transport, environment,
-		workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -234,12 +229,12 @@ func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
 	profileID, profileGeneration, runtimeSafetyPolicyIdentity, kimiModel string,
 	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
-	workingDirectory string, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
+	workingDirectory string, timeout time.Duration,
 ) (RuntimeDefinition, error) {
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
 		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv,
-		transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		transport, environment, workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -262,12 +257,11 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLife
 	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
 	baseArgv []string, transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
 	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
 		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
-		environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		environment, workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -287,11 +281,10 @@ func NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 	profileID string, baseArgv []string,
 	transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
 	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (RuntimeDefinition, error) {
 	definition, err := NewRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, profileID,
-		baseArgv, transport, environment, workingDirectory, timeout, maxStdoutBytes, maxStderrBytes,
+		baseArgv, transport, environment, workingDirectory, timeout,
 	)
 	if err != nil {
 		return RuntimeDefinition{}, err
@@ -324,8 +317,6 @@ func (d RuntimeDefinition) Environment() []ports.EnvironmentVariable {
 }
 func (d RuntimeDefinition) WorkingDirectory() string { return d.workingDirectory }
 func (d RuntimeDefinition) Timeout() time.Duration   { return d.timeout }
-func (d RuntimeDefinition) MaxStdoutBytes() int64    { return d.maxStdoutBytes }
-func (d RuntimeDefinition) MaxStderrBytes() int64    { return d.maxStderrBytes }
 func (d RuntimeDefinition) PostOutputLifecycle() (ports.BoundedPostOutputLifecycle, bool) {
 	if !d.hasPostOutputLifecycle {
 		return ports.BoundedPostOutputLifecycle{}, false
@@ -351,7 +342,7 @@ func (d RuntimeDefinition) validate() error {
 	if !validCanonicalAbsolute(d.workingDirectory) {
 		return fmt.Errorf("invalid process location")
 	}
-	if d.timeout <= 0 || d.maxStdoutBytes <= 0 || d.maxStderrBytes <= 0 {
+	if d.timeout <= 0 {
 		return fmt.Errorf("invalid process limits")
 	}
 	if len(d.baseArgv) == 0 || d.baseArgv[0] != d.executable {
@@ -373,7 +364,7 @@ func (d RuntimeDefinition) validate() error {
 			return fmt.Errorf("invalid environment")
 		}
 	}
-	if _, err := ports.NewProcessRequest(d.executable, d.baseArgv, d.environment, d.workingDirectory, nil, d.timeout, d.maxStdoutBytes, d.maxStderrBytes); err != nil {
+	if _, err := ports.NewProcessRequest(d.executable, d.baseArgv, d.environment, d.workingDirectory, nil, d.timeout); err != nil {
 		return fmt.Errorf("invalid process profile: %w", err)
 	}
 	if d.requiresSpawnVerification {
@@ -921,7 +912,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			}
 			observation, observationErr := ports.NewFailedProviderExecutionObservationWithCause(
 				status, invocation, processObservation, diagnostic, cause, cleanupCause,
-				definition.maxStdoutBytes, definition.maxStderrBytes,
 			)
 			if observationErr != nil {
 				return ports.ProviderExecutionObservation{}, observationErr
@@ -931,13 +921,11 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		if processObservation.Valid() {
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				status, invocation, processObservation, diagnostic, cause, cleanupCause,
-				definition.maxStdoutBytes, definition.maxStderrBytes,
 			)
 		}
 		return ports.NewPartialFailedProviderExecutionObservation(
 			status, invocation, processFailure.Stdout(), processFailure.Stderr(), diagnostic,
 			cause, cleanupCause,
-			definition.maxStdoutBytes, definition.maxStderrBytes,
 		)
 	}
 	if !processObservation.Valid() {
@@ -947,7 +935,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		return ports.NewFailedProviderExecutionObservationWithCause(
 			ports.ProviderExecutionStatusAuthentication, invocation, processObservation,
 			"provider_permission_denied", domain.DiagnosticCausePermissionDenied, "",
-			definition.maxStdoutBytes, definition.maxStderrBytes,
 		)
 	}
 	if processObservation.Succeeded() {
@@ -961,7 +948,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
 				"provider_output_read_failed", domain.DiagnosticCauseOutputDecodeFailed, "",
-				definition.maxStdoutBytes, definition.maxStderrBytes,
 			)
 		}
 		resultBytes, isolated, parseErr := providerResult(definition.family, providerOutput)
@@ -974,7 +960,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
 				providerOutputDiagnostic(cause), cause, "",
-				definition.maxStdoutBytes, definition.maxStderrBytes,
 			)
 		}
 		result, resultErr := ports.NewProviderResultForInput(resultBytes, invocation.InputIdentity())
@@ -982,18 +967,16 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
 				"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
-				definition.maxStdoutBytes, definition.maxStderrBytes,
 			)
 		}
 		if isolated {
-			return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation, definition.maxStdoutBytes, definition.maxStderrBytes)
+			return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation)
 		}
-		return ports.NewSuccessfulProviderExecutionObservation(invocation, result, processObservation, definition.maxStdoutBytes, definition.maxStderrBytes)
+		return ports.NewSuccessfulProviderExecutionObservation(invocation, result, processObservation)
 	}
 	status, diagnostic, cause := classifyProviderFailure(definition.family, processObservation)
 	return ports.NewFailedProviderExecutionObservationWithCause(
 		status, invocation, processObservation, diagnostic, cause, "",
-		definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
 }
 
@@ -1086,7 +1069,6 @@ func releaseStagedOutputLease(
 	}
 	failed, failedErr := ports.NewFailedProviderExecutionObservationWithCause(
 		status, invocation, processObservation, diagnostic, cause, "",
-		definition.maxStdoutBytes, definition.maxStderrBytes,
 	)
 	if failedErr != nil {
 		return ports.ProviderExecutionObservation{}, failedErr
@@ -1096,7 +1078,7 @@ func releaseStagedOutputLease(
 
 // stagedFileObservation reads back the single file the provider was allowed to
 // stage and binds those exact bytes as the provider result. Process stdout and
-// stderr stay bounded diagnostic evidence only: a staged invocation never parses
+// stderr stay private diagnostic evidence only: a staged invocation never parses
 // stdout, so empty or non-envelope stdout cannot fail it.
 func stagedFileObservation(
 	definition definition, invocation ports.ProviderInvocation,
@@ -1108,7 +1090,6 @@ func stagedFileObservation(
 		status, diagnostic := providerFailureProjection(cause)
 		return ports.NewFailedProviderExecutionObservationWithCause(
 			status, invocation, processObservation, diagnostic, cause, "",
-			definition.maxStdoutBytes, definition.maxStderrBytes,
 		)
 	}
 	result, resultErr := ports.NewProviderResultForInput(staged, invocation.InputIdentity())
@@ -1116,12 +1097,10 @@ func stagedFileObservation(
 		return ports.NewFailedProviderExecutionObservationWithCause(
 			ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
 			"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
-			definition.maxStdoutBytes, definition.maxStderrBytes,
 		)
 	}
 	return ports.NewStagedFileSuccessfulProviderExecutionObservation(
-		invocation, result, processObservation,
-		definition.maxStdoutBytes, definition.maxStderrBytes, receipt,
+		invocation, result, processObservation, receipt,
 	)
 }
 
@@ -1257,12 +1236,12 @@ func processRequest(
 	if lifecycle, ok := definition.postOutputPolicy(); ok {
 		return ports.NewProviderProcessRequestWithPostOutputLifecycle(
 			definition.executable, argv, environment, workingDirectory, binding,
-			lifecycle, definition.timeout, definition.maxStdoutBytes, definition.maxStderrBytes,
+			lifecycle, definition.timeout,
 		)
 	}
 	return ports.NewProviderProcessRequest(
 		definition.executable, argv, environment, workingDirectory, binding,
-		definition.timeout, definition.maxStdoutBytes, definition.maxStderrBytes,
+		definition.timeout,
 	)
 }
 
@@ -1757,8 +1736,7 @@ func classifyProviderFailure(
 		return status, diagnostic, domain.DiagnosticCauseProviderSpawnFailed
 	case ports.ProcessTerminationResidualProcessGroup:
 		return status, diagnostic, domain.DiagnosticCauseProcessGroupCleanupFailed
-	case ports.ProcessTerminationStdoutLimit, ports.ProcessTerminationStderrLimit,
-		ports.ProcessTerminationStdinIncomplete:
+	case ports.ProcessTerminationStdinIncomplete:
 		return status, diagnostic, domain.DiagnosticCauseObservationInvalid
 	default:
 		return status, diagnostic, domain.DiagnosticCauseProviderExecutionFailed
@@ -1869,7 +1847,7 @@ func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatu
 		return ports.ProviderExecutionStatusTimedOut
 	case ports.ProcessTerminationCancelled:
 		return ports.ProviderExecutionStatusCancelled
-	case ports.ProcessTerminationStdoutLimit, ports.ProcessTerminationStderrLimit, ports.ProcessTerminationStdinIncomplete:
+	case ports.ProcessTerminationStdinIncomplete:
 		return ports.ProviderExecutionStatusArtifactFailure
 	case ports.ProcessTerminationStartUnavailable:
 		return ports.ProviderExecutionStatusUnavailable
@@ -1913,10 +1891,6 @@ func diagnosticCode(observation ports.ProcessObservation) string {
 		return "process_timeout"
 	case ports.ProcessTerminationCancelled:
 		return "process_cancelled"
-	case ports.ProcessTerminationStdoutLimit:
-		return "stdout_limit"
-	case ports.ProcessTerminationStderrLimit:
-		return "stderr_limit"
 	case ports.ProcessTerminationStdinIncomplete:
 		return "stdin_incomplete"
 	case ports.ProcessTerminationStartUnavailable:

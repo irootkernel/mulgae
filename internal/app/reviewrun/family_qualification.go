@@ -61,8 +61,6 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		strconv.Itoa(definition.TransportArgvIndex()),
 		strings.Join(environmentValues, "\x1e"),
 		definition.WorkingDirectory(),
-		strconv.FormatInt(definition.MaxStdoutBytes(), 10),
-		strconv.FormatInt(definition.MaxStderrBytes(), 10),
 		strconv.FormatBool(hasLifecycle),
 		lifecycleFraming,
 		strconv.FormatInt(lifecycleStability, 10),

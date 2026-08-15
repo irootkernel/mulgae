@@ -1438,7 +1438,7 @@ func rejectDoctorConfig(base doctor.LocalDoctorResult, err error) doctor.LocalDo
 }
 
 func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {
-	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
+	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
 		return false, false
 	}
 	if _, err := hex.DecodeString(evidence.SHA256); err != nil || evidence.SecureWriterIndexStatus != doctor.EvidenceStatusPass || evidence.AssignmentStatus != doctor.EvidenceStatusPass {
@@ -1446,7 +1446,7 @@ func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family strin
 	}
 	required := map[string]bool{
 		"PV-VERSION": false, "PV-NONINTERACTIVE": false, "PV-PROMPT-TRANSPORT": false, "PV-JSON-ONLY": false,
-		"PV-STDOUT-STDERR": false, "PV-CANCELLATION": false, "PV-OUTPUT-CAP": false, "PV-AUTH-CACHE-CONCURRENCY": false,
+		"PV-STDOUT-STDERR": false, "PV-CANCELLATION": false, "PV-OUTPUT-PRESERVATION": false, "PV-AUTH-CACHE-CONCURRENCY": false,
 		"PV-EXIT-CLASSIFICATION": false, "PV-CWD-ISOLATION": false, "PV-ROLE-FIT-logic": false, "PV-ROLE-FIT-security": false,
 		"PV-ROLE-FIT-maintainability": false, "PV-ROLE-FIT-product": false, "PV-ROLE-FIT-documentation": false, "PV-ROLE-FIT-testing": false,
 	}

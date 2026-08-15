@@ -20,7 +20,6 @@ import (
 )
 
 const currentProbeTimeout = 30 * time.Second
-const currentProbeOutputLimit int64 = 64 << 10
 
 // QualificationNamespace is the retained provider namespace authority. Workspace
 // authority belongs exclusively to the ProbeFixtureLease used for each spawn.
@@ -272,8 +271,6 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.RuntimeSafetyPolicyIdentity() != right.RuntimeSafetyPolicyIdentity() ||
 		left.KimiModel() != right.KimiModel() ||
 		left.WorkingDirectory() != right.WorkingDirectory() ||
-		left.MaxStdoutBytes() != right.MaxStdoutBytes() ||
-		left.MaxStderrBytes() != right.MaxStderrBytes() ||
 		left.TransportChannel() != right.TransportChannel() ||
 		left.TransportArgvIndex() != right.TransportArgvIndex() ||
 		left.TransportReference() != right.TransportReference() {
@@ -490,7 +487,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	var request ports.ProcessRequest
 	var requestErr error
 	if packet == nil {
-		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout, boundedProbeOutput(definition.MaxStdoutBytes()), boundedProbeOutput(definition.MaxStderrBytes()))
+		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout)
 	} else {
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
 	}
@@ -664,7 +661,6 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		TransportArgvIndex                                                       int
 		WorkingDirectory                                                         string
 		TimeoutNanoseconds                                                       int64
-		MaxStdoutBytes, MaxStderrBytes                                           int64
 		HasPostOutputLifecycle                                                   bool
 		LifecycleFraming                                                         string
 		LifecycleStabilityNanoseconds, LifecycleTerminationNanoseconds           int64
@@ -679,8 +675,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		BaseArgv:  append([]string(nil), definition.baseArgv...), Environment: environmentValues,
 		TransportChannel: string(definition.transport.channel), TransportReference: definition.transport.reference,
 		TransportArgvIndex: definition.transport.argvIndex, WorkingDirectory: definition.workingDirectory,
-		TimeoutNanoseconds: definition.timeout.Nanoseconds(), MaxStdoutBytes: definition.maxStdoutBytes,
-		MaxStderrBytes: definition.maxStderrBytes, HasPostOutputLifecycle: hasLifecycle,
+		TimeoutNanoseconds: definition.timeout.Nanoseconds(), HasPostOutputLifecycle: hasLifecycle,
 		LifecycleFraming: string(lifecycle.Framing()), LifecycleStabilityNanoseconds: lifecycle.StabilityGrace().Nanoseconds(),
 		LifecycleTerminationNanoseconds: lifecycle.TerminationGrace().Nanoseconds(),
 		RequiresWorkspaceAuthority:      definition.requiresWorkspaceAuthority,
@@ -758,7 +753,7 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	if hasPostOutput && hasNonPostOutput {
 		return probeEvidenceFailure(domain.DiagnosticCauseSignalReceiptMismatch, "mixed post-output and failure signal receipts")
 	}
-	// Timeout, cancellation, capture limits, and other process failures may
+	// Timeout, cancellation, incomplete stdin, and other process failures may
 	// retain a valid frame observed before their internal teardown signal. That
 	// signal is not a post-output success claim; leave its typed process cause to
 	// qualificationProcessFailure instead of relabeling it as a receipt mismatch.
@@ -829,9 +824,9 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 		return ports.ProcessRequest{}, err
 	}
 	if lifecycle, ok := def.PostOutputLifecycle(); ok {
-		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()))
+		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout)
 	}
-	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout, boundedProbeOutput(def.MaxStdoutBytes()), boundedProbeOutput(def.MaxStderrBytes()))
+	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout)
 }
 
 func safeProbeDefinition(definition RuntimeDefinition) error {
@@ -924,13 +919,6 @@ func boundedProbeTimeout(timeout time.Duration) time.Duration {
 	}
 	return timeout
 }
-func boundedProbeOutput(limit int64) int64 {
-	if limit <= 0 || limit > currentProbeOutputLimit {
-		return currentProbeOutputLimit
-	}
-	return limit
-}
-
 func plainSemver(observation ports.ProcessObservation) (string, error) {
 	version := strings.TrimSpace(string(observation.Stdout()))
 	if !observation.Succeeded() || !semverOutput.MatchString(version) {

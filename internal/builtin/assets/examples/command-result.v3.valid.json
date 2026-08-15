@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-command-result.v2",
+  "schema_version": "mulgae-command-result.v3",
   "command": "followup",
   "request": {
     "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",

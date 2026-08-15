@@ -519,8 +519,6 @@ type ProcessRequest struct {
 	hasNativeHomeLaunchAuthority bool
 	stdin                        []byte
 	timeout                      time.Duration
-	maxStdoutBytes               int64
-	maxStderrBytes               int64
 	providerPacketBinding        ProviderPacketBinding
 	hasProviderPacketBinding     bool
 	postOutputLifecycle          BoundedPostOutputLifecycle
@@ -529,8 +527,7 @@ type ProcessRequest struct {
 }
 
 // NewSpooledStdoutProcessRequest marks a provider request whose stdout is
-// primary report content. MaxStdoutBytes becomes a diagnostic preview limit,
-// not a process termination threshold.
+// primary report content retained in file-backed temporary storage.
 func NewSpooledStdoutProcessRequest(request ProcessRequest) (ProcessRequest, error) {
 	if !request.Valid() || !request.hasProviderPacketBinding {
 		return ProcessRequest{}, fmt.Errorf("spooled stdout process request: invalid provider request")
@@ -553,7 +550,6 @@ func NewProcessRequest(
 	workingDirectory string,
 	stdin []byte,
 	timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (ProcessRequest, error) {
 	if err := validateAbsoluteWorkingDirectory(workingDirectory); err != nil {
 		return ProcessRequest{}, fmt.Errorf("process request: working directory: %w", err)
@@ -587,8 +583,6 @@ func NewProcessRequest(
 		workingDirectory: workingDirectory,
 		stdin:            cloneBytes(stdin),
 		timeout:          timeout,
-		maxStdoutBytes:   maxStdoutBytes,
-		maxStderrBytes:   maxStderrBytes,
 	}
 	if err := validateProcessRequest(request); err != nil {
 		return ProcessRequest{}, fmt.Errorf("process request: %w", err)
@@ -599,7 +593,7 @@ func NewProcessRequest(
 // NewProviderProcessRequest builds a generic request from one fail-closed packet binding.
 func NewProviderProcessRequest(
 	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
-	binding ProviderPacketBinding, timeout time.Duration, maxStdoutBytes, maxStderrBytes int64,
+	binding ProviderPacketBinding, timeout time.Duration,
 ) (ProcessRequest, error) {
 	var stdin []byte
 	if binding.Channel() == ProviderPacketChannelStdin {
@@ -612,8 +606,6 @@ func NewProviderProcessRequest(
 		workingDirectory,
 		stdin,
 		timeout,
-		maxStdoutBytes,
-		maxStderrBytes,
 	)
 	if err != nil {
 		return ProcessRequest{}, err
@@ -631,11 +623,9 @@ func NewProviderProcessRequest(
 func NewProviderProcessRequestWithPostOutputLifecycle(
 	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
 	binding ProviderPacketBinding, lifecycle BoundedPostOutputLifecycle, timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
 ) (ProcessRequest, error) {
 	request, err := NewProviderProcessRequest(
 		executable, argv, environment, workingDirectory, binding, timeout,
-		maxStdoutBytes, maxStderrBytes,
 	)
 	if err != nil {
 		return ProcessRequest{}, err
@@ -780,15 +770,8 @@ func (request ProcessRequest) Stdin() []byte { return cloneBytes(request.stdin) 
 // Timeout returns the exact positive process deadline.
 func (request ProcessRequest) Timeout() time.Duration { return request.timeout }
 
-// MaxStdoutBytes returns the positive stdout diagnostic-preview cap. For a
-// spooled provider request it does not limit primary report content.
-func (request ProcessRequest) MaxStdoutBytes() int64 { return request.maxStdoutBytes }
-
-// MaxStderrBytes returns the independent positive stderr capture cap.
-func (request ProcessRequest) MaxStderrBytes() int64 { return request.maxStderrBytes }
-
-// SpoolStdout reports whether stdout is primary content rather than a bounded
-// control response.
+// SpoolStdout reports whether stdout is primary content retained through a
+// file-backed spool.
 func (request ProcessRequest) SpoolStdout() bool { return request.spoolStdout }
 
 // ProviderPacketBinding returns the optional provider packet binding.
@@ -822,8 +805,6 @@ const (
 	ProcessTerminationStartSecurity        ProcessTermination = "start_security"
 	ProcessTerminationTimedOut             ProcessTermination = "timed_out"
 	ProcessTerminationCancelled            ProcessTermination = "cancelled"
-	ProcessTerminationStdoutLimit          ProcessTermination = "stdout_limit"
-	ProcessTerminationStderrLimit          ProcessTermination = "stderr_limit"
 	ProcessTerminationStdinIncomplete      ProcessTermination = "stdin_incomplete"
 	ProcessTerminationResidualProcessGroup ProcessTermination = "residual_process_group"
 )
@@ -839,8 +820,6 @@ func (termination ProcessTermination) Valid() bool {
 		ProcessTerminationStartSecurity,
 		ProcessTerminationTimedOut,
 		ProcessTerminationCancelled,
-		ProcessTerminationStdoutLimit,
-		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup:
 		return true
@@ -1036,8 +1015,6 @@ const (
 	ProcessGroupSignalRequestPostOutputEscalation ProcessGroupSignalRequestReason = "post_output_escalation"
 	ProcessGroupSignalRequestCancellation         ProcessGroupSignalRequestReason = "cancellation"
 	ProcessGroupSignalRequestTimeout              ProcessGroupSignalRequestReason = "timeout"
-	ProcessGroupSignalRequestStdoutLimit          ProcessGroupSignalRequestReason = "stdout_limit"
-	ProcessGroupSignalRequestStderrLimit          ProcessGroupSignalRequestReason = "stderr_limit"
 	ProcessGroupSignalRequestStdinIncomplete      ProcessGroupSignalRequestReason = "stdin_incomplete"
 	ProcessGroupSignalRequestResidualGroup        ProcessGroupSignalRequestReason = "residual_process_group"
 	ProcessGroupSignalRequestInternalTeardown     ProcessGroupSignalRequestReason = "internal_teardown"
@@ -1079,8 +1056,6 @@ func isNonPostOutputProcessGroupSignalRequestReason(reason ProcessGroupSignalReq
 	switch reason {
 	case ProcessGroupSignalRequestCancellation,
 		ProcessGroupSignalRequestTimeout,
-		ProcessGroupSignalRequestStdoutLimit,
-		ProcessGroupSignalRequestStderrLimit,
 		ProcessGroupSignalRequestStdinIncomplete,
 		ProcessGroupSignalRequestResidualGroup,
 		ProcessGroupSignalRequestInternalTeardown:
@@ -1789,12 +1764,6 @@ func validateProcessRequest(request ProcessRequest) error {
 	}
 	if request.timeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
-	}
-	if request.maxStdoutBytes <= 0 {
-		return fmt.Errorf("maximum stdout bytes must be positive")
-	}
-	if request.maxStderrBytes <= 0 {
-		return fmt.Errorf("maximum stderr bytes must be positive")
 	}
 	if request.hasProviderPacketBinding {
 		if err := validateProviderPacketRequestBinding(request, request.providerPacketBinding); err != nil {

@@ -208,9 +208,11 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Treat public JSON, JSON Schemas, command grammar, machine identifiers, exit
   codes, artifact layout, and trusted-field ownership as compatibility-sensitive
   versioned contracts. Automation must not depend on human-readable output.
-- Keep process execution, inputs, workspaces, artifacts, timeouts, concurrency,
-  diagnostics, and exported data bounded. Avoid leaking native paths, credentials,
-  raw provider transcripts, or private source through diagnostics and exports.
+- Keep process lifetimes, inputs, workspaces, structured artifacts, concurrency,
+  diagnostics metadata, and exported data bounded. Preserve complete provider
+  stdout and stderr without a product byte ceiling. Avoid leaking native paths,
+  credentials, raw provider transcripts, or private source through public
+  diagnostics and exports.
 - Use `.mulgaeignore` to exclude files that must not be transmitted to a provider.
   Do not mistake credential-pattern matching for source-capture admission policy.
 - Preserve supported PNG, JPEG, and WebP files as binary evidence after

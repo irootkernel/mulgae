@@ -129,7 +129,7 @@ func (provider *followupPrimaryReportProvider) Observe(_ context.Context, invoca
 	if err != nil {
 		return ports.ProviderExecutionObservation{}, err
 	}
-	return ports.NewSuccessfulProviderExecutionObservation(invocation, result, process, 64<<10, 64<<10)
+	return ports.NewSuccessfulProviderExecutionObservation(invocation, result, process)
 }
 
 type followupPrimaryReportPrompts struct {

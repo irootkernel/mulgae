@@ -33,8 +33,6 @@ func (qualificationRuntimeDefinitionStub) BaseArgv() []string                  {
 func (qualificationRuntimeDefinitionStub) Environment() []EnvironmentVariable  { return nil }
 func (qualificationRuntimeDefinitionStub) WorkingDirectory() string            { return "/test" }
 func (qualificationRuntimeDefinitionStub) Timeout() time.Duration              { return time.Second }
-func (qualificationRuntimeDefinitionStub) MaxStdoutBytes() int64               { return 1 }
-func (qualificationRuntimeDefinitionStub) MaxStderrBytes() int64               { return 1 }
 func (qualificationRuntimeDefinitionStub) PostOutputLifecycle() (BoundedPostOutputLifecycle, bool) {
 	return BoundedPostOutputLifecycle{}, false
 }

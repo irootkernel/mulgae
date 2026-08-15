@@ -165,7 +165,7 @@ func (attestor *finalConfigMutatingAttestor) Revalidate(ctx context.Context, req
 	}
 	if request.Config().Present() && !attestor.mutated {
 		attestor.mutated = true
-		return os.WriteFile(attestor.path, []byte("version: 2\n"), 0o600)
+		return os.WriteFile(attestor.path, []byte("version: 3\n"), 0o600)
 	}
 	return nil
 }
@@ -1034,7 +1034,7 @@ func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
-	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "15m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "15m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 	project, local, _ := adapterconfig.EncodeSplit(config)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), project, 0o600)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), local, 0o600)
@@ -1174,7 +1174,7 @@ func TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation(t *testi
 		t.Fatalf("result=%#v mutated=%t err=%v", result, attestor.mutated, err)
 	}
 	contents, readErr := os.ReadFile(attestor.path)
-	if readErr != nil || string(contents) != "version: 2\n" {
+	if readErr != nil || string(contents) != "version: 3\n" {
 		t.Fatalf("mutated destination=%q err=%v", contents, readErr)
 	}
 }

@@ -44,7 +44,7 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
 			append([]string(nil), spec.BaseArgv...), transport, spec.PostOutputLifecycle,
 			append([]ports.EnvironmentVariable(nil), spec.Environment...), spec.WorkingDirectory,
-			spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
+			spec.Timeout,
 		)
 	}
 	if spec.Family == FamilyKimi {
@@ -52,14 +52,14 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
 			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.KimiModel,
 			append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
-			spec.WorkingDirectory, spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
+			spec.WorkingDirectory, spec.Timeout,
 		)
 	}
 	return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
 		spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
 		append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
-		spec.WorkingDirectory, spec.Timeout, spec.MaxStdoutBytes, spec.MaxStderrBytes,
+		spec.WorkingDirectory, spec.Timeout,
 	)
 }
 

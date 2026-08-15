@@ -1584,9 +1584,9 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	// Three roles at two invocations each: six invocations and three role paths. The
 	// critical path is one role's provider call plus its repair and transition.
 	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 6 ||
-		budget.TotalOutputCapBytes != 3<<20 || budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
+		budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
 		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.RolePathDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
-		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 || budget.Ceilings.MaxTotalOutputBytes != 64<<20 ||
+		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 ||
 		!reflect.DeepEqual(budget.RolePaths, wantRolePaths) {
 		t.Fatalf("preflight budget = %#v, want exact first-project capacity envelope", budget)
 	}

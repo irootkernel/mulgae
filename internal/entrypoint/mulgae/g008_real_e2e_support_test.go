@@ -353,7 +353,7 @@ func (provider *g008RealE2EProvider) Observe(_ context.Context, invocation ports
 	if err != nil {
 		return ports.ProviderExecutionObservation{}, err
 	}
-	return ports.NewSuccessfulProviderExecutionObservation(invocation, result, process, 256<<10, 256<<10)
+	return ports.NewSuccessfulProviderExecutionObservation(invocation, result, process)
 }
 func (provider *g008RealE2EProvider) Invoke(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderResult, error) {
 	observation, err := provider.Observe(ctx, invocation)
@@ -460,7 +460,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits, _ := review.NewInvocationLimits(time.Second, 256<<10, 256<<10)
+	limits, _ := review.NewInvocationLimits(time.Second)
 	roleBudgets := make([]review.RoleBudget, 0, len(domain.CoreRoleOrder()))
 	assignments := make([]review.Assignment, 0, len(domain.CoreRoleOrder()))
 	for _, role := range domain.CoreRoleOrder() {

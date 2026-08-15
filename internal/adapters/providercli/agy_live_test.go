@@ -123,7 +123,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 		providercli.FamilyAgy, "agy-live-current", "", binaryPath, binarySHA256, binaryPath, binarySHA256,
 		"agy-live-current", "live-current-v1", policy.Identity(), []string{binaryPath}, transport, lifecycle,
-		nil, namespaceRoot, 30*time.Second, 64<<10, 64<<10,
+		nil, namespaceRoot, 30*time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -164,7 +164,7 @@ func TestReviewCaptureDirtyAcceptsTrackedIgnoreControlsAndExcludesTheirMaterial(
 }
 
 func TestFilterReviewPatchExcludesTrackedProjectConfigControl(t *testing.T) {
-	patch := []byte("diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-version: 1\n+version: 2\n")
+	patch := []byte("diff --git a/.mulgae/config.yaml b/.mulgae/config.yaml\n--- a/.mulgae/config.yaml\n+++ b/.mulgae/config.yaml\n@@ -1 +1 @@\n-version: 2\n+version: 3\n")
 	filtered, err := filterReviewPatch(patch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -183,13 +183,13 @@ func TestReviewCaptureGitTargetsNeverTransmitControlFileChanges(t *testing.T) {
 			}
 			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
 			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n")
-			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 2\nproject:\n  name: project\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 3\nproject:\n  name: project\n")
 			reviewGit(t, root, "add", ".gitignore", ".mulgaeignore")
 			reviewGit(t, root, "add", "-f", ".mulgae/config.yaml")
 			reviewGit(t, root, "commit", "-m", "Track controls")
 			writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n# changed\n")
 			writeReviewFile(t, filepath.Join(root, ".mulgaeignore"), "secret.txt\n# changed\n")
-			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 2\nproject:\n  name: changed\n")
+			writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 3\nproject:\n  name: changed\n")
 			writeReviewFile(t, filepath.Join(root, "tracked.txt"), "reviewable change\n")
 
 			value := string(target)

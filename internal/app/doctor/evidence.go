@@ -3,7 +3,7 @@ package doctor
 import "context"
 
 const (
-	providerEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	providerEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
 	platformEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 )
 
@@ -17,7 +17,7 @@ var (
 		"PV-JSON-ONLY",
 		"PV-STDOUT-STDERR",
 		"PV-CANCELLATION",
-		"PV-OUTPUT-CAP",
+		"PV-OUTPUT-PRESERVATION",
 		"PV-AUTH-CACHE-CONCURRENCY",
 		"PV-EXIT-CLASSIFICATION",
 		"PV-CWD-ISOLATION",
@@ -69,7 +69,7 @@ type ProbeObservation struct {
 	Status EvidenceStatus
 }
 
-// ProviderEvidenceRecord is a provider-contract-evidence.v1 observation.
+// ProviderEvidenceRecord is a provider-contract-evidence.v2 observation.
 // SHA256 is the unprefixed document digest; doctor emits sha256:<digest>.
 type ProviderEvidenceRecord struct {
 	SchemaID                string

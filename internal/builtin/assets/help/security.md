@@ -4,7 +4,8 @@ The project, target, project context, and provider output are untrusted.
 Providers do not receive live access to the project tree. Mulgae captures the
 target, materializes an isolated read-only workspace, lets adapters grant
 selective read access to that sealed directory view, projects only required
-provider credentials, bounds subprocess execution, and keeps stdout and stderr separate.
+provider credentials, bounds subprocess lifetime, preserves complete provider
+stdout and stderr without a product byte ceiling, and keeps the streams separate.
 Workspace drift detected after execution overrides provider success. A single
 tree is exposed under `current/`; Git comparisons expose `before/` and `after/`.
 

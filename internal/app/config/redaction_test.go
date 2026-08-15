@@ -10,7 +10,7 @@ import (
 
 func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
-	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{Kimi: &adapterconfig.KimiProviderConfig{Executable: "/secret/bin", DataHome: "/secret/home"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}}
+	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{Kimi: &adapterconfig.KimiProviderConfig{Executable: "/secret/bin", DataHome: "/secret/home"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12}}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
 		t.Fatal(err)

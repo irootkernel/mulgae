@@ -47,8 +47,6 @@ type AGYExecutionPolicy struct {
 
 type agyExecutionPolicyContract struct {
 	Argv                         []string `json:"argv"`
-	MaxStderrBytes               int64    `json:"max_stderr_bytes"`
-	MaxStdoutBytes               int64    `json:"max_stdout_bytes"`
 	NativeReference              string   `json:"native_reference"`
 	PostOutputFraming            string   `json:"post_output_framing"`
 	PostOutputStabilityNanosec   int64    `json:"post_output_stability_nanoseconds"`
@@ -107,7 +105,7 @@ func RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(family CredentialSourceFamily,
 // to the exact descriptor-backed snapshot.
 func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, argv []string, nativeReference string) (AGYExecutionPolicy, error) {
 	if safeProbeDefinition(definition) != nil || definition.Family() != FamilyAgy || !snapshot.Valid() || !validAGYNativeReference(nativeReference) ||
-		definition.Timeout() <= 0 || definition.MaxStdoutBytes() <= 0 || definition.MaxStderrBytes() <= 0 {
+		definition.Timeout() <= 0 {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid authority")
 	}
 	lifecycle, ok := definition.PostOutputLifecycle()
@@ -535,7 +533,7 @@ func agyExecutionPolicyBytes(policy AGYExecutionPolicy) ([]byte, error) {
 	rootDevice, rootInode := policy.snapshot.RootIdentity()
 	snapshotDevice, snapshotInode := policy.snapshot.SnapshotFSIdentity()
 	return json.Marshal(agyExecutionPolicyContract{
-		Argv: append([]string(nil), policy.argv...), MaxStderrBytes: boundedProbeOutput(policy.definition.MaxStderrBytes()), MaxStdoutBytes: boundedProbeOutput(policy.definition.MaxStdoutBytes()), NativeReference: policy.nativeReference,
+		Argv: append([]string(nil), policy.argv...), NativeReference: policy.nativeReference,
 		PostOutputFraming: string(lifecycle.Framing()), PostOutputStabilityNanosec: lifecycle.StabilityGrace().Nanoseconds(), PostOutputTerminationNanosec: lifecycle.TerminationGrace().Nanoseconds(),
 		ProfileGeneration: policy.definition.ProfileGeneration(), ProfileID: policy.definition.ProfileID(), ProtectionGuarantee: "descriptor_bound_pre_post_drift_detection", ProviderInstance: policy.definition.Instance(), ProviderVersion: policy.definition.Version(),
 		SnapshotManifestSHA256: policy.snapshot.ManifestSHA256(), SnapshotName: policy.snapshot.SnapshotName(), SnapshotPath: policy.snapshot.SnapshotPath(), SnapshotPolicyIdentity: policy.snapshot.PolicyIdentity(), SnapshotDevice: snapshotDevice, SnapshotInode: snapshotInode, RootDevice: rootDevice, RootInode: rootInode, TimeoutNanoseconds: boundedProbeTimeout(policy.definition.Timeout()).Nanoseconds(),

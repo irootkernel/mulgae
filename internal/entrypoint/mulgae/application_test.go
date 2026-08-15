@@ -44,7 +44,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -185,7 +185,7 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 		{ID: "PV-JSON-ONLY", Status: doctor.EvidenceStatusPass},
 		{ID: "PV-STDOUT-STDERR", Status: doctor.EvidenceStatusPass},
 		{ID: "PV-CANCELLATION", Status: doctor.EvidenceStatusPass},
-		{ID: "PV-OUTPUT-CAP", Status: doctor.EvidenceStatusPass},
+		{ID: "PV-OUTPUT-PRESERVATION", Status: doctor.EvidenceStatusPass},
 		{ID: "PV-AUTH-CACHE-CONCURRENCY", Status: doctor.EvidenceStatusPass},
 		{ID: "PV-EXIT-CLASSIFICATION", Status: doctor.EvidenceStatusPass},
 		{ID: "PV-CWD-ISOLATION", Status: doctor.EvidenceStatusPass},
@@ -201,7 +201,7 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 		uri = configuredURI
 	}
 	return doctor.ProviderEvidenceRecord{
-		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json",
+		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json",
 		ProviderID:              providerID,
 		URI:                     uri,
 		SHA256:                  strings.Repeat("a", 64),
@@ -1392,7 +1392,7 @@ func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project = bytes.Replace(project, []byte("version: 2"), []byte("version: 1"), 1)
+	project = bytes.Replace(project, []byte("version: 3"), []byte("version: 2"), 1)
 	if err := os.WriteFile(projectPath, project, 0o600); err != nil {
 		t.Fatal(err)
 	}

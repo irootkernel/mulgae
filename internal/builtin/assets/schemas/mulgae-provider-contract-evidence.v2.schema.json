@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json",
-  "title": "Mulgae Provider Contract Evidence v1",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json",
+  "title": "Mulgae Provider Contract Evidence v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-provider-contract-evidence.v1"
+      "const": "mulgae-provider-contract-evidence.v2"
     },
     "candidate_oid": {
       "$ref": "#/$defs/oid"
@@ -254,7 +254,7 @@
             "PV-JSON-ONLY",
             "PV-STDOUT-STDERR",
             "PV-CANCELLATION",
-            "PV-OUTPUT-CAP",
+            "PV-OUTPUT-PRESERVATION",
             "PV-AUTH-CACHE-CONCURRENCY",
             "PV-EXIT-CLASSIFICATION",
             "PV-CWD-ISOLATION",
@@ -505,7 +505,7 @@
         }
       ]
     },
-    "pv_output_cap": {
+    "pv_output_preservation": {
       "allOf": [
         {
           "$ref": "#/$defs/probe"
@@ -513,7 +513,7 @@
         {
           "properties": {
             "probe_id": {
-              "const": "PV-OUTPUT-CAP"
+              "const": "PV-OUTPUT-PRESERVATION"
             }
           }
         }
@@ -669,7 +669,7 @@
           "$ref": "#/$defs/pv_cancellation"
         },
         {
-          "$ref": "#/$defs/pv_output_cap"
+          "$ref": "#/$defs/pv_output_preservation"
         },
         {
           "$ref": "#/$defs/pv_auth_cache_concurrency"

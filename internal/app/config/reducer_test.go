@@ -11,13 +11,13 @@ import (
 
 func TestResolveConfigurationProjectsFixedPolicy(t *testing.T) {
 	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
-	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 3, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"}, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1}}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 3, RoleMaxInvocations: 2, RunMaxInvocations: 12}, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1}}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	logic, present := resolved.Role(domain.RoleLogic)
-	if resolved.Runtime().MaxActiveLanes != 3 || resolved.RunTotalOutputCapBytes() != 64<<20 || len(resolved.RequiredRoles()) != 2 || !present || logic.PrimaryProvider() != "agy" {
+	if resolved.Runtime().MaxActiveLanes != 3 || len(resolved.RequiredRoles()) != 2 || !present || logic.PrimaryProvider() != "agy" {
 		t.Fatalf("resolved=%#v", resolved)
 	}
 }
@@ -28,7 +28,6 @@ func TestResolveConfigurationProjectsEffectiveProviderTimeouts(t *testing.T) {
 			ZCode: &adapterconfig.ZCodeProviderConfig{Timeout: "30m"},
 			AGY:   &adapterconfig.AGYProviderConfig{},
 		},
-		Resources: adapterconfig.ResourcesConfig{RunTotalOutputCap: "64MiB"},
 	}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
@@ -61,7 +60,6 @@ func TestRedactedPolicyReportsAGYHeadlessModeAndSafeWarning(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			resolved, err := appconfig.ResolveConfiguration(adapterconfig.Config{
 				Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{PermissionMode: test.mode}},
-				Resources: adapterconfig.ResourcesConfig{RunTotalOutputCap: "64MiB"},
 			})
 			if err != nil {
 				t.Fatal(err)

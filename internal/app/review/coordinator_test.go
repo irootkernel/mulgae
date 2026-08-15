@@ -1325,7 +1325,7 @@ func TestCoordinatorRoutesReceiptLimitsAndCopiesCIPolicy(t *testing.T) {
 			t.Fatalf("job %d target = %#v, want %#v", job.Ordinal(), job.Target(), target)
 		}
 		limits := job.Limits()
-		if limits.Timeout() != time.Second || limits.MaxStdoutBytes() != 1 || limits.MaxStderrBytes() != 1 {
+		if limits.Timeout() != time.Second {
 			t.Fatalf("job %d limits = %#v, want primary receipt limits", job.Ordinal(), limits)
 		}
 	}
@@ -2005,7 +2005,7 @@ func TestCoordinatorsShareProcessActiveWorkerLimit(t *testing.T) {
 }
 func TestProcessWorkerCapacityAuthorityUsesOneMixedLimitPool(t *testing.T) {
 	target := coordinatorTestTarget(t)
-	limits, err := NewInvocationLimits(time.Minute, 1, 1)
+	limits, err := NewInvocationLimits(time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2584,7 +2584,7 @@ func TestInvocationEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			limits, err := NewInvocationLimits(40*time.Millisecond, 1, 1)
+			limits, err := NewInvocationLimits(40 * time.Millisecond)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2621,7 +2621,7 @@ func TestInvocationEnclosingDeadlineAndProviderTimeoutRemainDistinct(t *testing.
 }
 
 func TestWorkerCapacityWaitingDoesNotConsumeProviderTimeout(t *testing.T) {
-	limits, err := NewInvocationLimits(25*time.Millisecond, 1, 1)
+	limits, err := NewInvocationLimits(25 * time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2954,7 +2954,7 @@ func coordinatorTestPlanInNamespace(
 	t.Helper()
 	assignments := make([]Assignment, 0, len(domain.CoreRoleOrder()))
 	budgets := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
-	limits, err := NewInvocationLimits(time.Second, 1, 1)
+	limits, err := NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2988,7 +2988,7 @@ func coordinatorTestPlanWithInvocationTimeout(
 	t.Helper()
 
 	assignments, receipt := coordinatorTestPlan(t)
-	limits, err := NewInvocationLimits(timeout, 1, 1)
+	limits, err := NewInvocationLimits(timeout)
 	if err != nil {
 		t.Fatal(err)
 	}

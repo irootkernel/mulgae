@@ -168,7 +168,6 @@ func validCoordinatorReceipt(receipt RunBudgetReceipt) bool {
 		return false
 	}
 	return canonical.totalInvocations == receipt.totalInvocations &&
-		canonical.totalOutputCap == receipt.totalOutputCap &&
 		canonical.runDeadline == receipt.runDeadline &&
 		canonical.criticalPath == receipt.criticalPath &&
 		canonical.maxActiveLanes == receipt.maxActiveLanes &&

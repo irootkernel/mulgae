@@ -15,7 +15,6 @@ const (
 	// so two invocations bound a role and 2*7 bound a full seven-role run.
 	maxBudgetInvocationsPerRole = 2
 	maxBudgetInvocationsPerRun  = 14
-	maxBudgetTotalOutputBytes   = int64(64 << 20)
 	maxBudgetProviderTimeout    = 60 * time.Minute
 
 	budgetTransitionGrace = 2 * time.Second
@@ -25,18 +24,12 @@ const (
 // InvocationLimits are the immutable resource caps for every possible
 // invocation through one provider route.
 type InvocationLimits struct {
-	timeout        time.Duration
-	maxStdoutBytes int64
-	maxStderrBytes int64
+	timeout time.Duration
 }
 
-// NewInvocationLimits validates positive, independent invocation caps.
-func NewInvocationLimits(timeout time.Duration, stdoutCap, stderrCap int64) (InvocationLimits, error) {
-	limits := InvocationLimits{
-		timeout:        timeout,
-		maxStdoutBytes: stdoutCap,
-		maxStderrBytes: stderrCap,
-	}
+// NewInvocationLimits validates the positive invocation deadline.
+func NewInvocationLimits(timeout time.Duration) (InvocationLimits, error) {
+	limits := InvocationLimits{timeout: timeout}
 	if err := validateInvocationLimits(limits); err != nil {
 		return InvocationLimits{}, err
 	}
@@ -46,13 +39,7 @@ func NewInvocationLimits(timeout time.Duration, stdoutCap, stderrCap int64) (Inv
 // Timeout returns the positive invocation deadline.
 func (limits InvocationLimits) Timeout() time.Duration { return limits.timeout }
 
-// MaxStdoutBytes returns the positive stdout diagnostic capture cap.
-func (limits InvocationLimits) MaxStdoutBytes() int64 { return limits.maxStdoutBytes }
-
-// MaxStderrBytes returns the positive stderr capture cap.
-func (limits InvocationLimits) MaxStderrBytes() int64 { return limits.maxStderrBytes }
-
-// Valid reports whether limits contain only positive invocation caps.
+// Valid reports whether limits contain a positive invocation deadline.
 func (limits InvocationLimits) Valid() bool { return validateInvocationLimits(limits) == nil }
 
 // RouteBudget binds immutable invocation limits to one normalized provider
@@ -104,13 +91,9 @@ func (budget RoleBudget) Primary() RouteBudget { return budget.primary }
 // Valid reports whether budget is a complete role selection.
 func (budget RoleBudget) Valid() bool { return validateRoleBudget(budget) == nil }
 
-// HarnessCeilings are trusted preflight ceilings. They can only strengthen the
-// fixed execution and provider-output limits; they never authorize a larger budget.
+// HarnessCeilings are trusted preflight execution ceilings.
 type HarnessCeilings struct {
 	maxTimeout            time.Duration
-	maxStdoutBytes        int64
-	maxStderrBytes        int64
-	maxTotalOutput        int64
 	maxRolePathDeadline   time.Duration
 	maxRunDeadline        time.Duration
 	maxInvocationsPerRole int
@@ -118,19 +101,15 @@ type HarnessCeilings struct {
 }
 
 // NewHarnessCeilings validates trusted execution ceilings. The fixed SOT
-// maxima are closed: two invocations per role, 14 per run, 64 MiB output,
-// and a topology-derived deadline for 60-minute provider invocations.
+// maxima are closed: two invocations per role, 14 per run, and a
+// topology-derived deadline for 60-minute provider invocations.
 func NewHarnessCeilings(
 	maxTimeout time.Duration,
-	maxStdout, maxStderr, maxTotalOutput int64,
 	maxRolePathDeadline, maxRunDeadline time.Duration,
 	maxInvocationsPerRole, maxInvocationsPerRun int,
 ) (HarnessCeilings, error) {
 	ceilings := HarnessCeilings{
 		maxTimeout:            maxTimeout,
-		maxStdoutBytes:        maxStdout,
-		maxStderrBytes:        maxStderr,
-		maxTotalOutput:        maxTotalOutput,
 		maxRolePathDeadline:   maxRolePathDeadline,
 		maxRunDeadline:        maxRunDeadline,
 		maxInvocationsPerRole: maxInvocationsPerRole,
@@ -152,9 +131,6 @@ func DefaultHarnessCeilings() HarnessCeilings {
 	maxRunDeadline, _ := addDuration(maxRolePathDeadline, budgetRunGrace)
 	return HarnessCeilings{
 		maxTimeout:            maxBudgetProviderTimeout,
-		maxStdoutBytes:        256 << 10,
-		maxStderrBytes:        256 << 10,
-		maxTotalOutput:        maxBudgetTotalOutputBytes,
 		maxRolePathDeadline:   maxRolePathDeadline,
 		maxRunDeadline:        maxRunDeadline,
 		maxInvocationsPerRole: maxBudgetInvocationsPerRole,
@@ -164,15 +140,6 @@ func DefaultHarnessCeilings() HarnessCeilings {
 
 // MaxTimeout returns the trusted per-invocation timeout ceiling.
 func (ceilings HarnessCeilings) MaxTimeout() time.Duration { return ceilings.maxTimeout }
-
-// MaxStdoutBytes returns the trusted per-invocation stdout ceiling.
-func (ceilings HarnessCeilings) MaxStdoutBytes() int64 { return ceilings.maxStdoutBytes }
-
-// MaxStderrBytes returns the trusted per-invocation stderr ceiling.
-func (ceilings HarnessCeilings) MaxStderrBytes() int64 { return ceilings.maxStderrBytes }
-
-// MaxTotalOutput returns the trusted aggregate stdout-plus-stderr ceiling.
-func (ceilings HarnessCeilings) MaxTotalOutput() int64 { return ceilings.maxTotalOutput }
 
 // MaxRolePathDeadline returns the trusted per-role-path deadline ceiling.
 func (ceilings HarnessCeilings) MaxRolePathDeadline() time.Duration {
@@ -208,7 +175,6 @@ const (
 	BudgetReasonInvocationCapExceeded BudgetReasonCode = "invocation_cap_exceeded"
 	BudgetReasonRoleInvocationLimit   BudgetReasonCode = "role_invocation_limit"
 	BudgetReasonRunInvocationLimit    BudgetReasonCode = "run_invocation_limit"
-	BudgetReasonTotalOutputLimit      BudgetReasonCode = "total_output_limit"
 	BudgetReasonRolePathDeadlineLimit BudgetReasonCode = "role_path_deadline_limit"
 	BudgetReasonRunDeadlineLimit      BudgetReasonCode = "run_deadline_limit"
 )
@@ -225,7 +191,6 @@ func (code BudgetReasonCode) Valid() bool {
 		BudgetReasonInvocationCapExceeded,
 		BudgetReasonRoleInvocationLimit,
 		BudgetReasonRunInvocationLimit,
-		BudgetReasonTotalOutputLimit,
 		BudgetReasonRolePathDeadlineLimit,
 		BudgetReasonRunDeadlineLimit:
 		return true
@@ -270,7 +235,6 @@ type RunBudgetReceipt struct {
 	roles            []RoleBudget
 	rolePaths        []RolePathDeadline
 	totalInvocations int
-	totalOutputCap   int64
 	runDeadline      time.Duration
 	criticalPath     time.Duration
 	maxActiveLanes   int
@@ -295,9 +259,6 @@ func (receipt RunBudgetReceipt) RolePathDeadlines() []RolePathDeadline {
 // invocation across the role's route.
 func (receipt RunBudgetReceipt) TotalInvocations() int { return receipt.totalInvocations }
 
-// TotalOutputCap returns the worst-case stdout-plus-stderr capture total.
-func (receipt RunBudgetReceipt) TotalOutputCap() int64 { return receipt.totalOutputCap }
-
 // RunDeadline returns the capacity-aware execution bound plus run grace.
 func (receipt RunBudgetReceipt) RunDeadline() time.Duration { return receipt.runDeadline }
 
@@ -320,7 +281,7 @@ func (receipt RunBudgetReceipt) ReasonCode() BudgetReasonCode { return receipt.r
 // canonical operands and every safely computable result.
 func PreflightRunBudget(roles []RoleBudget, ceilings HarnessCeilings) (RunBudgetReceipt, error) {
 	canonical := canonicalRoleBudgets(roles)
-	rolePaths, _, _, _ := accumulateRunBudget(canonical)
+	rolePaths, _, _ := accumulateRunBudget(canonical)
 	capacity := len(rolePaths)
 	if capacity < 1 {
 		capacity = 1
@@ -353,10 +314,9 @@ func PreflightRunBudgetWithCapacity(
 		return rejectBudget(receipt, reason)
 	}
 
-	rolePaths, totalInvocations, totalOutputCap, overflow := accumulateRunBudget(receipt.roles)
+	rolePaths, totalInvocations, overflow := accumulateRunBudget(receipt.roles)
 	receipt.rolePaths = rolePaths
 	receipt.totalInvocations = totalInvocations
-	receipt.totalOutputCap = totalOutputCap
 
 	maxRolePathDeadline := time.Duration(0)
 	totalRolePathWork := time.Duration(0)
@@ -387,9 +347,6 @@ func PreflightRunBudgetWithCapacity(
 	}
 	if totalInvocations > ceilings.maxInvocationsPerRun {
 		return rejectBudget(receipt, BudgetReasonRunInvocationLimit)
-	}
-	if totalOutputCap > ceilings.maxTotalOutput {
-		return rejectBudget(receipt, BudgetReasonTotalOutputLimit)
 	}
 	for _, path := range receipt.rolePaths {
 		if path.deadline > ceilings.maxRolePathDeadline {
@@ -447,12 +404,6 @@ func validateInvocationLimits(limits InvocationLimits) error {
 	if limits.timeout <= 0 {
 		return fmt.Errorf("review run budget: timeout must be positive")
 	}
-	if limits.maxStdoutBytes <= 0 {
-		return fmt.Errorf("review run budget: stdout cap must be positive")
-	}
-	if limits.maxStderrBytes <= 0 {
-		return fmt.Errorf("review run budget: stderr cap must be positive")
-	}
 	return nil
 }
 
@@ -480,12 +431,6 @@ func validateHarnessCeilings(ceilings HarnessCeilings) error {
 	switch {
 	case ceilings.maxTimeout <= 0:
 		return fmt.Errorf("review run budget: maximum timeout must be positive")
-	case ceilings.maxStdoutBytes <= 0:
-		return fmt.Errorf("review run budget: maximum stdout cap must be positive")
-	case ceilings.maxStderrBytes <= 0:
-		return fmt.Errorf("review run budget: maximum stderr cap must be positive")
-	case ceilings.maxTotalOutput <= 0:
-		return fmt.Errorf("review run budget: maximum total output must be positive")
 	case ceilings.maxRolePathDeadline <= 0:
 		return fmt.Errorf("review run budget: maximum role path deadline must be positive")
 	case ceilings.maxRunDeadline <= 0:
@@ -500,8 +445,6 @@ func validateHarnessCeilings(ceilings HarnessCeilings) error {
 		return fmt.Errorf("review run budget: maximum role invocations exceed %d", maxBudgetInvocationsPerRole)
 	case ceilings.maxInvocationsPerRun > maxBudgetInvocationsPerRun:
 		return fmt.Errorf("review run budget: maximum run invocations exceed %d", maxBudgetInvocationsPerRun)
-	case ceilings.maxTotalOutput > maxBudgetTotalOutputBytes:
-		return fmt.Errorf("review run budget: maximum total output exceeds %d", maxBudgetTotalOutputBytes)
 	}
 	maxRolePathDeadline, overflow := topologyDeadlineCeiling(
 		maxBudgetProviderTimeout,
@@ -552,18 +495,6 @@ func compareRouteBudgets(left, right RouteBudget) int {
 		}
 		return 1
 	}
-	if left.limits.maxStdoutBytes != right.limits.maxStdoutBytes {
-		if left.limits.maxStdoutBytes < right.limits.maxStdoutBytes {
-			return -1
-		}
-		return 1
-	}
-	if left.limits.maxStderrBytes < right.limits.maxStderrBytes {
-		return -1
-	}
-	if left.limits.maxStderrBytes > right.limits.maxStderrBytes {
-		return 1
-	}
 	return 0
 }
 
@@ -607,10 +538,9 @@ func validateRoleSelection(roles []RoleBudget) BudgetReasonCode {
 	return BudgetReasonEligible
 }
 
-func accumulateRunBudget(roles []RoleBudget) ([]RolePathDeadline, int, int64, bool) {
+func accumulateRunBudget(roles []RoleBudget) ([]RolePathDeadline, int, bool) {
 	paths := make([]RolePathDeadline, 0, len(roles))
 	totalInvocations := 0
-	totalOutputCap := int64(0)
 	overflow := false
 	for _, budget := range roles {
 		path := RolePathDeadline{
@@ -626,15 +556,8 @@ func accumulateRunBudget(roles []RoleBudget) ([]RolePathDeadline, int, int64, bo
 		overflow = overflow || pathOverflow
 		paths = append(paths, path)
 		totalInvocations += path.invocationCount
-
-		outputCap, outputOverflow := addInt64(budget.primary.limits.maxStdoutBytes, budget.primary.limits.maxStderrBytes)
-		overflow = overflow || outputOverflow
-		roleOutputCap, roleOutputOverflow := multiplyInt64(outputCap, path.invocationCount)
-		overflow = overflow || roleOutputOverflow
-		totalOutputCap, outputOverflow = addInt64(totalOutputCap, roleOutputCap)
-		overflow = overflow || outputOverflow
 	}
-	return paths, totalInvocations, totalOutputCap, overflow
+	return paths, totalInvocations, overflow
 }
 
 func addDuration(left, right time.Duration) (time.Duration, bool) {
@@ -642,23 +565,6 @@ func addDuration(left, right time.Duration) (time.Duration, bool) {
 		return time.Duration(math.MaxInt64), true
 	}
 	return left + right, false
-}
-
-func addInt64(left, right int64) (int64, bool) {
-	if right > 0 && left > math.MaxInt64-right {
-		return math.MaxInt64, true
-	}
-	return left + right, false
-}
-
-func multiplyInt64(value int64, factor int) (int64, bool) {
-	if factor <= 0 || value == 0 {
-		return 0, false
-	}
-	if value > math.MaxInt64/int64(factor) {
-		return math.MaxInt64, true
-	}
-	return value * int64(factor), false
 }
 
 func validateRouteCaps(roles []RoleBudget, ceilings HarnessCeilings) BudgetReasonCode {
@@ -675,9 +581,7 @@ func validateRouteCaps(roles []RoleBudget, ceilings HarnessCeilings) BudgetReaso
 }
 
 func routeCapsExceed(budget RouteBudget, ceilings HarnessCeilings) bool {
-	return budget.limits.timeout > ceilings.maxTimeout ||
-		budget.limits.maxStdoutBytes > ceilings.maxStdoutBytes ||
-		budget.limits.maxStderrBytes > ceilings.maxStderrBytes
+	return budget.limits.timeout > ceilings.maxTimeout
 }
 
 func rejectBudget(receipt RunBudgetReceipt, reason BudgetReasonCode) (RunBudgetReceipt, error) {

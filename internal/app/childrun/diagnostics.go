@@ -101,11 +101,11 @@ func (lifecycle *childDiagnosticLifecycle) persistObservation(ctx context.Contex
 		return childDiagnosticObservation{}, nil
 	}
 	invocation := observation.Invocation()
-	persist := func(stream domain.RuntimeDiagnosticStream, content []byte, maximum int64) (bool, error) {
+	persist := func(stream domain.RuntimeDiagnosticStream, content []byte) (bool, error) {
 		if len(content) == 0 {
 			return false, nil
 		}
-		request, err := ports.NewRuntimeDiagnosticRawRequest(invocation.AttemptID(), invocation.SourceInvocationID(), ordinal, invocation.Purpose(), stream, bytes.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) {})
+		request, err := ports.NewRuntimeDiagnosticRawRequest(invocation.AttemptID(), invocation.SourceInvocationID(), ordinal, invocation.Purpose(), stream, bytes.NewReader(content), int64(len(content)), []string{"provider:" + string(stream)}, func(error) {})
 		if err != nil {
 			return false, childDiagnosticArtifactFailure(err)
 		}
@@ -126,11 +126,11 @@ func (lifecycle *childDiagnosticLifecycle) persistObservation(ctx context.Contex
 		}
 		return false, nil
 	}
-	stdoutDropped, err := persist(domain.DiagnosticStdout, observation.Stdout(), observation.StdoutLimit())
+	stdoutDropped, err := persist(domain.DiagnosticStdout, observation.Stdout())
 	if err != nil {
 		return childDiagnosticObservation{}, err
 	}
-	stderrDropped, err := persist(domain.DiagnosticStderr, observation.Stderr(), observation.StderrLimit())
+	stderrDropped, err := persist(domain.DiagnosticStderr, observation.Stderr())
 	if err != nil {
 		return childDiagnosticObservation{}, err
 	}

@@ -57,8 +57,6 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 		"base-argv":       func(d *testRuntimeMutation) { d.baseArgv = append(append([]string(nil), d.baseArgv...), "--other") },
 		"transport-ref":   func(d *testRuntimeMutation) { d.transportReference = "@other.md" },
 		"working-dir":     func(d *testRuntimeMutation) { d.workingDirectory = "/private/other" },
-		"max-stdout":      func(d *testRuntimeMutation) { d.maxStdoutBytes++ },
-		"max-stderr":      func(d *testRuntimeMutation) { d.maxStderrBytes++ },
 		"executable":      func(d *testRuntimeMutation) { d.executable = "/private/bin/other-node" },
 		"launcher":        func(d *testRuntimeMutation) { d.launcher = "/private/bin/other-launcher" },
 		"safety-policy":   func(d *testRuntimeMutation) { d.runtimeSafetyPolicyIdentity = "other-policy" },
@@ -281,7 +279,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	// Sibling role routes must share capability-relevant runtime fields, including
 	// working directory, so family-profile deduplication can be exercised.
 	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.4", "/private/work/"+string(family))
-	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,8 +314,6 @@ type testRuntimeMutation struct {
 	transportReference          string
 	environment                 []ports.EnvironmentVariable
 	workingDirectory            string
-	maxStdoutBytes              int64
-	maxStderrBytes              int64
 	hasLifecycle                bool
 	lifecycle                   ports.BoundedPostOutputLifecycle
 }
@@ -341,8 +337,6 @@ func (d testRuntimeMutation) Environment() []ports.EnvironmentVariable {
 }
 func (d testRuntimeMutation) WorkingDirectory() string { return d.workingDirectory }
 func (d testRuntimeMutation) Timeout() time.Duration   { return time.Minute }
-func (d testRuntimeMutation) MaxStdoutBytes() int64    { return d.maxStdoutBytes }
-func (d testRuntimeMutation) MaxStderrBytes() int64    { return d.maxStderrBytes }
 func (d testRuntimeMutation) PostOutputLifecycle() (ports.BoundedPostOutputLifecycle, bool) {
 	return d.lifecycle, d.hasLifecycle
 }
@@ -364,8 +358,7 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		kimiModel: definition.KimiModel(), baseArgv: append([]string(nil), definition.BaseArgv()...),
 		transportChannel: definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),
-		workingDirectory: definition.WorkingDirectory(), maxStdoutBytes: definition.MaxStdoutBytes(),
-		maxStderrBytes: definition.MaxStderrBytes(), hasLifecycle: hasLifecycle, lifecycle: lifecycle,
+		workingDirectory: definition.WorkingDirectory(), hasLifecycle: hasLifecycle, lifecycle: lifecycle,
 	}
 	mutate(&mutated)
 	candidate.Definition = mutated

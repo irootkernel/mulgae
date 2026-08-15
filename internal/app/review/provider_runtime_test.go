@@ -282,7 +282,7 @@ func TestProviderRuntimeOutputReceivedRequiresNonEmptyStdout(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			observation, err := ports.NewPartialFailedProviderExecutionObservation(
 				ports.ProviderExecutionStatusInternalFailure, invocation, test.stdout, nil,
-				"process_wait_failed", domain.DiagnosticCauseProviderProcessWaitFailed, "", 1024, 1024,
+				"process_wait_failed", domain.DiagnosticCauseProviderProcessWaitFailed, "",
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -748,7 +748,7 @@ func TestRuntimeObservedTimeoutPreservesValidatedElapsedFacts(t *testing.T) {
 	}
 	observation, err := ports.NewFailedProviderExecutionObservationWithCause(
 		ports.ProviderExecutionStatusTimedOut, invocation, process, "provider_timeout",
-		domain.DiagnosticCauseTimedOut, "", 1024, 1024,
+		domain.DiagnosticCauseTimedOut, "",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -760,7 +760,7 @@ func TestRuntimeObservedTimeoutPreservesValidatedElapsedFacts(t *testing.T) {
 	}
 	partial, err := ports.NewPartialFailedProviderExecutionObservation(
 		ports.ProviderExecutionStatusTimedOut, invocation, nil, nil, "provider_timeout",
-		domain.DiagnosticCauseTimedOut, "", 1024, 1024,
+		domain.DiagnosticCauseTimedOut, "",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1149,7 +1149,7 @@ func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider)
 		t.Fatal(err)
 	}
 	attemptID := coordinatorTypesAttemptID(t, 21)
-	limits, err := NewInvocationLimits(time.Second, 1<<20, 1<<20)
+	limits, err := NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1234,10 +1234,6 @@ func repairWorkspaceIdentity(t *testing.T, invocation ports.ProviderInvocation) 
 	return identity
 }
 
-// providerRuntimeStreamLimit matches the explicit fixture stream ceilings so a
-// fake observation is always coherent with the job limits.
-const providerRuntimeStreamLimit = 1 << 20
-
 // providerRuntimeObservation describes one fake provider execution. staged
 // selects the staged_file transport and carries the bytes Mulgae read back from
 // the staged file; stdout alone selects the ordinary stdout transport; cause
@@ -1273,7 +1269,6 @@ func (provider *recordingObservedProvider) Observe(_ context.Context, invocation
 	if response.cause != "" {
 		observation, err := ports.NewFailedProviderExecutionObservationWithCause(
 			response.status, invocation, process, response.diagnostic, response.cause, "",
-			providerRuntimeStreamLimit, providerRuntimeStreamLimit,
 		)
 		if err != nil {
 			provider.t.Fatal(err)
@@ -1290,7 +1285,7 @@ func (provider *recordingObservedProvider) Observe(_ context.Context, invocation
 			provider.t.Fatal(err)
 		}
 		observation, err := ports.NewStagedFileSuccessfulProviderExecutionObservation(
-			invocation, result, process, providerRuntimeStreamLimit, providerRuntimeStreamLimit, receipt,
+			invocation, result, process, receipt,
 		)
 		if err != nil {
 			provider.t.Fatal(err)
@@ -1302,7 +1297,7 @@ func (provider *recordingObservedProvider) Observe(_ context.Context, invocation
 		provider.t.Fatal(err)
 	}
 	observation, err := ports.NewSuccessfulProviderExecutionObservation(
-		invocation, result, process, providerRuntimeStreamLimit, providerRuntimeStreamLimit,
+		invocation, result, process,
 	)
 	if err != nil {
 		provider.t.Fatal(err)

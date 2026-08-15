@@ -2,7 +2,7 @@
 
 ## Versioning
 
-The public contract surface starts at v1. Configuration uses `version: 2`;
+The public contract surface starts at v1. Configuration uses `version: 3`;
 machine documents use identifiers such as `mulgae-run-manifest.v1`; prompts and
 role definitions also carry v1 identities.
 
@@ -25,15 +25,16 @@ untracked, mode-`0600` `local.yaml` supplies the native home and provider
 executable, launcher, and data-home paths. Neither file can add arbitrary
 provider commands. Mulgae admits them only as a matching pair and reports their
 merged value through `config --mode effective` and field ownership through
-`config --mode provenance`.
+`config --mode provenance`. Provider stdout and stderr have no configurable or
+fixed product byte ceiling.
 
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
 options. `init --refresh-local` atomically replaces only `local.yaml` and
-rejects project-policy options. Config v1 is rejected and is never migrated
-automatically.
+rejects project-policy options. Earlier config versions, including v2, are
+rejected and are never migrated automatically.
 
-Each Config v2 pathname is installed atomically, but initial creation of the two
+Each Config v3 pathname is installed atomically, but initial creation of the two
 files is not one filesystem transaction. If `config.yaml` commits and the local
 install fails before commitment, init returns `committed: false`,
 `write_state: project_committed_local_missing`, `destination_state: present`,
@@ -331,8 +332,8 @@ a selected attempt.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Workflow commands
-use `--output json` and return a `mulgae-command-result.v2` envelope. Command
-result v1 and review-preflight v1 are intentionally unsupported after this
+use `--output json` and return a `mulgae-command-result.v3` envelope. Command
+result v2 and review-preflight v2 are intentionally unsupported after this
 contract revision. Process
 exits:
 
@@ -363,7 +364,7 @@ Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
-environment, working directory, output bounds, lifecycle, model,
+environment, working directory, lifecycle, model,
 executable/launcher identity, and runtime safety policy identity. ZCode may
 share one probe across sibling role instances only when that full shareable
 profile matches; AGY profiles also include provider instance because AGY control

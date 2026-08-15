@@ -1,5 +1,5 @@
 {
-  "schema_version": "mulgae-review-preflight.v2",
+  "schema_version": "mulgae-review-preflight.v3",
   "status": "eligible",
   "qualification": "not_run",
   "target": {
@@ -53,7 +53,6 @@
     "reason_code": "eligible",
     "max_active_lanes": 2,
     "total_invocations": 2,
-    "total_output_cap_bytes": 1048576,
     "critical_path_deadline": "1h0m2s",
     "run_deadline": "1h0m7s",
     "ceilings": {
@@ -61,8 +60,7 @@
       "role_path_deadline": "14h0m14s",
       "run_deadline": "14h0m19s",
       "max_invocations_per_role": 2,
-      "max_invocations_per_run": 14,
-      "max_total_output_bytes": 67108864
+      "max_invocations_per_run": 14
     },
     "role_paths": [
       {

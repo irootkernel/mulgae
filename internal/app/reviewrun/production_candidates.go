@@ -12,12 +12,11 @@ import (
 )
 
 const (
-	productionProfileGeneration            = "reviewrun-production-candidates-v1"
-	productionWorkingDirectory             = "/private/var/empty"
-	productionDefaultProviderTimeout       = 15 * time.Minute
-	productionMinimumProviderTimeout       = time.Minute
-	productionMaximumProviderTimeout       = 60 * time.Minute
-	productionOutputCap              int64 = 256 << 10
+	productionProfileGeneration      = "reviewrun-production-candidates-v1"
+	productionWorkingDirectory       = "/private/var/empty"
+	productionDefaultProviderTimeout = 15 * time.Minute
+	productionMinimumProviderTimeout = time.Minute
+	productionMaximumProviderTimeout = 60 * time.Minute
 )
 
 type productionCandidateTemplate struct {
@@ -188,7 +187,7 @@ func (template productionCandidateTemplate) definition(builder ports.ProviderRun
 		KimiModel: template.kimiModel, BaseArgv: baseArgv, TransportChannel: template.transportChannel,
 		TransportArgvIndex: template.transportArgvIndex, TransportReference: template.transportReference,
 		Environment: append([]ports.EnvironmentVariable(nil), template.environment...), WorkingDirectory: productionWorkingDirectory,
-		Timeout: template.limits.Timeout(), MaxStdoutBytes: template.limits.MaxStdoutBytes(), MaxStderrBytes: template.limits.MaxStderrBytes(),
+		Timeout:             template.limits.Timeout(),
 		PostOutputLifecycle: lifecycle, HasPostOutputLifecycle: hasLifecycle,
 	})
 }
@@ -290,7 +289,7 @@ func productionRouteAndLimits(family Family, role domain.Role, providerTimeouts 
 	if err != nil {
 		return ports.ProviderRoute{}, review.InvocationLimits{}, err
 	}
-	limits, err := review.NewInvocationLimits(providerTimeouts[family], productionOutputCap, productionOutputCap)
+	limits, err := review.NewInvocationLimits(providerTimeouts[family])
 	if err != nil {
 		return ports.ProviderRoute{}, review.InvocationLimits{}, err
 	}

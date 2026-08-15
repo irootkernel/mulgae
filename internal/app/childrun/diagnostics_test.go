@@ -52,7 +52,7 @@ func TestPersistObservationTreatsMatchedSecurityDropAsRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := ports.NewSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	observation, err := ports.NewSuccessfulProviderExecutionObservation(invocation, result, process)
 	if err != nil {
 		t.Fatal(err)
 	}

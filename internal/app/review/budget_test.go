@@ -10,48 +10,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestPreflightRunBudgetExactOutputBoundaryAndCapOneOver(t *testing.T) {
-	t.Parallel()
-
-	const mib = int64(1 << 20)
-	ceilings := budgetTestCeilings(t, time.Second, 11*mib-1, 1, 32*mib, 2*time.Minute, 3*time.Minute, 2, 12)
-	roles := make([]RoleBudget, 0, len(domain.CoreRoleOrder()))
-	for index, role := range domain.CoreRoleOrder() {
-		outputCap := mib
-		if index == 0 {
-			outputCap = 11 * mib
-		}
-		limits := budgetTestLimits(t, time.Second, outputCap-1, 1)
-		primary := budgetTestRoute(t, fmt.Sprintf("primary-%d", index), limits)
-		roles = append(roles, budgetTestRole(t, role, primary))
-	}
-
-	receipt, err := PreflightRunBudget(roles, ceilings)
-	if err != nil {
-		t.Fatalf("PreflightRunBudget() error = %v", err)
-	}
-	if !receipt.Eligible() || receipt.ReasonCode() != BudgetReasonEligible {
-		t.Fatalf("receipt eligibility = %t/%q, want true/%q", receipt.Eligible(), receipt.ReasonCode(), BudgetReasonEligible)
-	}
-	if got, want := receipt.TotalOutputCap(), 32*mib; got != want {
-		t.Fatalf("total output cap = %d, want %d", got, want)
-	}
-
-	over := append([]RoleBudget(nil), roles...)
-	overLimits := budgetTestLimits(t, time.Second, 11*mib, 1)
-	over[0].primary = budgetTestRoute(t, "primary-0", overLimits)
-	rejected, err := PreflightRunBudget(over, ceilings)
-	if err == nil {
-		t.Fatal("PreflightRunBudget() succeeded with a cap one byte over its trusted ceiling")
-	}
-	if rejected.Eligible() || rejected.ReasonCode() != BudgetReasonInvocationCapExceeded {
-		t.Fatalf("rejected receipt = eligible=%t reason=%q", rejected.Eligible(), rejected.ReasonCode())
-	}
-	if got, want := rejected.TotalOutputCap(), 32*mib+2; got != want {
-		t.Fatalf("rejected total output cap = %d, want %d", got, want)
-	}
-}
-
 func TestPreflightRunBudgetSixRoleFormulaUsesOnePathPerRole(t *testing.T) {
 	t.Parallel()
 
@@ -66,9 +24,6 @@ func TestPreflightRunBudgetSixRoleFormulaUsesOnePathPerRole(t *testing.T) {
 	// Six roles retain one independent initial-to-repair path each.
 	if got, want := receipt.TotalInvocations(), 12; got != want {
 		t.Fatalf("total invocations = %d, want %d", got, want)
-	}
-	if got, want := receipt.TotalOutputCap(), int64(24); got != want {
-		t.Fatalf("total output cap = %d, want %d", got, want)
 	}
 	paths := receipt.RolePathDeadlines()
 	if len(paths) != 6 {
@@ -328,22 +283,6 @@ func TestPreflightRunBudgetAcceptsRoleSubsetsAndRejectsInvalidSelection(t *testi
 
 }
 
-func TestPreflightRunBudgetRejectsRouteCapOverflow(t *testing.T) {
-	t.Parallel()
-
-	limits := budgetTestLimits(t, time.Second, 2, 1)
-	roles := budgetTestCompleteRoles(t, limits)
-	ceilings := budgetTestCeilings(t, time.Second, 1, 1, 48, time.Minute, 2*time.Minute, 2, 12)
-
-	receipt, err := PreflightRunBudget(roles, ceilings)
-	if err == nil {
-		t.Fatal("PreflightRunBudget() succeeded with a stdout cap over the trusted ceiling")
-	}
-	if receipt.Eligible() || receipt.ReasonCode() != BudgetReasonInvocationCapExceeded {
-		t.Fatalf("receipt = eligible=%t reason=%q", receipt.Eligible(), receipt.ReasonCode())
-	}
-}
-
 func TestRunBudgetReceiptDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
@@ -379,14 +318,12 @@ func TestDefaultHarnessCeilingsAreClosedAndValid(t *testing.T) {
 	if ceilings.MaxInvocationsPerRole() != 2 ||
 		ceilings.MaxInvocationsPerRun() != 14 ||
 		ceilings.MaxTimeout() != 60*time.Minute ||
-		ceilings.MaxTotalOutput() != 64<<20 ||
 		ceilings.MaxRolePathDeadline() != 14*time.Hour+14*time.Second ||
 		ceilings.MaxRunDeadline() != 14*time.Hour+19*time.Second {
-		t.Fatalf("default ceilings = role=%d run=%d timeout=%s output=%d role_path=%s deadline=%s",
+		t.Fatalf("default ceilings = role=%d run=%d timeout=%s role_path=%s deadline=%s",
 			ceilings.MaxInvocationsPerRole(),
 			ceilings.MaxInvocationsPerRun(),
 			ceilings.MaxTimeout(),
-			ceilings.MaxTotalOutput(),
 			ceilings.MaxRolePathDeadline(),
 			ceilings.MaxRunDeadline())
 	}
@@ -396,9 +333,6 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 
 	type ceilingInput struct {
 		maxTimeout            time.Duration
-		maxStdout             int64
-		maxStderr             int64
-		maxTotalOutput        int64
 		maxRolePathDeadline   time.Duration
 		maxRunDeadline        time.Duration
 		maxInvocationsPerRole int
@@ -414,9 +348,6 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 	}
 	exact := ceilingInput{
 		maxTimeout:            maxBudgetProviderTimeout,
-		maxStdout:             256 << 10,
-		maxStderr:             256 << 10,
-		maxTotalOutput:        maxBudgetTotalOutputBytes,
 		maxRolePathDeadline:   exactRolePathDeadline,
 		maxRunDeadline:        exactRunDeadline,
 		maxInvocationsPerRole: maxBudgetInvocationsPerRole,
@@ -425,9 +356,6 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 	construct := func(input ceilingInput) (HarnessCeilings, error) {
 		return NewHarnessCeilings(
 			input.maxTimeout,
-			input.maxStdout,
-			input.maxStderr,
-			input.maxTotalOutput,
 			input.maxRolePathDeadline,
 			input.maxRunDeadline,
 			input.maxInvocationsPerRole,
@@ -463,12 +391,6 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 			},
 		},
 		{
-			name: "total output",
-			change: func(input *ceilingInput) {
-				input.maxTotalOutput = maxBudgetTotalOutputBytes + 1
-			},
-		},
-		{
 			name: "role path deadline",
 			change: func(input *ceilingInput) {
 				input.maxRolePathDeadline = exactRolePathDeadline + time.Nanosecond
@@ -495,9 +417,9 @@ func TestNewHarnessCeilingsRejectsOneOverFixedSOTMaxima(t *testing.T) {
 	}
 }
 
-func budgetTestLimits(t *testing.T, timeout time.Duration, stdoutCap, stderrCap int64) InvocationLimits {
+func budgetTestLimits(t *testing.T, timeout time.Duration, _ ...int64) InvocationLimits {
 	t.Helper()
-	limits, err := NewInvocationLimits(timeout, stdoutCap, stderrCap)
+	limits, err := NewInvocationLimits(timeout)
 	if err != nil {
 		t.Fatalf("NewInvocationLimits() error = %v", err)
 	}
@@ -539,16 +461,13 @@ func budgetTestCompleteRoles(t *testing.T, limits InvocationLimits) []RoleBudget
 func budgetTestCeilings(
 	t *testing.T,
 	maxTimeout time.Duration,
-	maxStdout, maxStderr, maxTotalOutput int64,
+	_, _, _ int64,
 	maxRolePathDeadline, maxRunDeadline time.Duration,
 	maxInvocationsPerRole, maxInvocationsPerRun int,
 ) HarnessCeilings {
 	t.Helper()
 	ceilings, err := NewHarnessCeilings(
 		maxTimeout,
-		maxStdout,
-		maxStderr,
-		maxTotalOutput,
 		maxRolePathDeadline,
 		maxRunDeadline,
 		maxInvocationsPerRole,

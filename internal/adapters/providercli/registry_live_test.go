@@ -184,7 +184,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
 		BaseArgv: baseArgv, TransportChannel: ports.ProviderPacketChannelArgvLiteral, TransportArgvIndex: config.transportIndex,
-		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second, MaxStdoutBytes: 64 << 10, MaxStderrBytes: 64 << 10,
+		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("%s production runtime definition: %v", config.family, err)

@@ -22,7 +22,7 @@ func validConfig() Config {
 		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
 		Validation: ValidationConfig{Evidence: EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
-		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12, RunTotalOutputCap: "64MiB"},
+		Resources:  ResourcesConfig{MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12},
 		CI:         CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
 	}
 }
@@ -85,7 +85,7 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !bytes.Equal(rendered, canonical) {
-		t.Fatalf("omitted Config v2 bytes changed:\n%s", rendered)
+		t.Fatalf("omitted Config v3 bytes changed:\n%s", rendered)
 	}
 
 	legacyExplicit := bytes.Replace(
@@ -106,7 +106,7 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !bytes.Equal(renderedLegacy, legacyExplicit) {
-		t.Fatalf("explicit Config v2 bytes changed:\n%s", renderedLegacy)
+		t.Fatalf("explicit Config v3 bytes changed:\n%s", renderedLegacy)
 	}
 
 	config.Providers.AGY.PermissionMode = SafeAGYPermissionMode
@@ -297,7 +297,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
 		}
 	}
-	future := strings.Replace(string(encoded), "version: 2", "version: 3", 1)
+	future := strings.Replace(string(encoded), "version: 3", "version: 4", 1)
 	if _, err := Decode([]byte(future)); err == nil {
 		t.Fatal("future config version was accepted")
 	}

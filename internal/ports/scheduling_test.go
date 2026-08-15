@@ -159,8 +159,6 @@ func TestNewProcessRequestCopiesInputsAndCompletesEnvironment(t *testing.T) {
 		"/work",
 		stdin,
 		3*time.Second,
-		1024,
-		2048,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -173,12 +171,6 @@ func TestNewProcessRequestCopiesInputsAndCompletesEnvironment(t *testing.T) {
 	}
 	if got, want := request.Timeout(), 3*time.Second; got != want {
 		t.Fatalf("Timeout() = %s, want %s", got, want)
-	}
-	if got, want := request.MaxStdoutBytes(), int64(1024); got != want {
-		t.Fatalf("MaxStdoutBytes() = %d, want %d", got, want)
-	}
-	if got, want := request.MaxStderrBytes(), int64(2048); got != want {
-		t.Fatalf("MaxStderrBytes() = %d, want %d", got, want)
 	}
 	if !request.Valid() {
 		t.Fatal("valid request reports invalid")
@@ -281,10 +273,6 @@ func TestNewProcessRequestRejectsInvalidDirectExecutionInputs(t *testing.T) {
 		{name: "NUL working directory", change: func(input *schedulingProcessRequestInput) { input.workingDirectory = "/work/\x00tmp" }},
 		{name: "zero timeout", change: func(input *schedulingProcessRequestInput) { input.timeout = 0 }},
 		{name: "negative timeout", change: func(input *schedulingProcessRequestInput) { input.timeout = -time.Second }},
-		{name: "zero stdout cap", change: func(input *schedulingProcessRequestInput) { input.maxStdoutBytes = 0 }},
-		{name: "negative stdout cap", change: func(input *schedulingProcessRequestInput) { input.maxStdoutBytes = -1 }},
-		{name: "zero stderr cap", change: func(input *schedulingProcessRequestInput) { input.maxStderrBytes = 0 }},
-		{name: "negative stderr cap", change: func(input *schedulingProcessRequestInput) { input.maxStderrBytes = -1 }},
 		{name: "duplicate environment name", change: func(input *schedulingProcessRequestInput) {
 			input.environment = []EnvironmentVariable{
 				schedulingTestEnvironmentVariable(t, "ALPHA", "one"),
@@ -365,8 +353,6 @@ func TestProcessTerminationIsClosed(t *testing.T) {
 		ProcessTerminationStartSecurity,
 		ProcessTerminationTimedOut,
 		ProcessTerminationCancelled,
-		ProcessTerminationStdoutLimit,
-		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
 	} {
@@ -513,8 +499,6 @@ func TestNewProcessObservationDistinguishesExitedAndNonExitedFacts(t *testing.T)
 		ProcessTerminationStartFailed,
 		ProcessTerminationTimedOut,
 		ProcessTerminationCancelled,
-		ProcessTerminationStdoutLimit,
-		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 	} {
 		observation, err := NewProcessObservation(
@@ -716,8 +700,6 @@ type schedulingProcessRequestInput struct {
 	workingDirectory string
 	stdin            []byte
 	timeout          time.Duration
-	maxStdoutBytes   int64
-	maxStderrBytes   int64
 }
 
 func schedulingValidProcessRequestInput(t *testing.T) schedulingProcessRequestInput {
@@ -729,8 +711,6 @@ func schedulingValidProcessRequestInput(t *testing.T) schedulingProcessRequestIn
 		workingDirectory: "/work",
 		stdin:            []byte("stdin"),
 		timeout:          time.Second,
-		maxStdoutBytes:   1,
-		maxStderrBytes:   1,
 	}
 }
 
@@ -742,8 +722,6 @@ func (input schedulingProcessRequestInput) new() (ProcessRequest, error) {
 		input.workingDirectory,
 		input.stdin,
 		input.timeout,
-		input.maxStdoutBytes,
-		input.maxStderrBytes,
 	)
 }
 
@@ -762,7 +740,7 @@ func TestNewProviderProcessRequestEnforcesOnePacketChannel(t *testing.T) {
 	newRequest := func(binding ProviderPacketBinding, argv []string, workingDirectory string) (ProcessRequest, error) {
 		return NewProviderProcessRequest(
 			"/usr/bin/provider", argv, nil, workingDirectory, binding,
-			time.Second, 1024, 1024,
+			time.Second,
 		)
 	}
 	argvBinding, err := NewArgvLiteralProviderPacketBinding(packet, 1)
@@ -905,8 +883,6 @@ func TestNewAcceptedProcessGroupSignalRequestReceiptRestrictsReasons(t *testing.
 	for _, reason := range []ProcessGroupSignalRequestReason{
 		ProcessGroupSignalRequestCancellation,
 		ProcessGroupSignalRequestTimeout,
-		ProcessGroupSignalRequestStdoutLimit,
-		ProcessGroupSignalRequestStderrLimit,
 		ProcessGroupSignalRequestStdinIncomplete,
 		ProcessGroupSignalRequestResidualGroup,
 		ProcessGroupSignalRequestInternalTeardown,

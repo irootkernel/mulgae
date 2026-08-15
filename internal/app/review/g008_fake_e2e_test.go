@@ -126,7 +126,7 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit, err := review.NewInvocationLimits(time.Second, 256<<10, 256<<10)
+	limit, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

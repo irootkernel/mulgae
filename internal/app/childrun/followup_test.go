@@ -71,7 +71,7 @@ func TestFollowupObservationFailurePreservesProviderOutputCause(t *testing.T) {
 	}
 	observation, err := ports.NewFailedProviderExecutionObservationWithCause(
 		ports.ProviderExecutionStatusArtifactFailure, invocation, process, "invalid_provider_output",
-		domain.DiagnosticCauseOutputEnvelopeInvalid, "", 4096, 4096,
+		domain.DiagnosticCauseOutputEnvelopeInvalid, "",
 	)
 	if err != nil {
 		t.Fatal(err)

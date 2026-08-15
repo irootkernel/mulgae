@@ -74,7 +74,7 @@ type LocalConfigSource struct {
 	observation LocalConfigObservation
 }
 
-// NewLocalConfigSource opens only the Config v2 project/local pair beneath
+// NewLocalConfigSource opens only the Config v3 project/local pair beneath
 // <root>/.mulgae. It never consults HOME, XDG, embedded defaults, or legacy
 // filenames.
 func NewLocalConfigSource(root ports.AnchoredRoot, allowAbsent bool) (*LocalConfigSource, error) {

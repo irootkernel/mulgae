@@ -216,7 +216,7 @@ func TestImmutableReviewInputRetainsObjectivePresence(t *testing.T) {
 func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 	t.Helper()
 	definition, _ := authorityProbeDefinition(t, FamilyAGY, "agy-main", "1.1.4", t.TempDir())
-	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 func authorityCandidateForRoles(t *testing.T, family Family, instance string, roles []domain.Role) QualifiedRunCandidate {
 	t.Helper()
 	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.4", t.TempDir())
-	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

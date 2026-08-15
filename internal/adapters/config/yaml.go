@@ -27,7 +27,6 @@ const (
 var (
 	errProviderTimeoutInvalid  = errors.New("provider timeout invalid")
 	modelPattern               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
-	byteSizePattern            = regexp.MustCompile(`^([1-9][0-9]{0,8})(KiB|MiB|GiB)$`)
 	placeholderPattern         = regexp.MustCompile(`\$\{[^{}]+\}`)
 	pemPrivateKeyHeaderPattern = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY-----`)
 	credentialPrefixes         = []string{"github_pat_", "xoxb-", "xoxp-", "xoxa-", "xoxr-", "sk-", "sk_", "ghp_"}
@@ -469,9 +468,6 @@ func validate(config *Config) error {
 	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 2 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 14 {
 		return fmt.Errorf("budgets")
 	}
-	if _, err := parseByteSize(config.Resources.RunTotalOutputCap); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -572,26 +568,6 @@ func validOrderedSet(values, allowed, required []string) bool {
 	}
 	return true
 }
-func parseByteSize(value string) (int64, error) {
-	matches := byteSizePattern.FindStringSubmatch(value)
-	if matches == nil {
-		return 0, fmt.Errorf("output cap")
-	}
-	amount, err := strconv.ParseInt(matches[1], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	multiplier := int64(1 << 10)
-	if matches[2] == "MiB" {
-		multiplier = 1 << 20
-	} else if matches[2] == "GiB" {
-		multiplier = 1 << 30
-	}
-	if amount > (1<<30)/multiplier {
-		return 0, fmt.Errorf("output cap")
-	}
-	return amount * multiplier, nil
-}
 
 // EncodeCanonical emits the one stable operator-local representation.
 func EncodeCanonical(config Config) ([]byte, error) {
@@ -650,7 +626,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
 	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
-	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n  run_total_output_cap: " + q(config.Resources.RunTotalOutputCap) + "\n")
+	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n")
 	out.WriteString("ci:\n  fail_on_severity: " + quotedList(config.CI.FailOnSeverity) + "\n  degraded_review_fails: " + strconv.FormatBool(config.CI.DegradedReviewFails) + "\n")
 	encoded := []byte(out.String())
 	if _, err := Decode(encoded); err != nil {
@@ -665,8 +641,4 @@ func quotedList(values []string) string {
 		parts[index] = strconv.Quote(value)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-func RunTotalOutputCapBytes(config Config) (int64, error) {
-	return parseByteSize(config.Resources.RunTotalOutputCap)
 }

@@ -9,7 +9,7 @@ import "github.com/irootkernel/mulgae/internal/ports"
 const MaxInputBytes = 8 << 20
 
 const (
-	providerContractEvidenceID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	providerContractEvidenceID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
 	platformContractEvidenceID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 )
 

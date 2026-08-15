@@ -1,4 +1,4 @@
-// Package config admits the project-local Config v2 pair and projects the fixed
+// Package config admits the project-local Config v3 pair and projects the fixed
 // runtime policy consumed by review composition.
 package config
 
@@ -30,21 +30,16 @@ func (role ResolvedRole) PrimaryProvider() string { return role.primaryProvider 
 type RuntimePolicy struct{ MaxActiveLanes int }
 
 type ResolvedConfig struct {
-	raw                    Config
-	roles                  map[domain.Role]ResolvedRole
-	requiredRoles          []domain.Role
-	requestChangesOn       []domain.Severity
-	requireVerifiedFor     []domain.Severity
-	ciFailOnSeverity       []domain.Severity
-	runTotalOutputCapBytes int64
-	providerTimeouts       map[string]time.Duration
+	raw                Config
+	roles              map[domain.Role]ResolvedRole
+	requiredRoles      []domain.Role
+	requestChangesOn   []domain.Severity
+	requireVerifiedFor []domain.Severity
+	ciFailOnSeverity   []domain.Severity
+	providerTimeouts   map[string]time.Duration
 }
 
 func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
-	capBytes, err := RunTotalOutputCapBytes(raw)
-	if err != nil {
-		return ResolvedConfig{}, fmt.Errorf("resolve configuration: output cap: %w", err)
-	}
 	providerTimeouts := make(map[string]time.Duration, raw.Providers.Count())
 	for _, family := range raw.Providers.Families() {
 		timeout, timeoutErr := ParseProviderTimeout(configuredProviderTimeout(raw.Providers, family))
@@ -60,12 +55,11 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 	}
 	return ResolvedConfig{
 		raw: cloneConfig(raw), roles: roles,
-		requiredRoles:          parseRoles(raw.Review.RequiredRoles),
-		requestChangesOn:       parseSeverities(raw.Review.RequestChangesOn),
-		requireVerifiedFor:     parseSeverities(raw.Validation.Evidence.RequireVerifiedFor),
-		ciFailOnSeverity:       parseSeverities(raw.CI.FailOnSeverity),
-		runTotalOutputCapBytes: capBytes,
-		providerTimeouts:       providerTimeouts,
+		requiredRoles:      parseRoles(raw.Review.RequiredRoles),
+		requestChangesOn:   parseSeverities(raw.Review.RequestChangesOn),
+		requireVerifiedFor: parseSeverities(raw.Validation.Evidence.RequireVerifiedFor),
+		ciFailOnSeverity:   parseSeverities(raw.CI.FailOnSeverity),
+		providerTimeouts:   providerTimeouts,
 	}, nil
 }
 
@@ -144,7 +138,6 @@ func (resolved ResolvedConfig) RoleMaxInvocations() int {
 func (resolved ResolvedConfig) RunMaxInvocations() int {
 	return resolved.raw.Resources.RunMaxInvocations
 }
-func (resolved ResolvedConfig) RunTotalOutputCapBytes() int64 { return resolved.runTotalOutputCapBytes }
 func (resolved ResolvedConfig) CIFailOnSeverity() []domain.Severity {
 	return append([]domain.Severity(nil), resolved.ciFailOnSeverity...)
 }

@@ -653,7 +653,7 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"/private/bin/kimi", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"},
-		transport, nil, "/private/work", time.Second, 1024, 1024,
+		transport, nil, "/private/work", time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -974,7 +974,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 		}
 		definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 			string(family), instance, version, "/private/bin/"+string(family), qualifierTestSHA, "/private/bin/"+string(family), qualifierTestSHA,
-			string(family)+"-profile", "profile-1", policy, []string{"/private/bin/" + string(family)}, transport, lifecycle, nil, workingDirectory, 3*time.Second, 4096, 4096,
+			string(family)+"-profile", "profile-1", policy, []string{"/private/bin/" + string(family)}, transport, lifecycle, nil, workingDirectory, 3*time.Second,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -991,7 +991,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		string(family), instance, version, executable, qualifierTestSHA, launcher, qualifierTestSHA,
-		string(family)+"-profile", "profile-1", policy, baseArgv, transport, nil, workingDirectory, time.Second, 4096, 4096,
+		string(family)+"-profile", "profile-1", policy, baseArgv, transport, nil, workingDirectory, time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)

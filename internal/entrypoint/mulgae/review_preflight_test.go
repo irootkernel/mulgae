@@ -14,7 +14,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 
 func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,6 @@ func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	result.Budget.ReasonCode = "no_change"
 	result.Budget.MaxActiveLanes = 0
 	result.Budget.TotalInvocations = 0
-	result.Budget.TotalOutputCapBytes = 0
 	result.Budget.CriticalPathDeadline = "0s"
 	result.Budget.RunDeadline = "0s"
 	result.Budget.RolePaths = nil
@@ -198,7 +197,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v2.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,8 +26,6 @@ type ProviderRuntimeDefinition interface {
 	Environment() []EnvironmentVariable
 	WorkingDirectory() string
 	Timeout() time.Duration
-	MaxStdoutBytes() int64
-	MaxStderrBytes() int64
 	PostOutputLifecycle() (BoundedPostOutputLifecycle, bool)
 	TransportChannel() ProviderPacketChannel
 	TransportArgvIndex() int
@@ -56,8 +54,6 @@ type ProviderRuntimeSpec struct {
 	Environment                 []EnvironmentVariable
 	WorkingDirectory            string
 	Timeout                     time.Duration
-	MaxStdoutBytes              int64
-	MaxStderrBytes              int64
 	PostOutputLifecycle         BoundedPostOutputLifecycle
 	HasPostOutputLifecycle      bool
 }

@@ -21,10 +21,9 @@ import (
 )
 
 const (
-	childrunStagedInstance   = "zcode-logic"
-	childrunFramesBoundary   = "\nMulgae-FRAMES/1\n"
-	childrunDestinationLead  = "Mulgae ROOT REVIEW OUTPUT DESTINATION/1"
-	childrunStagingStreamCap = 64 << 10
+	childrunStagedInstance  = "zcode-logic"
+	childrunFramesBoundary  = "\nMulgae-FRAMES/1\n"
+	childrunDestinationLead = "Mulgae ROOT REVIEW OUTPUT DESTINATION/1"
 )
 
 func TestFollowupPromptCarriesStagedOutputDestination(t *testing.T) {
@@ -287,7 +286,6 @@ func TestFollowupStagedFileMissingFailsAsInvalidProviderOutput(t *testing.T) {
 			observation, observationErr := ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation,
 				childrunStagingProcess(t, invocation, nil), "provider_output_staging", test.cause, "",
-				childrunStagingStreamCap, childrunStagingStreamCap,
 			)
 			if observationErr != nil {
 				t.Fatal(observationErr)
@@ -592,7 +590,7 @@ func childrunStagedObservation(t *testing.T, invocation ports.ProviderInvocation
 	}
 	observation, err := ports.NewStagedFileSuccessfulProviderExecutionObservation(
 		invocation, result, childrunStagingProcess(t, invocation, nil),
-		childrunStagingStreamCap, childrunStagingStreamCap, receipt,
+		receipt,
 	)
 	if err != nil {
 		t.Fatal(err)

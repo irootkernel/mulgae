@@ -11,9 +11,9 @@ import (
 func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	t.Parallel()
 
-	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v2.schema.json")
+	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v3.schema.json")
 	manifestDoc := readAssetJSON(t, "schemas/mulgae-run-manifest.v1.schema.json")
-	commandID := "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
+	commandID := "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
 	manifestID := "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 
 	seven := []any{
@@ -98,11 +98,11 @@ func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	}
 }
 
-func TestReviewPreflightV2RolePathSchemaBounds(t *testing.T) {
+func TestReviewPreflightV3RolePathSchemaBounds(t *testing.T) {
 	t.Parallel()
 
-	document := readAssetJSON(t, "schemas/mulgae-review-preflight.v2.schema.json")
-	resourceID := "https://mulgae.local/schemas/mulgae-review-preflight.v2.schema.json"
+	document := readAssetJSON(t, "schemas/mulgae-review-preflight.v3.schema.json")
+	resourceID := "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json"
 	ref := resourceID + "#/properties/budget/properties/role_paths"
 	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	paths := make([]any, 0, len(roles))

@@ -39,7 +39,7 @@ func TestConfigV2SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := []byte(strings.Replace(string(project), "version: 2", "version: 1", 1))
+	legacy := []byte(strings.Replace(string(project), "version: 3", "version: 2", 1))
 	if _, err := DecodeSplit(legacy, local); err == nil {
 		t.Fatal("Config v1 was accepted")
 	}
@@ -67,7 +67,7 @@ func TestRepositoryProjectConfigIsCanonicalSharedPolicy(t *testing.T) {
 			t.Fatalf("repository project config contains machine-local field %q", forbidden)
 		}
 	}
-	local := []byte("version: 2\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n")
+	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n")
 	config, err := DecodeSplit(project, local)
 	if err != nil {
 		t.Fatalf("decode repository project config: %v", err)

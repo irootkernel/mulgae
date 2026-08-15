@@ -26,7 +26,7 @@ func TestEnvelopeRendererRendersCanonicalEnvelopeInContractOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	want := []byte("{\"schema_version\":\"mulgae-command-result.v2\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".mulgae/followup.json\",\"kind\":\"followup_started\",\"resolution\":\"still_open\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
+	want := []byte("{\"schema_version\":\"mulgae-command-result.v3\",\"command\":\"followup\",\"request\":{\"command\":\"followup\",\"finding_id\":\"F003\",\"objective\":\"Verify whether the source finding is resolved.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source_run_id\":\"r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"target\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"followup_artifact_uri\":\".mulgae/followup.json\",\"kind\":\"followup_started\",\"resolution\":\"still_open\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Render() = %s\nwant     = %s", got, want)
 	}
@@ -371,7 +371,7 @@ func TestEnvelopeRendererKeepsAttributedCommittedReasonInsideClosedShape(t *test
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v2" || len(envelope.Reasons) != 1 ||
+	if envelope.SchemaVersion != "mulgae-command-result.v3" || len(envelope.Reasons) != 1 ||
 		envelope.Reasons[0].Code != reason.Code() || envelope.Reasons[0].Message != reason.Message() {
 		t.Fatalf("committed envelope = %#v", envelope)
 	}

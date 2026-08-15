@@ -3,6 +3,7 @@
 package environment
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,14 +28,10 @@ import (
 
 // maximumExecutableSize bounds executable observation I/O and hashing work to 512 MiB.
 const maximumExecutableSize int64 = 512 * 1024 * 1024
-const (
-	maximumExecutableVersionOutput = 1024
-	executableVersionTimeout       = 2 * time.Second
-)
+const executableVersionTimeout = 2 * time.Second
 
 var (
-	errExecutableVersionOutputTooLarge = errors.New("executable version output too large")
-	executableSemanticVersionPattern   = regexp.MustCompile(`[vV]?[0-9]+\.[0-9]+\.[0-9]+`)
+	executableSemanticVersionPattern = regexp.MustCompile(`[vV]?[0-9]+\.[0-9]+\.[0-9]+`)
 )
 
 func identityUnavailable(text string) error {
@@ -43,22 +40,6 @@ func identityUnavailable(text string) error {
 
 func identitySecurity(text string) error {
 	return ports.NewIdentityObservationError(ports.IdentityObservationSecurity, text)
-}
-
-type boundedCombinedOutput struct {
-	data     []byte
-	overflow bool
-}
-
-func (output *boundedCombinedOutput) Write(value []byte) (int, error) {
-	remaining := maximumExecutableVersionOutput - len(output.data)
-	if len(value) > remaining {
-		output.data = append(output.data, value[:remaining]...)
-		output.overflow = true
-		return 0, errExecutableVersionOutputTooLarge
-	}
-	output.data = append(output.data, value...)
-	return len(value), nil
 }
 
 func observeExecutableVersion(ctx context.Context, path string) ([]byte, error) {
@@ -75,20 +56,17 @@ func observeExecutableVersion(ctx context.Context, path string) ([]byte, error) 
 		}
 		return err
 	}
-	var output boundedCombinedOutput
+	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
 	if err := command.Run(); err != nil {
 		return nil, err
 	}
-	if output.overflow {
-		return nil, errExecutableVersionOutputTooLarge
-	}
-	return output.data, nil
+	return output.Bytes(), nil
 }
 
 func safeExecutableVersion(output []byte) string {
-	if len(output) > maximumExecutableVersionOutput || !utf8.Valid(output) {
+	if !utf8.Valid(output) {
 		return ""
 	}
 	text := strings.TrimSpace(string(output))

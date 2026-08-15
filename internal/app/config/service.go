@@ -86,10 +86,10 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	return Resolution{config: resolved, sha256: sha256, canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
 }
 
-// BundleSHA256 returns the stable identity of an ordered Config v2 pair.
+// BundleSHA256 returns the stable identity of an ordered Config v3 pair.
 func BundleSHA256(project, local []byte) string {
 	digest := sha256.New()
-	digest.Write([]byte("Mulgae-CONFIG-v2\x00project\x00"))
+	digest.Write([]byte("Mulgae-CONFIG-v3\x00project\x00"))
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(len(project)))
 	digest.Write(size[:])
@@ -116,8 +116,8 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"roles.documentation.enabled", "roles.documentation.primary_provider",
 		"roles.testing.enabled", "roles.testing.primary_provider",
 		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
-		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "resources.run_total_output_cap", "ci.fail_on_severity", "ci.degraded_review_fails",
-		"execution.strategy", "runtime.path_policy", "runtime.environment_policy", "provider.max_stdout_bytes", "provider.max_stderr_bytes", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
+		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "ci.fail_on_severity", "ci.degraded_review_fails",
+		"execution.strategy", "runtime.path_policy", "runtime.environment_policy", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
 	}
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {

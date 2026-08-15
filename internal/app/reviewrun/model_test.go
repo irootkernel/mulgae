@@ -376,7 +376,7 @@ func reviewRunPatchTarget(t *testing.T) ports.CapturedReviewTarget {
 
 func reviewRunPlan(t *testing.T, roles []domain.Role) ExecutionPlan {
 	t.Helper()
-	limits, err := review.NewInvocationLimits(time.Second, 1, 1)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

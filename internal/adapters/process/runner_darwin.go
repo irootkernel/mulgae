@@ -32,8 +32,6 @@ const (
 )
 
 var (
-	errOutputLimit = errors.New("process output exceeds configured limit")
-
 	signalProcessGroup = func(processGroupID int, signal syscall.Signal) error {
 		return syscall.Kill(-processGroupID, signal)
 	}
@@ -86,45 +84,11 @@ type contentSpoolResult struct {
 	err      error
 }
 
-type cappedCapture struct {
-	limit    int64
-	bytes    []byte
-	exceeded bool
+type streamCapture struct {
+	bytes []byte
 }
 
-type truncatingCapture struct {
-	limit     int64
-	bytes     []byte
-	truncated bool
-}
-
-func (capture *truncatingCapture) Write(value []byte) (int, error) {
-	remaining := capture.limit - int64(len(capture.bytes))
-	if remaining > 0 {
-		kept := min(int64(len(value)), remaining)
-		capture.bytes = append(capture.bytes, value[:kept]...)
-	}
-	if int64(len(value)) > max(remaining, 0) {
-		capture.truncated = true
-	}
-	return len(value), nil
-}
-
-func (capture *cappedCapture) Write(value []byte) (int, error) {
-	remaining := capture.limit - int64(len(capture.bytes))
-	if remaining <= 0 {
-		if len(value) == 0 {
-			return 0, nil
-		}
-		capture.exceeded = true
-		return 0, errOutputLimit
-	}
-	if int64(len(value)) > remaining {
-		written := int(remaining)
-		capture.bytes = append(capture.bytes, value[:written]...)
-		capture.exceeded = true
-		return written, errOutputLimit
-	}
+func (capture *streamCapture) Write(value []byte) (int, error) {
 	capture.bytes = append(capture.bytes, value...)
 	return len(value), nil
 }
@@ -132,8 +96,6 @@ func (capture *cappedCapture) Write(value []byte) (int, error) {
 type terminationSignals struct {
 	cancelled            bool
 	timedOut             bool
-	stdoutFull           bool
-	stderrFull           bool
 	stdinIncomplete      bool
 	residualProcessGroup bool
 	internal             error
@@ -141,15 +103,6 @@ type terminationSignals struct {
 
 func (signals *terminationSignals) record(result streamResult) {
 	if result.err == nil {
-		return
-	}
-	if errors.Is(result.err, errOutputLimit) {
-		switch result.stream {
-		case stdoutStream:
-			signals.stdoutFull = true
-		case stderrStream:
-			signals.stderrFull = true
-		}
 		return
 	}
 	if signals.internal == nil {
@@ -174,18 +127,14 @@ func (signals *terminationSignals) recordStdin(result stdinResult) {
 }
 
 // termination applies the runner's explicit terminal precedence: caller
-// cancellation, request timeout, stdout cap, stderr cap, stdin incompleteness,
-// residual same-PGID membership, then normal process completion.
+// cancellation, request timeout, stdin incompleteness, residual same-PGID
+// membership, then normal process completion.
 func (signals terminationSignals) termination() ports.ProcessTermination {
 	switch {
 	case signals.cancelled:
 		return ports.ProcessTerminationCancelled
 	case signals.timedOut:
 		return ports.ProcessTerminationTimedOut
-	case signals.stdoutFull:
-		return ports.ProcessTerminationStdoutLimit
-	case signals.stderrFull:
-		return ports.ProcessTerminationStderrLimit
 	case signals.stdinIncomplete:
 		return ports.ProcessTerminationStdinIncomplete
 	case signals.residualProcessGroup:
@@ -386,9 +335,9 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		)
 	}
 
-	stdout := cappedCapture{limit: request.MaxStdoutBytes()}
-	stdoutPreview := truncatingCapture{limit: request.MaxStdoutBytes()}
-	stderr := cappedCapture{limit: request.MaxStderrBytes()}
+	stdout := streamCapture{}
+	stdoutPreview := streamCapture{}
+	stderr := streamCapture{}
 	streamResults := make(chan streamResult, 2)
 	if request.SpoolStdout() {
 		go copySpooledStream(ctx, runner.spooler, stdoutReader, &stdoutPreview, streamResults)
@@ -612,7 +561,7 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 		closeContentArtifact(stdoutArtifact)
 		return observation, observationErr
 	}
-	return bindProcessStdoutArtifact(observation, stdoutArtifact, stdoutPreview.truncated)
+	return bindProcessStdoutArtifact(observation, stdoutArtifact, false)
 }
 func (runner *Runner) signaledObservation(
 	stdout []byte,
@@ -722,8 +671,8 @@ func processSignalName(signal syscall.Signal) string {
 	}
 }
 func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Timer, request ports.ProcessRequest, child *exec.Cmd, pgid int, out, errOut *os.File, in io.WriteCloser, stdin []byte, initial ports.StdinWriteReceipt, expected string, binding ports.ProviderPacketBinding, provider bool, pre ports.ProviderPacketIdentity, lifecycle ports.BoundedPostOutputLifecycle, started time.Time) (ports.ProcessObservation, error) {
-	stdout, stderr := cappedCapture{limit: request.MaxStdoutBytes()}, cappedCapture{limit: request.MaxStderrBytes()}
-	stdoutPreview := truncatingCapture{limit: request.MaxStdoutBytes()}
+	stdout, stderr := streamCapture{}, streamCapture{}
+	stdoutPreview := streamCapture{}
 	var spoolWriter *io.PipeWriter
 	spoolResults := make(chan contentSpoolResult, 1)
 	spoolFinished := !request.SpoolStdout()
@@ -914,19 +863,9 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 					continue
 				}
 				_, _ = stdoutPreview.Write(chunk.bytes)
-				if stdoutPreview.truncated {
-					hasFrame = false
-					if stable != nil {
-						stable.Stop()
-					}
-					stableC = nil
-					continue
-				}
 			} else if _, err := capture.Write(chunk.bytes); err != nil {
-				if chunk.stream == stdoutStream {
-					signals.stdoutFull = true
-				} else {
-					signals.stderrFull = true
+				if signals.internal == nil {
+					signals.internal = fmt.Errorf("process runner: capture stream: %w", err)
 				}
 				continue
 			}
@@ -1096,7 +1035,7 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	if observationErr != nil || !request.SpoolStdout() || !observation.Succeeded() {
 		return observation, observationErr
 	}
-	bound, bindErr := bindProcessStdoutArtifact(observation, stdoutArtifact, stdoutPreview.truncated)
+	bound, bindErr := bindProcessStdoutArtifact(observation, stdoutArtifact, false)
 	if bindErr == nil {
 		artifactTransferred = true
 	}
@@ -1203,11 +1142,11 @@ func recordStreamResult(signals *terminationSignals, result streamResult, stdout
 	signals.record(result)
 }
 
-func processStdoutBytes(request ports.ProcessRequest, bounded *cappedCapture, preview *truncatingCapture) []byte {
+func processStdoutBytes(request ports.ProcessRequest, captured, preview *streamCapture) []byte {
 	if request.SpoolStdout() {
 		return preview.bytes
 	}
-	return bounded.bytes
+	return captured.bytes
 }
 
 func bindProcessStdoutArtifact(observation ports.ProcessObservation, artifact ports.ContentArtifact, truncated bool) (ports.ProcessObservation, error) {

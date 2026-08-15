@@ -235,7 +235,7 @@ func TestCurrentProbeClassifiesSuccessfulAGYPermissionDenialBeforeOutputDecode(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current-permission", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current-permission", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestCurrentProbeAgyBindsProviderPacketAndRequiresLifecycleEvidence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-current", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestCurrentProbeAcceptsNarratedAGYCapabilityWithoutTerminalFrame(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-narrated", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-narrated", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestCurrentProbeRejectsUnboundEvidenceAsOperationalCapabilityFailure(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-unbound-evidence", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-unbound-evidence", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +644,7 @@ func TestCurrentProbeRejectsPromptEchoAsOperationalCapabilityFailure(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-prompt-echo", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second, 4096, 4096)
+	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(FamilyAgy, "kimi_current", "", "/private/bin/agy", "", "agy-prompt-echo", []string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +689,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 		FamilyAgy, "agy_lifecycle_sequence", "", "/private/bin/agy", "", "agy-lifecycle-sequence",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -889,7 +889,7 @@ func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 		FamilyAgy, "agy_frameless_success", "", "/private/bin/agy", "", "agy-frameless-success",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -970,7 +970,7 @@ func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T
 	}
 	definition, err := NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
 		FamilyAgy, "agy_lifecycle_timeout", "", "/private/bin/agy", "", "agy-lifecycle-timeout",
-		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{"/private/bin/agy"}, transportPolicy, lifecyclePolicy, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -1181,8 +1181,6 @@ func TestCurrentProbeDirectExecutionAuthorityBindsCompleteRuntimeDefinition(t *t
 		"lifecycle-present":   func(d *RuntimeDefinition) { d.hasPostOutputLifecycle = true },
 		"lifecycle-policy":    func(d *RuntimeDefinition) { d.postOutputLifecycle = lifecycle; d.hasPostOutputLifecycle = true },
 		"timeout":             func(d *RuntimeDefinition) { d.timeout++ },
-		"max-stdout":          func(d *RuntimeDefinition) { d.maxStdoutBytes++ },
-		"max-stderr":          func(d *RuntimeDefinition) { d.maxStderrBytes++ },
 		"executable":          func(d *RuntimeDefinition) { d.executable = "/private/bin/other-kimi" },
 		"executable-sha256":   func(d *RuntimeDefinition) { d.executableSHA256 = "sha256:other" },
 		"launcher":            func(d *RuntimeDefinition) { d.launcher = "/private/bin/other-launcher" },

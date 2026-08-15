@@ -264,7 +264,7 @@ esac
 		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_CWD", workspace.WorkspaceSnapshotIdentity().SnapshotPath()), agyLifecycleEnv(t, "MULGAE_AGY_CHILD_PID", childPID),
 		agyLifecycleEnv(t, "MULGAE_AGY_EXPECTED_PRINT_TIMEOUT", agyPrintTimeout(timeout).String()),
 	}
-	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout, stdoutCap, 256)
+	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(FamilyAgy, "agy-offline", "1.1.4", executable, hash, executable, hash, "agy-offline", "offline-v1", policy.Identity(), []string{executable}, transport, lifecycle, env, workspace.WorkspaceSnapshotIdentity().SnapshotPath(), timeout)
 	if err != nil {
 		t.Fatal(err)
 	}

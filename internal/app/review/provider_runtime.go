@@ -1183,13 +1183,13 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 		return fmt.Errorf("provider invocation runtime: diagnostic raw inventory unavailable")
 	}
 	persistCtx := context.WithoutCancel(ctx)
-	persist := func(stream domain.RuntimeDiagnosticStream, content []byte, maximum int64) error {
+	persist := func(stream domain.RuntimeDiagnosticStream, content []byte) error {
 		if len(content) == 0 {
 			return nil
 		}
 		request, err := ports.NewRuntimeDiagnosticRawRequest(
 			job.AttemptID(), inventory.sourceInvocationID, key.sequence, runtimePurpose(job.Purpose()),
-			stream, bytes.NewReader(content), maximum, []string{"provider:" + string(stream)}, func(error) {},
+			stream, bytes.NewReader(content), int64(len(content)), []string{"provider:" + string(stream)}, func(error) {},
 		)
 		if err != nil {
 			return fmt.Errorf("provider invocation runtime: diagnostic raw request: %w", err)
@@ -1232,10 +1232,10 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 		}
 		return nil
 	}
-	if err := persist(domain.DiagnosticStdout, stdout, job.Limits().MaxStdoutBytes()); err != nil {
+	if err := persist(domain.DiagnosticStdout, stdout); err != nil {
 		return err
 	}
-	return persist(domain.DiagnosticStderr, stderr, job.Limits().MaxStderrBytes())
+	return persist(domain.DiagnosticStderr, stderr)
 }
 
 func (runtime *ProviderInvocationRuntime) markCapturedStreamSecurityRejected(key captureKey, stream domain.RuntimeDiagnosticStream) error {

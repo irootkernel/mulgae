@@ -49,7 +49,7 @@ Mulgae does not:
 The first public release is intentionally narrow:
 
 - one binary named `mulgae`, including the `mulgae mcp` attached transport;
-- Config v2 split between tracked `.mulgae/config.yaml` project policy and
+- Config v3 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;
 - Kimi, ZCode, and AGY provider families;

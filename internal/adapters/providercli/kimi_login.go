@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	kimiLoginTimeout   = 10 * time.Minute
-	kimiLoginOutputCap = int64(64 << 10)
+	kimiLoginTimeout = 10 * time.Minute
 )
 
 // KimiLoginAuthenticator runs Kimi's native browser/device login against the
@@ -49,7 +48,7 @@ func (authenticator *KimiLoginAuthenticator) LoginProvider(ctx context.Context, 
 	}
 	request, err := ports.NewProcessRequest(
 		runtime.Executable(), []string{runtime.Executable(), "login"}, environment,
-		authenticator.nativeHome, nil, kimiLoginTimeout, kimiLoginOutputCap, kimiLoginOutputCap,
+		authenticator.nativeHome, nil, kimiLoginTimeout,
 	)
 	if err != nil {
 		return fmt.Errorf("kimi login: process request: %w", err)

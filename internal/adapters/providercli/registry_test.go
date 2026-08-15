@@ -439,7 +439,7 @@ func TestNewRegistryRejectsMalformedProfilesAndUnlistedFamilies(t *testing.T) {
 func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
 	argv := []string{"/private/bin/kimi", "--safe"}
 	environment := []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home")}
-	profile, err := NewRuntimeDefinition(FamilyKimi, "kimi_default", "", argv[0], "", "kimi_default", argv, environment, "/private/work", time.Second, 4096, 4096)
+	profile, err := NewRuntimeDefinition(FamilyKimi, "kimi_default", "", argv[0], "", "kimi_default", argv, environment, "/private/work", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -894,11 +894,9 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 				!equalStrings(request.Argv(), test.wantArgv) ||
 				len(request.Stdin()) != 0 ||
 				packetOccurrences(request.Argv(), string(invocation.PacketBytes())) != 1 ||
-				request.Timeout() != definition.timeout ||
-				request.MaxStdoutBytes() != definition.maxStdoutBytes ||
-				request.MaxStderrBytes() != definition.maxStderrBytes {
-				t.Fatalf("request = argv %q stdin %q binding %#v timeout %s stdout cap %d stderr cap %d",
-					request.Argv(), request.Stdin(), binding, request.Timeout(), request.MaxStdoutBytes(), request.MaxStderrBytes())
+				request.Timeout() != definition.timeout {
+				t.Fatalf("request = argv %q stdin %q binding %#v timeout %s",
+					request.Argv(), request.Stdin(), binding, request.Timeout())
 			}
 			transport, ok := process.ProviderPacketTransportReceipt()
 			if !ok || transport.Channel() != ports.ProviderPacketChannelArgvLiteral ||
@@ -965,8 +963,6 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 	}{
 		{"timeout", ports.ProcessTerminationTimedOut, 0, ports.ProviderExecutionStatusTimedOut, "process_timeout", domain.DiagnosticCauseTimedOut},
 		{"cancelled", ports.ProcessTerminationCancelled, 0, ports.ProviderExecutionStatusCancelled, "process_cancelled", domain.DiagnosticCauseProviderExecutionFailed},
-		{"stdout cap", ports.ProcessTerminationStdoutLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stdout_limit", domain.DiagnosticCauseObservationInvalid},
-		{"stderr cap", ports.ProcessTerminationStderrLimit, 0, ports.ProviderExecutionStatusArtifactFailure, "stderr_limit", domain.DiagnosticCauseObservationInvalid},
 		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
 		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
 		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
@@ -1297,7 +1293,7 @@ func TestRegistryObserveWorkspaceDriftOverridesProviderSuccess(t *testing.T) {
 func TestRegistryObserveStrictDefinitionRejectsMissingWorkspaceAuthority(t *testing.T) {
 	profile, err := NewProductionRuntimeDefinition(
 		FamilyKimi, "kimi_default", "", "/private/bin/kimi", "", "kimi_default",
-		[]string{"/private/bin/kimi"}, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{"/private/bin/kimi"}, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -1586,7 +1582,7 @@ func testProfile(t *testing.T, family, instance, version, executableSHA256 strin
 	executable := "/private/bin/" + family
 	profile, err := NewRuntimeDefinition(
 		family, instance, version, executable, executableSHA256, instance,
-		[]string{executable}, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{executable}, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -1599,7 +1595,7 @@ func newTestProfileWithTransport(
 	t.Helper()
 	return NewRuntimeDefinitionWithTransport(
 		family, instance, "", "/private/bin/"+family, "", instance,
-		baseArgv, transport, nil, "/private/work", time.Second, 4096, 4096)
+		baseArgv, transport, nil, "/private/work", time.Second)
 
 }
 
@@ -1722,7 +1718,7 @@ func testProductionSafetyProfile(t *testing.T, family, policyIdentity string) Ru
 	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, family+"_production", "", executable, "executable-sha256", executable, "executable-sha256",
 		family+"_production", "generation-1", policyIdentity, []string{executable}, transport, nil,
-		"/private/work", time.Second, 4096, 4096)
+		"/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -1846,7 +1842,7 @@ func TestNewProductionRuntimeDefinitionWithSafetyPolicyAndPostOutputLifecycle(t 
 	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 		FamilyAgy, "agy_production", "", "/private/bin/agy", "executable-sha256",
 		"/private/bin/agy", "executable-sha256", "agy_production", "generation-1", "policy-identity",
-		[]string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", time.Second, 4096, 4096)
+		[]string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", time.Second)
 
 	if err != nil {
 		t.Fatal(err)
@@ -1860,7 +1856,7 @@ func TestNewProductionRuntimeDefinitionWithSafetyPolicyAndPostOutputLifecycle(t 
 	if _, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 		FamilyKimi, "kimi_production", "", "/private/bin/kimi", "executable-sha256",
 		"/private/bin/kimi", "executable-sha256", "kimi_production", "generation-1", "policy-identity",
-		[]string{"/private/bin/kimi"}, transport, lifecycle, nil, "/private/work", time.Second, 4096, 4096); err == nil {
+		[]string{"/private/bin/kimi"}, transport, lifecycle, nil, "/private/work", time.Second); err == nil {
 		t.Fatal("non-AGY profile accepted post-output lifecycle")
 	}
 }

@@ -154,7 +154,7 @@ func TestInvocationJobAccessorsRetainCanonicalValues(t *testing.T) {
 	if got := job.Target(); got != target {
 		t.Fatalf("job target = %#v, want %#v", got, target)
 	}
-	if limits := job.Limits(); limits.Timeout() != time.Second || limits.MaxStdoutBytes() != 11 || limits.MaxStderrBytes() != 12 {
+	if limits := job.Limits(); limits.Timeout() != time.Second {
 		t.Fatalf("job limits = %#v", limits)
 	}
 }
@@ -733,7 +733,7 @@ func coordinatorTypesJob(t *testing.T, role domain.Role, providerInstance string
 func coordinatorTypesLimits(t *testing.T) InvocationLimits {
 	t.Helper()
 
-	limits, err := NewInvocationLimits(time.Second, 11, 12)
+	limits, err := NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatalf("NewInvocationLimits() error = %v", err)
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 17
@@ -18,9 +18,9 @@ const (
 	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json"
 	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	reviewPreflightContractURI          = "https://mulgae.local/schemas/mulgae-review-preflight.v2.schema.json"
+	reviewPreflightContractURI          = "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json"
 	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
-	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json"
+	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
 	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
 	exportManifestContractURI           = "https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json"
 )

@@ -75,8 +75,6 @@ func TestPartialFailedProviderExecutionObservationRetainsTypedCauseAndStreams(t 
 		"process_wait_failed",
 		domain.DiagnosticCauseProviderProcessWaitFailed,
 		domain.DiagnosticCauseProcessGroupCleanupFailed,
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -107,8 +105,6 @@ func TestFailedProviderExecutionObservationRequiresClosedTypedCause(t *testing.T
 		"process_wait_failed",
 		domain.RuntimeDiagnosticCause("unknown"),
 		"",
-		1024,
-		1024,
 	); err == nil {
 		t.Fatal("unknown typed cause accepted")
 	}
@@ -132,7 +128,7 @@ func TestSuccessfulProviderExecutionObservationBindsExactProcessFacts(t *testing
 		endedAt,
 	)
 	result := newProviderExecutionTestResult(t, invocation, stdout)
-	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +192,7 @@ func TestIsolatedSuccessfulProviderExecutionObservationPreservesRawStdout(t *tes
 		providerExecutionTestEndedAt,
 	)
 	result := newProviderExecutionTestResult(t, invocation, []byte("answer"))
-	observation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	observation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,50 +224,34 @@ func TestIsolatedSuccessfulProviderExecutionObservationRejectsPrimaryValidationF
 	)
 	constructors := []struct {
 		name string
-		new  func(ProviderInvocation, ProviderResult, ProcessObservation, int64, int64) (ProviderExecutionObservation, error)
+		new  func(ProviderInvocation, ProviderResult, ProcessObservation) (ProviderExecutionObservation, error)
 	}{
 		{name: "non-isolated", new: NewSuccessfulProviderExecutionObservation},
 		{name: "isolated", new: NewIsolatedSuccessfulProviderExecutionObservation},
 	}
 	tests := []struct {
-		name        string
-		invocation  ProviderInvocation
-		result      ProviderResult
-		process     ProcessObservation
-		stdoutLimit int64
-		stderrLimit int64
+		name       string
+		invocation ProviderInvocation
+		result     ProviderResult
+		process    ProcessObservation
 	}{
 		{
-			name:        "invalid invocation",
-			invocation:  ProviderInvocation{},
-			result:      result,
-			process:     process,
-			stdoutLimit: 1024,
-			stderrLimit: 1024,
+			name:       "invalid invocation",
+			invocation: ProviderInvocation{},
+			result:     result,
+			process:    process,
 		},
 		{
-			name:        "invalid result",
-			invocation:  invocation,
-			result:      ProviderResult{},
-			process:     process,
-			stdoutLimit: 1024,
-			stderrLimit: 1024,
+			name:       "invalid result",
+			invocation: invocation,
+			result:     ProviderResult{},
+			process:    process,
 		},
 		{
-			name:        "invalid process",
-			invocation:  invocation,
-			result:      result,
-			process:     ProcessObservation{},
-			stdoutLimit: 1024,
-			stderrLimit: 1024,
-		},
-		{
-			name:        "invalid limit",
-			invocation:  invocation,
-			result:      result,
-			process:     process,
-			stdoutLimit: 0,
-			stderrLimit: 1024,
+			name:       "invalid process",
+			invocation: invocation,
+			result:     result,
+			process:    ProcessObservation{},
 		},
 	}
 
@@ -284,8 +264,6 @@ func TestIsolatedSuccessfulProviderExecutionObservationRejectsPrimaryValidationF
 						test.invocation,
 						test.result,
 						test.process,
-						test.stdoutLimit,
-						test.stderrLimit,
 					)
 					if err == nil {
 						t.Fatal("successful observation accepted an invalid primary input")
@@ -337,8 +315,6 @@ func TestProviderInvocationRetainsStagedOutputDestinationThroughCanonicalization
 			providerExecutionTestStartedAt,
 			providerExecutionTestEndedAt,
 		),
-		1024,
-		1024,
 		newProviderExecutionTestStagedReceipt(t, stagedBytes),
 	)
 	if err != nil {
@@ -362,8 +338,6 @@ func TestProviderInvocationRetainsStagedOutputDestinationThroughCanonicalization
 			providerExecutionTestStartedAt,
 			providerExecutionTestEndedAt,
 		),
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -408,7 +382,7 @@ func TestStagedFileObservationRequiresIsolatedResultMatchingReceipt(t *testing.T
 	result := newProviderExecutionTestResult(t, invocation, staged)
 	receipt := newProviderExecutionTestStagedReceipt(t, staged)
 
-	observation, err := NewStagedFileSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024, receipt)
+	observation, err := NewStagedFileSuccessfulProviderExecutionObservation(invocation, result, process, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,14 +420,14 @@ func TestStagedFileObservationRequiresIsolatedResultMatchingReceipt(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := NewStagedFileSuccessfulProviderExecutionObservation(
-				invocation, result, process, 1024, 1024, test.receipt,
+				invocation, result, process, test.receipt,
 			); err == nil {
 				t.Fatal("NewStagedFileSuccessfulProviderExecutionObservation() succeeded")
 			}
 		})
 	}
 
-	stdoutObservation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	stdoutObservation, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, process)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +502,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, nonzeroProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, nonzeroProcess); err == nil {
 		t.Fatal("successful observation accepted a nonzero process exit")
 	}
 
@@ -542,7 +516,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, timedOutProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, timedOutProcess); err == nil {
 		t.Fatal("successful observation accepted a timeout process")
 	}
 
@@ -556,7 +530,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, mismatchedStdoutProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, mismatchedStdoutProcess); err == nil {
 		t.Fatal("successful observation accepted result/process stdout mismatch")
 	}
 
@@ -579,7 +553,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, wrongDigestProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, wrongDigestProcess); err == nil {
 		t.Fatal("successful observation accepted a mismatched stdin receipt digest")
 	}
 
@@ -602,7 +576,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, wrongLengthProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, wrongLengthProcess); err == nil {
 		t.Fatal("successful observation accepted a mismatched stdin receipt length")
 	}
 
@@ -621,8 +595,6 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		invocation,
 		wrongReceiptTimedOutProcess,
 		"deadline_exceeded",
-		1024,
-		1024,
 	); err == nil {
 		t.Fatal("failed observation accepted a mismatched stdin receipt length")
 	}
@@ -641,7 +613,7 @@ func TestSuccessfulProviderExecutionObservationRejectsIncoherentProcessEvidence(
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, wrongResultLength, zeroProcess, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, wrongResultLength, zeroProcess); err == nil {
 		t.Fatal("successful observation accepted a mismatched result stdin length")
 	}
 }
@@ -670,8 +642,6 @@ func TestProviderExecutionObservationStatusTerminationCrossProduct(t *testing.T)
 		ProcessTerminationStartSecurity,
 		ProcessTerminationTimedOut,
 		ProcessTerminationCancelled,
-		ProcessTerminationStdoutLimit,
-		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
 	}
@@ -690,8 +660,6 @@ func TestProviderExecutionObservationStatusTerminationCrossProduct(t *testing.T)
 					invocation,
 					process,
 					diagnosticCode,
-					1024,
-					1024,
 				)
 				if got := err == nil; got != providerExecutionTestStatusMatchesTermination(status, termination) {
 					t.Fatalf("accepted = %t for status %q and termination %q", got, status, termination)
@@ -706,8 +674,6 @@ func TestProviderExecutionObservationStatusTerminationCrossProduct(t *testing.T)
 		invocation,
 		process,
 		"provider_failure",
-		1024,
-		1024,
 	); err == nil {
 		t.Fatal("failure constructor accepted successful status")
 	}
@@ -726,8 +692,6 @@ func TestSuccessfulProviderExecutionObservationTerminationCrossProduct(t *testin
 		ProcessTerminationStartSecurity,
 		ProcessTerminationTimedOut,
 		ProcessTerminationCancelled,
-		ProcessTerminationStdoutLimit,
-		ProcessTerminationStderrLimit,
 		ProcessTerminationStdinIncomplete,
 		ProcessTerminationResidualProcessGroup,
 	}
@@ -747,7 +711,7 @@ func TestSuccessfulProviderExecutionObservationTerminationCrossProduct(t *testin
 					providerExecutionTestEndedAt,
 				)
 			}
-			_, err := NewSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+			_, err := NewSuccessfulProviderExecutionObservation(invocation, result, process)
 			if got := err == nil; got != (termination == ProcessTerminationExited) {
 				t.Fatalf("accepted = %t for termination %q", got, termination)
 			}
@@ -789,8 +753,6 @@ func TestFailedProviderExecutionObservationAllowsPostExitClassification(t *testi
 				invocation,
 				process,
 				diagnosticCode,
-				1024,
-				1024,
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -850,8 +812,6 @@ func TestFailedProviderExecutionObservationDistinguishesSignaledFromExited128Plu
 				invocation,
 				signaledProcess,
 				"provider_failure",
-				1024,
-				1024,
 			)
 			if got := err == nil; got != (status == ProviderExecutionStatusInternalFailure) {
 				t.Fatalf("accepted = %t for signaled status %q", got, status)
@@ -863,8 +823,6 @@ func TestFailedProviderExecutionObservationDistinguishesSignaledFromExited128Plu
 				invocation,
 				terminatedByExitProcess,
 				"post_exit_artifact",
-				1024,
-				1024,
 			)
 			if err != nil {
 				t.Fatalf("NewFailedProviderExecutionObservation() = %v", err)
@@ -877,8 +835,6 @@ func TestFailedProviderExecutionObservationDistinguishesSignaledFromExited128Plu
 		invocation,
 		signaledProcess,
 		"provider_failure",
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -898,8 +854,6 @@ func TestFailedProviderExecutionObservationDistinguishesSignaledFromExited128Plu
 		invocation,
 		terminatedByExitProcess,
 		"provider_failure",
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -945,8 +899,6 @@ func TestFailedProviderExecutionObservationRetainsPartialProcessEvidence(t *test
 		invocation,
 		process,
 		"stdin_write_incomplete",
-		int64(len(stdout)),
-		int64(len(stderr)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1001,8 +953,6 @@ func TestFailedProviderExecutionObservationRejectsTamperedPartialStdinDigest(t *
 		invocation,
 		process,
 		"stdin_write_incomplete",
-		1024,
-		1024,
 	); err == nil {
 		t.Fatal("failed observation accepted a partial stdin digest for different bytes")
 	}
@@ -1032,8 +982,6 @@ func TestFailedProviderExecutionObservationRejectsCompletedStdinBeforeStart(t *t
 				invocation,
 				process,
 				"provider_start_failed",
-				1024,
-				1024,
 			); err == nil {
 				t.Fatal("failed observation accepted completed non-empty stdin before process start")
 			}
@@ -1041,154 +989,28 @@ func TestFailedProviderExecutionObservationRejectsCompletedStdinBeforeStart(t *t
 	}
 }
 
-func TestProviderExecutionObservationEnforcesCaptureLimits(t *testing.T) {
+func TestProviderExecutionObservationPreservesLargeStreams(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)
-	completeReceipt := completeProviderExecutionReceipt(t, invocation)
-
-	for _, test := range []struct {
-		name      string
-		stdout    []byte
-		stderr    []byte
-		stdoutCap int64
-		stderrCap int64
-	}{
-		{
-			name:      "stdout may exceed smaller stderr cap",
-			stdout:    []byte("abcdef"),
-			stderr:    []byte("x"),
-			stdoutCap: 6,
-			stderrCap: 1,
-		},
-		{
-			name:      "stderr may exceed smaller stdout cap",
-			stdout:    []byte("x"),
-			stderr:    []byte("abcdef"),
-			stdoutCap: 1,
-			stderrCap: 6,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			failedProcess := newProviderExecutionTestProcess(
-				t,
-				test.stdout,
-				test.stderr,
-				nil,
-				ProcessTerminationTimedOut,
-				completeReceipt,
-				providerExecutionTestStartedAt,
-				providerExecutionTestEndedAt,
-			)
-			failed, err := NewFailedProviderExecutionObservation(
-				ProviderExecutionStatusTimedOut,
-				invocation,
-				failedProcess,
-				"deadline_exceeded",
-				test.stdoutCap,
-				test.stderrCap,
-			)
-			if err != nil {
-				t.Fatalf("valid asymmetric failed observation: %v", err)
-			}
-			if !bytes.Equal(failed.Stdout(), test.stdout) ||
-				!bytes.Equal(failed.Stderr(), test.stderr) {
-				t.Fatalf("failed asymmetric streams changed: %#v", failed.ProcessObservation())
-			}
-
-			result := newProviderExecutionTestResult(t, invocation, test.stdout)
-			successfulProcess := newProviderExecutionTestProcess(
-				t,
-				test.stdout,
-				test.stderr,
-				providerExecutionTestExitCode(0),
-				ProcessTerminationExited,
-				completeReceipt,
-				providerExecutionTestStartedAt,
-				providerExecutionTestEndedAt,
-			)
-			successful, err := NewSuccessfulProviderExecutionObservation(
-				invocation,
-				result,
-				successfulProcess,
-				test.stdoutCap,
-				test.stderrCap,
-			)
-			if err != nil {
-				t.Fatalf("valid asymmetric successful observation: %v", err)
-			}
-			if !bytes.Equal(successful.Stdout(), test.stdout) ||
-				!bytes.Equal(successful.Stderr(), test.stderr) {
-				t.Fatalf("successful asymmetric streams changed: %#v", successful.ProcessObservation())
-			}
-		})
-	}
-
-	tooLongStdout := []byte("too long")
-	timedOutProcess := newProviderExecutionTestProcess(
+	stdout := bytes.Repeat([]byte("o"), 1<<20)
+	stderr := bytes.Repeat([]byte("e"), 1<<20)
+	process := newProviderExecutionTestProcess(
 		t,
-		tooLongStdout,
-		nil,
-		nil,
-		ProcessTerminationTimedOut,
-		completeReceipt,
-		providerExecutionTestStartedAt,
-		providerExecutionTestEndedAt,
-	)
-	if _, err := NewFailedProviderExecutionObservation(
-		ProviderExecutionStatusTimedOut,
-		invocation,
-		timedOutProcess,
-		"deadline_exceeded",
-		7,
-		1,
-	); err == nil {
-		t.Fatal("failed observation accepted stdout above its limit")
-	}
-
-	tooLongStderr := []byte("too long")
-	cancelledProcess := newProviderExecutionTestProcess(
-		t,
-		nil,
-		tooLongStderr,
-		nil,
-		ProcessTerminationCancelled,
-		completeReceipt,
-		providerExecutionTestStartedAt,
-		providerExecutionTestEndedAt,
-	)
-	if _, err := NewFailedProviderExecutionObservation(
-		ProviderExecutionStatusCancelled,
-		invocation,
-		cancelledProcess,
-		"cancelled_by_context",
-		1,
-		7,
-	); err == nil {
-		t.Fatal("failed observation accepted stderr above its limit")
-	}
-
-	tooLongResult := newProviderExecutionTestResult(t, invocation, tooLongStdout)
-	successfulProcess := newProviderExecutionTestProcess(
-		t,
-		tooLongStdout,
-		nil,
+		stdout,
+		stderr,
 		providerExecutionTestExitCode(0),
 		ProcessTerminationExited,
-		completeReceipt,
+		completeProviderExecutionReceipt(t, invocation),
 		providerExecutionTestStartedAt,
 		providerExecutionTestEndedAt,
 	)
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, tooLongResult, successfulProcess, 7, 1); err == nil {
-		t.Fatal("successful observation accepted stdout above its limit")
+	result := newProviderExecutionTestResult(t, invocation, stdout)
+
+	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := NewFailedProviderExecutionObservation(
-		ProviderExecutionStatusTimedOut,
-		invocation,
-		timedOutProcess,
-		"deadline_exceeded",
-		0,
-		1,
-	); err == nil {
-		t.Fatal("failed observation accepted a zero stdout limit")
+	if !bytes.Equal(observation.Stdout(), stdout) || !bytes.Equal(observation.Stderr(), stderr) {
+		t.Fatal("large provider streams were not preserved exactly")
 	}
 }
 
@@ -1208,7 +1030,7 @@ func TestProviderExecutionObservationDefensiveCopies(t *testing.T) {
 		providerExecutionTestEndedAt,
 	)
 	result := newProviderExecutionTestResult(t, invocation, stdout)
-	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process, 1024, 1024)
+	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1277,8 +1099,6 @@ func TestFailedProviderExecutionObservationRejectsUnsafeDiagnosticCode(t *testin
 				invocation,
 				process,
 				code,
-				1,
-				1,
 			); err == nil {
 				t.Fatalf("NewFailedProviderExecutionObservation(%q) succeeded", code)
 			}
@@ -1289,8 +1109,6 @@ func TestFailedProviderExecutionObservationRejectsUnsafeDiagnosticCode(t *testin
 		invocation,
 		process,
 		"provider_start_failed",
-		1,
-		1,
 	); err != nil {
 		t.Fatalf("safe diagnostic code rejected: %v", err)
 	}
@@ -1490,9 +1308,7 @@ func providerExecutionTestStatusMatchesTermination(status ProviderExecutionStatu
 	case ProviderExecutionStatusCancelled:
 		return termination == ProcessTerminationCancelled
 	case ProviderExecutionStatusArtifactFailure:
-		return termination == ProcessTerminationStdoutLimit ||
-			termination == ProcessTerminationStderrLimit ||
-			termination == ProcessTerminationStdinIncomplete ||
+		return termination == ProcessTerminationStdinIncomplete ||
 			termination == ProcessTerminationExited
 	case ProviderExecutionStatusUnavailable:
 		return termination == ProcessTerminationStartUnavailable ||
@@ -1584,7 +1400,7 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 				t.Fatal(err)
 			}
 			result := newProviderExecutionTestResult(t, invocation, []byte("result"))
-			if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, observation, 1024, 1024); err != nil {
+			if _, err := NewSuccessfulProviderExecutionObservation(invocation, result, observation); err != nil {
 				t.Fatalf("NewSuccessfulProviderExecutionObservation() = %v", err)
 			}
 		})
@@ -1621,7 +1437,7 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, partialObservation, "stdin_incomplete", 1024, 1024); err != nil {
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, partialObservation, "stdin_incomplete"); err != nil {
 		t.Fatalf("partial stdin prefix rejected: %v", err)
 	}
 	badPartial, err := NewStdinWriteReceipt(int64(identity.ByteLength()), int64(len(partial)), providerTestDigest([]byte("wrong")), false)
@@ -1635,7 +1451,7 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, badObservation, "stdin_incomplete", 1024, 1024); err == nil {
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusArtifactFailure, invocation, badObservation, "stdin_incomplete"); err == nil {
 		t.Fatal("failed execution accepted a non-prefix stdin digest")
 	}
 
@@ -1648,7 +1464,7 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSuccessfulProviderExecutionObservation(invocation, newProviderExecutionTestResult(t, invocation, []byte("result")), mismatchedObservation, 1024, 1024); err == nil {
+	if _, err := NewSuccessfulProviderExecutionObservation(invocation, newProviderExecutionTestResult(t, invocation, []byte("result")), mismatchedObservation); err == nil {
 		t.Fatal("successful execution accepted a transport packet identity mismatch")
 	}
 
@@ -1660,14 +1476,14 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyStart, "start_failed", 1024, 1024); err != nil {
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyStart, "start_failed"); err != nil {
 		t.Fatalf("legacy pre-start no-delivery receipt rejected: %v", err)
 	}
 	legacyClaim, err := NewProcessObservation(nil, nil, nil, ProcessTerminationStartFailed, completeProviderExecutionReceipt(t, invocation), providerExecutionTestStartedAt, providerExecutionTestEndedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyClaim, "start_failed", 1024, 1024); err == nil {
+	if _, err := NewFailedProviderExecutionObservation(ProviderExecutionStatusInternalFailure, invocation, legacyClaim, "start_failed"); err == nil {
 		t.Fatal("legacy pre-start receipt claimed packet delivery")
 	}
 }

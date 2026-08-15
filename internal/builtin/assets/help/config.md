@@ -1,6 +1,6 @@
 # Configuration
 
-Mulgae Config v2 has two configuration authorities:
+Mulgae Config v3 has two configuration authorities:
 
 - `<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project
   policy.
@@ -10,7 +10,8 @@ Mulgae Config v2 has two configuration authorities:
 `mulgae init` creates both files for a new project. When only the tracked project
 file exists after a clone, it creates the local file without changing project
 policy and rejects project-policy options.
-Config v1 is rejected; there is no automatic migration path.
+Earlier versions, including Config v2, are rejected; there is no automatic
+migration path.
 
 ```text
 mulgae init [--project-root PATH] [--name NAME]
@@ -54,6 +55,7 @@ providers:
 ```
 
 Executable and launcher paths belong only in `local.yaml`.
+Provider stdout and stderr have no configuration field or product byte ceiling.
 
 `mulgae config --mode effective` reports every configured provider family's
 effective timeout. Provenance reports the field as `defaulted` when omitted and
@@ -78,7 +80,7 @@ Effective configuration reports both the selected mode and a warning when
 or shell tool requests outside Mulgae's read-oriented boundary. Provenance
 marks an omitted safe mode as `defaulted` and an explicit mode as `configured`.
 
-Config v2 files that omit the mode select the safe default.
+Config v3 files that omit the mode select the safe default.
 
 For UI projects, `roles.artist.inputs.design_spec_globs` are discovery hints,
 not file-access rules. Default Git reviews always retain the configured artist;
@@ -88,7 +90,7 @@ Added images are primary `after` evidence; modified images provide both `before`
 and `after`. The artist may inspect any file in the captured workspace when
 history or a similar screen is useful.
 
-Initialization installs each Config v2 file atomically and uses an unconditional
+Initialization installs each Config v3 file atomically and uses an unconditional
 project-root durability barrier. The two files cannot commit as one filesystem
 transaction: if project policy commits before the local write fails, init
 reports `project_committed_local_missing`. Resolve any reported local-path

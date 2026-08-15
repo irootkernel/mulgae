@@ -669,9 +669,8 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production policy has no review threshold", nil)
 	}
 	defaults := review.DefaultHarnessCeilings()
-	timeout, stdout, stderr := defaults.MaxTimeout(), defaults.MaxStdoutBytes(), defaults.MaxStderrBytes()
 	ceilings, err := review.NewHarnessCeilings(
-		timeout, stdout, stderr, resolved.RunTotalOutputCapBytes(),
+		defaults.MaxTimeout(),
 		defaults.MaxRolePathDeadline(), defaults.MaxRunDeadline(),
 		resolved.RoleMaxInvocations(), resolved.RunMaxInvocations(),
 	)

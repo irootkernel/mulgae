@@ -131,7 +131,7 @@ func TestContractValuesAndWriteRequestsDefensivelyOwnMutableInputs(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assetSource, err := NewSafeRelativePath("schemas/mulgae-command-result.v2.schema.json")
+	assetSource, err := NewSafeRelativePath("schemas/mulgae-command-result.v3.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

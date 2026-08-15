@@ -1,7 +1,7 @@
 # Automation, CI, and exit codes
 
-Use `--output json` for a `mulgae-command-result.v2` envelope. Command-result v1
-and review-preflight v1 are not accepted by this revision. Process exit codes
+Use `--output json` for a `mulgae-command-result.v3` envelope. Command-result v2
+and review-preflight v2 are not accepted by this revision. Process exit codes
 remain authoritative:
 
 | Exit | Meaning |

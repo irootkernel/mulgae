@@ -4,13 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-// Config is the admitted effective value merged from Config v2's project and
+// Config is the admitted effective value merged from Config v3's project and
 // machine-local authorities.
 type Config struct {
 	Version    int              `yaml:"version" json:"version"`
@@ -93,11 +92,10 @@ type RepairConfig struct {
 	SameProvider bool `yaml:"same_provider" json:"same_provider"`
 }
 type ResourcesConfig struct {
-	MaxActiveLanes        int    `yaml:"max_active_lanes" json:"max_active_lanes"`
-	PrimaryRepairAttempts int    `yaml:"primary_repair_attempts" json:"primary_repair_attempts"`
-	RoleMaxInvocations    int    `yaml:"role_max_invocations" json:"role_max_invocations"`
-	RunMaxInvocations     int    `yaml:"run_max_invocations" json:"run_max_invocations"`
-	RunTotalOutputCap     string `yaml:"run_total_output_cap" json:"run_total_output_cap"`
+	MaxActiveLanes        int `yaml:"max_active_lanes" json:"max_active_lanes"`
+	PrimaryRepairAttempts int `yaml:"primary_repair_attempts" json:"primary_repair_attempts"`
+	RoleMaxInvocations    int `yaml:"role_max_invocations" json:"role_max_invocations"`
+	RunMaxInvocations     int `yaml:"run_max_invocations" json:"run_max_invocations"`
 }
 type CIConfig struct {
 	FailOnSeverity      []string `yaml:"fail_on_severity" json:"fail_on_severity"`
@@ -105,7 +103,7 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion    = 2
+	ConfigVersion    = 3
 	DefaultKimiModel = "kimi-code/kimi-for-coding"
 	// DefaultAGYPermissionMode keeps AGY headless reviews inside Mulgae's
 	// read-oriented permission boundary. The immutable snapshot and --sandbox
@@ -124,7 +122,7 @@ const (
 	ProjectKindUI             = "ui"
 )
 
-// ParseProviderTimeout resolves an optional Config v2 provider timeout. An
+// ParseProviderTimeout resolves an optional Config v3 provider timeout. An
 // omitted value uses the fixed 15-minute default; admitted explicit values are
 // bounded inclusively between one and sixty minutes.
 func ParseProviderTimeout(value string) (time.Duration, error) {
@@ -138,7 +136,7 @@ func ParseProviderTimeout(value string) (time.Duration, error) {
 	return timeout, nil
 }
 
-// ProviderTimeoutText returns the stable Config v2 spelling for a valid
+// ProviderTimeoutText returns the stable Config v3 spelling for a valid
 // provider timeout. Whole-minute values use the concise "30m" form.
 func ProviderTimeoutText(timeout time.Duration) string {
 	return canonicalProviderTimeout(timeout)
@@ -194,7 +192,7 @@ func coreRoleIDs() []string {
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
-// every Config v2 role while enabling only the canonical project role set.
+// every Config v3 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
 //
 // Each role resolves independently from its own build-owned preference order, so
@@ -313,22 +311,6 @@ func (providers ProvidersConfig) Families() []string {
 }
 func (providers ProvidersConfig) Count() int { return len(providers.Families()) }
 
-func RunTotalOutputCapBytes(config Config) (int64, error) {
-	value := config.Resources.RunTotalOutputCap
-	units := map[string]int64{"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30}
-	for suffix, multiplier := range units {
-		if !strings.HasSuffix(value, suffix) {
-			continue
-		}
-		amount, err := strconv.ParseInt(strings.TrimSuffix(value, suffix), 10, 64)
-		if err != nil || amount <= 0 || amount > (1<<30)/multiplier {
-			return 0, fmt.Errorf("output cap")
-		}
-		return amount * multiplier, nil
-	}
-	return 0, fmt.Errorf("output cap")
-}
-
 type ReasonCode string
 
 const (
@@ -365,7 +347,7 @@ type Codec interface {
 	EncodeCanonical(Config) ([]byte, error)
 }
 
-// SplitCodec owns the disk projection and merge rules for Config v2's paired
+// SplitCodec owns the disk projection and merge rules for Config v3's paired
 // authorities.
 type SplitCodec interface {
 	Codec

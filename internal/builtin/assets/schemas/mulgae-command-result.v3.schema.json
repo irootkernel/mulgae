@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-command-result.v2.schema.json",
-  "title": "Mulgae Command Result v2",
+  "$id": "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json",
+  "title": "Mulgae Command Result v3",
   "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
   "type": "object",
   "additionalProperties": false,
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-command-result.v2"
+      "const": "mulgae-command-result.v3"
     },
     "command": {
       "$ref": "#/$defs/command"
@@ -3070,7 +3070,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema_version","status","qualification","target","agy_permission_mode","warnings","file_sets","generated_files","transmissions","budget"],
       "properties": {
-        "schema_version": { "const": "mulgae-review-preflight.v2" },
+        "schema_version": { "const": "mulgae-review-preflight.v3" },
         "status": { "enum": ["eligible","no_change"] },
         "qualification": { "const": "not_run" },
         "target": {
@@ -3133,21 +3133,19 @@
         },
         "budget": {
           "type":"object","additionalProperties":false,
-          "required":["eligible","reason_code","max_active_lanes","total_invocations","total_output_cap_bytes","critical_path_deadline","run_deadline","ceilings","role_paths"],
+          "required":["eligible","reason_code","max_active_lanes","total_invocations","critical_path_deadline","run_deadline","ceilings","role_paths"],
           "properties": {
             "eligible":{"const":true},"reason_code":{"enum":["eligible","no_change"]},
             "max_active_lanes":{"type":"integer","minimum":0,"maximum":64},
             "total_invocations":{"type":"integer","minimum":0,"maximum":14},
-            "total_output_cap_bytes":{"type":"integer","minimum":0,"maximum":67108864},
             "critical_path_deadline":{"$ref":"#/$defs/review_preflight_duration"},
             "run_deadline":{"$ref":"#/$defs/review_preflight_duration"},
             "ceilings": {
               "type":"object","additionalProperties":false,
-              "required":["provider_timeout","role_path_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run","max_total_output_bytes"],
+              "required":["provider_timeout","role_path_deadline","run_deadline","max_invocations_per_role","max_invocations_per_run"],
               "properties": {
                 "provider_timeout":{"$ref":"#/$defs/review_preflight_duration"},"role_path_deadline":{"$ref":"#/$defs/review_preflight_duration"},"run_deadline":{"$ref":"#/$defs/review_preflight_duration"},
-                "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":2},"max_invocations_per_run":{"type":"integer","minimum":1,"maximum":14},
-                "max_total_output_bytes":{"type":"integer","minimum":1,"maximum":67108864}
+                "max_invocations_per_role":{"type":"integer","minimum":1,"maximum":2},"max_invocations_per_run":{"type":"integer","minimum":1,"maximum":14}
               }
             },
             "role_paths": {
@@ -3540,7 +3538,7 @@
             "required": ["kind", "schema_version", "eligible"],
             "properties": {
               "kind": { "const": "review_preflight_failed" },
-              "schema_version": { "const": "mulgae-review-preflight.v2" },
+              "schema_version": { "const": "mulgae-review-preflight.v3" },
               "eligible": { "const": false }
             }
           }

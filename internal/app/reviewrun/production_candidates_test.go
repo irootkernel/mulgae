@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
-	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -283,7 +282,6 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 	if len(candidates) != 6 {
 		t.Fatalf("candidate count = %d, want 6", len(candidates))
 	}
-	ceilings := review.DefaultHarnessCeilings()
 	wantRoles := map[string][]domain.Role{
 		"kimi-security": {domain.RoleSecurity}, "kimi-testing": {domain.RoleTesting},
 		"zcode-security": {domain.RoleSecurity}, "zcode-testing": {domain.RoleTesting},
@@ -292,11 +290,6 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 	for _, candidate := range candidates {
 		if candidate.Definition.Version() != "" || candidate.SnapshotManifest != "sha256:"+qualifierTestSHA {
 			t.Fatalf("candidate = %#v", candidate)
-		}
-		if candidate.Limits.MaxStdoutBytes() > ceilings.MaxStdoutBytes() || candidate.Limits.MaxStderrBytes() > ceilings.MaxStderrBytes() {
-			t.Fatalf("%s output limits = %d/%d, exceed default ceilings %d/%d",
-				candidate.Definition.Family(), candidate.Limits.MaxStdoutBytes(), candidate.Limits.MaxStderrBytes(),
-				ceilings.MaxStdoutBytes(), ceilings.MaxStderrBytes())
 		}
 		want := wantRoles[candidate.Definition.Instance()]
 		if !reflect.DeepEqual(candidate.SupportedRoles, want) || candidate.BaseRole != want[0] {

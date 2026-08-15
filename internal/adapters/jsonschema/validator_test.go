@@ -49,9 +49,9 @@ func TestValidatorReadinessAuthorityIsV1Only(t *testing.T) {
 		id   string
 		want bool
 	}{
-		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", false},
 		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", true},
-		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", false},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", true},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", false},
 	} {
 		if got := ReadinessAuthority(mustAssetID(t, test.id)); got != test.want {

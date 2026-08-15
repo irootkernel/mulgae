@@ -40,7 +40,7 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	// One route per role, each carrying its own family's configured timeout.
 	assertPreflightRoute(0, "zcode-logic", 30*time.Minute)
 	assertPreflightRoute(1, "agy-documentation", 15*time.Minute)
-	if receipt.TotalInvocations() != 4 || receipt.TotalOutputCap() != 4*(512<<10) {
-		t.Fatalf("budget totals = %d/%d", receipt.TotalInvocations(), receipt.TotalOutputCap())
+	if receipt.TotalInvocations() != 4 {
+		t.Fatalf("budget total invocations = %d", receipt.TotalInvocations())
 	}
 }

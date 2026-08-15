@@ -1231,7 +1231,7 @@ func reviewRunStagedJob(t *testing.T, instance string, purpose domain.Invocation
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

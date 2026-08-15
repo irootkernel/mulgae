@@ -418,7 +418,7 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 	request, err := ports.NewProviderProcessRequest(
 		binary, []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", "stdout-ten-mib"},
 		[]ports.EnvironmentVariable{mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"), mustEnvironment(t, "GOCOVERDIR", t.TempDir())},
-		t.TempDir(), binding, processTestExecutionTimeout, 3, 1024,
+		t.TempDir(), binding, processTestExecutionTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -428,8 +428,8 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 		t.Fatal(err)
 	}
 	observation := mustRun(t, newTestRunner(t), context.Background(), request)
-	if got := string(observation.Stdout()); got != "aaa" || !observation.StdoutTruncated() {
-		t.Fatalf("diagnostic preview = %q truncated=%t", got, observation.StdoutTruncated())
+	if got := len(observation.Stdout()); got != 10<<20 || observation.StdoutTruncated() {
+		t.Fatalf("diagnostic bytes = %d truncated=%t", got, observation.StdoutTruncated())
 	}
 	artifact, ok := observation.StdoutArtifact()
 	if !ok || artifact.Identity().ByteLength() != 10<<20 {
@@ -449,7 +449,7 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 	closeContentArtifact(artifact)
 }
 
-func TestRunnerSpooledPostOutputFallsBackToNaturalExitAfterPreviewTruncation(t *testing.T) {
+func TestRunnerSpooledPostOutputFallsBackToNaturalExitWithCompleteOutput(t *testing.T) {
 	request, _ := newPostOutputProviderHelperRequest(
 		t, t.TempDir(), "post-output-natural", []string{filepath.Join(t.TempDir(), "pgid")},
 		processTestExecutionTimeout, 3, 20*time.Millisecond, 100*time.Millisecond,
@@ -459,7 +459,7 @@ func TestRunnerSpooledPostOutputFallsBackToNaturalExitAfterPreviewTruncation(t *
 		t.Fatal(err)
 	}
 	observation := mustRun(t, newTestRunner(t), context.Background(), request)
-	if !observation.Succeeded() || !observation.StdoutTruncated() || string(observation.Stdout()) != `{"s` {
+	if !observation.Succeeded() || observation.StdoutTruncated() || string(observation.Stdout()) != `{"status":"ok"}` {
 		t.Fatalf("observation success=%t preview=%q truncated=%t", observation.Succeeded(), observation.Stdout(), observation.StdoutTruncated())
 	}
 	artifact, ok := observation.StdoutArtifact()
@@ -612,8 +612,6 @@ func TestRunnerStartFailureForArgvProviderPacketHasNoTransportReceipt(t *testing
 		t.TempDir(),
 		binding,
 		processTestExecutionTimeout,
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -691,16 +689,6 @@ func TestRunnerBoundedPostOutputLifecycle(t *testing.T) {
 			scenario:    "post-output-late",
 			stdoutCap:   1024,
 			termination: ports.ProcessTerminationTimedOut,
-			finalSignal: "SIGKILL",
-			signals: []postOutputSignalExpectation{
-				{ports.ProcessGroupSignalRequestInternalTeardown, "SIGKILL"},
-			},
-		},
-		{
-			name:        "stdout cap tears down process group without accepting frame",
-			scenario:    "post-output-stdout-large",
-			stdoutCap:   3,
-			termination: ports.ProcessTerminationStdoutLimit,
 			finalSignal: "SIGKILL",
 			signals: []postOutputSignalExpectation{
 				{ports.ProcessGroupSignalRequestInternalTeardown, "SIGKILL"},
@@ -1093,33 +1081,33 @@ func TestRunnerDistinguishesExitedSignalCodesFromSignals(t *testing.T) {
 	}
 }
 
-func TestRunnerEnforcesIndependentOutputCaps(t *testing.T) {
+func TestRunnerPreservesCompleteIndependentOutputStreams(t *testing.T) {
 	runner := newTestRunner(t)
 
-	stdoutLimited := newHelperRequest(t, t.TempDir(), "stdout-large", nil, nil, nil, processTestExecutionTimeout, 3, 1024)
-	observation := mustRun(t, runner, context.Background(), stdoutLimited)
-	assertTermination(t, observation, ports.ProcessTerminationStdoutLimit)
-	if got := string(observation.Stdout()); got != "abc" {
-		t.Fatalf("stdout limit retained %q, want %q", got, "abc")
+	stdoutLarge := newHelperRequest(t, t.TempDir(), "stdout-large", nil, nil, nil, processTestExecutionTimeout, 3, 1024)
+	observation := mustRun(t, runner, context.Background(), stdoutLarge)
+	assertTermination(t, observation, ports.ProcessTerminationExited)
+	if got := string(observation.Stdout()); got != "abcdef" {
+		t.Fatalf("stdout = %q, want complete output", got)
 	}
 	if got := observation.Stderr(); len(got) != 0 {
 		t.Fatalf("stdout-limited stderr = %q, want empty", got)
 	}
-	if _, ok := observation.ExitCode(); ok {
-		t.Fatal("stdout limit has an exit code")
+	if code, ok := observation.ExitCode(); !ok || code != 0 {
+		t.Fatalf("stdout exit = %d/%t, want 0/true", code, ok)
 	}
 
-	stderrLimited := newHelperRequest(t, t.TempDir(), "stderr-large", nil, nil, nil, processTestExecutionTimeout, 1024, 3)
-	observation = mustRun(t, runner, context.Background(), stderrLimited)
-	assertTermination(t, observation, ports.ProcessTerminationStderrLimit)
-	if got := string(observation.Stderr()); got != "abc" {
-		t.Fatalf("stderr limit retained %q, want %q", got, "abc")
+	stderrLarge := newHelperRequest(t, t.TempDir(), "stderr-large", nil, nil, nil, processTestExecutionTimeout, 1024, 3)
+	observation = mustRun(t, runner, context.Background(), stderrLarge)
+	assertTermination(t, observation, ports.ProcessTerminationExited)
+	if got := string(observation.Stderr()); got != "abcdef" {
+		t.Fatalf("stderr = %q, want complete output", got)
 	}
 	if got := observation.Stdout(); len(got) != 0 {
 		t.Fatalf("stderr-limited stdout = %q, want empty", got)
 	}
-	if _, ok := observation.ExitCode(); ok {
-		t.Fatal("stderr limit has an exit code")
+	if code, ok := observation.ExitCode(); !ok || code != 0 {
+		t.Fatalf("stderr exit = %d/%t, want 0/true", code, ok)
 	}
 
 	for _, test := range []struct {
@@ -1270,13 +1258,6 @@ func TestRunnerReapsLeaderExitedDescendantsForEveryTerminalSignal(t *testing.T) 
 			timeout:     time.Second,
 			maxStdout:   1024,
 			termination: ports.ProcessTerminationTimedOut,
-		},
-		{
-			name:        "stdout cap",
-			mode:        "stdout-large",
-			timeout:     processTestExecutionTimeout,
-			maxStdout:   3,
-			termination: ports.ProcessTerminationStdoutLimit,
 		},
 		{
 			name:        "stdin incomplete",
@@ -1439,16 +1420,6 @@ func TestTerminationSignalsUseLinearizedPrecedence(t *testing.T) {
 			want:    ports.ProcessTerminationTimedOut,
 		},
 		{
-			name:    "cancel plus stdout cap",
-			signals: terminationSignals{cancelled: true, stdoutFull: true},
-			want:    ports.ProcessTerminationCancelled,
-		},
-		{
-			name:    "simultaneous caps",
-			signals: terminationSignals{stdoutFull: true, stderrFull: true},
-			want:    ports.ProcessTerminationStdoutLimit,
-		},
-		{
 			name:    "stdin incomplete before normal completion",
 			signals: terminationSignals{stdinIncomplete: true},
 			want:    ports.ProcessTerminationStdinIncomplete,
@@ -1516,32 +1487,6 @@ func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 			maxStderr:   1024,
 			termination: ports.ProcessTerminationTimedOut,
 		},
-		{
-			name:        "cancel plus stdout cap",
-			mode:        "stdout",
-			timeout:     processTestExecutionTimeout,
-			cancel:      true,
-			maxStdout:   3,
-			maxStderr:   1024,
-			termination: ports.ProcessTerminationCancelled,
-		},
-		{
-			name:        "cancel plus stderr cap",
-			mode:        "stderr",
-			timeout:     processTestExecutionTimeout,
-			cancel:      true,
-			maxStdout:   1024,
-			maxStderr:   3,
-			termination: ports.ProcessTerminationCancelled,
-		},
-		{
-			name:        "simultaneous caps",
-			mode:        "both",
-			timeout:     processTestExecutionTimeout,
-			maxStdout:   3,
-			maxStderr:   3,
-			termination: ports.ProcessTerminationStdoutLimit,
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := newTestRunner(t)
@@ -1580,12 +1525,6 @@ func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 			case test.timeout < processTestExecutionTimeout:
 				waitForChannel(t, killEntered, "timeout teardown")
 				releaseHelper(t, releaseChild)
-			default:
-				releaseHelper(t, releaseChild)
-				waitForChannel(t, killEntered, "output-limit teardown")
-				if test.cancel {
-					cancel()
-				}
 			}
 			if _, err := waitForFile(emitted, processTestExecutionTimeout); err != nil {
 				t.Fatal(err)
@@ -1594,23 +1533,6 @@ func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 
 			result := waitForRunnerResult(t, done)
 			assertTermination(t, result.observation, test.termination)
-			switch test.mode {
-			case "stdout":
-				if got := string(result.observation.Stdout()); got != "abc" {
-					t.Fatalf("stdout = %q, want capped output", got)
-				}
-			case "stderr":
-				if got := string(result.observation.Stderr()); got != "abc" {
-					t.Fatalf("stderr = %q, want capped output", got)
-				}
-			case "both":
-				if got := string(result.observation.Stdout()); got != "abc" {
-					t.Fatalf("stdout = %q, want capped output", got)
-				}
-				if got := string(result.observation.Stderr()); got != "abc" {
-					t.Fatalf("stderr = %q, want capped output", got)
-				}
-			}
 			if _, ok := result.observation.ExitCode(); ok {
 				t.Fatal("arbitrated terminal observation has an exit code")
 			}
@@ -1620,59 +1542,6 @@ func TestRunnerRunArbitratesConcurrentTerminalFacts(t *testing.T) {
 			assertNoLiveProcessGroup(t, processGroupID)
 		})
 	}
-}
-
-func TestRunnerRunArbitratesLeaderExitedStderrCap(t *testing.T) {
-	runner := newTestRunner(t)
-	leaderReady := filepath.Join(t.TempDir(), "leader-ready")
-	leaderExited := filepath.Join(t.TempDir(), "leader-exited")
-	descendantReady := filepath.Join(t.TempDir(), "descendant-ready")
-	releaseChild := filepath.Join(t.TempDir(), "release-child")
-	emitted := filepath.Join(t.TempDir(), "emitted")
-	request := newHelperRequest(
-		t,
-		t.TempDir(),
-		"barrier-spawn-exit",
-		[]string{leaderReady, leaderExited, descendantReady, releaseChild, emitted},
-		nil,
-		nil,
-		processTestExecutionTimeout,
-		1024,
-		3,
-	)
-
-	killEntered, releaseKill := blockProcessGroupSignal(t)
-	defer releaseKill()
-	done := runRunnerAsync(runner, context.Background(), request)
-	leaderPID := readHelperPID(t, leaderReady)
-	descendantPID := readHelperPID(t, descendantReady)
-	processGroupID := processGroupForPID(t, descendantPID)
-	if _, err := waitForFile(leaderExited, processTestExecutionTimeout); err != nil {
-		t.Fatal(err)
-	}
-	if !waitForProcessGroupLeaderZombie(processGroupID, processTestExecutionTimeout) {
-		t.Fatalf("leader process %d did not become zombie before descendant output", leaderPID)
-	}
-
-	releaseHelper(t, releaseChild)
-	waitForChannel(t, killEntered, "stderr-limit teardown")
-	if _, err := waitForFile(emitted, processTestExecutionTimeout); err != nil {
-		t.Fatal(err)
-	}
-	releaseKill()
-
-	result := waitForRunnerResult(t, done)
-	assertTermination(t, result.observation, ports.ProcessTerminationStderrLimit)
-	if got := string(result.observation.Stderr()); got != "abc" {
-		t.Fatalf("stderr = %q, want capped output", got)
-	}
-	if _, ok := result.observation.ExitCode(); ok {
-		t.Fatal("leader-exited stderr-limit observation has an exit code")
-	}
-	if _, _, ok := result.observation.Signal(); ok {
-		t.Fatal("leader-exited stderr-limit observation has a signal")
-	}
-	assertNoLiveProcessGroup(t, processGroupID)
 }
 
 func TestKillProcessGroupEPERMRequiresProvenZombieOnlyMembership(t *testing.T) {
@@ -1784,8 +1653,6 @@ func newStartFailureRequest(t *testing.T, executable, workingDirectory string) p
 		workingDirectory,
 		nil,
 		processTestExecutionTimeout,
-		1024,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1801,7 +1668,7 @@ func newHelperRequest(
 	environment []ports.EnvironmentVariable,
 	stdin []byte,
 	timeout time.Duration,
-	maxStdoutBytes, maxStderrBytes int64,
+	_, _ int64,
 ) ports.ProcessRequest {
 	t.Helper()
 	binary := helperBinary(t)
@@ -1818,8 +1685,6 @@ func newHelperRequest(
 		workingDirectory,
 		stdin,
 		timeout,
-		maxStdoutBytes,
-		maxStderrBytes,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1848,8 +1713,6 @@ func newProviderHelperRequest(
 		workingDirectory,
 		binding,
 		processTestExecutionTimeout,
-		4096,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1861,7 +1724,7 @@ func newPostOutputProviderHelperRequest(
 	workingDirectory, scenario string,
 	arguments []string,
 	timeout time.Duration,
-	maxStdoutBytes int64,
+	_ int64,
 	stabilityGrace, terminationGrace time.Duration,
 ) (ports.ProcessRequest, ports.ProviderPacketIdentity) {
 	t.Helper()
@@ -1892,8 +1755,6 @@ func newPostOutputProviderHelperRequest(
 		binding,
 		lifecycle,
 		timeout,
-		maxStdoutBytes,
-		1024,
 	)
 	if err != nil {
 		t.Fatal(err)

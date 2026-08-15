@@ -9,20 +9,20 @@ Draft 2020-12 and a canonical
 | Schema | Valid example |
 |---|---|
 | `mulgae-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` |
-| `mulgae-command-result.v2` | `../examples/command-result.v2.valid.json` |
+| `mulgae-command-result.v3` | `../examples/command-result.v3.valid.json` |
 | `mulgae-doctor-result.v1` | `../examples/doctor-result.v1.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |
 | `mulgae-mcp-tool-result.v1` | `../examples/mcp-tool-result.v1.valid.json` |
 | `mulgae-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` |
-| `mulgae-provider-contract-evidence.v1` | `../examples/provider-contract-evidence.v1.valid.json` |
+| `mulgae-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` |
 | `mulgae-provider-followup-output.v1` | `../examples/provider-followup-output.v1.valid.json` |
 | `mulgae-provider-review-output.v1` | `../examples/provider-review-output.v1.valid.json` |
 | `mulgae-provider-review-wire.v1` | `../examples/provider-review-wire.v1.valid.json` |
 | `mulgae-repair-patch.v1` | `../examples/repair-patch.json` |
 | `mulgae-repair-request.v1` | `../examples/repair-request.json` |
 | `mulgae-review-artifact.v1` | `../examples/review-artifact.v1.valid.json` |
-| `mulgae-review-preflight.v2` | `../examples/review-preflight.v2.valid.json` |
+| `mulgae-review-preflight.v3` | `../examples/review-preflight.v3.valid.json` |
 | `mulgae-run-manifest.v1` | `../examples/run-manifest.v1.valid.json` |
 | `mulgae-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` |
 | `mulgae-validation-result.v1` | `../examples/validation-result.v1.valid.json` |

@@ -138,12 +138,6 @@ func TestObserveExecutableVersionFailureLeavesExecutableAvailable(t *testing.T) 
 			},
 		},
 		{
-			name: "oversized output",
-			version: func(_ context.Context, _ string) ([]byte, error) {
-				return bytes.Repeat([]byte("x"), maximumExecutableVersionOutput+1), nil
-			},
-		},
-		{
 			name: "malformed output",
 			version: func(_ context.Context, _ string) ([]byte, error) {
 				return []byte("kimi\n0.23.6"), nil
@@ -184,6 +178,25 @@ func TestObserveExecutableVersionFailureLeavesExecutableAvailable(t *testing.T) 
 				t.Fatalf("observation = found=%t version=%q, want found with empty version", observation.Found(), observation.Version())
 			}
 		})
+	}
+}
+
+func TestObserveExecutableAcceptsLargeVersionOutput(t *testing.T) {
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(0)},
+		executable: true,
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+	inspector.version = func(context.Context, string) ([]byte, error) {
+		return append(bytes.Repeat([]byte("x"), 1<<20), []byte(" 0.23.6")...), nil
+	}
+
+	observation, err := inspector.ObserveExecutable(context.Background(), "kimi")
+	if err != nil {
+		t.Fatalf("ObserveExecutable() error = %v", err)
+	}
+	if !observation.Found() || observation.Version() != "0.23.6" {
+		t.Fatalf("observation = found=%t version=%q", observation.Found(), observation.Version())
 	}
 }
 

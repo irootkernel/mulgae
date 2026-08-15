@@ -210,8 +210,6 @@ type ProviderExecutionObservation struct {
 	cleanupCause       domain.RuntimeDiagnosticCause
 	stdout             []byte
 	stderr             []byte
-	stdoutLimit        int64
-	stderrLimit        int64
 	resultIsolated     bool
 	outputTransport    ProviderOutputTransport
 	stagedOutput       StagedOutputReceipt
@@ -224,10 +222,9 @@ func NewSuccessfulProviderExecutionObservation(
 	invocation ProviderInvocation,
 	result ProviderResult,
 	processObservation ProcessObservation,
-	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
 	return newSuccessfulProviderExecutionObservation(
-		invocation, result, processObservation, stdoutLimit, stderrLimit, false,
+		invocation, result, processObservation, false,
 	)
 }
 
@@ -238,27 +235,25 @@ func NewIsolatedSuccessfulProviderExecutionObservation(
 	invocation ProviderInvocation,
 	result ProviderResult,
 	processObservation ProcessObservation,
-	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
 	return newSuccessfulProviderExecutionObservation(
-		invocation, result, processObservation, stdoutLimit, stderrLimit, true,
+		invocation, result, processObservation, true,
 	)
 }
 
 // NewStagedFileSuccessfulProviderExecutionObservation records a successful
 // provider result whose bytes were read back from the provider-written staged
 // output file instead of the process stdout stream. The result is isolated by
-// construction: process stdout and stderr remain bounded diagnostic evidence.
+// construction: process stdout and stderr remain private diagnostic evidence.
 // The receipt must describe exactly the accepted result bytes.
 func NewStagedFileSuccessfulProviderExecutionObservation(
 	invocation ProviderInvocation,
 	result ProviderResult,
 	processObservation ProcessObservation,
-	stdoutLimit, stderrLimit int64,
 	receipt StagedOutputReceipt,
 ) (ProviderExecutionObservation, error) {
 	observation, err := newSuccessfulProviderExecutionObservation(
-		invocation, result, processObservation, stdoutLimit, stderrLimit, true,
+		invocation, result, processObservation, true,
 	)
 	if err != nil {
 		return ProviderExecutionObservation{}, err
@@ -276,7 +271,6 @@ func newSuccessfulProviderExecutionObservation(
 	invocation ProviderInvocation,
 	result ProviderResult,
 	processObservation ProcessObservation,
-	stdoutLimit, stderrLimit int64,
 	resultIsolated bool,
 ) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
@@ -302,8 +296,6 @@ func newSuccessfulProviderExecutionObservation(
 		stdout:             canonicalProcess.Stdout(),
 		stderr:             canonicalProcess.Stderr(),
 		resultIsolated:     resultIsolated,
-		stdoutLimit:        stdoutLimit,
-		stderrLimit:        stderrLimit,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
@@ -313,17 +305,16 @@ func newSuccessfulProviderExecutionObservation(
 
 // NewFailedProviderExecutionObservation records one classified process failure.
 // It deliberately accepts no ProviderResult: process stdout and stderr remain
-// neutral bounded evidence rather than a successful provider result.
+// neutral evidence rather than a successful provider result.
 func NewFailedProviderExecutionObservation(
 	status ProviderExecutionStatus,
 	invocation ProviderInvocation,
 	processObservation ProcessObservation,
 	diagnosticCode string,
-	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
 	cause := providerExecutionCause(status, diagnosticCode, processObservation)
 	return NewFailedProviderExecutionObservationWithCause(
-		status, invocation, processObservation, diagnosticCode, cause, "", stdoutLimit, stderrLimit,
+		status, invocation, processObservation, diagnosticCode, cause, "",
 	)
 }
 
@@ -336,7 +327,6 @@ func NewFailedProviderExecutionObservationWithCause(
 	processObservation ProcessObservation,
 	diagnosticCode string,
 	cause, cleanupCause domain.RuntimeDiagnosticCause,
-	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
 	if err != nil {
@@ -357,8 +347,6 @@ func NewFailedProviderExecutionObservationWithCause(
 		cleanupCause:       cleanupCause,
 		stdout:             canonicalProcess.Stdout(),
 		stderr:             canonicalProcess.Stderr(),
-		stdoutLimit:        stdoutLimit,
-		stderrLimit:        stderrLimit,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
@@ -366,7 +354,7 @@ func NewFailedProviderExecutionObservationWithCause(
 	return observation, nil
 }
 
-// NewPartialFailedProviderExecutionObservation retains bounded streams and a
+// NewPartialFailedProviderExecutionObservation retains complete streams and a
 // typed cause when process execution failed before a coherent neutral process
 // observation could be assembled.
 func NewPartialFailedProviderExecutionObservation(
@@ -375,7 +363,6 @@ func NewPartialFailedProviderExecutionObservation(
 	stdout, stderr []byte,
 	diagnosticCode string,
 	cause, cleanupCause domain.RuntimeDiagnosticCause,
-	stdoutLimit, stderrLimit int64,
 ) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
 	if err != nil {
@@ -385,7 +372,6 @@ func NewPartialFailedProviderExecutionObservation(
 		status: status, invocation: canonicalInvocation,
 		diagnosticCode: diagnosticCode, primaryCause: cause, cleanupCause: cleanupCause,
 		stdout: cloneBytes(stdout), stderr: cloneBytes(stderr),
-		stdoutLimit: stdoutLimit, stderrLimit: stderrLimit,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
@@ -533,18 +519,6 @@ func (observation ProviderExecutionObservation) CleanupCause() (domain.RuntimeDi
 	return observation.cleanupCause, observation.cleanupCause != ""
 }
 
-// StdoutLimit returns the positive stdout capture limit bound to the
-// observation.
-func (observation ProviderExecutionObservation) StdoutLimit() int64 {
-	return observation.stdoutLimit
-}
-
-// StderrLimit returns the positive stderr capture limit bound to the
-// observation.
-func (observation ProviderExecutionObservation) StderrLimit() int64 {
-	return observation.stderrLimit
-}
-
 // FailureClass returns the exact domain failure class for a failed execution.
 // It is empty for a successful observation.
 func (observation ProviderExecutionObservation) FailureClass() domain.FailureClass {
@@ -570,9 +544,6 @@ func (observation ProviderExecutionObservation) Validate() error {
 	} else if observation.processObservation.Valid() {
 		return fmt.Errorf("provider execution observation: unmarked process observation")
 	}
-	if err := validateProviderExecutionLimits(observation.stdoutLimit, observation.stderrLimit); err != nil {
-		return fmt.Errorf("provider execution observation: %w", err)
-	}
 	if observation.hasProcess {
 		if err := validateProviderExecutionStdinReceipt(canonicalInvocation, canonicalProcess); err != nil {
 			return fmt.Errorf("provider execution observation: %w", err)
@@ -580,12 +551,6 @@ func (observation ProviderExecutionObservation) Validate() error {
 		if !bytes.Equal(observation.stdout, canonicalProcess.stdout) || !bytes.Equal(observation.stderr, canonicalProcess.stderr) {
 			return fmt.Errorf("provider execution observation: streams do not match process observation")
 		}
-	}
-	if int64(len(observation.stdout)) > observation.stdoutLimit {
-		return fmt.Errorf("provider execution observation: stdout exceeds its limit")
-	}
-	if int64(len(observation.stderr)) > observation.stderrLimit {
-		return fmt.Errorf("provider execution observation: stderr exceeds its limit")
 	}
 	if err := observation.validateOutputTransport(); err != nil {
 		return fmt.Errorf("provider execution observation: %w", err)
@@ -904,13 +869,11 @@ func providerExecutionStatusMatchesProcessObservation(
 	case ProviderExecutionStatusCancelled:
 		return processObservation.Termination() == ProcessTerminationCancelled
 	case ProviderExecutionStatusArtifactFailure:
-		// Capture caps and incomplete stdin are process artifacts. A complete
+		// Incomplete stdin is a process artifact. A complete
 		// stdin process exit may instead carry an artifact diagnostic from
 		// post-exit output validation. No policy maps a signal to this status.
 		switch processObservation.Termination() {
-		case ProcessTerminationStdoutLimit,
-			ProcessTerminationStderrLimit,
-			ProcessTerminationStdinIncomplete:
+		case ProcessTerminationStdinIncomplete:
 			return true
 		case ProcessTerminationExited:
 			return processObservation.StdinWriteReceipt().Complete()
@@ -959,16 +922,6 @@ func providerExecutionStatusMatchesProcessObservation(
 	default:
 		return false
 	}
-}
-
-func validateProviderExecutionLimits(stdoutLimit, stderrLimit int64) error {
-	if stdoutLimit <= 0 {
-		return fmt.Errorf("stdout limit must be positive")
-	}
-	if stderrLimit <= 0 {
-		return fmt.Errorf("stderr limit must be positive")
-	}
-	return nil
 }
 
 func providerResultIsZero(result ProviderResult) bool {

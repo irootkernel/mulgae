@@ -189,7 +189,7 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 			Repair:   adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true},
 		},
 		Resources: adapterconfig.ResourcesConfig{
-			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14, RunTotalOutputCap: "64MiB",
+			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14,
 		},
 		CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
 	}
@@ -253,7 +253,7 @@ func (attestor *reviewConfigMutatingAttestor) Revalidate(context.Context, ports.
 		return nil
 	}
 	attestor.mutated = true
-	return os.WriteFile(attestor.path, []byte("version: 2\n"), 0o600)
+	return os.WriteFile(attestor.path, []byte("version: 3\n"), 0o600)
 }
 
 type recordingReviewSpawnVerifier struct{ called bool }
@@ -427,7 +427,7 @@ func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T
 	}
 }
 
-const compositionProjectConfig = `version: 2
+const compositionProjectConfig = `version: 3
 project: {name: "project"}
 providers: {agy: {}}
 execution: {workspace_access: "none"}
@@ -442,11 +442,11 @@ review: {required_roles: ["logic"], request_changes_on: ["high", "critical", "bl
 validation:
   evidence: {require_verified_for: ["high", "critical", "blocker"]}
   repair: {enabled: true, max_attempts: 1, same_provider: true}
-resources: {max_active_lanes: 1, primary_repair_attempts: 1, role_max_invocations: 2, run_max_invocations: 2, run_total_output_cap: "64MiB"}
+resources: {max_active_lanes: 1, primary_repair_attempts: 1, role_max_invocations: 2, run_max_invocations: 2}
 ci: {fail_on_severity: ["high", "critical", "blocker"], degraded_review_fails: true}
 `
 
-const compositionLocalConfig = `version: 2
+const compositionLocalConfig = `version: 3
 native_user: {home: "/Users/test"}
 providers:
   agy: {executable: "/bin/agy"}

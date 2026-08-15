@@ -145,11 +145,11 @@ continues on its own provider; the report's "Provider issues" section names each
 failed role, the provider it ran on, why it stopped, and the `mulgae rerun`
 command to run it again on a provider you choose.
 
-Legacy Config v1 files, including files with fallback-provider fields, are
-rejected rather than partially interpreted. Back up the old private file and
-initialize Config v2 deliberately; Mulgae does not migrate it automatically.
+Earlier config versions, including v1 fallback-provider files and Config v2,
+are rejected rather than partially interpreted. Back up the old private file and
+initialize Config v3 deliberately; Mulgae does not migrate it automatically.
 
-`mulgae init` creates Config v2 as two authorities: the shareable project policy
+`mulgae init` creates Config v3 as two authorities: the shareable project policy
 at `.mulgae/config.yaml` and machine-local paths at `.mulgae/local.yaml`. It
 never overwrites an existing complete configuration. On a clone that already
 contains the project policy, `mulgae init` discovers the configured provider
@@ -186,8 +186,8 @@ mulgae config --mode provenance
 
 `--refresh-local` preserves `.mulgae/config.yaml` and atomically replaces only
 the admitted local file. It accepts machine-path overrides but rejects project
-policy options. Config v1 is not migrated or read: back it up, remove the old
-private configuration, and initialize Config v2 deliberately.
+policy options. Earlier config versions are not migrated or read: back them up,
+remove the old private configuration, and initialize Config v3 deliberately.
 
 Every review command requires exactly one target:
 
@@ -416,8 +416,9 @@ A successful publication creates a run beneath:
 The directory contains a manifest, accepted free-form role reports, provider
 attempts, validation records, runtime diagnostics, a reference-only v2 capture
 manifest with deduplicated SHA-256 blobs, and at most one final `review_*.json`
-artifact. Provider reports are admitted as UTF-8 without a fixed size ceiling;
-diagnostic previews and optional structured extraction remain bounded. Mulgae
+artifact. Provider stdout, stderr, and accepted reports are preserved without a
+product byte ceiling. Public diagnostic metadata and optional structured
+extraction retain their separate structural contracts. Mulgae
 alone normalizes, validates, and commits the top-level final artifact.
 
 Inspect a run with its exact ID:

@@ -684,7 +684,7 @@ func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDe
 // regardless of how many provider families the project configured.
 func resourceDefaults(_ candidates, roleCount int) appconfig.ResourcesConfig {
 	const role = 2
-	return appconfig.ResourcesConfig{MaxActiveLanes: roleCount, PrimaryRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: role * roleCount, RunTotalOutputCap: "64MiB"}
+	return appconfig.ResourcesConfig{MaxActiveLanes: roleCount, PrimaryRepairAttempts: 1, RoleMaxInvocations: role, RunMaxInvocations: role * roleCount}
 }
 
 func validateRoleSelection(roles []string) ([]string, error) {

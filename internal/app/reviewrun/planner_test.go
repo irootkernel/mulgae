@@ -420,7 +420,7 @@ func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits, err := review.NewInvocationLimits(time.Second, 1, 1)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func plannerTestRoute(t *testing.T, family Family, instance string, roles []doma
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits, err := review.NewInvocationLimits(time.Second, 1024, 1024)
+	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
