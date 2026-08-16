@@ -293,9 +293,11 @@ the runtime sources of truth. Apply these rules when sources disagree:
 
 ### Gaori Test Evidence
 
-The test requirements in `docs/development.md` are authoritative. Gaori is an
-optional local execution and evidence-compression adapter, not an additional test
-gate or acceptance authority.
+The standard test and release requirements in `docs/development.md` are
+authoritative for the normal workflow. The explicit patch-only waiver above is
+an agent-specific override when master supplies the required authorization.
+Gaori is an optional local execution and evidence-compression adapter, not an
+additional test gate or acceptance authority.
 
 When a required test command is expected to produce long or noisy output, prefer
 running it through Gaori from the repository root:

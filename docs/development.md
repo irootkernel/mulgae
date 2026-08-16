@@ -172,8 +172,7 @@ tests in the owning application package.
 - Add negative fail-closed tests, not only success tests.
 - Update affected versioned contracts and docs with user-visible behavior.
 - Keep unrelated changes out of the commit.
-- Run the complete gate before release unless the explicit patch-only exception
-  below applies.
+- Run the complete gate before release.
 
 ## Manual release
 
@@ -188,27 +187,3 @@ The repository intentionally has no GitHub Actions release workflow:
 
 Never tag a dirty tree or a different commit from the one exercised by the
 release gate.
-
-An explicitly authorized patch-only release may use a reduced gate when the user
-states that `make test` has already passed, accepts responsibility for relying on
-that result, and requests release after the small version change. The user's
-statement is the verification waiver; do not require prior artifacts or rerun
-the complete gate. The only changes since the user-accepted result may be the
-patch-version declaration, its matching test assertion, release notes, and
-release-procedure documentation or agent guidance. Runtime behavior, schemas,
-embedded assets, dependencies, build inputs, provider policy, and tool
-configuration must be unchanged. For this case:
-
-1. run `make test-prepare`, `make test-unit`, and `make test-int` on the exact
-   release commit;
-2. install that commit into a temporary `GOBIN` with the release version and
-   revision link values;
-3. verify `mulgae version` and `mulgae version --json` report the new patch
-   version; the public version result does not expose the build revision;
-4. record the user's waiver and the intentionally omitted release-binary and
-   live E2E reruns in the release notes;
-5. tag and push the exact reduced-gate commit using the normal separate push
-   operations.
-
-If authorization is not explicit or the diff exceeds this narrow boundary, the
-normal complete release procedure applies.
