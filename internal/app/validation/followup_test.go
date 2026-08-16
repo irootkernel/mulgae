@@ -51,8 +51,6 @@ func TestFollowupValidatorFailsClosed(t *testing.T) {
 	valid := []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`)
 	cases := [][]byte{
 		[]byte(`{`),
-		[]byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"source":{},"current":{"path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
-		[]byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"target_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","path":"a.go","line_start":1,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[],"provider":"spoof"}`),
 		[]byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"summary","resolution":"resolved","rationale":"rationale","evidence":[{"current":{"path":"a.go","line_start":2,"line_end":1,"side":"head","quote":"x"}}],"new_findings":[],"limitations":[]}`),
 	}
 	for _, raw := range cases {
@@ -71,7 +69,7 @@ func TestFollowupValidatorFailsClosed(t *testing.T) {
 	}
 }
 
-func TestFollowupValidatorRejectsOwnershipViolationsAsObservationMismatch(t *testing.T) {
+func TestFollowupValidatorDiscardsUnknownAndTrustedFields(t *testing.T) {
 	validator := followupTestValidator(t, followupSchemaFunc(func(context.Context, ports.AssetID, []byte) error { return nil }))
 	cases := []struct {
 		name   string
@@ -104,13 +102,9 @@ func TestFollowupValidatorRejectsOwnershipViolationsAsObservationMismatch(t *tes
 		t.Run(test.name, func(t *testing.T) {
 			document := followupTestDocument("resolved", "The issue was removed by the current change.")
 			test.mutate(document)
-			_, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, document), followupTestScope(t))
-			if err == nil || repairable {
-				t.Fatalf("ownership violation repairable=%t err=%v", repairable, err)
-			}
-			cause, ok := RuntimeCause(err)
-			if !ok || cause != domain.DiagnosticCauseObservationMismatch {
-				t.Fatalf("ownership cause = %q present=%t, want observation_mismatch", cause, ok)
+			result, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, document), followupTestScope(t))
+			if err != nil || repairable || len(result.DiscardedPaths()) != 1 {
+				t.Fatalf("discarded field result=%#v repairable=%t err=%v", result.DiscardedPaths(), repairable, err)
 			}
 		})
 	}
@@ -140,8 +134,8 @@ func TestFollowupValidatorRepairAuthorityIsStructuralOnly(t *testing.T) {
 	}
 	forbidden := followupTestDocument("resolved", "The issue was removed by the current change.")
 	forbidden["session_id"] = "provider-owned"
-	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, forbidden), followupTestScope(t)); err == nil || repairable {
-		t.Fatalf("trust violation repairable=%t err=%v", repairable, err)
+	if result, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, forbidden), followupTestScope(t)); err != nil || repairable || len(result.DiscardedPaths()) != 1 {
+		t.Fatalf("discarded trust field paths=%v repairable=%t err=%v", result.DiscardedPaths(), repairable, err)
 	}
 	contradiction := followupTestDocument("resolved", "The issue remains in the current target.")
 	if _, repairable, err := validator.ValidateWithRepairAuthority(context.Background(), followupTestJSON(t, contradiction), followupTestScope(t)); err == nil || repairable {

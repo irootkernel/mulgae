@@ -144,7 +144,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 190*time.Second)
 	defer cancel()
 	fixture, err := fixtures.Acquire(ctx, config.role)
 	if err != nil {
@@ -200,7 +200,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
 		BaseArgv: baseArgv, TransportChannel: transportChannel, TransportArgvIndex: config.transportIndex,
-		WorkingDirectory: "/private/var/empty", Timeout: 30 * time.Second,
+		WorkingDirectory: "/private/var/empty", Timeout: 3 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("%s production runtime definition: %v", config.family, err)

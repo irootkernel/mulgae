@@ -191,6 +191,7 @@ type ValidatedReview struct {
 	evidenceClaims []FindingEvidenceClaims
 	originalRaw    []byte
 	repairedRaw    []byte
+	discardedPaths []string
 }
 
 func (review ValidatedReview) Summary() string      { return review.summary }
@@ -207,6 +208,13 @@ func (review ValidatedReview) EvidenceClaims() []FindingEvidenceClaims {
 	return cloneFindingEvidenceClaims(review.evidenceClaims)
 }
 func (review ValidatedReview) Repaired() bool { return review.repairedRaw != nil }
+
+// DiscardedPaths returns the sorted JSON Pointer paths removed from the
+// provider-authored content document before trusted-field injection. Values
+// are deliberately never retained in diagnostics metadata.
+func (review ValidatedReview) DiscardedPaths() []string {
+	return append([]string(nil), review.discardedPaths...)
+}
 
 // ReviewValidator validates provider-only JSON against the provider-wire schema,
 // injects trusted current target identity, then validates the normalized v1
@@ -234,8 +242,8 @@ func NewReviewValidator(schemaValidator SchemaValidator, schemaID ports.AssetID)
 	return &ReviewValidator{schemaValidator: schemaValidator, schemaID: schemaID, wireSchemaID: wireSchemaID}, nil
 }
 
-// Validate parses exactly one provider JSON object, rejects system-owned
-// fields, injects trusted target identity, then runs schema validation before
+// Validate parses exactly one provider JSON object, removes fields outside the
+// provider-owned projection, injects trusted target identity, then runs schema validation before
 // semantic validation. An error with a non-nil RepairPlan is eligible for at
 // most one caller-owned repair attempt.
 func (validator *ReviewValidator) Validate(ctx context.Context, raw []byte, scope ReviewValidationScope) (ValidatedReview, *RepairPlan, error) {
@@ -274,10 +282,12 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		}
 		return ValidatedReview{}, nil, err
 	}
-	if err := guardProviderReview(provider); err != nil {
-		return ValidatedReview{}, nil, err
+	provider, discardedPaths := projectProviderReview(provider)
+	providerRaw, err := json.Marshal(provider)
+	if err != nil {
+		return ValidatedReview{}, nil, fmt.Errorf("review validation: marshal provider projection: %w", err)
 	}
-	if err := validator.schemaValidator.Validate(ctx, validator.wireSchemaID, raw); err != nil {
+	if err := validator.schemaValidator.Validate(ctx, validator.wireSchemaID, providerRaw); err != nil {
 		inspection := inspectReview(provider, trustedTarget)
 		schemaErr := fmt.Errorf("review validation: provider wire schema: %w", err)
 		if inspection.hasFatal() {
@@ -344,6 +354,7 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		evidenceClaims: evidenceClaims,
 		originalRaw:    append([]byte(nil), originalRaw...),
 		repairedRaw:    cloneOptionalBytes(repairedRaw),
+		discardedPaths: append([]string(nil), discardedPaths...),
 	}, nil, nil
 }
 
@@ -403,7 +414,7 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 	if !ok {
 		return candidate, nil
 	}
-	for findingIndex, findingValue := range findings {
+	for _, findingValue := range findings {
 		finding, ok := findingValue.(map[string]any)
 		if !ok {
 			continue
@@ -412,7 +423,7 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 		if !ok {
 			continue
 		}
-		for evidenceIndex, evidenceValue := range evidence {
+		for _, evidenceValue := range evidence {
 			evidenceObject, ok := evidenceValue.(map[string]any)
 			if !ok {
 				continue
@@ -421,23 +432,72 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 			if !ok {
 				continue
 			}
-			if _, supplied := current["target_sha256"]; supplied {
-				return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned target SHA-256 at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
-			}
-			if _, supplied := current["verification"]; supplied {
-				return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned verification at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
-			}
 			current["target_sha256"] = targetSHA256
 			current["verification"] = "claimed"
 			if visual, ok := evidenceObject["visual"].(map[string]any); ok {
-				if _, supplied := visual["verification"]; supplied {
-					return nil, &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned visual verification at findings[%d].evidence[%d]", findingIndex, evidenceIndex)}
-				}
 				visual["verification"] = "claimed"
 			}
 		}
 	}
 	return candidate, nil
+}
+
+var providerReviewAllowed = map[string]map[string]struct{}{
+	"":                                   {"schema_version": {}, "summary": {}, "completeness": {}, "limitations": {}, "findings": {}},
+	"/findings/*":                        {"severity": {}, "title": {}, "description": {}, "evidence": {}, "recommendation": {}, "confidence": {}},
+	"/findings/*/evidence/*":             {"current": {}, "visual": {}},
+	"/findings/*/evidence/*/current":     {"path": {}, "line_start": {}, "line_end": {}, "side": {}, "quote": {}},
+	"/findings/*/evidence/*/visual":      {"path": {}, "sha256": {}, "bbox": {}},
+	"/findings/*/evidence/*/visual/bbox": {"x": {}, "y": {}, "width": {}, "height": {}},
+}
+
+func projectProviderReview(provider map[string]any) (map[string]any, []string) {
+	projected, paths := projectProviderObject(provider, "", "", providerReviewAllowed)
+	return projected, sortedUnique(paths)
+}
+
+func projectProviderObject(object map[string]any, pointer, shape string, allowedByShape map[string]map[string]struct{}) (map[string]any, []string) {
+	allowed := allowedByShape[shape]
+	projected := make(map[string]any, len(object))
+	paths := make([]string, 0)
+	for key, value := range object {
+		childPointer := pointer + "/" + escapeJSONPointerToken(key)
+		if _, ok := allowed[key]; !ok {
+			paths = append(paths, childPointer)
+			continue
+		}
+		childShape := shape + "/" + key
+		if child, ok := value.(map[string]any); ok {
+			if _, nested := allowedByShape[childShape]; nested {
+				projectedChild, removed := projectProviderObject(child, childPointer, childShape, allowedByShape)
+				projected[key] = projectedChild
+				paths = append(paths, removed...)
+				continue
+			}
+		}
+		if values, ok := value.([]any); ok {
+			itemShape := childShape + "/*"
+			if _, nested := allowedByShape[itemShape]; nested {
+				items := make([]any, len(values))
+				copy(items, values)
+				for index, item := range items {
+					if child, ok := item.(map[string]any); ok {
+						projectedChild, removed := projectProviderObject(child, fmt.Sprintf("%s/%d", childPointer, index), itemShape, allowedByShape)
+						items[index] = projectedChild
+						paths = append(paths, removed...)
+					}
+				}
+				projected[key] = items
+				continue
+			}
+		}
+		projected[key] = value
+	}
+	return projected, paths
+}
+
+func escapeJSONPointerToken(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "~", "~0"), "/", "~1")
 }
 
 func cloneJSONObject(value map[string]any) (map[string]any, error) {
@@ -602,61 +662,6 @@ func parseJSONHexEscape(raw []byte, marker int) (uint64, error) {
 		return 0, fmt.Errorf("invalid UTF-16 escape")
 	}
 	return value, nil
-}
-
-// guardProviderReview is an ownership guard, not just a convenience schema
-// check. It rejects all system-owned identity, transition, outcome, hash, and
-// orchestration fields before they can influence normalized data.
-func guardProviderReview(provider map[string]any) error {
-	if err := requireOnlyKeys(provider, "provider output", "schema_version", "summary", "completeness", "limitations", "findings"); err != nil {
-		return err
-	}
-	findings, ok := provider["findings"].([]any)
-	if !ok {
-		return nil
-	}
-	for findingIndex, findingValue := range findings {
-		finding, ok := findingValue.(map[string]any)
-		if !ok {
-			continue
-		}
-		findingPath := fmt.Sprintf("findings[%d]", findingIndex)
-		if err := requireOnlyKeys(finding, findingPath, "severity", "title", "description", "evidence", "recommendation", "confidence"); err != nil {
-			return err
-		}
-		evidence, ok := finding["evidence"].([]any)
-		if !ok {
-			continue
-		}
-		for evidenceIndex, evidenceValue := range evidence {
-			evidenceObject, ok := evidenceValue.(map[string]any)
-			if !ok {
-				continue
-			}
-			evidencePath := fmt.Sprintf("%s.evidence[%d]", findingPath, evidenceIndex)
-			if err := requireOnlyKeys(evidenceObject, evidencePath, "current", "visual"); err != nil {
-				return err
-			}
-			current, ok := evidenceObject["current"].(map[string]any)
-			if !ok {
-				continue
-			}
-			if err := requireOnlyKeys(current, evidencePath+".current", "path", "line_start", "line_end", "side", "quote"); err != nil {
-				return err
-			}
-			if visual, ok := evidenceObject["visual"].(map[string]any); ok {
-				if err := requireOnlyKeys(visual, evidencePath+".visual", "path", "sha256", "bbox"); err != nil {
-					return err
-				}
-				if bbox, ok := visual["bbox"].(map[string]any); ok {
-					if err := requireOnlyKeys(bbox, evidencePath+".visual.bbox", "x", "y", "width", "height"); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-	return nil
 }
 
 func requireOnlyKeys(object map[string]any, location string, allowed ...string) error {

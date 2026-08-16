@@ -75,6 +75,7 @@
         a_019f596a-d048-79e7-b2b7-59822f012273/
           status.json
           candidate.initial.json
+          candidate.retry.001.json
           candidate.repaired.001.json
           invocations/
             001-initial/

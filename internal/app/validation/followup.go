@@ -49,6 +49,7 @@ type ValidatedFollowup struct {
 	reportsOnly      bool
 	parseState       domain.ParseState
 	validationState  domain.ValidationState
+	discardedPaths   []string
 }
 
 func (result ValidatedFollowup) Resolution() domain.FollowupResolution { return result.resolution }
@@ -61,6 +62,12 @@ func (result ValidatedFollowup) NormalizedRaw() []byte {
 	return append([]byte(nil), result.normalizedRaw...)
 }
 func (result ValidatedFollowup) ProviderSHA256() string { return result.providerSHA256 }
+
+// DiscardedPaths returns the sorted JSON Pointer paths removed from the
+// provider-authored structured document. Removed values are never retained.
+func (result ValidatedFollowup) DiscardedPaths() []string {
+	return append([]string(nil), result.discardedPaths...)
+}
 
 // ReportsOnly reports whether Mulgae accepted free-form assistant content
 // without a trusted structured followup resolution.
@@ -218,11 +225,7 @@ func (validator *FollowupValidator) ValidateWithRepairAuthority(ctx context.Cont
 	if err != nil {
 		return ValidatedFollowup{}, true, err
 	}
-	if err := guardFollowupProvider(provider); err != nil {
-		// Ownership violations are observation_mismatch and never repairable,
-		// matching root-review trusted-field rejection.
-		return ValidatedFollowup{}, false, wrapRuntimeError(err, domain.DiagnosticCauseObservationMismatch)
-	}
+	provider, discardedPaths := projectFollowupProvider(provider)
 	candidate, err := injectFollowupTrust(provider, trusted)
 	if err != nil {
 		return ValidatedFollowup{}, false, err
@@ -244,6 +247,7 @@ func (validator *FollowupValidator) ValidateWithRepairAuthority(ctx context.Cont
 		providerInstance: scope.ProviderInstance, providerRaw: append([]byte(nil), raw...),
 		normalizedRaw: append([]byte(nil), normalized...), providerSHA256: hex.EncodeToString(sum[:]),
 		parseState: domain.ParseValid, validationState: domain.ValidationValid,
+		discardedPaths: append([]string(nil), discardedPaths...),
 	}, false, nil
 }
 
@@ -324,60 +328,18 @@ func decodeFollowupJSONObject(raw []byte) (map[string]any, error) {
 	return object, nil
 }
 
-func guardFollowupProvider(provider map[string]any) error {
-	return guardFollowupObject(provider, map[string]struct{}{"schema_version": {}, "summary": {}, "resolution": {}, "rationale": {}, "evidence": {}, "new_findings": {}, "limitations": {}}, "output", false)
+var followupProviderAllowed = map[string]map[string]struct{}{
+	"":                                   {"schema_version": {}, "summary": {}, "resolution": {}, "rationale": {}, "evidence": {}, "new_findings": {}, "limitations": {}},
+	"/evidence/*":                        {"current": {}},
+	"/evidence/*/current":                {"path": {}, "line_start": {}, "line_end": {}, "side": {}, "quote": {}},
+	"/new_findings/*":                    {"severity": {}, "title": {}, "description": {}, "evidence": {}, "recommendation": {}, "confidence": {}},
+	"/new_findings/*/evidence/*":         {"current": {}},
+	"/new_findings/*/evidence/*/current": {"path": {}, "line_start": {}, "line_end": {}, "side": {}, "quote": {}},
 }
 
-func guardFollowupObject(object map[string]any, allowed map[string]struct{}, path string, evidence bool) error {
-	for key := range object {
-		if _, ok := allowed[key]; !ok {
-			return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied forbidden or unknown field %s.%s", path, key)}
-		}
-	}
-	if evidence {
-		if _, present := object["source"]; present {
-			return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied source identity at %s", path)}
-		}
-		current, ok := object["current"].(map[string]any)
-		if !ok {
-			return nil
-		}
-		for _, key := range []string{"target_sha256", "verification", "session_id", "run_id", "review_id", "finding_id", "source_target_sha256", "source_excerpt_sha256"} {
-			if _, present := current[key]; present {
-				return &ownershipViolation{err: fmt.Errorf("followup validation: provider supplied system identity at %s.current.%s", path, key)}
-			}
-		}
-		return guardFollowupObject(current, map[string]struct{}{"path": {}, "line_start": {}, "line_end": {}, "side": {}, "quote": {}}, path+".current", false)
-	}
-	for key, value := range object {
-		if key == "evidence" {
-			values, ok := value.([]any)
-			if !ok {
-				continue
-			}
-			for index, item := range values {
-				if child, ok := item.(map[string]any); ok {
-					if err := guardFollowupObject(child, map[string]struct{}{"current": {}}, fmt.Sprintf("%s.evidence[%d]", path, index), true); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if key == "new_findings" {
-			values, ok := value.([]any)
-			if !ok {
-				continue
-			}
-			for index, item := range values {
-				if child, ok := item.(map[string]any); ok {
-					if err := guardFollowupObject(child, map[string]struct{}{"severity": {}, "title": {}, "description": {}, "evidence": {}, "recommendation": {}, "confidence": {}}, fmt.Sprintf("%s.new_findings[%d]", path, index), false); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-	return nil
+func projectFollowupProvider(provider map[string]any) (map[string]any, []string) {
+	projected, paths := projectProviderObject(provider, "", "", followupProviderAllowed)
+	return projected, sortedUnique(paths)
 }
 
 func injectFollowupTrust(provider map[string]any, trusted trustedFollowupScope) (map[string]any, error) {

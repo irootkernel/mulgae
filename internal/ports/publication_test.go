@@ -1113,6 +1113,7 @@ func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
 		RunSupportArtifactExcerpt,
 		RunSupportArtifactAttemptStatus,
 		RunSupportArtifactInitialCandidate,
+		RunSupportArtifactRetryCandidate,
 		RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactInvocationStdout,
 		RunSupportArtifactInvocationStderr,

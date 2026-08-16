@@ -142,6 +142,35 @@ func (runtime *ProviderInvocationRuntime) emitValidationDiagnostics(ctx context.
 	return nil
 }
 
+func (runtime *ProviderInvocationRuntime) emitDiscardedFieldDiagnostics(ctx context.Context, job InvocationJob, paths []string) error {
+	if len(paths) == 0 || runtime == nil || runtime.diagnostics == nil {
+		return nil
+	}
+	sink, ok := runtime.diagnostics.RuntimeDiagnosticSink(job.RunID())
+	if !ok || nilInterface(sink) {
+		return errors.New("provider invocation runtime: mandatory diagnostic sink unavailable")
+	}
+	retained := append([]string(nil), paths...)
+	if len(retained) > domain.MaxRuntimeDiagnosticDiscardedPaths {
+		retained = retained[:domain.MaxRuntimeDiagnosticDiscardedPaths]
+	}
+	input := domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticWarn, Component: "provider_runtime", Operation: "validate",
+		Event: domain.DiagnosticProviderFieldsDiscarded, SessionID: job.SessionID(), RunID: job.RunID(),
+		AttemptID: job.AttemptID(), InvocationID: runtime.diagnosticInvocationID(job), Role: job.Role(),
+		Provider: job.Route().ProviderInstance(), DiscardedPaths: retained, DiscardedPathCount: len(paths),
+	}
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(input)
+	if err != nil {
+		return err
+	}
+	_, err = sink.Emit(context.WithoutCancel(ctx), draft)
+	if errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
+		return nil
+	}
+	return err
+}
+
 func (runtime *ProviderInvocationRuntime) replaceInvocationDiagnosticStatus(
 	ctx context.Context,
 	job InvocationJob,

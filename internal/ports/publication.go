@@ -268,6 +268,7 @@ type AttemptArtifactKind string
 
 const (
 	AttemptArtifactInitialCandidate  AttemptArtifactKind = "initial_candidate"
+	AttemptArtifactRetryCandidate    AttemptArtifactKind = "retry_candidate"
 	AttemptArtifactRepairedCandidate AttemptArtifactKind = "repaired_candidate"
 	AttemptArtifactStdout            AttemptArtifactKind = "stdout"
 	AttemptArtifactStderr            AttemptArtifactKind = "stderr"
@@ -276,6 +277,7 @@ const (
 // Valid reports whether the kind is a persisted provider byte stream.
 func (kind AttemptArtifactKind) Valid() bool {
 	return kind == AttemptArtifactInitialCandidate ||
+		kind == AttemptArtifactRetryCandidate ||
 		kind == AttemptArtifactRepairedCandidate ||
 		kind == AttemptArtifactStdout ||
 		kind == AttemptArtifactStderr
@@ -541,6 +543,7 @@ const (
 	RunSupportArtifactExcerpt           RunSupportArtifactKind = "excerpt"
 	RunSupportArtifactAttemptStatus     RunSupportArtifactKind = "attempt_status"
 	RunSupportArtifactInitialCandidate  RunSupportArtifactKind = "initial_candidate"
+	RunSupportArtifactRetryCandidate    RunSupportArtifactKind = "retry_candidate"
 	RunSupportArtifactRepairedCandidate RunSupportArtifactKind = "repaired_candidate"
 	RunSupportArtifactInvocationStdout  RunSupportArtifactKind = "invocation_stdout"
 	RunSupportArtifactInvocationStderr  RunSupportArtifactKind = "invocation_stderr"
@@ -560,7 +563,7 @@ const (
 func (kind RunSupportArtifactKind) Valid() bool {
 	switch kind {
 	case RunSupportArtifactExcerpt, RunSupportArtifactAttemptStatus,
-		RunSupportArtifactInitialCandidate, RunSupportArtifactRepairedCandidate,
+		RunSupportArtifactInitialCandidate, RunSupportArtifactRetryCandidate, RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
@@ -902,6 +905,10 @@ func classifyCanonicalAttemptSupportPath(name string) (RunSupportArtifactKind, e
 		return RunSupportArtifactAttemptStatus, nil
 	case len(parts) == 2 && parts[1] == "candidate.initial.json":
 		return RunSupportArtifactInitialCandidate, nil
+	case len(parts) == 2 && strings.HasPrefix(parts[1], "candidate.retry.") &&
+		strings.HasSuffix(parts[1], ".json") &&
+		decimalIdentifier(strings.TrimSuffix(strings.TrimPrefix(parts[1], "candidate.retry."), ".json"), 3):
+		return RunSupportArtifactRetryCandidate, nil
 	case len(parts) == 2 && strings.HasPrefix(parts[1], "candidate.repaired.") &&
 		strings.HasSuffix(parts[1], ".json") &&
 		decimalIdentifier(strings.TrimSuffix(strings.TrimPrefix(parts[1], "candidate.repaired."), ".json"), 3):
@@ -926,9 +933,9 @@ func classifyCanonicalPromptSupportPath(name string) (RunSupportArtifactKind, er
 		return "", fmt.Errorf("prompt support path %q is not canonical", name)
 	}
 	switch suffix {
-	case "initial.stdin", "repair.stdin":
+	case "initial.stdin", "retry.stdin", "repair.stdin":
 		return RunSupportArtifactPromptStdin, nil
-	case "initial.manifest.json", "repair.manifest.json":
+	case "initial.manifest.json", "retry.manifest.json", "repair.manifest.json":
 		return RunSupportArtifactPromptManifest, nil
 	default:
 		return "", fmt.Errorf("prompt support path %q is not canonical", name)
@@ -942,7 +949,7 @@ func validAttemptArtifactID(value string) bool {
 
 func canonicalInvocationDirectory(value string) bool {
 	sequence, purpose, ok := strings.Cut(value, "-")
-	return ok && decimalIdentifier(sequence, 3) && (purpose == "initial" || purpose == "repair")
+	return ok && decimalIdentifier(sequence, 3) && (purpose == "initial" || purpose == "retry" || purpose == "repair")
 }
 
 func decimalIdentifier(value string, minimumWidth int) bool {

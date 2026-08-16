@@ -233,7 +233,7 @@ func TestRejectSeverityDowngrade(t *testing.T) {
 	}
 }
 
-func TestApplyRepairRejectsInjectedSystemOwnedCurrentFields(t *testing.T) {
+func TestApplyRepairDiscardsInjectedSystemOwnedCurrentFields(t *testing.T) {
 	for _, testCase := range []struct {
 		name  string
 		field string
@@ -262,8 +262,10 @@ func TestApplyRepairRejectsInjectedSystemOwnedCurrentFields(t *testing.T) {
 				"path":  "/findings/0/evidence/0/current",
 				"value": current,
 			}})
-			if _, err := validator.ApplyRepair(context.Background(), original, patch, testScope(), *plan); err == nil {
-				t.Fatalf("system-owned %s injection was accepted", testCase.field)
+			result, err := validator.ApplyRepair(context.Background(), original, patch, testScope(), *plan)
+			wantPath := "/findings/0/evidence/0/current/" + testCase.field
+			if err != nil || len(result.DiscardedPaths()) != 1 || result.DiscardedPaths()[0] != wantPath {
+				t.Fatalf("system-owned %s projection paths=%v err=%v", testCase.field, result.DiscardedPaths(), err)
 			}
 		})
 	}

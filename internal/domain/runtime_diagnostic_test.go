@@ -75,6 +75,34 @@ func TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiagnosticDiscardedPathsAreBoundedAndDefensive(t *testing.T) {
+	t.Parallel()
+	session, run, attempt := diagnosticTestIDs(t)
+	paths := []string{"/findings/0/private", "/session_id"}
+	draft, err := NewRuntimeDiagnosticEventDraft(RuntimeDiagnosticEventInput{
+		Level: RuntimeDiagnosticWarn, Component: "provider_runtime", Operation: "validate",
+		Event: DiagnosticProviderFieldsDiscarded, SessionID: session, RunID: run, AttemptID: attempt,
+		Role: RoleLogic, Provider: "zcode-main", DiscardedPaths: paths, DiscardedPathCount: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths[0] = "/mutated"
+	input := draft.Input()
+	input.DiscardedPaths[0] = "/also-mutated"
+	if got := draft.Input().DiscardedPaths; got[0] != "/findings/0/private" || draft.Input().DiscardedPathCount != 3 {
+		t.Fatalf("discard metadata leaked mutation: %#v", draft.Input())
+	}
+	for _, invalid := range []RuntimeDiagnosticEventInput{
+		{Level: RuntimeDiagnosticWarn, Component: "provider_runtime", Operation: "validate", Event: DiagnosticProviderFieldsDiscarded, SessionID: session, RunID: run, DiscardedPaths: []string{"relative"}, DiscardedPathCount: 1},
+		{Level: RuntimeDiagnosticInfo, Component: "runtime", Operation: "start", Event: DiagnosticRunStarted, SessionID: session, RunID: run, DiscardedPaths: []string{"/field"}, DiscardedPathCount: 1},
+	} {
+		if _, err := NewRuntimeDiagnosticEventDraft(invalid); err == nil {
+			t.Fatal("invalid discarded path metadata accepted")
+		}
+	}
+}
+
 func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 	t.Parallel()
 	if !DiagnosticWorkspaceCleanupCompleted.Valid() || RuntimeDiagnosticEventCode("custom").Valid() {

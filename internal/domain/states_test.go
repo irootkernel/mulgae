@@ -271,7 +271,7 @@ func TestEveryStateVocabularyValidatesExactly(t *testing.T) {
 		{"publication status", func(value string) bool { return PublicationStatus(value).Valid() }, []string{string(PublicationNotPublished), string(PublicationStaged), string(PublicationInstalled), string(PublicationCommitted), string(PublicationCorrupt)}},
 		{"finding lifecycle", func(value string) bool { return FindingLifecycle(value).Valid() }, []string{string(FindingOpen), string(FindingAcknowledged), string(FindingResolved), string(FindingDismissed)}},
 		{"followup resolution", func(value string) bool { return FollowupResolution(value).Valid() }, []string{string(FollowupResolved), string(FollowupPartiallyResolved), string(FollowupStillOpen), string(FollowupUnclear)}},
-		{"invocation purpose", func(value string) bool { return InvocationPurpose(value).Valid() }, []string{string(InvocationInitial), string(InvocationRepair)}},
+		{"invocation purpose", func(value string) bool { return InvocationPurpose(value).Valid() }, []string{string(InvocationInitial), string(InvocationRetry), string(InvocationRepair)}},
 	}
 	for _, domain := range domains {
 		for _, value := range domain.allowed {

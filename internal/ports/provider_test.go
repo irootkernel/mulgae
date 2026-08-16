@@ -109,7 +109,7 @@ func TestNewProviderInvocationRejectsInvalidInputs(t *testing.T) {
 		{
 			name: "invalid purpose",
 			call: func() error {
-				_, err := NewProviderInvocation(domain.RoleSecurity, "kimi-main", attempt, ProviderInvocationPurpose("retry"), stdin, providerTestSourceID, providerTestExecutionID, digest)
+				_, err := NewProviderInvocation(domain.RoleSecurity, "kimi-main", attempt, ProviderInvocationPurpose("unknown"), stdin, providerTestSourceID, providerTestExecutionID, digest)
 				return err
 			},
 		},

@@ -13,7 +13,7 @@ import (
 type NativeProbeInvocation struct{}
 
 const agyPrintTimeoutCleanupGrace = 5 * time.Second
-const agyQualificationJSONSchema = `{"additionalProperties":false,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
+const agyQualificationJSONSchema = `{"additionalProperties":true,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
 
 // VersionArgv builds the sole family-closed argv admitted for a version probe.
 func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string, error) {

@@ -1,6 +1,7 @@
 package providercli
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -45,6 +46,19 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	tampered[len(definition.BaseArgv())+3] = "/unbound"
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, tampered); err == nil {
 		t.Fatal("validate accepted AGY argv with an unbound snapshot path")
+	}
+}
+
+func TestAGYQualificationSchemaRequiresBindingsButPermitsProviderExtras(t *testing.T) {
+	var schema struct {
+		AdditionalProperties bool     `json:"additionalProperties"`
+		Required             []string `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(agyQualificationJSONSchema), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if !schema.AdditionalProperties || !reflect.DeepEqual(schema.Required, []string{"root", "link", "role"}) {
+		t.Fatalf("AGY qualification schema policy = %#v", schema)
 	}
 }
 
@@ -72,8 +86,8 @@ func TestAGYProbePrintTimeoutStaysInsideBoundedProbeDeadline(t *testing.T) {
 		runtimeTimeout time.Duration
 		want           time.Duration
 	}{
-		{name: "production runtime timeout", runtimeTimeout: 15 * time.Minute, want: 25 * time.Second},
-		{name: "long runtime timeout", runtimeTimeout: 30 * time.Minute, want: 25 * time.Second},
+		{name: "production runtime timeout", runtimeTimeout: 15 * time.Minute, want: 2*time.Minute + 55*time.Second},
+		{name: "long runtime timeout", runtimeTimeout: 30 * time.Minute, want: 2*time.Minute + 55*time.Second},
 		{name: "bounded probe deadline", runtimeTimeout: 30 * time.Second, want: 25 * time.Second},
 		{name: "short runtime timeout", runtimeTimeout: 3 * time.Second, want: 1500 * time.Millisecond},
 		{name: "very short runtime timeout", runtimeTimeout: time.Second, want: 500 * time.Millisecond},
@@ -131,7 +145,7 @@ func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "25s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("headless AGY probe argv = %#v, want %#v", argv, want)
 	}

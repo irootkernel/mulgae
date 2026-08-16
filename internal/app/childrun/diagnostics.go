@@ -91,6 +91,31 @@ func (lifecycle *childDiagnosticLifecycle) emit(ctx context.Context, level domai
 	return nil
 }
 
+func (lifecycle *childDiagnosticLifecycle) emitDiscardedProviderFields(ctx context.Context, attemptID domain.AttemptID, role domain.Role, provider string, paths []string) error {
+	if lifecycle == nil || len(paths) == 0 {
+		return nil
+	}
+	retained := append([]string(nil), paths...)
+	if len(retained) > domain.MaxRuntimeDiagnosticDiscardedPaths {
+		retained = retained[:domain.MaxRuntimeDiagnosticDiscardedPaths]
+	}
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticWarn, Component: "childrun", Operation: "validate",
+		Event: domain.DiagnosticProviderFieldsDiscarded, SessionID: lifecycle.sessionID, RunID: lifecycle.runID,
+		AttemptID: attemptID, Role: role, Provider: provider,
+		DiscardedPaths: retained, DiscardedPathCount: len(paths),
+	})
+	if err != nil {
+		return childDiagnosticArtifactFailure(err)
+	}
+	event, err := lifecycle.sink.Emit(context.WithoutCancel(ctx), draft)
+	if err != nil {
+		return childDiagnosticArtifactFailure(err)
+	}
+	lifecycle.lastSeq = event.Sequence()
+	return nil
+}
+
 type childDiagnosticObservation struct {
 	stdoutSecurityDropped bool
 	stderrSecurityDropped bool

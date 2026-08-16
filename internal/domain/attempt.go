@@ -69,12 +69,19 @@ func (attempt *Attempt) Transition(next AttemptState) error {
 	switch next {
 	case AttemptValidating:
 		if attempt.state == AttemptRunning {
-			if len(attempt.invocations) != 1 {
-				return fmt.Errorf("attempt: %w: initial validation requires exactly one invocation", ErrInvariant)
-			}
-			initial := attempt.invocations[0]
-			if initial.Sequence() != 1 || initial.Purpose() != InvocationInitial || initial.State() != InvocationSucceeded {
-				return fmt.Errorf("attempt: %w: initial validation requires a succeeded initial invocation at sequence 1", ErrInvariant)
+			latest := attempt.invocations[len(attempt.invocations)-1]
+			if len(attempt.invocations) == 1 {
+				if latest.Sequence() != 1 || latest.Purpose() != InvocationInitial || latest.State() != InvocationSucceeded {
+					return fmt.Errorf("attempt: %w: initial validation requires a succeeded initial invocation at sequence 1", ErrInvariant)
+				}
+			} else if len(attempt.invocations) == 2 {
+				initial := attempt.invocations[0]
+				if initial.Sequence() != 1 || initial.Purpose() != InvocationInitial || initial.State() != InvocationFailed ||
+					latest.Sequence() != 2 || latest.Purpose() != InvocationRetry || latest.State() != InvocationSucceeded {
+					return fmt.Errorf("attempt: %w: retry validation requires a failed initial and succeeded retry", ErrInvariant)
+				}
+			} else {
+				return fmt.Errorf("attempt: %w: validation requires one initial or one bounded retry", ErrInvariant)
 			}
 			break
 		}
@@ -102,6 +109,23 @@ func (attempt *Attempt) Transition(next AttemptState) error {
 	}
 
 	attempt.state = next
+	return nil
+}
+
+// AppendRetryInvocation adds the sole same-provider retry after a failed
+// initial invocation. The attempt remains running and cannot later repair.
+func (attempt *Attempt) AppendRetryInvocation(invocation Invocation) error {
+	if attempt == nil || attempt.state != AttemptRunning || len(attempt.invocations) != 1 {
+		return fmt.Errorf("attempt: %w: retry requires one running initial phase", ErrInvariant)
+	}
+	initial := attempt.invocations[0]
+	if initial.Sequence() != 1 || initial.Purpose() != InvocationInitial || initial.State() != InvocationFailed {
+		return fmt.Errorf("attempt: %w: retry requires a failed initial invocation", ErrInvariant)
+	}
+	if invocation.Sequence() != 2 || invocation.Purpose() != InvocationRetry || invocation.State() != InvocationQueued {
+		return fmt.Errorf("attempt: %w: retry invocation must be queued retry at sequence 2", ErrInvariant)
+	}
+	attempt.invocations = append(attempt.invocations, invocation)
 	return nil
 }
 
@@ -137,12 +161,18 @@ func (attempt *Attempt) TransitionInvocation(sequence uint64, next InvocationSta
 	var current Invocation
 	switch attempt.state {
 	case AttemptRunning:
-		if len(attempt.invocations) != 1 {
-			return fmt.Errorf("attempt: %w: initial phase requires exactly one invocation", ErrInvariant)
+		if len(attempt.invocations) < 1 || len(attempt.invocations) > 2 {
+			return fmt.Errorf("attempt: %w: running phase requires an initial and optional retry", ErrInvariant)
 		}
-		current = attempt.invocations[0]
-		if current.Sequence() != 1 || current.Purpose() != InvocationInitial {
+		current = attempt.invocations[len(attempt.invocations)-1]
+		if len(attempt.invocations) == 1 && (current.Sequence() != 1 || current.Purpose() != InvocationInitial) {
 			return fmt.Errorf("attempt: %w: initial phase requires the initial invocation at sequence 1", ErrInvariant)
+		}
+		if len(attempt.invocations) == 2 {
+			initial := attempt.invocations[0]
+			if initial.State() != InvocationFailed || current.Sequence() != 2 || current.Purpose() != InvocationRetry {
+				return fmt.Errorf("attempt: %w: retry phase requires a failed initial and retry at sequence 2", ErrInvariant)
+			}
 		}
 	case AttemptRepairing:
 		if len(attempt.invocations) != 2 {

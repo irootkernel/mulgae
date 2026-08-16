@@ -83,6 +83,14 @@ re-embedding patch, stdin, or old/new target bytes for every role. Providers rea
 that file and surrounding project content selectively from the sealed directory
 view.
 
+Provider-authored content documents are projected through Mulgae-owned nested
+allowlists after strict JSON parsing. Unknown additions and attempted Mulgae-owned
+fields are discarded, then trusted values are injected; discarded values are
+never logged. Diagnostics retain only bounded JSON Pointer paths and a total
+count. This tolerance does not apply to process, transport, lifecycle, workspace,
+evidence, or publication receipts, and malformed JSON, duplicate keys,
+unverifiable evidence, and semantic contradictions remain fail-closed.
+
 The workspace is materialized as ordinary read-only files (`0444`) and
 directories (`0555`). A single tree appears under `current/`; Git comparisons
 appear under `before/` and `after/`. Mulgae revalidates the view through retained

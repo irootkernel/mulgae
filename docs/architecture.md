@@ -161,12 +161,13 @@ cannot register one provider instance twice, and
 an impossible concurrent reuse of one instance within the same registry fails
 immediately as an internal invariant instead of waiting. The coordinator
 enforces the process-local `max_active_lanes` capacity plus per-role and per-run
-invocation ceilings, and schedules repair only after the initial wave is
-committed. There is no user-global capacity authority: provider-side
+invocation ceilings, and schedules a single same-provider retry or constrained
+repair only after the initial wave is committed. The mutually exclusive second
+slot preserves the existing two-invocation ceiling. There is no user-global capacity authority: provider-side
 concurrency or rate limits remain provider outcomes, and operators choose the
 number of Mulgae processes they run.
 
-Role-path deadlines are calculated from initial-to-repair dependencies and the
+Role-path deadlines are calculated from initial-to-second-invocation dependencies and the
 process capacity. Before an invocation starts, the runtime still requires
 enough enclosing budget for the provider's complete configured timeout window;
 removing provider locks does not weaken that check. Provider-observed timeouts

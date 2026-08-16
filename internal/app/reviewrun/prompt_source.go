@@ -69,8 +69,8 @@ func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, i
 
 // composeOutputDestination appends the Mulgae-owned output destination layer as
 // the last trusted layer whenever the locator declares the staged_file transport
-// for this exact launch. Initial and repair launches of one attempt resolve to
-// different absolute paths, so each launch states its own.
+// for this exact launch. Separate launches of one attempt resolve to different
+// absolute paths, so each launch states its own.
 func (source *promptSource) composeOutputDestination(template prompt.TrustedTemplate, job review.InvocationJob) (prompt.TrustedTemplate, error) {
 	destination, staged := review.ResolveStagedOutputDestination(source.staging, job)
 	if !staged {

@@ -1001,7 +1001,7 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
 		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
 		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProcessGroupCleanupFailed},
-		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
+		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusUnavailable, "provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed},
 		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
 		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
 	}
@@ -1097,6 +1097,7 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 	}{
 		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
 		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
+		{"zcode turn failure", FamilyZcode, "zcode_default", []byte("Error: Turn execution failed (traceId: private)"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderTurnFailed, "provider_turn_failed"},
 		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
 		{"agy permission", FamilyAgy, "agy_default", []byte("tool permission was denied"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCausePermissionDenied, "provider_permission_denied"},
 		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed, "provider_auth"},
@@ -2220,8 +2221,8 @@ func TestRegistryObserveRemovesStagingOnProviderFailure(t *testing.T) {
 	}
 	// The process failure keeps its own classification: a staged file cannot
 	// promote a failed provider process to a reviewable result.
-	if observed.Status() != ports.ProviderExecutionStatusInternalFailure ||
-		observed.DiagnosticCode() != "process_internal" ||
+	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
+		observed.DiagnosticCode() != "provider_execution_failed" ||
 		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed {
 		t.Fatalf("provider failure = status %q diagnostic %q cause %q",
 			observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())

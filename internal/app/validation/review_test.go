@@ -480,7 +480,7 @@ func TestNormalizeFindingsRejectsEvidenceCorrelationCollision(t *testing.T) {
 	}
 }
 
-func TestReviewValidatorRejectsStrictJSONAndOwnershipViolations(t *testing.T) {
+func TestReviewValidatorRejectsStrictJSONAndDiscardsUnownedFields(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	for _, raw := range [][]byte{
 		nil,
@@ -502,20 +502,16 @@ func TestReviewValidatorRejectsStrictJSONAndOwnershipViolations(t *testing.T) {
 	systemOwned := providerReviewWith(t, func(document map[string]any) {
 		document["session_id"] = "s_00000000-0000-7000-8000-000000000000"
 	})
-	if _, plan, err := validator.Validate(context.Background(), systemOwned, testScope()); err == nil || plan != nil {
-		t.Fatal("system-owned input was accepted")
-	} else if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseObservationMismatch {
-		t.Fatalf("system-owned cause = %q, present = %t", cause, ok)
+	if result, plan, err := validator.Validate(context.Background(), systemOwned, testScope()); err != nil || plan != nil || !reflect.DeepEqual(result.DiscardedPaths(), []string{"/session_id"}) {
+		t.Fatalf("system-owned projection paths=%v plan=%v err=%v", result.DiscardedPaths(), plan, err)
 	}
 	providerTarget := providerReviewWith(t, func(document map[string]any) {
 		finding := document["findings"].([]any)[0].(map[string]any)
 		current := finding["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)
 		current["target_sha256"] = "sha256:" + strings.Repeat("b", 64)
 	})
-	if _, plan, err := validator.Validate(context.Background(), providerTarget, testScope()); err == nil || plan != nil {
-		t.Fatal("provider target identity was accepted")
-	} else if cause, ok := RuntimeCause(err); !ok || cause != domain.DiagnosticCauseObservationMismatch {
-		t.Fatalf("provider target cause = %q, present = %t", cause, ok)
+	if result, plan, err := validator.Validate(context.Background(), providerTarget, testScope()); err != nil || plan != nil || !reflect.DeepEqual(result.DiscardedPaths(), []string{"/findings/0/evidence/0/current/target_sha256"}) {
+		t.Fatalf("provider target projection paths=%v plan=%v err=%v", result.DiscardedPaths(), plan, err)
 	}
 }
 

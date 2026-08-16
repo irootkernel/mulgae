@@ -323,6 +323,9 @@ func (executor *FollowupExecutor) acceptFollowupOutput(
 		}
 	}
 	if validationErr == nil {
+		if err := lifecycle.emitDiscardedProviderFields(ctx, attemptID, role, executor.providerInstance, validated.DiscardedPaths()); err != nil {
+			return validation.ValidatedFollowup{}, repaired, nil, err
+		}
 		bound, bindErr := validated.WithReportBody(primaryReport, repaired)
 		if bindErr != nil {
 			return validation.ValidatedFollowup{}, false, nil, fmt.Errorf("followup executor: bind report body: %w", bindErr)

@@ -7,7 +7,9 @@ import (
 	"time"
 )
 
-const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v2"
+const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v3"
+
+const MaxRuntimeDiagnosticDiscardedPaths = 100
 
 type RuntimeDiagnosticLevel string
 
@@ -61,6 +63,7 @@ const (
 	DiagnosticOutputParseFailed             RuntimeDiagnosticEventCode = "provider_output_parse_failed"
 	DiagnosticValidationStarted             RuntimeDiagnosticEventCode = "candidate_validation_started"
 	DiagnosticValidationSucceeded           RuntimeDiagnosticEventCode = "candidate_validation_succeeded"
+	DiagnosticProviderFieldsDiscarded       RuntimeDiagnosticEventCode = "provider_output_fields_discarded"
 	DiagnosticValidationFailed              RuntimeDiagnosticEventCode = "candidate_validation_failed"
 	DiagnosticRepairScheduled               RuntimeDiagnosticEventCode = "repair_scheduled"
 	DiagnosticRepairStarted                 RuntimeDiagnosticEventCode = "repair_started"
@@ -97,7 +100,7 @@ var runtimeDiagnosticMessages = map[RuntimeDiagnosticEventCode]string{
 	DiagnosticProcessExited: "provider process exited", DiagnosticProcessTimedOut: "provider process timed out", DiagnosticProcessCancelled: "provider process cancelled",
 	DiagnosticProcessTerminated: "provider process terminated", DiagnosticOutputReceived: "provider output received", DiagnosticOutputParseStarted: "provider output parse started",
 	DiagnosticOutputParsed: "provider output parsed", DiagnosticOutputParseFailed: "provider output parse failed", DiagnosticValidationStarted: "candidate validation started",
-	DiagnosticValidationSucceeded: "candidate validation succeeded", DiagnosticValidationFailed: "candidate validation failed", DiagnosticRepairScheduled: "repair scheduled",
+	DiagnosticValidationSucceeded: "candidate validation succeeded", DiagnosticProviderFieldsDiscarded: "provider output fields discarded", DiagnosticValidationFailed: "candidate validation failed", DiagnosticRepairScheduled: "repair scheduled",
 	DiagnosticRepairStarted: "repair started", DiagnosticRepairCompleted: "repair completed", DiagnosticRepairExhausted: "repair exhausted",
 	DiagnosticProviderQuarantined: "provider quarantined", DiagnosticRoleNotAttempted: "role not attempted", DiagnosticRoleCompleted: "role completed",
 	DiagnosticRoleExhausted: "role exhausted", DiagnosticReductionStarted: "coordinator reduction started", DiagnosticReductionCompleted: "coordinator reduction completed",
@@ -118,6 +121,7 @@ type RuntimeDiagnosticCause string
 const (
 	DiagnosticCauseProviderSpawnFailed                RuntimeDiagnosticCause = "provider_spawn_failed"
 	DiagnosticCauseProviderExecutionFailed            RuntimeDiagnosticCause = "provider_execution_failed"
+	DiagnosticCauseProviderTurnFailed                 RuntimeDiagnosticCause = "provider_turn_failed"
 	DiagnosticCauseProviderProcessWaitFailed          RuntimeDiagnosticCause = "provider_process_wait_failed"
 	DiagnosticCauseProcessGroupCleanupFailed          RuntimeDiagnosticCause = "provider_process_group_cleanup_failed"
 	DiagnosticCauseTransportVerificationFailed        RuntimeDiagnosticCause = "provider_transport_verification_failed"
@@ -161,7 +165,7 @@ const (
 
 func (cause RuntimeDiagnosticCause) Valid() bool {
 	switch cause {
-	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
+	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderTurnFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
 		DiagnosticCauseTransportVerificationFailed, DiagnosticCausePromptFilePreStartFailed, DiagnosticCausePromptFilePostEndFailed,
 		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputMissing,
 		DiagnosticCauseOutputFrameMismatch, DiagnosticCauseSignalReceiptMismatch, DiagnosticCauseOutputEnvelopeInvalid,
@@ -241,6 +245,8 @@ type RuntimeDiagnosticEventInput struct {
 	ExitCode                    int
 	HasExitCode                 bool
 	ArtifactRef                 string
+	DiscardedPaths              []string
+	DiscardedPathCount          int
 }
 
 type RuntimeDiagnosticEventDraft struct{ input RuntimeDiagnosticEventInput }
@@ -287,17 +293,46 @@ func NewRuntimeDiagnosticEventDraft(input RuntimeDiagnosticEventInput) (RuntimeD
 	if input.ArtifactRef != "" && !validDiagnosticPath(input.ArtifactRef) {
 		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid artifact reference")
 	}
+	if input.DiscardedPathCount < len(input.DiscardedPaths) || len(input.DiscardedPaths) > MaxRuntimeDiagnosticDiscardedPaths ||
+		(input.DiscardedPathCount == 0) != (len(input.DiscardedPaths) == 0) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid discarded path metadata")
+	}
+	for _, pointer := range input.DiscardedPaths {
+		if !validDiagnosticJSONPointer(pointer) {
+			return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid discarded JSON Pointer")
+		}
+	}
+	if input.Event != DiagnosticProviderFieldsDiscarded && input.DiscardedPathCount != 0 {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: discarded paths require the discard event")
+	}
 	if !validDiagnosticLevelForEvent(input.Level, input.Event) {
 		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: level is inconsistent with event")
 	}
+	input.DiscardedPaths = append([]string(nil), input.DiscardedPaths...)
 	return RuntimeDiagnosticEventDraft{input: input}, nil
+}
+
+func validDiagnosticJSONPointer(value string) bool {
+	if value == "" || len(value) > 4096 || value[0] != '/' || strings.ContainsAny(value, "\x00\r\n") {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] == '~' && (index+1 >= len(value) || (value[index+1] != '0' && value[index+1] != '1')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (draft RuntimeDiagnosticEventDraft) Valid() bool {
 	_, err := NewRuntimeDiagnosticEventDraft(draft.input)
 	return err == nil
 }
-func (draft RuntimeDiagnosticEventDraft) Input() RuntimeDiagnosticEventInput { return draft.input }
+func (draft RuntimeDiagnosticEventDraft) Input() RuntimeDiagnosticEventInput {
+	input := draft.input
+	input.DiscardedPaths = append([]string(nil), draft.input.DiscardedPaths...)
+	return input
+}
 
 type RuntimeDiagnosticEvent struct {
 	draft         RuntimeDiagnosticEventDraft
@@ -320,7 +355,7 @@ func (event RuntimeDiagnosticEvent) ElapsedMillis() uint64              { return
 func (event RuntimeDiagnosticEvent) Level() RuntimeDiagnosticLevel      { return event.draft.input.Level }
 func (event RuntimeDiagnosticEvent) Message() string                    { return event.draft.input.Event.SafeMessage() }
 func (event RuntimeDiagnosticEvent) Code() RuntimeDiagnosticEventCode   { return event.draft.input.Event }
-func (event RuntimeDiagnosticEvent) Input() RuntimeDiagnosticEventInput { return event.draft.input }
+func (event RuntimeDiagnosticEvent) Input() RuntimeDiagnosticEventInput { return event.draft.Input() }
 
 func validDiagnosticToken(value string, maximum int) bool {
 	if value == "" || len(value) > maximum {
@@ -367,7 +402,7 @@ func validDiagnosticLevelForEvent(level RuntimeDiagnosticLevel, event RuntimeDia
 		DiagnosticOutputParseFailed, DiagnosticValidationFailed, DiagnosticRepairExhausted,
 		DiagnosticProviderQuarantined, DiagnosticRoleNotAttempted, DiagnosticRoleExhausted, DiagnosticPublicationFailed:
 		return level == RuntimeDiagnosticError
-	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted:
+	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted, DiagnosticProviderFieldsDiscarded:
 		return level == RuntimeDiagnosticWarn
 	default:
 		return level == RuntimeDiagnosticInfo

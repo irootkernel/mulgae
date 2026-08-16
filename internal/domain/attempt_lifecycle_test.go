@@ -280,6 +280,39 @@ func TestAttemptLifecycleRejectsPrematureAggregateTransitions(t *testing.T) {
 	})
 }
 
+func TestAttemptLifecycleInitialRetryValidationSuccessPath(t *testing.T) {
+	attempt := lifecycleAttempt(t)
+	if err := attempt.Transition(AttemptRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.TransitionInvocation(1, InvocationRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.TransitionInvocation(1, InvocationFailed); err != nil {
+		t.Fatal(err)
+	}
+	retry := lifecycleInvocation(t, 2, InvocationRetry)
+	if err := attempt.AppendRetryInvocation(retry); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.TransitionInvocation(2, InvocationRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.TransitionInvocation(2, InvocationSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.Transition(AttemptValidating); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.Transition(AttemptSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	invocations := attempt.Invocations()
+	if len(invocations) != 2 || invocations[0].Purpose() != InvocationInitial || invocations[1].Purpose() != InvocationRetry {
+		t.Fatalf("retry invocations = %#v", invocations)
+	}
+}
+
 func TestAttemptLifecycleInitialRepairValidationSuccessPath(t *testing.T) {
 	attempt := lifecycleAttempt(t)
 	advanceInitialToValidation(t, &attempt)

@@ -202,8 +202,8 @@ const outputDestinationTrustedLayerVersion = "1"
 
 // ComposeRootReviewOutputDestination appends the Mulgae-owned output destination
 // contract as the last trusted layer of original. The destination is chosen by
-// the adapter locator for exactly one launch, so the initial and repair launches
-// of one attempt carry different absolute paths. Provider output never
+// the adapter locator for exactly one launch, so separate launches of one
+// attempt carry different absolute paths. Provider output never
 // participates in the layer.
 func ComposeRootReviewOutputDestination(
 	original prompt.TrustedTemplate,
@@ -319,7 +319,7 @@ type PromptWireIdentity struct {
 	stdinByteLength       int
 }
 
-// Purpose returns whether this was an initial or repair invocation.
+// Purpose returns whether this was an initial, retry, or repair invocation.
 func (identity PromptWireIdentity) Purpose() ports.ProviderInvocationPurpose { return identity.purpose }
 
 // SourceInvocationID returns the source identity framed in the packet.

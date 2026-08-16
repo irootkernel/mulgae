@@ -80,7 +80,9 @@ and review-preflight v2 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
-invocations and one initial-to-repair transition per role path.
+invocations and one transition per role path. The second slot is either one
+same-provider retry after `provider_unavailable`/`provider_turn_failed` or one
+constrained repair after eligible invalid output; it can never be both.
 
 The capacity-aware run deadline and `role_path_deadline` ceiling include the
 configured provider timeout for every possible invocation. Immediately before
@@ -425,6 +427,27 @@ only in the evidence of the explicitly requested review run that performed the
 qualification; doctor/setup does not expose or gate on it, and no unrelated
 review is promoted into a durable qualification cache.
 
+## Provider content normalization and bounded retry
+
+Provider-authored review and structured follow-up JSON is parsed with duplicate
+key rejection before projection. Unknown additional fields and fields owned by
+Mulgae are removed from the provider-content projection; Mulgae then injects
+trusted identity and verification values. Removed values are never exposed.
+Runtime diagnostics use `mulgae-runtime-log.v3` and the
+`provider_output_fields_discarded` event to record only sorted JSON Pointer
+paths and `discarded_path_count`. At most the first 100 sorted paths are retained
+while the count records the complete number. Malformed JSON, duplicate keys,
+wrong or missing required provider fields after constrained repair, unverifiable
+evidence, and semantic contradictions remain fail-closed.
+
+A transient `provider_unavailable` or ZCode `provider_turn_failed` initial
+invocation receives exactly one automatic retry on the same configured provider,
+attempt, role, and immutable target. The retry has a fresh execution identity
+and separate runtime evidence. Timeout, rate-limit, quota, authentication,
+configuration, artifact, security, malformed-output, and semantic failures are
+not automatically retried. A retry consumes the second invocation slot, so its
+output cannot also schedule repair.
+
 ## Codex MCP configuration observability
 
 Mulgae supports Codex CLI 0.147.0 or newer. At that minimum,
@@ -471,11 +494,16 @@ frame-integrity violations remain security-policy violations, while missing
 fixture binding or prompt echo is instead an operational invalid-provider-output
 capability rejection, not a security-policy violation. Capability packets embed
 those root/link/role bindings and must not induce workspace or tool reads;
-review prompts own workspace-selective guidance. Invalid capability formatting,
+AGY's adapter-owned structured-output schema requires those three bindings but
+permits additional provider fields, which Mulgae discards before validating the
+required evidence. Malformed JSON, duplicate keys, missing bindings, wrong
+binding types, and binding mismatches remain rejected. Review prompts own
+workspace-selective guidance. Invalid capability formatting,
 unbound fixture evidence, security-policy violations, and login-required
 responses are never retried; one transient operational probe failure (rate
 limit, quota, timeout, provider unavailable, or a typed provider execution
 failure) admits at most one additional probe on a freshly materialized fixture.
+Each local capability invocation has a three-minute upper bound.
 Every acquired fixture is still drained exactly once, sibling role routes still
 derive from a single successful family probe, and the retried attempt is
 recorded as a rejected qualification observation carrying a retry mitigation.

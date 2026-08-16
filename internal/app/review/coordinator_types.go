@@ -143,7 +143,7 @@ func (job InvocationJob) Limits() InvocationLimits { return job.limits }
 // AttemptID returns the coordinator-issued attempt identity.
 func (job InvocationJob) AttemptID() domain.AttemptID { return job.attemptID }
 
-// Purpose returns the initial or repair invocation purpose.
+// Purpose returns the initial, retry, or repair invocation purpose.
 func (job InvocationJob) Purpose() domain.InvocationPurpose { return job.purpose }
 
 // Ordinal returns the stable positive coordinator dispatch ordinal.

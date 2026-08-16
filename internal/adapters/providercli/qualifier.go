@@ -19,7 +19,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const currentProbeTimeout = 30 * time.Second
+const currentProbeTimeout = 3 * time.Minute
 
 // QualificationNamespace is the retained provider namespace authority. Workspace
 // authority belongs exclusively to the ProbeFixtureLease used for each spawn.
@@ -1139,24 +1139,21 @@ func validateProbeEvidence(output []byte, fixture ProbeFixtureLease) error {
 		return fmt.Errorf("capability evidence is prompt echo")
 	}
 	if looksLikeJSONObject(trimmed) {
-		if evidence, err := parseStrictProbeEvidenceJSON(trimmed); err == nil {
-			if evidence.Root == nonce && evidence.Link == link && evidence.Role == role {
-				return nil
-			}
+		evidence, err := parseProbeEvidenceJSON(trimmed)
+		if err != nil {
 			return fmt.Errorf("invalid controlled probe evidence")
 		}
-		var loose map[string]json.RawMessage
-		if json.Unmarshal(trimmed, &loose) == nil {
-			// JSON object with unknown/extra shape is not narrated proof.
-			return fmt.Errorf("invalid controlled probe evidence")
+		if evidence.Root == nonce && evidence.Link == link && evidence.Role == role {
+			return nil
 		}
+		return fmt.Errorf("invalid controlled probe evidence")
 	}
 	for _, candidate := range bytes.Split(trimmed, []byte{'\n'}) {
 		candidate = bytes.TrimSpace(candidate)
 		if !looksLikeJSONObject(candidate) {
 			continue
 		}
-		if evidence, err := parseStrictProbeEvidenceJSON(candidate); err == nil {
+		if evidence, err := parseProbeEvidenceJSON(candidate); err == nil {
 			if evidence.Root == nonce && evidence.Link == link && evidence.Role == role {
 				return nil
 			}
@@ -1188,7 +1185,7 @@ func looksLikeJSONObject(output []byte) bool {
 	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
-func parseStrictProbeEvidenceJSON(output []byte) (struct {
+func parseProbeEvidenceJSON(output []byte) (struct {
 	Root string `json:"root"`
 	Link string `json:"link"`
 	Role string `json:"role"`
@@ -1198,8 +1195,10 @@ func parseStrictProbeEvidenceJSON(output []byte) (struct {
 		Link string `json:"link"`
 		Role string `json:"role"`
 	}
+	if err := rejectDuplicateJSONKeys(output); err != nil {
+		return evidence, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&evidence); err != nil {
 		return evidence, err
 	}
@@ -1207,6 +1206,66 @@ func parseStrictProbeEvidenceJSON(output []byte) (struct {
 		return evidence, fmt.Errorf("trailing probe evidence")
 	}
 	return evidence, nil
+}
+
+func rejectDuplicateJSONKeys(output []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	var walk func() error
+	walk = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		delimiter, composite := token.(json.Delim)
+		if !composite {
+			return nil
+		}
+		switch delimiter {
+		case '{':
+			seen := make(map[string]struct{})
+			for decoder.More() {
+				key, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				name, ok := key.(string)
+				if !ok {
+					return fmt.Errorf("invalid JSON object key")
+				}
+				if _, duplicate := seen[name]; duplicate {
+					return fmt.Errorf("duplicate JSON key %q", name)
+				}
+				seen[name] = struct{}{}
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil || closing != json.Delim('}') {
+				return fmt.Errorf("invalid JSON object terminator")
+			}
+		case '[':
+			for decoder.More() {
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil || closing != json.Delim(']') {
+				return fmt.Errorf("invalid JSON array terminator")
+			}
+		default:
+			return fmt.Errorf("invalid JSON delimiter")
+		}
+		return nil
+	}
+	if err := walk(); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("trailing JSON data")
+	}
+	return nil
 }
 
 func containsDistinctBinding(text, value string) bool {
@@ -1233,6 +1292,21 @@ func controlledProbeJSON(output []byte) ([]byte, error) {
 func classifyProbeFailure(ctx context.Context, family string, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if cause, ok := providerDiagnosticCause(err); ok {
+		switch cause {
+		case domain.DiagnosticCauseTimedOut:
+			return probeFailure("capability", domain.FailureTimeout, "provider timed out", err)
+		case domain.DiagnosticCauseRateLimited:
+			return probeFailure("capability", domain.FailureRateLimit, "provider rate limited", err)
+		case domain.DiagnosticCauseQuotaExceeded:
+			return probeFailure("capability", domain.FailureQuota, "provider quota unavailable", err)
+		case domain.DiagnosticCauseLoginRequired, domain.DiagnosticCauseAuthenticationFailed, domain.DiagnosticCausePermissionDenied:
+			return probeFailure("capability", domain.FailureAuthentication, "provider authentication unavailable", err)
+		case domain.DiagnosticCauseProviderSpawnFailed, domain.DiagnosticCauseProviderExecutionFailed,
+			domain.DiagnosticCauseProviderTurnFailed, domain.DiagnosticCauseProviderProcessWaitFailed:
+			return probeFailure("capability", domain.FailureProviderUnavailable, "provider unavailable", err)
+		}
 	}
 	if family == FamilyAgy && agyPermissionDenied(stderr) {
 		runtimeErr, runtimeErrConstruction := ports.NewProviderRuntimeError(domain.DiagnosticCausePermissionDenied, err)

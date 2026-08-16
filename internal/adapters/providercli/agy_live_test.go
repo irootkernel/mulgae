@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/user"
@@ -53,7 +54,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		t.Fatalf("INCONCLUSIVE: capture installed AGY filesystem auth/settings before Mulgae setup: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 190*time.Second)
 	defer cancel()
 
 	workspaceRoot, err := ports.NewAnchoredRoot(liveAgyTempDir(t))
@@ -123,7 +124,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
 		providercli.FamilyAgy, "agy-live-current", "", binaryPath, binarySHA256, binaryPath, binarySHA256,
 		"agy-live-current", "live-current-v1", policy.Identity(), []string{binaryPath}, transport, lifecycle,
-		nil, namespaceRoot, 30*time.Second,
+		nil, namespaceRoot, 3*time.Minute,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +186,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
-		t.Fatal(liveProbeFailureMessage("installed AGY current probe", err))
+		t.Fatalf("%s; safe observation shape: %s", liveProbeFailureMessage("installed AGY current probe", err), liveAgyObservationShape(recordingRunner.observations))
 	}
 	if len(recordingRunner.observations) != 2 || len(recordingRunner.requests) != 2 {
 		t.Fatalf("INCONCLUSIVE: descriptor-bound AGY launches = observations:%d requests:%d, want version and capability launches", len(recordingRunner.observations), len(recordingRunner.requests))
@@ -281,6 +282,22 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	drained = true
 	t.Logf("PASS: installed AGY %s completed the descriptor-bound immutable fixture probe", result.Version)
+}
+
+func liveAgyObservationShape(observations []ports.ProcessObservation) string {
+	if len(observations) < 2 {
+		return fmt.Sprintf("observation_count=%d", len(observations))
+	}
+	observation := observations[1]
+	exitCode, hasExitCode := observation.ExitCode()
+	combined := strings.ToLower(string(append(observation.Stdout(), observation.Stderr()...)))
+	markers := make([]string, 0)
+	for _, marker := range []string{"schema", "invalid", "structured", "parse", "timeout", "error", "failed", "permission", "auth", "login", "rate", "quota", "model"} {
+		if strings.Contains(combined, marker) {
+			markers = append(markers, marker)
+		}
+	}
+	return fmt.Sprintf("termination=%s has_exit_code=%t exit_code=%d stdout_bytes=%d stderr_bytes=%d markers=%v", observation.Termination(), hasExitCode, exitCode, len(observation.Stdout()), len(observation.Stderr()), markers)
 }
 
 func liveAgyExactStructuredEvidence(value []byte, root, link, role string) bool {

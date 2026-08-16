@@ -83,6 +83,19 @@ are typed provider outcomes; preserve the assigned provider and apply only the
 smallest documented remediation. Never weaken sandbox, locality, evidence,
 validation, integrity, or publication fences to make recovery pass.
 
+Mulgae itself may consume the second invocation slot for exactly one
+same-provider retry after `provider_unavailable` or `provider_turn_failed`.
+Inspect the run before requesting any further rerun. That automatic retry keeps
+the role, provider, attempt, and immutable target fixed, records separate runtime
+evidence, and prevents a later repair invocation. Other provider failure classes
+are not automatically retried.
+
+Runtime log v3 may report `provider_output_fields_discarded` with only bounded,
+sorted JSON Pointer paths and `discarded_path_count`; it never exposes removed
+values. This is successful provider-content normalization, not a security-policy
+failure. Malformed JSON, duplicate keys, invalid evidence, and semantic
+contradictions remain terminal according to their typed reason.
+
 `provider_failure`, `timeout`, `authentication_failure`,
 `malformed_response`, and `execution_failure` from heartbeat describe only that
 explicit synthetic live request. Do not promote them into setup readiness or

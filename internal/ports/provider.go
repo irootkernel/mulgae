@@ -17,12 +17,13 @@ type ProviderInvocationPurpose string
 
 const (
 	ProviderInvocationInitial ProviderInvocationPurpose = "initial"
+	ProviderInvocationRetry   ProviderInvocationPurpose = "retry"
 	ProviderInvocationRepair  ProviderInvocationPurpose = "repair"
 )
 
 // Valid reports whether purpose is a supported provider invocation purpose.
 func (purpose ProviderInvocationPurpose) Valid() bool {
-	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRepair
+	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRetry || purpose == ProviderInvocationRepair
 }
 
 // ProviderOutputTransport identifies how one provider invocation is expected to

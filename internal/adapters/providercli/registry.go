@@ -829,8 +829,8 @@ func (r *Registry) ProviderOutputStagingDestination(
 }
 
 // stagedOutputPurposeOrdinal maps the closed review purposes this adapter may
-// stage to their stable per-attempt ordinal, which keeps the initial and repair
-// invocations of one attempt in distinct staging directories. Every other
+// stage to their stable per-attempt ordinal, which keeps the initial and second
+// invocation of one attempt in distinct staging directories. Every other
 // purpose is refused, an exact replay of an earlier invocation in particular:
 // a replay must reproduce the transport its original recorded rather than
 // acquire a fresh write grant here.
@@ -838,6 +838,8 @@ func stagedOutputPurposeOrdinal(purpose ports.ProviderInvocationPurpose) (int, b
 	switch purpose {
 	case ports.ProviderInvocationInitial:
 		return 0, true
+	case ports.ProviderInvocationRetry:
+		return 1, true
 	case ports.ProviderInvocationRepair:
 		return 1, true
 	default:
@@ -1510,6 +1512,10 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		return ports.ProviderExecutionStatusQuota, "provider_quota"
 	case domain.DiagnosticCauseRateLimited:
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit"
+	case domain.DiagnosticCauseProviderTurnFailed:
+		return ports.ProviderExecutionStatusUnavailable, "provider_turn_failed"
+	case domain.DiagnosticCauseProviderExecutionFailed:
+		return ports.ProviderExecutionStatusUnavailable, "provider_execution_failed"
 	case domain.DiagnosticCauseTransportVerificationFailed,
 		domain.DiagnosticCausePromptFilePreStartFailed,
 		domain.DiagnosticCausePromptFilePostEndFailed,
@@ -1844,6 +1850,8 @@ func nativeProviderOutcome(
 	switch {
 	case loginRequired:
 		return ports.ProviderExecutionStatusAuthentication, "login_required", domain.DiagnosticCauseLoginRequired, true
+	case family == FamilyZcode && errorContainsAny("turn execution failed"):
+		return ports.ProviderExecutionStatusUnavailable, "provider_turn_failed", domain.DiagnosticCauseProviderTurnFailed, true
 	case family == FamilyAgy && agyPermissionDenied(stderr):
 		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, true
 	case providerNativeTimeout(output) ||
@@ -1896,6 +1904,8 @@ func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatu
 		return ports.ProviderExecutionStatusTimedOut
 	}
 	switch observation.Termination() {
+	case ports.ProcessTerminationExited:
+		return ports.ProviderExecutionStatusUnavailable
 	case ports.ProcessTerminationTimedOut:
 		return ports.ProviderExecutionStatusTimedOut
 	case ports.ProcessTerminationCancelled:
@@ -1940,6 +1950,8 @@ func diagnosticCode(observation ports.ProcessObservation) string {
 		}
 	}
 	switch observation.Termination() {
+	case ports.ProcessTerminationExited:
+		return "provider_execution_failed"
 	case ports.ProcessTerminationTimedOut:
 		return "process_timeout"
 	case ports.ProcessTerminationCancelled:

@@ -12,17 +12,20 @@ func TestDecideTransitionExhaustiveMatrix(t *testing.T) {
 
 	for _, expectation := range policyExpectations() {
 		for _, repairUsed := range []bool{false, true} {
-			for _, cancellationObserved := range []bool{false, true} {
-				input := TransitionInput{
-					Condition:            expectation.condition,
-					RepairUsed:           repairUsed,
-					CancellationObserved: cancellationObserved,
+			for _, retryUsed := range []bool{false, true} {
+				for _, cancellationObserved := range []bool{false, true} {
+					input := TransitionInput{
+						Condition:            expectation.condition,
+						RepairUsed:           repairUsed,
+						RetryUsed:            retryUsed,
+						CancellationObserved: cancellationObserved,
+					}
+					decision, err := DecideTransition(input)
+					if err != nil {
+						t.Fatalf("DecideTransition(%+v): %v", input, err)
+					}
+					assertDecision(t, input, decision, expectedDecision(expectation, input))
 				}
-				decision, err := DecideTransition(input)
-				if err != nil {
-					t.Fatalf("DecideTransition(%+v): %v", input, err)
-				}
-				assertDecision(t, input, decision, expectedDecision(expectation, input))
 			}
 		}
 	}
@@ -158,7 +161,6 @@ func TestProviderUnusableIsLimitedToDeterministicFailures(t *testing.T) {
 	t.Parallel()
 
 	unusable := map[AttemptCondition]bool{
-		AttemptConditionProviderUnavailable:      true,
 		AttemptConditionProviderSpawnFailed:      true,
 		AttemptConditionAuthentication:           true,
 		AttemptConditionProviderPermissionDenied: true,
@@ -180,7 +182,7 @@ func TestProviderUnusableIsLimitedToDeterministicFailures(t *testing.T) {
 		}
 	}
 	// Transient conditions must never claim the provider is unusable.
-	for _, condition := range []AttemptCondition{AttemptConditionRateLimit, AttemptConditionTimeout, AttemptConditionProviderTimeout} {
+	for _, condition := range []AttemptCondition{AttemptConditionProviderUnavailable, AttemptConditionProviderTurnFailed, AttemptConditionRateLimit, AttemptConditionTimeout, AttemptConditionProviderTimeout} {
 		if unusable[condition] {
 			t.Fatalf("%q was marked deterministic", condition)
 		}
@@ -251,6 +253,7 @@ func TestAttemptConditionsAreExactAndExhaustivelyValidated(t *testing.T) {
 		AttemptConditionUnrepairableEvidence,
 		AttemptConditionSemanticContradiction,
 		AttemptConditionProviderUnavailable,
+		AttemptConditionProviderTurnFailed,
 		AttemptConditionProviderSpawnFailed,
 		AttemptConditionTimeout,
 		AttemptConditionProviderTimeout,
@@ -301,12 +304,14 @@ type policyExpectation struct {
 	terminalClass domain.FailureClass
 	projection    TerminalProjection
 	repairable    bool
+	retryable     bool
 	cancelsRun    bool
 }
 
 type expectedTransitionDecision struct {
 	condition      AttemptCondition
 	scheduleRepair bool
+	scheduleRetry  bool
 	cancelRun      bool
 	terminalClass  domain.FailureClass
 	projection     TerminalProjection
@@ -323,7 +328,8 @@ func policyExpectations() []policyExpectation {
 		{condition: AttemptConditionInvalidEvidenceClaim, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
 		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
-		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProviderUnavailable, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, retryable: true},
+		{condition: AttemptConditionProviderTurnFailed, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed, retryable: true},
 		{condition: AttemptConditionProviderSpawnFailed, terminalClass: domain.FailureProviderUnavailable, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionProviderTimeout, terminalClass: domain.FailureTimeout, projection: TerminalProjectionFailed},
@@ -355,8 +361,12 @@ func expectedDecision(expectation policyExpectation, input TransitionInput) expe
 		projection:    expectation.projection,
 		reasonCode:    string(expectation.condition),
 	}
-	if expectation.repairable && !input.RepairUsed {
+	if expectation.repairable && !input.RepairUsed && !input.RetryUsed {
 		want.scheduleRepair = true
+		want.projection = TerminalProjectionNone
+	}
+	if expectation.retryable && !input.RepairUsed && !input.RetryUsed {
+		want.scheduleRetry = true
 		want.projection = TerminalProjectionNone
 	}
 	return want
@@ -410,6 +420,7 @@ func expectedConditionPrecedence(condition AttemptCondition) int {
 		AttemptConditionTimeout,
 		AttemptConditionProviderTimeout,
 		AttemptConditionProviderUnavailable,
+		AttemptConditionProviderTurnFailed,
 		AttemptConditionProviderSpawnFailed:
 		return 7
 	case AttemptConditionValidReview:
@@ -423,13 +434,14 @@ func assertDecision(t *testing.T, input TransitionInput, got TransitionDecision,
 	t.Helper()
 	if got.Condition() != want.condition ||
 		got.ScheduleRepair() != want.scheduleRepair ||
+		got.ScheduleRetry() != want.scheduleRetry ||
 		got.CancelRun() != want.cancelRun ||
 		got.TerminalClass() != want.terminalClass ||
 		got.TerminalProjection() != want.projection ||
 		got.ReasonCode() != want.reasonCode {
-		t.Fatalf("DecideTransition(%+v) = condition=%q repair=%t cancel=%t class=%q projection=%q reason=%q, want condition=%q repair=%t cancel=%t class=%q projection=%q reason=%q", input, got.Condition(), got.ScheduleRepair(), got.CancelRun(), got.TerminalClass(), got.TerminalProjection(), got.ReasonCode(), want.condition, want.scheduleRepair, want.cancelRun, want.terminalClass, want.projection, want.reasonCode)
+		t.Fatalf("DecideTransition(%+v) = condition=%q repair=%t retry=%t cancel=%t class=%q projection=%q reason=%q, want condition=%q repair=%t retry=%t cancel=%t class=%q projection=%q reason=%q", input, got.Condition(), got.ScheduleRepair(), got.ScheduleRetry(), got.CancelRun(), got.TerminalClass(), got.TerminalProjection(), got.ReasonCode(), want.condition, want.scheduleRepair, want.scheduleRetry, want.cancelRun, want.terminalClass, want.projection, want.reasonCode)
 	}
-	if got.ScheduleRepair() == got.Terminal() {
+	if (got.ScheduleRepair() || got.ScheduleRetry()) == got.Terminal() {
 		t.Fatalf("DecideTransition(%+v) terminal=%t does not match scheduled work", input, got.Terminal())
 	}
 }

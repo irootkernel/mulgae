@@ -5472,7 +5472,6 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 	)
 	want := map[review.AttemptCondition]string{
 		// The provider itself must be fixed before it can review anything.
-		review.AttemptConditionProviderUnavailable: doctor,
 		review.AttemptConditionProviderSpawnFailed: doctor,
 		review.AttemptConditionAuthentication:      doctor,
 		review.AttemptConditionLoginRequired:       doctor,
@@ -5481,6 +5480,8 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 		review.AttemptConditionProviderPermissionDenied: config,
 		// The provider failed once; running the role again is the next step.
 		review.AttemptConditionRateLimit:                  rerun,
+		review.AttemptConditionProviderUnavailable:        rerun,
+		review.AttemptConditionProviderTurnFailed:         rerun,
 		review.AttemptConditionTimeout:                    rerun,
 		review.AttemptConditionProviderTimeout:            rerun,
 		review.AttemptConditionProviderOutputMissing:      rerun,

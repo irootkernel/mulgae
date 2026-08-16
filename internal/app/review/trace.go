@@ -17,6 +17,7 @@ const (
 	CoordinatorEventInvocationDispatched   CoordinatorEventKind = "invocation_dispatched"
 	CoordinatorEventInvocationCommitted    CoordinatorEventKind = "invocation_committed"
 	CoordinatorEventRepairQueued           CoordinatorEventKind = "repair_queued"
+	CoordinatorEventRetryQueued            CoordinatorEventKind = "retry_queued"
 	CoordinatorEventRoleTerminal           CoordinatorEventKind = "role_terminal"
 	CoordinatorEventCancellationRequested  CoordinatorEventKind = "cancellation_requested"
 	CoordinatorEventWorkersCloseAuthorized CoordinatorEventKind = "workers_close_authorized"
@@ -31,6 +32,7 @@ func (kind CoordinatorEventKind) Valid() bool {
 		CoordinatorEventInvocationDispatched,
 		CoordinatorEventInvocationCommitted,
 		CoordinatorEventRepairQueued,
+		CoordinatorEventRetryQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
 		CoordinatorEventWorkersCloseAuthorized,
@@ -74,7 +76,7 @@ func (event CoordinatorTraceEvent) AttemptID() (domain.AttemptID, bool) {
 	return event.attemptID, event.hasAttempt
 }
 
-// Purpose returns the initial/repair purpose when an invocation is present.
+// Purpose returns the initial/retry/repair purpose when an invocation is present.
 func (event CoordinatorTraceEvent) Purpose() (domain.InvocationPurpose, bool) {
 	return event.purpose, event.hasPurpose
 }
@@ -131,7 +133,7 @@ func (event CoordinatorTraceEvent) validate() error {
 		wantRole, wantAttempt, wantPurpose = true, true, true
 	case CoordinatorEventInvocationCommitted:
 		wantRole, wantAttempt, wantPurpose, wantCondition = true, true, true, true
-	case CoordinatorEventRepairQueued:
+	case CoordinatorEventRepairQueued, CoordinatorEventRetryQueued:
 		wantRole, wantAttempt, wantPurpose, wantReason = true, true, true, true
 	case CoordinatorEventRoleTerminal:
 		wantRole, wantAttempt, wantCondition, wantReason = true, event.hasAttempt, true, true

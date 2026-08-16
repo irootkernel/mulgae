@@ -278,11 +278,12 @@ type InvocationPurpose string
 
 const (
 	InvocationInitial InvocationPurpose = "initial"
+	InvocationRetry   InvocationPurpose = "retry"
 	InvocationRepair  InvocationPurpose = "repair"
 )
 
 func (value InvocationPurpose) Valid() bool {
-	return value == InvocationInitial || value == InvocationRepair
+	return value == InvocationInitial || value == InvocationRetry || value == InvocationRepair
 }
 
 func requireTransition(domain, from string, fromValid bool, to string, toValid, allowed bool) error {

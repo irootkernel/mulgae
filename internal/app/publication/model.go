@@ -626,7 +626,7 @@ func (identity RunSupportArtifactIdentity) promptManifestBinding() (domain.Attem
 		return domain.AttemptID{}, 0, false
 	}
 	sequence, suffix, ok := strings.Cut(parts[4], "-")
-	if !ok || (suffix != "initial.manifest.json" && suffix != "repair.manifest.json") {
+	if !ok || (suffix != "initial.manifest.json" && suffix != "retry.manifest.json" && suffix != "repair.manifest.json") {
 		return domain.AttemptID{}, 0, false
 	}
 	if len(sequence) < 3 {
@@ -1001,11 +1001,15 @@ func (candidate *PreparedCandidate) bindAttemptArtifacts(inputs []AttemptArtifac
 					}
 					if input.Artifact.Kind() == ports.AttemptArtifactInitialCandidate &&
 						invocation.purpose != domain.InvocationInitial {
-						return fmt.Errorf("publication candidate: initial capture is bound to a repair invocation")
+						return fmt.Errorf("publication candidate: initial capture is bound to a non-initial invocation")
+					}
+					if input.Artifact.Kind() == ports.AttemptArtifactRetryCandidate &&
+						invocation.purpose != domain.InvocationRetry {
+						return fmt.Errorf("publication candidate: retry capture is bound to a non-retry invocation")
 					}
 					if input.Artifact.Kind() == ports.AttemptArtifactRepairedCandidate &&
 						invocation.purpose != domain.InvocationRepair {
-						return fmt.Errorf("publication candidate: repaired capture is bound to an initial invocation")
+						return fmt.Errorf("publication candidate: repaired capture is bound to a non-repair invocation")
 					}
 					invocation.artifacts = append(invocation.artifacts, preparedAttemptArtifact{
 						kind: input.Artifact.Kind(), bytes: input.Artifact.Bytes(),

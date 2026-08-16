@@ -135,6 +135,10 @@ already available.
 - Use structured output, exact IDs, stable error codes, and command
   preconditions. Mulgae has no client idempotency key: review-like commands
   create new runs, so never blindly retry an uncertain mutation.
+- Before requesting a rerun, inspect whether Mulgae already consumed its single
+  same-provider retry for `provider_unavailable` or `provider_turn_failed`.
+  Runtime-log v3 field-discard events contain paths and counts only, never the
+  discarded provider values.
 - Require explicit user intent for initialization, imported-session use,
   cancellation, cleanup, provider or role changes, or any requested reset,
   service control, goal change, or repair. Read

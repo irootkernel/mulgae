@@ -43,6 +43,7 @@ func TestChildDeltaAndRecomposeStageWhenLocatorPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	initialJob := reviewRunStagedJob(t, "zcode-logic", domain.InvocationInitial, 1)
+	retryJob := reviewRunStagedJob(t, "zcode-logic", domain.InvocationRetry, 2)
 	repairJob := reviewRunStagedJob(t, "zcode-logic", domain.InvocationRepair, 2)
 
 	for _, test := range []struct {
@@ -50,6 +51,7 @@ func TestChildDeltaAndRecomposeStageWhenLocatorPresent(t *testing.T) {
 		job  review.InvocationJob
 	}{
 		{name: "initial launch", job: initialJob},
+		{name: "retry launch", job: retryJob},
 		{name: "repair launch", job: repairJob},
 	} {
 		t.Run(test.name, func(t *testing.T) {

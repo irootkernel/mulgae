@@ -70,37 +70,39 @@ var _ ports.RuntimeDiagnosticSink = (*DiagnosticStore)(nil)
 var _ ports.RuntimeDiagnosticSinkFactory = (*DiagnosticStoreFactory)(nil)
 
 type runtimeDiagnosticEventWire struct {
-	SchemaVersion string                            `json:"schema_version"`
-	Time          string                            `json:"time"`
-	Level         domain.RuntimeDiagnosticLevel     `json:"level"`
-	Message       string                            `json:"msg"`
-	Sequence      uint64                            `json:"seq"`
-	ElapsedMS     uint64                            `json:"elapsed_ms"`
-	Component     string                            `json:"component"`
-	Operation     string                            `json:"operation"`
-	Event         domain.RuntimeDiagnosticEventCode `json:"event"`
-	SessionID     string                            `json:"session_id"`
-	RunID         string                            `json:"run_id"`
-	AttemptID     string                            `json:"attempt_id,omitempty"`
-	InvocationID  string                            `json:"invocation_id,omitempty"`
-	Role          domain.Role                       `json:"role,omitempty"`
-	Provider      string                            `json:"provider,omitempty"`
-	Cause         domain.RuntimeDiagnosticCause     `json:"cause,omitempty"`
-	Failure       string                            `json:"failure,omitempty"`
-	Mitigation    string                            `json:"mitigation,omitempty"`
-	State         string                            `json:"state,omitempty"`
-	Outcome       string                            `json:"outcome,omitempty"`
-	Stream        domain.RuntimeDiagnosticStream    `json:"stream,omitempty"`
-	Offset        *int64                            `json:"offset,omitempty"`
-	Length        *int64                            `json:"length,omitempty"`
-	Termination   string                            `json:"termination,omitempty"`
-	ExitCode      *int                              `json:"exit_code,omitempty"`
-	ArtifactRef   string                            `json:"artifact_ref,omitempty"`
+	SchemaVersion      string                            `json:"schema_version"`
+	Time               string                            `json:"time"`
+	Level              domain.RuntimeDiagnosticLevel     `json:"level"`
+	Message            string                            `json:"msg"`
+	Sequence           uint64                            `json:"seq"`
+	ElapsedMS          uint64                            `json:"elapsed_ms"`
+	Component          string                            `json:"component"`
+	Operation          string                            `json:"operation"`
+	Event              domain.RuntimeDiagnosticEventCode `json:"event"`
+	SessionID          string                            `json:"session_id"`
+	RunID              string                            `json:"run_id"`
+	AttemptID          string                            `json:"attempt_id,omitempty"`
+	InvocationID       string                            `json:"invocation_id,omitempty"`
+	Role               domain.Role                       `json:"role,omitempty"`
+	Provider           string                            `json:"provider,omitempty"`
+	Cause              domain.RuntimeDiagnosticCause     `json:"cause,omitempty"`
+	Failure            string                            `json:"failure,omitempty"`
+	Mitigation         string                            `json:"mitigation,omitempty"`
+	State              string                            `json:"state,omitempty"`
+	Outcome            string                            `json:"outcome,omitempty"`
+	Stream             domain.RuntimeDiagnosticStream    `json:"stream,omitempty"`
+	Offset             *int64                            `json:"offset,omitempty"`
+	Length             *int64                            `json:"length,omitempty"`
+	Termination        string                            `json:"termination,omitempty"`
+	ExitCode           *int                              `json:"exit_code,omitempty"`
+	ArtifactRef        string                            `json:"artifact_ref,omitempty"`
+	DiscardedPaths     []string                          `json:"discarded_paths,omitempty"`
+	DiscardedPathCount int                               `json:"discarded_path_count,omitempty"`
 }
 
 func encodeRuntimeDiagnosticEvent(event domain.RuntimeDiagnosticEvent) ([]byte, error) {
 	input := event.Input()
-	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, Failure: input.Failure, Mitigation: input.Mitigation, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ArtifactRef: input.ArtifactRef}
+	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, Failure: input.Failure, Mitigation: input.Mitigation, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ArtifactRef: input.ArtifactRef, DiscardedPaths: append([]string(nil), input.DiscardedPaths...), DiscardedPathCount: input.DiscardedPathCount}
 	if input.Stream.Valid() {
 		offset, length := input.Offset, input.Length
 		wire.Offset, wire.Length = &offset, &length

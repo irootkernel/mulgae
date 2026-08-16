@@ -43,7 +43,8 @@ func (limits InvocationLimits) Timeout() time.Duration { return limits.timeout }
 func (limits InvocationLimits) Valid() bool { return validateInvocationLimits(limits) == nil }
 
 // RouteBudget binds immutable invocation limits to one normalized provider
-// route. The limits apply to both the route's initial and repair invocations.
+// route. The limits apply to both possible invocations: initial followed by
+// either retry or repair.
 type RouteBudget struct {
 	route  ports.ProviderRoute
 	limits InvocationLimits
@@ -255,8 +256,8 @@ func (receipt RunBudgetReceipt) RolePathDeadlines() []RolePathDeadline {
 	return append([]RolePathDeadline(nil), receipt.rolePaths...)
 }
 
-// TotalInvocations returns the count of every possible initial and repair
-// invocation across the role's route.
+// TotalInvocations returns the count of both possible invocation slots across
+// the role's route.
 func (receipt RunBudgetReceipt) TotalInvocations() int { return receipt.totalInvocations }
 
 // RunDeadline returns the capacity-aware execution bound plus run grace.
@@ -275,8 +276,8 @@ func (receipt RunBudgetReceipt) Eligible() bool { return receipt.eligible }
 // ReasonCode returns the safe, closed preflight result code.
 func (receipt RunBudgetReceipt) ReasonCode() BudgetReasonCode { return receipt.reasonCode }
 
-// PreflightRunBudget evaluates every possible primary, repair, and configured
-// repair invocation without starting providers, scheduling work, or changing
+// PreflightRunBudget evaluates every possible primary and second-slot
+// invocation without starting providers, scheduling work, or changing
 // runtime state. Rejected inputs still return a receipt containing copied
 // canonical operands and every safely computable result.
 func PreflightRunBudget(roles []RoleBudget, ceilings HarnessCeilings) (RunBudgetReceipt, error) {

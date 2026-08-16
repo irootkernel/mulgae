@@ -332,9 +332,13 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 			status := attemptStatusWire{SchemaVersion: "mulgae-attempt-status.v1", AttemptID: attempt.id.String()}
 			hasCapture := false
 			repairOrdinal := 0
+			retryOrdinal := 0
 			for _, invocation := range attempt.invocations {
 				if invocation.purpose == domain.InvocationRepair {
 					repairOrdinal++
+				}
+				if invocation.purpose == domain.InvocationRetry {
+					retryOrdinal++
 				}
 				if len(invocation.artifacts) == 0 {
 					continue
@@ -354,6 +358,11 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
 								"%s/%s/attempts/%s/candidate.initial.json",
 								candidate.sessionID, candidate.runID, attempt.id,
+							))
+						case ports.AttemptArtifactRetryCandidate:
+							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
+								"%s/%s/attempts/%s/candidate.retry.%03d.json",
+								candidate.sessionID, candidate.runID, attempt.id, retryOrdinal,
 							))
 						case ports.AttemptArtifactRepairedCandidate:
 							path, err = ports.NewSafeRelativePath(fmt.Sprintf(

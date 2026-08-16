@@ -3,21 +3,17 @@ package childrun
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/app/publication"
-	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/app/reviewrun"
-	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestAcceptFollowupOutputFailsClosedOnOwnershipViolation(t *testing.T) {
+func TestAcceptFollowupOutputDiscardsUnownedFields(t *testing.T) {
 	t.Parallel()
 
-	t.Run("initial ownership violation returns security_policy_violation", func(t *testing.T) {
+	t.Run("initial unowned field is discarded", func(t *testing.T) {
 		t.Parallel()
 		primary := followupOwnershipDocument(t, func(document map[string]any) {
 			document["session_id"] = "s_00000000-0000-7000-8000-000000000000"
@@ -30,16 +26,18 @@ func TestAcceptFollowupOutputFailsClosedOnOwnershipViolation(t *testing.T) {
 			context.Background(), nil, execution, run, attemptID, executor.prompts.(FollowupRuntimeInventorySource),
 			scope, primary, &observations, &runtimes, &drops,
 		)
-		assertFollowupOwnershipSecurityFailure(t, err, validated)
+		if err != nil || !reflect.DeepEqual(validated.DiscardedPaths(), []string{"/session_id"}) {
+			t.Fatalf("initial projection paths=%v err=%v", validated.DiscardedPaths(), err)
+		}
 		if repaired {
 			t.Fatal("initial ownership violation unexpectedly entered repair")
 		}
 		if len(observations) != 0 {
-			t.Fatalf("ownership violation observations = %d, want 0 (no repair)", len(observations))
+			t.Fatalf("initial projection observations = %d, want 0", len(observations))
 		}
 	})
 
-	t.Run("repair ownership violation returns security_policy_violation", func(t *testing.T) {
+	t.Run("repair unowned field is discarded", func(t *testing.T) {
 		t.Parallel()
 		primary := followupOwnershipDocument(t, func(document map[string]any) {
 			delete(document, "summary")
@@ -55,7 +53,9 @@ func TestAcceptFollowupOutputFailsClosedOnOwnershipViolation(t *testing.T) {
 			context.Background(), nil, execution, run, attemptID, executor.prompts.(FollowupRuntimeInventorySource),
 			scope, primary, &observations, &runtimes, &drops,
 		)
-		assertFollowupOwnershipSecurityFailure(t, err, validated)
+		if err != nil || !reflect.DeepEqual(validated.DiscardedPaths(), []string{"/provider"}) {
+			t.Fatalf("repair projection paths=%v err=%v", validated.DiscardedPaths(), err)
+		}
 		if !repaired {
 			t.Fatal("repair ownership path did not attempt repair before failing closed")
 		}
@@ -63,28 +63,6 @@ func TestAcceptFollowupOutputFailsClosedOnOwnershipViolation(t *testing.T) {
 			t.Fatalf("repair ownership observations = %d, want 1", len(observations))
 		}
 	})
-}
-
-func assertFollowupOwnershipSecurityFailure(t *testing.T, err error, validated validation.ValidatedFollowup) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("ownership violation unexpectedly succeeded")
-	}
-	if validated.ReportsOnly() || validated.Resolution().Valid() {
-		t.Fatalf("ownership violation published reportsOnly=%t resolution=%q", validated.ReportsOnly(), validated.Resolution())
-	}
-	failures, ok := reviewrun.ProviderExecutionFailuresFromError(err)
-	if !ok || len(failures) != 1 {
-		t.Fatalf("provider failures = %#v present=%t", failures, ok)
-	}
-	if failures[0].ReasonCode() != string(review.AttemptConditionSecurityViolation) ||
-		failures[0].FailureClass() != domain.FailureSecurityPolicy {
-		t.Fatalf("provider failure = reason %q class %q", failures[0].ReasonCode(), failures[0].FailureClass())
-	}
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
-		t.Fatalf("typed failure class = %#v", failure)
-	}
 }
 
 func followupOwnershipDocument(t *testing.T, mutate func(map[string]any)) []byte {

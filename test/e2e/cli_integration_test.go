@@ -1936,7 +1936,6 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 		wantReason string
 	}{
 		{name: "login required is terminal for its role", mode: "login_review", wantExit: 4, wantReason: "provider_login_required"},
-		{name: "non P2 execution failure remains inspectable", mode: "fail_review", wantExit: 10, wantReason: "provider_execution_failed"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			project := canonicalTestTempDir(t)
@@ -1977,6 +1976,37 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("execution failure retries once and remains inspectable", func(t *testing.T) {
+		project := canonicalTestTempDir(t)
+		initializeReviewGitRepository(t, project)
+		providerDirectory := canonicalTestTempDir(t)
+		zcodeNode := filepath.Join(providerDirectory, "node")
+		zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+		zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
+		buildFakeZCode(t, repository, zcodeNode, zcodeLauncher, zcodeLog, "fail_review")
+		environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+		initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher, "")
+
+		result := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "security", "--output", "json")
+		var envelope commandEnvelope
+		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if result.exitCode != int(domain.ExitIncompleteCoverage) || envelope.Result.RunManifestURI == nil ||
+			envelope.Result.SessionID == nil || envelope.Result.RunID == nil ||
+			!commandEnvelopeHasReason(envelope, "provider_execution_failed") ||
+			!commandEnvelopeHasReason(envelope, "required_role_incomplete") {
+			t.Fatalf("retried execution failure = exit %d envelope %#v stderr %q", result.exitCode, envelope, result.stderr)
+		}
+		log := readRuntimeDiagnosticLog(t, project, *envelope.Result.SessionID, *envelope.Result.RunID)
+		if count := bytes.Count(log, []byte(`"event":"`+string(domain.DiagnosticInvocationPrepared)+`"`)); count != 2 {
+			t.Fatalf("retried execution failure prepared invocations = %d, want 2:\n%s", count, log)
+		}
+		if count := bytes.Count(log, []byte(`"event":"`+string(domain.DiagnosticProcessStarted)+`"`)); count != 2 {
+			t.Fatalf("retried execution failure process starts = %d, want 2:\n%s", count, log)
+		}
+	})
 
 	t.Run("diagnostic open failure stops before provider spawn", func(t *testing.T) {
 		project := canonicalTestTempDir(t)
@@ -2712,10 +2742,10 @@ func main() {
 	default:
 		panic("non-canonical AGY invocation")
 	}
-	// Qualification probes stay inside the bounded 30s probe deadline; reviews
+	// Qualification probes stay inside the bounded three-minute probe deadline; reviews
 	// keep the full configured runtime deadline.
 	if observation.Prompt == "@roadmap.md" {
-		if printTimeout != "25s" || len(argv) != 16 && len(argv) != 17 {
+		if printTimeout != "2m55s" || len(argv) != 16 && len(argv) != 17 {
 			panic("non-canonical AGY qualification print timeout")
 		}
 	} else if printTimeout != "14m55s" || len(argv) != 12 && len(argv) != 13 {

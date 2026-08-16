@@ -19,6 +19,7 @@ const (
 	AttemptConditionUnrepairableEvidence       AttemptCondition = "unrepairable_evidence_claim"
 	AttemptConditionSemanticContradiction      AttemptCondition = "semantic_contradiction"
 	AttemptConditionProviderUnavailable        AttemptCondition = "provider_unavailable"
+	AttemptConditionProviderTurnFailed         AttemptCondition = "provider_turn_failed"
 	AttemptConditionProviderSpawnFailed        AttemptCondition = "provider_spawn_failed"
 	AttemptConditionTimeout                    AttemptCondition = "timeout"
 	AttemptConditionAuthentication             AttemptCondition = "auth"
@@ -62,6 +63,7 @@ func (projection TerminalProjection) Valid() bool {
 type TransitionInput struct {
 	Condition            AttemptCondition
 	RepairUsed           bool
+	RetryUsed            bool
 	CancellationObserved bool
 }
 
@@ -70,6 +72,7 @@ type TransitionInput struct {
 type TransitionDecision struct {
 	condition          AttemptCondition
 	scheduleRepair     bool
+	scheduleRetry      bool
 	providerUnusable   bool
 	cancelRun          bool
 	terminalClass      domain.FailureClass
@@ -84,6 +87,10 @@ func (decision TransitionDecision) Condition() AttemptCondition { return decisio
 // ScheduleRepair reports whether the coordinator must schedule the one allowed
 // repair invocation.
 func (decision TransitionDecision) ScheduleRepair() bool { return decision.scheduleRepair }
+
+// ScheduleRetry reports whether the coordinator must issue the sole
+// same-provider retry in the second invocation slot.
+func (decision TransitionDecision) ScheduleRetry() bool { return decision.scheduleRetry }
 
 // ProviderUnusable reports whether this failure proves the provider itself is
 // unusable rather than having merely failed this once. It separates "log in to
@@ -123,6 +130,7 @@ type transitionAction uint8
 const (
 	transitionActionValid transitionAction = iota
 	transitionActionRepairOnly
+	transitionActionRetryOnly
 	transitionActionFailClosed
 	transitionActionCancelRun
 )
@@ -225,9 +233,16 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		precedence:         conditionPrecedenceProviderFailure,
 		terminalClass:      domain.FailureProviderUnavailable,
 		terminalProjection: TerminalProjectionFailed,
-		action:             transitionActionFailClosed,
+		action:             transitionActionRetryOnly,
 		reasonCode:         string(AttemptConditionProviderUnavailable),
-		providerUnusable:   true,
+	},
+	{
+		condition:          AttemptConditionProviderTurnFailed,
+		precedence:         conditionPrecedenceProviderFailure,
+		terminalClass:      domain.FailureProviderUnavailable,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionRetryOnly,
+		reasonCode:         string(AttemptConditionProviderTurnFailed),
 	},
 	{
 		condition:          AttemptConditionProviderSpawnFailed,
@@ -442,8 +457,13 @@ func DecideTransition(input TransitionInput) (TransitionDecision, error) {
 	switch row.action {
 	case transitionActionValid, transitionActionFailClosed:
 	case transitionActionRepairOnly:
-		if !input.RepairUsed {
+		if !input.RepairUsed && !input.RetryUsed {
 			decision.scheduleRepair = true
+			decision.terminalProjection = TerminalProjectionNone
+		}
+	case transitionActionRetryOnly:
+		if !input.RepairUsed && !input.RetryUsed {
+			decision.scheduleRetry = true
 			decision.terminalProjection = TerminalProjectionNone
 		}
 	case transitionActionCancelRun:
@@ -468,10 +488,10 @@ func lookupTransitionPolicy(condition AttemptCondition) (transitionPolicyRow, bo
 }
 
 func (decision TransitionDecision) validate() error {
-	if decision.scheduleRepair && decision.terminalProjection != TerminalProjectionNone {
+	if (decision.scheduleRepair || decision.scheduleRetry) && decision.terminalProjection != TerminalProjectionNone {
 		return fmt.Errorf("review transition policy: %w: scheduled work cannot have a terminal projection", domain.ErrInvariant)
 	}
-	if decision.cancelRun && decision.scheduleRepair {
+	if decision.cancelRun && (decision.scheduleRepair || decision.scheduleRetry) {
 		return fmt.Errorf("review transition policy: %w: cancelled run cannot schedule work", domain.ErrInvariant)
 	}
 	if decision.providerUnusable && !decision.terminalClass.ProviderFault() {
@@ -479,6 +499,9 @@ func (decision TransitionDecision) validate() error {
 	}
 	if decision.providerUnusable && decision.scheduleRepair {
 		return fmt.Errorf("review transition policy: %w: unusable provider cannot be repaired", domain.ErrInvariant)
+	}
+	if decision.scheduleRepair && decision.scheduleRetry {
+		return fmt.Errorf("review transition policy: %w: repair and retry are mutually exclusive", domain.ErrInvariant)
 	}
 	if !decision.terminalProjection.Valid() {
 		return fmt.Errorf("review transition policy: %w: invalid terminal projection %q", domain.ErrInvariant, decision.terminalProjection)

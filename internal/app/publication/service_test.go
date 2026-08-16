@@ -133,6 +133,8 @@ func TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths(t *testing.
 		{base + "target/target-manifest.json", ports.RunSupportArtifactTargetManifest},
 		{base + "prompts/" + attemptID + "/001-initial.stdin", ports.RunSupportArtifactPromptStdin},
 		{base + "prompts/" + attemptID + "/001-initial.manifest.json", ports.RunSupportArtifactPromptManifest},
+		{base + "prompts/" + attemptID + "/002-retry.stdin", ports.RunSupportArtifactPromptStdin},
+		{base + "prompts/" + attemptID + "/002-retry.manifest.json", ports.RunSupportArtifactPromptManifest},
 	}
 	for _, test := range cases {
 		path, err := ports.NewSafeRelativePath(test.path)

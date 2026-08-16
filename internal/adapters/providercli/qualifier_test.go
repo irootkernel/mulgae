@@ -32,6 +32,25 @@ func TestClassifyProbeFailurePreservesExplicitLoginRequired(t *testing.T) {
 	}
 }
 
+func TestClassifyProbeFailureUsesTypedProcessCauseWithoutStderr(t *testing.T) {
+	for _, test := range []struct {
+		cause domain.RuntimeDiagnosticCause
+		class domain.FailureClass
+	}{
+		{domain.DiagnosticCauseTimedOut, domain.FailureTimeout},
+		{domain.DiagnosticCauseRateLimited, domain.FailureRateLimit},
+		{domain.DiagnosticCauseQuotaExceeded, domain.FailureQuota},
+		{domain.DiagnosticCausePermissionDenied, domain.FailureAuthentication},
+		{domain.DiagnosticCauseProviderExecutionFailed, domain.FailureProviderUnavailable},
+	} {
+		err := classifyProbeFailure(context.Background(), FamilyAgy, newProviderOutputFailure(test.cause, errors.New("provider process failed")), nil)
+		var failure *domain.Failure
+		if !errors.As(err, &failure) || failure.Class() != test.class {
+			t.Fatalf("typed cause %q projected as %#v, want %q", test.cause, failure, test.class)
+		}
+	}
+}
+
 func TestQualificationFamilyOutputCauseIsExact(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -1416,13 +1435,18 @@ func TestValidateProbeEvidenceRequiresPositiveCapabilityOnly(t *testing.T) {
 	if err := validateProbeEvidence([]byte(`{"root":"nonce","link":"linked","role":"logic"}`), fixture); err != nil {
 		t.Fatalf("positive capability evidence rejected: %v", err)
 	}
+	if err := validateProbeEvidence([]byte(`{"root":"nonce","link":"linked","role":"logic","provider_note":"ignored"}`), fixture); err != nil {
+		t.Fatalf("positive capability evidence with an unknown field rejected: %v", err)
+	}
 	if err := validateProbeEvidence([]byte("Readiness confirmed with root=nonce link=linked role=logic after transport."), fixture); err != nil {
 		t.Fatalf("narrated evidence rejected: %v", err)
 	}
 	for _, output := range [][]byte{
 		[]byte(`{"root":"nonce","link":"linked"}`),
-		[]byte(`{"root":"nonce","link":"linked","role":"logic","missing":"denied"}`),
-		[]byte(`{"root":"nonce","link":"linked","role":"logic","command":"denied"}`),
+		[]byte(`{"root":"nonce","link":"linked","role":1}`),
+		[]byte(`{"root":"nonce","root":"other","link":"linked","role":"logic"}`),
+		[]byte(`{"root":"nonce","link":"linked","role":"logic","nested":{"key":1,"key":2}}`),
+		[]byte(`{"root":"nonce","link":"linked","role":"logic"`),
 		[]byte(fixture.Packet()),
 		[]byte("only echoed the prompt without bindings"),
 	} {

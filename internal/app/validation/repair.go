@@ -79,9 +79,6 @@ func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context,
 	if err != nil {
 		return ValidatedReview{}, nil, err
 	}
-	if err := guardProviderReview(original); err != nil {
-		return ValidatedReview{}, nil, err
-	}
 	originalCount, err := findingCount(original)
 	if err != nil {
 		return ValidatedReview{}, nil, err
@@ -110,9 +107,6 @@ func (validator *ReviewValidator) applyPatchRepairCandidate(ctx context.Context,
 	}
 	if len(allowed) != 0 {
 		return ValidatedReview{}, nil, fmt.Errorf("review repair: required paths were not repaired")
-	}
-	if err := guardProviderReview(original); err != nil {
-		return ValidatedReview{}, nil, err
 	}
 	if repairedCount, err := findingCount(original); err != nil {
 		return ValidatedReview{}, nil, err

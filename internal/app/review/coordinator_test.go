@@ -388,7 +388,8 @@ func TestCoordinatorDiagnosticsPersistProviderFailureBeforeRoleTerminal(t *testi
 			}
 			// Deterministic provider failures must additionally record that the
 			// provider itself is unusable, so the operator knows to fix it.
-			deterministic := condition != AttemptConditionRateLimit &&
+			deterministic := condition != AttemptConditionProviderUnavailable &&
+				condition != AttemptConditionRateLimit &&
 				condition != AttemptConditionTimeout &&
 				condition != AttemptConditionProviderTimeout
 			quarantined := false
@@ -878,17 +879,52 @@ func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerInvoca
 			if execution.result.RunState() != domain.RunFailed {
 				t.Fatalf("run state = %q, want failed", execution.result.RunState())
 			}
-			// Exactly one call per role: no role was retried on another provider.
+			// Transient unavailability consumes the one same-provider retry slot;
+			// deterministic failures still make exactly one call.
 			runtime.mu.Lock()
 			invocations := len(runtime.jobs)
 			runtime.mu.Unlock()
-			if invocations != len(assignments) {
-				t.Fatalf("invocations = %d, want one per role (%d)", invocations, len(assignments))
+			wantInvocations := len(assignments)
+			if condition == AttemptConditionProviderUnavailable {
+				wantInvocations++
 			}
-			if !execution.result.ProviderUnusable() {
-				t.Fatalf("%q did not report the provider as unusable", condition)
+			if invocations != wantInvocations {
+				t.Fatalf("invocations = %d, want %d", invocations, wantInvocations)
+			}
+			if execution.result.ProviderUnusable() != (condition != AttemptConditionProviderUnavailable) {
+				t.Fatalf("%q provider unusable = %t", condition, execution.result.ProviderUnusable())
 			}
 		})
+	}
+}
+
+func TestCoordinatorRetriesTransientFailureOnceOnSameRoute(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t)
+	var logicJobs []InvocationJob
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		if job.Role() != domain.RoleLogic {
+			return coordinatorSuccessOutcome(t, job)
+		}
+		logicJobs = append(logicJobs, job)
+		if len(logicJobs) == 1 {
+			return coordinatorConditionOutcome(t, job, AttemptConditionProviderTurnFailed)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	result := coordinatorTestExecute(t, assignments, receipt, runtime, len(assignments))
+	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
+	if logic.State() != domain.RoleTaskSucceeded || logic.Repaired() || len(logicJobs) != 2 {
+		t.Fatalf("logic retry result=%#v jobs=%d", logic, len(logicJobs))
+	}
+	first, second := logicJobs[0], logicJobs[1]
+	if first.Purpose() != domain.InvocationInitial || second.Purpose() != domain.InvocationRetry ||
+		first.AttemptID() != second.AttemptID() || first.Route().ProviderInstance() != second.Route().ProviderInstance() ||
+		first.Target() != second.Target() {
+		t.Fatalf("retry identity drift: first=%#v second=%#v", first, second)
+	}
+	invocations := logic.Attempts()[0].Invocations()
+	if len(invocations) != 2 || invocations[0].State() != domain.InvocationFailed || invocations[1].State() != domain.InvocationSucceeded {
+		t.Fatalf("retry lifecycle=%#v", invocations)
 	}
 }
 

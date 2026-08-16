@@ -211,7 +211,7 @@ type CoordinatorInvocationSummary struct {
 // Sequence returns the attempt-local invocation sequence.
 func (summary CoordinatorInvocationSummary) Sequence() uint64 { return summary.sequence }
 
-// Purpose returns whether this invocation was initial or repair work.
+// Purpose returns whether this invocation was initial, retry, or repair work.
 func (summary CoordinatorInvocationSummary) Purpose() domain.InvocationPurpose {
 	return summary.purpose
 }
@@ -518,6 +518,7 @@ type coordinatorAttempt struct {
 	route           ports.ProviderRoute
 	attempt         domain.Attempt
 	repairUsed      bool
+	retryUsed       bool
 	failureClass    domain.FailureClass
 	reasonCode      string
 	timeoutFacts    ProviderTimeoutFacts
@@ -639,7 +640,7 @@ type exactReplayInvocationRuntime struct {
 }
 
 func (runtime exactReplayInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) AttemptOutcome {
-	if job.Purpose() != domain.InvocationInitial || job.Role() != runtime.input.Role ||
+	if (job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry) || job.Role() != runtime.input.Role ||
 		job.Route().ProviderInstance() != runtime.input.SourceProviderInstance {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
@@ -1523,10 +1524,6 @@ func (execution *coordinatorExecution) commitOutcome(
 		if err := attempt.attempt.Transition(domain.AttemptValidating); err != nil {
 			return nil, fmt.Errorf("review coordinator: validate provider invocation: %w", err)
 		}
-	} else {
-		if err := transitionFailedInvocation(&attempt.attempt, job.Purpose(), condition); err != nil {
-			return nil, err
-		}
 	}
 
 	repairUsed := attempt.repairUsed
@@ -1536,10 +1533,37 @@ func (execution *coordinatorExecution) commitOutcome(
 	decision, err := DecideTransition(TransitionInput{
 		Condition:            condition,
 		RepairUsed:           repairUsed,
+		RetryUsed:            attempt.retryUsed || suppressFollowup,
 		CancellationObserved: cancellationObserved,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("review coordinator: decide transition: %w", err)
+	}
+	if decision.ScheduleRetry() {
+		if err := attempt.attempt.TransitionInvocation(invocationSequence(job.Purpose()), domain.InvocationFailed); err != nil {
+			return nil, fmt.Errorf("review coordinator: fail retryable invocation: %w", err)
+		}
+		retry, err := domain.NewInvocation(2, domain.InvocationRetry)
+		if err != nil {
+			return nil, fmt.Errorf("review coordinator: create retry invocation: %w", err)
+		}
+		if err := attempt.attempt.AppendRetryInvocation(retry); err != nil {
+			return nil, fmt.Errorf("review coordinator: append retry invocation: %w", err)
+		}
+		attempt.retryUsed = true
+		job, err := execution.newJob(job.Role(), attempt, domain.InvocationRetry)
+		if err != nil {
+			return nil, err
+		}
+		if err := execution.record(CoordinatorEventRetryQueued, job.Role(), attempt, &job.purpose, nil, decision.ReasonCode(), domain.RunState("")); err != nil {
+			return nil, err
+		}
+		return []InvocationJob{job}, nil
+	}
+	if !conditionRequiresValidation(condition) {
+		if err := transitionFailedInvocation(&attempt.attempt, job.Purpose(), condition); err != nil {
+			return nil, err
+		}
 	}
 	if decision.ScheduleRepair() {
 		if err := attempt.attempt.Transition(domain.AttemptRepairing); err != nil {
@@ -1620,7 +1644,7 @@ func conditionRequiresValidation(condition AttemptCondition) bool {
 }
 
 func invocationSequence(purpose domain.InvocationPurpose) uint64 {
-	if purpose == domain.InvocationRepair {
+	if purpose == domain.InvocationRepair || purpose == domain.InvocationRetry {
 		return 2
 	}
 	return 1
@@ -2174,6 +2198,7 @@ func (execution *coordinatorExecution) record(
 		kind == CoordinatorEventInvocationDispatched ||
 		kind == CoordinatorEventInvocationCommitted ||
 		kind == CoordinatorEventRepairQueued ||
+		kind == CoordinatorEventRetryQueued ||
 		kind == CoordinatorEventRoleTerminal
 	if roleEvent {
 		if !role.Valid() {

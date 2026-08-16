@@ -774,6 +774,10 @@ func providerExecutionCause(
 		return domain.DiagnosticCauseQuotaExceeded
 	case "provider_rate_limit":
 		return domain.DiagnosticCauseRateLimited
+	case "provider_turn_failed":
+		return domain.DiagnosticCauseProviderTurnFailed
+	case "provider_execution_failed":
+		return domain.DiagnosticCauseProviderExecutionFailed
 	case "invalid_provider_output":
 		return domain.DiagnosticCauseOutputDecodeFailed
 	case "provider_output_missing":

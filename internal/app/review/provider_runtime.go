@@ -140,8 +140,8 @@ func cloneInvocationRepairInput(input InvocationRepairInput) InvocationRepairInp
 }
 
 // InvocationPromptSource supplies trusted prompt material keyed by the immutable
-// coordinator job. repair is nil for initial jobs and is present only for the
-// one coordinator-authorized repair invocation of the same attempt.
+// coordinator job. repair is nil for initial and retry jobs and is present only
+// for the one coordinator-authorized repair invocation of the same attempt.
 type InvocationPromptSource interface {
 	Prompt(context.Context, InvocationJob, *InvocationRepairInput) (RuntimePrompt, error)
 }
@@ -683,7 +683,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	assistantContent := append([]byte(nil), stdout...)
 	contentClass, validateBytes := classifyAssistantContent(assistantContent)
-	if job.Purpose() == domain.InvocationInitial {
+	if job.Purpose() == domain.InvocationInitial || job.Purpose() == domain.InvocationRetry {
 		if contentClass == assistantContentFreeForm {
 			// Pure prose must not enter Validate: decode failures always mint
 			// RepairModeReformatOnly and would incorrectly schedule repair.
@@ -709,6 +709,9 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		parseState = diagnosticParseState(validationErr, validateBytes)
 		if validationErr == nil {
 			validationState = domain.ValidationValid
+			if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
 		} else {
 			validationState = domain.ValidationInvalid
 		}
@@ -726,6 +729,9 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			if plan != nil {
 				if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
 					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
+				if job.Purpose() == domain.InvocationRetry {
+					return runtimeCondition(job, AttemptConditionUnrepairableProviderOutput)
 				}
 				runtime.mu.Lock()
 				runtime.pending[job.AttemptID()] = InvocationRepairInput{
@@ -784,6 +790,9 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	parseState = diagnosticParseState(validationErr, validateBytes)
 	if validationErr == nil {
 		validationState = domain.ValidationRepairedValid
+		if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
 	} else {
 		validationState = domain.ValidationRepairExhausted
 	}
@@ -835,7 +844,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 // the same immutable A-to-B material; no ordinary prompt fallback is available.
 func (runtime *ProviderInvocationRuntime) InvokeDelta(ctx context.Context, job InvocationJob, input DeltaInvocationMaterial) AttemptOutcome {
 	if runtime == nil ||
-		(job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRepair) ||
+		(job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry && job.Purpose() != domain.InvocationRepair) ||
 		input.SourceRunID.String() == "" ||
 		sha256Identifier(input.SourceTarget) != "sha256:"+input.SourceTargetIdentity.SHA256() ||
 		sha256Identifier(input.CurrentTarget) != "sha256:"+input.CurrentTargetIdentity.SHA256() ||
@@ -867,7 +876,7 @@ func (runtime *ProviderInvocationRuntime) InvokeDelta(ctx context.Context, job I
 // InvokeExactReplay executes exactly one stored provider wire invocation using
 // a fresh execution identity supplied by the explicit replay prompt source.
 func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context, job InvocationJob, input ExactReplayInput) AttemptOutcome {
-	if runtime == nil || job.Purpose() != domain.InvocationInitial || input.Role != job.Role() ||
+	if runtime == nil || (job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry) || input.Role != job.Role() ||
 		input.SourceRunID.String() == "" || input.SourceAttemptID.String() == "" ||
 		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
 		input.SourceProviderInstance != job.Route().ProviderInstance() ||
@@ -1138,6 +1147,10 @@ func (runtime *ProviderInvocationRuntime) capture(ctx context.Context, job Invoc
 				return err
 			}
 		}
+	} else if job.Purpose() == domain.InvocationRetry {
+		if err := add(ports.AttemptArtifactRetryCandidate, candidate, reject); err != nil {
+			return err
+		}
 	} else if err := add(ports.AttemptArtifactInitialCandidate, candidate, reject); err != nil {
 		return err
 	}
@@ -1390,6 +1403,9 @@ func runtimePurpose(purpose domain.InvocationPurpose) ports.ProviderInvocationPu
 	if purpose == domain.InvocationRepair {
 		return ports.ProviderInvocationRepair
 	}
+	if purpose == domain.InvocationRetry {
+		return ports.ProviderInvocationRetry
+	}
 	return ports.ProviderInvocationInitial
 }
 func runtimeCondition(job InvocationJob, condition AttemptCondition) AttemptOutcome {
@@ -1596,6 +1612,8 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		domain.DiagnosticCauseProviderProcessWaitFailed,
 		domain.DiagnosticCauseObservationInvalid:
 		return AttemptConditionProviderUnavailable
+	case domain.DiagnosticCauseProviderTurnFailed:
+		return AttemptConditionProviderTurnFailed
 	default:
 		return AttemptConditionInternalInvariant
 	}
