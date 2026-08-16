@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.14
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-kimi test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-kimi test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -11,6 +11,7 @@ test:
 	@$(MAKE) test-int
 	@$(MAKE) test-release
 	@$(MAKE) test-e2e
+	@$(MAKE) test-e2e-opt-in
 	@printf '%s\n' '[test] completed'
 
 test-prepare:
@@ -90,6 +91,53 @@ test-e2e:
 	}; \
 	rm -rf "$$e2e_project"
 	@printf '%s\n' '[test-e2e] completed'
+
+test-e2e-opt-in:
+	@if test "$${MULGAE_E2E_OPT_IN:-}" != "1"; then \
+		printf '%s\n' '[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1'; \
+		exit 0; \
+	fi; \
+	test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e-opt-in requires darwin/arm64" >&2; exit 1; }; \
+	opt_in_tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$opt_in_tmp"' EXIT; \
+	opt_in_base="$${TMPDIR:-/tmp}"; \
+	opt_in_project="$$(mktemp -d "$${opt_in_base%/}/mulgae-e2e-opt-in-project.XXXXXX")"; \
+	chmod 700 "$$opt_in_project"; \
+	opt_in_binary="$$opt_in_tmp/mulgae"; \
+	opt_in_commit="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$opt_in_commit" -o "$$opt_in_binary" .; \
+	codex_candidate="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
+	test -n "$$codex_candidate" && test -x "$$codex_candidate" || { echo "test-e2e-opt-in requires the Codex executable" >&2; exit 1; }; \
+	codex_bin="$$(realpath "$$codex_candidate")"; \
+	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e-opt-in cannot resolve the Codex executable" >&2; exit 1; }; \
+	case "$$codex_bin" in /*) ;; *) echo "test-e2e-opt-in requires an absolute Codex executable" >&2; exit 1;; esac; \
+	kimi_candidate="$${MULGAE_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
+	test -n "$$kimi_candidate" && test -x "$$kimi_candidate" || { echo "test-e2e-opt-in requires the Kimi executable" >&2; exit 1; }; \
+	kimi_bin="$$(realpath "$$kimi_candidate")"; \
+	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-e2e-opt-in cannot resolve the Kimi executable" >&2; exit 1; }; \
+	case "$$kimi_bin" in /*) ;; *) echo "test-e2e-opt-in requires an absolute Kimi executable" >&2; exit 1;; esac; \
+	codex_primary_home="$${MULGAE_E2E_CODEX_PRIMARY_HOME:-}"; \
+	test -n "$$codex_primary_home" && test -d "$$codex_primary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1; }; \
+	case "$$codex_primary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1;; esac; \
+	codex_secondary_home="$${MULGAE_E2E_CODEX_SECONDARY_HOME:-}"; \
+	test -n "$$codex_secondary_home" && test -d "$$codex_secondary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1; }; \
+	case "$$codex_secondary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1;; esac; \
+	kimi_data_home="$${MULGAE_E2E_KIMI_DATA_HOME:-}"; \
+	test -n "$$kimi_data_home" && test -d "$$kimi_data_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_KIMI_DATA_HOME" >&2; exit 1; }; \
+	case "$$kimi_data_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_KIMI_DATA_HOME" >&2; exit 1;; esac; \
+	if MULGAE_E2E_BINARY="$$opt_in_binary" MULGAE_E2E_PROJECT_ROOT="$$opt_in_project" \
+		MULGAE_E2E_CODEX_EXECUTABLE="$$codex_bin" MULGAE_E2E_CODEX_PRIMARY_HOME="$$codex_primary_home" \
+		MULGAE_E2E_CODEX_SECONDARY_HOME="$$codex_secondary_home" MULGAE_E2E_KIMI_EXECUTABLE="$$kimi_bin" \
+		MULGAE_E2E_KIMI_DATA_HOME="$$kimi_data_home" $(GO) test -v -tags='live_e2e live_e2e_opt_in' \
+		-timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2EOptInMixedCredentialProfiles$$' ./test/e2e; then \
+		:; \
+	else \
+		status=$$?; \
+		printf '%s\n' "[test-e2e-opt-in] failed; preserved private project: $$opt_in_project" >&2; \
+		exit $$status; \
+	fi; \
+	rm -rf "$$opt_in_project"; \
+	printf '%s\n' '[test-e2e-opt-in] completed'
 
 test-kimi:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-kimi requires darwin/arm64" >&2; exit 1; }

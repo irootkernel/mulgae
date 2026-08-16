@@ -37,7 +37,7 @@ func TestCurrentQualifierCanonicalRolesRejectDuplicateAndMissingBase(t *testing.
 }
 
 func TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority(t *testing.T) {
-	for _, family := range []Family{FamilyKimi, FamilyZCode} {
+	for _, family := range []Family{FamilyKimi, FamilyZCode, FamilyCodex} {
 		t.Run(string(family), func(t *testing.T) {
 			identity := Identity{Family: family, Version: "2.0.0"}
 			expires := time.Now().Add(time.Minute)
@@ -786,7 +786,7 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 	}
 	_ = file.Close()
 	if r.calls == 1 {
-		return authorityProbeObservation(r.t, []byte(r.version+"\n"), ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketIdentity{}, "", "", nil), nil
+		return authorityProbeObservation(r.t, []byte(r.version+"\n"), ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketIdentity{}, "", "", nil, nil), nil
 	}
 	binding, ok := request.ProviderPacketBinding()
 	if !ok || !binding.Valid() {
@@ -832,12 +832,18 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 			r.t.Fatal(err)
 		}
 	}
-	return authorityProbeObservation(r.t, output, binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), &lifecycle), nil
+	return authorityProbeObservation(r.t, output, binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.Packet().Bytes(), &lifecycle), nil
 }
 
-func authorityProbeObservation(t *testing.T, output []byte, channel ports.ProviderPacketChannel, packet ports.ProviderPacketIdentity, reference, cwd string, lifecycle *ports.ProcessLifecycleReceipt) ports.ProcessObservation {
+func authorityProbeObservation(t *testing.T, output []byte, channel ports.ProviderPacketChannel, packet ports.ProviderPacketIdentity, reference, cwd string, stdinBytes []byte, lifecycle *ports.ProcessLifecycleReceipt) ports.ProcessObservation {
 	t.Helper()
-	stdin, err := ports.NewStdinWriteReceipt(0, 0, authorityProbeStdinDigest(nil), true)
+	var written int64
+	if channel == ports.ProviderPacketChannelStdin {
+		written = int64(len(stdinBytes))
+	} else {
+		stdinBytes = nil
+	}
+	stdin, err := ports.NewStdinWriteReceipt(written, written, authorityProbeStdinDigest(stdinBytes), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -957,7 +963,11 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	} else if family == FamilyAGY {
 		argvIndex = 13
 	}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, argvIndex, "@roadmap.md")
+	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
+	if family == FamilyCodex {
+		channel, argvIndex, reference = ports.ProviderPacketChannelStdin, -1, ""
+	}
+	transport, err := providercli.NewRuntimeTransport(channel, argvIndex, reference)
 	if err != nil {
 		t.Fatal(err)
 	}

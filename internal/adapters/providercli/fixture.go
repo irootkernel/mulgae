@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	probeFixtureReference = "roadmap.md"
-	probeFixtureLinkPath  = "docs/linked.md"
+	probeFixtureReference  = "roadmap.md"
+	probeFixtureLinkPath   = "docs/linked.md"
+	probeFixtureSchemaPath = "qualification-output.schema.json"
 )
+const probeFixtureOutputSchema = `{"additionalProperties":false,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
 const probeFixtureCleanupTimeout = time.Second
 
 // ProbeNonceGenerator supplies a fresh cryptographically secure nonce for each
@@ -156,7 +158,7 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 		"link=" + link + "\n" +
 		"role=" + string(role) + "\n")
 	linked := []byte(link)
-	files, err := probeFixtureFiles(roadmap, linked)
+	files, err := probeFixtureFiles(roadmap, linked, []byte(probeFixtureOutputSchema))
 	if err != nil {
 		return nil, ports.WorkspaceSnapshotRequest{}, err
 	}
@@ -171,12 +173,13 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 	}, request, nil
 }
 
-func probeFixtureFiles(roadmap, linked []byte) ([]ports.WorkspaceSnapshotFile, error) {
+func probeFixtureFiles(roadmap, linked, schema []byte) ([]ports.WorkspaceSnapshotFile, error) {
 	values := []struct {
 		path  string
 		bytes []byte
 	}{
 		{probeFixtureLinkPath, linked},
+		{probeFixtureSchemaPath, schema},
 		{probeFixtureReference, roadmap},
 	}
 	files := make([]ports.WorkspaceSnapshotFile, 0, len(values))

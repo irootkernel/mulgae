@@ -544,11 +544,19 @@ func runLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, env
 }
 
 func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, arguments ...string) livePublishedRun {
+	return runLiveRecoverableWorkflowForScenario(t, validator, environment, project, "actual-provider-production-workflow", expected, arguments...)
+}
+
+func runLiveRecoverableWorkflowForScenario(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project, scenario string, expected map[string]string, arguments ...string) livePublishedRun {
+	return runLiveRecoverableWorkflowWithGate(t, validator, environment, project, scenario, expected, validateLiveSecurityRecoveryGate, arguments...)
+}
+
+func runLiveRecoverableWorkflowWithGate(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project, scenario string, expected map[string]string, gate func(string, livePublishedRun, map[string]string) error, arguments ...string) livePublishedRun {
 	t.Helper()
 	const maxAttempts = 2
 	var last string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		run, status, reason := runLiveRecoverableAttempt(t, validator, environment, project, expected, attempt, maxAttempts, arguments...)
+		run, status, reason := runLiveRecoverableAttempt(t, validator, environment, project, scenario, expected, gate, attempt, maxAttempts, arguments...)
 		if status == "passed" {
 			return run
 		}
@@ -588,9 +596,9 @@ func liveProviderGateFailure(maxAttempts int, last string) string {
 		maxAttempts, last)
 }
 
-func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
+func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project, scenario string, expected map[string]string, gate func(string, livePublishedRun, map[string]string) error, attempt, maxAttempts int, arguments ...string) (run livePublishedRun, status, reason string) {
 	t.Helper()
-	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=actual-provider-production-workflow attempt=%d/%d", attempt, maxAttempts))
+	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=%s attempt=%d/%d", scenario, attempt, maxAttempts))
 	defer scope.end()
 	envelope := runLiveMulgaeAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
 	inspectLiveFailureDiagnostics(t, project, attempt, envelope)
@@ -613,14 +621,10 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	if err := validateLiveProviderQualificationHealth(project, run, expected); err != nil {
 		t.Fatalf("focused live attempt %d has invalid provider-health evidence: %v", attempt, err)
 	}
-	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
+	if gate == nil {
+		t.Fatal("focused live attempt has no verification gate")
+	} else if err := gate(project, run, expected); err != nil {
 		reason = err.Error()
-	} else if provider, providerErr := liveSelectedProvider(run, "security"); providerErr != nil {
-		reason = providerErr.Error()
-	} else if !liveSecurityDefectPresent(project, run, provider) {
-		reason = fmt.Sprintf("selected security provider %s did not publish the required defect via structured finding or verified role-report markers", provider)
-	} else if processErr := validateLivePrimaryProcessTerminals(project, run, expected); processErr != nil {
-		t.Fatalf("focused live attempt %d has invalid process diagnostics: %v", attempt, processErr)
 	} else {
 		logLiveRecoverySelections(t, run)
 		scope.status = "passed"
@@ -630,8 +634,25 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	if attempt == maxAttempts {
 		scope.status = "failed"
 	}
-	t.Logf("focused live attempt %d/%d did not satisfy the recoverable six-role gate; retrying the whole review: %s", attempt, maxAttempts, reason)
+	t.Logf("focused live attempt %d/%d did not satisfy the %s gate; retrying the whole review: %s", attempt, maxAttempts, scenario, reason)
 	return livePublishedRun{}, scope.status, reason
+}
+
+func validateLiveSecurityRecoveryGate(project string, run livePublishedRun, expected map[string]string) error {
+	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
+		return err
+	}
+	provider, err := liveSelectedProvider(run, "security")
+	if err != nil {
+		return err
+	}
+	if !liveSecurityDefectPresent(project, run, provider) {
+		return fmt.Errorf("selected security provider %s did not publish the required defect via structured finding or verified role-report markers", provider)
+	}
+	if err := validateLivePrimaryProcessTerminals(project, run, expected); err != nil {
+		return fmt.Errorf("invalid process diagnostics: %w", err)
+	}
+	return nil
 }
 
 // inspectLiveFailureDiagnostics validates diagnostic URI safety and logs the

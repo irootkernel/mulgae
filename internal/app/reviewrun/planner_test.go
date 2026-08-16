@@ -435,7 +435,7 @@ func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 	if _, err := NewQualifiedRoute(failed, failedRoute, limits, roles, domain.RoleLogic, 2); err == nil {
 		t.Fatal("NewQualifiedRoute() accepted failed yellow qualification")
 	}
-	for _, family := range []Family{FamilyKimi, FamilyZCode} {
+	for _, family := range []Family{FamilyKimi, FamilyZCode, FamilyCodex} {
 		qualification := plannerTestQualification(t, family, string(family)+".yellow", "9.0.0", ReceiptPass)
 		route, err := ports.NewProviderRoute(string(family) + ".yellow")
 		if err != nil {

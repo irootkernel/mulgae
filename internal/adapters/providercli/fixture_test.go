@@ -147,11 +147,11 @@ func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 	if first.Nonce() != "root-one" || first.Link() != "linked-one" || first.Nonce() == first.Link() || first.Nonce() == second.Nonce() || first.Reference() != "roadmap.md" {
 		t.Fatalf("unexpected fixture evidence: %#v", first)
 	}
-	if len(factory.requests) != 2 || len(factory.requests[0].Files()) != 2 {
+	if len(factory.requests) != 2 || len(factory.requests[0].Files()) != 3 {
 		t.Fatalf("materialized fixture files = %#v", factory.requests)
 	}
 	files := factory.requests[0].Files()
-	if files[0].Path().String() != "docs/linked.md" || files[1].Path().String() != "roadmap.md" {
+	if files[0].Path().String() != "docs/linked.md" || files[1].Path().String() != probeFixtureSchemaPath || files[2].Path().String() != "roadmap.md" {
 		t.Fatalf("fixture paths = %#v", files)
 	}
 	for _, file := range files {
@@ -177,6 +177,10 @@ func TestProbeFixtureLeaseAcquiresExactImmutableFixture(t *testing.T) {
 		case "docs/linked.md":
 			if contents != first.Link() || strings.Contains(contents, first.Nonce()) {
 				t.Fatalf("linked nonce isolation failed: %q", contents)
+			}
+		case probeFixtureSchemaPath:
+			if contents != probeFixtureOutputSchema {
+				t.Fatalf("qualification output schema = %q", contents)
 			}
 		}
 	}

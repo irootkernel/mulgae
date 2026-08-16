@@ -79,7 +79,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		}
 		return append(argv, "--output-format", "json", "--json-schema", agyQualificationJSONSchema), nil
 	case FamilyCodex:
-		return appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort()), nil
+		argv := appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort())
+		return append(argv[:len(argv)-1], "--output-schema", probeFixtureSchemaPath, "-"), nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}

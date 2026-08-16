@@ -210,7 +210,7 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-kimi:"} {
+	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-kimi:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -221,6 +221,7 @@ func TestMakefileContract(t *testing.T) {
 		strings.Index(text, "$(MAKE) test-int"),
 		strings.Index(text, "$(MAKE) test-release"),
 		strings.Index(text, "$(MAKE) test-e2e"),
+		strings.Index(text, "$(MAKE) test-e2e-opt-in"),
 	}
 	for index, position := range positions {
 		if position < 0 || index > 0 && position <= positions[index-1] {
@@ -258,14 +259,15 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 3 {
-		t.Fatal("release, E2E, and MCP client binaries do not share RELEASE_VERSION")
+	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 4 {
+		t.Fatal("release, mandatory E2E, opt-in E2E, and MCP client binaries do not share RELEASE_VERSION")
 	}
+	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
 	kimiStart := strings.Index(text, "\ntest-kimi:")
-	if kimiStart < 0 {
+	if optInStart < 0 || kimiStart <= optInStart {
 		t.Fatal("Makefile does not define the opt-in Kimi gate")
 	}
-	e2eTarget := text[releaseEnd:kimiStart]
+	e2eTarget := text[releaseEnd:optInStart]
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`, "codex_bin=", `test -n "$$codex_bin"`,
@@ -281,6 +283,18 @@ func TestMakefileContract(t *testing.T) {
 	for _, forbidden := range []string{"kimi_bin=", "MULGAE_LIVE_KIMI_BIN", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME"} {
 		if strings.Contains(e2eTarget, forbidden) {
 			t.Errorf("mandatory test-e2e still requires Kimi token %q", forbidden)
+		}
+	}
+	optInTarget := text[optInStart:kimiStart]
+	for _, required := range []string{
+		`MULGAE_E2E_OPT_IN:-}`, "[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1",
+		"MULGAE_E2E_CODEX_EXECUTABLE", "MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME",
+		"MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME", "MULGAE_E2E_PROJECT_ROOT",
+		"-tags='live_e2e live_e2e_opt_in'", "-run '^TestE2EOptInMixedCredentialProfiles$$'",
+		"[test-e2e-opt-in] failed; preserved private project:",
+	} {
+		if !strings.Contains(optInTarget, required) {
+			t.Errorf("test-e2e-opt-in missing mixed-profile token %q", required)
 		}
 	}
 	kimiTarget := text[kimiStart:]
@@ -343,6 +357,23 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
 		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")
+	}
+	optInData, err := os.ReadFile(filepath.Join(root, "test", "e2e", "opt_in_live_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	optInText := string(optInData)
+	for _, required := range []string{
+		"live_e2e_opt_in", "func TestE2EOptInMixedCredentialProfiles",
+		`"kimi-logic"`, `"codex-primary-security"`, `"codex-secondary-documentation"`,
+		"MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME", "MULGAE_E2E_KIMI_DATA_HOME",
+	} {
+		if !strings.Contains(optInText, required) {
+			t.Errorf("opt-in exact-binary workflow contract missing %q", required)
+		}
+	}
+	if strings.Contains(optInText, ".Skip(") || strings.Contains(optInText, ".Skipf(") {
+		t.Fatal("enabled opt-in exact-binary workflow may not skip prerequisites")
 	}
 	negativeData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "agy_boundary_darwin_test.go"))
 	if err != nil {

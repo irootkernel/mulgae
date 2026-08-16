@@ -466,7 +466,7 @@ func appReceiptsFromDirectExecutionAuthority(
 	if identity.Family == FamilyAGY {
 		return nil, fmt.Errorf("review run: missing AGY current probe control authority")
 	}
-	if identity.Family != FamilyKimi && identity.Family != FamilyZCode {
+	if identity.Family != FamilyKimi && identity.Family != FamilyZCode && identity.Family != FamilyCodex {
 		return nil, fmt.Errorf("review run: unsupported current probe authority family")
 	}
 	mapped = append(mapped, Receipt{

@@ -177,6 +177,34 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	}
 }
 
+func TestNativeProbeInvocationCodexBindsStructuredOutputSchema(t *testing.T) {
+	identity := nativeInvocationIdentity(t, t.TempDir())
+	fixture := nativeInvocationFixture{identity: identity}
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := newTestProfileWithTransport(t, FamilyCodex, "codex_current", []string{"/private/bin/codex"}, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
+	want := appendCodexInvocation(definition.BaseArgv(), identity.SnapshotPath(), "", "")
+	want = append(want[:len(want)-1], "--output-schema", probeFixtureSchemaPath, "-")
+	if err != nil || !reflect.DeepEqual(argv, want) {
+		t.Fatalf("Codex argv = %#v, err = %v, want %#v", argv, err, want)
+	}
+	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
+		t.Fatalf("validate exact Codex argv: %v", err)
+	}
+	tampered := append([]string(nil), argv...)
+	tampered[len(tampered)-2] = "other.schema.json"
+	if err := (NativeProbeInvocation{}).Validate(definition, fixture, tampered); err == nil {
+		t.Fatal("validate accepted a Codex qualification schema outside the fixture")
+	}
+}
+
 // TestZCodeQualificationDenylistStillFullyToolDenied pins the qualification
 // boundary. The review argv gained yolo mode and a Write grant for the
 // staged_file transport; qualification must keep its plan-mode, fully

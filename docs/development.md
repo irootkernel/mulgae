@@ -7,6 +7,8 @@
 - Git
 - authenticated ZCode, AGY, and Codex installations for the mandatory live tests
 - an authenticated Kimi installation only for the opt-in compatibility test
+- two distinct authenticated Codex homes plus an authenticated Kimi data home
+  only for the opt-in mixed-profile E2E
 
 ## Local checks
 
@@ -19,7 +21,8 @@ make test
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, an exact-binary production
 workflow, and independent live capability certification for ZCode, AGY, and
-Codex.
+Codex. It then invokes the opt-in mixed-profile target, which reports a stable
+skip unless `MULGAE_E2E_OPT_IN=1` is present.
 
 Smaller targets are available while iterating:
 
@@ -28,6 +31,7 @@ make test-prepare
 make test-unit
 make test-int
 make test-e2e
+make test-e2e-opt-in
 make test-kimi
 make test-mcp-clients
 ```
@@ -35,6 +39,28 @@ make test-mcp-clients
 `make test-kimi` is an opt-in compatibility check and is not part of
 `make test`. Do not call a change release-ready when the mandatory
 ZCode/AGY/Codex live gate was skipped.
+
+`make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
+discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
+three-role exact-binary review: Kimi owns `logic`, Codex profile `primary` owns
+`security`, and Codex profile `secondary` owns `documentation`. Supply the two
+distinct credential roots and Kimi data root explicitly; profile names are test
+aliases and do not prescribe directory names:
+
+```bash
+MULGAE_E2E_OPT_IN=1 \
+MULGAE_E2E_CODEX_PRIMARY_HOME=/absolute/path/to/primary-codex-home \
+MULGAE_E2E_CODEX_SECONDARY_HOME=/absolute/path/to/secondary-codex-home \
+MULGAE_E2E_KIMI_DATA_HOME=/absolute/path/to/kimi-data-home \
+make test-e2e-opt-in
+```
+
+Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE` and
+`MULGAE_E2E_KIMI_EXECUTABLE`. Once enabled, missing credentials, qualification
+failure, invalid provider output, wrong role routing, publication failure, or
+credential mutation fails the target; the Go test never converts these states
+to a skip. This optional result does not replace mandatory ZCode/AGY/Codex
+certification or the separate `make test-kimi` capability check.
 
 `make test-mcp-clients` is an opt-in local compatibility check and is not part
 of `make test`. It builds the exact current Mulgae binary, isolates client
@@ -65,6 +91,7 @@ defines these commands:
 | `integration` | `make test-int` | `go-test` | `go`, `integration` | 6,000s |
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
+| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `kimi`, `codex`, `multi-profile` | 7,200s |
 | `kimi` | `make test-kimi` | `go-test` | `go`, `e2e`, `live`, `kimi` | 6,000s |
 | `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
 

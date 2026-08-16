@@ -247,11 +247,20 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Run an exact focused test first when practical. Use an explicit package and
   anchored `-run` expression for a dynamically selected Go test.
 - Use `make test-prepare`, `make test-unit`, `make test-int`, `make test-release`,
-  or `make test-e2e` while iterating or when only a narrower claim is in scope.
+  `make test-e2e`, or `make test-e2e-opt-in` while iterating or when only a
+  narrower claim is in scope.
 - Run `make test` before claiming complete development or release readiness. It is
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
   mandatory live ZCode/AGY certification.
+- `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
+  reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
+  therefore does not require Kimi or a second Codex credential home.
+- When enabled, `make test-e2e-opt-in` requires explicit primary and secondary
+  Codex homes plus a Kimi data home and runs exactly three roles: Kimi logic,
+  Codex-primary security, and Codex-secondary documentation. Missing or unsafe
+  prerequisites and provider failures fail the target; do not downgrade them to
+  skips or substitute another provider.
 - `make test-kimi` is an opt-in compatibility check and is not part of `make test`.
   Report it as skipped unless it was explicitly run; do not imply Kimi was live
   verified when it was not.
@@ -279,6 +288,7 @@ running it through Gaori from the repository root:
 - integration tests: `gaori run integration`
 - release-binary checks: `gaori run release`
 - mandatory ZCode/AGY live E2E checks: `gaori run e2e`
+- opt-in Kimi/two-profile Codex E2E: `gaori run e2e-opt-in`
 - opt-in Kimi compatibility check: `gaori run kimi`
 - complete release gate: `gaori run full`
 
