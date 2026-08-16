@@ -253,6 +253,19 @@ the runtime sources of truth. Apply these rules when sources disagree:
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
   mandatory live ZCode/AGY certification.
+- A patch-only release may use a reduced exact-commit gate only when master
+  explicitly states that the immediately preceding release candidate already
+  passed `make test` and explicitly requests release after only a patch-version
+  increment. The diff since that verified candidate must be limited to the
+  release-version declaration, its matching test assertion, release notes, and
+  release-procedure documentation or agent guidance; it must not change runtime
+  behavior, schemas, embedded assets, dependencies, build inputs, provider
+  policy, or tool configuration. In that case run `make test-prepare`,
+  `make test-unit`, and `make test-int`, then build the exact commit into an
+  isolated temporary `GOBIN` and verify both `mulgae version` and
+  `mulgae version --json` report the new version and exact revision. Report that
+  the earlier full-gate evidence was reused and that release-binary and live E2E
+  targets were not rerun. If any condition is not satisfied, run `make test`.
 - `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
   reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
   therefore does not require Kimi or a second Codex credential home.
@@ -265,8 +278,9 @@ the runtime sources of truth. Apply these rules when sources disagree:
   Report it as skipped unless it was explicitly run; do not imply Kimi was live
   verified when it was not.
 - Do not call a change release-ready when mandatory ZCode/AGY live checks were
-  skipped. Distinguish test success from commit, tag, push, release, installation,
-  and runtime activation.
+  skipped, except under the explicit patch-only release rule above with the
+  reused full-gate evidence identified. Distinguish test success from commit,
+  tag, push, release, installation, and runtime activation.
 - For documentation-only or agent-guidance-only changes, read back the file,
   verify references and command claims, and run `git diff --check`; broader
   executable gates are unnecessary unless documentation changes executable
@@ -360,9 +374,10 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   transcripts, or `.mulgae/` artifacts. Use the smallest redacted reproduction and
   the repository owner's private security contact.
 - The repository has no GitHub Actions release workflow. A manual release requires
-  a clean `main` commit, the complete gate, isolated installation checks, an exact
-  tag on the verified commit, and separate explicit commit/tag pushes.
+  a clean `main` commit, the complete gate or the explicit patch-only reduced
+  gate, the applicable isolated installation/version checks, an exact tag on the
+  verified commit, and separate explicit commit/tag pushes.
 - Never tag a dirty tree or a commit different from the one exercised by the
-  release gate.
+  applicable release gate.
 - Keep completion reports compact: state the outcome, changed files, verification
   performed, skipped checks, and actionable remaining risks or blockers.
