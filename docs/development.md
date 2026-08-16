@@ -204,7 +204,7 @@ configuration must be unchanged. For this case:
 2. install that commit into a temporary `GOBIN` with the release version and
    revision link values;
 3. verify `mulgae version` and `mulgae version --json` report the new patch
-   version and exact commit revision;
+   version; the public version result does not expose the build revision;
 4. record the user's waiver and the intentionally omitted release-binary and
    live E2E reruns in the release notes;
 5. tag and push the exact reduced-gate commit using the normal separate push

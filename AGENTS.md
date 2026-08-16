@@ -265,9 +265,10 @@ the runtime sources of truth. Apply these rules when sources disagree:
   policy, or tool configuration. In that case run `make test-prepare`,
   `make test-unit`, and `make test-int`, then build the exact commit into an
   isolated temporary `GOBIN` and verify both `mulgae version` and
-  `mulgae version --json` report the new version and exact revision. Report that
-  master waived a repeated full gate and that release-binary and live E2E targets
-  were not rerun. If any condition is not satisfied, run `make test`.
+  `mulgae version --json` report the new version. The public version result does
+  not expose the build revision. Report that master waived a repeated full gate
+  and that release-binary and live E2E targets were not rerun. If any condition
+  is not satisfied, run `make test`.
 - `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
   reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
   therefore does not require Kimi or a second Codex credential home.
