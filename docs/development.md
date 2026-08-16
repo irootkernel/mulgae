@@ -189,13 +189,15 @@ The repository intentionally has no GitHub Actions release workflow:
 Never tag a dirty tree or a different commit from the one exercised by the
 release gate.
 
-An explicitly authorized patch-only release may use a reduced gate when the
-immediately preceding release candidate already passed `make test` and the only
-changes since that verified candidate are the patch-version declaration, its
-matching test assertion, release notes, and release-procedure documentation or
-agent guidance. Runtime behavior, schemas, embedded assets, dependencies, build
-inputs, provider policy, and tool configuration must be unchanged. For this
-case:
+An explicitly authorized patch-only release may use a reduced gate when the user
+states that `make test` has already passed, accepts responsibility for relying on
+that result, and requests release after the small version change. The user's
+statement is the verification waiver; do not require prior artifacts or rerun
+the complete gate. The only changes since the user-accepted result may be the
+patch-version declaration, its matching test assertion, release notes, and
+release-procedure documentation or agent guidance. Runtime behavior, schemas,
+embedded assets, dependencies, build inputs, provider policy, and tool
+configuration must be unchanged. For this case:
 
 1. run `make test-prepare`, `make test-unit`, and `make test-int` on the exact
    release commit;
@@ -203,11 +205,10 @@ case:
    revision link values;
 3. verify `mulgae version` and `mulgae version --json` report the new patch
    version and exact commit revision;
-4. record the reused full-gate evidence and the intentionally omitted
-   release-binary and live E2E reruns in the release notes;
+4. record the user's waiver and the intentionally omitted release-binary and
+   live E2E reruns in the release notes;
 5. tag and push the exact reduced-gate commit using the normal separate push
    operations.
 
-If the prior full gate is not identified, authorization is not explicit, or the
-diff exceeds this narrow boundary, the normal complete release procedure
-applies.
+If authorization is not explicit or the diff exceeds this narrow boundary, the
+normal complete release procedure applies.

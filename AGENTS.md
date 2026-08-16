@@ -253,10 +253,12 @@ the runtime sources of truth. Apply these rules when sources disagree:
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
   mandatory live ZCode/AGY certification.
-- A patch-only release may use a reduced exact-commit gate only when master
-  explicitly states that the immediately preceding release candidate already
-  passed `make test` and explicitly requests release after only a patch-version
-  increment. The diff since that verified candidate must be limited to the
+- A patch-only release may use a reduced exact-commit gate when master explicitly
+  states that `make test` has already passed, accepts responsibility for relying
+  on that result, and explicitly requests release after only a patch-version
+  increment. Treat master's statement as the authoritative verification waiver;
+  do not require prior artifacts, reconstruct the earlier run, or rerun
+  `make test`. The diff since the user-accepted result must be limited to the
   release-version declaration, its matching test assertion, release notes, and
   release-procedure documentation or agent guidance; it must not change runtime
   behavior, schemas, embedded assets, dependencies, build inputs, provider
@@ -264,8 +266,8 @@ the runtime sources of truth. Apply these rules when sources disagree:
   `make test-unit`, and `make test-int`, then build the exact commit into an
   isolated temporary `GOBIN` and verify both `mulgae version` and
   `mulgae version --json` report the new version and exact revision. Report that
-  the earlier full-gate evidence was reused and that release-binary and live E2E
-  targets were not rerun. If any condition is not satisfied, run `make test`.
+  master waived a repeated full gate and that release-binary and live E2E targets
+  were not rerun. If any condition is not satisfied, run `make test`.
 - `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
   reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
   therefore does not require Kimi or a second Codex credential home.
@@ -279,8 +281,8 @@ the runtime sources of truth. Apply these rules when sources disagree:
   verified when it was not.
 - Do not call a change release-ready when mandatory ZCode/AGY live checks were
   skipped, except under the explicit patch-only release rule above with the
-  reused full-gate evidence identified. Distinguish test success from commit,
-  tag, push, release, installation, and runtime activation.
+  user's full-gate waiver recorded. Distinguish test success from commit, tag,
+  push, release, installation, and runtime activation.
 - For documentation-only or agent-guidance-only changes, read back the file,
   verify references and command claims, and run `git diff --check`; broader
   executable gates are unnecessary unless documentation changes executable
