@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
@@ -561,37 +562,7 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 	if _, ok := ctx.Value(reviewLocalityContextKey{}).(reviewLocalityBinding); !ok {
 		return nil, fmt.Errorf("configured provider target locality unavailable")
 	}
-	configured := make(map[reviewrun.Family][]string, source.config.Providers.Count())
-	if provider := source.config.Providers.Kimi; provider != nil {
-		configured[reviewrun.FamilyKimi] = []string{provider.Executable}
-	}
-	if provider := source.config.Providers.ZCode; provider != nil {
-		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
-	}
-	if provider := source.config.Providers.AGY; provider != nil {
-		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
-	}
-	if provider := source.config.Providers.Codex; provider != nil {
-		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
-	}
-	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
-	if err != nil {
-		return nil, err
-	}
-	kimiModel := adapterconfig.DefaultKimiModel
-	if provider := source.config.Providers.Kimi; provider != nil {
-		kimiModel = provider.Model
-	}
-	codexModel, codexReasoningEffort := "", ""
-	if provider := source.config.Providers.Codex; provider != nil {
-		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
-	}
-	production, err := reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(
-		providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel,
-		codexModel, codexReasoningEffort,
-		configuredCodexCredentialProfiles(source.config),
-		cloneProviderTimeouts(source.providerTimeouts),
-	)
+	production, err := source.productionCandidateSource(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -617,6 +588,80 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 		return nil, fmt.Errorf("configured provider discovery produced no assigned candidate")
 	}
 	return filtered, nil
+}
+
+func (source *configuredProductionCandidateSource) productionCandidateSource(ctx context.Context) (*reviewrun.ProductionQualifiedRunCandidateSource, error) {
+	configured := make(map[reviewrun.Family][]string, source.config.Providers.Count())
+	if provider := source.config.Providers.Kimi; provider != nil {
+		configured[reviewrun.FamilyKimi] = []string{provider.Executable}
+	}
+	if provider := source.config.Providers.ZCode; provider != nil {
+		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
+	}
+	if provider := source.config.Providers.AGY; provider != nil {
+		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
+	}
+	if provider := source.config.Providers.Codex; provider != nil {
+		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
+	}
+	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
+	if err != nil {
+		return nil, err
+	}
+	kimiModel := adapterconfig.DefaultKimiModel
+	if provider := source.config.Providers.Kimi; provider != nil {
+		kimiModel = provider.Model
+	}
+	codexModel, codexReasoningEffort := "", ""
+	if provider := source.config.Providers.Codex; provider != nil {
+		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
+	}
+	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel,
+		codexModel, codexReasoningEffort,
+		configuredCodexCredentialProfiles(source.config),
+		cloneProviderTimeouts(source.providerTimeouts),
+	)
+}
+
+func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx context.Context, workspace ports.WorkspaceSnapshotIdentity, family reviewrun.Family, credentialProfile string) (reviewrun.QualifiedRunCandidate, error) {
+	if source == nil || ctx == nil || !workspace.Valid() || !family.Valid() || !source.config.Providers.HasFamily(string(family)) {
+		return reviewrun.QualifiedRunCandidate{}, fmt.Errorf("heartbeat provider is not configured")
+	}
+	if err := revalidateProductionLocality(ctx, source.source, source.attestor, source.staticRequest, source.staticContext); err != nil {
+		return reviewrun.QualifiedRunCandidate{}, err
+	}
+	selection, err := reviewrun.NewRunSelection(domain.FixedRoleOrder(), nil)
+	if err != nil {
+		return reviewrun.QualifiedRunCandidate{}, err
+	}
+	heartbeatSource := *source
+	heartbeatSource.providerTimeouts = cloneProviderTimeouts(source.providerTimeouts)
+	for configuredFamily, configuredTimeout := range heartbeatSource.providerTimeouts {
+		if configuredTimeout > time.Minute {
+			heartbeatSource.providerTimeouts[configuredFamily] = time.Minute
+		}
+	}
+	production, err := heartbeatSource.productionCandidateSource(ctx)
+	if err != nil {
+		return reviewrun.QualifiedRunCandidate{}, err
+	}
+	candidates, err := production.NewSyntheticQualifiedRunCandidates(workspace, selection)
+	if err != nil {
+		return reviewrun.QualifiedRunCandidate{}, err
+	}
+	wantCodexPrefix := "codex-" + credentialProfile + "-"
+	for _, candidate := range candidates {
+		if reviewrun.Family(candidate.Definition.Family()) != family {
+			continue
+		}
+		if family == reviewrun.FamilyCodex && credentialProfile != "" && !strings.HasPrefix(candidate.Definition.Instance(), wantCodexPrefix) {
+			continue
+		}
+		candidate.SupportedRoles = []domain.Role{candidate.BaseRole}
+		return candidate, nil
+	}
+	return reviewrun.QualifiedRunCandidate{}, fmt.Errorf("heartbeat provider identity is unavailable")
 }
 
 func intersectConfiguredCandidateRoles(configured, supported []domain.Role) []domain.Role {

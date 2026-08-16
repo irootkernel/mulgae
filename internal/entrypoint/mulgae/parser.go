@@ -73,6 +73,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseReport(remaining, requestID)
 	case app.CommandProviders:
 		return parseProviders(remaining, defaultProjectRoot, requestID)
+	case app.CommandHeartbeat:
+		return parseHeartbeat(remaining, defaultProjectRoot, requestID)
 	case app.CommandRoles:
 		return parseRoles(remaining, requestID)
 	case app.CommandFindings:
@@ -295,6 +297,7 @@ func parseCommand(value string) (app.CommandName, error) {
 		app.CommandFindings,
 		app.CommandExcerpt,
 		app.CommandProviders,
+		app.CommandHeartbeat,
 		app.CommandRoles,
 		app.CommandConfig,
 		app.CommandSchema,
@@ -638,6 +641,69 @@ func parseProviders(arguments []string, defaultProjectRoot, requestID string) (I
 		hasRequestJSON: true,
 		providers:      &request,
 	}, nil
+}
+
+func parseHeartbeat(arguments []string, defaultProjectRoot, requestID string) (Invocation, error) {
+	positionals := make([]string, 0)
+	options := make(map[string]string, 4)
+	authorized := false
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if !strings.HasPrefix(argument, "-") {
+			positionals = append(positionals, argument)
+			continue
+		}
+		switch argument {
+		case "--authorize-live-request":
+			if authorized {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			authorized = true
+		case "--provider", "--credential-profile", "--project-root", "--output":
+			if _, duplicate := options[argument]; duplicate {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+				return Invocation{}, usageError("flag value is missing")
+			}
+			options[argument] = arguments[index+1]
+			index++
+		default:
+			return Invocation{}, usageError("unknown flag")
+		}
+	}
+	if len(positionals) != 0 || options["--provider"] == "" {
+		return Invocation{}, usageError("heartbeat requires --provider and accepts no positional arguments")
+	}
+	provider := options["--provider"]
+	if provider != "kimi" && provider != "zcode" && provider != "agy" && provider != "codex" {
+		return Invocation{}, usageError("heartbeat provider is invalid")
+	}
+	if provider != "codex" && options["--credential-profile"] != "" {
+		return Invocation{}, usageError("credential profile is supported only for codex")
+	}
+	projectRoot, err := optionProjectRoot(options, defaultProjectRoot)
+	if err != nil {
+		return Invocation{}, err
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := HeartbeatRequest{projectRoot: projectRoot, providerID: provider, credentialProfile: options["--credential-profile"], authorized: authorized}
+	requestJSON, err := marshalRequest(struct {
+		RequestID            string       `json:"request_id"`
+		Command              string       `json:"command"`
+		ProjectRoot          string       `json:"project_root"`
+		ProviderID           string       `json:"provider_id"`
+		CredentialProfile    string       `json:"credential_profile"`
+		AuthorizeLiveRequest bool         `json:"authorize_live_request"`
+		OutputFormat         OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandHeartbeat), projectRoot, provider, request.credentialProfile, authorized, outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandHeartbeat, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, heartbeat: &request}, nil
 }
 
 func parseRoles(arguments []string, requestID string) (Invocation, error) {

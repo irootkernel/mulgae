@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json",
-  "title": "Mulgae Project-local Doctor Result v1",
+  "$id": "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json",
+  "title": "Mulgae Project-local Doctor Result v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "checked_at", "project_root_uri", "config", "configured_provider_ids", "provider_inventory", "assignment", "platform_evidence", "tools_lock", "readiness", "diagnostics"],
+  "required": ["schema_version", "checked_at", "project_root_uri", "config", "config_v3", "local_configuration", "provider_identity", "configured_provider_ids", "provider_inventory", "assignment", "platform_evidence", "tools_lock", "readiness", "configured_readiness", "role_route_readiness", "diagnostics"],
   "properties": {
-    "schema_version": { "const": "mulgae-doctor-result.v1" },
+    "schema_version": { "const": "mulgae-doctor-result.v2" },
     "checked_at": { "type": "string", "format": "date-time" },
     "project_root_uri": { "const": "." },
     "config": {
@@ -29,12 +29,15 @@
       "oneOf": [
         { "properties": { "status": { "const": "missing" }, "locality": { "const": "not_observed" }, "reason_codes": { "prefixItems": [{ "const": "config_missing" }], "minItems": 1, "maxItems": 1, "items": false } } },
         { "properties": { "status": { "const": "missing" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "const": "local_config_missing" }], "minItems": 1, "maxItems": 1, "items": false } } },
-        { "properties": { "status": { "const": "invalid" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "const": "config_yaml_invalid" }], "minItems": 1, "maxItems": 1, "items": false } } },
+        { "properties": { "status": { "const": "invalid" }, "locality": { "const": "verified" }, "reason_codes": { "prefixItems": [{ "enum": ["config_yaml_invalid", "config_size_invalid", "config_provider_timeout_invalid", "config_provider_identity_invalid", "config_role_mapping_invalid"] }], "minItems": 1, "maxItems": 1, "items": false } } },
         { "properties": { "status": { "const": "unsafe" }, "locality": { "enum": ["rejected", "verified"] }, "reason_codes": { "minItems": 1 } } },
         { "properties": { "status": { "const": "drifted" }, "locality": { "const": "drifted" }, "reason_codes": { "prefixItems": [{ "const": "config_locality_drifted" }], "minItems": 1, "maxItems": 1, "items": false } } },
         { "properties": { "status": { "const": "ready" }, "locality": { "const": "verified" }, "sha256": { "pattern": "^sha256:[0-9a-f]{64}$" }, "native_home_identity": { "const": "verified" }, "provenance_state": { "const": "accepted" }, "reason_codes": { "maxItems": 0 } } }
       ]
     },
+    "config_v3": { "$ref": "#/$defs/diagnostic_check" },
+    "local_configuration": { "$ref": "#/$defs/diagnostic_check" },
+    "provider_identity": { "$ref": "#/$defs/diagnostic_check" },
     "configured_provider_ids": { "$ref": "#/$defs/canonical_provider_ids" },
     "provider_inventory": {
       "type": "array", "minItems": 4, "maxItems": 4,
@@ -67,6 +70,8 @@
         { "properties": { "state": { "const": "unsafe" }, "exit_code": { "const": 8 }, "reason_codes": { "minItems": 1 } } }
       ]
     },
+    "configured_readiness": { "$ref": "#/properties/readiness" },
+    "role_route_readiness": { "$ref": "#/properties/readiness" },
     "diagnostics": { "type": "array", "maxItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["code", "category", "message", "redacted"], "properties": { "code": { "$ref": "#/$defs/reason_code" }, "category": { "enum": ["configuration", "readiness", "artifact", "security"] }, "message": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\u0000\\r\\n]+$" }, "redacted": { "const": true } } } }
   },
   "allOf": [
@@ -107,6 +112,26 @@
     }
   ],
   "$defs": {
+    "diagnostic_check": {
+      "type": "object", "additionalProperties": false, "required": ["status", "reason_codes"],
+      "properties": {
+        "status": { "enum": ["verified", "failed", "unverifiable", "not_applicable"] },
+        "reason_codes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/reason_code" } }
+      }
+    },
+    "cli_compatibility": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "observed_version", "eligibility", "compatibility", "minimum_version", "verified_latest", "reason_code"],
+      "properties": {
+        "status": { "enum": ["verified", "failed", "unverifiable", "not_applicable"] },
+        "observed_version": { "type": "string" },
+        "eligibility": { "enum": ["eligible", "ineligible", "not_evaluated"] },
+        "compatibility": { "enum": ["verified", "newer_than_verified", "below_minimum", "malformed", "not_observed"] },
+        "minimum_version": { "type": "string" },
+        "verified_latest": { "type": "string" },
+        "reason_code": { "type": "string" }
+      }
+    },
     "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
     "canonical_provider_ids": {
       "type": "array",
@@ -129,7 +154,7 @@
         ,{ "minItems": 4, "maxItems": 4, "prefixItems": [{ "const": "kimi" }, { "const": "zcode" }, { "const": "agy" }, { "const": "codex" }], "items": false }
       ]
     },
-    "provider": { "type": "object", "additionalProperties": false, "required": ["family", "state", "reason"], "properties": { "family": { "type": "string" }, "state": { "enum": ["eligible", "unavailable", "not_configured", "not_observed"] }, "reason": { "type": "string" } } },
+    "provider": { "type": "object", "additionalProperties": false, "required": ["family", "configured", "referenced_by_roles", "state", "reason", "binary_available", "cli_compatible"], "properties": { "family": { "type": "string" }, "configured": { "type": "boolean" }, "referenced_by_roles": { "type": "array", "uniqueItems": true, "items": { "enum": ["logic", "security", "maintainability", "product", "documentation", "testing", "artist"] } }, "state": { "enum": ["eligible", "unavailable", "not_configured", "not_observed"] }, "reason": { "type": "string" }, "binary_available": { "$ref": "#/$defs/diagnostic_check" }, "cli_compatible": { "$ref": "#/$defs/cli_compatibility" } } },
     "provider_kimi": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "kimi" } } }] },
     "provider_zcode": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "zcode" } } }] },
     "provider_agy": { "allOf": [{ "$ref": "#/$defs/provider" }, { "properties": { "family": { "const": "agy" } } }] },

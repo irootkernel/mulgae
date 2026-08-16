@@ -387,6 +387,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"findings", []string{"findings", "--run", runID, "--severity", "low"}, 7},
 			{"excerpt", []string{"excerpt", "--run", runID, "--finding", "F001", "--current-target-sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, 7},
 			{"providers", []string{"providers", "--include-unverified"}, 4},
+			{"heartbeat", []string{"heartbeat", "--provider", "agy"}, 2},
 			{"roles", []string{"roles"}, 0},
 			{"config", []string{"config"}, 2},
 			{"schema", []string{"schema", "list"}, 0},
@@ -394,7 +395,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
 			{"help", []string{"help"}, 0},
 		}
-		if got, want := len(cases), 17; got != want {
+		if got, want := len(cases), 18; got != want {
 			t.Fatalf("documented command census = %d, want %d", got, want)
 		}
 		specs := cli.CommandSpecs()

@@ -158,17 +158,30 @@ func DiscoverProviderProfileWithOverrides(ctx context.Context, inspector ports.E
 		}
 		name = executableOverride
 	}
+	executableUnavailable := false
+	executableUnavailableReason := ports.IdentityObservationReasonObservationFailed
 	executable, err := observeExecutableIdentity(ctx, inspector, name)
 	if err != nil {
 		if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
+			executableUnavailable = true
+			if reason, ok := ports.IdentityObservationReason(err); ok {
+				executableUnavailableReason = reason
+			}
 			executable, err = ports.NewExecutableObservation(name, false, "", "", "")
 		}
 	}
 	if err != nil {
-		return DiscoveredProviderProfile{}, fmt.Errorf("review run: discover %s executable: %w", family, err)
+		return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "executable", err: fmt.Errorf("review run: discover %s executable: %w", family, err)}
 	}
 	if family != FamilyZCode {
-		return discoveredProviderProfile(family, executable, ports.FileIdentityObservation{}), nil
+		profile := discoveredProviderProfile(family, executable, ports.FileIdentityObservation{})
+		if executableUnavailable {
+			profile.reason = "executable_observation_failed"
+			if executableUnavailableReason == ports.IdentityObservationReasonNonExecutable {
+				profile.reason = "executable_not_executable"
+			}
+		}
+		return profile, nil
 	}
 	launcherName := ZCodeLauncher
 	if launcherOverride != "" {
@@ -177,16 +190,35 @@ func DiscoverProviderProfileWithOverrides(ctx context.Context, inspector ports.E
 		}
 		launcherName = launcherOverride
 	}
+	launcherUnavailable := false
+	launcherUnavailableReason := ports.IdentityObservationReasonObservationFailed
 	launcher, err := observeReadableFileIdentity(ctx, inspector, launcherName)
 	if err != nil {
 		if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
+			launcherUnavailable = true
+			if reason, ok := ports.IdentityObservationReason(err); ok {
+				launcherUnavailableReason = reason
+			}
 			launcher, err = ports.NewFileIdentityObservation(launcherName, false, "", "")
 		}
 	}
 	if err != nil {
-		return DiscoveredProviderProfile{}, fmt.Errorf("review run: discover %s launcher: %w", family, err)
+		return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "launcher", err: fmt.Errorf("review run: discover %s launcher: %w", family, err)}
 	}
-	return discoveredProviderProfile(family, executable, launcher), nil
+	profile := discoveredProviderProfile(family, executable, launcher)
+	switch {
+	case executableUnavailable:
+		profile.reason = "executable_observation_failed"
+		if executableUnavailableReason == ports.IdentityObservationReasonNonExecutable {
+			profile.reason = "executable_not_executable"
+		}
+	case launcherUnavailable && executable.Found():
+		profile.reason = "launcher_observation_failed"
+		if launcherUnavailableReason == ports.IdentityObservationReasonUnreadable {
+			profile.reason = "launcher_unreadable"
+		}
+	}
+	return profile, nil
 }
 
 // DiscoverProviderProfiles discovers every allowlisted family in canonical
@@ -244,7 +276,12 @@ func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.Env
 				return nil, ctxErr
 			}
 			if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationSecurity {
-				profiles = append(profiles, DiscoveredProviderProfile{family: family, reason: "identity_security_failure"})
+				reason := "executable_security_failure"
+				var component *providerIdentityComponentError
+				if errors.As(err, &component) && component.component == "launcher" {
+					reason = "launcher_security_failure"
+				}
+				profiles = append(profiles, DiscoveredProviderProfile{family: family, reason: reason})
 				securityFamilies = append(securityFamilies, family)
 				continue
 			}
@@ -257,6 +294,14 @@ func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.Env
 	}
 	return profiles, nil
 }
+
+type providerIdentityComponentError struct {
+	component string
+	err       error
+}
+
+func (failure *providerIdentityComponentError) Error() string { return failure.err.Error() }
+func (failure *providerIdentityComponentError) Unwrap() error { return failure.err }
 
 type configuredProviderSecurityError struct{ families []Family }
 

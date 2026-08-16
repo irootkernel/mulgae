@@ -26,6 +26,7 @@ const (
 	CommandFindings  CommandName = "findings"
 	CommandExcerpt   CommandName = "excerpt"
 	CommandProviders CommandName = "providers"
+	CommandHeartbeat CommandName = "heartbeat"
 	CommandRoles     CommandName = "roles"
 	CommandConfig    CommandName = "config"
 	CommandSchema    CommandName = "schema"
@@ -48,7 +49,7 @@ func (command CommandName) Valid() bool {
 	switch command {
 	case CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
 		CommandRerun, CommandStatus, CommandReport, CommandFindings, CommandExcerpt,
-		CommandProviders, CommandRoles, CommandConfig, CommandSchema, CommandClean,
+		CommandProviders, CommandHeartbeat, CommandRoles, CommandConfig, CommandSchema, CommandClean,
 		CommandExport, CommandHelp:
 		return true
 	default:

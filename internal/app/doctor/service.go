@@ -16,7 +16,6 @@ import (
 const privateRootPath = ".mulgae"
 
 var requiredCatalogSchemaIDs = []string{
-	"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json",
 	providerEvidenceSchemaID,
 	platformEvidenceSchemaID,
 }
@@ -88,11 +87,6 @@ func (service *Service) DiagnoseEnvironment(ctx context.Context) (DoctorResult, 
 
 	hostIsDarwinARM64 := service.observePlatform(ctx, addReason)
 	service.observePrivateRoot(ctx, addReason)
-	executablesValid := service.observeExecutables(ctx)
-	if !executablesValid {
-		addReason("executable_observation_invalid")
-	}
-
 	providerRows := make([]ProviderEvidence, 0, len(intendedProviderIDs))
 	unverifiedProviders := make([]string, 0, len(intendedProviderIDs))
 	for _, providerID := range intendedProviderIDs {
@@ -162,25 +156,6 @@ func (service *Service) observePrivateRoot(ctx context.Context, addReason func(s
 	if err != nil || observation.Path().String() != privateRootPath || !observation.Readable() || !observation.Writable() || !observation.Executable() {
 		addReason("private_root_permission_invalid")
 	}
-}
-
-func (service *Service) observeExecutables(ctx context.Context) bool {
-	valid := true
-	for _, providerID := range intendedProviderIDs {
-		observation, err := service.inspector.ObserveExecutable(ctx, providerID)
-		if err != nil || !validFoundExecutableObservation(observation, providerID) {
-			valid = false
-		}
-	}
-	return valid
-}
-
-func validFoundExecutableObservation(observation ports.ExecutableObservation, expectedName string) bool {
-	return observation.Name() == expectedName &&
-		observation.Found() &&
-		validResolvedExecutablePath(observation.ResolvedPath()) &&
-		(observation.Version() == "" || redactedText(observation.Version(), 1024)) &&
-		validPrefixedDigest(observation.SHA256())
 }
 
 func (service *Service) providerEvidence(ctx context.Context, providerID string) ProviderEvidence {

@@ -26,6 +26,7 @@ const (
 
 var (
 	errProviderTimeoutInvalid  = errors.New("provider timeout invalid")
+	errRoleMappingInvalid      = errors.New("role mapping invalid")
 	modelPattern               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	placeholderPattern         = regexp.MustCompile(`\$\{[^{}]+\}`)
 	pemPrivateKeyHeaderPattern = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY-----`)
@@ -52,6 +53,12 @@ func Decode(data []byte) (Config, error) {
 	if reason := scanCredentials(root); reason != "" {
 		return zero, reject(reason)
 	}
+	if !knownProviderIdentities(root) {
+		return zero, reject(ReasonProviderIdentityInvalid)
+	}
+	if !validRoleMappingIdentities(root) {
+		return zero, reject(ReasonRoleMappingInvalid)
+	}
 	if !strictScalarGrammar(root) {
 		return zero, reject(ReasonYAMLInvalid)
 	}
@@ -68,9 +75,68 @@ func Decode(data []byte) (Config, error) {
 		if errors.Is(err, errProviderTimeoutInvalid) {
 			return zero, reject(ReasonProviderTimeoutInvalid)
 		}
+		if errors.Is(err, errRoleMappingInvalid) {
+			return zero, reject(ReasonRoleMappingInvalid)
+		}
 		return zero, reject(ReasonYAMLInvalid)
 	}
 	return decoded, nil
+}
+
+func knownProviderIdentities(root *yaml.Node) bool {
+	providers := mappingValue(root, "providers")
+	if providers == nil || providers.Kind != yaml.MappingNode {
+		return true
+	}
+	known := map[string]struct{}{"kimi": {}, "zcode": {}, "agy": {}, "codex": {}}
+	for index := 0; index < len(providers.Content); index += 2 {
+		if _, ok := known[providers.Content[index].Value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func mappingValue(root *yaml.Node, key string) *yaml.Node {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for index := 0; index < len(root.Content); index += 2 {
+		if root.Content[index].Value == key {
+			return root.Content[index+1]
+		}
+	}
+	return nil
+}
+
+func validRoleMappingIdentities(root *yaml.Node) bool {
+	providers := mappingValue(root, "providers")
+	roles := mappingValue(root, "roles")
+	if providers == nil || providers.Kind != yaml.MappingNode || roles == nil || roles.Kind != yaml.MappingNode {
+		return true
+	}
+	configured := make(map[string]struct{}, len(providers.Content)/2)
+	for index := 0; index < len(providers.Content); index += 2 {
+		configured[providers.Content[index].Value] = struct{}{}
+	}
+	for index := 0; index < len(roles.Content); index += 2 {
+		role := roles.Content[index+1]
+		if role.Kind != yaml.MappingNode {
+			continue
+		}
+		enabled := mappingValue(role, "enabled")
+		if enabled == nil || enabled.Value != "true" {
+			continue
+		}
+		provider := mappingValue(role, "primary_provider")
+		if provider == nil {
+			return false
+		}
+		if _, ok := configured[provider.Value]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func mappingHasPath(root *yaml.Node, path ...string) bool {
@@ -463,21 +529,21 @@ func validate(config *Config) error {
 	for index, role := range configuredRoles {
 		if index == len(configuredRoles)-1 {
 			if err := validateArtistRole(config, role); err != nil {
-				return err
+				return fmt.Errorf("%w: %v", errRoleMappingInvalid, err)
 			}
 			if !role.Enabled {
 				continue
 			}
 		}
 		if !config.Providers.HasFamily(role.PrimaryProvider) {
-			return fmt.Errorf("role")
+			return errRoleMappingInvalid
 		}
 		if role.CredentialProfile != "" {
 			if role.PrimaryProvider != "codex" || config.Providers.Codex == nil || config.Providers.Codex.DefaultCredentialProfile == "" || !validCredentialProfileID(role.CredentialProfile) {
-				return fmt.Errorf("role credential profile")
+				return errRoleMappingInvalid
 			}
 			if _, ok := config.Providers.Codex.CredentialHome(role.CredentialProfile); !ok {
-				return fmt.Errorf("role credential profile")
+				return errRoleMappingInvalid
 			}
 			referencedCredentialProfiles[role.CredentialProfile] = struct{}{}
 		}
@@ -486,10 +552,10 @@ func validate(config *Config) error {
 		}
 	}
 	if config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile != "" && len(referencedCredentialProfiles) != len(config.Providers.Codex.CredentialHomes) {
-		return fmt.Errorf("unused codex credential profile")
+		return errRoleMappingInvalid
 	}
 	if !config.Roles.Logic.Enabled {
-		return fmt.Errorf("role floor")
+		return errRoleMappingInvalid
 	}
 	if !validOrderedSet(config.Review.RequiredRoles, fixedRoles, []string{"logic"}) || !validOrderedSet(config.Review.RequestChangesOn, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.Validation.Evidence.RequireVerifiedFor, fixedSeverities, []string{"high", "critical", "blocker"}) || !validOrderedSet(config.CI.FailOnSeverity, fixedSeverities, []string{"high", "critical", "blocker"}) {
 		return fmt.Errorf("sets")
@@ -497,7 +563,7 @@ func validate(config *Config) error {
 	for _, required := range config.Review.RequiredRoles {
 		for index, candidate := range fixedRoles {
 			if required == candidate && !configuredRoles[index].Enabled {
-				return fmt.Errorf("required role disabled")
+				return errRoleMappingInvalid
 			}
 		}
 	}

@@ -344,6 +344,8 @@ const (
 	ReasonYAMLInvalid             ReasonCode = "config_yaml_invalid"
 	ReasonSizeInvalid             ReasonCode = "config_size_invalid"
 	ReasonProviderTimeoutInvalid  ReasonCode = "config_provider_timeout_invalid"
+	ReasonProviderIdentityInvalid ReasonCode = "config_provider_identity_invalid"
+	ReasonRoleMappingInvalid      ReasonCode = "config_role_mapping_invalid"
 	ReasonCredentialKeyDetected   ReasonCode = "config_credential_key_detected"
 	ReasonCredentialValueDetected ReasonCode = "config_credential_value_detected"
 )

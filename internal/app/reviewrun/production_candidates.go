@@ -132,6 +132,20 @@ func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_
 	if !workspace.Valid() {
 		return nil, fmt.Errorf("review run: invalid production candidate workspace")
 	}
+	return source.newQualifiedRunCandidatesForWorkspace(workspace, selection)
+}
+
+// NewSyntheticQualifiedRunCandidates creates candidates bound only to a
+// Mulgae-owned synthetic workspace. It is used by explicitly authorized live
+// diagnostics and carries no review input or publication authority.
+func (source *ProductionQualifiedRunCandidateSource) NewSyntheticQualifiedRunCandidates(workspace ports.WorkspaceSnapshotIdentity, selection RunSelection) ([]QualifiedRunCandidate, error) {
+	if source == nil || !workspace.Valid() || !selection.Valid() {
+		return nil, fmt.Errorf("review run: invalid synthetic candidate request")
+	}
+	return source.newQualifiedRunCandidatesForWorkspace(workspace, selection)
+}
+
+func (source *ProductionQualifiedRunCandidateSource) newQualifiedRunCandidatesForWorkspace(workspace ports.WorkspaceSnapshotIdentity, selection RunSelection) ([]QualifiedRunCandidate, error) {
 	if !reflect.DeepEqual(source.profiles, source.frozenProfiles) {
 		return nil, fmt.Errorf("review run: startup provider profile drift")
 	}
@@ -552,10 +566,10 @@ func validateStartupProfiles(profiles []DiscoveredProviderProfile) error {
 		if profileMissingOperationalIdentity(profile) {
 			switch {
 			case profile.Executable() == "":
-				if profile.Launcher() != "" || profile.SHA256() != "" || profile.LauncherSHA256() != "" || len(profile.Argv()) != 0 || profile.Reason() != "executable_not_found" {
+				if profile.Launcher() != "" || profile.SHA256() != "" || profile.LauncherSHA256() != "" || len(profile.Argv()) != 0 || profile.Reason() != "executable_not_found" && profile.Reason() != "executable_not_executable" && profile.Reason() != "executable_observation_failed" {
 					return fmt.Errorf("review run: malformed unavailable startup profile")
 				}
-			case !canonicalAbsolute(profile.Executable()) || profile.SHA256() == "" || !reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) || profile.Reason() != "launcher_not_found":
+			case !canonicalAbsolute(profile.Executable()) || profile.SHA256() == "" || !reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) || profile.Reason() != "launcher_not_found" && profile.Reason() != "launcher_unreadable" && profile.Reason() != "launcher_observation_failed":
 				return fmt.Errorf("review run: malformed unavailable startup profile")
 			}
 			continue

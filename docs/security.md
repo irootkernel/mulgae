@@ -52,6 +52,21 @@ transport around an active review.
 
 ## Provider isolation
 
+Default setup and inspection are non-live. `doctor` may execute only the exact
+adapter-owned local version argv in a disposable empty home; it projects no
+credentials or project directory and sends no prompt or source. `providers`
+does not execute a live model request. Neither command starts an MCP server,
+creates a review run, or records remote logs.
+
+The separate `heartbeat` command crosses the live boundary only when
+`--authorize-live-request` is present. The handler rejects an unapproved request
+before composing provider infrastructure, reading credentials, or executing a
+provider process. An approved heartbeat may authenticate, use the network,
+incur cost, and create remote logs, but its packet is fixed Mulgae-owned
+synthetic content and carries no repository source, diff, review prompt, or user
+content. Its result has no review, publication, or durable qualification
+authority.
+
 Providers do not receive live access to the project tree. Mulgae captures the
 target and materializes a controlled workspace. Subprocesses use adapter-owned
 commands against that immutable directory view, isolated output, explicit

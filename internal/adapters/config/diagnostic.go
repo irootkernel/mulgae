@@ -9,6 +9,8 @@ const (
 	ReasonYAMLInvalid             = appconfig.ReasonYAMLInvalid
 	ReasonSizeInvalid             = appconfig.ReasonSizeInvalid
 	ReasonProviderTimeoutInvalid  = appconfig.ReasonProviderTimeoutInvalid
+	ReasonProviderIdentityInvalid = appconfig.ReasonProviderIdentityInvalid
+	ReasonRoleMappingInvalid      = appconfig.ReasonRoleMappingInvalid
 	ReasonCredentialKeyDetected   = appconfig.ReasonCredentialKeyDetected
 	ReasonCredentialValueDetected = appconfig.ReasonCredentialValueDetected
 )

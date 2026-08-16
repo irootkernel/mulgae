@@ -58,38 +58,16 @@ func TestDiagnoseEnvironmentBinaryPresenceDoesNotPromoteProvider(t *testing.T) {
 		}
 	}
 }
-func TestDiagnoseEnvironmentAbsentOrErroredExecutablesBlockReady(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(*fakeInspector)
-	}{
-		{
-			name: "all absent",
-			mutate: func(inspector *fakeInspector) {
-				inspector.executables = make(map[string]ports.ExecutableObservation)
-			},
-		},
-		{
-			name: "lookup error",
-			mutate: func(inspector *fakeInspector) {
-				inspector.execErr["kimi"] = errors.New("lookup failed")
-			},
-		},
-		{
-			name: "missing provenance hash",
-			mutate: func(inspector *fakeInspector) {
-				inspector.executables["kimi"] = mustExecutable(t, "kimi", true, "/opt/bin/kimi", "", "")
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			service, inspector, _ := readyFixture(t, readyEvidence())
-			test.mutate(inspector)
-			result := diagnose(t, service)
-			if result.Readiness.State != ReadinessUnverified || !contains(result.Readiness.ReasonCodes, "executable_observation_invalid") {
-				t.Fatalf("%s readiness = %#v", test.name, result.Readiness)
-			}
-		})
+func TestDiagnoseEnvironmentStaticEvidenceDoesNotObserveProviderExecutables(t *testing.T) {
+	service, inspector, _ := readyFixture(t, readyEvidence())
+	inspector.executables = make(map[string]ports.ExecutableObservation)
+	inspector.execErr["kimi"] = errors.New("must not be observed")
+	result := diagnose(t, service)
+	if result.Readiness.State != ReadinessReady {
+		t.Fatalf("static evidence readiness = %#v", result.Readiness)
+	}
+	if inspector.execCalls != 0 {
+		t.Fatalf("static evidence service observed %d provider executables", inspector.execCalls)
 	}
 }
 func TestDiagnoseEnvironmentAllAbsentProviderEvidenceIsUnverified(t *testing.T) {
@@ -286,7 +264,7 @@ func TestDiagnoseEnvironmentCatalogRootAndToolsFailuresAreIndependent(t *testing
 		{
 			name: "catalog",
 			mutate: func(_ *fakeInspector, catalog *fakeCatalog, _ *fakeEvidence) {
-				catalog.assets = catalog.assets[:2]
+				catalog.assets = catalog.assets[:len(catalog.assets)-1]
 			},
 			reason: "contract_catalog_invalid",
 		},
@@ -462,6 +440,7 @@ type fakeInspector struct {
 	permitErr   error
 	executables map[string]ports.ExecutableObservation
 	execErr     map[string]error
+	execCalls   int
 }
 
 func (inspector *fakeInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
@@ -469,6 +448,7 @@ func (inspector *fakeInspector) ObservePlatform(context.Context) (ports.Platform
 }
 
 func (inspector *fakeInspector) ObserveExecutable(_ context.Context, name string) (ports.ExecutableObservation, error) {
+	inspector.execCalls++
 	if err := inspector.execErr[name]; err != nil {
 		return ports.ExecutableObservation{}, err
 	}

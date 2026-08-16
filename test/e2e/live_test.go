@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
+	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
@@ -203,7 +203,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	configResult := runLiveMulgae(t, validator, environment, project, 0, "config", "--output", "json")
 	assertLiveConfigMatrix(t, configResult.Result.Policy)
 	assertLiveSixRoleConfig(t, project)
-	doctorResult := runLiveMulgae(t, validator, environment, project, 4, "doctor", "--output", "json")
+	doctorResult := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
 	expected := map[string]string{
@@ -221,6 +221,8 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	assertNoProjectProviderLocks(t, project)
 	securityProvider := requireLiveSelectedProvider(t, run, "security")
 	assertLiveSecurityDefect(t, project, run, securityProvider)
+	doctorAfterReview := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
+	assertLiveDoctorPrequalification(t, doctorAfterReview.Result.Doctor)
 	status := runLiveMulgae(t, validator, environment, project, 0,
 		"status", "--run", run.manifest.RunID, "--output", "json",
 	)
@@ -1644,17 +1646,17 @@ func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &doctor); err != nil {
 		t.Fatalf("decode doctor result: %v", err)
 	}
-	if doctor.Readiness.State != "unverified" || !reflect.DeepEqual(doctor.ConfiguredProviderIDs, families) {
+	if doctor.Readiness.State != "ready" || !reflect.DeepEqual(doctor.ConfiguredProviderIDs, families) {
 		t.Fatalf("doctor readiness = %#v", doctor)
 	}
-	unverified := map[string]bool{}
+	eligible := map[string]bool{}
 	for _, row := range doctor.ProviderInventory {
-		if row.State == "unavailable" && row.Reason == "provider_static_admission_unverified" {
-			unverified[row.Family] = true
+		if row.State == "eligible" && (row.Reason == "provider_cli_version_supported" || row.Reason == "provider_cli_version_newer_than_verified") {
+			eligible[row.Family] = true
 		}
 	}
 	for _, family := range families {
-		if !unverified[family] {
+		if !eligible[family] {
 			t.Fatalf("doctor did not retain truthful prequalification state for %s: %#v", family, doctor.ProviderInventory)
 		}
 	}

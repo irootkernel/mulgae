@@ -71,6 +71,7 @@ type Invocation struct {
 	doctor         *DoctorRequest
 	config         *ConfigRequest
 	providers      *ProvidersRequest
+	heartbeat      *HeartbeatRequest
 	roles          *RolesRequest
 	schema         *SchemaRequest
 	status         *StatusRequest
@@ -133,6 +134,13 @@ func (invocation Invocation) Doctor() (DoctorRequest, bool) {
 		return DoctorRequest{}, false
 	}
 	return *invocation.doctor, true
+}
+
+func (invocation Invocation) Heartbeat() (HeartbeatRequest, bool) {
+	if invocation.heartbeat == nil {
+		return HeartbeatRequest{}, false
+	}
+	return *invocation.heartbeat, true
 }
 
 // Status returns the parsed status fields when this is a status invocation.
@@ -335,6 +343,18 @@ type DoctorRequest struct {
 	checkProviders bool
 	checkPlatform  bool
 }
+
+type HeartbeatRequest struct {
+	projectRoot       string
+	providerID        string
+	credentialProfile string
+	authorized        bool
+}
+
+func (request HeartbeatRequest) ProjectRoot() string       { return request.projectRoot }
+func (request HeartbeatRequest) ProviderID() string        { return request.providerID }
+func (request HeartbeatRequest) CredentialProfile() string { return request.credentialProfile }
+func (request HeartbeatRequest) Authorized() bool          { return request.authorized }
 
 // ProjectRoot returns the canonical project root selected for diagnosis.
 func (request DoctorRequest) ProjectRoot() string { return request.projectRoot }

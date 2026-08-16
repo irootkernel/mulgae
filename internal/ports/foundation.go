@@ -620,19 +620,49 @@ const (
 
 // IdentityObservationError is a redacted, typed identity-observation failure.
 type IdentityObservationError struct {
-	kind IdentityObservationFailureKind
-	text string
+	kind   IdentityObservationFailureKind
+	reason IdentityObservationFailureReason
+	text   string
 }
+
+// IdentityObservationFailureReason distinguishes operational availability
+// failures without exposing a native path or operating-system error.
+type IdentityObservationFailureReason string
+
+const (
+	IdentityObservationReasonObservationFailed IdentityObservationFailureReason = "observation_failed"
+	IdentityObservationReasonNonExecutable     IdentityObservationFailureReason = "non_executable"
+	IdentityObservationReasonUnreadable        IdentityObservationFailureReason = "unreadable"
+)
 
 // NewIdentityObservationError constructs a redacted classified failure.
 func NewIdentityObservationError(kind IdentityObservationFailureKind, text string) error {
+	return NewIdentityObservationErrorWithReason(kind, IdentityObservationReasonObservationFailed, text)
+}
+
+// NewIdentityObservationErrorWithReason constructs a redacted classified
+// failure with a stable unavailable subreason.
+func NewIdentityObservationErrorWithReason(kind IdentityObservationFailureKind, reason IdentityObservationFailureReason, text string) error {
 	if kind != IdentityObservationUnavailable && kind != IdentityObservationSecurity {
 		return fmt.Errorf("identity observation: invalid failure kind")
+	}
+	if reason != IdentityObservationReasonObservationFailed && reason != IdentityObservationReasonNonExecutable && reason != IdentityObservationReasonUnreadable {
+		return fmt.Errorf("identity observation: invalid failure reason")
 	}
 	if err := validateRedactedText(text, 256); err != nil || text == "" {
 		return fmt.Errorf("identity observation: invalid failure text")
 	}
-	return &IdentityObservationError{kind: kind, text: text}
+	return &IdentityObservationError{kind: kind, reason: reason, text: text}
+}
+
+// IdentityObservationReason returns the stable subreason when err is a
+// classified identity-observation failure.
+func IdentityObservationReason(err error) (IdentityObservationFailureReason, bool) {
+	var failure *IdentityObservationError
+	if !errors.As(err, &failure) || failure == nil {
+		return "", false
+	}
+	return failure.reason, true
 }
 
 func (failure *IdentityObservationError) Error() string {
@@ -694,6 +724,51 @@ type EnvironmentInspector interface {
 	ObserveReadableFileIdentity(context.Context, string) (FileIdentityObservation, error)
 	ObserveNativeHomeIdentity(context.Context, string) (NativeHomeLaunchAuthority, error)
 	ObservePermission(context.Context, AnchoredRoot, SafeRelativePath) (PermissionObservation, error)
+}
+
+// ProviderVersionState is the closed outcome of an adapter-owned local version
+// command. The command is observational: it carries no prompt, provider packet,
+// credential projection, or project workspace authority.
+type ProviderVersionState string
+
+const (
+	ProviderVersionObserved        ProviderVersionState = "observed"
+	ProviderVersionTimedOut        ProviderVersionState = "timed_out"
+	ProviderVersionExecutionFailed ProviderVersionState = "execution_failed"
+	ProviderVersionMalformed       ProviderVersionState = "malformed"
+	ProviderVersionUnsafeIdentity  ProviderVersionState = "unsafe_identity"
+)
+
+// ProviderVersionObservation is the redacted result of one exact local version
+// invocation. Raw process output and native paths never cross this port.
+type ProviderVersionObservation struct {
+	state   ProviderVersionState
+	version string
+}
+
+// NewProviderVersionObservation constructs a closed version observation.
+func NewProviderVersionObservation(state ProviderVersionState, version string) (ProviderVersionObservation, error) {
+	switch state {
+	case ProviderVersionObserved:
+		if version == "" || validateRedactedText(version, 256) != nil {
+			return ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid version")
+		}
+	case ProviderVersionTimedOut, ProviderVersionExecutionFailed, ProviderVersionMalformed, ProviderVersionUnsafeIdentity:
+		if version != "" {
+			return ProviderVersionObservation{}, fmt.Errorf("provider version observation: failed observation has version")
+		}
+	default:
+		return ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid state")
+	}
+	return ProviderVersionObservation{state: state, version: version}, nil
+}
+
+func (observation ProviderVersionObservation) State() ProviderVersionState { return observation.state }
+func (observation ProviderVersionObservation) Version() string             { return observation.version }
+
+// ProviderVersionObserver runs only the family-owned local version command.
+type ProviderVersionObserver interface {
+	ObserveProviderVersion(context.Context, string, []string, string, string) (ProviderVersionObservation, error)
 }
 
 func validateAssetID(value string) error {

@@ -28,7 +28,8 @@ import (
 
 // maximumExecutableSize bounds executable observation I/O and hashing work to 512 MiB.
 const maximumExecutableSize int64 = 512 * 1024 * 1024
-const executableVersionTimeout = 2 * time.Second
+const executableVersionTimeout = 5 * time.Second
+const maximumVersionOutputBytes = 64 << 10
 
 var (
 	executableSemanticVersionPattern = regexp.MustCompile(`[vV]?[0-9]+\.[0-9]+\.[0-9]+`)
@@ -36,6 +37,10 @@ var (
 
 func identityUnavailable(text string) error {
 	return ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, text)
+}
+
+func identityUnavailableFor(reason ports.IdentityObservationFailureReason, text string) error {
+	return ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, reason, text)
 }
 
 func identitySecurity(text string) error {
@@ -63,6 +68,124 @@ func observeExecutableVersion(ctx context.Context, path string) ([]byte, error) 
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// ProviderVersionObserver executes only an adapter-owned local version argv.
+// It uses a disposable empty home and never projects provider credentials or a
+// project working directory.
+type ProviderVersionObserver struct{}
+
+func NewProviderVersionObserver() ProviderVersionObserver { return ProviderVersionObserver{} }
+
+func (ProviderVersionObserver) ObserveProviderVersion(
+	ctx context.Context, family string, argv []string, executableSHA256, launcherSHA256 string,
+) (observation ports.ProviderVersionObservation, resultErr error) {
+	if ctx == nil || len(argv) < 2 || argv[len(argv)-1] != "--version" {
+		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid request")
+	}
+	switch family {
+	case providercli.FamilyKimi, providercli.FamilyZcode, providercli.FamilyAgy, providercli.FamilyCodex:
+	default:
+		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: unsupported family")
+	}
+	executable, launcher := argv[0], argv[0]
+	if family == string(providercli.FamilyZcode) {
+		if len(argv) != 3 {
+			return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid zcode argv")
+		}
+		launcher = argv[1]
+	} else if len(argv) != 2 {
+		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid direct argv")
+	}
+	if err := verifySpawnIdentity(ctx, executable, executableSHA256); err != nil {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
+	}
+	verifyLauncher := verifySpawnIdentity
+	if family == string(providercli.FamilyZcode) {
+		verifyLauncher = verifyReadableSpawnIdentity
+	}
+	if err := verifyLauncher(ctx, launcher, launcherSHA256); err != nil {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
+	}
+
+	runtimeRoot, err := os.MkdirTemp("", "mulgae-version-")
+	if err != nil {
+		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: create runtime: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(runtimeRoot); cleanupErr != nil && resultErr == nil {
+			observation = ports.ProviderVersionObservation{}
+			resultErr = fmt.Errorf("provider version observation: cleanup runtime: %w", cleanupErr)
+		}
+	}()
+	versionContext, cancel := context.WithTimeout(ctx, executableVersionTimeout)
+	defer cancel()
+	command := exec.CommandContext(versionContext, executable, argv[1:]...)
+	command.Dir = runtimeRoot
+	command.Env = []string{
+		"HOME=" + runtimeRoot,
+		"XDG_CONFIG_HOME=" + filepath.Join(runtimeRoot, "config"),
+		"XDG_DATA_HOME=" + filepath.Join(runtimeRoot, "data"),
+		"XDG_CACHE_HOME=" + filepath.Join(runtimeRoot, "cache"),
+		"TMPDIR=" + runtimeRoot,
+		"TMP=" + runtimeRoot,
+		"TEMP=" + runtimeRoot,
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.WaitDelay = 250 * time.Millisecond
+	command.Cancel = func() error {
+		if command.Process == nil {
+			return os.ErrProcessDone
+		}
+		killErr := unix.Kill(-command.Process.Pid, unix.SIGKILL)
+		if errors.Is(killErr, unix.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return killErr
+	}
+	var stdout, stderr boundedVersionCapture
+	command.Stdout, command.Stderr = &stdout, &stderr
+	runErr := command.Run()
+	if errors.Is(versionContext.Err(), context.DeadlineExceeded) {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionTimedOut, "")
+	}
+	if runErr != nil {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionExecutionFailed, "")
+	}
+	if stdout.overflow || stderr.overflow {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionMalformed, "")
+	}
+	if err := verifySpawnIdentity(ctx, executable, executableSHA256); err != nil {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
+	}
+	if err := verifyLauncher(ctx, launcher, launcherSHA256); err != nil {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
+	}
+	version := safeExecutableVersion(stdout.Bytes())
+	if version == "" {
+		return ports.NewProviderVersionObservation(ports.ProviderVersionMalformed, "")
+	}
+	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, version)
+}
+
+type boundedVersionCapture struct {
+	bytes.Buffer
+	overflow bool
+}
+
+func (capture *boundedVersionCapture) Write(data []byte) (int, error) {
+	original := len(data)
+	remaining := maximumVersionOutputBytes - capture.Len()
+	if remaining <= 0 {
+		capture.overflow = capture.overflow || original > 0
+		return original, nil
+	}
+	if len(data) > remaining {
+		capture.overflow = true
+		data = data[:remaining]
+	}
+	_, _ = capture.Buffer.Write(data)
+	return original, nil
 }
 
 func safeExecutableVersion(output []byte) string {
@@ -321,14 +444,14 @@ func (inspector *Inspector) ObserveExecutableIdentity(ctx context.Context, name 
 
 	before, err := file.Stat()
 	if err != nil || !before.isRegular() || before.size < 0 || before.size > maximumExecutableSize {
-		return ports.ExecutableObservation{}, identityUnavailable("executable is not a bounded regular file")
+		return ports.ExecutableObservation{}, identitySecurity("executable is not a bounded regular file")
 	}
 	executable, err := file.EffectiveExecutable(before)
 	if err != nil {
 		return ports.ExecutableObservation{}, identityUnavailable("executable access is unavailable")
 	}
 	if !executable {
-		return ports.ExecutableObservation{}, identityUnavailable("executable permission is unavailable")
+		return ports.ExecutableObservation{}, identityUnavailableFor(ports.IdentityObservationReasonNonExecutable, "executable permission is unavailable")
 	}
 
 	hash := sha256.New()
@@ -444,14 +567,14 @@ func observeReadableFileIdentity(ctx context.Context, name string) (ports.FileId
 			return absent, nil
 		}
 		if errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM) {
-			return ports.FileIdentityObservation{}, identityUnavailable("readable file is unavailable")
+			return ports.FileIdentityObservation{}, identityUnavailableFor(ports.IdentityObservationReasonUnreadable, "readable file is unavailable")
 		}
 		return ports.FileIdentityObservation{}, identitySecurity("readable file descriptor open failed")
 	}
 	defer func() { _ = file.Close() }()
 	before, err := file.Stat()
 	if err != nil || !before.isRegular() || before.size < 0 || before.size > maximumExecutableSize {
-		return ports.FileIdentityObservation{}, identityUnavailable("readable file is not a bounded regular file")
+		return ports.FileIdentityObservation{}, identitySecurity("readable file is not a bounded regular file")
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, io.LimitReader(file, before.size+1)); err != nil {

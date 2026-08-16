@@ -14,9 +14,28 @@ mulgae providers --include-unverified
 mulgae providers --output json
 ```
 
+The command lists fixed trusted profiles without invoking them. Missing static
+admission evidence is reported as `unverified` information and does not make
+the command fail. JSON reports `offline_ready_provider_count` separately from
+`static_evidence_ready_provider_count`. `mulgae doctor` checks exact local
+binary identity and adapter-owned `--version` compatibility without a live
+provider request. Static evidence and prior review qualification do not affect
+that offline result.
+
 Provider identity and capability are checked at runtime. An unknown version is
 not rejected solely because it is new, but a missing required capability or a
 known incompatible version fails closed.
+
+Run a live synthetic heartbeat only with explicit authorization:
+
+```bash
+mulgae heartbeat --provider agy --authorize-live-request --output json
+```
+
+It may authenticate, use the network, incur cost, and create remote logs. It
+never includes repository source, diffs, review prompts, or user content, and
+it does not qualify a later review. Without the authorization flag Mulgae fails
+before provider composition or execution.
 
 Each configured role runs on exactly one provider. Mulgae never substitutes
 another provider when one fails: the role is reported as failed with its typed

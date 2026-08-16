@@ -18,6 +18,7 @@ the automatic topology.
 ```bash
 mulgae init
 mulgae config
+mulgae doctor --output json
 mulgae providers --include-unverified
 mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."

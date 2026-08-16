@@ -21,6 +21,12 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    mulgae config --mode provenance --output json
    ```
 
+   Use `mulgae doctor --output json` for offline setup readiness. In doctor v2,
+   consume `config_v3`, `local_configuration`, `provider_identity`, each
+   configured provider's `binary_available` and `cli_compatible`, and
+   `configured_readiness` independently. Static admission and prior review
+   qualification do not gate this state.
+
 5. Derive the next action from current Mulgae output, never from conversation
    memory. Preserve exact session (`s_...`), run (`r_...`), attempt (`a_...`),
    and finding (`F...`) IDs.
@@ -133,6 +139,10 @@ already available.
   cancellation, cleanup, provider or role changes, or any requested reset,
   service control, goal change, or repair. Read
   [lifecycle.md](references/lifecycle.md) before lifecycle actions.
+- Treat `heartbeat` as a separate live provider request, never as setup or
+  inspection. Run it only when the user explicitly selects one configured
+  provider and authorizes authentication, network access, cost, and remote
+  logging with `--authorize-live-request`.
 - Read [authoring.md](references/authoring.md) only for provider, credential
   profile, role, artist, or configuration authoring requests.
 - Read [recovery.md](references/recovery.md) when state is stale, a mutation's

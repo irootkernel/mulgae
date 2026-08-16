@@ -131,7 +131,7 @@ func TestContractValuesAndWriteRequestsDefensivelyOwnMutableInputs(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assetSource, err := NewSafeRelativePath("schemas/mulgae-command-result.v3.schema.json")
+	assetSource, err := NewSafeRelativePath("schemas/mulgae-command-result.v4.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,5 +370,24 @@ func TestCapturedGitTargetDefensivelyOwnsCapturedBytes(t *testing.T) {
 	gotIndex, ok := target.IndexTreeID()
 	if !ok || gotIndex != indexID {
 		t.Fatalf("index tree = %q, present = %v", gotIndex.String(), ok)
+	}
+}
+
+func TestIdentityObservationErrorPreservesStableUnavailableReason(t *testing.T) {
+	t.Parallel()
+
+	err := NewIdentityObservationErrorWithReason(
+		IdentityObservationUnavailable,
+		IdentityObservationReasonNonExecutable,
+		"executable permission is unavailable",
+	)
+	if kind, ok := IdentityObservationFailure(err); !ok || kind != IdentityObservationUnavailable {
+		t.Fatalf("IdentityObservationFailure() = %q, %v", kind, ok)
+	}
+	if reason, ok := IdentityObservationReason(err); !ok || reason != IdentityObservationReasonNonExecutable {
+		t.Fatalf("IdentityObservationReason() = %q, %v", reason, ok)
+	}
+	if invalid := NewIdentityObservationErrorWithReason(IdentityObservationUnavailable, "unknown", "invalid reason"); invalid == nil {
+		t.Fatal("NewIdentityObservationErrorWithReason() accepted an unknown reason")
 	}
 }

@@ -56,6 +56,10 @@ review-like command is a new run, not a retry of the same mutation.
   `mulgae doctor --output json`, and
   `mulgae providers --include-unverified --output json`; fix only the reported
   prerequisite with explicit authorization.
+- For doctor v2, diagnose `binary_available` and `cli_compatible` reason codes
+  per configured provider. Do not treat absent static evidence, an unobserved
+  field from an older schema, heartbeat state, or prior review evidence as an
+  offline failure.
 - If shared `.mulgae/config.yaml` exists but `.mulgae/local.yaml` is missing,
   bootstrap it with authorized `mulgae init`. If local provider paths are stale
   or no longer match the shared provider set, use authorized
@@ -78,3 +82,8 @@ Provider authentication, quota, rate-limit, timeout, and permission failures
 are typed provider outcomes; preserve the assigned provider and apply only the
 smallest documented remediation. Never weaken sandbox, locality, evidence,
 validation, integrity, or publication fences to make recovery pass.
+
+`provider_failure`, `timeout`, `authentication_failure`,
+`malformed_response`, and `execution_failure` from heartbeat describe only that
+explicit synthetic live request. Do not promote them into setup readiness or
+review qualification and do not retry heartbeat without new user intent.

@@ -36,23 +36,140 @@ func TestCodexInitializesRequiredMulgaeServer(t *testing.T) {
 	}
 
 	version := run(t, codex, []string{"--version"}, project, nil)
-	if !strings.Contains(version, "codex-cli") {
-		t.Fatalf("unexpected Codex version output: %q", version)
+	if err := validateCodexVersion(version); err != nil {
+		t.Fatal(err)
 	}
+	arguments := append([]string{"debug", "prompt-input"}, codexMulgaeOverrides(mulgae, project)...)
+	output := run(t, codex, arguments, project, []string{"CODEX_HOME=" + configHome})
+	if err := validateCodexPromptInput(output); err != nil {
+		t.Fatalf("Codex did not produce valid prompt input: %v", err)
+	}
+	t.Logf("initialized required Mulgae server through %s", strings.TrimSpace(version))
+}
+
+func TestCodexReportsObservableMulgaeServerConfiguration(t *testing.T) {
+	mulgae := requiredExecutable(t, mulgaeBinaryEnv)
+	codex := requiredExecutable(t, codexBinaryEnv)
+	project := newGitProject(t)
+	configHome := filepath.Join(t.TempDir(), "codex")
+	if err := os.Mkdir(configHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	version := run(t, codex, []string{"--version"}, project, nil)
+	if err := validateCodexVersion(version); err != nil {
+		t.Fatal(err)
+	}
+	arguments := append([]string{"mcp", "get", "mulgae", "--json"}, codexMulgaeOverrides(mulgae, project)...)
+	output := run(t, codex, arguments, project, []string{"CODEX_HOME=" + configHome})
+	requiredObserved, err := validateCodexMCPGet(output, mulgae, project)
+	if err != nil {
+		t.Fatalf("Codex did not report the observable Mulgae MCP configuration: %v", err)
+	}
+	t.Logf("validated Codex MCP get contract through %s; required_observed=%t", strings.TrimSpace(version), requiredObserved)
+}
+
+func codexMulgaeOverrides(mulgae, project string) []string {
 	quotedArgs := fmt.Sprintf("[%s,%s,%s]", strconv.Quote("mcp"), strconv.Quote("--project-root"), strconv.Quote(project))
-	output := run(t, codex, []string{
-		"debug", "prompt-input",
+	return []string{
 		"-c", "mcp_servers.mulgae.command=" + strconv.Quote(mulgae),
 		"-c", "mcp_servers.mulgae.args=" + quotedArgs,
 		"-c", "mcp_servers.mulgae.cwd=" + strconv.Quote(project),
 		"-c", "mcp_servers.mulgae.required=true",
 		"-c", "mcp_servers.mulgae.startup_timeout_sec=30",
 		"-c", fmt.Sprintf("mcp_servers.mulgae.tool_timeout_sec=%d", toolTimeoutSec),
-	}, project, []string{"CODEX_HOME=" + configHome})
-	if err := validateCodexPromptInput(output); err != nil {
-		t.Fatalf("Codex did not produce valid prompt input: %v", err)
 	}
-	t.Logf("initialized required Mulgae server through %s", strings.TrimSpace(version))
+}
+
+func validateCodexVersion(output string) error {
+	fields := strings.Fields(strings.TrimSpace(output))
+	if len(fields) != 2 || fields[0] != "codex-cli" {
+		return fmt.Errorf("unexpected Codex version output: %q", output)
+	}
+	core := strings.SplitN(fields[1], "-", 2)[0]
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("unexpected Codex version output: %q", output)
+	}
+	version := [3]int{}
+	for index, part := range parts {
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			return fmt.Errorf("unexpected Codex version output: %q", output)
+		}
+		version[index] = value
+	}
+	minimum := [3]int{0, 147, 0}
+	for index := range version {
+		if version[index] > minimum[index] {
+			return nil
+		}
+		if version[index] < minimum[index] {
+			return fmt.Errorf("Codex %s is below the supported minimum 0.147.0", fields[1])
+		}
+	}
+	return nil
+}
+
+func validateCodexMCPGet(output, mulgae, project string) (bool, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(output), &raw); err != nil {
+		return false, fmt.Errorf("decode JSON: %w", err)
+	}
+	for _, field := range []string{"name", "enabled", "disabled_reason", "transport", "enabled_tools", "disabled_tools", "startup_timeout_sec", "tool_timeout_sec"} {
+		if _, found := raw[field]; !found {
+			return false, fmt.Errorf("observable field %q is missing", field)
+		}
+	}
+	var observed struct {
+		Name           string  `json:"name"`
+		Enabled        bool    `json:"enabled"`
+		DisabledReason *string `json:"disabled_reason"`
+		Transport      struct {
+			Type    string            `json:"type"`
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+			EnvVars []string          `json:"env_vars"`
+			CWD     string            `json:"cwd"`
+		} `json:"transport"`
+		EnabledTools      []string `json:"enabled_tools"`
+		DisabledTools     []string `json:"disabled_tools"`
+		StartupTimeoutSec float64  `json:"startup_timeout_sec"`
+		ToolTimeoutSec    float64  `json:"tool_timeout_sec"`
+	}
+	if err := json.Unmarshal([]byte(output), &observed); err != nil {
+		return false, fmt.Errorf("decode observable configuration: %w", err)
+	}
+	wantArgs := []string{"mcp", "--project-root", project}
+	if observed.Name != "mulgae" || !observed.Enabled || observed.DisabledReason != nil ||
+		observed.Transport.Type != "stdio" || observed.Transport.Command != mulgae ||
+		!equalStrings(observed.Transport.Args, wantArgs) || observed.Transport.Env != nil || len(observed.Transport.EnvVars) != 0 ||
+		observed.Transport.CWD != project || observed.EnabledTools != nil || observed.DisabledTools != nil ||
+		observed.StartupTimeoutSec != 30 || observed.ToolTimeoutSec != toolTimeoutSec {
+		return false, fmt.Errorf("unexpected observable configuration: %#v", observed)
+	}
+	requiredRaw, requiredObserved := raw["required"]
+	if !requiredObserved {
+		return false, nil
+	}
+	var required bool
+	if err := json.Unmarshal(requiredRaw, &required); err != nil || !required {
+		return true, fmt.Errorf("observed required field does not preserve configured true")
+	}
+	return true, nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestClaudeReportsConnectedMulgaeServer(t *testing.T) {
@@ -126,6 +243,62 @@ func TestValidateCodexPromptInput(t *testing.T) {
 				t.Fatalf("validateCodexPromptInput() error = %v, wantErr %t", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateCodexVersion(t *testing.T) {
+	for _, test := range []struct {
+		output  string
+		wantErr bool
+	}{
+		{output: "codex-cli 0.147.0\n"},
+		{output: "codex-cli 0.148.0-alpha.1\n"},
+		{output: "codex-cli 0.146.9\n", wantErr: true},
+		{output: "codex 0.147.0\n", wantErr: true},
+	} {
+		t.Run(strings.TrimSpace(test.output), func(t *testing.T) {
+			err := validateCodexVersion(test.output)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCodexVersion() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateCodexMCPGetPreservesUnobservedRequired(t *testing.T) {
+	const mulgae = "/opt/mulgae"
+	const project = "/work/project"
+	base := map[string]any{
+		"name": "mulgae", "enabled": true, "disabled_reason": nil,
+		"transport": map[string]any{
+			"type": "stdio", "command": mulgae,
+			"args": []string{"mcp", "--project-root", project},
+			"env":  nil, "env_vars": []string{}, "cwd": project,
+		},
+		"enabled_tools": nil, "disabled_tools": nil,
+		"startup_timeout_sec": 30.0, "tool_timeout_sec": float64(toolTimeoutSec),
+	}
+	encode := func(value map[string]any) string {
+		t.Helper()
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
+
+	observed, err := validateCodexMCPGet(encode(base), mulgae, project)
+	if err != nil || observed {
+		t.Fatalf("absent required = observed %t, error %v; want unobserved", observed, err)
+	}
+	base["required"] = true
+	observed, err = validateCodexMCPGet(encode(base), mulgae, project)
+	if err != nil || !observed {
+		t.Fatalf("true required = observed %t, error %v; want observed true", observed, err)
+	}
+	base["required"] = false
+	if observed, err = validateCodexMCPGet(encode(base), mulgae, project); err == nil || !observed {
+		t.Fatalf("false required = observed %t, error %v; want rejected observation", observed, err)
 	}
 }
 

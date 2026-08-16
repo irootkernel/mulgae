@@ -341,8 +341,8 @@ a selected attempt.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Workflow commands
-use `--output json` and return a `mulgae-command-result.v3` envelope. Command
-result v2 and review-preflight v2 are intentionally unsupported after this
+use `--output json` and return a `mulgae-command-result.v4` envelope. Command
+result v2/v3 and review-preflight v2 are intentionally unsupported after this
 contract revision. Process
 exits:
 
@@ -360,11 +360,82 @@ exits:
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor` reports static admission evidence only. A configured identity
-with missing static evidence uses `provider_static_admission_unverified`; this
-does not claim that a live review qualification failed. Per-run live
-qualification remains observable through that run's diagnostic status and
-runtime diagnostics.
+`mulgae doctor --output json` returns `mulgae-doctor-result.v2`. Capability
+detection starts with `schema_version`; consumers of an older result must treat
+an absent v2 dimension as unsupported, never as failed. The result reports
+`config_v3`, `local_configuration`, and `provider_identity` independently, and
+each dimension uses exactly `verified`, `failed`, `unverifiable`, or
+`not_applicable`. Provider and role identifiers are fixed, redacted family/role
+IDs; executable paths, native homes, credentials, and local configuration values
+are not projected.
+
+Each configured `provider_inventory[]` row reports `binary_available` and
+`cli_compatible`. Binary observation revalidates the exact adapter-owned regular
+file through descriptor-safe identity and permission checks. ZCode requires an
+executable Node binary and a readable regular `.cjs` launcher; the launcher does
+not require an executable bit. CLI compatibility runs only the admitted direct
+`[executable, "--version"]` or ZCode
+`[node, launcher, "--version"]` command in a disposable empty home, with no
+credential projection or project working directory. It emits the normalized
+observed version, current minimum and verified-latest guidance, eligibility,
+and compatibility. A version above `verified_latest` preserves the existing
+eligible policy while using compatibility `newer_than_verified`.
+
+Top-level `readiness` and `configured_readiness` require every configured
+provider to pass binary availability and remain eligible under version policy.
+`role_route_readiness` separately reports whether every enabled role route is
+eligible. Static-admission evidence is not consulted by doctor and cannot gate
+offline readiness. `mulgae providers --output json` exposes the independent
+`offline_ready_provider_count` and `static_evidence_ready_provider_count`; its
+human static profiles remain `unverified` when no static source exists. A
+successful or failed live review never mutates these offline observations.
+
+Stable doctor reasons are grouped as follows:
+
+| Dimension | Reason codes |
+|---|---|
+| Config/local | `config_missing`, `local_config_missing`, `config_yaml_invalid`, `config_size_invalid`, `config_provider_timeout_invalid`, `config_credential_key_detected`, `config_credential_value_detected`, `config_locality_unsafe`, `config_locality_drifted`, `native_home_mismatch` |
+| Provider/role identity | `config_provider_identity_invalid`, `config_role_mapping_invalid` |
+| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity` |
+| CLI version | `provider_cli_version_supported`, `provider_cli_version_newer_than_verified`, `provider_cli_version_below_minimum`, `provider_cli_version_malformed`, `provider_cli_version_command_failed`, `provider_cli_version_timeout`, `provider_cli_version_unsafe_identity`, `provider_cli_version_observation_failed` |
+| Aggregate | `provider_offline_readiness_failed`, `provider_role_route_unavailable`, `provider_security_admission_failed` |
+
+The exact schema remains authoritative for additional locality reason codes
+owned by the filesystem/Git admission boundary.
+
+`mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
+standalone live diagnostic. For named Codex configurations it also accepts the
+explicit `--credential-profile`. Omitting the authorization returns a versioned
+`mulgae-provider-heartbeat-result.v1` with `attempted: false` before provider
+composition, credential access, or process execution. An authorized heartbeat
+discloses that authentication, network, cost, and remote logging may occur,
+uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
+qualification fixture. It never includes repository source, diffs, review
+prompts, or user content. Status is one of `succeeded`, `provider_failure`,
+`timeout`, `authentication_failure`, `malformed_response`, or
+`execution_failure`; `attempted` states whether the live request launch was
+reached. Stable heartbeat reasons are `live_authorization_required`,
+`heartbeat_succeeded`, `provider_failure`, `provider_timeout`,
+`authentication_required`, `heartbeat_response_malformed`,
+`provider_execution_failed`, and `heartbeat_cleanup_failed`.
+
+Offline readiness, heartbeat, and review qualification are independent. A
+heartbeat does not mint or persist review authority. `review_qualified` exists
+only in the evidence of the explicitly requested review run that performed the
+qualification; doctor/setup does not expose or gate on it, and no unrelated
+review is promoted into a durable qualification cache.
+
+## Codex MCP configuration observability
+
+Mulgae supports Codex CLI 0.147.0 or newer. At that minimum,
+`codex mcp get mulgae --json` exposes the server name, enabled state and disabled
+reason, stdio transport command/arguments/environment/working directory,
+enabled and disabled tool filters, and startup/tool timeouts. Codex 0.147.0 does
+not expose the configured `required` value. Consumers must preserve an absent
+field as unobserved and must not infer `required: false`; `config.toml` remains
+the authority. Mulgae does not claim a later minimum for observing the field.
+Its compatibility check accepts absence or an observed literal `true` and
+rejects an observed false value when the configuration requested true.
 
 ## Provider qualification readiness
 

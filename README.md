@@ -176,6 +176,32 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
+`doctor --output json` returns `mulgae-doctor-result.v2`. It checks Config v3,
+project-local security, provider and role identities, exact executable/launcher
+availability, and adapter-owned local CLI version compatibility. The only
+provider process it may run is the fixed `--version` command; it does not
+authenticate, send a prompt or source, contact a provider API, create a review
+run, or start MCP. Versions above the latest verified version remain eligible
+but are reported as `newer_than_verified`. Static-admission evidence and review
+qualification do not gate this offline readiness.
+
+`providers --output json` reports `offline_ready_provider_count` separately
+from `static_evidence_ready_provider_count`. A missing static-evidence source
+therefore cannot turn a valid offline installation into a generic provider
+failure, and a prior live review never mutates either diagnostic result.
+
+A live heartbeat is separate and always requires an explicit authorization:
+
+```bash
+mulgae heartbeat --provider agy --authorize-live-request --output json
+```
+
+The heartbeat may authenticate, use the network, incur cost, and create remote
+logs. It sends only Mulgae's fixed synthetic qualification packet—never source,
+diffs, review prompts, or user content—and does not establish durable review
+qualification. Without `--authorize-live-request`, Mulgae returns
+`not_authorized` before composing or executing the provider.
+
 Before spending provider time, inspect the exact staged directory view and
 configured routing envelope:
 
@@ -344,6 +370,16 @@ required = true
 startup_timeout_sec = 30
 tool_timeout_sec = 54000
 ```
+
+With Codex CLI 0.147.0, `codex mcp get mulgae --json` reports the server name,
+enabled state, disabled reason, stdio command/arguments/environment forwarding
+and working directory, enabled/disabled tool filters, and startup/tool
+timeouts. It does not report `required`. Absence of that field means “not
+observable through this command,” not `required = false`; `config.toml` remains
+the authority for the configured value. Mulgae does not claim a minimum Codex
+version for observing `required`: the compatibility test accepts either an
+absent field or an observed literal `true`, and rejects an observed false value.
+Mulgae's supported Codex minimum remains 0.147.0.
 
 Codex also supports `codex mcp add mulgae -- /absolute/path/to/mulgae mcp
 --project-root /absolute/path/to/repository`; add the timeout to the resulting

@@ -1,0 +1,35 @@
+{
+  "schema_version": "mulgae-doctor-result.v2",
+  "checked_at": "2026-07-20T00:00:00Z",
+  "project_root_uri": ".",
+  "config": {
+    "status": "ready",
+    "uri": ".mulgae/config.yaml",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authority": "project_local",
+    "locality": "verified",
+    "checkout_head_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "index_entries_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "target_commit_oids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "native_home_identity": "verified",
+    "provenance_state": "accepted",
+    "reason_codes": []
+  },
+  "config_v3": {"status": "verified", "reason_codes": []},
+  "local_configuration": {"status": "verified", "reason_codes": []},
+  "provider_identity": {"status": "verified", "reason_codes": []},
+  "configured_provider_ids": ["kimi"],
+  "provider_inventory": [
+    {"family": "kimi", "configured": true, "referenced_by_roles": ["logic"], "state": "eligible", "reason": "provider_cli_version_supported", "binary_available": {"status": "verified", "reason_codes": []}, "cli_compatible": {"status": "verified", "observed_version": "0.23.6", "eligibility": "eligible", "compatibility": "verified", "minimum_version": "0.23.6", "verified_latest": "0.28.0", "reason_code": "provider_cli_version_supported"}},
+    {"family": "zcode", "configured": false, "referenced_by_roles": [], "state": "not_configured", "reason": "not_configured", "binary_available": {"status": "not_applicable", "reason_codes": []}, "cli_compatible": {"status": "not_applicable", "observed_version": "", "eligibility": "not_evaluated", "compatibility": "not_observed", "minimum_version": "", "verified_latest": "", "reason_code": ""}},
+    {"family": "agy", "configured": false, "referenced_by_roles": [], "state": "not_configured", "reason": "not_configured", "binary_available": {"status": "not_applicable", "reason_codes": []}, "cli_compatible": {"status": "not_applicable", "observed_version": "", "eligibility": "not_evaluated", "compatibility": "not_observed", "minimum_version": "", "verified_latest": "", "reason_code": ""}},
+    {"family": "codex", "configured": false, "referenced_by_roles": [], "state": "not_configured", "reason": "not_configured", "binary_available": {"status": "not_applicable", "reason_codes": []}, "cli_compatible": {"status": "not_applicable", "observed_version": "", "eligibility": "not_evaluated", "compatibility": "not_observed", "minimum_version": "", "verified_latest": "", "reason_code": ""}}
+  ],
+  "assignment": {"state": "ready", "resilience": "ready"},
+  "platform_evidence": [{"cell": "darwin-arm64", "native": true}],
+  "tools_lock": {"state": "not_observed"},
+  "readiness": {"state": "ready", "exit_code": 0, "reason_codes": []},
+  "configured_readiness": {"state": "ready", "exit_code": 0, "reason_codes": []},
+  "role_route_readiness": {"state": "ready", "exit_code": 0, "reason_codes": []},
+  "diagnostics": []
+}

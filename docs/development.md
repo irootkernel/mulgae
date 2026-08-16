@@ -65,8 +65,10 @@ certification or the separate `make test-kimi` capability check.
 `make test-mcp-clients` is an opt-in local compatibility check and is not part
 of `make test`. It builds the exact current Mulgae binary, isolates client
 configuration in temporary directories, verifies that installed Codex can
-initialize Mulgae as a required MCP server, and verifies that installed Claude
-Code reports the server as connected. Override their absolute paths with
+initialize Mulgae as a required MCP server, validates the observable Codex
+`mcp get mulgae --json` fields, and verifies that installed Claude Code reports
+the server as connected. The Codex check preserves an absent `required` field
+as unobserved rather than interpreting it as `false`. Override client paths with
 `MULGAE_MCP_CODEX_BINARY` and `MULGAE_MCP_CLAUDE_BINARY`. The installed-client
 check does not expose or assert either client's discovered tool catalog. It also
 does not invoke a model or provider, mutate user client configuration, or prove

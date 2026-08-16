@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json",
+  "title": "Mulgae Provider Heartbeat Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "checked_at", "provider_id", "credential_profile", "attempted", "status", "reason_code", "authentication_may_occur", "network_may_occur", "cost_may_occur", "remote_logging_may_occur"],
+  "properties": {
+    "schema_version": { "const": "mulgae-provider-heartbeat-result.v1" },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "provider_id": { "enum": ["kimi", "zcode", "agy", "codex"] },
+    "credential_profile": { "type": "string", "maxLength": 32 },
+    "attempted": { "type": "boolean" },
+    "status": { "enum": ["succeeded", "not_authorized", "provider_failure", "timeout", "authentication_failure", "malformed_response", "execution_failure"] },
+    "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "authentication_may_occur": { "const": true },
+    "network_may_occur": { "const": true },
+    "cost_may_occur": { "const": true },
+    "remote_logging_may_occur": { "const": true }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "not_authorized" } } }, "then": { "properties": { "attempted": { "const": false }, "reason_code": { "const": "live_authorization_required" } } } },
+    { "if": { "properties": { "status": { "enum": ["succeeded", "provider_failure", "timeout", "authentication_failure", "malformed_response"] } } }, "then": { "properties": { "attempted": { "const": true } } } }
+  ]
+}

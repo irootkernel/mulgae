@@ -1,0 +1,13 @@
+{
+  "schema_version": "mulgae-provider-heartbeat-result.v1",
+  "checked_at": "2026-08-16T00:00:00Z",
+  "provider_id": "agy",
+  "credential_profile": "",
+  "attempted": true,
+  "status": "succeeded",
+  "reason_code": "heartbeat_succeeded",
+  "authentication_may_occur": true,
+  "network_may_occur": true,
+  "cost_may_occur": true,
+  "remote_logging_may_occur": true
+}

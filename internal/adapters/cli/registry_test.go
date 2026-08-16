@@ -8,7 +8,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
+const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
 
 func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 	want := []struct {
@@ -20,7 +20,7 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		exits   []app.ExitCode
 	}{
 		{app.CommandInit, "internal/app/init", "InitializeProject", testCommandResultContractURI + "#/$defs/requests/init", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
-		{app.CommandDoctor, "internal/app/doctor", "DiagnoseEnvironment", testCommandResultContractURI + "#/$defs/requests/doctor", []string{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation}},
+		{app.CommandDoctor, "internal/app/doctor", "DiagnoseEnvironment", testCommandResultContractURI + "#/$defs/requests/doctor", []string{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation}},
 		{app.CommandReview, "internal/app/review", "StartReviewRun", testCommandResultContractURI + "#/$defs/requests/review", []string{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandFollowup, "internal/app/followup", "StartFollowupRun", testCommandResultContractURI + "#/$defs/requests/followup", []string{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandDelta, "internal/app/delta", "StartDeltaRun", testCommandResultContractURI + "#/$defs/requests/delta", []string{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
@@ -30,6 +30,7 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		{app.CommandFindings, "internal/app/query", "ListFindings", testCommandResultContractURI + "#/$defs/requests/findings", []string{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandExcerpt, "internal/app/query", "RenderExcerpt", testCommandResultContractURI + "#/$defs/requests/excerpt", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandProviders, "internal/app/providers", "ListProviderProfiles", testCommandResultContractURI + "#/$defs/requests/providers", []string{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}},
+		{app.CommandHeartbeat, "internal/app/heartbeat", "ProbeProvider", testCommandResultContractURI + "#/$defs/requests/heartbeat", []string{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandRoles, "internal/app/roles", "ListRoles", testCommandResultContractURI + "#/$defs/requests/roles", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}},
 		{app.CommandConfig, "internal/app/config", "ResolveConfiguration", testCommandResultContractURI + "#/$defs/requests/config", []string{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 		{app.CommandSchema, "internal/app/schema", "InspectSchema", testCommandResultContractURI + "#/$defs/requests/schema", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact}},
@@ -39,8 +40,8 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 	}
 
 	got := CommandSpecs()
-	if len(got) != 17 {
-		t.Fatalf("CommandSpecs length = %d, want 17", len(got))
+	if len(got) != 18 {
+		t.Fatalf("CommandSpecs length = %d, want 18", len(got))
 	}
 	if len(got) != len(want) {
 		t.Fatalf("CommandSpecs length = %d, want %d", len(got), len(want))

@@ -19,6 +19,7 @@ import (
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
+	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	apppublication "github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
@@ -950,29 +951,36 @@ func (fn RedactedExportServiceFunc) ExportRedactedRun(ctx context.Context, reque
 	return fn(ctx, request)
 }
 
+// HeartbeatService performs one explicitly authorized synthetic live request.
+type HeartbeatService interface {
+	ProbeProvider(context.Context, ports.AnchoredRoot, appheartbeat.Request) (appheartbeat.Result, error)
+}
+
 // Dependencies are the explicit inward dependencies required by Application.
 // The G006 query/report pair is optional for source compatibility, but it must
 // be supplied as one complete pair. EvidenceReader is optional and absent
 // authority evidence remains unverified.
 type Dependencies struct {
-	Clock                ports.Clock
-	RequestIDGenerator   RequestIDGenerator
-	RequestResolver      RequestResolver
-	Catalog              ports.ContractCatalog
-	JSONSchemaValidator  cli.SchemaValidator
-	SecureWriter         ports.SecureFileWriter
-	TrustedProjectReader ports.TrustedProjectReader
-	EnvironmentInspector ports.EnvironmentInspector
-	PublicationQueries   PublicationQueryService
-	DiagnosticQueries    ports.RuntimeDiagnosticQuery
-	PublicationReports   PublicationReportService
-	FollowupRuns         FollowupRunService
-	ReviewRuns           ReviewRunService
-	DeltaRuns            DeltaRunService
-	Reruns               RerunService
-	Retention            RetentionService
-	Exports              RedactedExportService
-	EvidenceReader       doctor.EvidenceReader
+	Clock                   ports.Clock
+	RequestIDGenerator      RequestIDGenerator
+	RequestResolver         RequestResolver
+	Catalog                 ports.ContractCatalog
+	JSONSchemaValidator     cli.SchemaValidator
+	SecureWriter            ports.SecureFileWriter
+	TrustedProjectReader    ports.TrustedProjectReader
+	EnvironmentInspector    ports.EnvironmentInspector
+	ProviderVersionObserver ports.ProviderVersionObserver
+	Heartbeats              HeartbeatService
+	PublicationQueries      PublicationQueryService
+	DiagnosticQueries       ports.RuntimeDiagnosticQuery
+	PublicationReports      PublicationReportService
+	FollowupRuns            FollowupRunService
+	ReviewRuns              ReviewRunService
+	DeltaRuns               DeltaRunService
+	Reruns                  RerunService
+	Retention               RetentionService
+	Exports                 RedactedExportService
+	EvidenceReader          doctor.EvidenceReader
 }
 
 // Application is the executable foundation command surface. It owns no mutable
@@ -987,6 +995,8 @@ type Application struct {
 	writer             ports.SecureFileWriter
 	projectReader      ports.TrustedProjectReader
 	inspector          ports.EnvironmentInspector
+	versionObserver    ports.ProviderVersionObserver
+	heartbeats         HeartbeatService
 	publicationQueries PublicationQueryService
 	diagnosticQueries  ports.RuntimeDiagnosticQuery
 	publicationReports PublicationReportService
@@ -1174,6 +1184,8 @@ func newApplication(
 		writer:             dependencies.SecureWriter,
 		projectReader:      dependencies.TrustedProjectReader,
 		inspector:          dependencies.EnvironmentInspector,
+		versionObserver:    dependencies.ProviderVersionObserver,
+		heartbeats:         dependencies.Heartbeats,
 		publicationQueries: dependencies.PublicationQueries,
 		diagnosticQueries:  dependencies.DiagnosticQueries,
 		publicationReports: dependencies.PublicationReports,
@@ -2026,6 +2038,7 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandHeartbeat: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandRoles:     {app.ExitCodeUsage: true},
 		app.CommandReview:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
@@ -2045,7 +2058,7 @@ func projectedFailureExit(command app.CommandName, requested app.ExitCode) app.E
 		return requested
 	}
 	switch command {
-	case app.CommandInit, app.CommandDoctor, app.CommandProviders, app.CommandSchema:
+	case app.CommandInit, app.CommandDoctor, app.CommandProviders, app.CommandHeartbeat, app.CommandSchema:
 		return app.ExitCodeArtifact
 	case app.CommandConfig:
 		return app.ExitCodeSecurity

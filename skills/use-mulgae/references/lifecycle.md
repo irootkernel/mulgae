@@ -15,6 +15,26 @@ mulgae config --mode effective --output json
 mulgae providers --include-unverified --output json
 ```
 
+`mulgae-doctor-result.v2` is an offline contract. Read its independent config,
+local-security, provider-identity, binary-availability, and CLI-compatibility
+dimensions. A configured provider can be offline-ready while static evidence is
+unavailable; `static_evidence_ready_provider_count` is separate from
+`offline_ready_provider_count`. Doctor may execute only the adapter-owned local
+`--version` command and never authenticates, sends a prompt, captures source, or
+contacts a provider API. A live review cannot change doctor readiness.
+
+Do not use heartbeat during ordinary diagnosis. When the user explicitly asks
+for a live check, disclose its effects and require both the provider selection
+and authorization flag:
+
+```bash
+mulgae heartbeat --provider zcode --authorize-live-request --output json
+```
+
+Omitting the flag must return `attempted: false`. A heartbeat uses only
+Mulgae-owned synthetic material and neither establishes offline readiness nor
+records review qualification.
+
 Do not install, upgrade, authenticate, or rewrite provider paths on the user's
 behalf unless separately authorized. A missing `.mulgae/config.yaml` means the
 workspace has no shared project policy. A present project file with missing

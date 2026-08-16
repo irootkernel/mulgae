@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -179,6 +180,82 @@ func TestObserveExecutableVersionFailureLeavesExecutableAvailable(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing.T) {
+	tests := []struct {
+		name    string
+		script  string
+		state   ports.ProviderVersionState
+		version string
+	}{
+		{"supported", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'agy 1.1.4\\n'\n", ports.ProviderVersionObserved, "1.1.4"},
+		{"malformed", "#!/bin/sh\nprintf 'agy unknown\\n'\n", ports.ProviderVersionMalformed, ""},
+		{"execution failure", "#!/bin/sh\nexit 7\n", ports.ProviderVersionExecutionFailed, ""},
+		{"timeout", "#!/bin/sh\nsleep 30\n", ports.ProviderVersionTimedOut, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "agy")
+			contents := []byte(test.script)
+			writeExecutable(t, path, contents)
+			observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, testDigest(contents), testDigest(contents))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.State() != test.state || observation.Version() != test.version {
+				t.Fatalf("observation = %q/%q, want %q/%q", observation.State(), observation.Version(), test.state, test.version)
+			}
+		})
+	}
+}
+
+func TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(directory, "node")
+	launcher := filepath.Join(directory, "zcode.cjs")
+	nodeContents := []byte("#!/bin/sh\n[ \"$1\" = \"" + launcher + "\" ] || exit 8\n[ \"$2\" = \"--version\" ] || exit 9\nprintf 'zcode 0.15.2\\n'\n")
+	launcherContents := []byte("// fixed launcher\n")
+	writeExecutable(t, node, nodeContents)
+	if err := os.WriteFile(launcher, launcherContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "zcode", []string{node, launcher, "--version"}, testDigest(nodeContents), testDigest(launcherContents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State() != ports.ProviderVersionObserved || observation.Version() != "0.15.2" {
+		t.Fatalf("zcode observation = %q/%q", observation.State(), observation.Version())
+	}
+}
+
+func TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "agy")
+	contents := []byte("#!/bin/sh\nprintf '1.1.4\\n'\n")
+	writeExecutable(t, path, contents)
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, "sha256:"+strings.Repeat("0", 64), testDigest(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State() != ports.ProviderVersionUnsafeIdentity {
+		t.Fatalf("observation state = %q, want unsafe_identity", observation.State())
+	}
+}
+
+func testDigest(contents []byte) string {
+	digest := sha256.Sum256(contents)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 func TestObserveExecutableAcceptsLargeVersionOutput(t *testing.T) {

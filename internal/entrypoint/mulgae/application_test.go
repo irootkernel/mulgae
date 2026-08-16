@@ -32,6 +32,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
+	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -44,7 +45,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -67,11 +68,38 @@ func (fixedFoundationRequestIDs) NewRequestID(time.Time) (string, error) {
 }
 
 type doctorIdentityInspector struct {
-	delegate         ports.EnvironmentInspector
-	executableErrors map[string]error
-	nativeHomeErr    error
-	nativeHomeErrors []error
-	nativeHomeCalls  int
+	delegate          ports.EnvironmentInspector
+	executableErrors  map[string]error
+	executableMissing map[string]bool
+	fileErrors        map[string]error
+	fileMissing       map[string]bool
+	nativeHomeErr     error
+	nativeHomeErrors  []error
+	nativeHomeCalls   int
+}
+
+type doctorVersionObserver struct{}
+
+func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _, _ string) (ports.ProviderVersionObservation, error) {
+	versions := map[string]string{"kimi": "0.23.6", "zcode": "0.15.2", "agy": "1.1.4", "codex": "0.147.0"}
+	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
+}
+
+type doctorVersionObserverFunc func(context.Context, string, []string, string, string) (ports.ProviderVersionObservation, error)
+
+func (observer doctorVersionObserverFunc) ObserveProviderVersion(ctx context.Context, family string, argv []string, executableSHA256, launcherSHA256 string) (ports.ProviderVersionObservation, error) {
+	return observer(ctx, family, argv, executableSHA256, launcherSHA256)
+}
+
+type heartbeatServiceStub struct {
+	calls  int
+	result appheartbeat.Result
+	err    error
+}
+
+func (service *heartbeatServiceStub) ProbeProvider(_ context.Context, _ ports.AnchoredRoot, _ appheartbeat.Request) (appheartbeat.Result, error) {
+	service.calls++
+	return service.result, service.err
 }
 
 func (inspector *doctorIdentityInspector) ObservePlatform(ctx context.Context) (ports.PlatformObservation, error) {
@@ -81,12 +109,21 @@ func (inspector *doctorIdentityInspector) ObserveExecutable(ctx context.Context,
 	return inspector.delegate.ObserveExecutable(ctx, name)
 }
 func (inspector *doctorIdentityInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
+	if inspector.executableMissing[name] {
+		return ports.NewExecutableObservation(name, false, "", "", "")
+	}
 	if err := inspector.executableErrors[name]; err != nil {
 		return ports.ExecutableObservation{}, err
 	}
 	return inspector.delegate.ObserveExecutableIdentity(ctx, name)
 }
 func (inspector *doctorIdentityInspector) ObserveReadableFileIdentity(ctx context.Context, name string) (ports.FileIdentityObservation, error) {
+	if inspector.fileMissing[name] {
+		return ports.NewFileIdentityObservation(name, false, "", "")
+	}
+	if err := inspector.fileErrors[name]; err != nil {
+		return ports.FileIdentityObservation{}, err
+	}
 	return inspector.delegate.ObserveReadableFileIdentity(ctx, name)
 }
 func (inspector *doctorIdentityInspector) ObserveNativeHomeIdentity(ctx context.Context, path string) (ports.NativeHomeLaunchAuthority, error) {
@@ -170,10 +207,11 @@ func (writer *receiptCapturingFoundationWriter) reset() {
 }
 
 type foundationEvidenceReader struct {
-	providerCalls        []string
-	providerEvidenceURIs map[string]string
-	platformCalls        []doctor.PlatformCell
-	toolsCalls           int
+	providerCalls            []string
+	providerEvidenceURIs     map[string]string
+	providerEvidenceStatuses map[string]doctor.EvidenceStatus
+	platformCalls            []doctor.PlatformCell
+	toolsCalls               int
 }
 
 func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, providerID string) (doctor.ProviderEvidenceRecord, error) {
@@ -199,6 +237,9 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 	uri := foundationProviderEvidenceURI
 	if configuredURI, configured := reader.providerEvidenceURIs[providerID]; configured {
 		uri = configuredURI
+	}
+	if configuredStatus, configured := reader.providerEvidenceStatuses[providerID]; configured {
+		probes[0].Status = configuredStatus
 	}
 	return doctor.ProviderEvidenceRecord{
 		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json",
@@ -332,8 +373,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 17 {
-		t.Fatalf("canonical registry has %d commands, want 17", len(specs))
+	if len(specs) != 18 {
+		t.Fatalf("canonical registry has %d commands, want 18", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -1281,13 +1322,14 @@ func TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory(t *testing.T) {
 	diagnosis := doctor.LocalDoctorResult{
 		Readiness: doctor.LocalReadiness{State: "degraded", ExitCode: 0},
 		ProviderInventory: []doctor.LocalProviderInventoryRow{
-			{Family: "kimi", State: "eligible", Reason: "identity_admitted"},
+			{Family: "kimi", State: "eligible", Reason: "provider_cli_version_supported"},
 			{Family: "zcode", State: "not_configured", Reason: "not_configured"},
 			{Family: "agy", State: "not_configured", Reason: "not_configured"},
 		},
 	}
 	output := string(localDoctorHumanOutput(diagnosis))
-	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 3 {
+	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 3 ||
+		!strings.Contains(output, "- kimi: eligible (provider_cli_version_supported)") {
 		t.Fatalf("doctor human output = %q, want ANSI-free fixed inventory", output)
 	}
 }
@@ -1406,6 +1448,69 @@ func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
 	}
 }
 
+func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+		reason string
+	}{
+		{
+			name: "invalid provider identity",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte("agy:"), []byte("unknown_provider:"), 1)
+			},
+			reason: "config_provider_identity_invalid",
+		},
+		{
+			name: "invalid role mapping",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte(`primary_provider: "agy"`), []byte(`primary_provider: "zcode"`), 1)
+			},
+			reason: "config_role_mapping_invalid",
+		},
+		{
+			name: "incomplete role mapping",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte(`primary_provider: "agy"`), []byte(`primary_provider: ""`), 1)
+			},
+			reason: "config_role_mapping_invalid",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			path := filepath.Join(root, ".mulgae", "config.yaml")
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutated := test.mutate(contents)
+			if bytes.Equal(contents, mutated) {
+				t.Fatal("test mutation did not change config")
+			}
+			if err := os.WriteFile(path, mutated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
+			var envelope struct {
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Result.Doctor.ProviderIdentity.Status != "failed" || !reflect.DeepEqual(envelope.Result.Doctor.ProviderIdentity.ReasonCodes, []string{test.reason}) || !reflect.DeepEqual(envelope.Result.Doctor.Readiness.ReasonCodes, []string{test.reason}) {
+				t.Fatalf("doctor config classification = %#v", envelope.Result.Doctor)
+			}
+		})
+	}
+}
+
 func TestApplicationDoctorClassifiesCredentialAdmissionAsSecurity(t *testing.T) {
 	for _, test := range []struct {
 		name, injected, reason, secret string
@@ -1461,7 +1566,7 @@ func TestApplicationDoctorClassifiesCredentialAdmissionAsSecurity(t *testing.T) 
 	}
 }
 
-func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *testing.T) {
+func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t *testing.T) {
 	tests := []struct {
 		name          string
 		initArguments []string
@@ -1507,15 +1612,15 @@ func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *
 				!reflect.DeepEqual(envelope.Result.Doctor.ConfiguredProviderIDs, test.wantProviders) {
 				t.Fatalf("doctor result = %#v, want %s with providers %v", envelope.Result.Doctor, test.wantState, test.wantProviders)
 			}
-			if !reflect.DeepEqual(evidence.providerCalls, test.wantProviders) {
-				t.Fatalf("evidence calls = %v, want configured families only %v", evidence.providerCalls, test.wantProviders)
+			if len(evidence.providerCalls) != 0 {
+				t.Fatalf("doctor consulted static evidence: %v", evidence.providerCalls)
 			}
 			for _, row := range envelope.Result.Doctor.ProviderInventory {
 				configured := false
 				for _, family := range test.wantProviders {
 					configured = configured || row.Family == family
 				}
-				if configured && (row.State != "eligible" || row.Reason != "identity_admitted") {
+				if configured && (row.State != "eligible" || row.Reason != "provider_cli_version_supported") {
 					t.Fatalf("configured row = %#v, want eligible", row)
 				}
 				if !configured && (row.State != "not_configured" || row.Reason != "not_configured") {
@@ -1526,10 +1631,7 @@ func TestApplicationDoctorUsesConfiguredFamiliesAndInjectedAuthorityEvidence(t *
 	}
 }
 
-// TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable
-// proves an unusable family does not degrade readiness on its own. The roles it
-// owns will fail and be reported; the roles on the eligible family are unaffected.
-func TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUnavailable(t *testing.T) {
+func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t *testing.T) {
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
@@ -1545,7 +1647,7 @@ func TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUn
 	}
 
 	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
 	var envelope struct {
 		Result struct {
 			Doctor *doctor.LocalDoctorResult `json:"doctor"`
@@ -1554,10 +1656,70 @@ func TestApplicationDoctorStaysReadyWhenOneOfTwoConfiguredProviderIdentitiesIsUn
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "ready" || envelope.Result.Doctor.Readiness.ExitCode != 0 ||
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" || envelope.Result.Doctor.Readiness.ExitCode != 4 ||
 		envelope.Result.Doctor.ProviderInventory[0].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
-		!reflect.DeepEqual(evidence.providerCalls, []string{"agy"}) {
+		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
+	}
+}
+
+func TestApplicationDoctorReportsStableBinaryAvailabilityReasons(t *testing.T) {
+	tests := []struct {
+		name          string
+		initArguments []string
+		configure     func(*foundationFixture)
+		rowIndex      int
+		reason        string
+		exit          app.ExitCode
+	}{
+		{"missing executable", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableMissing: map[string]bool{"/bin/sh": true}}
+		}, 2, "provider_executable_missing", app.ExitCodeReadiness},
+		{"non executable", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonNonExecutable, "executable permission unavailable")}}
+		}, 2, "provider_executable_not_executable", app.ExitCodeReadiness},
+		{"executable observation failure", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable observation failed")}}
+		}, 2, "provider_binary_observation_failed", app.ExitCodeReadiness},
+		{"missing zcode launcher", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileMissing: map[string]bool{"/bin/sh": true}}
+		}, 1, "zcode_launcher_missing", app.ExitCodeReadiness},
+		{"unreadable zcode launcher", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonUnreadable, "launcher unreadable")}}
+		}, 1, "zcode_launcher_unreadable", app.ExitCodeReadiness},
+		{"zcode launcher observation failure", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "launcher observation failed")}}
+		}, 1, "zcode_launcher_observation_failed", app.ExitCodeReadiness},
+		{"unsafe executable identity", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed")}}
+		}, 2, "provider_executable_unsafe_identity", app.ExitCodeSecurity},
+		{"unsafe zcode launcher identity", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "launcher identity changed")}}
+		}, 1, "zcode_launcher_unsafe_identity", app.ExitCodeSecurity},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), test.initArguments, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			if test.configure != nil {
+				test.configure(&fixture)
+			}
+			result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			var envelope struct {
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if got := envelope.Result.Doctor.ProviderInventory[test.rowIndex].Reason; got != test.reason {
+				t.Fatalf("provider reason = %q, want %q", got, test.reason)
+			}
+		})
 	}
 }
 
@@ -1613,20 +1775,20 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[0].Reason != "provider_security_admission_failed" ||
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[0].Reason != "provider_executable_unsafe_identity" ||
 		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
-		!reflect.DeepEqual(evidence.providerCalls, []string{"agy"}) {
+		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
 	}
 }
 
-func TestApplicationDoctorKeepsConfiguredProvidersUnverifiedWithoutAuthorityEvidence(t *testing.T) {
+func TestApplicationDoctorKeepsConfiguredProvidersReadyWithoutStaticAuthorityEvidence(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
 	var envelope struct {
 		Result struct {
 			Doctor *doctor.LocalDoctorResult `json:"doctor"`
@@ -1635,25 +1797,87 @@ func TestApplicationDoctorKeepsConfiguredProvidersUnverifiedWithoutAuthorityEvid
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" ||
-		envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeReadiness) ||
-		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_static_admission_unverified" {
-		t.Fatalf("doctor result = %#v, want explicit unverified authority", envelope.Result.Doctor)
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "ready" ||
+		envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeSuccess) ||
+		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_cli_version_supported" {
+		t.Fatalf("doctor result = %#v, want offline-compatible provider", envelope.Result.Doctor)
+	}
+}
+
+func TestApplicationDoctorNeverInvokesLiveHeartbeatService(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	service := &heartbeatServiceStub{}
+	fixture.application.heartbeats = service
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeSuccess)
+	if service.calls != 0 {
+		t.Fatalf("doctor invoked live heartbeat service %d times", service.calls)
+	}
+}
+
+func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
+	tests := []struct {
+		name          string
+		state         ports.ProviderVersionState
+		version       string
+		exit          app.ExitCode
+		status        string
+		eligibility   string
+		compatibility string
+		reason        string
+	}{
+		{"supported", ports.ProviderVersionObserved, "1.1.4", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
+		{"newer than verified", ports.ProviderVersionObserved, "9.9.9", app.ExitCodeSuccess, "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"},
+		{"below minimum", ports.ProviderVersionObserved, "0.1.0", app.ExitCodeReadiness, "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"},
+		{"malformed", ports.ProviderVersionMalformed, "", app.ExitCodeReadiness, "failed", "ineligible", "malformed", "provider_cli_version_malformed"},
+		{"command failure", ports.ProviderVersionExecutionFailed, "", app.ExitCodeReadiness, "unverifiable", "not_evaluated", "not_observed", "provider_cli_version_command_failed"},
+		{"timeout", ports.ProviderVersionTimedOut, "", app.ExitCodeReadiness, "unverifiable", "not_evaluated", "not_observed", "provider_cli_version_timeout"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			fixture.application.versionObserver = doctorVersionObserverFunc(func(context.Context, string, []string, string, string) (ports.ProviderVersionObservation, error) {
+				return ports.NewProviderVersionObservation(test.state, test.version)
+			})
+			result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			var envelope struct {
+				Result struct {
+					Doctor *doctor.LocalDoctorResult `json:"doctor"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			row := envelope.Result.Doctor.ProviderInventory[2]
+			if row.CLICompatible.Status != test.status || row.CLICompatible.Eligibility != test.eligibility || row.CLICompatible.Compatibility != test.compatibility || row.Reason != test.reason {
+				t.Fatalf("CLI compatibility = %#v", row.CLICompatible)
+			}
+		})
 	}
 }
 
 func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
 	human := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
-	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stderr()) != 0 {
+	if human.ExitCode() != app.ExitCodeSuccess || len(human.Stderr()) != 0 {
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
 	wantFamilies := []string{"kimi", "zcode", "agy", "codex"}
-	if len(lines) != len(wantFamilies)+3 || lines[4] != "code: readiness_unverified" || lines[5] != "stage: cli.providers" || lines[6] != "hint: run mulgae doctor" {
-		t.Fatalf("providers human rows = %q, want provider rows plus actionable failure details", human.Stdout())
+	if len(lines) != len(wantFamilies) {
+		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
 	for index, family := range wantFamilies {
 		if !strings.Contains(lines[index], "family="+family+" ") ||
@@ -1666,20 +1890,20 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	}
 
 	filtered := fixture.application.Run(context.Background(), []string{"providers"}, root)
-	if filtered.ExitCode() != app.ExitCodeReadiness ||
+	if filtered.ExitCode() != app.ExitCodeSuccess ||
 		!strings.Contains(string(filtered.Stdout()), "no evidence-qualified provider profiles\n") ||
-		!strings.Contains(string(filtered.Stdout()), "code: readiness_unverified\nstage: cli.providers\nhint: run mulgae doctor\n") ||
 		len(filtered.Stderr()) != 0 {
 		t.Fatalf("filtered providers result = exit %d stdout %q stderr %q", filtered.ExitCode(), filtered.Stdout(), filtered.Stderr())
 	}
 
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
 	var envelope struct {
 		Result struct {
-			Kind                string  `json:"kind"`
-			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
-			ReadyProviderCount  int     `json:"ready_provider_count"`
+			Kind                             string  `json:"kind"`
+			ProviderEvidenceURI              *string `json:"provider_evidence_uri"`
+			OfflineReadyProviderCount        int     `json:"offline_ready_provider_count"`
+			StaticEvidenceReadyProviderCount int     `json:"static_evidence_ready_provider_count"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
@@ -1687,34 +1911,52 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	}
 	if envelope.Result.Kind != "providers_listed" ||
 		envelope.Result.ProviderEvidenceURI != nil ||
-		envelope.Result.ReadyProviderCount != 0 {
+		envelope.Result.OfflineReadyProviderCount != 1 ||
+		envelope.Result.StaticEvidenceReadyProviderCount != 0 {
 		t.Fatalf("providers JSON result = %#v, want unverified readiness projection", envelope.Result)
 	}
 }
+
+func TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile(t *testing.T) {
+	evidence := &foundationEvidenceReader{providerEvidenceStatuses: map[string]doctor.EvidenceStatus{
+		"kimi": doctor.EvidenceStatusFail, "zcode": doctor.EvidenceStatusFail,
+		"agy": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
+	}}
+	fixture := newFoundationFixtureWithEvidence(t, evidence)
+	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	result := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+}
+
 func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscovery(t *testing.T) {
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
 	providersResult := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, providersResult, app.ExitCodeSuccess)
 	var providersEnvelope struct {
 		Result struct {
-			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
-			ReadyProviderCount  int     `json:"ready_provider_count"`
+			ProviderEvidenceURI              *string `json:"provider_evidence_uri"`
+			OfflineReadyProviderCount        int     `json:"offline_ready_provider_count"`
+			StaticEvidenceReadyProviderCount int     `json:"static_evidence_ready_provider_count"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.ReadyProviderCount != 4 ||
+	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 4 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
 		t.Fatalf("providers result = %#v, want 4 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, doctorResult, app.ExitCodeReadiness)
+	assertFoundationEnvelope(t, fixture, doctorResult, app.ExitCodeSuccess)
 	var doctorEnvelope struct {
 		Result struct {
 			DoctorResultURI *string                   `json:"doctor_result_uri"`
@@ -1727,8 +1969,8 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if doctorEnvelope.Result.DoctorResultURI != nil || doctorEnvelope.Result.Doctor == nil {
 		t.Fatalf("doctor envelope = %#v, want inline project-local result", doctorEnvelope.Result)
 	}
-	if got := doctorEnvelope.Result.Doctor.Config.Status; got != "missing" {
-		t.Fatalf("doctor config status = %q, want missing", got)
+	if got := doctorEnvelope.Result.Doctor.Config.Status; got != "ready" {
+		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
 	wantCalls := []string{"kimi", "zcode", "agy", "codex"}
@@ -1749,19 +1991,20 @@ func TestApplicationProvidersRejectsMismatchedSupportedEvidenceURIs(t *testing.T
 
 	var envelope struct {
 		Result struct {
-			ProviderEvidenceURI *string `json:"provider_evidence_uri"`
-			ReadyProviderCount  int     `json:"ready_provider_count"`
+			ProviderEvidenceURI              *string `json:"provider_evidence_uri"`
+			OfflineReadyProviderCount        int     `json:"offline_ready_provider_count"`
+			StaticEvidenceReadyProviderCount int     `json:"static_evidence_ready_provider_count"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.ProviderEvidenceURI != nil || envelope.Result.ReadyProviderCount != 0 {
+	if envelope.Result.ProviderEvidenceURI != nil || envelope.Result.OfflineReadyProviderCount != 0 || envelope.Result.StaticEvidenceReadyProviderCount != 0 {
 		t.Fatalf("failed providers result = %#v, want no authority URI or ready profiles", envelope.Result)
 	}
 }
 
-func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.T) {
+func TestApplicationAbsentAndTypedNilEvidenceReadersRemainInformational(t *testing.T) {
 	var typedNil *typedNilFoundationEvidenceReader
 	for _, test := range []struct {
 		name    string
@@ -1777,10 +2020,77 @@ func TestApplicationAbsentAndTypedNilEvidenceReadersRemainUnverified(t *testing.
 			if fixture.application.evidenceReader != nil {
 				t.Fatalf("application evidence reader = %#v, want nil", fixture.application.evidenceReader)
 			}
-			result := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, testAnchoredRoot(t))
-			if result.ExitCode() != app.ExitCodeReadiness ||
+			root := testAnchoredRoot(t)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+			result := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
+			if result.ExitCode() != app.ExitCodeSuccess ||
 				!strings.Contains(string(result.Stdout()), "support=unverified evidence=unverified assignment=intended_but_unverified") {
 				t.Fatalf("providers result = exit %d stdout %q, want unverified profiles", result.ExitCode(), result.Stdout())
+			}
+		})
+	}
+}
+
+func TestApplicationHeartbeatRejectsBeforeServiceWithoutAuthorization(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	service := &heartbeatServiceStub{}
+	fixture.application.heartbeats = service
+	result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "agy", "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
+	if service.calls != 0 {
+		t.Fatalf("heartbeat service calls = %d, want zero before authorization", service.calls)
+	}
+	var envelope struct {
+		Result struct {
+			Heartbeat appheartbeat.Result `json:"heartbeat"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.Heartbeat.Attempted || envelope.Result.Heartbeat.Status != "not_authorized" || envelope.Result.Heartbeat.ReasonCode != "live_authorization_required" {
+		t.Fatalf("heartbeat authorization result = %#v", envelope.Result.Heartbeat)
+	}
+}
+
+func TestApplicationHeartbeatProjectsStableLiveOutcomes(t *testing.T) {
+	tests := []struct {
+		status string
+		reason string
+		exit   app.ExitCode
+	}{
+		{"succeeded", "heartbeat_succeeded", app.ExitCodeSuccess},
+		{"provider_failure", "provider_failure", app.ExitCodeReadiness},
+		{"timeout", "provider_timeout", app.ExitCodeReadiness},
+		{"authentication_failure", "authentication_required", app.ExitCodeReadiness},
+		{"malformed_response", "heartbeat_response_malformed", app.ExitCodeReadiness},
+		{"execution_failure", "provider_execution_failed", app.ExitCodeReadiness},
+	}
+	for _, test := range tests {
+		t.Run(test.status, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			service := &heartbeatServiceStub{result: appheartbeat.Result{
+				SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC),
+				ProviderID: "agy", Attempted: true, Status: test.status, ReasonCode: test.reason,
+				AuthenticationMayOccur: true, NetworkMayOccur: true, CostMayOccur: true, RemoteLoggingMayOccur: true,
+			}}
+			fixture.application.heartbeats = service
+			result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "agy", "--authorize-live-request", "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			if service.calls != 1 {
+				t.Fatalf("heartbeat service calls = %d, want one", service.calls)
+			}
+			var envelope struct {
+				Result struct {
+					Heartbeat appheartbeat.Result `json:"heartbeat"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Result.Heartbeat.Status != test.status || !envelope.Result.Heartbeat.Attempted {
+				t.Fatalf("heartbeat result = %#v", envelope.Result.Heartbeat)
 			}
 		})
 	}
@@ -3970,19 +4280,20 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	followup, delta, rerun, retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	dependencies := Dependencies{
-		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
-		RequestIDGenerator:   fixedFoundationRequestIDs{},
-		Catalog:              fixture.catalog,
-		JSONSchemaValidator:  fixture.validator,
-		SecureWriter:         fixture.writer,
-		TrustedProjectReader: reader,
-		EnvironmentInspector: environment.NewInspector(),
-		RequestResolver:      resolver,
-		FollowupRuns:         followup,
-		DeltaRuns:            delta,
-		Reruns:               rerun,
-		Retention:            retention,
-		Exports:              exports,
+		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:      fixedFoundationRequestIDs{},
+		Catalog:                 fixture.catalog,
+		JSONSchemaValidator:     fixture.validator,
+		SecureWriter:            fixture.writer,
+		TrustedProjectReader:    reader,
+		EnvironmentInspector:    environment.NewInspector(),
+		ProviderVersionObserver: doctorVersionObserver{},
+		RequestResolver:         resolver,
+		FollowupRuns:            followup,
+		DeltaRuns:               delta,
+		Reruns:                  rerun,
+		Retention:               retention,
+		Exports:                 exports,
 	}
 	query := newG006QueryFake()
 	report := newG006ReportFake()
@@ -4512,19 +4823,20 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 		t.Fatal(err)
 	}
 	application, err := NewApplication(Dependencies{
-		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
-		RequestIDGenerator:   fixedFoundationRequestIDs{},
-		Catalog:              fixture.catalog,
-		JSONSchemaValidator:  fixture.validator,
-		SecureWriter:         fixture.writer,
-		TrustedProjectReader: reader,
-		EnvironmentInspector: environment.NewInspector(),
-		RequestResolver:      fakes.resolver,
-		FollowupRuns:         fakes.followup,
-		DeltaRuns:            fakes.delta,
-		Reruns:               fakes.rerun,
-		Retention:            fakes.retention,
-		Exports:              fakes.export,
+		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:      fixedFoundationRequestIDs{},
+		Catalog:                 fixture.catalog,
+		JSONSchemaValidator:     fixture.validator,
+		SecureWriter:            fixture.writer,
+		TrustedProjectReader:    reader,
+		EnvironmentInspector:    environment.NewInspector(),
+		ProviderVersionObserver: doctorVersionObserver{},
+		RequestResolver:         fakes.resolver,
+		FollowupRuns:            fakes.followup,
+		DeltaRuns:               fakes.delta,
+		Reruns:                  fakes.rerun,
+		Retention:               fakes.retention,
+		Exports:                 fakes.export,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -4935,20 +5247,21 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 	followup, delta, rerun, retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
-		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
-		RequestIDGenerator:   fixedFoundationRequestIDs{},
-		Catalog:              fixture.catalog,
-		JSONSchemaValidator:  fixture.validator,
-		SecureWriter:         fixture.writer,
-		TrustedProjectReader: reader,
-		EnvironmentInspector: environment.NewInspector(),
-		RequestResolver:      resolver,
-		EvidenceReader:       evidence,
-		FollowupRuns:         followup,
-		DeltaRuns:            delta,
-		Reruns:               rerun,
-		Retention:            retention,
-		Exports:              exports,
+		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:      fixedFoundationRequestIDs{},
+		Catalog:                 fixture.catalog,
+		JSONSchemaValidator:     fixture.validator,
+		SecureWriter:            fixture.writer,
+		TrustedProjectReader:    reader,
+		EnvironmentInspector:    environment.NewInspector(),
+		ProviderVersionObserver: doctorVersionObserver{},
+		RequestResolver:         resolver,
+		EvidenceReader:          evidence,
+		FollowupRuns:            followup,
+		DeltaRuns:               delta,
+		Reruns:                  rerun,
+		Retention:               retention,
+		Exports:                 exports,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -4972,19 +5285,20 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 	followup, delta, rerun, retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
-		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
-		RequestIDGenerator:   fixedFoundationRequestIDs{},
-		Catalog:              catalog,
-		JSONSchemaValidator:  validator,
-		SecureWriter:         writer,
-		TrustedProjectReader: reader,
-		EnvironmentInspector: environment.NewInspector(),
-		RequestResolver:      resolver,
-		FollowupRuns:         followup,
-		DeltaRuns:            delta,
-		Reruns:               rerun,
-		Retention:            retention,
-		Exports:              exports,
+		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
+		RequestIDGenerator:      fixedFoundationRequestIDs{},
+		Catalog:                 catalog,
+		JSONSchemaValidator:     validator,
+		SecureWriter:            writer,
+		TrustedProjectReader:    reader,
+		EnvironmentInspector:    environment.NewInspector(),
+		ProviderVersionObserver: doctorVersionObserver{},
+		RequestResolver:         resolver,
+		FollowupRuns:            followup,
+		DeltaRuns:               delta,
+		Reruns:                  rerun,
+		Retention:               retention,
+		Exports:                 exports,
 	})
 	if err != nil {
 		t.Fatal(err)

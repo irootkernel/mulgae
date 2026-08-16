@@ -38,6 +38,7 @@ type productionRuntimeGraph struct {
 	authority       *reviewrun.RunAuthorityAdapter
 	qualified       *reviewrun.QualifiedRunFactory
 	candidates      *configuredProductionCandidateSource
+	fixtures        *providercli.ProbeFixtureLeaseFactory
 	reviewValidator *validation.ReviewValidator
 	publisher       *publication.Service
 	diagnostics     ports.RuntimeDiagnosticSinkFactory
@@ -260,7 +261,7 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: templates: %w", err)
 	}
-	graph.detector, graph.inputs, graph.authority, graph.qualified, graph.candidates, graph.reviewValidator = detector, inputs, authority, qualified, candidates, reviewValidator
+	graph.detector, graph.inputs, graph.authority, graph.qualified, graph.candidates, graph.fixtures, graph.reviewValidator = detector, inputs, authority, qualified, candidates, fixtures, reviewValidator
 	graph.publisher, graph.diagnostics, graph.templates = publisher, diagnostics, templates
 	return graph, nil
 }

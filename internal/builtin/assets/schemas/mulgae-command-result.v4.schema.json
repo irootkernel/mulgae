@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json",
+  "$id": "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json",
   "title": "Mulgae Command Result v3",
   "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
   "type": "object",
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-command-result.v3"
+      "const": "mulgae-command-result.v4"
     },
     "command": {
       "$ref": "#/$defs/command"
@@ -34,6 +34,7 @@
         { "$ref": "#/$defs/requests/findings" },
         { "$ref": "#/$defs/requests/excerpt" },
         { "$ref": "#/$defs/requests/providers" },
+        { "$ref": "#/$defs/requests/heartbeat" },
         { "$ref": "#/$defs/requests/roles" },
         { "$ref": "#/$defs/requests/config" },
         { "$ref": "#/$defs/requests/schema" },
@@ -70,6 +71,7 @@
         { "$ref": "#/$defs/results/findings" },
         { "$ref": "#/$defs/results/excerpt" },
         { "$ref": "#/$defs/results/providers" },
+        { "$ref": "#/$defs/results/heartbeat" },
         { "$ref": "#/$defs/results/roles" },
         { "$ref": "#/$defs/results/config" },
         { "$ref": "#/$defs/results/schema" },
@@ -251,6 +253,16 @@
           "request": { "$ref": "#/$defs/requests/providers" },
           "result": { "$ref": "#/$defs/results/providers" },
           "exit": { "$ref": "#/$defs/exits/readiness" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command": { "const": "heartbeat" } }, "required": ["command"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/requests/heartbeat" },
+          "result": { "$ref": "#/$defs/results/heartbeat" },
+          "exit": { "$ref": "#/$defs/exits/heartbeat" }
         }
       }
     },
@@ -496,6 +508,7 @@
         "findings",
         "excerpt",
         "providers",
+        "heartbeat",
         "roles",
         "config",
         "schema",
@@ -793,6 +806,7 @@
       "read": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8, 9, 10] } } }] },
       "excerpt": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "readiness": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8] } } }] },
+      "heartbeat": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "config": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 4, 7, 8, 9, 10] } } }] },
       "maintenance": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2, 7, 8] } } }] },
       "help": { "allOf": [{ "$ref": "#/$defs/exit" }, { "properties": { "code": { "enum": [0, 2] } } }] }
@@ -3379,6 +3393,20 @@
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
+      "heartbeat": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "project_root", "provider_id", "credential_profile", "authorize_live_request", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "heartbeat" },
+          "project_root": { "$ref": "#/$defs/path" },
+          "provider_id": { "enum": ["kimi", "zcode", "agy", "codex"] },
+          "credential_profile": { "type": "string", "maxLength": 32 },
+          "authorize_live_request": { "type": "boolean" },
+          "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
       "roles": {
         "type": "object",
         "additionalProperties": false,
@@ -3515,7 +3543,7 @@
               {
                 "type": "object",
                 "required": ["schema_version"],
-                "properties": { "schema_version": { "const": "mulgae-doctor-result.v1" } }
+                "properties": { "schema_version": { "const": "mulgae-doctor-result.v2" } }
               }
             ]
           }
@@ -3897,11 +3925,22 @@
       "providers": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "provider_evidence_uri", "ready_provider_count"],
+        "required": ["kind", "provider_evidence_uri", "offline_ready_provider_count", "static_evidence_ready_provider_count"],
         "properties": {
           "kind": { "const": "providers_listed" },
           "provider_evidence_uri": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "pattern": "^[^\\u0000\\r\\n]+$" },
-          "ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 1024 }
+          "offline_ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 4 },
+          "static_evidence_ready_provider_count": { "type": "integer", "minimum": 0, "maximum": 4 }
+        }
+      },
+      "heartbeat": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "heartbeat"],
+        "properties": {
+          "kind": { "const": "provider_heartbeat" },
+          "heartbeat": {
+            "type": "object", "required": ["schema_version"],
+            "properties": { "schema_version": { "const": "mulgae-provider-heartbeat-result.v1" } }
+          }
         }
       },
       "roles": {

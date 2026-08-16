@@ -179,20 +179,29 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	}, func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewPreflightService, error) {
 		return composeReviewPreflight(reviewContext, reviewRoot, gitAdapter, requestResolver)
 	})
+	heartbeats := deferredHeartbeatService{clock: clock, compose: func(heartbeatContext context.Context, heartbeatRoot ports.AnchoredRoot) (*productionRuntimeGraph, error) {
+		if buildErr != nil {
+			return nil, unavailableBuildMetadata(buildErr)
+		}
+		return composeProductionRuntimeGraph(heartbeatContext, build, heartbeatRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
+	}}
 	publicationQueries := mulgae.NewPublicationQueryService(queryService)
 	publicationReports := mulgae.NewPublicationReportService(reportService)
 	diagnosticQueries := filesystem.NewDiagnosticStatusReader()
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
-		Clock:                clock,
-		RequestIDGenerator:   ids,
-		RequestResolver:      g008Dependencies.RequestResolver,
-		Catalog:              catalog,
-		JSONSchemaValidator:  validator,
-		SecureWriter:         writer,
-		TrustedProjectReader: gitAdapter,
-		EnvironmentInspector: startupInspector,
-		// SOT defines no canonical non-hidden production evidence source, so standalone
-		// Mulgae remains fail-closed until one is standardized.
+		Clock:                   clock,
+		RequestIDGenerator:      ids,
+		RequestResolver:         g008Dependencies.RequestResolver,
+		Catalog:                 catalog,
+		JSONSchemaValidator:     validator,
+		SecureWriter:            writer,
+		TrustedProjectReader:    gitAdapter,
+		EnvironmentInspector:    startupInspector,
+		ProviderVersionObserver: environment.NewProviderVersionObserver(),
+		Heartbeats:              heartbeats,
+		// SOT defines no canonical non-hidden production evidence source. Doctor
+		// reports that absence without blocking readiness; every review still
+		// performs its own fail-closed live qualification.
 		EvidenceReader:     nil,
 		ReviewRuns:         reviewRuns,
 		FollowupRuns:       deferredFollowupRunService{composer: childComposer},

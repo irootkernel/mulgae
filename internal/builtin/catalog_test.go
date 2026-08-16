@@ -140,7 +140,7 @@ func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 		{
 			name: "invalid schema identity",
 			mutate: func(t *testing.T, files fstest.MapFS) {
-				files["schemas/mulgae-command-result.v3.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
+				files["schemas/mulgae-command-result.v4.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
 				rewriteTestChecksums(t, files)
 			},
 		},
@@ -165,7 +165,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
-	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json")
+	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json")
 	metadata, first, err := catalog.Read(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Read(%q): %v", id.String(), err)
@@ -176,7 +176,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	if metadata.Kind() != ports.AssetKindSchema {
 		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindSchema)
 	}
-	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v3.schema.json"))
+	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v4.schema.json"))
 	if err != nil {
 		t.Fatalf("read authoritative global default: %v", err)
 	}
@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 67 {
-		t.Fatalf("manifest asset count = %d, want 67", len(manifest.Assets))
+	if len(manifest.Assets) != 69 {
+		t.Fatalf("manifest asset count = %d, want 69", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -322,8 +322,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 56 {
-		t.Fatalf("authoritative runtime source count = %d, want 56", len(authoritativeSources))
+	if len(authoritativeSources) != 58 {
+		t.Fatalf("authoritative runtime source count = %d, want 58", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -515,13 +515,14 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 
 	expected := []schemaExamplePair{
 		{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "schemas/mulgae-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-command-result.v3.schema.json", "schemas/mulgae-command-result.v3.schema.json", "examples/command-result.v3.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-doctor-result.v1.schema.json", "schemas/mulgae-doctor-result.v1.schema.json", "examples/doctor-result.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json", "schemas/mulgae-command-result.v4.schema.json", "examples/command-result.v4.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "schemas/mulgae-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "schemas/mulgae-file-catalog.v1.schema.json", "examples/file-catalog.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json", "schemas/mulgae-mcp-tool-result.v1.schema.json", "examples/mcp-tool-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "schemas/mulgae-platform-contract-evidence.v1.schema.json", "examples/platform-contract-evidence.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", "schemas/mulgae-provider-contract-evidence.v2.schema.json", "examples/provider-contract-evidence.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json", "schemas/mulgae-provider-heartbeat-result.v1.schema.json", "examples/provider-heartbeat-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "schemas/mulgae-provider-followup-output.v1.schema.json", "examples/provider-followup-output.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json", "schemas/mulgae-provider-review-output.v1.schema.json", "examples/provider-review-output.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-review-wire.v1.schema.json", "schemas/mulgae-provider-review-wire.v1.schema.json", "examples/provider-review-wire.v1.valid.json"},
@@ -533,8 +534,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 18 {
-		t.Fatalf("test pair inventory contains %d pairs, want 18", len(expected))
+	if len(expected) != 19 {
+		t.Fatalf("test pair inventory contains %d pairs, want 19", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

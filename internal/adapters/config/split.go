@@ -117,6 +117,9 @@ func DecodeSplit(projectData, localData []byte) (Config, error) {
 		if errors.Is(err, errProviderTimeoutInvalid) {
 			return Config{}, reject(ReasonProviderTimeoutInvalid)
 		}
+		if errors.Is(err, errRoleMappingInvalid) {
+			return Config{}, reject(ReasonRoleMappingInvalid)
+		}
 		return Config{}, reject(ReasonYAMLInvalid)
 	}
 	return config, nil
@@ -160,6 +163,12 @@ func admittedConfigDocument(data []byte) (*yaml.Node, error) {
 	}
 	if reason := scanCredentials(root); reason != "" {
 		return nil, reject(reason)
+	}
+	if !knownProviderIdentities(root) {
+		return nil, reject(ReasonProviderIdentityInvalid)
+	}
+	if !validRoleMappingIdentities(root) {
+		return nil, reject(ReasonRoleMappingInvalid)
 	}
 	if !strictScalarGrammar(root) {
 		return nil, reject(ReasonYAMLInvalid)

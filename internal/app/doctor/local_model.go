@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "mulgae-doctor-result.v1"
+const LocalSchemaVersion = "mulgae-doctor-result.v2"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -23,9 +23,28 @@ type LocalConfigProjection struct {
 }
 
 type LocalProviderInventoryRow struct {
-	Family string `json:"family"`
-	State  string `json:"state"`
-	Reason string `json:"reason"`
+	Family            string                `json:"family"`
+	Configured        bool                  `json:"configured"`
+	ReferencedByRoles []string              `json:"referenced_by_roles"`
+	State             string                `json:"state"`
+	Reason            string                `json:"reason"`
+	BinaryAvailable   LocalDiagnosticCheck  `json:"binary_available"`
+	CLICompatible     LocalCLICompatibility `json:"cli_compatible"`
+}
+
+type LocalDiagnosticCheck struct {
+	Status      string   `json:"status"`
+	ReasonCodes []string `json:"reason_codes"`
+}
+
+type LocalCLICompatibility struct {
+	Status          string `json:"status"`
+	ObservedVersion string `json:"observed_version"`
+	Eligibility     string `json:"eligibility"`
+	Compatibility   string `json:"compatibility"`
+	MinimumVersion  string `json:"minimum_version"`
+	VerifiedLatest  string `json:"verified_latest"`
+	ReasonCode      string `json:"reason_code"`
 }
 
 type LocalAssignmentProjection struct {
@@ -55,19 +74,24 @@ type LocalDiagnostic struct {
 	Redacted bool   `json:"redacted"`
 }
 
-// LocalDoctorResult is the project-local doctor v1 artifact. Field order is
+// LocalDoctorResult is the project-local doctor v2 artifact. Field order is
 // part of the machine contract.
 type LocalDoctorResult struct {
 	SchemaVersion         string                      `json:"schema_version"`
 	CheckedAt             time.Time                   `json:"checked_at"`
 	ProjectRootURI        string                      `json:"project_root_uri"`
 	Config                LocalConfigProjection       `json:"config"`
+	ConfigV3              LocalDiagnosticCheck        `json:"config_v3"`
+	LocalConfiguration    LocalDiagnosticCheck        `json:"local_configuration"`
+	ProviderIdentity      LocalDiagnosticCheck        `json:"provider_identity"`
 	ConfiguredProviderIDs []string                    `json:"configured_provider_ids"`
 	ProviderInventory     []LocalProviderInventoryRow `json:"provider_inventory"`
 	Assignment            LocalAssignmentProjection   `json:"assignment"`
 	PlatformEvidence      []LocalPlatformEvidence     `json:"platform_evidence"`
 	ToolsLock             LocalToolsLock              `json:"tools_lock"`
 	Readiness             LocalReadiness              `json:"readiness"`
+	ConfiguredReadiness   LocalReadiness              `json:"configured_readiness"`
+	RoleRouteReadiness    LocalReadiness              `json:"role_route_readiness"`
 	Diagnostics           []LocalDiagnostic           `json:"diagnostics"`
 }
 
@@ -77,6 +101,11 @@ func (result LocalDoctorResult) Validate() error {
 	}
 	if len(result.ProviderInventory) != 4 || result.ProviderInventory[0].Family != "kimi" || result.ProviderInventory[1].Family != "zcode" || result.ProviderInventory[2].Family != "agy" || result.ProviderInventory[3].Family != "codex" {
 		return fmt.Errorf("local doctor result: invalid provider inventory")
+	}
+	for _, check := range []LocalDiagnosticCheck{result.ConfigV3, result.LocalConfiguration, result.ProviderIdentity} {
+		if !validDiagnosticCheck(check) {
+			return fmt.Errorf("local doctor result: invalid diagnostic dimension")
+		}
 	}
 	if !canonicalProviderIDs(result.ConfiguredProviderIDs) || len(result.PlatformEvidence) != 1 || result.PlatformEvidence[0].Cell == "" || result.ToolsLock.State != "not_observed" {
 		return fmt.Errorf("local doctor result: invalid fixed projection")
@@ -108,6 +137,19 @@ func (result LocalDoctorResult) Validate() error {
 	return validateReadyProviderProjection(result)
 }
 
+func validDiagnosticCheck(check LocalDiagnosticCheck) bool {
+	switch check.Status {
+	case "verified":
+		return len(check.ReasonCodes) == 0
+	case "failed", "unverifiable":
+		return len(check.ReasonCodes) > 0
+	case "not_applicable":
+		return len(check.ReasonCodes) == 0
+	default:
+		return false
+	}
+}
+
 func validateConfigProjection(config LocalConfigProjection) error {
 	switch config.Status {
 	case "missing":
@@ -117,7 +159,7 @@ func validateConfigProjection(config LocalConfigProjection) error {
 			return fmt.Errorf("local doctor result: invalid missing config")
 		}
 	case "invalid":
-		if config.Locality != "verified" || !reflect.DeepEqual(config.ReasonCodes, []string{"config_yaml_invalid"}) {
+		if config.Locality != "verified" || len(config.ReasonCodes) != 1 || !validConfigFailureReason(config.ReasonCodes[0]) {
 			return fmt.Errorf("local doctor result: invalid rejected config")
 		}
 	case "unsafe":
@@ -138,6 +180,15 @@ func validateConfigProjection(config LocalConfigProjection) error {
 	return nil
 }
 
+func validConfigFailureReason(reason string) bool {
+	switch reason {
+	case "config_yaml_invalid", "config_size_invalid", "config_provider_timeout_invalid", "config_provider_identity_invalid", "config_role_mapping_invalid":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateReadyProviderProjection(result LocalDoctorResult) error {
 	if len(result.ConfiguredProviderIDs) == 0 {
 		return fmt.Errorf("local doctor result: ready config has no providers")
@@ -146,23 +197,26 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 	unsafe := false
 	for _, row := range result.ProviderInventory {
 		configured := containsProviderID(result.ConfiguredProviderIDs, row.Family)
+		if row.Configured != configured || row.ReferencedByRoles == nil {
+			return fmt.Errorf("local doctor result: invalid provider configuration projection")
+		}
 		if !configured {
-			if row.State != "not_configured" || row.Reason != "not_configured" {
+			if row.State != "not_configured" || row.Reason != "not_configured" || row.BinaryAvailable.Status != "not_applicable" || row.CLICompatible.Status != "not_applicable" {
 				return fmt.Errorf("local doctor result: omitted provider was observed")
 			}
 			continue
 		}
 		switch row.State {
 		case "eligible":
-			if row.Reason != "identity_admitted" {
+			if row.BinaryAvailable.Status != "verified" || row.CLICompatible.Status != "verified" || row.CLICompatible.Eligibility != "eligible" {
 				return fmt.Errorf("local doctor result: invalid eligible provider")
 			}
 			eligible++
 		case "unavailable":
-			if row.Reason != "configured_identity_unavailable" && row.Reason != "provider_static_admission_unverified" && row.Reason != "provider_security_admission_failed" {
+			if row.Reason == "" {
 				return fmt.Errorf("local doctor result: invalid unavailable provider")
 			}
-			unsafe = unsafe || row.Reason == "provider_security_admission_failed"
+			unsafe = unsafe || row.Reason == "provider_executable_unsafe_identity" || row.Reason == "zcode_launcher_unsafe_identity" || row.Reason == "provider_cli_version_unsafe_identity"
 		default:
 			return fmt.Errorf("local doctor result: configured provider was not classified")
 		}
@@ -171,7 +225,9 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 	case unsafe:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unsafe", 8, []string{"provider_security_admission_failed"})
 	case eligible == 0:
-		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_static_admission_unverified"})
+		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_offline_readiness_failed"})
+	case eligible != len(result.ConfiguredProviderIDs):
+		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}, "unverified", 4, []string{"provider_offline_readiness_failed"})
 	default:
 		return requireDoctorOutcome(result, LocalAssignmentProjection{State: "ready", Resilience: "ready"}, "ready", 0, []string{})
 	}

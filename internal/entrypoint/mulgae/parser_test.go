@@ -15,7 +15,7 @@ import (
 const (
 	testProjectRoot         = "/work/project"
 	testRequestID           = "i_01234567-89ab-7cde-8f01-23456789abcd"
-	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v3.schema.json"
+	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
 	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -175,6 +175,31 @@ func TestParseDoctorAndConfigForms(t *testing.T) {
 	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"config","project_root":"/work/project","mode":"provenance","output_format":"json"}`)
 }
 
+func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *testing.T) {
+	invocation := mustParse(t, []string{"heartbeat", "--provider", "codex", "--credential-profile", "primary", "--authorize-live-request", "--output", "json"})
+	request, ok := invocation.Heartbeat()
+	if !ok || request.ProjectRoot() != testProjectRoot || request.ProviderID() != "codex" || request.CredentialProfile() != "primary" || !request.Authorized() {
+		t.Fatalf("heartbeat request = %#v, %t", request, ok)
+	}
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"heartbeat","project_root":"/work/project","provider_id":"codex","credential_profile":"primary","authorize_live_request":true,"output_format":"json"}`)
+
+	unauthorized := mustParse(t, []string{"heartbeat", "--provider", "agy"})
+	request, ok = unauthorized.Heartbeat()
+	if !ok || request.Authorized() {
+		t.Fatalf("unauthorized heartbeat request = %#v, %t", request, ok)
+	}
+	for _, arguments := range [][]string{
+		{"heartbeat"},
+		{"heartbeat", "--provider", "unknown"},
+		{"heartbeat", "--provider", "agy", "--credential-profile", "primary"},
+		{"heartbeat", "--provider", "agy", "--authorize-live-request", "--authorize-live-request"},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
+}
+
 func TestParseSchemaForms(t *testing.T) {
 	list := mustParse(t, []string{"schema", "list", "--output", "json"})
 	request, ok := list.Schema()
@@ -193,7 +218,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.SchemaID(); !present || got != testSchemaID {
 		t.Fatalf("schema show ID = %q, %t; want %q, true", got, present, testSchemaID)
 	}
-	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v3.schema.json","export_path":null,"output_format":"human"}`)
+	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json","export_path":null,"output_format":"human"}`)
 
 	export := mustParse(t, []string{"schema", "export", testSchemaID, "contracts/result.json", "--project-root", "/work/export", "--output", "human"})
 	request, ok = export.Schema()
@@ -203,7 +228,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.ExportPath(); !present || got != "contracts/result.json" {
 		t.Fatalf("schema export path = %q, %t; want contracts/result.json, true", got, present)
 	}
-	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v3.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
 }
 func TestParsePublicationQueryForms(t *testing.T) {
 	status := mustParse(t, []string{"status", "--run", testRunID, "--output", "json"})
@@ -644,6 +669,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFindings,
 		app.CommandExcerpt,
 		app.CommandProviders,
+		app.CommandHeartbeat,
 		app.CommandRoles,
 		app.CommandConfig,
 		app.CommandSchema,
@@ -665,6 +691,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFindings:  {"findings", "--run", testRunID, "--severity", "low"},
 		app.CommandExcerpt:   {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
 		app.CommandProviders: {"providers"},
+		app.CommandHeartbeat: {"heartbeat", "--provider", "agy"},
 		app.CommandRoles:     {"roles"},
 		app.CommandConfig:    {"config"},
 		app.CommandSchema:    {"schema", "list"},
@@ -863,6 +890,8 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "excerpt error", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F001"}, wantError: true},
 		{name: "providers success", arguments: []string{"providers"}, command: app.CommandProviders},
 		{name: "providers error", arguments: []string{"providers", "--unknown"}, wantError: true},
+		{name: "heartbeat success", arguments: []string{"heartbeat", "--provider", "agy", "--authorize-live-request", "--output", "json"}, command: app.CommandHeartbeat},
+		{name: "heartbeat error", arguments: []string{"heartbeat", "--provider", "unknown"}, wantError: true},
 		{name: "roles success", arguments: []string{"roles"}, command: app.CommandRoles},
 		{name: "roles error", arguments: []string{"roles", "logic"}, wantError: true},
 		{name: "config success", arguments: []string{"config"}, command: app.CommandConfig},
