@@ -117,15 +117,24 @@ verification.
 
 ## Development skill references
 
-- Use `$root-kernel:dev-setup` to diagnose or configure development tooling.
+- Use `$aquarium:task-handler` for one named roadmap task.
+- Use `$aquarium:epic-handler` to implement one roadmap epic as sequential task goals.
+- Use `$aquarium:epic-validator` to cold-validate and remediate one completed roadmap epic.
+- Use `$aquarium:dev-setup` to diagnose or configure development tooling.
+- Use `$use-mulgae` for an authorized Mulgae review, run inspection, finding
+  follow-up, configuration diagnosis, cleanup plan, or recovery.
 - Use `$use-gaori` when a selected long or noisy check is routed through Gaori
   or existing Gaori evidence must be inspected.
-- Use `$use-podway` for Podway Procedure v2 session operation, authoring,
-  lifecycle, diagnosis, or recovery; Root Kernel workflow skills retain their
-  stricter roadmap, ownership, and approval rules.
-- In repositories opted into Root Kernel Podway procedures, treat the roadmap as
-  lifecycle authority, Podway as active execution and evidence state, and the
-  Codex goal as a temporary projection of actionable work.
+- Let `$aquarium:task-handler`, `$aquarium:epic-handler`, and
+  `$aquarium:epic-validator` use Podway by default unless the current user opts
+  out before the first managed-session mutation; Aquarium workflow skills retain
+  their stricter roadmap, ownership, and approval rules.
+- Use `$use-podway` directly for an explicitly requested Procedure v2 session
+  operation, authoring, lifecycle, diagnosis, recovery, cancellation, or
+  current-session discard flow. Keep each handler opt-out local to its current
+  task, epic, or validation request.
+- Use `$lore-commits` for non-trivial commit messages and `$lore-query` to inspect
+  recorded decision context.
 - Repository-specific rules below override defaults from the referenced skills.
 
 ## Repository Authorities

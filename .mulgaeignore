@@ -1,0 +1,14 @@
+# Sensitive local inputs
+.env
+.env.*
+*.pem
+*.key
+
+# Agent instructions
+/AGENTS.md
+
+# Generated and local artifacts
+/artifacts/
+/tmp/
+/var/
+/no-lock.md
