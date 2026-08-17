@@ -147,6 +147,9 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "providers.kimi.model" && config.Providers.Kimi != nil && config.Providers.Kimi.Model == DefaultKimiModel || field == "providers.kimi.data_home" && config.Providers.Kimi != nil && config.Providers.Kimi.DataHome == DefaultKimiDataHome(config.NativeUser.Home) || field == "providers.agy.permission_mode" && config.Providers.AGY != nil && config.Providers.AGY.PermissionMode == DefaultAGYPermissionMode && !config.Providers.AGY.PermissionModeExplicit {
 			source, disposition = "default", "defaulted"
 		}
+		if field == "validation.extraction.enabled" && !config.Validation.Extraction.EnabledExplicit {
+			source, disposition = "default", "defaulted"
+		}
 		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			source, disposition = "default", "defaulted"
 		}

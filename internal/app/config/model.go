@@ -121,7 +121,8 @@ type RepairConfig struct {
 // consumes the same single second invocation retry and repair compete for, so
 // enabling it never widens a role path.
 type ExtractionConfig struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled         bool `yaml:"enabled" json:"enabled"`
+	EnabledExplicit bool `yaml:"-" json:"-"`
 }
 type ResourcesConfig struct {
 	MaxActiveLanes        int `yaml:"max_active_lanes" json:"max_active_lanes"`

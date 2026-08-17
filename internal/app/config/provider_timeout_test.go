@@ -29,3 +29,30 @@ func TestProviderTimeoutProvenanceDistinguishesConfiguredAndDefaulted(t *testing
 		t.Fatalf("missing provider timeout provenance: %#v", want)
 	}
 }
+
+func TestExtractionProvenanceDistinguishesConfiguredAndDefaulted(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		extraction  ExtractionConfig
+		source      string
+		disposition string
+	}{
+		{name: "omitted", source: "default", disposition: "defaulted"},
+		{name: "explicit false", extraction: ExtractionConfig{EnabledExplicit: true}, source: "project", disposition: "configured"},
+		{name: "explicit true", extraction: ExtractionConfig{Enabled: true, EnabledExplicit: true}, source: "project", disposition: "configured"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rows := provenanceRows(Config{Validation: ValidationConfig{Extraction: test.extraction}})
+			for _, row := range rows {
+				if row.Field != "validation.extraction.enabled" {
+					continue
+				}
+				if row.Source != test.source || row.Disposition != test.disposition || row.ValueClass != "policy" {
+					t.Fatalf("extraction provenance = %#v", row)
+				}
+				return
+			}
+			t.Fatal("extraction provenance is missing")
+		})
+	}
+}

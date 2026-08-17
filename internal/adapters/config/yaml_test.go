@@ -120,6 +120,42 @@ func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) 
 	}
 }
 
+func TestDecodeTracksStructuredExtractionPresence(t *testing.T) {
+	config := validConfig()
+	defaulted, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(defaulted, []byte("  extraction:")) {
+		t.Fatalf("defaulted extraction setting was emitted:\n%s", defaulted)
+	}
+
+	config.Validation.Extraction.EnabledExplicit = true
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := Decode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !explicit.Validation.Extraction.EnabledExplicit {
+		t.Fatal("explicit extraction setting lost its presence marker")
+	}
+
+	omittedBytes := bytes.Replace(canonical, []byte("  extraction:\n    enabled: false\n"), nil, 1)
+	if bytes.Equal(omittedBytes, canonical) {
+		t.Fatal("canonical fixture omitted the extraction setting")
+	}
+	omitted, err := Decode(omittedBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if omitted.Validation.Extraction.Enabled || omitted.Validation.Extraction.EnabledExplicit {
+		t.Fatalf("omitted extraction setting = %#v, want defaulted false", omitted.Validation.Extraction)
+	}
+}
+
 func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{

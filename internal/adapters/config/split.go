@@ -113,6 +113,7 @@ func DecodeSplit(projectData, localData []byte) (Config, error) {
 	if config.Providers.AGY != nil {
 		config.Providers.AGY.PermissionModeExplicit = mappingHasPath(projectRoot, "providers", "agy", "permission_mode")
 	}
+	config.Validation.Extraction.EnabledExplicit = mappingHasPath(projectRoot, "validation", "extraction", "enabled")
 	if err := validate(&config); err != nil {
 		if errors.Is(err, errProviderTimeoutInvalid) {
 			return Config{}, reject(ReasonProviderTimeoutInvalid)
@@ -331,7 +332,10 @@ func appendPolicyYAML(out *strings.Builder, config Config) {
 		out.WriteString("}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
-	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n  extraction:\n    enabled: " + strconv.FormatBool(config.Validation.Extraction.Enabled) + "\n")
+	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
+	if config.Validation.Extraction.Enabled || config.Validation.Extraction.EnabledExplicit {
+		out.WriteString("  extraction:\n    enabled: " + strconv.FormatBool(config.Validation.Extraction.Enabled) + "\n")
+	}
 	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n")
 	out.WriteString("ci:\n  fail_on_severity: " + quotedList(config.CI.FailOnSeverity) + "\n  degraded_review_fails: " + strconv.FormatBool(config.CI.DegradedReviewFails) + "\n")
 }
