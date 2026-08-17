@@ -25,9 +25,21 @@ result, evidence status, lineage, and a durable publication record.
    JSON structured extraction requires parsing, schema, semantic, and evidence
    checks. Prose does not invent findings. Security, configuration, and
    integrity failures never authorize publication.
-6. **Local ownership.** Shared project policy and private machine/runtime state
+6. **Findings from prose, without weakening any of it.** When a role delivers a
+   free-form report, Mulgae may run one bounded structured extraction on that
+   same provider and role to transcribe it into the same wire contract. The
+   accepted report stays the published role report, and an ordinary extraction
+   failure never affects a review that would otherwise publish. A protected
+   failure observed during extraction still denies publication. A transcribed
+   finding remains a provider claim, exactly as on the direct structured path:
+   Mulgae
+   instructs the extraction to add nothing the report did not claim, but it
+   cannot prove that correspondence, so it admits a transcription only when it
+   verified every finding against the immutable target itself. The prose report
+   remains the primary record of what the role actually said.
+7. **Local ownership.** Shared project policy and private machine/runtime state
    remain project-local beneath `.mulgae/`; only the policy is Git-shareable.
-7. **Inspectable automation.** Human output is convenient; `--output json`
+8. **Inspectable automation.** Human output is convenient; `--output json`
    provides stable versioned envelopes and typed exits, while an attached
    stdio MCP process provides request/response automation without CLI polling.
 

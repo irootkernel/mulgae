@@ -20,6 +20,13 @@ mulgae findings --run r_... --severity high
 mulgae report --run r_... --output-path reports/review.md
 ```
 
+`findings`, `excerpt`, and `followup --finding` read committed structured
+findings. With `validation.extraction.enabled`, a role that returned only a
+free-form report still reaches them: Mulgae transcribes that accepted report on
+the same provider and verifies each quote against the captured target. A role
+that already spent its second invocation on a retry or a failed repair is not
+transcribed, so the run reports `mixed`.
+
 Inspect the capture and configured execution envelope without running providers:
 
 ```bash

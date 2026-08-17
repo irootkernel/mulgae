@@ -10,6 +10,18 @@ The initial release is a clean break from the pre-release prototype. Mulgae
 does not read old command names, paths, environment variables, or schema
 versions.
 
+Config `version: 3` is additive rather than frozen: a release may add an
+optional project-policy field without changing the version, and an omitted
+field keeps its documented default. Compatibility therefore runs one way. A
+newer Mulgae reads a `config.yaml` written by an older one, but the YAML
+decoder rejects unknown fields, so an older Mulgae rejects a file that a newer
+one wrote with `config_yaml_invalid`. Because `config.yaml` is the Git-shareable
+authority, every collaborator on a project must run a Mulgae at least as new as
+the release that last wrote that file. Raising the config version instead would
+not help: an older binary still could not read the newer file, and every
+existing project would additionally have to re-initialize, since earlier
+versions are rejected rather than migrated.
+
 ## Configuration
 
 Configuration has two authorities:
@@ -80,9 +92,11 @@ and review-preflight v2 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
-invocations and one transition per role path. The second slot is either one
-same-provider retry after `provider_unavailable`/`provider_turn_failed` or one
-constrained repair after eligible invalid output; it can never be both.
+invocations and one transition per role path. The second slot is exactly one of
+a same-provider retry after `provider_unavailable`/`provider_turn_failed`, a
+constrained repair after eligible invalid output, or a structured extraction
+after a role is accepted with a free-form report only; it can never be more
+than one.
 
 The capacity-aware run deadline and `role_path_deadline` ceiling include the
 configured provider timeout for every possible invocation. Immediately before
@@ -209,8 +223,12 @@ may change only explicitly allowed provider-owned paths.
 ```
 
 `manifest.json` is the run index and integrity record. A completed run has at
-most one top-level final review. Failed or repaired candidates remain beneath
-`attempts/`.
+most one top-level final review. Failed, repaired, and extracted candidates
+remain beneath `attempts/`. A structured extraction trailer adds
+`attempts/<a_...>/candidate.extracted.NNN.json`,
+`attempts/<a_...>/invocations/002-extract/{stdout,stderr}.raw`, and
+`prompts/<a_...>/002-extract.{stdin,manifest.json}`. A role still has exactly
+one attempt: the trailer is invocation 2 of that attempt, not a second attempt.
 
 `export --run <id>` writes the redacted bundle and its sidecar manifest beneath
 `.mulgae/exports/` unless the operator supplies a safe project-relative
@@ -298,6 +316,26 @@ an artifact failure that overrides provider success.
 
 Markdown/prose is normal success. Mulgae records
 `structured_extraction_status` as `structured`, `mixed`, or `reports_only`.
+A role may reach `structured` either because the provider returned exact JSON or
+because the Mulgae-owned structured extraction trailer transcribed its accepted
+report. `attempts[].parse_state` and `attempts[].validation_state` therefore
+describe Mulgae's structured extraction coverage for that attempt, not whether
+the provider's stdout happened to be JSON. `manifest.role_reports[]` is
+unaffected: `path`, `sha256`, `byte_length`, `attempt_id`, `provider_instance`,
+and `transport` continue to describe the accepted free-form bytes and the
+invocation that carried them. Extraction itself is always `stdout` and receives
+no staged-file write grant. Extraction and repair share the one second
+invocation a role may use, so `budget.role_paths[].invocation_count` stays `2`
+and no preflight or command-result contract version changes.
+A transcribed finding is a provider claim, not a Mulgae assertion that the
+accepted report made it: Mulgae cannot verify that correspondence, so it admits
+a transcription only when every finding reached `evidence_state: verified`
+against the immutable target. Unlike the direct structured path, the configured
+`validation.evidence.require_verified_for` severities are a floor here rather
+than the rule — one unverified finding rejects the whole transcription and the
+role stays `reports_only`. A reader distinguishing transcribed findings from
+provider-authored ones reads the attempt's invocation inventory: a transcription
+carries `002-extract`.
 Legacy exact provider-review JSON remains accepted: Mulgae preserves the exact
 adapter-extracted assistant bytes as the role report and, when structured
 validation succeeds, also retains validated findings. Findings listing and

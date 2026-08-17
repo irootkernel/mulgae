@@ -280,9 +280,22 @@ const (
 	InvocationInitial InvocationPurpose = "initial"
 	InvocationRetry   InvocationPurpose = "retry"
 	InvocationRepair  InvocationPurpose = "repair"
+	// InvocationExtract is the Mulgae-owned structured extraction trailer. It
+	// transcribes an already accepted free-form role report into the provider
+	// review wire contract on the same attempt, provider, and role. It never
+	// carries the role report itself and never decides attempt success.
+	InvocationExtract InvocationPurpose = "extract"
 )
 
 func (value InvocationPurpose) Valid() bool {
+	return value == InvocationInitial || value == InvocationRetry ||
+		value == InvocationRepair || value == InvocationExtract
+}
+
+// CarriesRoleReport reports whether an invocation with this purpose may deliver
+// the role report that decides attempt success. The extraction trailer does not:
+// its failure leaves the already accepted report untouched.
+func (value InvocationPurpose) CarriesRoleReport() bool {
 	return value == InvocationInitial || value == InvocationRetry || value == InvocationRepair
 }
 

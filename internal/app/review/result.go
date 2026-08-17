@@ -69,6 +69,7 @@ type TemplateSet struct {
 	reviewRun  promptLayer
 	jsonOutput promptLayer
 	repair     promptLayer
+	extract    promptLayer
 	roleLayers map[domain.Role]promptLayer
 }
 
@@ -81,8 +82,8 @@ type promptLayer struct {
 }
 
 // NewTemplateSet validates and defensively copies the common, review-run,
-// JSON-output, repair, and role-specific trusted layers.
-func NewTemplateSet(common, reviewRun, jsonOutput, repair prompt.TrustedLayer, roleSpecific map[domain.Role]prompt.TrustedLayer) (TemplateSet, error) {
+// JSON-output, repair, extraction, and role-specific trusted layers.
+func NewTemplateSet(common, reviewRun, jsonOutput, repair, extract prompt.TrustedLayer, roleSpecific map[domain.Role]prompt.TrustedLayer) (TemplateSet, error) {
 	copiedCommon, err := copyPromptLayer(common)
 	if err != nil {
 		return TemplateSet{}, err
@@ -96,6 +97,10 @@ func NewTemplateSet(common, reviewRun, jsonOutput, repair prompt.TrustedLayer, r
 		return TemplateSet{}, err
 	}
 	copiedRepair, err := copyPromptLayer(repair)
+	if err != nil {
+		return TemplateSet{}, err
+	}
+	copiedExtract, err := copyPromptLayer(extract)
 	if err != nil {
 		return TemplateSet{}, err
 	}
@@ -118,6 +123,7 @@ func NewTemplateSet(common, reviewRun, jsonOutput, repair prompt.TrustedLayer, r
 		reviewRun:  copiedReviewRun,
 		jsonOutput: copiedJSONOutput,
 		repair:     copiedRepair,
+		extract:    copiedExtract,
 		roleLayers: roleLayers,
 	}, nil
 }
@@ -137,6 +143,9 @@ func (templates TemplateSet) JSONOutput() prompt.TrustedLayer {
 
 // Repair returns a caller-owned copy of the repair trusted layer.
 func (templates TemplateSet) Repair() prompt.TrustedLayer { return templates.repair.trustedLayer() }
+
+// Extract returns a caller-owned copy of the structured extraction trusted layer.
+func (templates TemplateSet) Extract() prompt.TrustedLayer { return templates.extract.trustedLayer() }
 
 // ComposeRootReview composes the fixed-order trusted template for role.
 func (templates TemplateSet) ComposeRootReview(role domain.Role, objective *prompt.Objective) (prompt.TrustedTemplate, error) {
@@ -188,6 +197,26 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	layers := append(baseLayers, templates.Repair(), planLayer)
 	return prompt.ComposeTrustedTemplate(
 		"builtin:template/root-review/"+role+"/repair",
+		"1",
+		layers...,
+	)
+}
+
+// ComposeRootReviewExtraction appends the frozen structured extraction contract
+// to the original trusted template. The accepted role report never becomes a
+// trusted layer: it travels as an untrusted prior-report frame in the packet.
+func (templates TemplateSet) ComposeRootReviewExtraction(original prompt.TrustedTemplate) (prompt.TrustedTemplate, error) {
+	baseLayers, err := trustedLayersForRepair(original)
+	if err != nil {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: extraction base: %w", err)
+	}
+	role := strings.TrimPrefix(original.ID(), "builtin:template/root-review/")
+	if role == original.ID() || !domain.Role(role).Valid() {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: invalid root-review template %q", original.ID())
+	}
+	layers := append(baseLayers, templates.Extract())
+	return prompt.ComposeTrustedTemplate(
+		"builtin:template/root-review/"+role+"/extract",
 		"1",
 		layers...,
 	)

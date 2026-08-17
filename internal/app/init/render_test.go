@@ -48,7 +48,7 @@ func TestCandidateConfigDefaultsAutoProviderTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Providers.ZCode.Timeout != "15m" || decoded.Providers.AGY.Timeout != "15m" {
+	if decoded.Providers.ZCode.Timeout != "60m" || decoded.Providers.AGY.Timeout != "60m" {
 		t.Fatalf("init defaults = zcode:%q agy:%q", decoded.Providers.ZCode.Timeout, decoded.Providers.AGY.Timeout)
 	}
 }

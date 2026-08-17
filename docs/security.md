@@ -272,6 +272,20 @@ semantic/evidence rules. Prose is not schema-validated as review JSON. External
 schema loading is disabled. Mulgae owns trusted identity, evidence verification
 state, and publication.
 
+When `validation.extraction.enabled` is set, an accepted role report re-enters
+one further prompt on the same provider as an untrusted `prior_report` payload,
+never as a trusted layer, and the extraction contract states that it is data to
+transcribe rather than instructions or authority. That invocation gets the same
+read-only immutable workspace view, no write grant, and always returns on
+stdout. It cannot emit identity, verification, coverage, or publication state,
+and Mulgae rather than the provider owns the resulting completeness and
+limitations. Only a bounded extraction failure is absorbed into the accepted report. A
+protected failure observed during that invocation keeps its canonical
+precedence and reduces through the ordinary coordinator path, so security,
+mutation, configuration, artifact, cancellation, and internal failures still
+deny publication. The trailer can lose its own transcription; it can never
+launder a protected failure into role success.
+
 Evidence begins as `claimed`; only Mulgae can mark it verified, stale, invalid,
 or unverifiable. Security, configuration, integrity, cancellation, and internal
 failures never authorize repair or publication.

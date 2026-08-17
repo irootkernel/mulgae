@@ -13,6 +13,13 @@ policy and rejects project-policy options.
 Earlier versions, including Config v2, are rejected; there is no automatic
 migration path.
 
+Config v3 is additive: a release may add an optional project-policy field
+without changing the version, and an omitted field keeps its documented
+default. A newer Mulgae reads an older `config.yaml`, but unknown fields are
+rejected, so an older Mulgae reports `config_yaml_invalid` for a file a newer
+one wrote. Since `config.yaml` is shared through Git, keep every collaborator on
+a Mulgae at least as new as the release that last wrote it.
+
 ```text
 mulgae init [--project-root PATH] [--name NAME]
   [--providers auto|FAMILY[,FAMILY...]]
@@ -34,6 +41,22 @@ Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
 `execution.workspace_access` is required and must remain `none`.
 
+`validation.extraction.enabled` admits the Mulgae-owned structured extraction
+trailer, which transcribes an accepted free-form role report into exact finding
+JSON on the same provider and role. `mulgae init` sets it for new projects; an
+existing Config v3 file that omits the block keeps it disabled until you add:
+
+```yaml
+validation:
+  extraction:
+    enabled: true
+```
+
+Extraction and repair compete for the same single second invocation, so enabling
+it never widens a role path and `resources.role_max_invocations` stays `2`. A
+role that already spent that invocation on a retry or a failed repair is not
+extracted and remains reports-only.
+
 Use `mulgae init --refresh-local` after provider installations move or the
 shared provider family set changes. Refresh atomically replaces only
 `.mulgae/local.yaml`; it rejects project-policy options. Mulgae never edits
@@ -45,7 +68,10 @@ shared provider family set changes. Refresh atomically replaces only
 ```
 
 Each configured provider accepts an optional `timeout` duration. The effective
-default is `15m`; valid values range inclusively from `1m` through `60m`.
+default is `60m`, which is also the admitted maximum; valid values range
+inclusively from `1m` through `60m`, so a project may only shorten a provider
+window. A shorter timeout also shortens how long Mulgae waits before it stops a
+provider that is not making progress.
 Default-valued fields are omitted from canonical YAML, while non-default values
 such as the following are preserved canonically:
 

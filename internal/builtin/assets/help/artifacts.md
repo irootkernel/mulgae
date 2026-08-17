@@ -30,8 +30,12 @@ A published run has the form:
 `manifest.json` records lineage, target identity, attempts, outcome axes,
 role-report inventory, and artifact hashes. Successful selected roles also
 publish Mulgae-owned free-form role reports under `role-reports/`. A completed
-run has at most one top-level final review. Invalid and repaired candidates
-remain under `attempts/`.
+run has at most one top-level final review. Invalid, repaired, and extracted
+candidates remain under `attempts/`. A structured extraction trailer records
+`attempts/<a_...>/candidate.extracted.NNN.json`,
+`attempts/<a_...>/invocations/002-extract/`, and
+`prompts/<a_...>/002-extract.{stdin,manifest.json}`. It never replaces the role
+report: `role-reports/<role>.md` keeps the accepted free-form bytes.
 
 `target/captured-review.json` is a reference-only v2 manifest. Exact captured
 bytes are stored once under `target/blobs/sha256-<hex>` and may be shared by

@@ -116,7 +116,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"roles.product.enabled", "roles.product.primary_provider", "roles.product.credential_profile",
 		"roles.documentation.enabled", "roles.documentation.primary_provider", "roles.documentation.credential_profile",
 		"roles.testing.enabled", "roles.testing.primary_provider", "roles.testing.credential_profile",
-		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider",
+		"review.required_roles", "review.request_changes_on", "validation.evidence.require_verified_for", "validation.repair.enabled", "validation.repair.max_attempts", "validation.repair.same_provider", "validation.extraction.enabled",
 		"resources.max_active_lanes", "resources.primary_repair_attempts", "resources.role_max_invocations", "resources.run_max_invocations", "ci.fail_on_severity", "ci.degraded_review_fails",
 		"execution.strategy", "runtime.path_policy", "runtime.environment_policy", "artifacts.root", "artifacts.directory_mode", "artifacts.file_mode", "safety.redact_secrets", "safety.secret_output_policy", "safety.mutation_detection",
 	}

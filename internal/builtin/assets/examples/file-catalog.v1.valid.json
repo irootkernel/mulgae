@@ -412,6 +412,18 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/prompts/root-review/extract-provider-review.v1.txt",
+      "disposition": "ADDED",
+      "media_type": "text/plain",
+      "schema_id": null,
+      "pair": null,
+      "consumers": [
+        "root-review-prompt"
+      ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/prompts/root-review/output-provider-review-wire.v1.txt",
       "disposition": "ADDED",
       "media_type": "text/plain",

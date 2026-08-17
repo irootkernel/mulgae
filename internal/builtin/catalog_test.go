@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 69 {
-		t.Fatalf("manifest asset count = %d, want 69", len(manifest.Assets))
+	if len(manifest.Assets) != 70 {
+		t.Fatalf("manifest asset count = %d, want 70", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -322,8 +322,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 58 {
-		t.Fatalf("authoritative runtime source count = %d, want 58", len(authoritativeSources))
+	if len(authoritativeSources) != 59 {
+		t.Fatalf("authoritative runtime source count = %d, want 59", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))

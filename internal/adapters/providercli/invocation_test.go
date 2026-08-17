@@ -86,7 +86,7 @@ func TestAGYProbePrintTimeoutStaysInsideBoundedProbeDeadline(t *testing.T) {
 		runtimeTimeout time.Duration
 		want           time.Duration
 	}{
-		{name: "production runtime timeout", runtimeTimeout: 15 * time.Minute, want: 2*time.Minute + 55*time.Second},
+		{name: "production runtime timeout", runtimeTimeout: 60 * time.Minute, want: 2*time.Minute + 55*time.Second},
 		{name: "long runtime timeout", runtimeTimeout: 30 * time.Minute, want: 2*time.Minute + 55*time.Second},
 		{name: "bounded probe deadline", runtimeTimeout: 30 * time.Second, want: 25 * time.Second},
 		{name: "short runtime timeout", runtimeTimeout: 3 * time.Second, want: 1500 * time.Millisecond},

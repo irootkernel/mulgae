@@ -15,7 +15,7 @@ import (
 const (
 	productionProfileGeneration      = "reviewrun-production-candidates-v1"
 	productionWorkingDirectory       = "/private/var/empty"
-	productionDefaultProviderTimeout = 15 * time.Minute
+	productionDefaultProviderTimeout = 60 * time.Minute
 	productionMinimumProviderTimeout = time.Minute
 	productionMaximumProviderTimeout = 60 * time.Minute
 )

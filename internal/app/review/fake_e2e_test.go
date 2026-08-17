@@ -239,6 +239,7 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	runLayer := e2eLayer(t, "review-run", "This is a review run.")
 	jsonLayer := e2eLayer(t, "json-output", "Return JSON only.")
 	repairLayer := e2eLayer(t, "repair", "Repair only allowed fields.")
+	extractLayer := e2eLayer(t, "extract", "Transcribe the accepted report into exact finding JSON.")
 	logicLayer := e2eLayer(t, "logic", "Review logic defects.")
 	securityLayer := e2eLayer(t, "security", "Review security defects.")
 	target := e2eTarget(t)
@@ -308,7 +309,7 @@ func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
 	}
 	logic := e2eAssignment(t, domain.RoleLogic, "fake.logic")
 	security := e2eAssignment(t, domain.RoleSecurity, "fake.security")
-	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, repairLayer, map[domain.Role]prompt.TrustedLayer{
+	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, repairLayer, extractLayer, map[domain.Role]prompt.TrustedLayer{
 		domain.RoleLogic:    logicLayer,
 		domain.RoleSecurity: securityLayer,
 	})

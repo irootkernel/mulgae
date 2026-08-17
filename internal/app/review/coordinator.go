@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -40,6 +42,52 @@ type Coordinator struct {
 	workersCloseAuthorizedHook          func()
 	beforeWorkersCloseLinearizationHook func()
 	diagnostics                         ports.RuntimeDiagnosticSink
+	// admission is shared by value copies of this coordinator, which exist only
+	// to swap the runtime for a child workflow and represent the same run policy.
+	// It is a pointer so the coordinator itself stays copyable.
+	admission *coordinatorAdmission
+}
+
+// coordinatorAdmission guards the run-scoped extraction policy against a caller
+// that tries to change it once execution has started. Execution snapshots the
+// admitted value, so a running run always reads one immutable policy.
+type coordinatorAdmission struct {
+	mu                 sync.Mutex
+	extractionAdmitted bool
+	executionStarted   bool
+}
+
+// AdmitStructuredExtraction enables the Mulgae-owned structured extraction
+// trailer for this run. It is one-shot and must be called before ExecuteRun, so
+// a run can never change its own extraction policy while executing.
+func (coordinator *Coordinator) AdmitStructuredExtraction() error {
+	if coordinator == nil {
+		return fmt.Errorf("review coordinator: nil coordinator")
+	}
+	if coordinator.admission == nil {
+		return fmt.Errorf("review coordinator: admission state is unavailable")
+	}
+	coordinator.admission.mu.Lock()
+	defer coordinator.admission.mu.Unlock()
+	if coordinator.admission.executionStarted {
+		return fmt.Errorf("review coordinator: structured extraction cannot be admitted after execution started")
+	}
+	if coordinator.admission.extractionAdmitted {
+		return fmt.Errorf("review coordinator: structured extraction is already admitted")
+	}
+	coordinator.admission.extractionAdmitted = true
+	return nil
+}
+
+// admitExecutionPolicy freezes the run-scoped policy for one execution.
+func (coordinator *Coordinator) admitExecutionPolicy() bool {
+	if coordinator.admission == nil {
+		return false
+	}
+	coordinator.admission.mu.Lock()
+	defer coordinator.admission.mu.Unlock()
+	coordinator.admission.executionStarted = true
+	return coordinator.admission.extractionAdmitted
 }
 
 func coordinatorAdmissionContextError(ctx context.Context) error {
@@ -140,6 +188,7 @@ func NewCoordinatorWithEvidencePolicy(
 		maxActiveLanes:    maxActiveLanes,
 		receipt:           receipt,
 		policy:            cloneCoordinatorEvidencePolicy(policy),
+		admission:         &coordinatorAdmission{},
 		runContextFactory: context.WithTimeout,
 	}, nil
 }
@@ -515,10 +564,15 @@ func (issuer *coordinatorIssuer) reserve(rawUUID string) error {
 }
 
 type coordinatorAttempt struct {
-	route           ports.ProviderRoute
-	attempt         domain.Attempt
-	repairUsed      bool
-	retryUsed       bool
+	route      ports.ProviderRoute
+	attempt    domain.Attempt
+	repairUsed bool
+	retryUsed  bool
+	// extractUsed records that the one structured extraction trailer was
+	// scheduled. acceptedOutput retains the reports-only output that trailer may
+	// upgrade, so any extraction failure can restore it byte for byte.
+	extractUsed     bool
+	acceptedOutput  *ValidatedRoleOutput
 	failureClass    domain.FailureClass
 	reasonCode      string
 	timeoutFacts    ProviderTimeoutFacts
@@ -539,6 +593,9 @@ type coordinatorRole struct {
 }
 
 type coordinatorExecution struct {
+	// extractionAdmitted is the immutable per-execution snapshot of the
+	// coordinator's structured extraction policy.
+	extractionAdmitted       bool
 	coordinator              *Coordinator
 	run                      *domain.Run
 	issuer                   *coordinatorIssuer
@@ -786,6 +843,7 @@ func (coordinator *Coordinator) execute(
 	}()
 
 	execution := &coordinatorExecution{
+		extractionAdmitted:       coordinator.admitExecutionPolicy(),
 		coordinator:              coordinator,
 		run:                      &run,
 		issuer:                   issuer,
@@ -1189,6 +1247,15 @@ func (execution *coordinatorExecution) collectWave(
 			return coordinatorCollectedWave{}, err
 		}
 		collected.outcomes[result.job.Ordinal()] = normalized
+		// A bounded extraction failure cannot stop the run: its role report is
+		// already accepted, so the failure has no authority over any peer role.
+		// A protected failure keeps its authority and falls through.
+		if extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(normalized)) {
+			if execution.coordinator.resultCollectedHook != nil {
+				execution.coordinator.resultCollectedHook(job)
+			}
+			continue
+		}
 		if !stopping && conditionStopsCoordinatorRun(coordinatorOutcomeCondition(normalized)) {
 			if err := execution.persistInitiatingFailure(job, normalized); err != nil {
 				return coordinatorCollectedWave{}, err
@@ -1291,7 +1358,19 @@ func (execution *coordinatorExecution) commitWave(
 			return nil, err
 		}
 		outcomes[job.Ordinal()] = normalized
+		// A bounded extraction trailer contributes no condition to the wave. Its
+		// role report is already accepted, so an ordinary transcription failure
+		// must never reduce into a verdict that stops or degrades the run. A
+		// protected failure still reduces normally.
+		if extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(normalized)) {
+			continue
+		}
 		conditions = append(conditions, coordinatorOutcomeCondition(normalized))
+	}
+	if len(conditions) == 0 {
+		// A wave of extraction trailers only. ReduceAttemptConditions rejects an
+		// empty input, so seed the neutral valid verdict explicitly.
+		conditions = append(conditions, AttemptConditionValidReview)
 	}
 	condition, err := ReduceAttemptConditions(conditions...)
 	if err != nil {
@@ -1314,6 +1393,21 @@ func (execution *coordinatorExecution) commitWave(
 		for _, job := range ordered {
 			if execution.coordinator.beforeOutcomeCommitHook != nil {
 				execution.coordinator.beforeOutcomeCommitHook(job)
+			}
+			if extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(outcomes[job.Ordinal()])) {
+				// A peer role stopping the run must not discard this role's
+				// already accepted report. Commit the trailer on its own observed
+				// condition; the accepted output is retained either way.
+				if _, err := execution.commitOutcome(
+					job,
+					outcomes[job.Ordinal()],
+					coordinatorOutcomeCondition(outcomes[job.Ordinal()]),
+					false,
+					true,
+				); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			commitCondition, cancellationObserved, _, err := execution.prepareOutcomeCommit(
 				scheduler,
@@ -1339,7 +1433,31 @@ func (execution *coordinatorExecution) commitWave(
 	}
 
 	next := make([]InvocationJob, 0, len(ordered))
+	// Commit extraction trailers first and on their own observed condition. Their
+	// role reports are already accepted, so a peer role that stops the run later
+	// in this wave must not leave them uncommitted, and prepareOutcomeCommit must
+	// not upgrade them with run-level cancellation or timeout facts.
 	for _, job := range ordered {
+		if !extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(outcomes[job.Ordinal()])) {
+			continue
+		}
+		if execution.coordinator.beforeOutcomeCommitHook != nil {
+			execution.coordinator.beforeOutcomeCommitHook(job)
+		}
+		if _, err := execution.commitOutcome(
+			job,
+			outcomes[job.Ordinal()],
+			coordinatorOutcomeCondition(outcomes[job.Ordinal()]),
+			false,
+			true,
+		); err != nil {
+			return nil, err
+		}
+	}
+	for _, job := range ordered {
+		if extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(outcomes[job.Ordinal()])) {
+			continue
+		}
 		if execution.coordinator.beforeOutcomeCommitHook != nil {
 			execution.coordinator.beforeOutcomeCommitHook(job)
 		}
@@ -1489,6 +1607,11 @@ func (execution *coordinatorExecution) commitOutcome(
 	cancellationObserved bool,
 	suppressFollowup bool,
 ) ([]InvocationJob, error) {
+	// Only a bounded trailer failure is absorbed. A protected failure follows the
+	// ordinary commit path so it fails the role and denies publication.
+	if extractionOutcomeIsBounded(job, condition) {
+		return execution.commitExtractionOutcome(job, outcome, condition)
+	}
 	state := execution.roles[job.Role()]
 	attempt, err := execution.attemptFor(job)
 	if err != nil {
@@ -1590,6 +1713,14 @@ func (execution *coordinatorExecution) commitOutcome(
 		state.providerUnusable = true
 	}
 
+	next, scheduled, err := execution.scheduleExtraction(job, attempt, output, decision, suppressFollowup)
+	if err != nil {
+		return nil, err
+	}
+	if scheduled {
+		return next, nil
+	}
+
 	if err := terminalizeAttempt(&attempt.attempt, decision.Condition()); err != nil {
 		return nil, err
 	}
@@ -1631,6 +1762,139 @@ func (execution *coordinatorExecution) commitOutcome(
 	return nil, nil
 }
 
+// scheduleExtraction queues the one structured extraction trailer for a role
+// that was accepted with a free-form report only. It is scheduled by the content
+// of a successful output rather than by an attempt condition, so it never enters
+// the closed transition-policy table. The trailer consumes the same second
+// invocation slot retry and repair compete for, which is why a role that already
+// spent that slot is never eligible.
+func (execution *coordinatorExecution) scheduleExtraction(
+	job InvocationJob,
+	attempt *coordinatorAttempt,
+	output ValidatedRoleOutput,
+	decision TransitionDecision,
+	suppressFollowup bool,
+) ([]InvocationJob, bool, error) {
+	if !execution.extractionAdmitted || suppressFollowup || execution.stopping {
+		return nil, false, nil
+	}
+	if decision.TerminalProjection() != TerminalProjectionSucceeded {
+		return nil, false, nil
+	}
+	if job.Purpose() != domain.InvocationInitial || attempt.extractUsed || !output.ReportsOnly() {
+		return nil, false, nil
+	}
+	if len(attempt.attempt.Invocations()) != 1 {
+		return nil, false, nil
+	}
+	extract, err := domain.NewInvocation(2, domain.InvocationExtract)
+	if err != nil {
+		return nil, false, fmt.Errorf("review coordinator: create extraction invocation: %w", err)
+	}
+	if err := attempt.attempt.AppendExtractInvocation(extract); err != nil {
+		return nil, false, fmt.Errorf("review coordinator: append extraction invocation: %w", err)
+	}
+	attempt.extractUsed = true
+	accepted := output.clone()
+	attempt.acceptedOutput = &accepted
+	extractJob, err := execution.newJob(job.Role(), attempt, domain.InvocationExtract)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := execution.record(CoordinatorEventExtractionQueued, job.Role(), attempt, &extractJob.purpose, nil, "", domain.RunState("")); err != nil {
+		return nil, false, err
+	}
+	return []InvocationJob{extractJob}, true, nil
+}
+
+// commitExtractionOutcome commits the structured extraction trailer. The trailer
+// can only upgrade the retained reports-only output: every non-success leaves
+// that output, the attempt, and the role exactly as they already were.
+func (execution *coordinatorExecution) commitExtractionOutcome(
+	job InvocationJob,
+	outcome AttemptOutcome,
+	condition AttemptCondition,
+) ([]InvocationJob, error) {
+	state := execution.roles[job.Role()]
+	attempt, err := execution.attemptFor(job)
+	if err != nil {
+		return nil, err
+	}
+	if attempt.acceptedOutput == nil {
+		return nil, fmt.Errorf("review coordinator: extraction has no accepted role output")
+	}
+	if err := execution.record(CoordinatorEventInvocationCommitted, job.Role(), attempt, &job.purpose, &condition, "", domain.RunState("")); err != nil {
+		return nil, err
+	}
+	if outcome.RuntimeArtifactsExpected() {
+		if err := attempt.attempt.MarkInvocationRuntimeArtifactsExpected(invocationSequence(job.Purpose())); err != nil {
+			return nil, fmt.Errorf("review coordinator: retain runtime artifact boundary: %w", err)
+		}
+	}
+	output := *attempt.acceptedOutput
+	if outcome.Succeeded() && condition == AttemptConditionValidReview {
+		extracted, ok := outcome.Output()
+		if !ok {
+			return nil, fmt.Errorf("review coordinator: successful extraction has no output")
+		}
+		output = extracted
+		if err := attempt.attempt.TransitionInvocation(invocationSequence(job.Purpose()), domain.InvocationSucceeded); err != nil {
+			return nil, fmt.Errorf("review coordinator: complete extraction invocation: %w", err)
+		}
+	} else if err := transitionFailedExtractionInvocation(&attempt.attempt, invocationSequence(job.Purpose()), condition); err != nil {
+		return nil, err
+	}
+	if err := terminalizeAttempt(&attempt.attempt, AttemptConditionValidReview); err != nil {
+		return nil, err
+	}
+	if err := execution.run.TransitionRole(job.Role(), domain.RoleTaskSucceeded); err != nil {
+		return nil, fmt.Errorf("review coordinator: succeed role: %w", err)
+	}
+	copied := output.clone()
+	state.output = &copied
+	state.repaired = output.ValidationState() == domain.ValidationRepairedValid
+	attempt.parseState = output.ParseState()
+	attempt.validationState = output.ValidationState()
+	valid := AttemptConditionValidReview
+	if err := execution.record(CoordinatorEventRoleTerminal, job.Role(), attempt, nil, &valid, string(AttemptConditionValidReview), domain.RunState("")); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// transitionFailedExtractionInvocation fails only the extraction trailer. The
+// attempt stays in validation so the already accepted report can still succeed.
+func transitionFailedExtractionInvocation(attempt *domain.Attempt, sequence uint64, condition AttemptCondition) error {
+	next := domain.InvocationFailed
+	switch condition {
+	case AttemptConditionTimeout, AttemptConditionProviderTimeout:
+		next = domain.InvocationTimedOut
+	case AttemptConditionCancelled:
+		next = domain.InvocationCancelled
+	}
+	if err := attempt.TransitionInvocation(sequence, next); err != nil {
+		return fmt.Errorf("review coordinator: fail extraction invocation: %w", err)
+	}
+	return nil
+}
+
+// extractionBoundedFailureCeiling is the highest canonical failure precedence a
+// failed extraction trailer may absorb into the already accepted reports-only
+// outcome. It stops below domain.FailureConfiguration, so configuration,
+// cancellation, artifact, security, and internal failures keep their precedence
+// and reach the run through ordinary wave reduction. Those classes never
+// authorize publication, and a trailer must not launder one into role success.
+const extractionBoundedFailureCeiling = 2
+
+// extractionOutcomeIsBounded reports whether an extraction trailer outcome may
+// be absorbed by the role that already holds an accepted report.
+func extractionOutcomeIsBounded(job InvocationJob, condition AttemptCondition) bool {
+	if job.Purpose() != domain.InvocationExtract {
+		return false
+	}
+	return app.FailurePrecedence(conditionFailureClass(condition)) <= extractionBoundedFailureCeiling
+}
+
 func conditionRequiresValidation(condition AttemptCondition) bool {
 	switch condition {
 	case AttemptConditionValidReview,
@@ -1644,7 +1908,7 @@ func conditionRequiresValidation(condition AttemptCondition) bool {
 }
 
 func invocationSequence(purpose domain.InvocationPurpose) uint64 {
-	if purpose == domain.InvocationRepair || purpose == domain.InvocationRetry {
+	if purpose == domain.InvocationRepair || purpose == domain.InvocationRetry || purpose == domain.InvocationExtract {
 		return 2
 	}
 	return 1
@@ -2199,6 +2463,7 @@ func (execution *coordinatorExecution) record(
 		kind == CoordinatorEventInvocationCommitted ||
 		kind == CoordinatorEventRepairQueued ||
 		kind == CoordinatorEventRetryQueued ||
+		kind == CoordinatorEventExtractionQueued ||
 		kind == CoordinatorEventRoleTerminal
 	if roleEvent {
 		if !role.Valid() {

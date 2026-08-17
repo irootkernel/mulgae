@@ -248,6 +248,7 @@ type ExecutionPlan struct {
 	Threshold   domain.Severity
 	Policy      *domain.CIPolicy
 	MaxWorkers  int
+	Extraction  bool
 }
 
 func (plan ExecutionPlan) clone() ExecutionPlan {

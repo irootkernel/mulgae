@@ -139,11 +139,46 @@ func cloneInvocationRepairInput(input InvocationRepairInput) InvocationRepairInp
 	}
 }
 
+// InvocationExtractionInput is trusted state retained from an accepted
+// reports-only invocation so the structured extraction trailer can transcribe
+// it. The report body stays here rather than on the job, which keeps
+// InvocationJob free of untrusted provider content.
+type InvocationExtractionInput struct {
+	acceptedReport  []byte
+	reportTransport ports.ProviderOutputTransport
+}
+
+// AcceptedReport returns a defensive copy of the already accepted role report.
+func (input InvocationExtractionInput) AcceptedReport() []byte {
+	return append([]byte(nil), input.acceptedReport...)
+}
+
+// ReportTransport returns the transport that carried the accepted report. The
+// extraction trailer never changes it: manifest role reports must keep
+// describing the bytes that were published.
+func (input InvocationExtractionInput) ReportTransport() ports.ProviderOutputTransport {
+	return input.reportTransport
+}
+
+func cloneInvocationExtractionInput(input InvocationExtractionInput) InvocationExtractionInput {
+	return InvocationExtractionInput{
+		acceptedReport:  append([]byte(nil), input.acceptedReport...),
+		reportTransport: input.reportTransport,
+	}
+}
+
 // InvocationPromptSource supplies trusted prompt material keyed by the immutable
 // coordinator job. repair is nil for initial and retry jobs and is present only
 // for the one coordinator-authorized repair invocation of the same attempt.
 type InvocationPromptSource interface {
 	Prompt(context.Context, InvocationJob, *InvocationRepairInput) (RuntimePrompt, error)
+}
+
+// ExtractionInvocationPromptSource composes the structured extraction prompt. It
+// is intentionally separate from Prompt so an extraction launch can never fall
+// back to a prompt that asks for a fresh review.
+type ExtractionInvocationPromptSource interface {
+	ExtractionPrompt(context.Context, InvocationJob, InvocationExtractionInput) (RuntimePrompt, error)
 }
 
 // RuntimeDiagnosticSinkResolver supplies an already-opened run sink. The
@@ -281,11 +316,12 @@ type ProviderInvocationRuntime struct {
 	diagnostics       RuntimeDiagnosticSinkResolver
 	staging           ports.ProviderOutputStagingLocator
 
-	mu             sync.Mutex
-	pending        map[domain.AttemptID]InvocationRepairInput
-	captures       map[captureKey]AttemptCapture
-	inventory      map[captureKey]RuntimeArtifactInventory
-	activeExplicit map[captureKey]struct{}
+	mu                sync.Mutex
+	pending           map[domain.AttemptID]InvocationRepairInput
+	pendingExtraction map[domain.AttemptID]InvocationExtractionInput
+	captures          map[captureKey]AttemptCapture
+	inventory         map[captureKey]RuntimeArtifactInventory
+	activeExplicit    map[captureKey]struct{}
 }
 
 type captureKey struct {
@@ -308,7 +344,7 @@ func NewProviderInvocationRuntime(provider ports.ReviewProvider, source Invocati
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
+	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
 }
 
 // NewObservedProviderInvocationRuntime constructs a runtime directly from the
@@ -327,7 +363,7 @@ func NewObservedProviderInvocationRuntime(provider ports.ObservedReviewProvider,
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
+	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
 }
 
 // NewObservedProviderInvocationRuntimeWithDiagnostics constructs an observed
@@ -571,7 +607,32 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		copy := cloneInvocationRepairInput(input)
 		repair = &copy
 	}
-	material, err := runtime.source.Prompt(invocationCtx, job, repair)
+	var extraction *InvocationExtractionInput
+	if job.Purpose() == domain.InvocationExtract {
+		runtime.mu.Lock()
+		input, ok := runtime.pendingExtraction[job.AttemptID()]
+		runtime.mu.Unlock()
+		if !ok {
+			return runtimeCondition(job, AttemptConditionInternalInvariant)
+		}
+		copied := cloneInvocationExtractionInput(input)
+		extraction = &copied
+	}
+	var (
+		material RuntimePrompt
+		err      error
+	)
+	if extraction != nil {
+		// A source that cannot compose the extraction contract must not fall
+		// back to a prompt that asks for a fresh review.
+		extractionSource, ok := runtime.source.(ExtractionInvocationPromptSource)
+		if !ok {
+			return runtimeCondition(job, AttemptConditionConfigurationViolation)
+		}
+		material, err = extractionSource.ExtractionPrompt(invocationCtx, job, *extraction)
+	} else {
+		material, err = runtime.source.Prompt(invocationCtx, job, repair)
+	}
 	if err != nil {
 		return runtimeCondition(job, runtimePromptErrorCondition(invocationCtx, err))
 	}
@@ -683,6 +744,59 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	assistantContent := append([]byte(nil), stdout...)
 	contentClass, validateBytes := classifyAssistantContent(assistantContent)
+	if job.Purpose() == domain.InvocationExtract {
+		// The role report is already accepted and committed to the outcome the
+		// coordinator retained. Every failure below is bounded to this trailer:
+		// it never replaces, degrades, or withdraws that accepted report.
+		defer func() {
+			runtime.mu.Lock()
+			delete(runtime.pendingExtraction, job.AttemptID())
+			runtime.mu.Unlock()
+		}()
+		if contentClass == assistantContentFreeForm {
+			// Prose is not a transcription. Capture the streams and stop here;
+			// the trailer never enters Validate and never mints a repair plan.
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
+			return runtimeCondition(job, AttemptConditionInvalidProviderOutput)
+		}
+		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		// The repair plan a decode failure may mint is deliberately discarded:
+		// the trailer owns no invocation slot of its own to repair into.
+		validated, _, validationErr := runtime.validator.Validate(invocationCtx, validateBytes, scope)
+		parseState = diagnosticParseState(validationErr, validateBytes)
+		if validationErr == nil {
+			validationState = domain.ValidationValid
+			if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
+		} else {
+			validationState = domain.ValidationInvalid
+		}
+		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		if validationErr != nil {
+			securityRejected := isSecurityValidationError(validationErr)
+			if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, securityRejected); err != nil {
+				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			}
+			if securityRejected {
+				return runtimeCondition(job, AttemptConditionSecurityViolation)
+			}
+			return runtimeCondition(job, runtimeErrorCondition(invocationCtx, validationErr))
+		}
+		if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
+			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		}
+		return runtime.acceptExtraction(invocationCtx, job, validated, extraction.AcceptedReport(), extraction.ReportTransport())
+	}
 	if job.Purpose() == domain.InvocationInitial || job.Purpose() == domain.InvocationRetry {
 		if contentClass == assistantContentFreeForm {
 			// Pure prose must not enter Validate: decode failures always mint
@@ -926,13 +1040,17 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	if pending, ok := runtime.pending[job.AttemptID()]; ok {
 		clonePending[job.AttemptID()] = cloneInvocationRepairInput(pending)
 	}
+	cloneExtraction := make(map[domain.AttemptID]InvocationExtractionInput)
+	if extraction, ok := runtime.pendingExtraction[job.AttemptID()]; ok {
+		cloneExtraction[job.AttemptID()] = cloneInvocationExtractionInput(extraction)
+	}
 	runtime.mu.Unlock()
 	clone := &ProviderInvocationRuntime{
 		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
 		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
 		workspaceIdentity: runtime.workspaceIdentity, hasWorkspace: runtime.hasWorkspace, policy: runtime.policy,
 		allowSourceScope: allowSourceScope, diagnostics: runtime.diagnostics, staging: runtime.staging,
-		pending: clonePending, captures: make(map[captureKey]AttemptCapture),
+		pending: clonePending, pendingExtraction: cloneExtraction, captures: make(map[captureKey]AttemptCapture),
 		inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
 	outcome := clone.Invoke(ctx, job)
@@ -940,6 +1058,7 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 	captures := clone.captures
 	inventory := clone.inventory
 	pending, pendingExists := clone.pending[job.AttemptID()]
+	extraction, extractionExists := clone.pendingExtraction[job.AttemptID()]
 	clone.mu.Unlock()
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -959,6 +1078,11 @@ func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Con
 		runtime.pending[job.AttemptID()] = cloneInvocationRepairInput(pending)
 	} else {
 		delete(runtime.pending, job.AttemptID())
+	}
+	if extractionExists {
+		runtime.pendingExtraction[job.AttemptID()] = cloneInvocationExtractionInput(extraction)
+	} else {
+		delete(runtime.pendingExtraction, job.AttemptID())
 	}
 	return outcome
 }
@@ -1062,6 +1186,65 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 	return outcome
 }
 
+// acceptExtraction accepts a structured extraction trailer. Mulgae cannot prove
+// that a transcribed finding restates a claim the accepted report actually made,
+// so it admits a transcription only when it confirmed every finding against the
+// immutable target itself. A finding the target does not confirm is backed by
+// nothing Mulgae can check, and the role keeps its accepted report instead.
+// The trailer never mints an exact-evidence repair plan: it owns no further
+// invocation slot. Every failure returns a condition and the coordinator keeps
+// the already accepted reports-only outcome untouched.
+func (runtime *ProviderInvocationRuntime) acceptExtraction(
+	ctx context.Context,
+	job InvocationJob,
+	validated validation.ValidatedReview,
+	acceptedReport []byte,
+	reportTransport ports.ProviderOutputTransport,
+) AttemptOutcome {
+	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
+	if err != nil {
+		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
+	}
+	reduced, err := ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy)
+	if err != nil {
+		return runtimeCondition(job, AttemptConditionUnrepairableEvidence)
+	}
+	// Full verification is required here, not merely the configured severity
+	// policy. On the direct structured path a partially verified finding still
+	// carries the provider's own review claim; a transcribed finding carries
+	// neither that authority nor a target Mulgae could confirm.
+	for _, finding := range reduced {
+		if finding.EvidenceState() != domain.EvidenceVerified {
+			return runtimeCondition(job, AttemptConditionUnrepairableEvidence)
+		}
+	}
+	// Coverage was decided when Mulgae accepted the report. A transcription pass
+	// must not be able to mark the role degraded through its own self-assessment,
+	// so completeness and limitations are Mulgae-owned for this stage.
+	output, err := NewEvidenceValidatedRoleOutput(
+		job.Role(), job.Route().ProviderInstance(), job.Target(), validated.Findings(), "complete", nil, verified,
+	)
+	if err != nil {
+		return runtimeCondition(job, AttemptConditionInvalidEvidenceClaim)
+	}
+	// The published role report stays the accepted Markdown byte for byte and
+	// keeps the transport that actually carried it.
+	if err := output.bindReportMarkdown(acceptedReport, false); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	if err := output.bindOutputTransport(reportTransport); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	if err := output.bindExtractionStates(domain.ParseValid, domain.ValidationValid); err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	outcome, err := NewAttemptOutcome(job, &output, nil)
+	if err != nil {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	return outcome
+}
+
 func bindStructuredPrimaryReport(role domain.Role, validated validation.ValidatedReview, primaryReport []byte) ([]byte, error) {
 	// Production primary report is always the full adapter-extracted assistant
 	// content, including pure structured JSON and mixed Markdown+JSON.
@@ -1101,6 +1284,17 @@ func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
 	}
 	if err := runtime.capture(ctx, job, candidate, rawStdout, stderr, false); err != nil {
 		return runtimeCondition(job, diagnosticConditionForPersistence(err)), true
+	}
+	// Retain the accepted report so the coordinator may schedule the structured
+	// extraction trailer. Only an initial invocation leaves the second slot free,
+	// so no other purpose can start one.
+	if job.Purpose() == domain.InvocationInitial {
+		runtime.mu.Lock()
+		runtime.pendingExtraction[job.AttemptID()] = InvocationExtractionInput{
+			acceptedReport:  output.ReportMarkdown(),
+			reportTransport: transport,
+		}
+		runtime.mu.Unlock()
 	}
 	outcome, err := NewAttemptOutcome(job, &output, nil)
 	if err != nil {
@@ -1144,6 +1338,12 @@ func (runtime *ProviderInvocationRuntime) capture(ctx context.Context, job Invoc
 	if job.Purpose() == domain.InvocationRepair {
 		if len(candidate) > 0 {
 			if err := add(ports.AttemptArtifactRepairedCandidate, candidate, reject); err != nil {
+				return err
+			}
+		}
+	} else if job.Purpose() == domain.InvocationExtract {
+		if len(candidate) > 0 {
+			if err := add(ports.AttemptArtifactExtractedCandidate, candidate, reject); err != nil {
 				return err
 			}
 		}
@@ -1251,6 +1451,22 @@ func (runtime *ProviderInvocationRuntime) persistDiagnosticRaw(
 	return persist(domain.DiagnosticStderr, stderr)
 }
 
+// redactedWithStdout reports whether an artifact carries the same bytes the
+// stdout stream did. Every candidate kind is derived from stdout, so a rejected
+// stdout must reject its candidate too: rejected bytes are never serialized.
+func redactedWithStdout(kind ports.AttemptArtifactKind) bool {
+	switch kind {
+	case ports.AttemptArtifactStdout,
+		ports.AttemptArtifactInitialCandidate,
+		ports.AttemptArtifactRetryCandidate,
+		ports.AttemptArtifactRepairedCandidate,
+		ports.AttemptArtifactExtractedCandidate:
+		return true
+	default:
+		return false
+	}
+}
+
 func (runtime *ProviderInvocationRuntime) markCapturedStreamSecurityRejected(key captureKey, stream domain.RuntimeDiagnosticStream) error {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -1263,7 +1479,7 @@ func (runtime *ProviderInvocationRuntime) markCapturedStreamSecurityRejected(key
 		result := append([]ports.CapturedAttemptArtifact(nil), artifacts...)
 		for index, artifact := range result {
 			redactArtifact := stream == domain.DiagnosticStderr && artifact.Kind() == ports.AttemptArtifactStderr ||
-				stream == domain.DiagnosticStdout && (artifact.Kind() == ports.AttemptArtifactStdout || artifact.Kind() == ports.AttemptArtifactInitialCandidate || artifact.Kind() == ports.AttemptArtifactRepairedCandidate)
+				stream == domain.DiagnosticStdout && redactedWithStdout(artifact.Kind())
 			if !redactArtifact {
 				continue
 			}
@@ -1400,13 +1616,16 @@ func promptDeclaresStagedOutputDestination(compiled prompt.CompiledPrompt, desti
 }
 
 func runtimePurpose(purpose domain.InvocationPurpose) ports.ProviderInvocationPurpose {
-	if purpose == domain.InvocationRepair {
+	switch purpose {
+	case domain.InvocationRepair:
 		return ports.ProviderInvocationRepair
-	}
-	if purpose == domain.InvocationRetry {
+	case domain.InvocationRetry:
 		return ports.ProviderInvocationRetry
+	case domain.InvocationExtract:
+		return ports.ProviderInvocationExtract
+	default:
+		return ports.ProviderInvocationInitial
 	}
-	return ports.ProviderInvocationInitial
 }
 func runtimeCondition(job InvocationJob, condition AttemptCondition) AttemptOutcome {
 	outcome, err := NewAttemptOutcome(job, nil, &condition)

@@ -104,8 +104,9 @@ type ReviewConfig struct {
 	RequestChangesOn []string `yaml:"request_changes_on" json:"request_changes_on"`
 }
 type ValidationConfig struct {
-	Evidence EvidenceConfig `yaml:"evidence" json:"evidence"`
-	Repair   RepairConfig   `yaml:"repair" json:"repair"`
+	Evidence   EvidenceConfig   `yaml:"evidence" json:"evidence"`
+	Repair     RepairConfig     `yaml:"repair" json:"repair"`
+	Extraction ExtractionConfig `yaml:"extraction" json:"extraction"`
 }
 type EvidenceConfig struct {
 	RequireVerifiedFor []string `yaml:"require_verified_for" json:"require_verified_for"`
@@ -114,6 +115,13 @@ type RepairConfig struct {
 	Enabled      bool `yaml:"enabled" json:"enabled"`
 	MaxAttempts  int  `yaml:"max_attempts" json:"max_attempts"`
 	SameProvider bool `yaml:"same_provider" json:"same_provider"`
+}
+
+// ExtractionConfig enables the Mulgae-owned structured extraction trailer. It
+// consumes the same single second invocation retry and repair compete for, so
+// enabling it never widens a role path.
+type ExtractionConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 type ResourcesConfig struct {
 	MaxActiveLanes        int `yaml:"max_active_lanes" json:"max_active_lanes"`
@@ -136,7 +144,7 @@ const (
 	DefaultAGYPermissionMode  = "safe"
 	SafeAGYPermissionMode     = "safe"
 	HeadlessAGYPermissionMode = "dangerously-skip-permissions"
-	DefaultProviderTimeout    = 15 * time.Minute
+	DefaultProviderTimeout    = 60 * time.Minute
 	MinimumProviderTimeout    = time.Minute
 	MaximumProviderTimeout    = 60 * time.Minute
 	ConfigRelativePath        = ".mulgae/config.yaml"
@@ -147,8 +155,9 @@ const (
 )
 
 // ParseProviderTimeout resolves an optional Config v3 provider timeout. An
-// omitted value uses the fixed 15-minute default; admitted explicit values are
-// bounded inclusively between one and sixty minutes.
+// omitted value uses the fixed 60-minute default, which is also the admitted
+// maximum; explicit values are bounded inclusively between one and sixty
+// minutes, so a project may only shorten a provider window.
 func ParseProviderTimeout(value string) (time.Duration, error) {
 	if value == "" {
 		return DefaultProviderTimeout, nil

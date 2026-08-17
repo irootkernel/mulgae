@@ -95,8 +95,13 @@ func (attempt *Attempt) Transition(next AttemptState) error {
 			return fmt.Errorf("attempt: %w: repair validation requires a succeeded repair invocation at sequence 2", ErrInvariant)
 		}
 	case AttemptSucceeded:
-		if len(attempt.invocations) == 0 || attempt.invocations[len(attempt.invocations)-1].State() != InvocationSucceeded {
-			return fmt.Errorf("attempt: %w: succeeded requires the latest invocation to have succeeded", ErrInvariant)
+		report, ok := attempt.latestReportInvocation()
+		if !ok || report.State() != InvocationSucceeded {
+			return fmt.Errorf("attempt: %w: succeeded requires the latest report invocation to have succeeded", ErrInvariant)
+		}
+		latest := attempt.invocations[len(attempt.invocations)-1]
+		if latest.Purpose() == InvocationExtract && !terminalInvocationState(latest.State()) {
+			return fmt.Errorf("attempt: %w: succeeded requires a terminal extraction trailer", ErrInvariant)
 		}
 	case AttemptRepairing:
 		if len(attempt.invocations) != 1 {
@@ -124,6 +129,31 @@ func (attempt *Attempt) AppendRetryInvocation(invocation Invocation) error {
 	}
 	if invocation.Sequence() != 2 || invocation.Purpose() != InvocationRetry || invocation.State() != InvocationQueued {
 		return fmt.Errorf("attempt: %w: retry invocation must be queued retry at sequence 2", ErrInvariant)
+	}
+	attempt.invocations = append(attempt.invocations, invocation)
+	return nil
+}
+
+// AppendExtractInvocation adds the sole Mulgae-owned structured extraction
+// trailer after an accepted report. The attempt stays in validation because the
+// trailer can only upgrade an already accepted result: it never decides attempt
+// success, and it is mutually exclusive with retry and repair.
+func (attempt *Attempt) AppendExtractInvocation(invocation Invocation) error {
+	if attempt == nil {
+		return fmt.Errorf("attempt: %w: nil receiver", ErrInvariant)
+	}
+	if attempt.state != AttemptValidating {
+		return fmt.Errorf("attempt: %w: extraction can be appended only while validating", ErrInvariant)
+	}
+	if len(attempt.invocations) != 1 {
+		return fmt.Errorf("attempt: %w: extraction requires exactly one accepted invocation", ErrInvariant)
+	}
+	accepted := attempt.invocations[0]
+	if accepted.Sequence() != 1 || accepted.Purpose() != InvocationInitial || accepted.State() != InvocationSucceeded {
+		return fmt.Errorf("attempt: %w: extraction requires a succeeded initial invocation at sequence 1", ErrInvariant)
+	}
+	if invocation.Sequence() != 2 || invocation.Purpose() != InvocationExtract || invocation.State() != InvocationQueued {
+		return fmt.Errorf("attempt: %w: extraction invocation must be queued extract at sequence 2", ErrInvariant)
 	}
 	attempt.invocations = append(attempt.invocations, invocation)
 	return nil
@@ -186,6 +216,11 @@ func (attempt *Attempt) TransitionInvocation(sequence uint64, next InvocationSta
 		if current.Sequence() != 2 || current.Purpose() != InvocationRepair {
 			return fmt.Errorf("attempt: %w: repair phase requires the repair invocation at sequence 2", ErrInvariant)
 		}
+	case AttemptValidating:
+		current = attempt.invocations[len(attempt.invocations)-1]
+		if current.Purpose() != InvocationExtract || current.Sequence() != uint64(len(attempt.invocations)) {
+			return fmt.Errorf("attempt: %w: validation phase transitions only the extraction trailer", ErrInvariant)
+		}
 	default:
 		return fmt.Errorf("attempt: %w: invocation transition is not allowed in state %q", ErrInvariant, attempt.state)
 	}
@@ -213,6 +248,22 @@ func (attempt *Attempt) MarkInvocationRuntimeArtifactsExpected(sequence uint64) 
 	}
 	invocation.runtimeArtifactsExpected = true
 	return nil
+}
+
+// latestReportInvocation returns the newest invocation that may deliver the role
+// report. The extraction trailer is excluded because its outcome never decides
+// attempt success.
+func (attempt Attempt) latestReportInvocation() (Invocation, bool) {
+	for index := len(attempt.invocations) - 1; index >= 0; index-- {
+		if attempt.invocations[index].Purpose().CarriesRoleReport() {
+			return attempt.invocations[index], true
+		}
+	}
+	return Invocation{}, false
+}
+
+func terminalInvocationState(state InvocationState) bool {
+	return state.Valid() && state != InvocationQueued && state != InvocationRunning
 }
 
 func (attempt Attempt) ID() AttemptID            { return attempt.id }

@@ -18,6 +18,7 @@ const (
 	CoordinatorEventInvocationCommitted    CoordinatorEventKind = "invocation_committed"
 	CoordinatorEventRepairQueued           CoordinatorEventKind = "repair_queued"
 	CoordinatorEventRetryQueued            CoordinatorEventKind = "retry_queued"
+	CoordinatorEventExtractionQueued       CoordinatorEventKind = "extraction_queued"
 	CoordinatorEventRoleTerminal           CoordinatorEventKind = "role_terminal"
 	CoordinatorEventCancellationRequested  CoordinatorEventKind = "cancellation_requested"
 	CoordinatorEventWorkersCloseAuthorized CoordinatorEventKind = "workers_close_authorized"
@@ -33,6 +34,7 @@ func (kind CoordinatorEventKind) Valid() bool {
 		CoordinatorEventInvocationCommitted,
 		CoordinatorEventRepairQueued,
 		CoordinatorEventRetryQueued,
+		CoordinatorEventExtractionQueued,
 		CoordinatorEventRoleTerminal,
 		CoordinatorEventCancellationRequested,
 		CoordinatorEventWorkersCloseAuthorized,
@@ -135,6 +137,10 @@ func (event CoordinatorTraceEvent) validate() error {
 		wantRole, wantAttempt, wantPurpose, wantCondition = true, true, true, true
 	case CoordinatorEventRepairQueued, CoordinatorEventRetryQueued:
 		wantRole, wantAttempt, wantPurpose, wantReason = true, true, true, true
+	case CoordinatorEventExtractionQueued:
+		// Extraction is scheduled by the content of an accepted output rather
+		// than by an attempt condition, so it carries no reason.
+		wantRole, wantAttempt, wantPurpose = true, true, true
 	case CoordinatorEventRoleTerminal:
 		wantRole, wantAttempt, wantCondition, wantReason = true, event.hasAttempt, true, true
 	case CoordinatorEventCancellationRequested:

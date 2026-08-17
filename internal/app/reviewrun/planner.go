@@ -162,6 +162,10 @@ type PlannerPolicy struct {
 	MaxWorkers    int
 	Assignments   []RoleProviderAssignment
 	RequiredRoles []domain.Role
+	// Extraction admits the Mulgae-owned structured extraction trailer. It
+	// consumes the same second invocation repair competes for, so it never
+	// changes a role path's projected invocation count.
+	Extraction bool
 }
 
 // DefaultPlannerPolicy returns the closed planner policy used when no narrower
@@ -305,7 +309,7 @@ func (planner *qualifiedPlanner) makeConfiguredPlan(roles []domain.Role, primari
 		}
 		assignments, budgets = append(assignments, assignment), append(budgets, budget)
 	}
-	plan := ExecutionPlan{Assignments: assignments, Budgets: budgets, Ceilings: planner.policy.Ceilings, Threshold: planner.policy.Threshold, Policy: planner.policy.Policy, MaxWorkers: planner.policy.MaxWorkers}
+	plan := ExecutionPlan{Assignments: assignments, Budgets: budgets, Ceilings: planner.policy.Ceilings, Threshold: planner.policy.Threshold, Policy: planner.policy.Policy, MaxWorkers: planner.policy.MaxWorkers, Extraction: planner.policy.Extraction}
 	if _, err := validatePlan(plan, roles); err != nil {
 		return ExecutionPlan{}, err
 	}

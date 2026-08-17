@@ -19,11 +19,15 @@ const (
 	ProviderInvocationInitial ProviderInvocationPurpose = "initial"
 	ProviderInvocationRetry   ProviderInvocationPurpose = "retry"
 	ProviderInvocationRepair  ProviderInvocationPurpose = "repair"
+	// ProviderInvocationExtract transcribes an accepted free-form role report
+	// into the provider review wire contract on the same attempt and route.
+	ProviderInvocationExtract ProviderInvocationPurpose = "extract"
 )
 
 // Valid reports whether purpose is a supported provider invocation purpose.
 func (purpose ProviderInvocationPurpose) Valid() bool {
-	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRetry || purpose == ProviderInvocationRepair
+	return purpose == ProviderInvocationInitial || purpose == ProviderInvocationRetry ||
+		purpose == ProviderInvocationRepair || purpose == ProviderInvocationExtract
 }
 
 // ProviderOutputTransport identifies how one provider invocation is expected to

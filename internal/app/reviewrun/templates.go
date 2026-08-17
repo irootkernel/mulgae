@@ -25,6 +25,7 @@ var rootReviewTemplateDescriptors = [...]templateDescriptor{
 	{id: "sot:prompts/root-review/run-review.v1.txt", source: "prompts/root-review/run-review.v1.txt", layer: "builtin:run/review", version: "1"},
 	{id: "sot:prompts/root-review/output-provider-review-wire.v1.txt", source: "prompts/root-review/output-provider-review-wire.v1.txt", layer: "builtin:output/provider-review-wire", version: "1"},
 	{id: "sot:prompts/root-review/repair-provider-review.v1.txt", source: "prompts/root-review/repair-provider-review.v1.txt", layer: "builtin:repair/provider-review", version: "1"},
+	{id: "sot:prompts/root-review/extract-provider-review.v1.txt", source: "prompts/root-review/extract-provider-review.v1.txt", layer: "builtin:extract/provider-review", version: "1"},
 }
 
 // LoadDefaultTemplateSet loads the fixed root-review prompt contract from the
@@ -33,7 +34,7 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 	if ctx == nil || catalog == nil {
 		return review.TemplateSet{}, fmt.Errorf("review templates: nil context or catalog")
 	}
-	var common, run, output, repair prompt.TrustedLayer
+	var common, run, output, repair, extract prompt.TrustedLayer
 	roles := make(map[domain.Role]prompt.TrustedLayer, len(domain.FixedRoleOrder()))
 	for _, descriptor := range rootReviewTemplateDescriptors {
 		assetID, err := ports.ParseAssetID(descriptor.id)
@@ -70,6 +71,8 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 				output = layer
 			case "builtin:repair/provider-review":
 				repair = layer
+			case "builtin:extract/provider-review":
+				extract = layer
 			}
 		default:
 			roles[descriptor.role] = layer
@@ -87,5 +90,5 @@ func LoadDefaultTemplateSet(ctx context.Context, catalog ports.ContractCatalog) 
 		}
 		roles[role] = layer
 	}
-	return review.NewTemplateSet(common, run, output, repair, roles)
+	return review.NewTemplateSet(common, run, output, repair, extract, roles)
 }

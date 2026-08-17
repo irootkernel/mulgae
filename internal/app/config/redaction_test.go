@@ -26,3 +26,39 @@ func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 		t.Fatalf("redaction still projects a fallback route: %s", data)
 	}
 }
+
+// Extraction changes what a run may spend its second invocation on, so an
+// operator must be able to see the admitted policy in `mulgae config`.
+func TestRedactionProjectsStructuredExtractionPolicy(t *testing.T) {
+	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
+	for _, enabled := range []bool{true, false} {
+		raw := adapterconfig.Config{
+			Version: adapterconfig.ConfigVersion,
+			Providers: adapterconfig.ProvidersConfig{
+				Kimi: &adapterconfig.KimiProviderConfig{Executable: "/bin/kimi", DataHome: "/home/kimi"},
+			},
+			Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"},
+			Roles:     roles,
+			Review:    adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}},
+			Validation: adapterconfig.ValidationConfig{
+				Extraction: adapterconfig.ExtractionConfig{Enabled: enabled},
+			},
+			Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12},
+		}
+		resolved, err := appconfig.ResolveConfiguration(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.ExtractionEnabled() != enabled {
+			t.Fatalf("ExtractionEnabled() = %t, want %t", resolved.ExtractionEnabled(), enabled)
+		}
+		data, _ := json.Marshal(appconfig.Redact(resolved))
+		want := `"extraction_enabled":false`
+		if enabled {
+			want = `"extraction_enabled":true`
+		}
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("redaction omitted %s: %s", want, data)
+		}
+	}
+}

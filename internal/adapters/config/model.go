@@ -25,6 +25,7 @@ type ReviewConfig = appconfig.ReviewConfig
 type ValidationConfig = appconfig.ValidationConfig
 type EvidenceConfig = appconfig.EvidenceConfig
 type RepairConfig = appconfig.RepairConfig
+type ExtractionConfig = appconfig.ExtractionConfig
 type ResourcesConfig = appconfig.ResourcesConfig
 type CIConfig = appconfig.CIConfig
 

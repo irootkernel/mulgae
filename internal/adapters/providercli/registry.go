@@ -842,6 +842,10 @@ func stagedOutputPurposeOrdinal(purpose ports.ProviderInvocationPurpose) (int, b
 		return 1, true
 	case ports.ProviderInvocationRepair:
 		return 1, true
+	case ports.ProviderInvocationExtract:
+		// The structured extraction trailer returns exact JSON on stdout and is
+		// never granted a staged file, so it has no staging ordinal.
+		return 0, false
 	default:
 		return 0, false
 	}

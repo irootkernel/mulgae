@@ -88,6 +88,8 @@ type liveAttempt struct {
 	SelectedAs       string `json:"selected_as"`
 	State            string `json:"state"`
 	InvocationCount  int    `json:"invocation_count"`
+	ParseState       string `json:"parse_state"`
+	ValidationState  string `json:"validation_state"`
 }
 
 type liveFailure struct {
@@ -109,20 +111,21 @@ type liveRoleReport struct {
 }
 
 type liveManifest struct {
-	SessionID            string           `json:"session_id"`
-	RunID                string           `json:"run_id"`
-	RunType              string           `json:"run_type"`
-	State                string           `json:"state"`
-	Sealed               bool             `json:"sealed"`
-	ImmutableLineage     liveLineage      `json:"immutable_lineage"`
-	SelectedRoles        []string         `json:"selected_roles"`
-	Attempts             []liveAttempt    `json:"attempts"`
-	Failures             []liveFailure    `json:"failures"`
-	PublicationStatus    string           `json:"publication_status"`
-	PublicationAuthority string           `json:"publication_authority"`
-	ExitCode             int              `json:"exit_code"`
-	RoleReports          []liveRoleReport `json:"role_reports"`
-	FinalReview          struct {
+	SessionID                 string           `json:"session_id"`
+	RunID                     string           `json:"run_id"`
+	RunType                   string           `json:"run_type"`
+	StructuredExtractionState string           `json:"structured_extraction_status"`
+	State                     string           `json:"state"`
+	Sealed                    bool             `json:"sealed"`
+	ImmutableLineage          liveLineage      `json:"immutable_lineage"`
+	SelectedRoles             []string         `json:"selected_roles"`
+	Attempts                  []liveAttempt    `json:"attempts"`
+	Failures                  []liveFailure    `json:"failures"`
+	PublicationStatus         string           `json:"publication_status"`
+	PublicationAuthority      string           `json:"publication_authority"`
+	ExitCode                  int              `json:"exit_code"`
+	RoleReports               []liveRoleReport `json:"role_reports"`
+	FinalReview               struct {
 		Path string `json:"path"`
 	} `json:"final_review"`
 }
@@ -213,10 +216,11 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	}
 	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return only one mulgae-provider-review-output.v1 JSON object with no surrounding narration. It is valid to return no findings; report only concrete actionable defects supported by exact current-target evidence.",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return a Markdown role report, the primary success form; Mulgae itself transcribes it into structured findings. It is valid to report no defects; report only concrete actionable defects supported by exact current-target evidence.",
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
+	assertLiveStructuredExtraction(t, project, run)
 	assertLiveRoleReportTransports(t, run, "review", true)
 	assertNoProjectProviderLocks(t, project)
 	securityProvider := requireLiveSelectedProvider(t, run, "security")
@@ -247,23 +251,23 @@ func runLiveChildProductionWorkflows(
 	sourceAttempt := requireLiveSelectedAttempt(t, root, "logic")
 
 	writeLiveFixedReportPath(t, project)
-	// followup --finding remains structured-path only. Prefer a structured
-	// finding from the selected security provider; otherwise choose a
-	// deterministic structured finding from another successful selected
-	// role/provider. Reports-only security still satisfies the six-role gate
-	// via verified role-report markers and must not alone skip followup.
-	if sourceFinding, ok := selectLiveFollowupSourceFinding(root); ok {
-		followup := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
-			"followup", "--run", root.manifest.RunID, "--finding", sourceFinding.ID,
-			"--dirty", "--objective", "Verify only whether the original directory traversal is resolved.",
-			"--output", "json",
-		)
-		assertLiveSourceLineage(t, followup, root, sourceFinding.ID, "")
-		assertLiveSourceBoundAssignment(t, followup, sourceFinding.Role, sourceFinding.ProviderInstance)
-		assertLiveRoleReportTransports(t, followup, "followup", false)
-	} else {
-		t.Logf("[test-e2e] skipping followup --finding: committed review has zero structured findings bound to successful selected providers")
+	// followup --finding remains structured-path only. The objective asks every
+	// role for a Markdown report, so a committed structured finding proves the
+	// Mulgae-owned structured extraction trailer actually ran end to end. Prefer
+	// a finding from the selected security provider; otherwise take a
+	// deterministic one from another successful selected role/provider.
+	sourceFinding, ok := selectLiveFollowupSourceFinding(root)
+	if !ok {
+		t.Fatalf("committed review has zero structured findings bound to successful selected providers: structured extraction did not produce findings from prose reports")
 	}
+	followup := runLiveRecoverableChildWorkflow(t, validator, environment, project, nil,
+		"followup", "--run", root.manifest.RunID, "--finding", sourceFinding.ID,
+		"--dirty", "--objective", "Verify only whether the original directory traversal is resolved.",
+		"--output", "json",
+	)
+	assertLiveSourceLineage(t, followup, root, sourceFinding.ID, "")
+	assertLiveSourceBoundAssignment(t, followup, sourceFinding.Role, sourceFinding.ProviderInstance)
+	assertLiveRoleReportTransports(t, followup, "followup", false)
 
 	delta := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
 		map[string]string{"logic": "zcode-logic", "security": "zcode-security", "documentation": "agy-documentation"},
@@ -273,7 +277,7 @@ func runLiveChildProductionWorkflows(
 	assertLiveSourceLineage(t, delta, root, "", "")
 	assertLiveRoleReportTransports(t, delta, "delta", false)
 
-	exact := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4},
+	exact := runLiveRecoverableChildWorkflow(t, validator, environment, project, nil,
 		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
 		"--replay", "exact", "--output", "json",
 	)
@@ -537,12 +541,6 @@ func containsLiveExit(values []int, value int) bool {
 		}
 	}
 	return false
-}
-
-func runLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, allowedExits []int, arguments ...string) livePublishedRun {
-	t.Helper()
-	envelope := runLiveMulgaeAllowed(t, validator, environment, project, allowedExits, arguments...)
-	return loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
 }
 
 func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, arguments ...string) livePublishedRun {
@@ -1705,6 +1703,74 @@ func validateLiveAssignments(run livePublishedRun, expected map[string]string) e
 // return provider_output_missing in the next. Mulgae no longer masks that by
 // moving the role elsewhere, so this scenario absorbs it the way the root
 // workflow already does, rather than asserting a live provider never flakes.
+// liveChildProviderNondeterminism reports whether a failed child workflow stopped
+// on the bounded live-provider nondeterminism this repository already records,
+// rather than on a defect the gate must surface. A child workflow reaches a real
+// provider, so it needs the same bounded recovery the root review already has.
+func liveChildProviderNondeterminism(envelope liveCommandEnvelope) bool {
+	if liveFocusedAttemptRetryable(envelope) {
+		return true
+	}
+	// A provider that terminates without usable output is the recorded
+	// stochastic outcome for these fixtures; it is not a Mulgae defect. Every
+	// reported reason must be that outcome: a compound failure that also names a
+	// publication or integrity defect must reach the gate rather than be retried
+	// away, or a real artifact regression could hide behind a passing retry.
+	if envelope.Exit.Kind != "artifact" || len(envelope.Reasons) == 0 {
+		return false
+	}
+	for _, reason := range envelope.Reasons {
+		if reason.Code != "provider_output_missing" {
+			return false
+		}
+	}
+	return true
+}
+
+// runLiveRecoverableChildWorkflow runs one child workflow with the same bounded
+// recovery the root review uses. validate may be nil when reaching P2 is the
+// whole requirement.
+func runLiveRecoverableChildWorkflow(
+	t *testing.T,
+	validator *jsonschema.Validator,
+	environment liveE2EEnvironment,
+	project string,
+	validate func(livePublishedRun) error,
+	arguments ...string,
+) livePublishedRun {
+	t.Helper()
+	const maxAttempts = 2
+	var last string
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Admit the wider terminal set so bounded provider nondeterminism is
+		// classified here instead of failing the gate inside the runner.
+		envelope := runLiveMulgaeAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
+		if envelope.Exit.Code != 0 && envelope.Exit.Code != 1 && envelope.Exit.Code != 4 {
+			if !liveChildProviderNondeterminism(envelope) {
+				t.Fatalf("live %s failed without retry authority: exit=%#v reasons=%#v",
+					arguments[0], envelope.Exit, envelope.Reasons)
+			}
+			last = fmt.Sprintf("%s: %#v", envelope.Exit.Kind, envelope.Reasons)
+			t.Logf("[test-e2e] %s attempt %d/%d hit bounded provider nondeterminism; retrying: %s",
+				arguments[0], attempt, maxAttempts, last)
+			continue
+		}
+		run := loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
+		if validate == nil {
+			return run
+		}
+		err := validate(run)
+		if err == nil {
+			return run
+		}
+		last = err.Error()
+		t.Logf("[test-e2e] %s attempt %d/%d did not satisfy its gate; retrying: %v",
+			arguments[0], attempt, maxAttempts, err)
+	}
+	t.Fatalf("live %s did not succeed after %d attempts: %s", arguments[0], maxAttempts, last)
+	return livePublishedRun{}
+}
+
 func runLiveChildWorkflowWithAssignments(
 	t *testing.T,
 	validator *jsonschema.Validator,
@@ -1714,19 +1780,40 @@ func runLiveChildWorkflowWithAssignments(
 	arguments ...string,
 ) livePublishedRun {
 	t.Helper()
-	const maxAttempts = 2
-	var last error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		run := runLivePublishedWorkflow(t, validator, environment, project, []int{0, 1, 4}, arguments...)
-		last = validateLiveAssignments(run, expected)
-		if last == nil {
-			return run
-		}
-		t.Logf("[test-e2e] %s attempt %d/%d did not bind every role to its provider; retrying: %v",
-			arguments[0], attempt, maxAttempts, last)
+	return runLiveRecoverableChildWorkflow(t, validator, environment, project,
+		func(run livePublishedRun) error { return validateLiveAssignments(run, expected) },
+		arguments...)
+}
+
+// assertLiveStructuredExtraction proves the Mulgae-owned structured extraction
+// trailer ran against real providers. Manifest counts alone cannot prove it: a
+// retry that returned exact JSON also reaches invocation_count 2 with valid
+// extraction states. The exact purpose is what distinguishes them, so this
+// requires a succeeded attempt whose committed artifacts carry the 002-extract
+// prompt and invocation streams.
+func assertLiveStructuredExtraction(t *testing.T, project string, run livePublishedRun) {
+	t.Helper()
+	if run.manifest.StructuredExtractionState == "reports_only" {
+		t.Fatalf("structured_extraction_status = %q: structured extraction produced no findings from prose reports",
+			run.manifest.StructuredExtractionState)
 	}
-	t.Fatalf("live %s did not bind every role to its configured provider after %d attempts: %v", arguments[0], maxAttempts, last)
-	return livePublishedRun{}
+	runRoot := filepath.Join(project, ".mulgae", run.manifest.SessionID, run.manifest.RunID)
+	for _, attempt := range run.manifest.Attempts {
+		if attempt.State != "succeeded" || attempt.InvocationCount != 2 ||
+			attempt.ParseState != "valid" || attempt.ValidationState != "valid" {
+			continue
+		}
+		promptPath := filepath.Join(runRoot, "prompts", attempt.AttemptID, "002-extract.stdin")
+		streamPath := filepath.Join(runRoot, "attempts", attempt.AttemptID, "invocations", "002-extract", "stdout.raw")
+		if _, err := os.Stat(promptPath); err != nil {
+			continue
+		}
+		if _, err := os.Stat(streamPath); err != nil {
+			t.Fatalf("attempt %s has an extraction prompt without its invocation streams: %v", attempt.AttemptID, err)
+		}
+		return
+	}
+	t.Fatalf("no succeeded attempt carries committed 002-extract artifacts: %#v", run.manifest.Attempts)
 }
 
 func assertLiveRecoverableAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
@@ -2203,4 +2290,44 @@ func assertLiveSourceLineage(t *testing.T, child, source livePublishedRun, findi
 
 func (environment liveE2EEnvironment) String() string {
 	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s AGY=%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher, environment.agy)
+}
+
+func TestLiveChildProviderNondeterminismRequiresRecordedOutcome(t *testing.T) {
+	t.Parallel()
+	missing := liveCommandEnvelope{}
+	missing.Exit.Kind = "artifact"
+	missing.Reasons = append(missing.Reasons, liveReason{Code: "provider_output_missing"})
+	if !liveChildProviderNondeterminism(missing) {
+		t.Fatal("a provider that produced no output must keep bounded child retry authority")
+	}
+
+	otherArtifact := liveCommandEnvelope{}
+	otherArtifact.Exit.Kind = "artifact"
+	otherArtifact.Reasons = append(otherArtifact.Reasons, liveReason{Code: "publication_corrupt"})
+	if liveChildProviderNondeterminism(otherArtifact) {
+		t.Fatal("an unrelated artifact failure must not gain retry authority")
+	}
+
+	compound := liveCommandEnvelope{}
+	compound.Exit.Kind = "artifact"
+	compound.Reasons = append(compound.Reasons,
+		liveReason{Code: "provider_output_missing"},
+		liveReason{Code: "publication_corrupt"},
+	)
+	if liveChildProviderNondeterminism(compound) {
+		t.Fatal("a compound failure must not be retried away behind provider nondeterminism")
+	}
+
+	empty := liveCommandEnvelope{}
+	empty.Exit.Kind = "artifact"
+	if liveChildProviderNondeterminism(empty) {
+		t.Fatal("an artifact failure with no reason must not gain retry authority")
+	}
+
+	security := liveCommandEnvelope{}
+	security.Exit.Kind = "security"
+	security.Reasons = append(security.Reasons, liveReason{Code: "provider_output_missing"})
+	if liveChildProviderNondeterminism(security) {
+		t.Fatal("a security failure must never be retried as provider nondeterminism")
+	}
 }

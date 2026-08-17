@@ -92,6 +92,18 @@ the untracked `.mulgae/local.yaml` authority.
 9. One constrained repair on the same provider occurs only when an explicit
    transition authorizes it. A role never moves to another provider: a failed
    role is reported with its typed reason while peer roles continue.
+   When `validation.extraction.enabled` is set and a role was accepted with a
+   free-form report only, Mulgae instead schedules one structured extraction
+   trailer as invocation 2 of the same attempt, provider, and role. It
+   transcribes the accepted report into the same wire contract and enters the
+   identical validation and evidence path. Repair and extraction compete for
+   that single second invocation, so a role path is never widened. The trailer
+   is isolated from wave verdict reduction only for bounded failures: an
+   ordinary provider or transcription failure fails the trailer alone, leaves
+   the accepted report untouched, and cannot stop a peer role. A protected
+   failure keeps its canonical precedence and reduces normally, because
+   security, configuration, artifact, cancellation, and internal failures never
+   authorize publication.
 10. Evidence for structured findings is checked against the captured target.
 11. Publication atomically commits the manifest, role reports, and at most one
     final review, recording the transport that carried each accepted role

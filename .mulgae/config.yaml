@@ -22,6 +22,8 @@ validation:
     enabled: true
     max_attempts: 1
     same_provider: true
+  extraction:
+    enabled: true
 resources:
   max_active_lanes: 2
   primary_repair_attempts: 1

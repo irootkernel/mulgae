@@ -217,9 +217,11 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - Treat public JSON, JSON Schemas, command grammar, machine identifiers, exit
   codes, artifact layout, and trusted-field ownership as compatibility-sensitive
   versioned contracts. Automation must not depend on human-readable output.
-- Keep process lifetimes, inputs, workspaces, structured artifacts, concurrency,
-  diagnostics metadata, and exported data bounded. Preserve complete provider
-  stdout and stderr without a product byte ceiling. Avoid leaking native paths,
+- Keep process lifetimes, configuration and transport inputs, workspaces,
+  structured artifacts, concurrency, diagnostics metadata, and exported data
+  bounded. Provider content is deliberately unbounded: source capture, prompt
+  payloads, role reports, and complete provider stdout and stderr carry no
+  product byte ceiling. Do not add one. Avoid leaking native paths,
   credentials, raw provider transcripts, or private source through public
   diagnostics and exports.
 - Use `.mulgaeignore` to exclude files that must not be transmitted to a provider.

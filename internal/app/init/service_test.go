@@ -526,7 +526,7 @@ func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
 			case "codex":
 				timeout = decoded.Providers.Codex.Timeout
 			}
-			if timeout != "15m" {
+			if timeout != "60m" {
 				t.Fatalf("mask %d %s timeout=%q", mask, family, timeout)
 			}
 		}
@@ -798,7 +798,7 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if config.Roles.Logic.PrimaryProvider != "zcode" {
 			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
 		}
-		if config.Providers.ZCode.Timeout != "15m" || config.Providers.AGY.Timeout != "15m" {
+		if config.Providers.ZCode.Timeout != "60m" || config.Providers.AGY.Timeout != "60m" {
 			t.Fatalf("auto provider timeouts = zcode:%q agy:%q", config.Providers.ZCode.Timeout, config.Providers.AGY.Timeout)
 		}
 	})
@@ -840,7 +840,7 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o755)
 	baseRequest := InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
-	config, err := candidateConfig(baseRequest, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", Timeout: "15m"}})
+	config, err := candidateConfig(baseRequest, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", Timeout: "60m"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1041,7 +1041,7 @@ func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
 	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
-	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "15m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "60m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 	project, local, _ := adapterconfig.EncodeSplit(config)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), project, 0o600)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), local, 0o600)

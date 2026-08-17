@@ -577,8 +577,14 @@ func validate(config *Config) error {
 	if config.Resources.MaxActiveLanes < 1 || config.Resources.MaxActiveLanes > 64 {
 		return fmt.Errorf("max active lanes")
 	}
-	// A role runs its provider once and may repair once on the same provider.
-	roleCost := 1 + config.Resources.PrimaryRepairAttempts
+	// A role runs its provider once and may then use exactly one more invocation
+	// on the same provider. Repair and structured extraction compete for that one
+	// slot, so enabling extraction never widens a role path.
+	extractionCost := 0
+	if config.Validation.Extraction.Enabled {
+		extractionCost = 1
+	}
+	roleCost := 1 + max(config.Resources.PrimaryRepairAttempts, extractionCost)
 	if config.Resources.RoleMaxInvocations < roleCost || config.Resources.RoleMaxInvocations > 2 || config.Resources.RunMaxInvocations < roleCost*enabledRoleCount || config.Resources.RunMaxInvocations > 14 {
 		return fmt.Errorf("budgets")
 	}
@@ -780,7 +786,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		out.WriteString("}\n")
 	}
 	out.WriteString("review:\n  required_roles: " + quotedList(config.Review.RequiredRoles) + "\n  request_changes_on: " + quotedList(config.Review.RequestChangesOn) + "\n")
-	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n")
+	out.WriteString("validation:\n  evidence:\n    require_verified_for: " + quotedList(config.Validation.Evidence.RequireVerifiedFor) + "\n  repair:\n    enabled: " + strconv.FormatBool(config.Validation.Repair.Enabled) + "\n    max_attempts: " + strconv.Itoa(config.Validation.Repair.MaxAttempts) + "\n    same_provider: " + strconv.FormatBool(config.Validation.Repair.SameProvider) + "\n  extraction:\n    enabled: " + strconv.FormatBool(config.Validation.Extraction.Enabled) + "\n")
 	out.WriteString("resources:\n  max_active_lanes: " + strconv.Itoa(config.Resources.MaxActiveLanes) + "\n  primary_repair_attempts: " + strconv.Itoa(config.Resources.PrimaryRepairAttempts) + "\n  role_max_invocations: " + strconv.Itoa(config.Resources.RoleMaxInvocations) + "\n  run_max_invocations: " + strconv.Itoa(config.Resources.RunMaxInvocations) + "\n")
 	out.WriteString("ci:\n  fail_on_severity: " + quotedList(config.CI.FailOnSeverity) + "\n  degraded_review_fails: " + strconv.FormatBool(config.CI.DegradedReviewFails) + "\n")
 	encoded := []byte(out.String())

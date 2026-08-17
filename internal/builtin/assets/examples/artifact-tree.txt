@@ -77,6 +77,7 @@
           candidate.initial.json
           candidate.retry.001.json
           candidate.repaired.001.json
+          candidate.extracted.001.json
           invocations/
             001-initial/
               command.json
@@ -100,6 +101,17 @@
                 prompt-manifest.json
                 wire-identity.json
                 repair-request.json
+                output-schema.json
+            002-extract/
+              command.json
+              env.json
+              status.json
+              stdout.raw
+              stderr.raw
+              prompt/
+                prompt-manifest.json
+                wire-identity.json
+                prior-report.ref.json
                 output-schema.json
           validation/
             validation.001.json

@@ -4,8 +4,9 @@
 
 Mulgae is a local, multi-provider AI code review CLI and attached MCP server. It captures an immutable
 review target, asks role-specific reviewers to inspect it, publishes their
-free-form role reports, optionally validates structured findings and their
-evidence, and commits durable artifacts under `.mulgae/`.
+free-form role reports, transcribes those reports into structured findings whose
+evidence it verifies against the captured target, and commits durable artifacts
+under `.mulgae/`.
 
 Mulgae is advisory. It reports findings and recommendations; it does not grant
 merge, release, waiver, or organizational approval.

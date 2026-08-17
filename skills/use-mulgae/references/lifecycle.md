@@ -131,6 +131,8 @@ state; never bypass those protections by deleting `.mulgae/` manually.
 
 Mulgae is a foreground CLI with no daemon or service to start, stop, restart,
 or repair. It has no reset command and no user-invoked repair command. Structured
-output repair is an internal, constrained validation transition on the same
-provider. Do not invent commands or modify private artifacts to simulate these
-operations. For uncertain state, follow [recovery.md](recovery.md).
+output repair and structured extraction are both internal, constrained validation
+transitions on the same provider; `002-extract` artifacts record one that already
+ran and are not a command to re-run. Do not invent commands or modify private
+artifacts to simulate these operations. For uncertain state, follow
+[recovery.md](recovery.md).

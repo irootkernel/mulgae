@@ -9,6 +9,18 @@ stdout and stderr without a product byte ceiling, and keeps the streams separate
 Workspace drift detected after execution overrides provider success. A single
 tree is exposed under `current/`; Git comparisons expose `before/` and `after/`.
 
+Structured extraction sends an accepted role report back to the same provider in
+one further prompt. Those bytes remain provider output and re-enter as an
+untrusted framed payload, never as a trusted layer; the extraction contract
+states they are data to transcribe rather than instructions or authority. That
+invocation gets the same read-only workspace view, no write grant, and always
+returns on stdout. It cannot emit identity, verification, coverage, or
+publication state, and Mulgae publishes its findings only after verifying every
+one of them against the immutable target. Only an ordinary transcription or
+provider failure is absorbed; a security, mutation, configuration, artifact,
+cancellation, or internal failure seen during extraction still denies
+publication.
+
 Project configuration cannot introduce executable commands. Supported provider
 adapters are compiled into Mulgae.
 

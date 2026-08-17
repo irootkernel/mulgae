@@ -219,7 +219,12 @@ func providerRuntimeDiagnosticJob(t *testing.T, runID domain.RunID, attemptID do
 
 func providerRuntimeWithDiagnosticInventory(t *testing.T, runID domain.RunID, attemptID domain.AttemptID, key captureKey, sink ports.RuntimeDiagnosticSink) *ProviderInvocationRuntime {
 	t.Helper()
-	candidate, err := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactInitialCandidate, []byte("password=placeholder"), false)
+	return providerRuntimeWithCandidateInventory(t, runID, attemptID, key, sink, ports.AttemptArtifactInitialCandidate)
+}
+
+func providerRuntimeWithCandidateInventory(t *testing.T, runID domain.RunID, attemptID domain.AttemptID, key captureKey, sink ports.RuntimeDiagnosticSink, candidateKind ports.AttemptArtifactKind) *ProviderInvocationRuntime {
+	t.Helper()
+	candidate, err := ports.NewCapturedAttemptArtifact(candidateKind, []byte("password=placeholder"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +466,7 @@ func TestExplicitRuntimeInvocationsDoNotSerializeDistinctProviders(t *testing.T)
 	runtime := &ProviderInvocationRuntime{
 		provider:  concurrentExplicitRuntimeProvider{entered: entered, release: release},
 		validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
-		pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory),
+		pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
 	done := make(chan struct{}, len(roles))
 	for index := range roles {
@@ -963,7 +968,7 @@ func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+			runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
 			outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 			if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
 				t.Fatalf("quote mismatch outcome = %#v", outcome)
@@ -992,7 +997,7 @@ func TestRepairQuoteMismatchIsUnrepairableForOptionalSeverity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
 	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionUnrepairableEvidence || len(runtime.pending) != 0 {
 		t.Fatalf("repair quote mismatch outcome = %#v, pending=%#v", outcome, runtime.pending)
@@ -1013,7 +1018,7 @@ func TestRepairCorrectedOptionalQuoteMismatchSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput)}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
 	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
 	if !outcome.Succeeded() || len(runtime.pending) != 0 {
 		t.Fatalf("corrected repair outcome = %#v, pending=%#v", outcome, runtime.pending)
@@ -1199,7 +1204,7 @@ func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider)
 	}
 	runtime := &ProviderInvocationRuntime{
 		provider: provider, validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
-		pending: make(map[domain.AttemptID]InvocationRepairInput), captures: make(map[captureKey]AttemptCapture),
+		pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture),
 		inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{}),
 	}
 	return runtime, job, RuntimePrompt{Prompt: compiled, Target: targetBytes, AdapterProfile: "test-profile"}
@@ -1844,5 +1849,49 @@ func assertStagedDestinationLayerLast(t *testing.T, material RuntimePrompt, dest
 	}
 	if !promptDeclaresStagedOutputDestination(material.Prompt, destination) {
 		t.Fatal("runtime did not accept the composed destination layer")
+	}
+}
+
+func TestProviderRuntimeRawSecretDropRedactsEveryStdoutDerivedCandidate(t *testing.T) {
+	for _, candidateKind := range []ports.AttemptArtifactKind{
+		ports.AttemptArtifactInitialCandidate,
+		ports.AttemptArtifactRetryCandidate,
+		ports.AttemptArtifactRepairedCandidate,
+		ports.AttemptArtifactExtractedCandidate,
+	} {
+		t.Run(string(candidateKind), func(t *testing.T) {
+			runID, err := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+			if err != nil {
+				t.Fatal(err)
+			}
+			attemptID := coordinatorTypesAttemptID(t, 12)
+			job := providerRuntimeDiagnosticJob(t, runID, attemptID)
+			drop, err := ports.NewDropMetadata("provider_stdout", "credential_assignment", 1, []string{"provider:stdout"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := ports.NewRuntimeDiagnosticRawResult(domain.DiagnosticStdout, ports.SafeRelativePath{}, &drop, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sink := &providerRuntimeDropSink{result: result, err: ports.NewRuntimeDiagnosticSecurityRejectionError(drop, errors.New("scanner rejected raw stream"))}
+			key := captureKey{attemptID: attemptID, sequence: 1}
+			runtime := providerRuntimeWithCandidateInventory(t, runID, attemptID, key, sink, candidateKind)
+			if err := runtime.persistDiagnosticRaw(context.Background(), job, key, []byte("password=placeholder"), nil); err != nil {
+				t.Fatalf("typed raw drop blocked provider outcome: %v", err)
+			}
+			seen := false
+			for _, artifact := range runtime.captures[key].Artifacts() {
+				if artifact.Kind() == candidateKind {
+					seen = true
+				}
+				if !artifact.SecurityRejected() || len(artifact.Bytes()) != 0 {
+					t.Fatalf("rejected stdout left bytes in %q: rejected=%t", artifact.Kind(), artifact.SecurityRejected())
+				}
+			}
+			if !seen {
+				t.Fatalf("capture did not retain the %q candidate under test", candidateKind)
+			}
+		})
 	}
 }

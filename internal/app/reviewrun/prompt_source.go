@@ -130,6 +130,59 @@ func (source *promptSource) Prompt(ctx context.Context, job review.InvocationJob
 	}, nil
 }
 
+// ExtractionPrompt composes the structured extraction trailer for one already
+// accepted role report. The report travels as an untrusted prior-report frame,
+// never as a trusted layer, and the immutable review-target frame is retained so
+// the provider can re-read exact target bytes for every evidence quote. The
+// trailer always uses stdout, so no output-destination layer is appended.
+func (source *promptSource) ExtractionPrompt(ctx context.Context, job review.InvocationJob, extraction review.InvocationExtractionInput) (review.RuntimePrompt, error) {
+	if source == nil || ctx == nil {
+		return review.RuntimePrompt{}, fmt.Errorf("review run: extraction prompt source is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	report := extraction.AcceptedReport()
+	if len(report) == 0 {
+		return review.RuntimePrompt{}, fmt.Errorf("review run: extraction requires an accepted role report")
+	}
+	template, err := source.templates.ComposeRootReview(job.Role(), source.objective)
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	template, err = source.templates.ComposeRootReviewExtraction(template)
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	manifest, err := template.TrustedLayerManifestJSON()
+	if err != nil {
+		return review.RuntimePrompt{}, fmt.Errorf("review run: trusted layer manifest: %w", err)
+	}
+	compiler, err := prompt.NewCompiler(template, source.ids)
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	roleTask, err := source.roleTask()
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	scope, err := prompt.NewScopeCoordinates(job.SessionID(), job.RunID(), roleTask, job.AttemptID())
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	compileInput := compileInputForReview(scope, source.input, job.Role())
+	prior := prompt.NewPayload(report)
+	compileInput.PriorReport = &prior
+	compiled, err := compiler.Compile(compileInput)
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	return review.RuntimePrompt{
+		Prompt: compiled, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: "root-review",
+		AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest},
+	}, nil
+}
+
 // DeltaPrompt binds source bytes, current bytes, and comparator-owned A-to-B
 // material into distinct canonical untrusted frames.
 func (source *promptSource) DeltaPrompt(ctx context.Context, job review.InvocationJob, material review.DeltaInvocationMaterial, repair *review.InvocationRepairInput) (review.RuntimePrompt, error) {

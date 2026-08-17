@@ -333,12 +333,16 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 			hasCapture := false
 			repairOrdinal := 0
 			retryOrdinal := 0
+			extractOrdinal := 0
 			for _, invocation := range attempt.invocations {
 				if invocation.purpose == domain.InvocationRepair {
 					repairOrdinal++
 				}
 				if invocation.purpose == domain.InvocationRetry {
 					retryOrdinal++
+				}
+				if invocation.purpose == domain.InvocationExtract {
+					extractOrdinal++
 				}
 				if len(invocation.artifacts) == 0 {
 					continue
@@ -368,6 +372,11 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
 								"%s/%s/attempts/%s/candidate.repaired.%03d.json",
 								candidate.sessionID, candidate.runID, attempt.id, repairOrdinal,
+							))
+						case ports.AttemptArtifactExtractedCandidate:
+							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
+								"%s/%s/attempts/%s/candidate.extracted.%03d.json",
+								candidate.sessionID, candidate.runID, attempt.id, extractOrdinal,
 							))
 						case ports.AttemptArtifactStdout, ports.AttemptArtifactStderr:
 							path, err = ports.NewSafeRelativePath(fmt.Sprintf(

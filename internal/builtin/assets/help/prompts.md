@@ -23,3 +23,12 @@ When output is repairable, Mulgae may perform one constrained repair using the
 same provider. The repair prompt lists the exact provider-owned paths that may
 change. It cannot modify target identity, role/provider identity, verification,
 lineage, outcomes, or publication state.
+
+When a role is accepted with a free-form report only and
+`validation.extraction.enabled` is set, Mulgae may instead perform one bounded
+structured extraction on the same provider. Its prompt appends a fifth layer, the
+structured extraction contract, and frames the accepted report as an untrusted
+`prior_report` payload — data to transcribe, never instructions or authority. The
+immutable target frame is retained so every evidence quote is re-read from the
+target rather than copied out of the report. Extraction always returns on
+standard output and never receives a staged-file write grant.

@@ -269,6 +269,11 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
 	}
+	if plan.Extraction {
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			return Result{}, fmt.Errorf("review run: coordinator: %w", err)
+		}
+	}
 	rootRun, err := newRootReviewRun(identity, target, plan.Assignments)
 	if err != nil {
 		return Result{}, err

@@ -1560,7 +1560,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	wantRoutes := []string{
 		"logic/primary/zcode/zcode-logic/30m/not_applicable/prompt",
 		"security/primary/zcode/zcode-security/30m/not_applicable/prompt",
-		"artist/primary/agy/agy-artist/15m/safe/prompt",
+		"artist/primary/agy/agy-artist/60m/safe/prompt",
 	}
 	gotRoutes := make([]string, 0, len(firstResult.Transmissions))
 	if len(firstResult.FileSets) != 1 || firstResult.FileSets[0].ID == "" {
@@ -1580,12 +1580,12 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	wantRolePaths := []mulgaeentry.ReviewPreflightRolePath{
 		{Role: "logic", ProviderInstance: "zcode-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
 		{Role: "security", ProviderInstance: "zcode-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
-		{Role: "artist", ProviderInstance: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "30m0s", Deadline: "30m2s"},
+		{Role: "artist", ProviderInstance: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "2h0m0s", Deadline: "2h0m2s"},
 	}
 	// Three roles at two invocations each: six invocations and three role paths. The
 	// critical path is one role's provider call plus its repair and transition.
 	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 6 ||
-		budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
+		budget.CriticalPathDeadline != "2h0m2s" || budget.RunDeadline != "2h0m7s" ||
 		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.RolePathDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
 		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 ||
 		!reflect.DeepEqual(budget.RolePaths, wantRolePaths) {
@@ -2668,6 +2668,13 @@ func buildFakeAGY(t *testing.T, root, binary, logPath string) {
 
 func buildFakeAGYWithReviewOutput(t *testing.T, root, binary, logPath, reviewOutput string) {
 	t.Helper()
+	buildFakeAGYWithSequencedReviewOutput(t, root, binary, logPath, reviewOutput, "")
+}
+
+// buildFakeAGYWithSequencedReviewOutput answers reviewOutput on a role's initial
+// invocation and trailerOutput on its structured extraction trailer.
+func buildFakeAGYWithSequencedReviewOutput(t *testing.T, root, binary, logPath, reviewOutput, trailerOutput string) {
+	t.Helper()
 	source := filepath.Join(t.TempDir(), "main.go")
 	program := `package main
 
@@ -2748,7 +2755,7 @@ func main() {
 		if printTimeout != "2m55s" || len(argv) != 16 && len(argv) != 17 {
 			panic("non-canonical AGY qualification print timeout")
 		}
-	} else if printTimeout != "14m55s" || len(argv) != 12 && len(argv) != 13 {
+	} else if printTimeout != "59m55s" || len(argv) != 12 && len(argv) != 13 {
 		panic("non-canonical AGY review print timeout")
 	}
 	if observation.Prompt != "@roadmap.md" {
@@ -2782,9 +2789,39 @@ func main() {
 	if content == "" {
 		content = "{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No findings.\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
 	}
+	if trailer := __FAKE_AGY_TRAILER_OUTPUT__; trailer != "" && reviewInvocationOrdinal() > 1 {
+		content = trailer
+	}
 	fmt.Print(content)
 	_ = os.Stdout.Close()
+	// Pure prose is not a terminal JSON object, so Mulgae has no output frame to
+	// stabilize on and never sends its post-output SIGTERM. A real provider CLI
+	// exits after printing its report; mirror that instead of idling.
+	if !strings.HasPrefix(strings.TrimSpace(content), "{") {
+		return
+	}
 	for { time.Sleep(time.Hour) }
+}
+
+// reviewInvocationOrdinal counts review invocations recorded so far, including
+// the current one, so a sequenced fake can answer prose first and exact JSON to
+// the structured extraction trailer.
+func reviewInvocationOrdinal() int {
+	data, err := os.ReadFile("__FAKE_AGY_LOG__")
+	if err != nil {
+		return 0
+	}
+	ordinal := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var recorded observation
+		if json.Unmarshal([]byte(line), &recorded) != nil {
+			continue
+		}
+		if recorded.Prompt != "" && recorded.Prompt != "@roadmap.md" {
+			ordinal++
+		}
+	}
+	return ordinal
 }
 
 func write(observation observation) {
@@ -2799,6 +2836,7 @@ func write(observation observation) {
 }`
 	program = strings.ReplaceAll(program, "__FAKE_AGY_LOG__", logPath)
 	program = strings.ReplaceAll(program, "__FAKE_AGY_REVIEW_OUTPUT__", strconv.Quote(reviewOutput))
+	program = strings.ReplaceAll(program, "__FAKE_AGY_TRAILER_OUTPUT__", strconv.Quote(trailerOutput))
 	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
 	build.Dir = root

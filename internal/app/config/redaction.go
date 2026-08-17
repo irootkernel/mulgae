@@ -17,6 +17,7 @@ type RedactedPolicy struct {
 	RequireVerifiedFor  []domain.Severity         `json:"require_verified_for" yaml:"require_verified_for"`
 	RoleMaxInvocations  int                       `json:"role_max_invocations" yaml:"role_max_invocations"`
 	RunMaxInvocations   int                       `json:"run_max_invocations" yaml:"run_max_invocations"`
+	ExtractionEnabled   bool                      `json:"extraction_enabled" yaml:"extraction_enabled"`
 	CIFailOnSeverity    []domain.Severity         `json:"ci_fail_on_severity" yaml:"ci_fail_on_severity"`
 	DegradedReviewFails bool                      `json:"degraded_review_fails" yaml:"degraded_review_fails"`
 }
@@ -53,6 +54,6 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 			warnings = append(warnings, "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary")
 		}
 	}
-	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, AGYPermissionMode: agyPermissionMode, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
+	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, AGYPermissionMode: agyPermissionMode, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), ExtractionEnabled: resolved.ExtractionEnabled(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
 }
 func (resolved ResolvedConfig) Redacted() RedactedConfig { return Redact(resolved) }

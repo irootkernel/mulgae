@@ -97,8 +97,10 @@ already available.
    `--severity` sets the minimum reported severity; `low` is the broadest
    query and omits `info`-level findings.
 
-6. Treat findings as advisory hypotheses. Verify each finding against the
-   captured target and current code before changing anything:
+6. Treat findings as advisory hypotheses. A finding may have been transcribed
+   from a role's free-form report by Mulgae's structured extraction pass, so
+   verify each finding against the captured target and current code before
+   changing anything:
 
    ```bash
    mulgae excerpt --run r_... --finding F001 \

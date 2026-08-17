@@ -148,6 +148,12 @@ func (resolved ResolvedConfig) RoleMaxInvocations() int {
 func (resolved ResolvedConfig) RunMaxInvocations() int {
 	return resolved.raw.Resources.RunMaxInvocations
 }
+
+// ExtractionEnabled reports whether Mulgae may run its structured extraction
+// trailer after accepting a free-form role report.
+func (resolved ResolvedConfig) ExtractionEnabled() bool {
+	return resolved.raw.Validation.Extraction.Enabled
+}
 func (resolved ResolvedConfig) CIFailOnSeverity() []domain.Severity {
 	return append([]domain.Severity(nil), resolved.ciFailOnSeverity...)
 }

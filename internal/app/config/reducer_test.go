@@ -43,7 +43,7 @@ func TestResolveConfigurationProjectsEffectiveProviderTimeouts(t *testing.T) {
 		t.Fatal("absent provider gained a timeout")
 	}
 	redacted := resolved.Redacted()
-	if got := redacted.Policy.ProviderTimeouts; len(got) != 2 || got[0].Family != "zcode" || got[0].Timeout != "30m" || got[1].Family != "agy" || got[1].Timeout != "15m" {
+	if got := redacted.Policy.ProviderTimeouts; len(got) != 2 || got[0].Family != "zcode" || got[0].Timeout != "30m" || got[1].Family != "agy" || got[1].Timeout != "60m" {
 		t.Fatalf("redacted provider timeouts = %#v", got)
 	}
 }

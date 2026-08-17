@@ -713,11 +713,12 @@ func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDe
 			roles.Artist.Inputs.DesignSpecGlobs = append([]string(nil), request.ArtistDesignSpecGlobs...)
 		}
 	}
-	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}, nil
+	return appconfig.Config{Version: appconfig.ConfigVersion, Project: appconfig.ProjectConfig{Name: request.ProjectName, Context: request.ContextPath, Kind: kind}, NativeUser: appconfig.NativeUserConfig{Home: request.NativeHome}, Providers: providers, Execution: appconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: appconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: appconfig.ValidationConfig{Evidence: appconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: appconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}, Extraction: appconfig.ExtractionConfig{Enabled: true}}, Resources: resourceDefaults(value, len(selectedRoles)), CI: appconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}, nil
 }
 
 // resourceDefaults sizes the invocation budget. A role runs its provider once
-// and may repair once on that same provider, so two invocations bound a role
+// and may then use exactly one more invocation on that same provider, for either
+// a repair or the structured extraction trailer, so two invocations bound a role
 // regardless of how many provider families the project configured.
 func resourceDefaults(_ candidates, roleCount int) appconfig.ResourcesConfig {
 	const role = 2
