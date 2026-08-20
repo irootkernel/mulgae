@@ -131,7 +131,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 				return "", nil, errInvocationStateInvalid
 			}
 			if snapshot.Err != nil {
-				return "", nil, &invocationExecutionError{err: snapshot.Err}
+				return "", nil, &invocationExecutionError{id: snapshot.ID, err: snapshot.Err}
 			}
 			data := snapshot.Result.Data
 			if data == nil {
@@ -269,7 +269,10 @@ var (
 	errInvocationStateInvalid = errors.New("MCP invocation state is invalid")
 )
 
-type invocationExecutionError struct{ err error }
+type invocationExecutionError struct {
+	id  string
+	err error
+}
 
 func (failure *invocationExecutionError) Error() string { return failure.err.Error() }
 func (failure *invocationExecutionError) Unwrap() error { return failure.err }
@@ -400,6 +403,11 @@ func finalizePublicToolError(err error, tool string, failure ToolError) ToolErro
 	if sessionID, runID, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
 		session, run := sessionID.String(), runID.String()
 		failure.SessionID, failure.RunID = &session, &run
+	}
+	var terminal *invocationExecutionError
+	if tool == toolAwaitReview && errors.As(err, &terminal) && matches(requestIDPattern, terminal.id) {
+		invocationID := terminal.id
+		failure.InvocationID = &invocationID
 	}
 	return failure
 }

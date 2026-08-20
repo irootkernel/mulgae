@@ -15,8 +15,8 @@ import (
 // TestChildDeltaAndRecomposeStageWhenLocatorPresent pins the child-composition
 // contract: the exported constructor child workflows call binds the adapter
 // locator, so the delta and recomposed-rerun launches that share this authority
-// state their own destination, while the plain constructor and exact replay stay
-// on stdout. Prompt and DeltaPrompt reach the destination through exactly one
+// state their own destination, while the plain constructor stays on stdout and
+// exact replay rebinds its source destination. Prompt and DeltaPrompt use one
 // composer, so composing it once proves both launches.
 func TestChildDeltaAndRecomposeStageWhenLocatorPresent(t *testing.T) {
 	t.Parallel()
@@ -87,27 +87,63 @@ func TestChildDeltaAndRecomposeStageWhenLocatorPresent(t *testing.T) {
 		})
 	}
 
-	// Exact replay reproduces stored provider wire authority, so a staging-bound
-	// authority must not introduce a destination the replayed launch never had.
+	// Exact replay preserves every stored frame but replaces the source launch's
+	// disposed staging path with the destination for the new attempt.
 	t.Run("exact replay", func(t *testing.T) {
-		stored := childStagingStoredPacket(t, base, input.Target().Bytes())
-		replayed, replayErr := staged.ExactReplayPrompt(context.Background(), initialJob, review.ExactReplayInput{
+		sourceTemplate, composeErr := staged.composeOutputDestination(base, initialJob)
+		if composeErr != nil {
+			t.Fatal(composeErr)
+		}
+		stored := childStagingStoredPacket(t, sourceTemplate, input.Target().Bytes())
+		manifest, manifestErr := sourceTemplate.TrustedLayerManifestJSON()
+		if manifestErr != nil {
+			t.Fatal(manifestErr)
+		}
+		newAttemptID, parseErr := domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-000000000006")
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		replayJob, jobErr := review.NewInvocationJob(
+			initialJob.Role(), initialJob.Route(), initialJob.Target(), initialJob.Limits(),
+			newAttemptID, domain.InvocationInitial, 1,
+		)
+		if jobErr != nil {
+			t.Fatal(jobErr)
+		}
+		sourceDestination, sourceStaged := review.ResolveStagedOutputDestination(locator, initialJob)
+		newDestination, newStaged := review.ResolveStagedOutputDestination(locator, replayJob)
+		if !sourceStaged || !newStaged || sourceDestination == newDestination {
+			t.Fatal("test setup did not produce distinct staged destinations")
+		}
+		replayed, replayErr := staged.ExactReplayPrompt(context.Background(), replayJob, review.ExactReplayInput{
 			SourceRunID: childStagingRunID(t), SourceAttemptID: initialJob.AttemptID(),
 			SourceProviderInstance: initialJob.Route().ProviderInstance(),
 			Stdin:                  stored.Stdin(), CompleteStdinSHA256: stored.CompleteStdinSHA256(),
 			SourceInvocationID:          stored.Scope().SourceInvocationID().String(),
 			SourceExecutionInvocationID: stored.Scope().ExecutionInvocationID().String(),
-			TemplateID:                  base.ID(), TemplateVersion: base.Version(), TemplateSHA256: base.SHA256(),
-			Role: initialJob.Role(), AdapterProfile: "root-review", AdapterParameters: map[string]string{},
+			TemplateID:                  sourceTemplate.ID(), TemplateVersion: sourceTemplate.Version(), TemplateSHA256: sourceTemplate.SHA256(),
+			Role: initialJob.Role(), AdapterProfile: "root-review", AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest},
 		})
 		if replayErr != nil {
 			t.Fatalf("ExactReplayPrompt() error = %v", replayErr)
 		}
-		if !bytes.Equal(replayed.Prompt.Stdin(), stored.Stdin()) {
-			t.Fatal("exact replay changed the stored provider packet")
+		if bytes.Equal(replayed.Prompt.Stdin(), stored.Stdin()) ||
+			bytes.Contains(replayed.Prompt.Stdin(), []byte(sourceDestination.AbsolutePath())) ||
+			!bytes.Contains(replayed.Prompt.Stdin(), []byte(newDestination.AbsolutePath())) {
+			t.Fatal("exact replay did not replace only the staged destination")
 		}
-		if bytes.Contains(replayed.Prompt.Stdin(), []byte("Mulgae ROOT REVIEW OUTPUT DESTINATION/1")) {
-			t.Fatal("exact replay packet carried the output destination contract")
+		marker := []byte("\nMulgae-FRAMES/1\n")
+		storedFrames := stored.Stdin()[bytes.Index(stored.Stdin(), marker):]
+		replayedFrames := replayed.Prompt.Stdin()[bytes.Index(replayed.Prompt.Stdin(), marker):]
+		if !bytes.Equal(replayedFrames, storedFrames) {
+			t.Fatal("exact replay changed stored framed source authority")
+		}
+		wantManifest, manifestErr := replayed.Prompt.TrustedTemplate().TrustedLayerManifestJSON()
+		if manifestErr != nil {
+			t.Fatal(manifestErr)
+		}
+		if replayed.AdapterParameters[prompt.TrustedLayerManifestAdapterParameter] != wantManifest {
+			t.Fatal("exact replay adapter manifest does not match rebound template")
 		}
 	})
 }

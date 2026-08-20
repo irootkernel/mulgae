@@ -870,8 +870,9 @@ func TestLiveRoleReportInventoryRequiresCanonicalEquality(t *testing.T) {
 		{name: "non-canonical case", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "STDOUT" }},
 		{name: "staged family downgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "stdout" }},
 		{name: "stdout family upgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "staged_file" }},
-		{name: "exact replay staged", mutate: func(value *livePublishedRun) {
+		{name: "exact replay staged family downgraded", mutate: func(value *livePublishedRun) {
 			value.manifest.ImmutableLineage.ReplayMode = strPtr("exact")
+			value.manifest.RoleReports[0].Transport = "stdout"
 		}},
 		{name: "no staged certification", requireStaged: true, mutate: func(value *livePublishedRun) {
 			value.manifest.RoleReports[0].ProviderInstance = "agy-logic"
@@ -1332,13 +1333,9 @@ func liveProviderFamily(providerInstance string) string {
 
 // liveExpectedRoleReportTransport is the adapter-owned transport a committed
 // role report must record. The transport is per provider family and never
-// configurable: ZCode review, followup, delta, and recomposed rerun invocations
-// hold the staged_file write grant, every other family keeps stdout, and an
-// exact replay always reproduces stdout because it acquires no fresh grant.
-func liveExpectedRoleReportTransport(providerInstance, replayMode string) string {
-	if replayMode == "exact" {
-		return "stdout"
-	}
+// configurable: every ZCode review-family launch, including exact replay,
+// receives a fresh staged_file write grant; every other family keeps stdout.
+func liveExpectedRoleReportTransport(providerInstance, _ string) string {
 	if liveProviderFamily(providerInstance) == "zcode" {
 		return "staged_file"
 	}
@@ -1387,9 +1384,9 @@ func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label st
 	}
 }
 
-// assertLiveExactReplayRoleReportTransports keeps byte-exact replay on the
-// stdout transport independently of the family grant: an exact replay must
-// reproduce the recorded transport rather than acquire a staging destination.
+// assertLiveExactReplayRoleReportTransports keeps exact replay on the source
+// provider family's transport. ZCode receives a new isolated staging grant;
+// stdout providers retain the stored complete stdin bytes.
 func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRun) {
 	t.Helper()
 	if liveReplayMode(run.manifest) != "exact" {
@@ -1398,12 +1395,7 @@ func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRu
 	if len(run.manifest.RoleReports) == 0 {
 		t.Fatalf("exact replay committed no role_reports inventory: %#v", run.manifest)
 	}
-	for _, report := range run.manifest.RoleReports {
-		if report.Transport != "stdout" {
-			t.Fatalf("exact replay role report %q from %q recorded transport %q, want byte-exact stdout", report.Role, report.ProviderInstance, report.Transport)
-		}
-	}
-	assertLiveRoleReportTransports(t, run, "exact", false)
+	assertLiveRoleReportTransports(t, run, "exact", liveProviderFamily(run.manifest.RoleReports[0].ProviderInstance) == "zcode")
 }
 
 func liveArtifactSHA256(content []byte) string {

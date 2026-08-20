@@ -38,6 +38,10 @@ func TestToolResultExampleIsSemanticallyValidAndTamperingFailsClosed(t *testing.
 			invalid := "client-owned"
 			result.Error.RunID = &invalid
 		},
+		"invalid invocation identity": func(result *ToolResult) {
+			invalid := "client-owned"
+			result.Error.InvocationID = &invalid
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := valid

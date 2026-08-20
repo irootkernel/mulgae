@@ -137,6 +137,39 @@ func TestComposeTrustedTemplatePreservesOrderedLayerProvenance(t *testing.T) {
 	}
 }
 
+func TestRestoreTrustedLayerManifestReconstructsExactProvenance(t *testing.T) {
+	first, err := NewTrustedLayer("builtin:common", "1", []byte("common"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewTrustedLayer("builtin:role", "1", []byte("role"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composed, err := ComposeTrustedTemplate("builtin:review", "1", first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := composed.TrustedLayerManifestJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := NewTrustedTemplate(composed.ID(), composed.Version(), composed.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := RestoreTrustedLayerManifest(direct, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.SHA256() != composed.SHA256() || len(restored.TrustedLayerManifest()) != 2 {
+		t.Fatalf("restored template = sha:%s layers:%d", restored.SHA256(), len(restored.TrustedLayerManifest()))
+	}
+	if _, err := RestoreTrustedLayerManifest(direct, manifest+" "); err == nil {
+		t.Fatal("RestoreTrustedLayerManifest() accepted a non-canonical manifest")
+	}
+}
+
 func manifestSHA256(bytes []byte) string {
 	sum := sha256.Sum256(bytes)
 	return hex.EncodeToString(sum[:])
@@ -505,6 +538,47 @@ func TestReplayStoredReconstructsPersistedPacketWithFreshExecutionIdentity(t *te
 	}
 	if !bytes.Equal(replayed.Stdin(), initial.Stdin()) || replayed.CompleteStdinSHA256() != initial.CompleteStdinSHA256() {
 		t.Fatal("stored replay changed provider wire bytes")
+	}
+}
+
+func TestReplayStoredWithReboundTemplatePreservesFramedAuthority(t *testing.T) {
+	initialCompiler := newTestCompiler(t, []int{41}, []int{42})
+	initial, err := initialCompiler.Compile(testCompileInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reboundTemplate, err := NewTrustedTemplate("builtin:review-provider", "1", []byte("current transport contract"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayIssuer := newTestCompiler(t, nil, []int{43}).issuer
+	replayCompiler, err := NewCompiler(reboundTemplate, replayIssuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := replayCompiler.ReplayStoredWithReboundTemplate(
+		initial.TrustedTemplate(), initial.Stdin(), initial.Scope().ExecutionInvocationID(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte("\nMulgae-FRAMES/1\n")
+	initialFrames := initial.Stdin()[bytes.Index(initial.Stdin(), marker):]
+	replayedFrames := replayed.Stdin()[bytes.Index(replayed.Stdin(), marker):]
+	if !bytes.Equal(initialFrames, replayedFrames) || bytes.Equal(initial.Stdin(), replayed.Stdin()) {
+		t.Fatal("rebound replay did not preserve exactly the stored frames")
+	}
+	if replayed.Scope().SourceInvocationID() != initial.Scope().SourceInvocationID() ||
+		replayed.Scope().ExecutionInvocationID() == initial.Scope().ExecutionInvocationID() || !replayed.ExactReplay() {
+		t.Fatalf("rebound replay identity = source:%s execution:%s exact:%t",
+			replayed.Scope().SourceInvocationID(), replayed.Scope().ExecutionInvocationID(), replayed.ExactReplay())
+	}
+	wrongSource, err := NewTrustedTemplate(initial.TrustedTemplate().ID(), initial.TrustedTemplate().Version(), []byte("wrong source"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replayCompiler.ReplayStoredWithReboundTemplate(wrongSource, initial.Stdin(), initial.Scope().ExecutionInvocationID()); err == nil {
+		t.Fatal("ReplayStoredWithReboundTemplate() accepted the wrong source template")
 	}
 }
 func TestReplayBindsExternalSourceToWireIdentity(t *testing.T) {

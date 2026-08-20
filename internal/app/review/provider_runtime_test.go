@@ -1711,24 +1711,25 @@ func TestProviderInvocationCarriesStagedDestinationThroughRepair(t *testing.T) {
 		t.Fatal("a substituted staged destination was accepted as the same invocation")
 	}
 
-	// Exact replay reproduces stored provider wire authority: its historical
-	// stdin carries no destination layer and its invocation carries no
-	// destination, even though the same locator is bound.
-	replayProvider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{stdout: repairProse}}}
-	replayRuntime, replayJob, _ := providerRuntimeObservedFixture(t, replayProvider, locator)
-	_, _, replayMaterial := providerRuntimeExplicitFixture(t, nil)
+	// Source-scoped replay material still carries the destination resolved for
+	// its current launch; the provider invocation and trusted layer must agree.
+	replayProvider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{staged: repairProse}}}
+	replayRuntime, replayJob, replaySource := providerRuntimeObservedFixture(t, replayProvider, locator)
+	replayMaterial, err := replaySource.Prompt(context.Background(), replayJob, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if outcome := replayRuntime.invokeExplicitMaterial(context.Background(), replayJob, replayMaterial, true); !outcome.Succeeded() {
 		t.Fatalf("exact replay outcome = %#v", outcome)
 	}
 	if len(replayProvider.invocations) != 1 {
 		t.Fatalf("exact replay invocations = %d", len(replayProvider.invocations))
 	}
-	if _, ok := replayProvider.invocations[0].StagedOutputDestination(); ok {
-		t.Fatal("exact replay invocation carried a staged output destination")
+	replayDestination, ok := replayProvider.invocations[0].StagedOutputDestination()
+	if !ok {
+		t.Fatal("exact replay invocation omitted its staged output destination")
 	}
-	if stdin := replayMaterial.Prompt.Stdin(); bytes.Contains(stdin, []byte("Mulgae ROOT REVIEW OUTPUT DESTINATION/1")) {
-		t.Fatal("exact replay stdin carried the output destination layer")
-	}
+	assertStagedDestinationLayerLast(t, replayMaterial, replayDestination)
 }
 
 func TestInvokeAppendsDestinationLayerLastForStagedRoutes(t *testing.T) {

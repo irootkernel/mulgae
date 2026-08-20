@@ -534,7 +534,8 @@ func TestServeAwaitReviewPreservesTerminalFailureIdentity(t *testing.T) {
 	structured := response["result"].(map[string]any)["structuredContent"].(map[string]any)
 	failure := structured["error"].(map[string]any)
 	if failure["class"] != "readiness" || failure["session_id"] != sessionID.String() ||
-		failure["run_id"] != runID.String() || failure["retryable"] != false {
+		failure["run_id"] != runID.String() || failure["invocation_id"] != "i_019f596a-cf80-7c67-b265-f37053d51ccf" ||
+		failure["retryable"] != false {
 		t.Fatalf("terminal await failure = %#v", structured)
 	}
 	if strings.Contains(string(response["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)), "private") {

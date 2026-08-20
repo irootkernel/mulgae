@@ -306,8 +306,10 @@ is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode
 review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
-Exact replay (`rerun --exact`) is always `stdout`, because a replay reproduces
-the transport its original recorded rather than acquiring a fresh write grant.
+Exact replay (`rerun --exact`) preserves the source attempt's framed review
+input and provider route. On a `staged_file` route Mulgae replaces only the
+expired Mulgae-owned output-destination layer with a fresh per-launch grant;
+stdout routes preserve their complete stored stdin bytes.
 Followup, delta, recomposed rerun, and rerun record `transport` identically,
 read from the terminal observation of the selected attempt.
 

@@ -831,9 +831,8 @@ func (r *Registry) ProviderOutputStagingDestination(
 // stagedOutputPurposeOrdinal maps the closed review purposes this adapter may
 // stage to their stable per-attempt ordinal, which keeps the initial and second
 // invocation of one attempt in distinct staging directories. Every other
-// purpose is refused, an exact replay of an earlier invocation in particular:
-// a replay must reproduce the transport its original recorded rather than
-// acquire a fresh write grant here.
+// purpose is refused. Exact replay enters through the original initial or retry
+// purpose and therefore receives a fresh grant for its new child attempt.
 func stagedOutputPurposeOrdinal(purpose ports.ProviderInvocationPurpose) (int, bool) {
 	switch purpose {
 	case ports.ProviderInvocationInitial:

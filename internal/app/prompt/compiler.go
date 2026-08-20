@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -408,6 +409,71 @@ func (template TrustedTemplate) TrustedLayerManifestJSON() (string, error) {
 	return string(bytes), nil
 }
 
+// RestoreTrustedLayerManifest validates a persisted manifest against the exact
+// trusted template bytes and restores their ordered provenance. It accepts only
+// the canonical representation emitted by TrustedLayerManifestJSON.
+func RestoreTrustedLayerManifest(template TrustedTemplate, manifestJSON string) (TrustedTemplate, error) {
+	if err := template.validate(); err != nil {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: restore manifest: %w", err)
+	}
+	if len(manifestJSON) == 0 || len(manifestJSON) > trustedLayerManifestMaximumBytes {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: invalid persisted layer manifest size")
+	}
+	type layer struct {
+		Ordinal    int    `json:"ordinal"`
+		ID         string `json:"id"`
+		Version    string `json:"version"`
+		SHA256     string `json:"sha256"`
+		ByteLength int    `json:"byte_length"`
+	}
+	var encoded struct {
+		SchemaVersion string  `json:"schema_version"`
+		Layers        []layer `json:"layers"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(manifestJSON))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&encoded); err != nil {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: decode persisted layer manifest: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF || encoded.SchemaVersion != trustedLayerManifestSchemaVersion ||
+		len(encoded.Layers) == 0 || len(encoded.Layers) > trustedLayerManifestMaximumLayers {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: invalid persisted layer manifest")
+	}
+	canonical, err := json.Marshal(encoded)
+	if err != nil || string(canonical) != manifestJSON {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: persisted layer manifest is not canonical")
+	}
+	content := template.Bytes()
+	layers := make([]TrustedLayer, 0, len(encoded.Layers))
+	offset := 0
+	for index, persisted := range encoded.Layers {
+		if persisted.Ordinal != index+1 || persisted.ByteLength < 0 || offset+persisted.ByteLength > len(content) {
+			return TrustedTemplate{}, fmt.Errorf("trusted template: invalid persisted layer %d", index+1)
+		}
+		end := offset + persisted.ByteLength
+		trusted, layerErr := NewTrustedLayer(persisted.ID, persisted.Version, content[offset:end])
+		if layerErr != nil || trusted.SHA256() != persisted.SHA256 {
+			return TrustedTemplate{}, fmt.Errorf("trusted template: persisted layer %d does not match template bytes", index+1)
+		}
+		layers = append(layers, trusted)
+		offset = end
+		if index < len(encoded.Layers)-1 {
+			if offset+2 > len(content) || !bytes.Equal(content[offset:offset+2], []byte("\n\n")) {
+				return TrustedTemplate{}, fmt.Errorf("trusted template: persisted layer %d separator is invalid", index+1)
+			}
+			offset += 2
+		}
+	}
+	if offset != len(content) {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: persisted layer manifest does not cover template bytes")
+	}
+	restored, err := ComposeTrustedTemplate(template.ID(), template.Version(), layers...)
+	if err != nil || restored.SHA256() != template.SHA256() {
+		return TrustedTemplate{}, fmt.Errorf("trusted template: restored layer manifest changed template identity")
+	}
+	return restored, nil
+}
+
 func (template TrustedTemplate) validate() error {
 	if err := validateTemplateLabel("id", template.id); err != nil {
 		return err
@@ -628,6 +694,42 @@ func (compiler *Compiler) ReplayStored(stdin []byte, priorExecutionID ExecutionI
 	}
 	if err := replay.Validate(); err != nil {
 		return CompiledPrompt{}, fmt.Errorf("prompt replay: reconstructed packet is invalid: %w", err)
+	}
+	return replay, nil
+}
+
+// ReplayStoredWithReboundTemplate validates a persisted packet against its
+// source template, preserves every framed section byte and source identity, and
+// replaces only the trusted template with the compiler's current template.
+// This is reserved for rebinding Mulgae-owned per-launch transport authority.
+func (compiler *Compiler) ReplayStoredWithReboundTemplate(sourceTemplate TrustedTemplate, stdin []byte, priorExecutionID ExecutionInvocationID) (CompiledPrompt, error) {
+	if compiler == nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt compiler: nil receiver")
+	}
+	if _, err := ParseExecutionInvocationID(priorExecutionID.String()); err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: invalid prior execution identity: %w", err)
+	}
+	parsed, err := ParseStdin(sourceTemplate, stdin)
+	if err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: invalid stored packet: %w", err)
+	}
+	reboundStdin := composeStdin(compiler.template.bytes, parsed.sections)
+	reboundDigest := CompleteStdinSHA256(reboundStdin)
+	executionID, err := compiler.issueReplayExecutionID(parsed.scope.SourceInvocationID(), priorExecutionID, reboundDigest)
+	if err != nil {
+		return CompiledPrompt{}, err
+	}
+	scope, err := NewScope(parsed.scope.Coordinates(), parsed.scope.SourceInvocationID(), executionID)
+	if err != nil {
+		return CompiledPrompt{}, newIdentityError("rebound replay scope construction", err)
+	}
+	replay := CompiledPrompt{
+		template: cloneTrustedTemplate(compiler.template), scope: scope,
+		stdin: cloneBytes(reboundStdin), sections: cloneSections(parsed.sections), digest: reboundDigest,
+		replayedSourceInvoked: parsed.scope.SourceInvocationID(), exactReplay: true,
+	}
+	if err := replay.Validate(); err != nil {
+		return CompiledPrompt{}, fmt.Errorf("prompt replay: rebound packet is invalid: %w", err)
 	}
 	return replay, nil
 }

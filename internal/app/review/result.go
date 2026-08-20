@@ -256,6 +256,29 @@ func ComposeRootReviewOutputDestination(
 	)
 }
 
+// RebindRootReviewOutputDestination replaces the final Mulgae-owned staged
+// output layer while preserving every preceding trusted layer and the template
+// identity. It rejects templates that were not already staged so exact replay
+// cannot introduce a transport contract absent from the source attempt.
+func RebindRootReviewOutputDestination(
+	original prompt.TrustedTemplate,
+	destination ports.StagedOutputDestination,
+) (prompt.TrustedTemplate, error) {
+	layers, err := trustedLayersForRepair(original)
+	if err != nil {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: rebind output destination base: %w", err)
+	}
+	if len(layers) == 0 || layers[len(layers)-1].ID() != OutputDestinationTrustedLayerID {
+		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: source template has no final output destination layer")
+	}
+	destinationLayer, err := OutputDestinationTrustedLayer(destination)
+	if err != nil {
+		return prompt.TrustedTemplate{}, err
+	}
+	layers[len(layers)-1] = destinationLayer
+	return prompt.ComposeTrustedTemplate(original.ID(), original.Version(), layers...)
+}
+
 // OutputDestinationTrustedLayer builds the exact trusted layer that instructs a
 // provider to write its complete role report to the one staged file Mulgae
 // granted it. Callers that resolve a destination and callers that verify one

@@ -25,9 +25,9 @@ func NewProductionPromptSource(input ImmutableReviewInput, templates review.Temp
 }
 
 // NewProductionPromptSourceWithStaging constructs the same child-workflow
-// prompt authority bound to the adapter-owned staging locator. Delta and
-// recomposed rerun then state their own resolved destination exactly as root
-// review does; exact replay reproduces stored wire bytes and is unaffected.
+// prompt authority bound to the adapter-owned staging locator. Every staged
+// launch states its own resolved destination; exact replay preserves stored
+// frames while rebinding only that Mulgae-owned per-launch transport layer.
 func NewProductionPromptSourceWithStaging(input ImmutableReviewInput, templates review.TemplateSet, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error), staging ports.ProviderOutputStagingLocator) (*ProductionPromptSource, error) {
 	if nilInterface(staging) {
 		return newPromptSource(input, templates, ids, roleTask, nil)
@@ -237,8 +237,10 @@ func (source *promptSource) DeltaPrompt(ctx context.Context, job review.Invocati
 	return review.RuntimePrompt{Prompt: compiled, Target: append([]byte(nil), material.CurrentTarget...), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: "root-review", AdapterParameters: map[string]string{prompt.TrustedLayerManifestAdapterParameter: manifest}}, nil
 }
 
-// ExactReplayPrompt validates persisted stdin as a canonical packet and mints
-// only the fresh execution identity required by exact replay.
+// ExactReplayPrompt validates persisted stdin as a canonical packet, preserves
+// its framed source authority, and mints a fresh execution identity. A staged
+// provider also receives a freshly rebound Mulgae-owned output destination
+// because the source attempt's isolated directory no longer exists.
 func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.InvocationJob, input review.ExactReplayInput) (review.RuntimePrompt, error) {
 	if source == nil || ctx == nil || job.Role() != input.Role || job.Route().ProviderInstance() != input.SourceProviderInstance {
 		return review.RuntimePrompt{}, fmt.Errorf("review run: exact replay prompt authority mismatch")
@@ -258,19 +260,49 @@ func (source *promptSource) ExactReplayPrompt(ctx context.Context, job review.In
 	if template.SHA256() != input.TemplateSHA256 {
 		return review.RuntimePrompt{}, fmt.Errorf("review run: exact replay template digest mismatch")
 	}
-	compiler, err := prompt.NewCompiler(template, source.ids)
-	if err != nil {
-		return review.RuntimePrompt{}, err
-	}
 	priorExecution, err := prompt.ParseExecutionInvocationID(input.SourceExecutionInvocationID)
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	replayed, err := compiler.ReplayStored(input.Stdin, priorExecution)
+	adapterParameters := make(map[string]string, len(input.AdapterParameters))
+	for key, value := range input.AdapterParameters {
+		adapterParameters[key] = value
+	}
+	replayTemplate := template
+	destination, staged := review.ResolveStagedOutputDestination(source.staging, job)
+	if staged {
+		persistedManifest, ok := adapterParameters[prompt.TrustedLayerManifestAdapterParameter]
+		if !ok {
+			return review.RuntimePrompt{}, fmt.Errorf("review run: exact replay staged source has no trusted layer manifest")
+		}
+		template, err = prompt.RestoreTrustedLayerManifest(template, persistedManifest)
+		if err != nil {
+			return review.RuntimePrompt{}, err
+		}
+		replayTemplate, err = review.RebindRootReviewOutputDestination(template, destination)
+		if err != nil {
+			return review.RuntimePrompt{}, err
+		}
+		manifest, manifestErr := replayTemplate.TrustedLayerManifestJSON()
+		if manifestErr != nil {
+			return review.RuntimePrompt{}, fmt.Errorf("review run: exact replay trusted layer manifest: %w", manifestErr)
+		}
+		adapterParameters[prompt.TrustedLayerManifestAdapterParameter] = manifest
+	}
+	compiler, err := prompt.NewCompiler(replayTemplate, source.ids)
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
-	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: input.AdapterProfile, AdapterParameters: input.AdapterParameters}, nil
+	var replayed prompt.CompiledPrompt
+	if staged {
+		replayed, err = compiler.ReplayStoredWithReboundTemplate(template, input.Stdin, priorExecution)
+	} else {
+		replayed, err = compiler.ReplayStored(input.Stdin, priorExecution)
+	}
+	if err != nil {
+		return review.RuntimePrompt{}, err
+	}
+	return review.RuntimePrompt{Prompt: replayed, Target: source.input.Target().Bytes(), CapturedArchive: source.input.CapturedArchive(), AdapterProfile: input.AdapterProfile, AdapterParameters: adapterParameters}, nil
 }
 func compileInputForReview(scope prompt.ScopeCoordinates, input ImmutableReviewInput, role domain.Role) prompt.CompileInput {
 	compileInput := prompt.CompileInput{Scope: scope, ReviewTarget: prompt.NewPayload(reviewTargetReference(input.Target()))}

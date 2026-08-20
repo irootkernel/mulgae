@@ -11,7 +11,7 @@ runtime behavior is owned by source, tests, embedded contracts, and the
 contributor documents. `run_review` remains one foreground compatibility request
 whose cancellation reaches that review execution.
 
-When the planned work is delivered, move its accepted behavior into
+The accepted behavior is reflected in
 `docs/goals.md`, `docs/architecture.md`, `docs/contracts.md`,
 `docs/security.md`, the README, and affected embedded help and schemas in the
 same change. Roadmap status is not implementation evidence.
@@ -24,15 +24,16 @@ call into short execution-cell waits, and every empty wait resumed model
 reasoning with the accumulated conversation. Periodic MCP progress did not
 provide completion authority or prevent those model turns.
 
-The immediate skill guidance reduces that cost by waiting longer on the same
-pending handle. The planned runtime work separately prevents a cancelled or
-timed-out wait request from cancelling a review that was successfully started.
+The source-distributed skill reduces that cost by waiting longer on the same
+pending handle. The implemented runtime boundary separately prevents a
+cancelled or timed-out wait request from cancelling a review that was
+successfully started.
 It does not attempt to make the CLI or an MCP server wake a suspended model;
 that scheduling behavior belongs to the client host.
 
-## Planned boundary
+## Implemented boundary
 
-Mulgae will add a process-local MCP invocation registry. A review execution is
+Mulgae uses a process-local MCP invocation registry. A review execution is
 owned by the MCP server context, while each observer wait is owned by its own
 request context. The registry is discarded when the MCP server exits.
 
@@ -50,7 +51,7 @@ terminal cleanup. A later server may inspect completed publication or terminal
 diagnostics through existing run queries, but it cannot recover a session-local
 invocation.
 
-## Planned MCP surface
+## Implemented MCP surface
 
 ### `start_review`
 
@@ -86,10 +87,10 @@ await completion and use the final Mulgae failure and publication precedence.
 ### Compatibility
 
 The current `run_review` remains available as the foreground compatibility
-path. Its request-coupled cancellation behavior remains explicit. TASK-003
-must update the source-distributed skill to prefer `start_review` followed by
+path. Its request-coupled cancellation behavior remains explicit. The TASK-003
+update makes the source-distributed skill prefer `start_review` followed by
 one `await_review` and final run inspection when all three new lifecycle tools
-are discovered. If that complete surface is unavailable, the skill must retain
+are discovered. If that complete surface is unavailable, the skill retains
 the current foreground `run_review` workflow rather than mix lifecycle modes.
 
 MCP Tasks remain a later compatibility candidate. They are not part of
@@ -100,9 +101,9 @@ supported Codex and Claude clients. Mulgae will not implement a second private
 durable task protocol in anticipation of it or mark the deferred goal active
 from draft or experimental support alone.
 
-## Planned agent workflow
+## Implemented agent workflow
 
-The TASK-003 skill update must direct an attached agent to:
+The TASK-003 skill directs an attached agent to:
 
 1. Run `preflight_review` with the exact intended target, objective, and roles.
 2. Call `start_review` once with those same arguments and preserve its exact
@@ -125,7 +126,7 @@ with another server process or infer recovery from completed-run listings.
 ## Progress and token behavior
 
 Progress is bounded, optional observation and never lifecycle or publication
-authority. The planned await path will not emit periodic heartbeat or log
+authority. The await path does not emit periodic heartbeat or log
 stream messages merely to prove liveness. It may report admission or meaningful
 phase transitions when the client supplies a progress token and the transition
 can be projected without private content.
@@ -138,7 +139,7 @@ make a duplicate start safe.
 
 ## Required verification
 
-Implementation must cover at least these scenarios:
+Verification covers at least these scenarios:
 
 - start returns before provider completion and creates only one execution;
 - await returns immediately for an already terminal invocation;
@@ -168,6 +169,6 @@ stable-release prerequisites are satisfied.
 Commits `f53925f`, `ef19d0a`, and `84c938b` rejected detached background jobs
 and polling in favor of one attached foreground request. Their constraints on
 bounded transport, exact identity, non-authoritative progress, and safe
-cancellation remain valid. This planned design narrows the revision to an
+cancellation remain valid. This design narrows the revision to an
 ephemeral server-owned execution plus an event-driven await; it does not add a
 daemon, durable recovery, or periodic status polling.

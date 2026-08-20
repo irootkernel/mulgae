@@ -261,7 +261,8 @@ type DeltaInvocationPromptSource interface {
 }
 
 // ExactReplayInput is the stored provider-wire authority for one selected
-// attempt. Only ExecutionInvocationID is minted afresh by the prompt source.
+// attempt. The prompt source mints a fresh execution identity and may rebind
+// only a Mulgae-owned per-launch staged output destination.
 type ExactReplayInput struct {
 	SourceRunID                 domain.RunID
 	SourceAttemptID             domain.AttemptID
@@ -278,8 +279,9 @@ type ExactReplayInput struct {
 	AdapterParameters           map[string]string
 }
 
-// ExactReplayPromptSource replays stored wire authority into a fresh execution
-// identity. Implementations must preserve every ExactReplayInput field.
+// ExactReplayPromptSource replays stored source authority into a fresh execution
+// identity. Implementations preserve stored frames and may rebind only the
+// Mulgae-owned staged output destination and its manifest parameter.
 type ExactReplayPromptSource interface {
 	ExactReplayPrompt(context.Context, InvocationJob, ExactReplayInput) (RuntimePrompt, error)
 }
@@ -1007,13 +1009,22 @@ func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context,
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
 	scope := material.Prompt.Scope()
-	if material.Prompt.CompleteStdinSHA256() != input.CompleteStdinSHA256 ||
-		string(material.Prompt.Stdin()) != string(input.Stdin) ||
-		scope.SessionID() != job.SessionID() ||
+	destination, staged := runtime.stagedOutputDestination(job)
+	if scope.SessionID() != job.SessionID() ||
 		scope.RunID() != input.SourceRunID ||
 		scope.AttemptID() != input.SourceAttemptID ||
 		scope.SourceInvocationID().String() != input.SourceInvocationID ||
-		material.AdapterProfile != input.AdapterProfile ||
+		material.AdapterProfile != input.AdapterProfile {
+		return runtimeCondition(job, AttemptConditionConfigurationViolation)
+	}
+	if staged {
+		if !promptDeclaresStagedOutputDestination(material.Prompt, destination) ||
+			!adapterParametersDeclareTrustedLayerManifest(material) ||
+			!sameAdapterParametersExceptTrustedLayerManifest(material.AdapterParameters, input.AdapterParameters) {
+			return runtimeCondition(job, AttemptConditionConfigurationViolation)
+		}
+	} else if material.Prompt.CompleteStdinSHA256() != input.CompleteStdinSHA256 ||
+		string(material.Prompt.Stdin()) != string(input.Stdin) ||
 		!sameAdapterParameters(material.AdapterParameters, input.AdapterParameters) {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
@@ -1130,6 +1141,35 @@ func sameAdapterParameters(left, right map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func sameAdapterParametersExceptTrustedLayerManifest(left, right map[string]string) bool {
+	if _, ok := left[prompt.TrustedLayerManifestAdapterParameter]; !ok {
+		return false
+	}
+	if _, ok := right[prompt.TrustedLayerManifestAdapterParameter]; !ok {
+		return false
+	}
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if key == prompt.TrustedLayerManifestAdapterParameter {
+			continue
+		}
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func adapterParametersDeclareTrustedLayerManifest(material RuntimePrompt) bool {
+	manifest, err := material.Prompt.TrustedTemplate().TrustedLayerManifestJSON()
+	if err != nil {
+		return false
+	}
+	return material.AdapterParameters[prompt.TrustedLayerManifestAdapterParameter] == manifest
 }
 func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte, transport ports.ProviderOutputTransport) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
@@ -1586,12 +1626,10 @@ func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, 
 }
 
 // stagedOutputDestination resolves the staged destination for one launch of this
-// runtime. Initial and repair are distinct launches, so the locator returns a
-// distinct per-purpose directory for each and both invocations carry their own.
-// Exact replay reproduces stored provider wire authority and therefore never
-// introduces a destination the replayed launch did not already have.
+// runtime. Initial, repair, and exact replay are distinct launches, so every
+// staged invocation carries the destination for its own isolated namespace.
 func (runtime *ProviderInvocationRuntime) stagedOutputDestination(job InvocationJob) (ports.StagedOutputDestination, bool) {
-	if runtime == nil || runtime.allowSourceScope {
+	if runtime == nil {
 		return ports.StagedOutputDestination{}, false
 	}
 	return ResolveStagedOutputDestination(runtime.staging, job)

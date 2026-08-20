@@ -2248,12 +2248,12 @@ func TestRegistryProviderOutputStagingDestinationFailsClosed(t *testing.T) {
 	); ok || transport != ports.ProviderOutputTransportStdout {
 		t.Fatalf("unregistered instance = transport %q, ok %t", transport, ok)
 	}
-	// Only the closed review purposes are staged. An exact replay must reproduce
-	// the transport its original recorded, never acquire a fresh write grant.
+	// Only the closed review purposes are staged. Unsupported synthetic purposes
+	// fail closed; exact replay uses its original initial or retry purpose.
 	if _, transport, ok := registry.ProviderOutputStagingDestination(
 		"zcode_default", invocation.AttemptID(), ports.ProviderInvocationPurpose("exact_replay"),
 	); ok || transport != ports.ProviderOutputTransportStdout {
-		t.Fatalf("exact replay purpose = transport %q, ok %t", transport, ok)
+		t.Fatalf("unsupported purpose = transport %q, ok %t", transport, ok)
 	}
 	destination, transport, ok := registry.ProviderOutputStagingDestination(
 		"agy_default", invocation.AttemptID(), invocation.Purpose(),
