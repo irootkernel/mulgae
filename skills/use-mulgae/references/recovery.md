@@ -30,6 +30,14 @@ failed.
    the newest committed run, but each of those commands mutates or writes;
    `latest` is never a read-only probe.
 
+For the attached MCP lifecycle, preserve the exact `i_...` identity returned by
+`start_review`. Never retry an uncertain start: a second start creates another
+review. A retryable `await_cancelled` result ends only that observer, so re-await
+the same identity while the same MCP server session is alive. Invocation state
+is process-local and is lost when that server exits; after exit, do not guess an
+invocation identity or claim that the invocation can be recovered. Reconcile an
+exact returned run ID through `get_run` when one is available.
+
 ## Respect idempotency boundaries
 
 Read-only `version`, `doctor`, `config`, `providers`, `roles`, `status`,

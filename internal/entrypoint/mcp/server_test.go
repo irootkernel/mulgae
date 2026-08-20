@@ -310,6 +310,118 @@ func TestServeCancelReviewAcknowledgesBeforeTerminalAwait(t *testing.T) {
 	}
 }
 
+func TestServeAwaitCancellationDoesNotCancelReviewExecution(t *testing.T) {
+	backend := &toolBackendFake{
+		runReviewStarted:   make(chan struct{}),
+		runReviewRelease:   make(chan struct{}),
+		runReviewCancelled: make(chan error, 1),
+	}
+	reader, input := io.Pipe()
+	t.Cleanup(func() { _ = input.Close() })
+	output := make(chan []byte, 5)
+	done := make(chan error, 1)
+	config := toolTestConfigWithIDs(t, backend,
+		"i_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf82-7c67-b265-f37053d51ccf",
+	)
+	go func() {
+		done <- Serve(context.Background(), reader, channelWriter{output: output}, config)
+	}()
+
+	writeMCPMessage(t, input, latestRequest(1, "server/discover", `{}`))
+	_ = receiveMCPMessage(t, output)
+	writeMCPMessage(t, input, latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`))
+	started := decodeResponse(t, receiveMCPMessage(t, output))["result"].(map[string]any)["structuredContent"].(map[string]any)
+	invocationID := started["data"].(map[string]any)["invocation_id"].(string)
+	select {
+	case <-backend.runReviewStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for lifecycle review start")
+	}
+
+	writeMCPMessage(t, input, latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"`+invocationID+`"}}`))
+	writeMCPMessage(t, input, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3,"reason":"observer timeout"}}`+"\n")
+	cancelled := decodeResponse(t, receiveMCPMessage(t, output))["result"].(map[string]any)["structuredContent"].(map[string]any)
+	failure := cancelled["error"].(map[string]any)
+	if failure["code"] != "await_cancelled" || failure["retryable"] != true {
+		t.Fatalf("cancelled await_review = %#v", cancelled)
+	}
+	select {
+	case err := <-backend.runReviewCancelled:
+		t.Fatalf("observer cancellation reached review execution: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(backend.runReviewRelease)
+	writeMCPMessage(t, input, latestRequest(4, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"`+invocationID+`"}}`))
+	terminal := decodeResponse(t, receiveMCPMessage(t, output))["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if terminal["outcome"] != toolOutcomeSuccess || terminal["data"].(map[string]any)["invocation_id"] != invocationID {
+		t.Fatalf("terminal await_review = %#v", terminal)
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if backend.runReviewCalls != 1 {
+		t.Fatalf("lifecycle review executions = %d, want 1", backend.runReviewCalls)
+	}
+}
+
+func TestServeEOFDrainsActiveLifecycleReview(t *testing.T) {
+	backend := &toolBackendFake{
+		runReviewStarted:   make(chan struct{}),
+		runReviewCancelled: make(chan error, 1),
+		runReviewFinished:  make(chan struct{}),
+	}
+	reader, input := io.Pipe()
+	output := make(chan []byte, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), reader, channelWriter{output: output}, toolTestConfig(t, backend))
+	}()
+
+	writeMCPMessage(t, input, latestRequest(1, "server/discover", `{}`))
+	_ = receiveMCPMessage(t, output)
+	writeMCPMessage(t, input, latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`))
+	_ = receiveMCPMessage(t, output)
+	select {
+	case <-backend.runReviewStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for lifecycle review start")
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-backend.runReviewCancelled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("shutdown cancellation = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("MCP shutdown did not cancel the active lifecycle review")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("MCP shutdown returned before the lifecycle review finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(backend.runReviewFinished)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("MCP shutdown did not drain the active lifecycle review")
+	}
+	if backend.runReviewCalls != 1 {
+		t.Fatalf("lifecycle review executions = %d, want 1", backend.runReviewCalls)
+	}
+}
+
 func TestServeAwaitReviewRejectsUnknownInvocation(t *testing.T) {
 	backend := &toolBackendFake{}
 	discover := latestRequest(1, "server/discover", `{}`)
@@ -810,6 +922,13 @@ func receiveMCPMessage(t *testing.T, output <-chan []byte) []byte {
 	}
 }
 
+func writeMCPMessage(t *testing.T, input io.Writer, message string) {
+	t.Helper()
+	if _, err := io.WriteString(input, message); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func toolTestConfig(t *testing.T, backend Backend) Config {
 	return toolTestConfigWithIDs(t, backend, "i_019f596a-cf80-7c67-b265-f37053d51ccf")
 }
@@ -850,7 +969,9 @@ type toolBackendFake struct {
 	runReviewErr       error
 	runReviewCalls     int
 	runReviewStarted   chan struct{}
+	runReviewRelease   chan struct{}
 	runReviewCancelled chan error
+	runReviewFinished  chan struct{}
 	preflightCalls     int
 	getRunData         map[string]any
 	getRunErr          error
@@ -864,8 +985,21 @@ func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, _ RunRevie
 	fake.runReviewCalls++
 	if fake.runReviewStarted != nil {
 		close(fake.runReviewStarted)
-		<-ctx.Done()
-		fake.runReviewCancelled <- ctx.Err()
+		if fake.runReviewRelease != nil {
+			select {
+			case <-fake.runReviewRelease:
+				return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
+			case <-ctx.Done():
+			}
+		} else {
+			<-ctx.Done()
+		}
+		if fake.runReviewCancelled != nil {
+			fake.runReviewCancelled <- ctx.Err()
+		}
+		if fake.runReviewFinished != nil {
+			<-fake.runReviewFinished
+		}
 		return BackendResult{}, ctx.Err()
 	}
 	if fake.runReviewErr != nil {
