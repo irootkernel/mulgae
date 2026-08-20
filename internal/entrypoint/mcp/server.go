@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,6 +19,8 @@ import (
 const ProtocolVersion = "2026-07-28"
 
 const maxMCPFrameBytes = 1 << 20
+
+const invocationShutdownTimeout = time.Minute
 
 var (
 	errMCPFrameTooLarge  = errors.New("MCP frame exceeds the input limit")
@@ -62,6 +65,10 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 			Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
 	)
+	registry, err := newInvocationRegistry(ctx, config.Backend, maxSessionInvocations)
+	if toolConfigurationPresent && err != nil {
+		return fmt.Errorf("serve MCP: invocation registry: %w", err)
+	}
 	server.AddReceivingMiddleware(bindServeContext(ctx), admitSupportedProtocol)
 	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
 	registerResources(server, config.Backend)
@@ -70,8 +77,17 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 		Reader: newBoundedMCPReader(asReadCloser(reader)),
 		Writer: noCloseWriter{Writer: writer},
 	}}
-	if err := server.Run(ctx, transport); err != nil && !cleanTransportEOF(err) {
-		return fmt.Errorf("serve MCP: %w", err)
+	runErr := server.Run(ctx, transport)
+	if registry != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), invocationShutdownTimeout)
+		shutdownErr := registry.Shutdown(shutdownCtx)
+		cancel()
+		if shutdownErr != nil {
+			return fmt.Errorf("serve MCP: invocation shutdown: %w", shutdownErr)
+		}
+	}
+	if runErr != nil && !cleanTransportEOF(runErr) {
+		return fmt.Errorf("serve MCP: %w", runErr)
 	}
 	return nil
 }
