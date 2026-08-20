@@ -173,6 +173,21 @@ func (registry *invocationRegistry) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+func (registry *invocationRegistry) SessionEnded() bool {
+	if registry == nil {
+		return true
+	}
+	select {
+	case <-registry.ctx.Done():
+		return true
+	default:
+	}
+	registry.mu.Lock()
+	closed := registry.closed
+	registry.mu.Unlock()
+	return closed
+}
+
 func snapshotInvocation(entry *invocationEntry) invocationSnapshot {
 	return invocationSnapshot{
 		ID: entry.id, Phase: entry.phase,

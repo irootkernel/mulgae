@@ -121,3 +121,8 @@ the result. Cancelling the MCP request cancels that foreground review and its
 provider processes. Progress is optional and best-effort; it never changes the
 review outcome or publication authority. Lifecycle awaits emit no heartbeat
 loop, and an `await_cancelled` result is retryable without cancelling execution.
+The 64-identity bound is cumulative for one server process so terminal awaits
+remain repeatable. `invocation_limit_reached` is non-retryable in that session;
+reconcile exact returned run IDs before restarting the attached server, which
+discards every invocation identity. `invocation_registry_closed` is
+non-retryable and means the server session is ending.

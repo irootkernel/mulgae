@@ -833,6 +833,10 @@ func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
 		awaitCancelled.Stage != "query" || !awaitCancelled.Retryable {
 		t.Fatalf("cancelled await = %#v", awaitCancelled)
 	}
+	endedAwait := publicToolError(errInvocationRegistryClosed, toolAwaitReview)
+	if endedAwait.Code != "invocation_registry_closed" || endedAwait.Stage != "transport" || endedAwait.Retryable {
+		t.Fatalf("ended-session await = %#v", endedAwait)
+	}
 	timeout, err := domain.NewFailure("provider.execute", domain.FailureTimeout, "private", errors.New("private"))
 	if err != nil {
 		t.Fatal(err)

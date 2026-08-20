@@ -155,6 +155,20 @@ func TestInvocationRegistryShutdownCancelsAndDrainsActiveExecutions(t *testing.T
 	}
 }
 
+func TestInvocationRegistryReportsSessionEnd(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	registry := mustInvocationRegistry(t, ctx, &invocationBackendFake{run: func(context.Context, string, RunReviewInput) (BackendResult, error) {
+		return BackendResult{}, nil
+	}}, 1)
+	if registry.SessionEnded() {
+		t.Fatal("new invocation registry reports an ended session")
+	}
+	cancel()
+	if !registry.SessionEnded() {
+		t.Fatal("cancelled invocation registry reports a live session")
+	}
+}
+
 func mustInvocationRegistry(t *testing.T, ctx context.Context, backend Backend, limit int) *invocationRegistry {
 	t.Helper()
 	registry, err := newInvocationRegistry(ctx, backend, limit)

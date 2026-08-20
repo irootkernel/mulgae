@@ -122,6 +122,9 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			}
 			snapshot, err := registry.Await(ctx, input.InvocationID)
 			if err != nil {
+				if registry.SessionEnded() && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+					return "", nil, errInvocationRegistryClosed
+				}
 				return "", nil, err
 			}
 			if snapshot.Phase != invocationTerminal {

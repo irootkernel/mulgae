@@ -359,8 +359,13 @@ server process, with at most 64 identities per session and no restart recovery.
 `await_cancelled` error ends only that observer and is retryable while the same
 MCP session remains alive. A successful terminal result echoes the exact
 `invocation_id` beside the durable run identity. Unknown identities fail closed
-without starting a review. Server shutdown closes admission, cancels active
-invocations, and waits within a one-minute drain bound.
+without starting a review. The 64-identity bound is cumulative for one server
+process so terminal results remain repeatable. Exhaustion is non-retryable in
+that session; reconcile exact returned run IDs before restarting the attached
+server, which discards every invocation identity. A non-retryable
+`invocation_registry_closed` means the server session is ending. Server shutdown
+closes admission, cancels active invocations, and waits within a one-minute
+drain bound.
 
 The foreground `run_review` remains compatible and holds its request open until
 the review reaches a terminal result. When a client supplies an MCP progress

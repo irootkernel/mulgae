@@ -146,8 +146,12 @@ without cancelling execution. `cancel_review` is an idempotent mutation: only
 the first active cancellation reports `cancellation_accepted: true`, and every
 acknowledgement remains nonterminal. Unknown invocation identities return
 non-retryable `invocation_not_found`; the 64-identity session bound returns
-non-retryable `invocation_limit_reached`. Invocation state is never recovered
-after server exit. The tool grammar comprises `preflight_review`, `run_review`,
+non-retryable `invocation_limit_reached`. The bound counts cumulative retained
+identities so terminal results remain repeatable; clients must reconcile exact
+returned run IDs before restarting the attached server to regain capacity. A
+server-ending await returns non-retryable `invocation_registry_closed` rather
+than observer-only `await_cancelled`. Invocation state is never recovered after
+server exit. The tool grammar comprises `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `list_runs`, `get_run`, and
 `list_findings`.
 Review targets are workspace, stage, dirty,

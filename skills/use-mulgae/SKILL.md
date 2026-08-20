@@ -54,6 +54,12 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    and re-await the preserved invocation; never replace it with another start.
    This client-side wait policy does not extend the admitted run deadline or MCP
    tool timeout.
+   `invocation_limit_reached` is non-retryable in the current session because
+   terminal identities remain available for repeated await. Reconcile every
+   exact returned run ID, then ask the host to restart the attached MCP server
+   before starting another review; that restart discards every preserved
+   invocation identity. A non-retryable `invocation_registry_closed` means the
+   server session is ending and must not be re-awaited.
 4. If any lifecycle tool is unavailable, atomically fall back to one foreground
    `run_review` with the preflight arguments. Do not mix a lifecycle invocation
    with the foreground path. Wait on the same foreground handle using the same

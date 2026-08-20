@@ -38,6 +38,13 @@ is process-local and is lost when that server exits; after exit, do not guess an
 invocation identity or claim that the invocation can be recovered. Reconcile an
 exact returned run ID through `get_run` when one is available.
 
+The registry retains at most 64 cumulative invocation identities so terminal
+results remain repeatable. `invocation_limit_reached` is non-retryable in that
+server session. Reconcile every exact returned run ID, then restart the attached
+MCP server before starting another review; the restart discards every preserved
+invocation identity. `invocation_registry_closed` is likewise non-retryable and
+means that the server session is ending rather than that one observer timed out.
+
 ## Respect idempotency boundaries
 
 Read-only `version`, `doctor`, `config`, `providers`, `roles`, `status`,
