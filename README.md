@@ -375,13 +375,31 @@ Cancelling the MCP request cancels the same foreground review context and its
 provider processes. Lifecycle `await_review` emits no heartbeat loop, and
 cancelling its request does not cancel the server-owned review.
 
+### Configure the MCP host timeout
+
+Installing or upgrading Mulgae does not create or update an MCP host
+registration. Configure each host separately, revisit existing registrations,
+and set its hard tool-call timeout above the `run_deadline` reported by Mulgae
+preflight. This is a host setting, not a provider timeout. Generated project
+configuration gives every selected role an active lane, so roles run in
+parallel. The default and maximum provider timeout is 60 minutes per
+invocation, not per role; one role still reserves its initial provider call and
+one possible retry, repair, or structured extraction in sequence. That standard
+topology has a `2h0m7s` run deadline. The examples below round up to three hours:
+`10800` seconds for Codex and the equivalent `10800000` milliseconds for Claude
+Code. A shorter host timeout can be used with the complete lifecycle tool
+surface only when the client is prepared to re-await the same invocation after
+an observer timeout; it does not cover one uninterrupted await or the foreground
+`run_review` fallback. If project policy reduces `max_active_lanes` below the
+selected role count, use that project's preflight deadline instead of this
+default.
+
 ### Configure Codex
 
 Codex's default MCP tool timeout is too short for a foreground multi-provider
 review. Add an absolute Mulgae binary and project root to a trusted project
-`.codex/config.toml`, and set the tool timeout above the `run_deadline` reported
-by preflight. The 15-hour value below covers Mulgae's current maximum admitted
-run ceiling:
+`.codex/config.toml`. The three-hour value below covers the standard fully
+parallel topology:
 
 ```toml
 [mcp_servers.mulgae]
@@ -390,7 +408,7 @@ args = ["mcp", "--project-root", "/absolute/path/to/repository"]
 cwd = "/absolute/path/to/repository"
 required = true
 startup_timeout_sec = 30
-tool_timeout_sec = 54000
+tool_timeout_sec = 10800
 ```
 
 With Codex CLI 0.147.0, `codex mcp get mulgae --json` reports the server name,
@@ -420,7 +438,7 @@ binding. Claude Code expresses the per-server hard timeout in milliseconds:
       "type": "stdio",
       "command": "/absolute/path/to/mulgae",
       "args": ["mcp", "--project-root", "/absolute/path/to/repository"],
-      "timeout": 54000000
+      "timeout": 10800000
     }
   }
 }

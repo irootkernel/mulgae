@@ -6,7 +6,7 @@ and the contributor documents linked from [README.md](README.md).
 
 ## EPIC-001: Token-efficient review waiting
 
-Status: In Progress
+Status: Completed
 
 Goal: let an attached coding agent wait for a long Mulgae review without
 repeated model turns while preserving exact run identity, explicit
@@ -24,4 +24,5 @@ TASK-002 and TASK-003 share the planned design authority in
 are complete and MCP Tasks is no longer experimental. Until then it is the
 deferred final goal of this epic. TASK-003 delivers the supported custom
 start/await workflow; it does not promote TASK-004 or claim the stable MCP
-Tasks contract. The epic remains active through its final hardening review.
+Tasks contract. EPIC-001 is complete with TASK-004 retained as Deferred until
+the stable MCP Tasks contract and required SDK and client support are released.
