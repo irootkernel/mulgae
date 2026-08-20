@@ -363,9 +363,11 @@ without starting a review. The 64-identity bound is cumulative for one server
 process so terminal results remain repeatable. Exhaustion is non-retryable in
 that session; reconcile exact returned run IDs before restarting the attached
 server, which discards every invocation identity. A non-retryable
-`invocation_registry_closed` means the server session is ending. Server shutdown
+`invocation_registry_closed` means an await observed the server session ending
+while its transport could still deliver a result. Closing MCP stdin ends that
+transport, so pending calls may end without a response. Server shutdown still
 closes admission, cancels active invocations, and waits within a one-minute
-drain bound.
+drain bound before the process exits.
 
 The foreground `run_review` remains compatible and holds its request open until
 the review reaches a terminal result. When a client supplies an MCP progress

@@ -18,8 +18,10 @@ examples live with the embedded runtime assets.
 ## Planning documents
 
 The [roadmap](roadmap.md) is the status and ordering authority for planned
-work. It links detailed design notes under `todo/`. Those notes describe future
-targets and are not sources of truth for current runtime behavior.
+work. It links status-marked design notes under `todo/`; future and deferred
+notes describe targets, while completed notes remain historical records of
+accepted designs. Current runtime behavior remains authoritative in source,
+tests, embedded contracts, and contributor documentation.
 
 ## Sources of truth
 

@@ -126,4 +126,7 @@ The 64-identity bound is cumulative for one server process so terminal awaits
 remain repeatable. `invocation_limit_reached` is non-retryable in that session;
 reconcile exact returned run IDs before restarting the attached server, which
 discards every invocation identity. `invocation_registry_closed` is
-non-retryable and means the server session is ending.
+non-retryable and means an await observed the server session ending while the
+transport could still deliver a result. Closing MCP stdin ends the transport,
+so pending calls may end without a response while their reviews are cancelled
+and drained before process exit.

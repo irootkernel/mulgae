@@ -265,6 +265,18 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 	if diagnostics.calls != 0 {
 		t.Fatalf("diagnostic fallback calls = %d, want 0", diagnostics.calls)
 	}
+
+	singleJoinedNotFound := errors.Join(fmt.Errorf("publication lookup: %w", ports.ErrPublicationRunNotFound))
+	wrappedNotFound, err := domain.NewFailure("query.resolve_run", domain.FailureArtifact, "publication run resolution failed", singleJoinedNotFound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries.resolveErr = wrappedNotFound
+	diagnostics.calls = 0
+	projected, err = backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
+	if err != nil || projected["kind"] != "diagnostic_status_read" || diagnostics.calls != 1 {
+		t.Fatalf("single-joined not-found fallback = %#v, %v; calls = %d", projected, err, diagnostics.calls)
+	}
 }
 
 func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {

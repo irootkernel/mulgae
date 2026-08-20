@@ -19,7 +19,7 @@ cancellation, and fail-closed publication.
 | TASK-003 | Completed | Add `start_review`, `await_review`, and `cancel_review`, retain foreground compatibility, update the source-distributed skill to prefer the new workflow, and certify supported Codex and Claude clients. | Prove wait cancellation isolation, explicit execution cancellation, repeatable await, exact final identity, unchanged publication authority, legacy fallback, effective tool timeout behavior, and no repeated model turn during one await. |
 | TASK-004 | Deferred | After MCP Tasks receives a stable protocol release, replace the custom session-local lifecycle when the Go SDK and supported Codex and Claude clients implement the released contract. | Confirm the stable specification and compatible SDK/client versions, preserve TASK-003 behavior and fallback guarantees, and record exact-client protocol evidence for the standard task surface. |
 
-TASK-002 and TASK-003 share the planned design authority in
+TASK-002 and TASK-003 share the accepted design record in
 [todo/review-await.md](todo/review-await.md). TASK-004 begins only after both
 are complete and MCP Tasks is no longer experimental. Until then it is the
 deferred final goal of this epic. TASK-003 delivers the supported custom

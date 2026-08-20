@@ -286,8 +286,19 @@ func solelyWraps(err, target error) bool {
 		if err == target {
 			return true
 		}
-		if _, joined := err.(interface{ Unwrap() []error }); joined {
-			return false
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			children := joined.Unwrap()
+			matched := false
+			for _, child := range children {
+				if child == nil {
+					continue
+				}
+				if !solelyWraps(child, target) {
+					return false
+				}
+				matched = true
+			}
+			return matched
 		}
 		wrapped, ok := err.(interface{ Unwrap() error })
 		if !ok {
