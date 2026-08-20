@@ -149,7 +149,7 @@ non-retryable `invocation_not_found`; the 64-identity session bound returns
 non-retryable `invocation_limit_reached`. The bound counts cumulative retained
 identities so terminal results remain repeatable; clients must reconcile exact
 returned run IDs before restarting the attached server to regain capacity. A
-A server-ending await that can still receive a transport result returns
+server-ending await that can still receive a transport result returns
 non-retryable `invocation_registry_closed` rather than observer-only
 `await_cancelled`. Empty stdin EOF ends the transport itself, so pending calls
 may receive no response even though shutdown still cancels and drains their
