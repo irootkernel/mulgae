@@ -140,7 +140,7 @@ func TestCatalogRejectsInvalidEmbeddedFilesystems(t *testing.T) {
 		{
 			name: "invalid schema identity",
 			mutate: func(t *testing.T, files fstest.MapFS) {
-				files["schemas/mulgae-command-result.v4.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
+				files["schemas/mulgae-command-result.v5.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`), Mode: 0o644}
 				rewriteTestChecksums(t, files)
 			},
 		},
@@ -165,7 +165,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
-	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json")
+	id := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json")
 	metadata, first, err := catalog.Read(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Read(%q): %v", id.String(), err)
@@ -176,7 +176,7 @@ func TestCatalogReadAndListUseDefensiveCopies(t *testing.T) {
 	if metadata.Kind() != ports.AssetKindSchema {
 		t.Fatalf("Read(%q) kind = %q, want %q", id.String(), metadata.Kind(), ports.AssetKindSchema)
 	}
-	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v4.schema.json"))
+	want, err := os.ReadFile(filepath.Join(testSOTRoot, "schemas", "mulgae-command-result.v5.schema.json"))
 	if err != nil {
 		t.Fatalf("read authoritative global default: %v", err)
 	}
@@ -515,7 +515,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 
 	expected := []schemaExamplePair{
 		{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "schemas/mulgae-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json", "schemas/mulgae-command-result.v4.schema.json", "examples/command-result.v4.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "schemas/mulgae-command-result.v5.schema.json", "examples/command-result.v5.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "schemas/mulgae-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "schemas/mulgae-file-catalog.v1.schema.json", "examples/file-catalog.v1.valid.json"},

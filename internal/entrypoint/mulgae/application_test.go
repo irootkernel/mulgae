@@ -45,7 +45,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -611,6 +611,136 @@ func TestApplicationRejectedInitJSONUsesInvalidRequestContract(t *testing.T) {
 		if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
 			t.Fatalf("ambiguous rejected usage = %#v", result)
 		}
+	}
+}
+
+func TestApplicationRejectedChildWorkflowJSONPreservesFailureContract(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		argv          []string
+		resolverError error
+		attemptError  error
+		state         string
+		code          string
+		category      string
+		exit          app.ExitCode
+		nilContext    bool
+	}{
+		{
+			name:  "delta syntax is rejected before latest resolution",
+			argv:  []string{"delta", "--since-run", "latest", "--dirty", "--output", "json"},
+			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
+		},
+		{
+			name:  "followup syntax is rejected before latest resolution",
+			argv:  []string{"followup", "--run", "latest", "--finding", "F001", "--output", "json"},
+			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
+		},
+		{
+			name:          "latest run unavailable",
+			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
+			resolverError: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable),
+			state:         "unresolved", code: "run_selector_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
+		},
+		{
+			name:          "nil context still renders an unresolved envelope",
+			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
+			resolverError: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable),
+			state:         "unresolved", code: "run_selector_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
+			nilContext: true,
+		},
+		{
+			name:          "project root mismatch",
+			argv:          []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
+			resolverError: ErrProjectRootMismatch,
+			state:         "unresolved", code: "project_root_mismatch", exit: app.ExitCodeUsage,
+		},
+		{
+			name:         "provider instance attempt unavailable",
+			argv:         []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "zcode", "--output", "json"},
+			attemptError: fmt.Errorf("%w: no exact provider instance", ErrSelectorUnavailable),
+			state:        "unresolved", code: "attempt_selector_unavailable", exit: app.ExitCodeArtifact,
+		},
+		{
+			name:          "selector resolver internal failure",
+			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
+			resolverError: errors.New("resolver failed"),
+			state:         "unresolved", code: "selector_resolution_failed", exit: app.ExitCodeInternal,
+		},
+		{
+			name:          "selector cancellation remains cancellation",
+			argv:          []string{"followup", "--run", "latest", "--finding", "F001", "--dirty", "--output", "json"},
+			resolverError: context.Canceled,
+			state:         "unresolved", code: "request_cancelled", category: "cancellation", exit: app.ExitCodeCancellation,
+		},
+		{
+			name:          "selector artifact failure remains typed",
+			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
+			resolverError: mustG006Failure(t, domain.FailureArtifact),
+			state:         "unresolved", code: "artifact_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
+		},
+		{
+			name:          "selector security failure remains typed",
+			argv:          []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
+			resolverError: mustG006Failure(t, domain.FailureSecurityPolicy),
+			state:         "unresolved", code: "security_rejected", category: "security", exit: app.ExitCodeSecurity,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			resolver := &g008ResolverFake{err: test.resolverError, attemptErr: test.attemptError}
+			fixture.application.requestResolver = resolver
+			var ctx context.Context = context.Background()
+			if test.nilContext {
+				ctx = nil
+			}
+			result := fixture.application.Run(ctx, test.argv, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			if len(result.Stderr()) != 0 {
+				t.Fatalf("rejected child stderr = %q", result.Stderr())
+			}
+			var envelope struct {
+				Request struct {
+					RequestID    string `json:"request_id"`
+					Command      string `json:"command"`
+					RequestState string `json:"request_state"`
+					OutputFormat string `json:"output_format"`
+				} `json:"request"`
+				Reasons []struct {
+					Category string `json:"category"`
+					Code     string `json:"code"`
+					Message  string `json:"message"`
+				} `json:"reasons"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Request.RequestID != foundationRequestID || envelope.Request.Command != test.argv[0] || envelope.Request.RequestState != test.state || envelope.Request.OutputFormat != "json" || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != test.code {
+				t.Fatalf("rejected child envelope = %#v", envelope)
+			}
+			if test.code == "invalid_command_usage" && envelope.Reasons[0].Category != "usage" {
+				t.Fatalf("invalid usage category = %q, want usage", envelope.Reasons[0].Category)
+			}
+			if test.category != "" && envelope.Reasons[0].Category != test.category {
+				t.Fatalf("reason category = %q, want %q", envelope.Reasons[0].Category, test.category)
+			}
+			if test.code == "invalid_command_usage" && len(resolver.runCalls)+len(resolver.attemptCalls)+resolver.targetCalls != 0 {
+				t.Fatalf("invalid syntax invoked resolver: %#v", resolver)
+			}
+			if test.code == "selector_resolution_failed" && (envelope.Reasons[0].Message != "Selector resolution failed before command execution." || strings.Contains(envelope.Reasons[0].Message, "resolver failed")) {
+				t.Fatalf("internal selector reason leaked implementation detail: %#v", envelope.Reasons[0])
+			}
+		})
+	}
+}
+
+func TestApplicationRejectedChildWorkflowHumanPreservesCancellation(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	fixture.application.requestResolver = &g008ResolverFake{err: context.Canceled}
+	result := fixture.application.Run(context.Background(), []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"}, testAnchoredRoot(t))
+	want := "mulgae: request was cancelled\ncode: request_cancelled\nstage: cli.delta.resolve\nhint: retry the command when ready\n"
+	if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte(want)) {
+		t.Fatalf("human selector cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 	}
 }
 
@@ -3160,6 +3290,7 @@ type g008ResolverFake struct {
 	attemptCalls []g008AttemptResolution
 	targetCalls  int
 	err          error
+	attemptErr   error
 }
 
 type g008AttemptResolution struct {
@@ -3178,6 +3309,9 @@ func (fake *g008ResolverFake) ResolveRun(_ context.Context, selector string) (st
 
 func (fake *g008ResolverFake) ResolveAttempt(_ context.Context, runID, role, provider string) (string, error) {
 	fake.attemptCalls = append(fake.attemptCalls, g008AttemptResolution{runID: runID, role: role, provider: provider})
+	if fake.attemptErr != nil {
+		return "", fake.attemptErr
+	}
 	if fake.err != nil {
 		return "", fake.err
 	}
@@ -3210,6 +3344,8 @@ func TestApplicationPreservesResolverOperationalFailures(t *testing.T) {
 		{name: "artifact", err: artifact, exit: app.ExitCodeArtifact},
 		{name: "security", err: security, exit: app.ExitCodeSecurity},
 		{name: "internal", err: errors.New("resolver failed"), exit: app.ExitCodeInternal},
+		{name: "selector unavailable", err: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable), exit: app.ExitCodeArtifact},
+		{name: "project root mismatch", err: ErrProjectRootMismatch, exit: app.ExitCodeUsage},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFoundationFixture(t)
@@ -3219,6 +3355,13 @@ func TestApplicationPreservesResolverOperationalFailures(t *testing.T) {
 				t.Fatalf("resolver failure result = exit %d stdout %q stderr %q, want exit %d", result.ExitCode(), result.Stdout(), result.Stderr(), test.exit)
 			}
 		})
+	}
+
+	fixture := newFoundationFixture(t)
+	fixture.application.requestResolver = &g008ResolverFake{err: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable)}
+	result := fixture.application.Run(context.Background(), []string{"export", "--run", "latest", "--output-path", "export.zip", "--output", "json"}, testAnchoredRoot(t))
+	if result.ExitCode() != app.ExitCodeArtifact || len(result.Stdout()) != 0 || !bytes.Contains(result.Stderr(), []byte("code: run_selector_unavailable")) || bytes.Contains(result.Stderr(), []byte("mulgae doctor")) {
+		t.Fatalf("export rejected JSON fallback = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 	}
 }
 

@@ -83,10 +83,15 @@ already available.
      --output json
    ```
 
-4. Read the complete JSON envelope even when the process exits `1`; it is a
-   policy outcome. Treat exits `2`, `4`, `7`, `8`, `9`, and `10` according to
-   their stable error code, stage, and remediation hint. Do not infer success
-   from prose or provider output.
+4. Read the complete `mulgae-command-result.v5` JSON envelope even when the
+   process exits nonzero. Exit `1` is a policy outcome. A rejected `followup`,
+   `delta`, or `rerun` request still has a machine envelope: `request_state`
+   `invalid` means syntax rejection, while `unresolved` means pre-execution
+   selector or project-root resolution failed. Use the stable reason code and
+   bounded message; JSON does not expose raw internal errors or require a
+   public stage or remediation field. Treat exits `2`, `4`, `7`, `8`, `9`, and
+   `10` by that envelope rather than prose or provider output. Read
+   [lifecycle.md](references/lifecycle.md) for child-workflow selector failures.
 5. Immediately re-read authoritative state using the exact returned run ID:
 
    ```bash
@@ -137,6 +142,11 @@ already available.
 - Use structured output, exact IDs, stable error codes, and command
   preconditions. Mulgae has no client idempotency key: review-like commands
   create new runs, so never blindly retry an uncertain mutation.
+- Run child workflows from the canonical Git worktree root. On
+  `project_root_mismatch`, confirm that root before retrying. If the confirmed
+  root is not initialized, request explicit initialization authority before
+  running `mulgae init`; never create nested `.mulgae` state from a
+  subdirectory.
 - Before requesting a rerun, inspect whether Mulgae already consumed its single
   same-provider retry for `provider_unavailable` or `provider_turn_failed`.
   Runtime-log v3 field-discard events contain paths and counts only, never the

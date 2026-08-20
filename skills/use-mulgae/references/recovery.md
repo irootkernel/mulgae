@@ -47,9 +47,25 @@ review-like command is a new run, not a retry of the same mutation.
   report URIs are absent, and findings cannot be queried. Follow
   `recovery_action: rerun_review` only after the user
   authorizes a new review; retain the failed run as diagnostic evidence.
-- For a committed run with one failed role, use the rerun command printed in
-  the report, substituting its `<family>` placeholder, or the source run and
-  attempt IDs. Do not substitute a provider automatically.
+- For a committed run with one failed role, prefer the source run and exact
+  attempt IDs. When selecting by role and provider, use the persisted
+  `provider_instance` exactly; never substitute a provider family or another
+  provider automatically.
+- For `project_root_mismatch`, confirm the canonical Git worktree root. If that
+  root is uninitialized, obtain explicit initialization authority before
+  running `mulgae init`; do not initialize or create nested `.mulgae` state in
+  a subdirectory.
+- For `run_selector_unavailable`, verify the source run from the project root.
+  For `attempt_selector_unavailable`, prefer the exact attempt ID or re-read the
+  run to obtain the persisted provider instance. Neither failure establishes a
+  configuration problem.
+- For `selector_resolution_failed`, preserve the v5 envelope request ID and
+  bounded reason, stop mutations, and report the failure. Do not treat the
+  generic internal exit as evidence that doctor will find a problem.
+- For selector resolution that returns `request_cancelled`, retain exit `9`
+  and retry only when authorized. Typed artifact and security failures retain
+  exits `7` and `8`; follow their bounded reason instead of treating them as
+  internal failures.
 - For a stale child-run source, re-read the source run. Do not bypass immutable
   target or lineage checks.
 - For configuration or readiness failure, use current effective config,

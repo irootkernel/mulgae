@@ -16,6 +16,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestG008RequestResolverCapturedStdinTransfersOnceAndZerosOwnedBytes(t *testing.T) {
@@ -168,6 +169,38 @@ func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 		if !ok || !strings.Contains(string(request), second.RunID.String()) {
 			t.Fatalf("ParseResolved(%v) did not freeze selected run %s: %s", arguments, second.RunID, request)
 		}
+	}
+}
+
+func TestG008RequestResolverMissingProjectArtifactsDoesNotCreateWorkspace(t *testing.T) {
+	fixture := newG008RealE2EFixture(t)
+	projectRoot := t.TempDir()
+	artifactPath := filepath.Join(projectRoot, ".mulgae")
+	artifactRoot, err := ports.NewAnchoredRoot(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewG008RequestResolver(artifactRoot, fixture.queries, filesystem.NewRunSelector(artifactRoot), strings.NewReader("target"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.ResolveRun(context.Background(), "latest"); !errors.Is(err, ErrProjectRootMismatch) {
+		t.Fatalf("ResolveRun error = %v, want project root mismatch", err)
+	}
+	if _, err := resolver.ResolveRun(context.Background(), testRunID); !errors.Is(err, ErrProjectRootMismatch) {
+		t.Fatalf("ResolveRun explicit error = %v, want project root mismatch", err)
+	}
+	if _, err := resolver.ResolveAttempt(context.Background(), testRunID, "logic", "zcode-logic"); !errors.Is(err, ErrProjectRootMismatch) {
+		t.Fatalf("ResolveAttempt explicit error = %v, want project root mismatch", err)
+	}
+	if _, err := os.Lstat(artifactPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing artifact root stat = %v, want not exist", err)
+	}
+	if err := os.Mkdir(artifactPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.ResolveRun(context.Background(), testRunID); err == nil || errors.Is(err, ErrProjectRootMismatch) {
+		t.Fatalf("missing explicit run error = %v, want non-root artifact failure", err)
 	}
 }
 

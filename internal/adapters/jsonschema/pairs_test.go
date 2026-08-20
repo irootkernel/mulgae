@@ -12,9 +12,9 @@ import (
 
 func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	validator := newBuiltinValidator(t)
-	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json")
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json")
 	envelope := map[string]any{
-		"schema_version": "mulgae-command-result.v4",
+		"schema_version": "mulgae-command-result.v5",
 		"command":        "init",
 		"request": map[string]any{
 			"request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf", "command": "init", "project_root": ".", "project_name": "project", "context": nil,
@@ -77,7 +77,7 @@ type schemaExamplePair struct {
 
 var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
-	{"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json", "example:command-result.v4.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "example:command-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "example:file-catalog.v1.valid.json"},
@@ -169,7 +169,7 @@ func TestBuildPairsRejectsPairPathThatDisagreesWithSchemaID(t *testing.T) {
 	mutated := bytes.Replace(
 		g0.raw,
 		[]byte(`"pair": "sot/schemas/mulgae-clean-plan.v1.schema.json"`),
-		[]byte(`"pair": "sot/schemas/mulgae-command-result.v4.schema.json"`),
+		[]byte(`"pair": "sot/schemas/mulgae-command-result.v5.schema.json"`),
 		1,
 	)
 	if bytes.Equal(mutated, g0.raw) {
@@ -209,7 +209,7 @@ func TestBuildPairsRejectsDuplicateExampleTarget(t *testing.T) {
 	g0 := examples[fileCatalogExampleID]
 	mutated := bytes.Replace(
 		g0.raw,
-		[]byte(`"path": "sot/examples/command-result.v4.valid.json"`),
+		[]byte(`"path": "sot/examples/command-result.v5.valid.json"`),
 		[]byte(`"path": "sot/examples/clean-plan.v1.valid.json"`),
 		1,
 	)
@@ -226,7 +226,7 @@ func TestBuildPairsRejectsDuplicateExampleTarget(t *testing.T) {
 func TestBuildPairsRejectsReverseAndCardinalityViolations(t *testing.T) {
 	baseExamples, baseSchemas := builtinPairInputs(t)
 	cleanPair := []byte(`"pair": "sot/examples/clean-plan.v1.valid.json"`)
-	commandPair := []byte(`"pair": "sot/examples/command-result.v4.valid.json"`)
+	commandPair := []byte(`"pair": "sot/examples/command-result.v5.valid.json"`)
 
 	tests := []struct {
 		name   string

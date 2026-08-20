@@ -33,6 +33,24 @@ var ErrUsage = errors.New("mulgae usage error")
 // ErrSelectorUnavailable marks a syntactically valid selector that has no unique match.
 var ErrSelectorUnavailable = errors.New("mulgae selector unavailable")
 
+// ErrProjectRootMismatch marks selector resolution attempted outside the
+// canonical project root that owns Mulgae artifacts.
+var ErrProjectRootMismatch = errors.New("mulgae project root mismatch")
+
+// ErrRunSelectorUnavailable marks a syntactically valid run selector that has
+// no committed match.
+var ErrRunSelectorUnavailable = errors.New("mulgae run selector unavailable")
+
+// ErrAttemptSelectorUnavailable marks a syntactically valid attempt selector
+// that has no unique committed match.
+var ErrAttemptSelectorUnavailable = errors.New("mulgae attempt selector unavailable")
+
+const (
+	resolvedSyntaxRunID     = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+	resolvedSyntaxAttemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
+	resolvedSyntaxStdin     = "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+)
+
 // Parse converts command-line arguments into one immutable Mulgae invocation. The
 // caller must supply a canonical default project root and a UUIDv7 request ID.
 // Parse does not inspect the filesystem, environment, or service state.
@@ -114,8 +132,14 @@ func ParseResolved(ctx context.Context, arguments []string, defaultProjectRoot, 
 	if len(arguments) == 0 {
 		return Parse(arguments, defaultProjectRoot, requestID)
 	}
+	validated, err := resolvedSyntaxArguments(arguments)
+	if err != nil {
+		return Invocation{}, err
+	}
+	if _, err := Parse(validated, defaultProjectRoot, requestID); err != nil {
+		return Invocation{}, err
+	}
 	normalized := cloneStrings(arguments)
-	var err error
 	switch normalized[0] {
 	case string(app.CommandReview):
 		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
@@ -154,6 +178,59 @@ func ParseResolved(ctx context.Context, arguments []string, defaultProjectRoot, 
 	return Parse(normalized, defaultProjectRoot, requestID)
 }
 
+// resolvedSyntaxArguments substitutes canonical placeholders for selectors
+// that require filesystem or stdin access. Parse can then reject malformed
+// command grammar before any resolver performs I/O.
+func resolvedSyntaxArguments(arguments []string) ([]string, error) {
+	normalized := cloneStrings(arguments)
+	if len(normalized) == 0 {
+		return normalized, nil
+	}
+	switch normalized[0] {
+	case string(app.CommandReview):
+		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
+	case string(app.CommandFollowup):
+		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
+		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
+	case string(app.CommandDelta):
+		replaceSelectorValue(normalized, "--since-run", "latest", resolvedSyntaxRunID)
+		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
+	case string(app.CommandRerun):
+		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
+		return normalizeRerunSelector(normalized, resolvedSyntaxAttemptID)
+	case string(app.CommandExport):
+		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
+	}
+	return normalized, nil
+}
+
+func replaceSelectorValue(arguments []string, flag, selector, replacement string) {
+	for index := 1; index+1 < len(arguments); index++ {
+		if arguments[index] == flag && arguments[index+1] == selector {
+			arguments[index+1] = replacement
+			return
+		}
+	}
+}
+
+func normalizeCapturedStdin(arguments []string, value string) []string {
+	stdinCount := 0
+	stdinIndex := -1
+	for index := 1; index < len(arguments); index++ {
+		if arguments[index] == "--stdin" {
+			stdinCount++
+			stdinIndex = index
+		}
+	}
+	if stdinCount != 1 || stdinIndex == -1 || stdinIndex+1 < len(arguments) && !strings.HasPrefix(arguments[stdinIndex+1], "--") {
+		return arguments
+	}
+	normalized := make([]string, 0, len(arguments)+1)
+	normalized = append(normalized, arguments[:stdinIndex+1]...)
+	normalized = append(normalized, value)
+	return append(normalized, arguments[stdinIndex+1:]...)
+}
+
 func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolver RequestResolver) error {
 	for index := 1; index < len(arguments); index++ {
 		if arguments[index] != flag {
@@ -171,7 +248,7 @@ func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolv
 		runID, err := resolver.ResolveRun(ctx, "latest")
 		if err != nil {
 			if errors.Is(err, ErrSelectorUnavailable) {
-				return usageError("resolve latest run: %v", err)
+				return fmt.Errorf("%w: %v", ErrRunSelectorUnavailable, err)
 			}
 			return fmt.Errorf("resolve latest run: %w", err)
 		}
@@ -209,33 +286,16 @@ func resolveCapturedStdin(ctx context.Context, arguments []string, resolver Requ
 	if !validCapturedStdinToken(value) {
 		return nil, usageError("captured stdin target is malformed")
 	}
-	normalized := make([]string, 0, len(arguments)+1)
-	normalized = append(normalized, arguments[:stdinIndex+1]...)
-	normalized = append(normalized, value)
-	return append(normalized, arguments[stdinIndex+1:]...), nil
+	return normalizeCapturedStdin(arguments, value), nil
 }
 
 func resolveRerunSelector(ctx context.Context, arguments []string, resolver RequestResolver) ([]string, error) {
-	role, hasRole, err := selectorOption(arguments, "--role")
+	role, provider, selected, err := rerunSelector(arguments)
 	if err != nil {
 		return nil, err
 	}
-	provider, hasProvider, err := selectorOption(arguments, "--provider")
-	if err != nil {
-		return nil, err
-	}
-	_, hasAttempt, err := selectorOption(arguments, "--attempt")
-	if err != nil {
-		return nil, err
-	}
-	if !hasRole && !hasProvider {
+	if !selected {
 		return arguments, nil
-	}
-	if hasAttempt || !hasRole || !hasProvider {
-		return nil, usageError("rerun requires either --attempt or exactly one --role and --provider selector")
-	}
-	if !validRole(role) || !validRole(provider) {
-		return nil, usageError("rerun role/provider selector is malformed")
 	}
 	runID, present, err := selectorOption(arguments, "--run")
 	if err != nil {
@@ -250,9 +310,20 @@ func resolveRerunSelector(ctx context.Context, arguments []string, resolver Requ
 	attemptID, err := resolver.ResolveAttempt(ctx, runID, role, provider)
 	if err != nil {
 		if errors.Is(err, ErrSelectorUnavailable) {
-			return nil, usageError("resolve rerun attempt: %v", err)
+			return nil, fmt.Errorf("%w: %v", ErrAttemptSelectorUnavailable, err)
 		}
 		return nil, fmt.Errorf("resolve rerun attempt: %w", err)
+	}
+	return normalizeRerunSelector(arguments, attemptID)
+}
+
+func normalizeRerunSelector(arguments []string, attemptID string) ([]string, error) {
+	_, _, selected, err := rerunSelector(arguments)
+	if err != nil {
+		return nil, err
+	}
+	if !selected {
+		return arguments, nil
 	}
 	normalized := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
@@ -263,6 +334,31 @@ func resolveRerunSelector(ctx context.Context, arguments []string, resolver Requ
 		normalized = append(normalized, arguments[index])
 	}
 	return append(normalized, "--attempt", attemptID), nil
+}
+
+func rerunSelector(arguments []string) (string, string, bool, error) {
+	role, hasRole, err := selectorOption(arguments, "--role")
+	if err != nil {
+		return "", "", false, err
+	}
+	provider, hasProvider, err := selectorOption(arguments, "--provider")
+	if err != nil {
+		return "", "", false, err
+	}
+	_, hasAttempt, err := selectorOption(arguments, "--attempt")
+	if err != nil {
+		return "", "", false, err
+	}
+	if !hasRole && !hasProvider {
+		return "", "", false, nil
+	}
+	if hasAttempt || !hasRole || !hasProvider {
+		return "", "", false, usageError("rerun requires either --attempt or exactly one --role and --provider selector")
+	}
+	if !validRole(role) || !validRole(provider) {
+		return "", "", false, usageError("rerun role/provider selector is malformed")
+	}
+	return role, provider, true, nil
 }
 
 func selectorOption(arguments []string, flag string) (string, bool, error) {

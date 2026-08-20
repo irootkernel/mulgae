@@ -15,7 +15,7 @@ import (
 const (
 	testProjectRoot         = "/work/project"
 	testRequestID           = "i_01234567-89ab-7cde-8f01-23456789abcd"
-	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
+	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json"
 	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -218,7 +218,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.SchemaID(); !present || got != testSchemaID {
 		t.Fatalf("schema show ID = %q, %t; want %q, true", got, present, testSchemaID)
 	}
-	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json","export_path":null,"output_format":"human"}`)
+	assertRequestJSON(t, show, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json","export_path":null,"output_format":"human"}`)
 
 	export := mustParse(t, []string{"schema", "export", testSchemaID, "contracts/result.json", "--project-root", "/work/export", "--output", "human"})
 	request, ok = export.Schema()
@@ -228,7 +228,7 @@ func TestParseSchemaForms(t *testing.T) {
 	if got, present := request.ExportPath(); !present || got != "contracts/result.json" {
 		t.Fatalf("schema export path = %q, %t; want contracts/result.json, true", got, present)
 	}
-	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v4.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
+	assertRequestJSON(t, export, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"schema","schema_id":"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json","export_path":"contracts/result.json","output_format":"human"}`)
 }
 func TestParsePublicationQueryForms(t *testing.T) {
 	status := mustParse(t, []string{"status", "--run", testRunID, "--output", "json"})
@@ -563,8 +563,8 @@ func TestParseResolvedDistinguishesSelectorUsageFromOperationalFailures(t *testi
 	for _, message := range []string{"zero matches", "ambiguous matches"} {
 		selectorErr := fmt.Errorf("%w: %s", ErrSelectorUnavailable, message)
 		resolver := parserTestResolver{err: selectorErr}
-		if _, err := ParseResolved(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/review.zip"}, testProjectRoot, testRequestID, resolver); !errors.Is(err, ErrUsage) {
-			t.Errorf("ParseResolved selector error = %v, want usage error", err)
+		if _, err := ParseResolved(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/review.zip"}, testProjectRoot, testRequestID, resolver); !errors.Is(err, ErrRunSelectorUnavailable) || errors.Is(err, ErrUsage) {
+			t.Errorf("ParseResolved selector error = %v, want run selector unavailable", err)
 		}
 	}
 	operational := errors.New("resolver failed")
@@ -573,6 +573,40 @@ func TestParseResolvedDistinguishesSelectorUsageFromOperationalFailures(t *testi
 	}
 	if _, err := ParseResolved(context.Background(), []string{"rerun", "--run", testRunID, "--role", "logic", "--provider", "kimi"}, testProjectRoot, testRequestID, parserTestResolver{}); !errors.Is(err, ErrUsage) {
 		t.Errorf("ParseResolved zero attempt selector error = %v, want usage error", err)
+	}
+}
+
+type countingParserResolver struct {
+	calls int
+}
+
+func (resolver *countingParserResolver) ResolveRun(context.Context, string) (string, error) {
+	resolver.calls++
+	return testRunID, nil
+}
+
+func (resolver *countingParserResolver) ResolveAttempt(context.Context, string, string, string) (string, error) {
+	resolver.calls++
+	return testAttemptID, nil
+}
+
+func (resolver *countingParserResolver) CaptureTarget(context.Context) (string, error) {
+	resolver.calls++
+	return resolvedSyntaxStdin, nil
+}
+
+func TestParseResolvedRejectsSyntaxBeforeSelectorIO(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"delta", "--since-run", "latest", "--dirty", "--output", "json"},
+		{"rerun", "--run", "latest", "--role", "logic", "--provider", "zcode-logic", "--attempt", testAttemptID, "--output", "json"},
+	} {
+		resolver := &countingParserResolver{}
+		if _, err := ParseResolved(context.Background(), arguments, testProjectRoot, testRequestID, resolver); !errors.Is(err, ErrUsage) {
+			t.Fatalf("ParseResolved(%v) error = %v, want usage", arguments, err)
+		}
+		if resolver.calls != 0 {
+			t.Fatalf("ParseResolved(%v) resolver calls = %d, want 0", arguments, resolver.calls)
+		}
 	}
 }
 

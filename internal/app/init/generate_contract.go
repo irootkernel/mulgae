@@ -43,13 +43,13 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v4.schema.json"), specs); err != nil {
+	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v5.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v4.schema.json"), specs); err != nil {
+	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v5.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v4.schema.json"), discoverySpecs); err != nil {
+	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v5.schema.json"), discoverySpecs); err != nil {
 		return err
 	}
 	return nil

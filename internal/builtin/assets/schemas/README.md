@@ -9,7 +9,7 @@ Draft 2020-12 and a canonical
 | Schema | Valid example |
 |---|---|
 | `mulgae-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` |
-| `mulgae-command-result.v4` | `../examples/command-result.v4.valid.json` |
+| `mulgae-command-result.v5` | `../examples/command-result.v5.valid.json` |
 | `mulgae-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |

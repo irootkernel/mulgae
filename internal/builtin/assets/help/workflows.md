@@ -62,12 +62,20 @@ Child workflows create new immutable runs:
 ```bash
 mulgae followup --run latest --finding F001 --dirty
 mulgae delta --since-run latest --dirty --roles logic,testing
-mulgae rerun --run latest --role logic --provider zcode
+mulgae rerun --run latest --attempt a_019f596a-cf80-7c67-b265-f37053d51ccf
+mulgae rerun --run latest --role logic --provider zcode-logic
 ```
 
 `followup` checks one finding, `delta` reviews changes relative to a prior run,
-and `rerun` repeats one prior attempt. Use `--output json` for machine-readable
-command envelopes.
+and `rerun` repeats one prior attempt. `delta` requires an explicit `--roles`
+list. In the alternate rerun selector, `--provider` is the exact persisted
+provider instance, not a provider family name. Run child workflows from an
+initialized Git worktree root. If `project_root_mismatch` reports that the
+Mulgae artifact root is unavailable, confirm the canonical root first; run
+`mulgae init` there only when initialization is intended and explicitly
+authorized. Use `--output json` for machine-readable command envelopes,
+including rejected syntax, unresolved selectors, cancellation, and typed
+artifact or security failures.
 
 An MCP client may start one attached stdio process rooted at the current
 canonical project directory or an explicit absolute path:

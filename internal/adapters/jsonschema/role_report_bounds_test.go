@@ -11,9 +11,9 @@ import (
 func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	t.Parallel()
 
-	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v4.schema.json")
+	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v5.schema.json")
 	manifestDoc := readAssetJSON(t, "schemas/mulgae-run-manifest.v1.schema.json")
-	commandID := "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json"
+	commandID := "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json"
 	manifestID := "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 
 	seven := []any{

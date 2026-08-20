@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mulgae.local/schemas/mulgae-command-result.v4.schema.json",
-  "title": "Mulgae Command Result v3",
+  "$id": "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json",
+  "title": "Mulgae Command Result v5",
   "description": "The common command envelope. Application requests are the 18 variants at $defs.requests.<command>; provider-owned output schemas are not request variants.",
   "type": "object",
   "additionalProperties": false,
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "mulgae-command-result.v4"
+      "const": "mulgae-command-result.v5"
     },
     "command": {
       "$ref": "#/$defs/command"
@@ -3293,6 +3293,12 @@
         }
       },
       "followup": {
+        "oneOf": [
+          { "$ref": "#/$defs/requests/followup_accepted" },
+          { "$ref": "#/$defs/requests/followup_rejected" }
+        ]
+      },
+      "followup_accepted": {
         "type": "object",
         "additionalProperties": false,
         "required": ["request_id", "command", "source_run_id", "finding_id", "target", "objective", "role", "output_format"],
@@ -3307,7 +3313,24 @@
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
+      "followup_rejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "request_state", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "followup" },
+          "request_state": { "enum": ["invalid", "unresolved"] },
+          "output_format": { "const": "json" }
+        }
+      },
       "delta": {
+        "oneOf": [
+          { "$ref": "#/$defs/requests/delta_accepted" },
+          { "$ref": "#/$defs/requests/delta_rejected" }
+        ]
+      },
+      "delta_accepted": {
         "type": "object",
         "additionalProperties": false,
         "required": ["request_id", "command", "source_run_id", "target", "roles", "output_format"],
@@ -3320,7 +3343,24 @@
           "output_format": { "$ref": "#/$defs/output_format" }
         }
       },
+      "delta_rejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "request_state", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "delta" },
+          "request_state": { "enum": ["invalid", "unresolved"] },
+          "output_format": { "const": "json" }
+        }
+      },
       "rerun": {
+        "oneOf": [
+          { "$ref": "#/$defs/requests/rerun_accepted" },
+          { "$ref": "#/$defs/requests/rerun_rejected" }
+        ]
+      },
+      "rerun_accepted": {
         "type": "object",
         "additionalProperties": false,
         "required": ["request_id", "command", "source_run_id", "source_attempt_id", "replay_mode", "output_format"],
@@ -3331,6 +3371,17 @@
           "source_attempt_id": { "$ref": "#/$defs/attempt_id" },
           "replay_mode": { "type": "string", "enum": ["exact", "recompose"] },
           "output_format": { "$ref": "#/$defs/output_format" }
+        }
+      },
+      "rerun_rejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "command", "request_state", "output_format"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/request_id" },
+          "command": { "const": "rerun" },
+          "request_state": { "enum": ["invalid", "unresolved"] },
+          "output_format": { "const": "json" }
         }
       },
       "status": {

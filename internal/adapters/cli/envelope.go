@@ -12,7 +12,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const commandResultSchemaVersion = "mulgae-command-result.v4"
+const commandResultSchemaVersion = "mulgae-command-result.v5"
 
 // SchemaValidator validates raw JSON against a catalog schema. It is satisfied
 // by adapters/jsonschema.Validator without coupling this CLI adapter to it.
@@ -89,7 +89,7 @@ func (renderer *EnvelopeRenderer) Render(ctx context.Context, commandResult app.
 		return nil, err
 	}
 	var requestValue any = request
-	if commandResult.Command() == app.CommandInit && request["request_state"] == "invalid" {
+	if _, rejected := request["request_state"]; rejected {
 		requestValue = json.RawMessage(cloneEnvelopeBytes(requestRaw))
 	}
 
@@ -244,7 +244,8 @@ func reasonForDiagnostic(diagnostic app.Diagnostic) (commandReason, error) {
 	if err != nil {
 		return commandReason{}, err
 	}
-	if diagnostic.Stage() == "cli.init" && diagnostic.MachineCode() == "init_selection_invalid" && diagnostic.FailureClass() == domain.FailureConfiguration {
+	if diagnostic.FailureClass() == domain.FailureConfiguration &&
+		((diagnostic.Stage() == "cli.init" && diagnostic.MachineCode() == "init_selection_invalid") || diagnostic.MachineCode() == "invalid_command_usage") {
 		category = "usage"
 	}
 

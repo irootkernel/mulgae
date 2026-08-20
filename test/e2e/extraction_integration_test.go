@@ -149,7 +149,7 @@ func TestIntegrationStructuredExtractionFailureStaysReportsOnlyAndPublishes(t *t
 
 // Extraction shares the one second invocation repair competes for, so the
 // projected role path and its ceilings are unchanged. This is the regression
-// guard for keeping mulgae-review-preflight.v3 and mulgae-command-result.v4.
+// guard for keeping mulgae-review-preflight.v3 and mulgae-command-result.v5.
 func TestIntegrationStructuredExtractionDoesNotWidenPreflightBudget(t *testing.T) {
 	binary, project, environment := extractionProject(t, extractionProseReport, extractionWireOutput)
 	preflight := runMulgaeBinaryWithEnv(t, binary, project, environment,

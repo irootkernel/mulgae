@@ -1222,11 +1222,23 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 		invocation, err = Parse(cloneApplicationStrings(argv), canonicalDefaultRoot, requestID)
 	}
 	if err != nil {
+		if command, outputFormat, recognized := childWorkflowIntent(argv); recognized {
+			state := "unresolved"
+			failure := selectorFailure(command, requestID, err)
+			if errors.Is(err, ErrUsage) {
+				state = "invalid"
+			}
+			return application.renderRejectedChildWorkflow(ctx, requestID, command, state, outputFormat, failure)
+		}
 		if errors.Is(err, ErrUsage) {
 			if rejectedInitJSONIntent(argv) {
 				return application.renderRejectedInit(ctx, requestID)
 			}
 			return errorResult(app.ExitCodeUsage, "mulgae: invalid command usage")
+		}
+		if len(argv) != 0 && argv[0] == string(app.CommandExport) &&
+			(errors.Is(err, ErrProjectRootMismatch) || errors.Is(err, ErrRunSelectorUnavailable) || errors.Is(err, ErrAttemptSelectorUnavailable)) {
+			return rejectedSelectorHumanResult(selectorFailure(app.CommandExport, requestID, err))
 		}
 		class := reducedFailureClass(err, domain.FailureInternal)
 		return errorResult(requestedExit(class), humanFailureMessage(class))
@@ -1260,6 +1272,99 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 		return application.renderFailure(ctx, invocation, execution)
 	}
 	return application.renderSuccess(ctx, invocation, execution)
+}
+
+func childWorkflowIntent(argv []string) (app.CommandName, OutputFormat, bool) {
+	if len(argv) == 0 {
+		return "", OutputFormatHuman, false
+	}
+	command := app.CommandName(argv[0])
+	switch command {
+	case app.CommandFollowup, app.CommandDelta, app.CommandRerun:
+	default:
+		return "", OutputFormatHuman, false
+	}
+	outputFormat := OutputFormatHuman
+	for index := 1; index+1 < len(argv); index++ {
+		if argv[index] == "--output" && argv[index+1] == string(OutputFormatJSON) {
+			outputFormat = OutputFormatJSON
+		}
+	}
+	return command, outputFormat, true
+}
+
+func selectorFailure(command app.CommandName, requestID string, err error) *executionFailure {
+	failure := executionFailureFor(command, err, domain.FailureInternal)
+	failure.stage = "cli." + string(command) + ".resolve"
+	if failure.class == domain.FailureInternal {
+		failure.code = "selector_resolution_failed"
+		failure.message = "Selector resolution failed before command execution."
+		failure.humanMessage = "mulgae: selector resolution failed"
+		failure.exit = app.ExitCodeInternal
+		failure.recommendedNextCommand = "report this failure with request ID " + requestID
+	}
+	switch {
+	case errors.Is(err, ErrUsage):
+		failure.class = domain.FailureConfiguration
+		failure.code = "invalid_command_usage"
+		failure.message = "The " + string(command) + " command usage is invalid."
+		failure.humanMessage = "mulgae: invalid " + string(command) + " command usage"
+		failure.stage = "cli." + string(command) + ".parse"
+		failure.exit = app.ExitCodeUsage
+		failure.recommendedNextCommand = "mulgae help workflows"
+	case errors.Is(err, ErrProjectRootMismatch):
+		failure.class = domain.FailureConfiguration
+		failure.code = "project_root_mismatch"
+		failure.message = "The Mulgae artifact root is unavailable in the current directory."
+		failure.humanMessage = "mulgae: Mulgae artifacts are unavailable in the current directory"
+		failure.stage = "cli.project.resolve"
+		failure.exit = app.ExitCodeUsage
+		failure.recommendedNextCommand = "run from an initialized Git worktree root; initialize the intended root only with explicit authorization"
+	case errors.Is(err, ErrRunSelectorUnavailable):
+		failure.class = domain.FailureArtifact
+		failure.code = "run_selector_unavailable"
+		failure.message = "The run selector did not resolve to a committed run."
+		failure.humanMessage = "mulgae: selected run is unavailable"
+		failure.exit = app.ExitCodeArtifact
+		failure.recommendedNextCommand = "verify the selected run from the Git worktree root"
+	case errors.Is(err, ErrAttemptSelectorUnavailable):
+		failure.class = domain.FailureArtifact
+		failure.code = "attempt_selector_unavailable"
+		failure.message = "The role and provider-instance selector did not resolve to exactly one committed attempt."
+		failure.humanMessage = "mulgae: selected attempt is unavailable"
+		failure.exit = app.ExitCodeArtifact
+		failure.recommendedNextCommand = "use mulgae status to verify the run and provider instance"
+	}
+	return failure
+}
+
+func rejectedSelectorHumanResult(failure *executionFailure) Result {
+	human := appendHumanFailureDetails([]byte(failure.humanMessage), *failure)
+	return errorResult(projectedFailureExit(app.CommandExport, failure.exit), string(human))
+}
+
+func (application *Application) renderRejectedChildWorkflow(ctx context.Context, requestID string, command app.CommandName, state string, outputFormat OutputFormat, failure *executionFailure) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	requestJSON, err := json.Marshal(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		RequestState string       `json:"request_state"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(command), state, outputFormat})
+	if err != nil {
+		return errorResult(app.ExitCodeInternal, "mulgae: command result could not be rendered")
+	}
+	invocation := Invocation{
+		command:        command,
+		availability:   AvailabilityFoundation,
+		requestID:      requestID,
+		outputFormat:   outputFormat,
+		requestJSON:    requestJSON,
+		hasRequestJSON: true,
+	}
+	return application.renderFailure(envelopeContext(ctx), invocation, execution{failure: failure})
 }
 
 func (application *Application) renderRejectedInit(ctx context.Context, requestID string) Result {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -84,6 +85,9 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 		if err != nil {
 			return "", fmt.Errorf("resolve run: invalid run ID: %w", err)
 		}
+		if err := resolver.requireArtifactRoot(); err != nil {
+			return "", err
+		}
 		run, err := resolver.queries.ResolveRun(ctx, resolver.artifactRoot, runID)
 		if err != nil {
 			return "", fmt.Errorf("resolve run: %w", err)
@@ -96,6 +100,9 @@ func (resolver *G008RequestResolver) ResolveRun(ctx context.Context, selector st
 
 	candidates, enumerationDiagnostics, err := resolver.enumerator.Enumerate(ctx, resolver.artifactRoot)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: Mulgae artifact root is unavailable", ErrProjectRootMismatch)
+		}
 		return "", fmt.Errorf("resolve latest run: enumerate candidates: %w", err)
 	}
 	diagnostics := make([]string, 0, len(enumerationDiagnostics)+len(candidates))
@@ -197,6 +204,9 @@ func (resolver *G008RequestResolver) ResolveAttempt(ctx context.Context, runSele
 	role := domain.Role(roleSelector)
 	if !role.Valid() || strings.TrimSpace(provider) == "" {
 		return "", fmt.Errorf("resolve attempt: invalid role/provider selector")
+	}
+	if err := resolver.requireArtifactRoot(); err != nil {
+		return "", err
 	}
 	run, err := resolver.queries.ResolveRun(ctx, resolver.artifactRoot, runID)
 	if err != nil {
@@ -305,6 +315,16 @@ func (resolver *G008RequestResolver) preflight(ctx context.Context) error {
 		return fmt.Errorf("G008 request resolver: nil context")
 	}
 	return ctx.Err()
+}
+
+func (resolver *G008RequestResolver) requireArtifactRoot() error {
+	if _, err := os.Lstat(resolver.artifactRoot.String()); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: Mulgae artifact root is unavailable", ErrProjectRootMismatch)
+		}
+		return fmt.Errorf("resolve Mulgae artifact root: %w", err)
+	}
+	return nil
 }
 
 func (resolver *G008RequestResolver) setDiagnostics(diagnostics []string) {

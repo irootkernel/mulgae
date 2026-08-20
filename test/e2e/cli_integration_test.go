@@ -83,7 +83,57 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 				if !bytes.Equal(got.stdout, want) {
 					t.Fatalf("help %q bytes differ from authoritative asset\n got: %q\nwant: %q", topic, got.stdout, want)
 				}
+				if topic == "workflows" {
+					for _, required := range []string{
+						"mulgae delta --since-run latest --dirty --roles logic,testing",
+						"mulgae rerun --run latest --attempt a_019f596a-cf80-7c67-b265-f37053d51ccf",
+						"mulgae rerun --run latest --role logic --provider zcode-logic",
+						"`delta` requires an explicit `--roles`",
+						"`--provider` is the exact persisted\nprovider instance, not a provider family name",
+					} {
+						if !bytes.Contains(got.stdout, []byte(required)) {
+							t.Errorf("workflow help is missing %q", required)
+						}
+					}
+				}
 			})
+		}
+	})
+
+	t.Run("child workflow rejects nonproject cwd without scaffolding", func(t *testing.T) {
+		workingDirectory := t.TempDir()
+		got := runMulgaeBinary(t, binary, workingDirectory,
+			"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json")
+		if got.exitCode != 2 || len(got.stderr) != 0 {
+			t.Fatalf("nonproject delta = exit %d stdout %q stderr %q", got.exitCode, got.stdout, got.stderr)
+		}
+		var envelope commandEnvelope
+		if err := json.Unmarshal(got.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.SchemaVersion != "mulgae-command-result.v5" || envelope.Command != "delta" ||
+			envelope.Request.RequestState != "unresolved" || envelope.Request.OutputFormat != "json" ||
+			envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" || len(envelope.Reasons) != 1 ||
+			envelope.Reasons[0].Code != "project_root_mismatch" ||
+			envelope.Reasons[0].Message != "The Mulgae artifact root is unavailable in the current directory." {
+			t.Fatalf("nonproject delta envelope = %#v", envelope)
+		}
+		explicit := runMulgaeBinary(t, binary, workingDirectory,
+			"rerun", "--run", "r_019f596a-cf80-7c67-b265-f37053d51ccf", "--role", "logic", "--provider", "zcode-logic", "--output", "json")
+		if explicit.exitCode != 2 || len(explicit.stderr) != 0 {
+			t.Fatalf("nonproject explicit rerun = exit %d stdout %q stderr %q", explicit.exitCode, explicit.stdout, explicit.stderr)
+		}
+		var explicitEnvelope commandEnvelope
+		if err := json.Unmarshal(explicit.stdout, &explicitEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		if explicitEnvelope.Command != "rerun" || explicitEnvelope.Request.RequestState != "unresolved" ||
+			explicitEnvelope.Exit.Code != 2 || len(explicitEnvelope.Reasons) != 1 ||
+			explicitEnvelope.Reasons[0].Code != "project_root_mismatch" {
+			t.Fatalf("nonproject explicit rerun envelope = %#v", explicitEnvelope)
+		}
+		if _, err := os.Lstat(filepath.Join(workingDirectory, ".mulgae")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("nonproject delta created .mulgae: %v", err)
 		}
 	})
 
@@ -2096,8 +2146,13 @@ type commandRoleReportURI struct {
 }
 
 type commandEnvelope struct {
-	Command string `json:"command"`
-	Exit    struct {
+	SchemaVersion string `json:"schema_version"`
+	Command       string `json:"command"`
+	Request       struct {
+		RequestState string `json:"request_state"`
+		OutputFormat string `json:"output_format"`
+	} `json:"request"`
+	Exit struct {
 		Code int    `json:"code"`
 		Kind string `json:"kind"`
 	} `json:"exit"`

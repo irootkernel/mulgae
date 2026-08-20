@@ -380,10 +380,23 @@ a selected attempt.
 
 ## Output and exits
 
-`mulgae version --json` returns exactly `name` and `version`. Workflow commands
-use `--output json` and return a `mulgae-command-result.v4` envelope. Command
-result v2/v3 and review-preflight v2 are intentionally unsupported after this
-contract revision. Process
+`mulgae version --json` returns exactly `name` and `version`. Once parsing has
+produced a contract-valid request, workflow commands use `--output json` and
+return a `mulgae-command-result.v5` envelope. Rejected JSON `init`, `followup`,
+`delta`, and `rerun` requests also return that envelope: `request_state:
+invalid` means syntax was rejected before selector I/O, while `request_state:
+unresolved` means project-root or selector resolution failed before execution.
+Child selector failures preserve cancellation and typed artifact or security
+exits; only an unclassified resolver failure uses exit `10` and
+`selector_resolution_failed`.
+
+Other commands do not have rejected-request variants in v5. If one of them
+fails before a contract-valid request can be frozen, it returns the typed exit
+and human stderr even when `--output json` was requested. For example,
+`export --run latest` with no committed run returns artifact exit `7` without
+fabricating an `export` request envelope. Command result v2/v3/v4 and
+review-preflight v2 are intentionally unsupported after this contract revision.
+Process
 exits:
 
 | Exit | Meaning |

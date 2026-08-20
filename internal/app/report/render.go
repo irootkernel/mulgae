@@ -1035,7 +1035,7 @@ func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bo
 }
 
 // writeProviderIssues reports the roles that produced no review, why each one
-// stopped, and the exact command to run that role again on another provider.
+// stopped, and the exact command to run that role again.
 // Mulgae never substitutes a provider on its own: a role is bound to the one
 // its configuration names, so recovering a failed role is the operator's
 // decision and this section is what they need to make it.
@@ -1052,12 +1052,13 @@ func writeProviderIssues(output *strings.Builder, review query.CommittedReview) 
 
 	writeHeading(output, "Provider issues")
 	writeText(output, "These roles produced no review. Mulgae did not retry them on another "+
-		"provider; rerun a role with the command shown, replacing <family> with a configured "+
-		"provider family. Each role's remediation says whether its provider must be fixed first.")
+		"provider; rerun a role with the exact persisted selector shown. Each role's "+
+		"remediation says whether its provider must be fixed first.")
 	writeBlankLine(output)
 	for _, role := range failed {
 		writeField(output, "Role", string(role.Name()))
-		if provider, ok := role.ProviderInstance(); ok {
+		provider, hasProvider := role.ProviderInstance()
+		if hasProvider {
 			writeField(output, "Provider instance", provider)
 		} else {
 			writeField(output, "Provider instance", "absent")
@@ -1069,8 +1070,12 @@ func writeProviderIssues(output *strings.Builder, review query.CommittedReview) 
 			writeField(output, "Failure reason", "none")
 		}
 		writeField(output, "Remediation", providerIssueRemediation(reason))
-		writeField(output, "Rerun command", "mulgae rerun --run "+review.RunID().String()+
-			" --role "+string(role.Name())+" --provider <family>")
+		if hasProvider {
+			writeField(output, "Rerun command", "mulgae rerun --run "+review.RunID().String()+
+				" --role "+string(role.Name())+" --provider "+provider)
+		} else {
+			writeField(output, "Rerun command", "unavailable; inspect mulgae status for an exact attempt ID or provider instance")
+		}
 		writeBlankLine(output)
 	}
 }
