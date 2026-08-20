@@ -16,13 +16,12 @@ cancellation, and fail-closed publication.
 |---|---|---|---|
 | TASK-001 | Completed | Guide attached clients to keep one foreground `run_review` pending and wait on the same deferred handle for up to five minutes at a time. | Validate `skills/use-mulgae`; read back the guidance; run `git diff --check`. |
 | TASK-002 | Completed | Add a session-local MCP invocation registry that owns review execution independently of an individual wait request. | Prove monotonic lifecycle state, single execution ownership, bounded shutdown drain, and no restart recovery. |
-| TASK-003 | Planned | Add `start_review`, `await_review`, and `cancel_review`, retain foreground compatibility, update the source-distributed skill to prefer the new workflow, and certify supported Codex and Claude clients. | Prove wait cancellation isolation, explicit execution cancellation, repeatable await, exact final identity, unchanged publication authority, legacy fallback, effective tool timeout behavior, and no repeated model turn during one await. |
+| TASK-003 | Completed | Add `start_review`, `await_review`, and `cancel_review`, retain foreground compatibility, update the source-distributed skill to prefer the new workflow, and certify supported Codex and Claude clients. | Prove wait cancellation isolation, explicit execution cancellation, repeatable await, exact final identity, unchanged publication authority, legacy fallback, effective tool timeout behavior, and no repeated model turn during one await. |
 | TASK-004 | Deferred | After MCP Tasks receives a stable protocol release, replace the custom session-local lifecycle when the Go SDK and supported Codex and Claude clients implement the released contract. | Confirm the stable specification and compatible SDK/client versions, preserve TASK-003 behavior and fallback guarantees, and record exact-client protocol evidence for the standard task surface. |
 
 TASK-002 and TASK-003 share the planned design authority in
 [todo/review-await.md](todo/review-await.md). TASK-004 begins only after both
 are complete and MCP Tasks is no longer experimental. Until then it is the
-deferred final goal of this epic. The epic remains active while TASK-003 is
-planned. Completing TASK-003 delivers the supported custom
+deferred final goal of this epic. TASK-003 delivers the supported custom
 start/await workflow; it does not promote TASK-004 or claim the stable MCP
-Tasks contract.
+Tasks contract. The epic remains active through its final hardening review.

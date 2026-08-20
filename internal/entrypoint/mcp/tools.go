@@ -19,6 +19,9 @@ import (
 
 const (
 	toolRunReview    = "run_review"
+	toolStartReview  = "start_review"
+	toolAwaitReview  = "await_review"
+	toolCancelReview = "cancel_review"
 	toolPreflight    = "preflight_review"
 	toolListRuns     = "list_runs"
 	toolGetRun       = "get_run"
@@ -76,11 +79,17 @@ type ListFindingsInput struct {
 	MinimumSeverity string `json:"minimum_severity,omitempty"`
 }
 
-func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (string, error), outputSchema json.RawMessage) {
-	if server == nil || backend == nil || newRequestID == nil || len(outputSchema) == 0 {
+// InvocationInput selects one exact invocation owned by the current MCP
+// server process.
+type InvocationInput struct {
+	InvocationID string `json:"invocation_id"`
+}
+
+func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationRegistry, newRequestID func() (string, error), outputSchema json.RawMessage) {
+	if server == nil || backend == nil || registry == nil || newRequestID == nil || len(outputSchema) == 0 {
 		return
 	}
-	addTool(server, toolRunReview, "Capture and run one foreground Mulgae review for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false,
+	addTool(server, toolRunReview, "Capture and run one foreground Mulgae review for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
 		func(ctx context.Context, requestID string, raw json.RawMessage, startProgress func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
@@ -93,7 +102,55 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			result, err := backend.RunReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
 		}, newRequestID)
-	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(runReviewInputSchema), outputSchema, true,
+	addTool(server, toolStartReview, "Start one session-local Mulgae review without waiting for provider completion.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
+		func(_ context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
+			var input RunReviewInput
+			if err := decodeArguments(raw, &input); err != nil {
+				return "", nil, err
+			}
+			if err := validateRunReviewInput(input); err != nil {
+				return "", nil, err
+			}
+			snapshot, err := registry.Start(requestID, input)
+			return toolOutcomeSuccess, invocationSnapshotData(snapshot), err
+		}, newRequestID)
+	addTool(server, toolAwaitReview, "Wait for one exact session-local review invocation without cancelling its execution when this wait ends.", json.RawMessage(invocationInputSchema), outputSchema, true, true,
+		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
+			input, err := decodeInvocationInput(raw)
+			if err != nil {
+				return "", nil, err
+			}
+			snapshot, err := registry.Await(ctx, input.InvocationID)
+			if err != nil {
+				return "", nil, err
+			}
+			if snapshot.Phase != invocationTerminal {
+				return "", nil, errInvocationStateInvalid
+			}
+			if snapshot.Err != nil {
+				return "", nil, &invocationExecutionError{err: snapshot.Err}
+			}
+			data := snapshot.Result.Data
+			if data == nil {
+				return "", nil, errInvocationStateInvalid
+			}
+			data["invocation_id"] = snapshot.ID
+			return snapshot.Result.Outcome, data, nil
+		}, newRequestID)
+	addTool(server, toolCancelReview, "Request cancellation of one active session-local review invocation; acknowledgement is not terminal completion.", json.RawMessage(invocationInputSchema), outputSchema, false, true,
+		func(_ context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
+			input, err := decodeInvocationInput(raw)
+			if err != nil {
+				return "", nil, err
+			}
+			snapshot, accepted, err := registry.Cancel(input.InvocationID)
+			data := invocationSnapshotData(snapshot)
+			if data != nil {
+				data["cancellation_accepted"] = accepted
+			}
+			return toolOutcomeSuccess, data, err
+		}, newRequestID)
+	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(runReviewInputSchema), outputSchema, true, true,
 		func(ctx context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
@@ -105,7 +162,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			result, err := backend.PreflightReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
 		}, newRequestID)
-	addTool(server, toolListRuns, "List a bounded page of safely admitted Mulgae runs for this server's fixed project root.", json.RawMessage(listRunsInputSchema), outputSchema, true,
+	addTool(server, toolListRuns, "List a bounded page of safely admitted Mulgae runs for this server's fixed project root.", json.RawMessage(listRunsInputSchema), outputSchema, true, true,
 		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			input := ListRunsInput{Limit: 20}
 			if err := decodeArguments(raw, &input); err != nil {
@@ -117,7 +174,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			data, err := backend.ListRuns(ctx, input)
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolGetRun, "Get the safely verified publication or bounded diagnostic status for one Mulgae run.", json.RawMessage(getRunInputSchema), outputSchema, true,
+	addTool(server, toolGetRun, "Get the safely verified publication or bounded diagnostic status for one Mulgae run.", json.RawMessage(getRunInputSchema), outputSchema, true, true,
 		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input GetRunInput
 			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) {
@@ -126,7 +183,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, newRequestID func() (
 			data, err := backend.GetRun(ctx, input)
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolListFindings, "List bounded committed finding summaries without returning report or source bodies.", json.RawMessage(listFindingsInputSchema), outputSchema, true,
+	addTool(server, toolListFindings, "List bounded committed finding summaries without returning report or source bodies.", json.RawMessage(listFindingsInputSchema), outputSchema, true, true,
 		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			input := ListFindingsInput{MinimumSeverity: "low"}
 			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) ||
@@ -144,7 +201,7 @@ func addTool(
 	server *mcpsdk.Server,
 	name, description string,
 	inputSchema, outputSchema json.RawMessage,
-	readOnly bool,
+	readOnly, idempotent bool,
 	call toolCall,
 	newRequestID func() (string, error),
 ) {
@@ -157,7 +214,7 @@ func addTool(
 		OutputSchema: outputSchema,
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: &nonDestructive,
-			IdempotentHint:  readOnly,
+			IdempotentHint:  idempotent,
 			OpenWorldHint:   &closedWorld,
 			ReadOnlyHint:    readOnly,
 		},
@@ -205,8 +262,14 @@ var (
 	errInvalidToolArguments = errors.New("invalid MCP tool arguments")
 	// ErrRunStatusUnavailable identifies a run identity with neither publication
 	// nor a completed diagnostic failure status safe for recovery.
-	ErrRunStatusUnavailable = errors.New("run status unavailable")
+	ErrRunStatusUnavailable   = errors.New("run status unavailable")
+	errInvocationStateInvalid = errors.New("MCP invocation state is invalid")
 )
+
+type invocationExecutionError struct{ err error }
+
+func (failure *invocationExecutionError) Error() string { return failure.err.Error() }
+func (failure *invocationExecutionError) Unwrap() error { return failure.err }
 
 func decodeArguments(raw json.RawMessage, destination any) error {
 	if len(raw) == 0 {
@@ -261,7 +324,38 @@ func validateRunReviewInput(input RunReviewInput) error {
 	return nil
 }
 
+func decodeInvocationInput(raw json.RawMessage) (InvocationInput, error) {
+	var input InvocationInput
+	if err := decodeArguments(raw, &input); err != nil || !matches(requestIDPattern, input.InvocationID) {
+		return InvocationInput{}, errInvalidToolArguments
+	}
+	return input, nil
+}
+
+func invocationSnapshotData(snapshot invocationSnapshot) map[string]any {
+	if snapshot.ID == "" {
+		return nil
+	}
+	return map[string]any{
+		"invocation_id":          snapshot.ID,
+		"state":                  string(snapshot.Phase),
+		"cancellation_requested": snapshot.CancellationRequested,
+	}
+}
+
 func publicToolError(err error, tool string) ToolError {
+	if errors.Is(err, errInvocationNotFound) {
+		return ToolError{Class: "usage", Code: "invocation_not_found", Stage: "query", Message: "The invocation is not available in this MCP server session.", Retryable: false}
+	}
+	if errors.Is(err, errInvocationLimitReached) {
+		return ToolError{Class: "readiness", Code: "invocation_limit_reached", Stage: "admission", Message: "The MCP server session cannot admit another review invocation.", Retryable: false}
+	}
+	if errors.Is(err, errInvocationRegistryClosed) {
+		return ToolError{Class: "internal", Code: "invocation_registry_closed", Stage: "transport", Message: "The MCP server invocation registry is closed.", Retryable: false}
+	}
+	if errors.Is(err, errInvocationAlreadyExists) || errors.Is(err, errInvocationStateInvalid) {
+		return ToolError{Class: "internal", Code: "invocation_state_invalid", Stage: "execution", Message: "The MCP invocation state is invalid.", Retryable: false}
+	}
 	if errors.Is(err, ErrRunStatusUnavailable) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: "run_status_unavailable", Stage: "query", Message: "No published or diagnostic status is available for the requested run.", Retryable: false})
 	}
@@ -269,8 +363,13 @@ func publicToolError(err error, tool string) ToolError {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
 	stage := "query"
-	if tool == toolRunReview {
+	if tool == toolRunReview || tool == toolAwaitReview {
 		stage = "execution"
+	}
+	var terminal *invocationExecutionError
+	terminalFailure := errors.As(err, &terminal)
+	if tool == toolAwaitReview && !terminalFailure && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return ToolError{Class: "cancellation", Code: "await_cancelled", Stage: "query", Message: "The invocation wait ended without cancelling the review.", Retryable: true}
 	}
 	if class, available := reducedToolFailureClass(err); available {
 		switch class {
@@ -291,7 +390,7 @@ func publicToolError(err error, tool string) ToolError {
 }
 
 func finalizePublicToolError(err error, tool string, failure ToolError) ToolError {
-	if tool != toolRunReview {
+	if tool != toolRunReview && tool != toolAwaitReview {
 		return failure
 	}
 	failure.Retryable = false
@@ -346,6 +445,7 @@ const (
 	runCursorPattern = `^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 
 	runReviewInputSchema    = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}}}}`
+	invocationInputSchema   = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listRunsInputSchema     = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	getRunInputSchema       = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listFindingsInputSchema = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"}}}`

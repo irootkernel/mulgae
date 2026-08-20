@@ -90,10 +90,17 @@ for current client compatibility. It writes newline-delimited JSON-RPC to
 stdout, writes bounded diagnostics to stderr, and stops when the client closes
 stdin. Every nonempty input record must end with LF; a partial final record is
 rejected without dispatch. The project root is fixed at startup. It provides
-`preflight_review`, `run_review`, `list_runs`, `get_run`, and `list_findings`.
+`preflight_review`, `run_review`, `start_review`, `await_review`,
+`cancel_review`, `list_runs`, `get_run`, and `list_findings`.
 Preflight is execution-free and returns a bounded plan summary. `run_review`
 completes in the foreground and accepts workspace, stage, dirty, diff, or patch
-targets; stdin is reserved for JSON-RPC and cannot carry review content. Query
+targets; stdin is reserved for JSON-RPC and cannot carry review content.
+`start_review` accepts the same arguments and returns one process-local
+invocation ID before completion. `await_review` waits eventfully on that exact
+identity and may be repeated without starting another run. Cancelling an await
+ends only that observer. `cancel_review` is the sole explicit cancellation tool;
+its acknowledgement is not terminal, so await the final result. The registry
+retains at most 64 identities and has no recovery after server exit. Query
 tools return bounded verified projections, not report or source bodies. Their
 `mulgae://` report and evidence resource links expose integrity-checked content
 in chunks of at most 16 KiB, with SHA-256, offset, total length, completion, and
@@ -105,10 +112,12 @@ run with `get_run`. A diagnostic-only result is limited to a completed `failed`
 or `cancelled` status and has no publication authority or findings;
 `run_status_unavailable` means allocation succeeded but no durable published or
 terminal diagnostic status survived. Never retry `run_review`, because a second
-call creates a new run.
+call creates a new run. Never retry an uncertain `start_review`; re-await the
+preserved invocation only while the same MCP session is alive.
 
 Clients that attach a progress token to `run_review` receive an admission
 notification, monotonic periodic heartbeats, and a terminal notification before
 the result. Cancelling the MCP request cancels that foreground review and its
 provider processes. Progress is optional and best-effort; it never changes the
-review outcome or publication authority.
+review outcome or publication authority. Lifecycle awaits emit no heartbeat
+loop, and an `await_cancelled` result is retryable without cancelling execution.

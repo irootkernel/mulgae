@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,7 +230,7 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 			t.Fatalf("tool output schema = %#v", tool["outputSchema"])
 		}
 	}
-	if strings.Join(names, ",") != "get_run,list_findings,list_runs,preflight_review,run_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -244,6 +245,80 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 	}
 	if backend.getRunCalls != 1 {
 		t.Fatalf("get_run calls = %d, want 1", backend.getRunCalls)
+	}
+}
+
+func TestServeLifecycleToolsReuseOneTerminalReview(t *testing.T) {
+	backend := &toolBackendFake{}
+	config := toolTestConfigWithIDs(t, backend,
+		"i_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf82-7c67-b265-f37053d51ccf",
+	)
+	discover := latestRequest(1, "server/discover", `{}`)
+	start := latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"},"roles":["logic"]}}`)
+	await := latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	repeat := latestRequest(4, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	responses := serveRequestsWithConfig(t, config, discover, start, await, repeat)
+
+	started := decodeResponse(t, responses[1])["result"].(map[string]any)["structuredContent"].(map[string]any)
+	startData := started["data"].(map[string]any)
+	if started["tool"] != toolStartReview || startData["invocation_id"] != "i_019f596a-cf80-7c67-b265-f37053d51ccf" || startData["state"] != string(invocationRunning) {
+		t.Fatalf("start_review result = %#v", started)
+	}
+	for _, raw := range responses[2:] {
+		terminal := decodeResponse(t, raw)["result"].(map[string]any)["structuredContent"].(map[string]any)
+		data := terminal["data"].(map[string]any)
+		if terminal["tool"] != toolAwaitReview || terminal["outcome"] != toolOutcomeSuccess ||
+			data["invocation_id"] != "i_019f596a-cf80-7c67-b265-f37053d51ccf" ||
+			data["run_id"] != "r_019f596a-cf80-7c67-b265-f37053d51ccf" {
+			t.Fatalf("await_review result = %#v", terminal)
+		}
+	}
+	if backend.runReviewCalls != 1 {
+		t.Fatalf("lifecycle review executions = %d, want 1", backend.runReviewCalls)
+	}
+}
+
+func TestServeCancelReviewAcknowledgesBeforeTerminalAwait(t *testing.T) {
+	backend := &toolBackendFake{
+		runReviewStarted: make(chan struct{}), runReviewCancelled: make(chan error, 1),
+	}
+	config := toolTestConfigWithIDs(t, backend,
+		"i_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf82-7c67-b265-f37053d51ccf",
+	)
+	discover := latestRequest(1, "server/discover", `{}`)
+	start := latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`)
+	cancel := latestRequest(3, "tools/call", `{"name":"cancel_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	await := latestRequest(4, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	responses := serveRequestsWithConfig(t, config, discover, start, cancel, await)
+
+	acknowledgement := decodeResponse(t, responses[2])["result"].(map[string]any)["structuredContent"].(map[string]any)
+	ackData := acknowledgement["data"].(map[string]any)
+	if acknowledgement["tool"] != toolCancelReview || ackData["cancellation_accepted"] != true || ackData["cancellation_requested"] != true {
+		t.Fatalf("cancel_review acknowledgement = %#v", acknowledgement)
+	}
+	terminal := decodeResponse(t, responses[3])["result"].(map[string]any)["structuredContent"].(map[string]any)
+	failure := terminal["error"].(map[string]any)
+	if terminal["tool"] != toolAwaitReview || terminal["outcome"] != toolOutcomeError || failure["class"] != "cancellation" || failure["retryable"] != false {
+		t.Fatalf("cancelled await_review = %#v", terminal)
+	}
+	if backend.runReviewCalls != 1 || !errors.Is(<-backend.runReviewCancelled, context.Canceled) {
+		t.Fatal("explicit cancellation did not reach the single review execution")
+	}
+}
+
+func TestServeAwaitReviewRejectsUnknownInvocation(t *testing.T) {
+	backend := &toolBackendFake{}
+	discover := latestRequest(1, "server/discover", `{}`)
+	await := latestRequest(2, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, await)[1])
+	structured := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	failure := structured["error"].(map[string]any)
+	if failure["code"] != "invocation_not_found" || failure["retryable"] != false || backend.runReviewCalls != 0 {
+		t.Fatalf("unknown await_review = %#v", structured)
 	}
 }
 
@@ -319,6 +394,39 @@ func TestServeRunReviewFailurePreservesAllocatedIdentityWithoutRetry(t *testing.
 	}
 	if strings.Contains(string(response["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)), "private") {
 		t.Fatalf("run_review failure leaked private details: %#v", structured)
+	}
+}
+
+func TestServeAwaitReviewPreservesTerminalFailureIdentity(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeout, err := domain.NewFailure("provider.execute", domain.FailureTimeout, "private", errors.New("private provider output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &toolBackendFake{runReviewErr: reviewrun.NewAllocatedRunIdentityError(sessionID, runID, timeout)}
+	config := toolTestConfigWithIDs(t, backend,
+		"i_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
+	)
+	discover := latestRequest(1, "server/discover", `{}`)
+	start := latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`)
+	await := latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, config, discover, start, await)[2])
+	structured := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	failure := structured["error"].(map[string]any)
+	if failure["class"] != "readiness" || failure["session_id"] != sessionID.String() ||
+		failure["run_id"] != runID.String() || failure["retryable"] != false {
+		t.Fatalf("terminal await failure = %#v", structured)
+	}
+	if strings.Contains(string(response["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)), "private") {
+		t.Fatalf("terminal await leaked private details: %#v", structured)
 	}
 }
 
@@ -608,6 +716,11 @@ func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
 	if cancelled.Class != "cancellation" || cancelled.Stage != "execution" {
 		t.Fatalf("cancelled failure = %#v", cancelled)
 	}
+	awaitCancelled := publicToolError(context.DeadlineExceeded, toolAwaitReview)
+	if awaitCancelled.Class != "cancellation" || awaitCancelled.Code != "await_cancelled" ||
+		awaitCancelled.Stage != "query" || !awaitCancelled.Retryable {
+		t.Fatalf("cancelled await = %#v", awaitCancelled)
+	}
 	timeout, err := domain.NewFailure("provider.execute", domain.FailureTimeout, "private", errors.New("private"))
 	if err != nil {
 		t.Fatal(err)
@@ -698,6 +811,10 @@ func receiveMCPMessage(t *testing.T, output <-chan []byte) []byte {
 }
 
 func toolTestConfig(t *testing.T, backend Backend) Config {
+	return toolTestConfigWithIDs(t, backend, "i_019f596a-cf80-7c67-b265-f37053d51ccf")
+}
+
+func toolTestConfigWithIDs(t *testing.T, backend Backend, ids ...string) Config {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
@@ -709,7 +826,21 @@ func toolTestConfig(t *testing.T, backend Backend) Config {
 	}
 	config := testConfig()
 	config.Backend = backend
-	config.NewRequestID = func() (string, error) { return "i_019f596a-cf80-7c67-b265-f37053d51ccf", nil }
+	var mu sync.Mutex
+	next := 0
+	config.NewRequestID = func() (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(ids) == 1 {
+			return ids[0], nil
+		}
+		if next >= len(ids) {
+			return "", errors.New("test request IDs exhausted")
+		}
+		id := ids[next]
+		next++
+		return id, nil
+	}
 	config.ToolResultSchema = schema
 	return config
 }

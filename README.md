@@ -315,13 +315,20 @@ The server speaks newline-delimited JSON-RPC on stdout. It prefers MCP protocol
 `2026-07-28` and accepts `2025-11-25` and `2025-06-18` for current stdio client
 compatibility; older versions fail with a structured unsupported-version error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
-and exits when its client closes stdin. It exposes five bounded tools:
+and exits when its client closes stdin. It exposes eight bounded tools:
 
 - `preflight_review` captures and summarizes the execution-free target,
   transmission plan, and budget without invoking providers or publishing a run.
 - `run_review` captures and completes one foreground review for `workspace`,
   `stage`, `dirty`, `diff`, or `patch`; MCP stdin is transport-only and cannot
   be a review target.
+- `start_review` accepts the same review arguments, admits one process-local
+  invocation, and returns its `i_...` identity before provider completion.
+- `await_review` waits on that exact invocation without polling or transferring
+  cancellation from the wait request to the review execution.
+- `cancel_review` records the first explicit cancellation request for an active
+  invocation; its acknowledgement is not terminal, so the client must still
+  call `await_review`.
 - `list_runs` returns a newest-first page of safely admitted runs, with a limit
   from 1 through 100 and an opaque continuation cursor.
 - `get_run` returns verified publication state and public artifact identities,
@@ -339,20 +346,29 @@ are UTF-8 Markdown; evidence chunks preserve exact bytes.
 Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
 `request_changes` is a completed review outcome, while failures use bounded,
 typed, redacted errors. Error results carry nullable `session_id` and `run_id`
-fields; when a failed `run_review` allocated a run, both identify the exact run
-to inspect with `get_run`. Diagnostic-only results set
+fields; when a failed `run_review` or terminal `await_review` allocated a run,
+both identify the exact run to inspect with `get_run`. Diagnostic-only results set
 `publication_authority: false`, expose no artifact or report URI, and cannot be
 used with `list_findings`. If diagnostic persistence also failed, `get_run`
 returns `run_status_unavailable`; the returned identity remains valid but has
 no durable status to inspect. A failed `run_review` is never marked retryable
-because another call creates a new run. Because `run_review` holds the request
-open until the review reaches a terminal result, clients do not need to poll run
-state merely to learn that the requested review completed. When a client
-supplies an MCP progress token, `run_review` sends an admitted notification,
+because another call creates a new run. `start_review` is likewise not safe to
+repeat after an uncertain response. Its invocation is retained only by that MCP
+server process, with at most 64 identities per session and no restart recovery.
+`await_review` is event-driven and may be repeated for the same identity; an
+`await_cancelled` error ends only that observer and is retryable while the same
+MCP session remains alive. A successful terminal result echoes the exact
+`invocation_id` beside the durable run identity. Unknown identities fail closed
+without starting a review. Server shutdown closes admission, cancels active
+invocations, and waits within a one-minute drain bound.
+
+The foreground `run_review` remains compatible and holds its request open until
+the review reaches a terminal result. When a client supplies an MCP progress
+token, `run_review` sends an admitted notification,
 monotonic periodic heartbeats, and a terminal notification before its result.
 Cancelling the MCP request cancels the same foreground review context and its
-provider processes; no separate Mulgae cancellation tool or polling loop is
-required.
+provider processes. Lifecycle `await_review` emits no heartbeat loop, and
+cancelling its request does not cancel the server-owned review.
 
 ### Configure Codex
 
@@ -431,8 +447,12 @@ Copy this minimal project-wide template into the reviewed project's
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
   `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
   `--output json`.
-- Prefer attached Mulgae MCP tools when available: call `preflight_review`, then
-  call `run_review` once and wait for its foreground result without polling.
+- Prefer attached Mulgae MCP tools when available: call `preflight_review`, then,
+  only when `start_review`, `await_review`, and `cancel_review` are all present,
+  call `start_review` once and preserve its exact invocation ID. Call
+  `await_review` on that identity and keep the same pending tool handle suspended
+  for up to five minutes at a time. If any lifecycle tool is absent, atomically
+  fall back to one foreground `run_review`; never mix the two modes.
   Preserve the exact run ID, inspect it with `get_run`, call `list_findings`
   only for publication-backed status, and follow resource `nextURI` values
   exactly. Fall back to the CLI when MCP is unavailable; MCP cannot accept the
@@ -443,7 +463,8 @@ Copy this minimal project-wide template into the reviewed project's
   `mulgae status --run r_... --output json`.
 - Treat Mulgae as advisory. Verify findings against the captured target before
   changing code, and record only claims supported by current evidence.
-- Require explicit user intent before cleanup, cancellation, configuration or
+- Call `cancel_review` only on explicit user intent, then await the terminal
+  result; its acknowledgement is not completion. Require explicit user intent before cleanup, cancellation, configuration or
   goal changes, or another lifecycle-changing action. Re-read status after
   every mutation and never blindly retry an uncertain mutation.
 - Commit only `.mulgae/config.yaml`. Never commit or share

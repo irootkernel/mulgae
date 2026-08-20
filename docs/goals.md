@@ -41,7 +41,8 @@ result, evidence status, lineage, and a durable publication record.
    remain project-local beneath `.mulgae/`; only the policy is Git-shareable.
 8. **Inspectable automation.** Human output is convenient; `--output json`
    provides stable versioned envelopes and typed exits, while an attached
-   stdio MCP process provides request/response automation without CLI polling.
+   stdio MCP process provides request/response automation and a bounded,
+   session-local event-driven review wait without CLI polling or durable jobs.
 
 ## Non-goals
 

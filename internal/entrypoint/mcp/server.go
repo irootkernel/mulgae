@@ -70,7 +70,7 @@ func Serve(ctx context.Context, reader io.Reader, writer io.Writer, config Confi
 		return fmt.Errorf("serve MCP: invocation registry: %w", err)
 	}
 	server.AddReceivingMiddleware(bindServeContext(ctx), admitSupportedProtocol)
-	registerTools(server, config.Backend, config.NewRequestID, config.ToolResultSchema)
+	registerTools(server, config.Backend, registry, config.NewRequestID, config.ToolResultSchema)
 	registerResources(server, config.Backend)
 
 	transport := compatibleTransport{Transport: &mcpsdk.IOTransport{

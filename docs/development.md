@@ -75,6 +75,17 @@ does not invoke a model or provider, mutate user client configuration, or prove
 a live review; deterministic MCP tests cover tool discovery, calls, resources,
 progress, and cancellation.
 
+Release evidence for the lifecycle workflow additionally requires separately
+authorized, exact-client model runs against an isolated or read-only project
+target. Each supported client must discover all three lifecycle tools, call one
+`start_review`, keep one `await_review` pending through a meaningfully long live
+review, and inspect the exact terminal run. The client event stream must show no
+assistant/model message or second tool call between the await start and its
+terminal result. Host-rendered progress events are permitted observation and do
+not count as model turns. Record client versions, target SHA-256, invocation and
+run identities, elapsed await behavior, publication/coverage state, and finding
+count without committing client transcripts or `.mulgae/` artifacts.
+
 ### Optional Gaori evidence compression
 
 Gaori can wrap long or noisy local test commands so coding agents and developers

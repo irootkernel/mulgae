@@ -15,7 +15,7 @@ must be LF-terminated; an unterminated record at EOF is rejected before parsing
 or dispatch. Client parameters remain untrusted and do not acquire provider,
 publication, configuration, approval, or path authority merely by crossing the
 MCP transport. Tool arguments are strictly decoded and bounded. `run_review`
-admits no stdin target, and query
+and `start_review` admit no stdin target, and query
 tools expose only verified, project-confined status, artifact identities, and
 bounded finding summaries. Native paths, provider transcripts, report bodies,
 and captured source are not part of these tool results. Report and evidence
@@ -27,8 +27,8 @@ relocated content fails closed without reflecting the requested URI or native
 path.
 
 Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
-`run_review` includes both session and run IDs when allocation occurred and is
-never marked retryable; provider details, runtime diagnostics, and native paths
+`run_review` or terminal `await_review` includes both session and run IDs when
+allocation occurred and is never marked retryable; provider details, runtime diagnostics, and native paths
 remain private. `get_run` may expose the separate bounded diagnostic status
 projection only after a typed publication-not-found result. That projection has
 no publication authority, artifact URI, report URI, findings, raw event stream,
@@ -44,11 +44,19 @@ lifecycle messages, an admitted bounded client token, and a monotonic counter;
 they do not expose paths, source, provider output, run identity, or artifact
 content.
 Notification delivery failure cannot weaken review or publication policy.
-Standard MCP request cancellation reaches the existing fail-closed execution
-context rather than a transport-owned background job. The entrypoint also joins
-the persistent SDK handler context to the process context so SIGINT or SIGTERM
-cancels the same provider and publication work instead of merely closing the
-transport around an active review.
+The lifecycle registry is bounded to 64 identities and exists only inside one
+MCP process. A start request cannot supply or reuse an identity, unknown
+identities fail closed, and terminal results are cloned before returning to an
+observer. Cancelling or timing out `await_review` cannot reach provider work.
+Only an explicit `cancel_review` request marks client cancellation intent; its
+acknowledgement grants no terminal or publication authority. Process shutdown
+closes admission before cancelling and draining active executions, and a later
+server cannot recover or claim those invocation identities.
+
+Standard MCP request cancellation still reaches the existing foreground
+`run_review` context. The entrypoint also joins foreground handlers and
+registry-owned executions to the process context so SIGINT or SIGTERM cancels
+provider and publication work instead of merely closing transport around it.
 
 ## Provider isolation
 

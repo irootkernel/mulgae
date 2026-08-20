@@ -39,31 +39,41 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
 2. Call `preflight_review` with the selected `target` and the same optional
    `objective` and `roles` intended for execution. Inspect capture counts,
    routing, warnings, and the admitted run deadline before provider work.
-3. If the plan matches the authorized scope, call `run_review` once with the
-   same arguments. Wait for its foreground result. Prefer a host-native wait
+3. Discover the attached tool surface before execution. Only when
+   `start_review`, `await_review`, and `cancel_review` are all present, call
+   `start_review` exactly once with the preflight arguments and preserve its
+   exact `i_...` invocation identity. Never retry a lost or uncertain start.
+   Call `await_review` for that identity. Prefer a host-native wait
    that keeps the same pending call suspended until completion. If the host
    instead returns a deferred execution handle or cell, wait on that same
    handle for up to five minutes at a time, or the longest shorter duration the
    host supports, and return early when it completes. Do not resume model
    reasoning merely to report liveness or perform a shorter empty wait. Do not
-   poll `list_runs` or `get_run` while the review is active; progress
-   notifications are observation only and should carry liveness outside the
-   model conversation when the host supports it. This client-side wait policy
-   does not extend the admitted run deadline or MCP tool timeout.
-4. Read the common structured envelope even when the outcome is
+   poll `list_runs` or `get_run` while the review is active. If an await is
+   cancelled or reaches the host timeout, confirm the same MCP session is alive
+   and re-await the preserved invocation; never replace it with another start.
+   This client-side wait policy does not extend the admitted run deadline or MCP
+   tool timeout.
+4. If any lifecycle tool is unavailable, atomically fall back to one foreground
+   `run_review` with the preflight arguments. Do not mix a lifecycle invocation
+   with the foreground path. Wait on the same foreground handle using the same
+   long-wait policy. A lost or uncertain foreground call is not safe to retry.
+5. Read the common structured envelope even when the outcome is
    `request_changes` or `error`. Preserve the exact returned run ID, including
    the identity attached to a failed `run_review`. Do not retry a lost or
    uncertain `run_review`: a second call creates another run.
-5. After the foreground call returns, call `get_run` with the exact run ID. Call
+6. After the terminal result returns, call `get_run` with the exact run ID. Call
    `list_findings` only when the result has publication authority; a
    diagnostic-only result has no findings. Treat `run_status_unavailable` as an
    allocated identity without durable status and stop rather than retrying the
    review. Use `minimum_severity: low` for the broadest permitted finding query.
    Follow a resource's canonical `nextURI` exactly until `complete` is true when
    the report or verified evidence is needed; do not invent offsets or paths.
-6. Cancel the MCP request only on explicit user intent. Cancellation reaches
-   the same foreground review and provider processes; it does not roll back an
-   already committed publication.
+7. Call `cancel_review` only on explicit user intent and only for a preserved
+   lifecycle invocation. Its first acknowledgement requests cancellation but is
+   not completion; call `await_review` for the terminal result. On the foreground
+   fallback, cancel the MCP request itself. Neither form rolls back an already
+   committed publication.
 
 ## Fall back to the CLI
 

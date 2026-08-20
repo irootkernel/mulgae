@@ -1,16 +1,15 @@
 # Review await design
 
-Status: In Progress
+Status: Completed
 
 Roadmap: [EPIC-001](../roadmap.md#epic-001-token-efficient-review-waiting)
 
 ## Authority
 
-This document is the design authority for the completed TASK-002 registry
-foundation and planned TASK-003 tool surface. Current runtime behavior remains
-owned by source, tests, embedded contracts, and the contributor documents.
-Until TASK-003 is implemented and verified, `run_review` remains one foreground
-request whose cancellation reaches the review execution.
+This document records the design accepted by TASK-002 and TASK-003. Current
+runtime behavior is owned by source, tests, embedded contracts, and the
+contributor documents. `run_review` remains one foreground compatibility request
+whose cancellation reaches that review execution.
 
 When the planned work is delivered, move its accepted behavior into
 `docs/goals.md`, `docs/architecture.md`, `docs/contracts.md`,

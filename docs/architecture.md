@@ -128,7 +128,8 @@ exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
-`list_runs`, `get_run`, and `list_findings`, plus bounded verified report and
+`start_review`, `await_review`, `cancel_review`, `list_runs`, `get_run`, and
+`list_findings`, plus bounded verified report and
 finding-evidence resource templates. The MCP package owns strict tool and URI
 grammar, chunk limits, and the common result envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
@@ -136,23 +137,31 @@ services used by the CLI. `get_run` first resolves publication and falls back to
 the bounded runtime-diagnostic query only for the typed publication-not-found
 case. Publication corruption, security failures, and other query failures never
 enter the fallback. It does not duplicate capture, execution, query, or
-publication policy. Review calls run in the foreground so request completion
-replaces completion polling, while preflight, list, lookup, and resource reads
+publication policy. `run_review` remains a request-owned foreground compatibility
+path. The process-local invocation registry separately gives each `start_review`
+identity one server-owned execution and an event-driven completion channel.
+`await_review` observes that channel under its request context without owning the
+execution context; repeated waits clone the same cached terminal result.
+`cancel_review` is the only client tool that cancels a registry-owned execution.
+The registry retains at most 64 identities, admits no new work after shutdown,
+cancels and drains active reviews within one minute, and is discarded without
+recovery when the MCP process exits. Preflight, list, lookup, and resource reads
 remain bounded read-only projections.
 
 When `run_review` carries an MCP progress token, the entrypoint emits a fixed
 admission message, monotonically increasing periodic heartbeats with an unknown
 total, and a final completion or stopped message before returning the tool
 result. Notifications are best-effort observations and never change review
-state or failure precedence. The SDK maps `notifications/cancelled` for the
-request directly onto the handler context; that same context reaches capture,
-provider subprocesses, and terminal publication. Mulgae does not maintain a
-second cancellation registry or detach review work from the requesting client.
-The persistent SDK transport deliberately separates its connection context from
-active handler contexts, so the entrypoint additionally joins every request to
-the process-scoped `Serve` context. Client `notifications/cancelled` and process
-SIGINT or SIGTERM therefore remain distinct cancellation sources that converge
-on the same foreground review context.
+state or failure precedence. The SDK maps `notifications/cancelled` for a
+foreground `run_review` directly onto the handler context, which reaches
+capture, provider subprocesses, and terminal publication. Cancellation or
+timeout of `await_review` releases only that observer; explicit `cancel_review`
+reaches the server-owned execution and its provider processes exactly once. The
+persistent SDK transport separates its connection context from active handler
+contexts, so the entrypoint joins foreground handlers and registry executions
+to the process-scoped `Serve` context. SIGINT, SIGTERM, or transport shutdown
+therefore cancels and drains provider and publication work instead of leaving a
+late child execution.
 
 Preflight omits the unbounded per-file inventory from its MCP result and returns
 only target identity, file-set counts and byte totals, generated paths,

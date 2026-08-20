@@ -134,8 +134,21 @@ or report URI, and `recovery_action: rerun_review`. If neither status exists it
 returns the non-retryable artifact error `run_status_unavailable`; allocation
 identity or a nonterminal diagnostic snapshot alone does not claim durable
 queryability. `run_review` failures are not retryable because another call
-creates a distinct run. The initial tool
-grammar comprises `preflight_review`, `run_review`, `list_runs`, `get_run`, and
+creates a distinct run. `start_review` is also non-idempotent and returns the
+Mulgae request identity as its process-local invocation identity. A successful
+start reports `state: running` and `cancellation_requested: false`; it does not
+claim durable run allocation. `await_review` accepts exactly that `i_...`
+identity, waits eventfully, and returns the same bounded terminal outcome and
+run identity as `run_review`, plus the exact `invocation_id` it observed.
+Repeated terminal awaits do not re-execute the
+review. Cancelling or timing out an await returns retryable `await_cancelled`
+without cancelling execution. `cancel_review` is an idempotent mutation: only
+the first active cancellation reports `cancellation_accepted: true`, and every
+acknowledgement remains nonterminal. Unknown invocation identities return
+non-retryable `invocation_not_found`; the 64-identity session bound returns
+non-retryable `invocation_limit_reached`. Invocation state is never recovered
+after server exit. The tool grammar comprises `preflight_review`, `run_review`,
+`start_review`, `await_review`, `cancel_review`, `list_runs`, `get_run`, and
 `list_findings`.
 Review targets are workspace, stage, dirty,
 diff, or patch; stdio is reserved for JSON-RPC and is not a review target. Run
@@ -163,6 +176,11 @@ foreground context; cancellation does not create a detached run, and no
 terminal progress notification is attempted after the context is cancelled.
 Progress delivery is best-effort and cannot alter the tool outcome or canonical
 failure precedence.
+
+Lifecycle tools deliberately emit no periodic heartbeat. `start_review` returns
+after synchronous admission, `await_review` blocks on the registry completion
+channel, and `cancel_review` only acknowledges the cancellation request. The
+terminal await remains authoritative even when cancellation was requested.
 
 The `verified_review_report` template uses
 `mulgae://runs/{run_id}/report{?offset}`. The
