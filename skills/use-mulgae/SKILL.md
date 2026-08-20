@@ -40,8 +40,16 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    `objective` and `roles` intended for execution. Inspect capture counts,
    routing, warnings, and the admitted run deadline before provider work.
 3. If the plan matches the authorized scope, call `run_review` once with the
-   same arguments. Wait for its foreground result. Do not poll `list_runs` or
-   `get_run` while it is active; progress notifications are observation only.
+   same arguments. Wait for its foreground result. Prefer a host-native wait
+   that keeps the same pending call suspended until completion. If the host
+   instead returns a deferred execution handle or cell, wait on that same
+   handle for up to five minutes at a time, or the longest shorter duration the
+   host supports, and return early when it completes. Do not resume model
+   reasoning merely to report liveness or perform a shorter empty wait. Do not
+   poll `list_runs` or `get_run` while the review is active; progress
+   notifications are observation only and should carry liveness outside the
+   model conversation when the host supports it. This client-side wait policy
+   does not extend the admitted run deadline or MCP tool timeout.
 4. Read the common structured envelope even when the outcome is
    `request_changes` or `error`. Preserve the exact returned run ID, including
    the identity attached to a failed `run_review`. Do not retry a lost or

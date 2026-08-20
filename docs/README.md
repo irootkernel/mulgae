@@ -15,6 +15,12 @@ examples live with the embedded runtime assets.
 | [Security](security.md) | Trust boundaries, isolation, evidence, and secret handling |
 | [Development](development.md) | Local setup, test gates, asset changes, and release preparation |
 
+## Planning documents
+
+The [roadmap](roadmap.md) is the status and ordering authority for planned
+work. It links detailed design notes under `todo/`. Those notes describe future
+targets and are not sources of truth for current runtime behavior.
+
 ## Sources of truth
 
 The implementation is authoritative for runtime behavior:
