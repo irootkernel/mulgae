@@ -31,7 +31,7 @@ release.
 
 ### Use Codex from Mulgae
 
-Install Codex CLI 0.147.0 or newer and sign in with the CLI before initializing
+Install Codex CLI 0.149.0 or newer and sign in with the CLI before initializing
 Mulgae. A legacy single-profile configuration uses Codex's native
 `~/.codex/auth.json` login state. Mulgae does not accept an API-key environment
 variable or a project-configured credential.
@@ -413,7 +413,7 @@ startup_timeout_sec = 30
 tool_timeout_sec = 10800
 ```
 
-With Codex CLI 0.147.0, `codex mcp get mulgae --json` reports the server name,
+With Codex CLI 0.149.0, `codex mcp get mulgae --json` reports the server name,
 enabled state, disabled reason, stdio command/arguments/environment forwarding
 and working directory, enabled/disabled tool filters, and startup/tool
 timeouts. It does not report `required`. Absence of that field means “not
@@ -421,7 +421,7 @@ observable through this command,” not `required = false`; `config.toml` remain
 the authority for the configured value. Mulgae does not claim a minimum Codex
 version for observing `required`: the compatibility test accepts either an
 absent field or an observed literal `true`, and rejects an observed false value.
-Mulgae's supported Codex minimum remains 0.147.0.
+Mulgae's supported Codex minimum is 0.149.0.
 
 Codex also supports `codex mcp add mulgae -- /absolute/path/to/mulgae mcp
 --project-root /absolute/path/to/repository`; add the timeout to the resulting

@@ -289,16 +289,11 @@ func TestCurrentProbeDirectExecutionAuthorityMatchesExactRuntimeAndRoles(t *test
 func currentProbeAGYDirectExecutionTestProof() currentProbeDirectExecutionRoleProof {
 	proof := currentProbeDirectExecutionTestProof()
 	proof.Family = FamilyAgy
+	proof.NativeReference = ""
 	proof.AGYExecutionPolicy = "sha256:execution"
-	proof.TransportChannel = string(ports.ProviderPacketChannelPromptFile)
+	proof.TransportChannel = string(ports.ProviderPacketChannelArgvLiteral)
 	proof.TransportPacketSHA256 = "sha256:packet"
 	proof.TransportPacketLength = 1
-	proof.TransportPreStartSHA256 = "sha256:pre"
-	proof.TransportPreStartLength = 1
-	proof.TransportPostEndSHA256 = "sha256:post"
-	proof.TransportPostEndLength = 1
-	proof.TransportReference = proof.NativeReference
-	proof.TransportSnapshotCWD = proof.SnapshotPath
 	proof.LifecycleFrameSHA256 = "sha256:frame"
 	proof.LifecycleFrameLength = 1
 	proof.LifecycleFraming = string(ports.ProcessOutputFramingTerminalJSONObject)
@@ -352,16 +347,17 @@ func TestAGYDirectExecutionProofAcceptsFramelessLifecycle(t *testing.T) {
 		{name: "native home device", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeHomeDevice = 0 }},
 		{name: "native home inode", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeHomeInode = 0 }},
 		{name: "transport channel", mutate: func(p *currentProbeDirectExecutionRoleProof) {
-			p.TransportChannel = string(ports.ProviderPacketChannelArgvLiteral)
+			p.TransportChannel = string(ports.ProviderPacketChannelPromptFile)
 		}},
 		{name: "transport packet sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPacketSHA256 = "" }},
 		{name: "transport packet length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPacketLength = 0 }},
-		{name: "transport pre-start sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartSHA256 = "" }},
-		{name: "transport pre-start length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartLength = 0 }},
-		{name: "transport post-end sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndSHA256 = "" }},
-		{name: "transport post-end length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndLength = 0 }},
+		{name: "transport pre-start sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartSHA256 = "sha256:pre" }},
+		{name: "transport pre-start length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPreStartLength = 1 }},
+		{name: "transport post-end sha", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndSHA256 = "sha256:post" }},
+		{name: "transport post-end length", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportPostEndLength = 1 }},
 		{name: "transport reference", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportReference = "@other.md" }},
 		{name: "transport snapshot cwd", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.TransportSnapshotCWD = "/other/path" }},
+		{name: "native reference", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.NativeReference = "@fixture.md" }},
 		{name: "process group absent", mutate: func(p *currentProbeDirectExecutionRoleProof) { p.LifecycleProcessGroupAbsent = false }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -405,16 +401,11 @@ func TestAGYControlAuthorityExcludesOutputAndRequiresAGYControls(t *testing.T) {
 	expires := time.Unix(1_000, 0).UTC()
 	proof := currentProbeDirectExecutionTestProof()
 	proof.Family = FamilyAgy
+	proof.NativeReference = ""
 	proof.AGYExecutionPolicy = "sha256:execution"
-	proof.TransportChannel = string(ports.ProviderPacketChannelPromptFile)
+	proof.TransportChannel = string(ports.ProviderPacketChannelArgvLiteral)
 	proof.TransportPacketSHA256 = "sha256:packet"
 	proof.TransportPacketLength = 1
-	proof.TransportPreStartSHA256 = "sha256:pre"
-	proof.TransportPreStartLength = 1
-	proof.TransportPostEndSHA256 = "sha256:post"
-	proof.TransportPostEndLength = 1
-	proof.TransportReference = proof.NativeReference
-	proof.TransportSnapshotCWD = proof.SnapshotPath
 	proof.LifecycleFrameSHA256 = "sha256:frame"
 	proof.LifecycleFrameLength = 1
 	proof.LifecycleFraming = string(ports.ProcessOutputFramingTerminalJSONObject)

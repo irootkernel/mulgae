@@ -38,16 +38,17 @@ type agySafetyContract struct {
 // provider retains its normal installed-user authentication behavior, so this
 // policy deliberately does not claim that AGY itself cannot refresh auth state.
 type AGYExecutionPolicy struct {
-	definition      RuntimeDefinition
-	snapshot        ports.WorkspaceSnapshotIdentity
-	argv            []string
-	nativeReference string
-	identity        string
+	definition RuntimeDefinition
+	snapshot   ports.WorkspaceSnapshotIdentity
+	argv       []string
+	packet     ports.ProviderPacket
+	identity   string
 }
 
 type agyExecutionPolicyContract struct {
 	Argv                         []string `json:"argv"`
-	NativeReference              string   `json:"native_reference"`
+	PacketSHA256                 string   `json:"packet_sha256"`
+	PacketLength                 int      `json:"packet_length"`
 	PostOutputFraming            string   `json:"post_output_framing"`
 	PostOutputStabilityNanosec   int64    `json:"post_output_stability_nanoseconds"`
 	PostOutputTerminationNanosec int64    `json:"post_output_termination_nanoseconds"`
@@ -102,10 +103,10 @@ func RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(family CredentialSourceFamily,
 	return RuntimeSafetyPolicyForFamily(family)
 }
 
-// NewAGYExecutionPolicy binds the only native AGY prompt-file execution shape
-// to the exact descriptor-backed snapshot.
-func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, argv []string, nativeReference string) (AGYExecutionPolicy, error) {
-	if safeProbeDefinition(definition) != nil || definition.Family() != FamilyAgy || !snapshot.Valid() || !validAGYNativeReference(nativeReference) ||
+// NewAGYExecutionPolicy binds the native AGY literal-packet execution shape to
+// the exact packet and descriptor-backed snapshot.
+func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, argv []string, packet ports.ProviderPacket) (AGYExecutionPolicy, error) {
+	if safeProbeDefinition(definition) != nil || definition.Family() != FamilyAgy || !snapshot.Valid() || !packet.Valid() ||
 		definition.Timeout() <= 0 {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid authority")
 	}
@@ -113,12 +114,11 @@ func NewAGYExecutionPolicy(definition RuntimeDefinition, snapshot ports.Workspac
 	if !ok || !lifecycle.Valid() || lifecycle.Framing() != ports.ProcessOutputFramingTerminalJSONObject {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: invalid lifecycle")
 	}
-	want, err := canonicalAGYExecutionArgv(definition, snapshot, nativeReference)
-	want = append(want, "--output-format", "json", "--json-schema", agyQualificationJSONSchema)
+	want, err := canonicalAGYExecutionArgv(definition, snapshot, packet)
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: argv drift")
 	}
-	policy := AGYExecutionPolicy{definition: definition, snapshot: snapshot, argv: append([]string(nil), argv...), nativeReference: nativeReference}
+	policy := AGYExecutionPolicy{definition: definition, snapshot: snapshot, argv: append([]string(nil), argv...), packet: packet}
 	bytes, err := agyExecutionPolicyBytes(policy)
 	if err != nil {
 		return AGYExecutionPolicy{}, fmt.Errorf("AGY execution policy: encode")
@@ -132,11 +132,13 @@ func (policy AGYExecutionPolicy) Identity() string { return policy.identity }
 func (policy AGYExecutionPolicy) SnapshotIdentity() ports.WorkspaceSnapshotIdentity {
 	return policy.snapshot
 }
-func (policy AGYExecutionPolicy) Argv() []string          { return append([]string(nil), policy.argv...) }
-func (policy AGYExecutionPolicy) NativeReference() string { return policy.nativeReference }
+func (policy AGYExecutionPolicy) Argv() []string { return append([]string(nil), policy.argv...) }
+func (policy AGYExecutionPolicy) PacketIdentity() ports.ProviderPacketIdentity {
+	return policy.packet.Identity()
+}
 
 func (policy AGYExecutionPolicy) Validate() error {
-	canonical, err := NewAGYExecutionPolicy(policy.definition, policy.snapshot, policy.argv, policy.nativeReference)
+	canonical, err := NewAGYExecutionPolicy(policy.definition, policy.snapshot, policy.argv, policy.packet)
 	if err != nil || policy.identity == "" || canonical.identity != policy.identity {
 		return fmt.Errorf("AGY execution policy: drift")
 	}
@@ -230,7 +232,7 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) AGYControlAuthorityID
 	}
 	sort.Slice(proofs, func(i, j int) bool { return proofs[i].Role < proofs[j].Role })
 	bytes, err := json.Marshal(currentProbeAGYControlAuthorityContract{
-		Domain:          "Mulgae-CURRENT-PROBE-AGY-CONTROL-AUTHORITY/1",
+		Domain:          "Mulgae-CURRENT-PROBE-AGY-CONTROL-AUTHORITY/2",
 		ExpiresUnixNano: receipt.expiresAt.UTC().UnixNano(),
 		Proofs:          proofs,
 	})
@@ -391,9 +393,10 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 		}
 		return proof, nil
 	}
+	proof.NativeReference = ""
 	if executionPolicy == nil || executionPolicy.Validate() != nil || executionPolicy.Identity() == "" ||
 		executionPolicy.SnapshotIdentity() != snapshot || !reflect.DeepEqual(executionPolicy.Argv(), argv) ||
-		executionPolicy.NativeReference() != fixture.Reference() || !packet.Valid() ||
+		executionPolicy.PacketIdentity() != packet.Identity() || !packet.Valid() ||
 		validateProbeTransportAndLifecycle(definition, packet, observation) != nil {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: AGY evidence drift")
 	}
@@ -477,7 +480,7 @@ func effectiveEnvironmentIdentity(environment []ports.EnvironmentVariable) (stri
 // evidence that is either wholly absent or wholly complete. A terminal JSON
 // frame is optional metadata, not the result transport, so a frameless probe
 // binds no frame claim at all; forgery resistance then rests on the fixture
-// nonce evidence, the prompt-file transport receipt, the workspace guard, and
+// nonce evidence, the literal-packet transport receipt, the workspace guard, and
 // the process-group-absent lifecycle receipt, every one of which stays
 // mandatory. Partial frame evidence is never a real observation, so a proof
 // that sets some frame-derived fields and zeroes others is always rejected.
@@ -500,27 +503,27 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			!validCanonicalAbsolute(proof.Executable) || proof.ExecutableSHA256 == "" || !validCanonicalAbsolute(proof.Launcher) || proof.LauncherSHA256 == "" ||
 			!domain.Role(proof.Role).Valid() || proof.NamespaceGeneration == "" || proof.SnapshotManifestSHA256 == "" ||
 			proof.SnapshotName == "" || proof.SnapshotPath == "" || proof.SnapshotPolicyIdentity == "" || proof.ArgvSHA256 == "" ||
-			proof.NativeReference == "" || !strings.HasPrefix(proof.NativeReference, "@") || !validRelativeNativeReference(strings.TrimPrefix(proof.NativeReference, "@")) ||
 			proof.OutputSHA256 == "" || proof.EffectiveEnvironmentSHA256 == "" || proof.Termination == "" ||
 			(index > 0 && proof.Role == canonical[index-1].Role) {
 			return "", fmt.Errorf("current probe direct-execution authority: invalid or replayed role proof")
 		}
-		if proof.Family == FamilyAgy && (proof.AGYExecutionPolicy == "" || proof.NamespaceEnvironmentSHA256 == "" ||
+		if proof.Family == FamilyAgy && (proof.NativeReference != "" || proof.AGYExecutionPolicy == "" || proof.NamespaceEnvironmentSHA256 == "" ||
 			proof.NativeHomePath == "" || proof.NativeHomeDevice == 0 || proof.NativeHomeInode == 0 ||
-			proof.TransportChannel != string(ports.ProviderPacketChannelPromptFile) ||
-			proof.TransportPacketSHA256 == "" || proof.TransportPacketLength <= 0 || proof.TransportPreStartSHA256 == "" ||
-			proof.TransportPreStartLength <= 0 || proof.TransportPostEndSHA256 == "" || proof.TransportPostEndLength <= 0 ||
-			proof.TransportReference != proof.NativeReference ||
-			proof.TransportSnapshotCWD != proof.SnapshotPath || !proof.LifecycleProcessGroupAbsent ||
+			proof.TransportChannel != string(ports.ProviderPacketChannelArgvLiteral) ||
+			proof.TransportPacketSHA256 == "" || proof.TransportPacketLength <= 0 ||
+			proof.TransportPreStartSHA256 != "" || proof.TransportPreStartLength != 0 ||
+			proof.TransportPostEndSHA256 != "" || proof.TransportPostEndLength != 0 ||
+			proof.TransportReference != "" || proof.TransportSnapshotCWD != "" || !proof.LifecycleProcessGroupAbsent ||
 			!wholeAGYProofFrameEvidence(proof)) {
 			return "", fmt.Errorf("current probe direct-execution authority: incomplete AGY proof")
 		}
-		if proof.Family != FamilyAgy && proof.AGYExecutionPolicy != "" {
+		if proof.Family != FamilyAgy && (proof.NativeReference == "" || !strings.HasPrefix(proof.NativeReference, "@") ||
+			!validRelativeNativeReference(strings.TrimPrefix(proof.NativeReference, "@")) || proof.AGYExecutionPolicy != "") {
 			return "", fmt.Errorf("current probe direct-execution authority: non-AGY policy")
 		}
 	}
 	bytes, err := json.Marshal(currentProbeDirectExecutionAuthorityContract{
-		Domain: "Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/1", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
+		Domain: "Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/2", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
 	})
 	if err != nil {
 		return "", fmt.Errorf("current probe direct-execution authority: encode")
@@ -534,26 +537,12 @@ func agyExecutionPolicyBytes(policy AGYExecutionPolicy) ([]byte, error) {
 	rootDevice, rootInode := policy.snapshot.RootIdentity()
 	snapshotDevice, snapshotInode := policy.snapshot.SnapshotFSIdentity()
 	return json.Marshal(agyExecutionPolicyContract{
-		Argv: append([]string(nil), policy.argv...), NativeReference: policy.nativeReference,
+		Argv: append([]string(nil), policy.argv...), PacketSHA256: policy.packet.Identity().CompleteSHA256(), PacketLength: policy.packet.Identity().ByteLength(),
 		PostOutputFraming: string(lifecycle.Framing()), PostOutputStabilityNanosec: lifecycle.StabilityGrace().Nanoseconds(), PostOutputTerminationNanosec: lifecycle.TerminationGrace().Nanoseconds(),
-		ProfileGeneration: policy.definition.ProfileGeneration(), ProfileID: policy.definition.ProfileID(), ProtectionGuarantee: "descriptor_bound_pre_post_drift_detection", ProviderInstance: policy.definition.Instance(), ProviderVersion: policy.definition.Version(),
+		ProfileGeneration: policy.definition.ProfileGeneration(), ProfileID: policy.definition.ProfileID(), ProtectionGuarantee: "descriptor_bound_literal_packet_identity", ProviderInstance: policy.definition.Instance(), ProviderVersion: policy.definition.Version(),
 		SnapshotManifestSHA256: policy.snapshot.ManifestSHA256(), SnapshotName: policy.snapshot.SnapshotName(), SnapshotPath: policy.snapshot.SnapshotPath(), SnapshotPolicyIdentity: policy.snapshot.PolicyIdentity(), SnapshotDevice: snapshotDevice, SnapshotInode: snapshotInode, RootDevice: rootDevice, RootInode: rootInode, TimeoutNanoseconds: boundedProbeTimeout(policy.definition.Timeout()).Nanoseconds(),
 	})
 }
-
-func validAGYNativeReference(reference string) bool {
-	if !validRelativeNativeReference(reference) {
-		return false
-	}
-	for _, segment := range stringsSplitPath(reference) {
-		if segment == ".git" || segment == ".mulgae" {
-			return false
-		}
-	}
-	return true
-}
-
-func stringsSplitPath(value string) []string { return strings.Split(value, "/") }
 
 func runtimeSafetyPolicyWithIdentity(policy RuntimeSafetyPolicy) RuntimeSafetyPolicy {
 	sum := sha256.Sum256(policy.bytes)

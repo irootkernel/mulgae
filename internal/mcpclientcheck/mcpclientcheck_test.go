@@ -99,13 +99,13 @@ func validateCodexVersion(output string) error {
 		}
 		version[index] = value
 	}
-	minimum := [3]int{0, 147, 0}
+	minimum := [3]int{0, 149, 0}
 	for index := range version {
 		if version[index] > minimum[index] {
 			return nil
 		}
 		if version[index] < minimum[index] {
-			return fmt.Errorf("Codex %s is below the supported minimum 0.147.0", fields[1])
+			return fmt.Errorf("Codex %s is below the supported minimum 0.149.0", fields[1])
 		}
 	}
 	return nil
@@ -251,10 +251,10 @@ func TestValidateCodexVersion(t *testing.T) {
 		output  string
 		wantErr bool
 	}{
-		{output: "codex-cli 0.147.0\n"},
-		{output: "codex-cli 0.148.0-alpha.1\n"},
-		{output: "codex-cli 0.146.9\n", wantErr: true},
-		{output: "codex 0.147.0\n", wantErr: true},
+		{output: "codex-cli 0.149.0\n"},
+		{output: "codex-cli 0.150.0-alpha.1\n"},
+		{output: "codex-cli 0.148.9\n", wantErr: true},
+		{output: "codex 0.149.0\n", wantErr: true},
 	} {
 		t.Run(strings.TrimSpace(test.output), func(t *testing.T) {
 			err := validateCodexVersion(test.output)

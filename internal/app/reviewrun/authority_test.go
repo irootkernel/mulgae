@@ -215,7 +215,7 @@ func TestImmutableReviewInputRetainsObjectivePresence(t *testing.T) {
 }
 func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 	t.Helper()
-	definition, _ := authorityProbeDefinition(t, FamilyAGY, "agy-main", "1.1.4", t.TempDir())
+	definition, _ := authorityProbeDefinition(t, FamilyAGY, "agy-main", "1.1.19", t.TempDir())
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +236,7 @@ func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 
 func authorityCandidateForRoles(t *testing.T, family Family, instance string, roles []domain.Role) QualifiedRunCandidate {
 	t.Helper()
-	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.4", t.TempDir())
+	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.19", t.TempDir())
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -258,9 +258,9 @@ func authorityCandidateForRoles(t *testing.T, family Family, instance string, ro
 func authorityQualifier(t *testing.T, now time.Time) CurrentQualifier {
 	t.Helper()
 	return CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
-		input := currentProbeAuthorityInputForInstance(t, request.Identity.Family, request.Identity.Instance, "1.1.4")
+		input := currentProbeAuthorityInputForInstance(t, request.Identity.Family, request.Identity.Instance, "1.1.19")
 		return CurrentQualificationResult{
-			VersionArgv: []string{request.Identity.Executable, "--version"}, Version: "1.1.4", Receipts: input.Receipts,
+			VersionArgv: []string{request.Identity.Executable, "--version"}, Version: "1.1.19", Receipts: input.Receipts,
 			SupportedRoles: []domain.Role{domain.RoleLogic}, RoleReceipts: []CurrentRoleReceipt{{Role: domain.RoleLogic, State: ReceiptPass, Identity: input.Identity}},
 			BaseRole: domain.RoleLogic,
 		}, nil

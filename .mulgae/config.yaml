@@ -2,10 +2,8 @@ version: 3
 project:
   name: "mulgae"
 providers:
-  zcode:
-    timeout: "60m"
-  agy:
-    timeout: "60m"
+  zcode: {}
+  agy: {}
 execution:
   workspace_access: "none"
 roles:

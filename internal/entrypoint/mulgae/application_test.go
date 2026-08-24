@@ -81,7 +81,7 @@ type doctorIdentityInspector struct {
 type doctorVersionObserver struct{}
 
 func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _, _ string) (ports.ProviderVersionObservation, error) {
-	versions := map[string]string{"kimi": "0.23.6", "zcode": "0.15.2", "agy": "1.1.4", "codex": "0.147.0"}
+	versions := map[string]string{"kimi": "0.38.0", "zcode": "0.16.3", "agy": "1.1.19", "codex": "0.149.0"}
 	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
 }
 
@@ -1960,7 +1960,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 		compatibility string
 		reason        string
 	}{
-		{"supported", ports.ProviderVersionObserved, "1.1.4", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
+		{"supported", ports.ProviderVersionObserved, "1.1.19", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
 		{"newer than verified", ports.ProviderVersionObserved, "9.9.9", app.ExitCodeSuccess, "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"},
 		{"below minimum", ports.ProviderVersionObserved, "0.1.0", app.ExitCodeReadiness, "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"},
 		{"malformed", ports.ProviderVersionMalformed, "", app.ExitCodeReadiness, "failed", "ineligible", "malformed", "provider_cli_version_malformed"},

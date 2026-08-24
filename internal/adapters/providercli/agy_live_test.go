@@ -198,25 +198,24 @@ func TestLiveAgyCapability(t *testing.T) {
 	}
 	capabilityRequest := recordingRunner.requests[1]
 	binding, bound := capabilityRequest.ProviderPacketBinding()
-	nativeReference := "@" + fixture.Reference()
 	if !bound || !binding.Valid() ||
-		binding.Channel() != ports.ProviderPacketChannelPromptFile ||
-		binding.PromptFileReference() != nativeReference ||
+		binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+		binding.PromptFileReference() != "" ||
 		binding.ArgvIndex() != 12 ||
-		binding.SnapshotCWD() != workspaceIdentity.SnapshotPath() {
-		t.Fatal("FAIL: AGY capability launch omitted the native prompt-file packet binding")
+		binding.SnapshotCWD() != "" {
+		t.Fatal("FAIL: AGY capability launch omitted the literal packet binding")
 	}
-	if binding.ArgvIndex() >= len(capabilityRequest.Argv()) || capabilityRequest.Argv()[binding.ArgvIndex()] != nativeReference {
-		t.Fatal("FAIL: AGY native prompt-file reference is not at the bound argv index")
+	if binding.ArgvIndex() >= len(capabilityRequest.Argv()) || capabilityRequest.Argv()[binding.ArgvIndex()] != string(fixture.Packet()) {
+		t.Fatal("FAIL: AGY literal packet is not at the bound argv index")
 	}
 	capability := recordingRunner.observations[1]
 	transportReceipt, transported := capability.ProviderPacketTransportReceipt()
 	if !transported || !transportReceipt.Valid() ||
-		transportReceipt.Channel() != ports.ProviderPacketChannelPromptFile ||
+		transportReceipt.Channel() != ports.ProviderPacketChannelArgvLiteral ||
 		transportReceipt.PacketIdentity() != binding.PacketIdentity() ||
-		transportReceipt.PromptFileReference() != nativeReference ||
-		transportReceipt.SnapshotCWD() != workspaceIdentity.SnapshotPath() {
-		t.Fatal("FAIL: AGY capability transport receipt is not bound to the native prompt-file request")
+		transportReceipt.PromptFileReference() != "" ||
+		transportReceipt.SnapshotCWD() != "" {
+		t.Fatal("FAIL: AGY capability transport receipt is not bound to the literal packet request")
 	}
 	if liveAgyApprovalPrompt(capability.Stdout()) || liveAgyApprovalPrompt(capability.Stderr()) {
 		t.Fatal("FAIL: AGY requested interactive approval")
@@ -250,8 +249,8 @@ func TestLiveAgyCapability(t *testing.T) {
 		}
 		t.Logf("PASS: AGY capability evidence accepted as narrated output bound to the descriptor fixture")
 	}
-	if !providercli.VersionAtLeast(result.Version, 1, 1, 4) {
-		t.Fatal("FAIL: installed AGY version is below required 1.1.4")
+	if !providercli.VersionAtLeast(result.Version, 1, 1, 19) {
+		t.Fatal("FAIL: installed AGY version is below required 1.1.19")
 	}
 	liveAgyRequireExactReceipts(t, result.Receipts)
 	authBeforeDrain, err := liveAgyAuthSettingsManifest(runtimeHome)

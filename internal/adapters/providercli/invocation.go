@@ -13,7 +13,6 @@ import (
 type NativeProbeInvocation struct{}
 
 const agyPrintTimeoutCleanupGrace = 5 * time.Second
-const agyQualificationJSONSchema = `{"additionalProperties":true,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
 
 // VersionArgv builds the sole family-closed argv admitted for a version probe.
 func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string, error) {
@@ -73,11 +72,15 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		// invocations use appendZcodeInvocation's read-oriented denylist.
 		return appendZcodeCapabilityInvocation(baseArgv, string(packet)), nil
 	case FamilyAgy:
-		argv, err := canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), fixture.Reference())
+		providerPacket, err := ports.NewProviderPacketFromBytes(packet)
+		if err != nil {
+			return nil, fmt.Errorf("native probe invocation: invalid fixture packet")
+		}
+		argv, err := canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), providerPacket)
 		if err != nil {
 			return nil, err
 		}
-		return append(argv, "--output-format", "json", "--json-schema", agyQualificationJSONSchema), nil
+		return argv, nil
 	case FamilyCodex:
 		argv := appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort())
 		return append(argv[:len(argv)-1], "--output-schema", probeFixtureSchemaPath, "-"), nil
@@ -178,9 +181,9 @@ func validCodexReasoningEffort(value string) bool {
 	}
 }
 
-func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, nativeReference string) ([]string, error) {
-	if !validAGYNativeReference(nativeReference) {
-		return nil, fmt.Errorf("native probe invocation: invalid native reference")
+func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, packet ports.ProviderPacket) ([]string, error) {
+	if !packet.Valid() {
+		return nil, fmt.Errorf("native probe invocation: invalid packet")
 	}
 	baseArgv, err := canonicalProbeBaseArgv(definition)
 	if err != nil {
@@ -194,7 +197,7 @@ func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.Work
 	if agyPermissionBypassEnabled(definition.BaseArgv(), definition.Transport()) {
 		controls = append(controls, "--dangerously-skip-permissions")
 	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--print", "@"+nativeReference)
+	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--print", string(packet.Bytes()))
 	return append(baseArgv, controls...), nil
 }
 

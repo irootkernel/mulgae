@@ -151,7 +151,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 			t.Fatalf("qualification roles = base %q, requested %v", request.BaseRole, request.RequestedRoles)
 		}
 		identity := request.Identity
-		identity.Version = "0.23.6"
+		identity.Version = "0.38.0"
 		receipts := make([]Receipt, 0, len(ReceiptKinds()))
 		for _, kind := range ReceiptKinds() {
 			state := ReceiptPass
@@ -161,7 +161,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 			receipts = append(receipts, qualificationTestReceipt(kind, state, now.Add(time.Minute), identity))
 		}
 		return CurrentQualificationResult{
-			VersionArgv: []string{"/private/bin/kimi", "--version"}, Version: "0.23.6", Receipts: receipts,
+			VersionArgv: []string{"/private/bin/kimi", "--version"}, Version: "0.38.0", Receipts: receipts,
 			SupportedRoles: []domain.Role{domain.RoleLogic}, RoleReceipts: []CurrentRoleReceipt{{Role: domain.RoleLogic, State: ReceiptPass, Identity: identity}},
 			BaseRole: domain.RoleLogic,
 		}, nil
@@ -206,7 +206,7 @@ func TestQualifiedRunTerminalReceiptRequiresExactAdmittedSet(t *testing.T) {
 func terminalEvidence(instance string) qualifiedProviderEvidence {
 	identity := Identity{
 		Family: FamilyKimi, Instance: instance, ProfileGeneration: "profile-generation", AdapterProfile: "kimi-default",
-		Version: "0.23.6", Executable: "/private/bin/kimi", ExecutableSHA256: qualifierTestSHA,
+		Version: "0.38.0", Executable: "/private/bin/kimi", ExecutableSHA256: qualifierTestSHA,
 		Launcher: "/private/bin/kimi", LauncherSHA256: qualifierTestSHA, SnapshotManifest: "snapshot-manifest",
 		NamespaceLease: instance + ":generation", NamespaceGeneration: "generation",
 	}
@@ -286,7 +286,7 @@ func TestQualifiedRunDrainDoesNotConstructReceiptOnCloseFailure(t *testing.T) {
 func TestQualifiedRunFactoryRejectsEveryNonPassReceiptState(t *testing.T) {
 	for _, state := range []ReceiptState{ReceiptMissing, ReceiptStale, ReceiptSkipped, ReceiptInconclusive, ReceiptFailed} {
 		t.Run(string(state), func(t *testing.T) {
-			input := completeInput(t, FamilyAGY, "1.1.4")
+			input := completeInput(t, FamilyAGY, "1.1.19")
 			input.Receipts[len(input.Receipts)-1].State = state
 			qualification := ValidateQualification(input)
 			if qualification.Available() || qualification.Reason() != "non_passing_receipt" {
@@ -297,7 +297,7 @@ func TestQualifiedRunFactoryRejectsEveryNonPassReceiptState(t *testing.T) {
 }
 
 func TestValidateQualificationRequiresSharedReceiptExpiry(t *testing.T) {
-	input := completeInput(t, FamilyAGY, "1.1.4")
+	input := completeInput(t, FamilyAGY, "1.1.19")
 	input.Receipts[1].ExpiresAt = input.Receipts[1].ExpiresAt.Add(time.Second)
 	qualification := ValidateQualification(input)
 	if qualification.Available() || qualification.Reason() != "expiry_mismatch" {
@@ -308,7 +308,7 @@ func TestValidateQualificationRequiresSharedReceiptExpiry(t *testing.T) {
 const qualifierTestSHA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func TestQualifiedSupportedRolesRequiresExactRequestedReceipts(t *testing.T) {
-	identity := Identity{Version: "0.23.6"}
+	identity := Identity{Version: "0.38.0"}
 	candidate := QualifiedRunCandidate{
 		SupportedRoles: []domain.Role{domain.RoleSecurity, domain.RoleLogic},
 		BaseRole:       domain.RoleLogic,

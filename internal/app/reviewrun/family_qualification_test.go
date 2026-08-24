@@ -194,7 +194,7 @@ func TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances(t *
 	expires := time.Unix(1_700_000_000, 0).UTC().Add(time.Minute)
 	sourceIdentity := Identity{
 		Family: FamilyZCode, Instance: "zcode-logic", ProfileGeneration: productionProfileGeneration,
-		AdapterProfile: "zcode-logic", Version: "0.15.2", Executable: "/private/bin/node",
+		AdapterProfile: "zcode-logic", Version: "0.16.3", Executable: "/private/bin/node",
 		ExecutableSHA256: "sha256:node", Launcher: ZCodeLauncher, LauncherSHA256: "sha256:launcher",
 		SnapshotManifest: "snapshot", NamespaceLease: "zcode-logic:generation", NamespaceGeneration: "generation",
 	}
@@ -202,7 +202,7 @@ func TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances(t *
 	proof := &validatedAuthorityProof{directAuthorityID: authorityID, identity: sourceIdentity, expiresAt: expires}
 	source := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	result := CurrentQualificationResult{
-		VersionArgv: []string{"provider", "--version"}, Version: "0.15.2",
+		VersionArgv: []string{"provider", "--version"}, Version: "0.16.3",
 		SupportedRoles: []domain.Role{domain.RoleLogic}, BaseRole: domain.RoleLogic,
 		familyAuthority:  fakeFamilyAuthority{id: authorityID, expires: expires},
 		familyDefinition: source.Definition, familyNamespaceGeneration: "generation",
@@ -296,7 +296,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	instance := string(family) + "-" + string(role)
 	// Sibling role routes must share capability-relevant runtime fields, including
 	// working directory, so family-profile deduplication can be exercised.
-	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.4", "/private/work/"+string(family))
+	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.19", "/private/work/"+string(family))
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -430,7 +430,7 @@ func syntheticFamilyQualificationResult(t *testing.T, request CurrentQualificati
 	t.Helper()
 	version := request.Definition.Version()
 	if version == "" {
-		version = "1.1.4"
+		version = "1.1.19"
 	}
 	identity := request.Identity
 	identity.Version = version

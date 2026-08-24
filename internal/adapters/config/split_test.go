@@ -67,7 +67,7 @@ func TestRepositoryProjectConfigIsCanonicalSharedPolicy(t *testing.T) {
 			t.Fatalf("repository project config contains machine-local field %q", forbidden)
 		}
 	}
-	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n")
+	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n  agy:\n    executable: \"/usr/bin/agy\"\n")
 	config, err := DecodeSplit(project, local)
 	if err != nil {
 		t.Fatalf("decode repository project config: %v", err)

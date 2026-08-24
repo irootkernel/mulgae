@@ -386,7 +386,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	}
 	var executionPolicy *AGYExecutionPolicy
 	if definition.Family() == FamilyAgy {
-		policy, policyErr := NewAGYExecutionPolicy(definition, roleFixture.WorkspaceSnapshotIdentity(), argv, roleFixture.Reference())
+		policy, policyErr := NewAGYExecutionPolicy(definition, roleFixture.WorkspaceSnapshotIdentity(), argv, packet)
 		if policyErr != nil {
 			return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "AGY execution policy unavailable", policyErr)
 		}
@@ -485,7 +485,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if definition.Family() == FamilyAgy && packet != nil {
 		if executionPolicy == nil || executionPolicy.Validate() != nil ||
 			executionPolicy.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() ||
-			!reflect.DeepEqual(executionPolicy.Argv(), argv) || executionPolicy.NativeReference() != fixture.Reference() {
+			!reflect.DeepEqual(executionPolicy.Argv(), argv) || executionPolicy.PacketIdentity() != packet.Identity() {
 			return ports.ProcessObservation{}, securityProbeFailure("direct-execution-authority", "AGY execution policy drift", nil)
 		}
 	} else if executionPolicy != nil {
@@ -697,7 +697,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 }
 
 func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string) string {
-	sum := sha256.Sum256([]byte("Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/2\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
+	sum := sha256.Sum256([]byte("Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/3\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -842,7 +842,7 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 func qualificationTransportChannel(family string) ports.ProviderPacketChannel {
 	switch family {
 	case FamilyAgy:
-		return ports.ProviderPacketChannelPromptFile
+		return ports.ProviderPacketChannelArgvLiteral
 	case FamilyCodex:
 		return ports.ProviderPacketChannelStdin
 	default:

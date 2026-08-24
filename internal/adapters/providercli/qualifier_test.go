@@ -698,7 +698,7 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 }
 
 func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -800,7 +800,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 				t.Fatal(lifecycleErr)
 			}
 			transport, transportErr := ports.NewProviderPacketTransportReceipt(
-				ports.ProviderPacketChannelPromptFile, packet.Identity(), "@fixture.md", "/private/work", packet.Identity(), packet.Identity(),
+				ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 			)
 			if transportErr != nil {
 				t.Fatal(transportErr)
@@ -837,7 +837,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport, err := ports.NewProviderPacketTransportReceipt(
-		ports.ProviderPacketChannelPromptFile, packet.Identity(), "@fixture.md", "/private/work", packet.Identity(), packet.Identity(),
+		ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -898,7 +898,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 // probe that narrated its proof without emitting one still passes transport and
 // lifecycle validation; the bound fixture evidence decides acceptance later.
 func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,7 +926,7 @@ func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport, err := ports.NewProviderPacketTransportReceipt(
-		ports.ProviderPacketChannelPromptFile, packet.Identity(), "@fixture.md", "/private/work", packet.Identity(), packet.Identity(),
+		ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1001,8 +1001,39 @@ func TestBoundProbeProviderRequestUsesCodexStdinTransport(t *testing.T) {
 	}
 }
 
+func TestBoundProbeProviderRequestUsesExactAGYLiteralPacket(t *testing.T) {
+	directory := t.TempDir()
+	identity, err := ports.NewWorkspaceSnapshotIdentity(directory, "snapshot-0123456789abcdef0123456789abcdef", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "policy", 1, 2, 3, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &currentProbeFixture{identity: identity}
+	definition := testProfile(t, FamilyAgy, "agy_current", "", "")
+	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := boundProbeProviderRequest(definition, packet, argv, "@"+fixture.Reference(), nil, directory, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, ok := request.ProviderPacketBinding()
+	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral || binding.PacketIdentity() != packet.Identity() ||
+		binding.PromptFileReference() != "" || binding.SnapshotCWD() != "" {
+		t.Fatalf("AGY packet binding = %#v, present=%t", binding, ok)
+	}
+	if len(request.Stdin()) != 0 || packetOccurrences(request.Argv(), string(packet.Bytes())) != 1 ||
+		binding.ArgvIndex() >= len(request.Argv()) || request.Argv()[binding.ArgvIndex()] != string(packet.Bytes()) {
+		t.Fatalf("AGY request packet channels = argv %q stdin %q", request.Argv(), request.Stdin())
+	}
+}
+
 func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 13, "@fixture.md")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1053,7 @@ func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T
 		t.Fatal(err)
 	}
 	transport, err := ports.NewProviderPacketTransportReceipt(
-		ports.ProviderPacketChannelPromptFile, packet.Identity(), "@fixture.md", "/private/work", packet.Identity(), packet.Identity(),
+		ports.ProviderPacketChannelArgvLiteral, packet.Identity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1310,19 +1341,18 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	}
 	binding, ok := request.ProviderPacketBinding()
 	lifecycle, lifecycleOK := request.PostOutputLifecycle()
-	nativeReference := "@" + r.fixture.Reference()
 	r.capabilityBound, r.capabilityLifecycle = ok && binding.Valid(), lifecycleOK && lifecycle.Valid()
 	if !r.capabilityBound || !r.capabilityLifecycle {
 		r.t.Fatal("capability request omitted packet binding or lifecycle")
 	}
-	if binding.Channel() != ports.ProviderPacketChannelPromptFile ||
-		binding.PromptFileReference() != nativeReference ||
+	if binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
+		binding.PromptFileReference() != "" ||
 		binding.ArgvIndex() != 13 ||
-		binding.SnapshotCWD() != r.fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
-		r.t.Fatal("capability request omitted the native prompt-file binding")
+		binding.SnapshotCWD() != "" {
+		r.t.Fatal("capability request omitted the literal packet binding")
 	}
-	if binding.ArgvIndex() >= len(request.Argv()) || request.Argv()[binding.ArgvIndex()] != nativeReference {
-		r.t.Fatal("native prompt-file reference is not at the bound argv index")
+	if binding.ArgvIndex() >= len(request.Argv()) || request.Argv()[binding.ArgvIndex()] != string(r.fixture.Packet()) {
+		r.t.Fatal("literal packet is not at the bound argv index")
 	}
 	if r.permissionDenied {
 		final, err := ports.NewExitedProcessFinalTermination(0)
@@ -1333,7 +1363,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 		if err != nil {
 			r.t.Fatal(err)
 		}
-		transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.PacketIdentity(), binding.PacketIdentity())
+		transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{})
 		if err != nil {
 			r.t.Fatal(err)
 		}
@@ -1356,7 +1386,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 		if err != nil {
 			r.t.Fatal(err)
 		}
-		transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.PacketIdentity(), binding.PacketIdentity())
+		transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{})
 		if err != nil {
 			r.t.Fatal(err)
 		}
@@ -1391,7 +1421,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.PacketIdentity(), binding.PacketIdentity())
+	transport, err := ports.NewProviderPacketTransportReceipt(binding.Channel(), binding.PacketIdentity(), "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -1465,7 +1495,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
 		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
-		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "@roadmap.md", "--output-format", "json", "--json-schema", agyQualificationJSONSchema},
+		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "fixture"},
 	} {
 		definition := testProfile(t, family, "kimi_current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)

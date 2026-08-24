@@ -822,7 +822,7 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		switch {
 		case len(observation.Argv) == 1 && observation.Argv[0] == "--version":
 			versionChecks = append(versionChecks, observation)
-		case observation.Prompt == "@roadmap.md":
+		case strings.Contains(observation.Prompt, "Prove readiness"):
 			qualificationRuns = append(qualificationRuns, observation)
 		default:
 			reviewRuns = append(reviewRuns, observation)
@@ -854,7 +854,7 @@ func TestIntegrationMulgaeProductionReviewSubprocessAGY(t *testing.T) {
 		}
 	}
 	for _, observation := range qualificationRuns {
-		if observation.CWD != observation.Snapshot || observation.Prompt != "@roadmap.md" {
+		if observation.CWD != observation.Snapshot || !strings.Contains(observation.Prompt, "Prove readiness") {
 			t.Fatalf("AGY qualification snapshot/control contract = %#v", observation)
 		}
 	}
@@ -1727,7 +1727,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 		if observation.CWD != observation.Snapshot || observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
 			t.Fatalf("AGY bounded snapshot contract = %#v", observation)
 		}
-		if observation.Prompt == "@roadmap.md" {
+		if strings.Contains(observation.Prompt, "Prove readiness") {
 			agyQualification++
 			continue
 		}
@@ -2394,7 +2394,7 @@ type observation struct {
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Println("0.28.0")
+		fmt.Println("0.38.0")
 		return
 	}
 	if len(os.Args) != 7 || os.Args[1] != "--model" ||
@@ -2770,7 +2770,7 @@ func main() {
 	}
 	if len(argv) == 1 && argv[0] == "--version" {
 		write(observation)
-		fmt.Println("1.1.4")
+		fmt.Println("1.1.19")
 		return
 	}
 	printTimeout := ""
@@ -2806,14 +2806,15 @@ func main() {
 	}
 	// Qualification probes stay inside the bounded three-minute probe deadline; reviews
 	// keep the full configured runtime deadline.
-	if observation.Prompt == "@roadmap.md" {
-		if printTimeout != "2m55s" || len(argv) != 16 && len(argv) != 17 {
+	qualification := strings.Contains(observation.Prompt, "Prove readiness")
+	if qualification {
+		if printTimeout != "2m55s" || len(argv) != 12 && len(argv) != 13 {
 			panic("non-canonical AGY qualification print timeout")
 		}
 	} else if printTimeout != "59m55s" || len(argv) != 12 && len(argv) != 13 {
 		panic("non-canonical AGY review print timeout")
 	}
-	if observation.Prompt != "@roadmap.md" {
+	if !qualification {
 		fixture, fixtureErr := os.ReadFile("after/security-fixtures.txt")
 		png, pngErr := os.ReadFile("after/screenshots/staged.png")
 		if fixtureErr == nil && pngErr == nil {
@@ -2825,18 +2826,14 @@ func main() {
 		}
 	}
 	write(observation)
-	if observation.Prompt == "@roadmap.md" {
-		roadmap, err := os.ReadFile("roadmap.md")
-		if err != nil {
-			panic(err)
+	if qualification {
+		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(observation.Prompt)
+		link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(observation.Prompt)
+		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(observation.Prompt)
+		if len(root) != 2 || len(link) != 2 || len(role) != 2 {
+			panic("literal qualification packet did not contain bindings")
 		}
-		link, err := os.ReadFile("docs/linked.md")
-		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(string(roadmap))
-		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(string(roadmap))
-		if err != nil || len(root) != 2 || len(role) != 2 {
-			panic("native qualification reference did not resolve")
-		}
-		fmt.Printf("{\"status\":\"success\",\"structured_output\":{\"root\":%q,\"link\":%q,\"role\":%q}}", root[1], strings.TrimSpace(string(link)), role[1])
+		fmt.Printf("{\"status\":\"success\",\"structured_output\":{\"root\":%q,\"link\":%q,\"role\":%q}}", root[1], link[1], role[1])
 		_ = os.Stdout.Close()
 		for { time.Sleep(time.Hour) }
 	}
@@ -2872,7 +2869,7 @@ func reviewInvocationOrdinal() int {
 		if json.Unmarshal([]byte(line), &recorded) != nil {
 			continue
 		}
-		if recorded.Prompt != "" && recorded.Prompt != "@roadmap.md" {
+		if recorded.Prompt != "" && !strings.Contains(recorded.Prompt, "Prove readiness") {
 			ordinal++
 		}
 	}

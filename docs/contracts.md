@@ -528,10 +528,10 @@ output cannot also schedule repair.
 
 ## Codex MCP configuration observability
 
-Mulgae supports Codex CLI 0.147.0 or newer. At that minimum,
+Mulgae supports Codex CLI 0.149.0 or newer. At that minimum,
 `codex mcp get mulgae --json` exposes the server name, enabled state and disabled
 reason, stdio transport command/arguments/environment/working directory,
-enabled and disabled tool filters, and startup/tool timeouts. Codex 0.147.0 does
+enabled and disabled tool filters, and startup/tool timeouts. Codex 0.149.0 does
 not expose the configured `required` value. Consumers must preserve an absent
 field as unobserved and must not infer `required: false`; `config.toml` remains
 the authority. Mulgae does not claim a later minimum for observing the field.

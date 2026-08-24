@@ -45,7 +45,7 @@ func TestLiveKimiCapability(t *testing.T) {
 	certifyLiveCapability(t, liveCapabilityConfig{
 		family: providercli.FamilyKimi, credential: providercli.CredentialSourceKimi, instance: "kimi-logic", role: domain.RoleLogic,
 		executableEnv: "MULGAE_LIVE_KIMI_BIN", dataHomeEnv: "MULGAE_LIVE_KIMI_DATA_HOME", transportIndex: 4,
-		minimumVersion: [3]int{0, 23, 6}, kimiModel: "kimi-code/kimi-for-coding",
+		minimumVersion: [3]int{0, 38, 0}, kimiModel: "kimi-code/kimi-for-coding",
 		protectedPaths: func(_ string, dataHome string) []string {
 			return []string{filepath.Join(dataHome, "config.toml"), filepath.Join(dataHome, "credentials", "kimi-code.json")}
 		},
@@ -56,7 +56,7 @@ func TestLiveZCodeCapability(t *testing.T) {
 	certifyLiveCapability(t, liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
 		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
-		minimumVersion: [3]int{0, 15, 2},
+		minimumVersion: [3]int{0, 16, 3},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
 		},
@@ -67,7 +67,7 @@ func TestLiveCodexCapability(t *testing.T) {
 	certifyLiveCapability(t, liveCapabilityConfig{
 		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
 		executableEnv: "MULGAE_LIVE_CODEX_BIN", transport: ports.ProviderPacketChannelStdin, transportIndex: -1,
-		minimumVersion: [3]int{0, 147, 0},
+		minimumVersion: [3]int{0, 149, 0},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".codex", "auth.json")}
 		},

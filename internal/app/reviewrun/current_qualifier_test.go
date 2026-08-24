@@ -239,7 +239,7 @@ func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, re
 	if probe.mismatchExpiry && len(receipts) > 0 {
 		receipts[len(receipts)-1].ExpiresAt = request.Now.Add(2 * time.Minute)
 	}
-	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.23.6", Receipts: receipts}, nil
+	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.38.0", Receipts: receipts}, nil
 }
 
 func TestProviderCurrentQualifierDoesNotRetryInvalidCapabilityOutput(t *testing.T) {
@@ -902,7 +902,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	probeVersion := version
 	if version == "current" {
-		probeVersion = "0.23.6"
+		probeVersion = "0.38.0"
 	}
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	definition, namespace := authorityProbeDefinition(t, family, instance, probeVersion, directory)

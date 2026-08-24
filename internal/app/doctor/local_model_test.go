@@ -43,7 +43,7 @@ func TestLocalDoctorResultRequiresEveryConfiguredProvider(t *testing.T) {
 	result.ProviderInventory[2] = LocalProviderInventoryRow{
 		Family: "agy", Configured: true, ReferencedByRoles: []string{}, State: "unavailable", Reason: "provider_cli_version_below_minimum",
 		BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
-		CLICompatible:   LocalCLICompatibility{Status: "failed", ObservedVersion: "1.1.3", Eligibility: "ineligible", Compatibility: "below_minimum", MinimumVersion: "1.1.4", VerifiedLatest: "1.1.12", ReasonCode: "provider_cli_version_below_minimum"},
+		CLICompatible:   LocalCLICompatibility{Status: "failed", ObservedVersion: "1.1.18", Eligibility: "ineligible", Compatibility: "below_minimum", MinimumVersion: "1.1.19", VerifiedLatest: "1.1.19", ReasonCode: "provider_cli_version_below_minimum"},
 	}
 	result.Assignment = LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
 	result.Readiness = LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_offline_readiness_failed"}}
@@ -64,7 +64,7 @@ func validLocalDoctorResult() LocalDoctorResult {
 		ConfigV3: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, LocalConfiguration: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, ProviderIdentity: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
 		ConfiguredProviderIDs: []string{"kimi"},
 		ProviderInventory: []LocalProviderInventoryRow{
-			{Family: "kimi", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.23.6", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.23.6", VerifiedLatest: "0.28.0", ReasonCode: "provider_cli_version_supported"}},
+			{Family: "kimi", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.38.0", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.38.0", VerifiedLatest: "0.38.0", ReasonCode: "provider_cli_version_supported"}},
 			notConfigured("zcode"), notConfigured("agy"), notConfigured("codex"),
 		},
 		Assignment: LocalAssignmentProjection{State: "ready", Resilience: "ready"}, PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}}, ToolsLock: LocalToolsLock{State: "not_observed"},

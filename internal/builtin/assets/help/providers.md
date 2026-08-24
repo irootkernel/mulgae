@@ -99,7 +99,7 @@ workspace reads apply only to review invocations. Kimi has no adapter-owned
 workspace read tools; its process working directory is still the immutable
 workspace view.
 
-Codex 0.147.0 or newer uses stdin for the review packet and exact stdout for the
+Codex 0.149.0 or newer uses stdin for the review packet and exact stdout for the
 role report. A legacy configuration projects only native
 `~/.codex/auth.json`. To route roles through several authenticated environments,
 set an operator-chosen `default_credential_profile` and optional role-level
