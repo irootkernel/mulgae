@@ -31,6 +31,31 @@ description: Use Mulgae safely through attached MCP tools or the CLI for local m
    memory. Preserve exact session (`s_...`), run (`r_...`), attempt (`a_...`),
    and finding (`F...`) IDs.
 
+## Advise on durable artifact retention
+
+Before executing `review`, `followup`, `delta`, or `rerun`, check retention once
+from the canonical project root. For a root review, do this after its preflight
+succeeds and before provider work:
+
+```bash
+mulgae clean --all --dry-run --output json
+```
+
+This command is observation-only. Read `result.affected_run_count` and
+`result.affected_bytes`; they describe safely deletable terminal run artifacts,
+not every stored capture. When the count is at least 10, tell the user the count
+and bytes and offer cleanup, but do not wait for a response or delay the current
+review. Say nothing when the count is lower. If the observation fails, report
+that the advisory is unavailable and continue; it is not a review gate.
+
+Never delete artifacts merely because the threshold was reached. If the user
+requests cleanup while a review is active, await its terminal result and re-read
+the run before cleanup. Then read [lifecycle.md](references/lifecycle.md). When
+the user did not select a cleanup scope, show dry runs for `--older-than 30d`
+and `--all`, recommend the age-bounded option, and ask for an exact choice.
+Apply only the authorized selector without `--dry-run`, then repeat its dry run
+and report the remaining eligible count and bytes.
+
 ## Prefer the attached MCP workflow
 
 1. Use attached Mulgae MCP tools when they are available for the canonical
