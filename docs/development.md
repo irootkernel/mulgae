@@ -190,11 +190,19 @@ tests in the owning application package.
 The repository intentionally has no GitHub Actions release workflow:
 
 1. start from a clean commit on `main`;
-2. run `make test`;
-3. verify module installation in a temporary `GOBIN`;
-4. verify `mulgae version`, `mulgae --help`, and project initialization;
-5. tag the exact verified commit;
-6. push the commit and tag as a separate explicit operation.
+2. replace the current changelog section's `Unreleased` marker with the release
+   date;
+3. run `make test`;
+4. verify module installation in a temporary `GOBIN`;
+5. verify `mulgae version`, `mulgae --help`, and project initialization;
+6. tag the exact verified commit;
+7. push the commit and tag as a separate explicit operation;
+8. after publication, immediately open the next planned release cycle in a
+   separate change by advancing `RELEASE_VERSION` and its architecture assertion
+   and prepending an empty `Unreleased` changelog section.
+
+During development, record concise user-visible outcomes under `Added`,
+`Changed`, or `Fixed` in the current `Unreleased` section.
 
 Never tag a dirty tree or a different commit from the one exercised by the
 release gate.
