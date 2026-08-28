@@ -54,7 +54,25 @@ Add nothing speculative.**
 Ask whether a senior maintainer would consider the solution overcomplicated. If
 so, reduce it.
 
-### 3. Make Surgical Changes
+### 3. Prefer Durable Root-Cause Solutions
+
+**Prefer the smallest complete approach that addresses the verified root cause.**
+
+- For fixes and solution proposals, weigh correctness, performance,
+  maintainability, and structural fit instead of optimizing only for the smallest
+  diff.
+- Prefer durable designs over symptomatic patches while keeping the current work
+  proportional to the verified requirement and repository authority.
+- When a broader ideal design exceeds the current scope, implement a bounded
+  durable step that fully satisfies current success criteria and preserves a
+  clear path forward.
+- Record only remaining independent actionable work in the canonical deferred-
+  feedback owner. If none exists, report the proposed entry and obtain approval
+  before creating one.
+- Promote epic-sized work to a TODO candidate or roadmap work unit. Do not defer
+  work required for current correctness or acceptance.
+
+### 4. Make Surgical Changes
 
 **Touch only what the requested outcome and its verification require. Clean up
 only what the change makes obsolete.**
@@ -78,7 +96,7 @@ When the change creates obsolete code:
 Every changed line must be traceable to the requested outcome or to verification
 of that outcome.
 
-### 4. Work Toward Verifiable Goals
+### 5. Work Toward Verifiable Goals
 
 **Define success before implementation and continue until the result is proved or
 concretely blocked.**
@@ -105,7 +123,7 @@ concretely blocked.**
 For multi-step work, keep a short plan in which every step has a corresponding
 verification.
 
-## master Preferences
+## Master Preferences
 
 - Use English for internal planning, but never reveal private chain-of-thought.
   Provide concise conclusions and useful evidence instead.
@@ -115,29 +133,46 @@ verification.
   reports, schemas, and artifacts in English unless master explicitly requests
   another language.
 
-## Development skill references
+## Aquarium Development Guide
 
 - Use `$aquarium:task-handler` for one named roadmap task.
 - Use `$aquarium:epic-handler` to implement one roadmap epic as sequential task goals.
 - Use `$aquarium:epic-validator` to cold-validate and remediate one completed roadmap epic.
 - Use `$aquarium:dev-setup` to diagnose or configure development tooling.
+- Use `$aquarium:new-project`, `$aquarium:new-feature`, or `$aquarium:refactor`
+  for explicitly requested Ouroboros-assisted design workflows.
+- Use `$aquarium:war-room` for difficult-bug diagnosis that stops at an approved
+  task, epic, or incomplete-investigation proposal.
 - Use `$use-mulgae` for an authorized Mulgae review, run inspection, finding
   follow-up, configuration diagnosis, cleanup plan, or recovery.
 - Use `$use-gaori` when a selected long or noisy check is routed through Gaori
   or existing Gaori evidence must be inspected.
+- Use `$use-sanho` at an authorized commit or push boundary in a
+  Sanho-managed repository, or for an explicitly requested Sanho operation.
 - Let `$aquarium:task-handler`, `$aquarium:epic-handler`, and
   `$aquarium:epic-validator` use Podway by default unless the current user opts
   out before the first managed-session mutation; Aquarium workflow skills retain
   their stricter roadmap, ownership, and approval rules.
 - Use `$use-podway` directly for an explicitly requested Procedure v2 session
-  operation, authoring, lifecycle, diagnosis, recovery, cancellation, or
-  current-session discard flow. Keep each handler opt-out local to its current
-  task, epic, or validation request.
+  lifecycle, goal, diagnosis, recovery, cancellation, or current-session discard
+  flow. Keep each handler opt-out local to its current task, epic, or validation
+  request. Procedure authoring requires the separate maintainer skill and is not
+  provided by `$use-podway`.
 - Use `$lore-commits` for non-trivial commit messages and `$lore-query` to inspect
   recorded decision context.
+- Use the separately installed upstream `$deslop` skill for task-owned cleanup
+  when an Aquarium workflow requests it.
+- Keep `.mulgae/**`, `.gaori/runs/**`, and `.podway/runtime/**` as local runtime
+  evidence. Do not cite their paths or identities as durable tracked evidence;
+  use a reviewed `aquarium.promoted-evidence/v1` package under
+  `evidence/aquarium/` only when a downstream consumer requires retention.
 - Repository-specific rules below override defaults from the referenced skills.
 
-## Repository Authorities
+## Project Configuration
+
+### Repository Index and Authorities
+
+#### Repository Authorities
 
 Start with `docs/README.md`, which maps the contributor documentation and defines
 the runtime sources of truth. Apply these rules when sources disagree:
@@ -161,7 +196,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
   nearest relevant authority rather than copying detailed feature design into
   this file.
 
-## Architecture and Ownership
+#### Architecture and Ownership
 
 - Keep the domain and application packages independent of CLI parsing, provider
   process details, and concrete storage. Adapters implement ports;
@@ -185,7 +220,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
   enforce this boundary; do not create cycles or reverse infrastructure
   dependencies.
 
-## Product and Runtime Invariants
+#### Product and Runtime Invariants
 
 - Mulgae is a local, multi-provider AI code review CLI. It does not approve a
   merge, release, waiver, security exception, or organizational decision.
@@ -232,7 +267,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
   providers require explicit adapters, capability tests, security review,
   documentation, and release evidence.
 
-## Canonical Assets and Generated Outputs
+#### Canonical Assets and Generated Outputs
 
 - Runtime assets live under `internal/builtin/assets` and are embedded directly;
   there is no `assets.zip` build product.
@@ -253,7 +288,36 @@ the runtime sources of truth. Apply these rules when sources disagree:
   `.gaori/runs/`, any other Gaori runtime or evidence path, `.podway/runtime/`,
   provider homes, or exported review bundles.
 
-## Verification
+### Commit Messages
+
+When writing Git commit messages for non-trivial changes, use the Lore format
+with Git trailers to capture decision context.
+
+Format:
+
+- Use an imperative summary line focused on why, not what.
+- Add an optional body explaining the change.
+- Add only the Git trailers that carry signal for the change:
+
+| Trailer | Purpose |
+|---|---|
+| `Constraint:` | External limit that shaped the decision |
+| `Rejected:` | Alternative considered and why (`alternative \| reason`) |
+| `Confidence:` | `high`, `medium`, or `low` |
+| `Scope-risk:` | `narrow`, `moderate`, or `broad` |
+| `Reversibility:` | `clean`, `moderate`, or `difficult` |
+| `Directive:` | Warning or instruction for future modifiers |
+| `Tested:` | What was verified |
+| `Not-tested:` | Known coverage gaps |
+| `Related:` | Linked commits forming a decision chain |
+
+Trailers are optional and repeatable. Do not add them to trivial commits such as
+typo-only or formatting-only changes. Follow the `lore-commits` skill for the
+complete format and examples. Reference: https://github.com/tmdgusya/lora
+
+### Project-Specific Operating Rules
+
+#### Verification
 
 - Run an exact focused test first when practical. Use an explicit package and
   anchored `-run` expression for a dynamically selected Go test.
@@ -302,7 +366,7 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - After any formatting, generation, test, or release command, inspect `git status`
   and the complete diff so generated or evidence changes are intentional.
 
-### Gaori Test Evidence
+##### Gaori Test Evidence
 
 The standard test and release requirements in `docs/development.md` are
 authoritative for the normal workflow. The explicit patch-only waiver above is
@@ -348,35 +412,10 @@ artifact status, extractor status, relevant summary and raw-log paths, and
 skipped checks. Gaori evidence alone does not establish review acceptance,
 release readiness, or runtime activation.
 
-## Commit Messages: Lore Format
+#### Repository Safety and Delivery
 
-When writing Git commit messages for non-trivial changes, use the Lore format
-with Git trailers to capture decision context.
-
-Format:
-
-- Use an imperative summary line focused on why, not what.
-- Add an optional body explaining the change.
-- Add only the Git trailers that carry signal for the change:
-
-| Trailer | Purpose |
-|---|---|
-| `Constraint:` | External limit that shaped the decision |
-| `Rejected:` | Alternative considered and why (`alternative \| reason`) |
-| `Confidence:` | `high`, `medium`, or `low` |
-| `Scope-risk:` | `narrow`, `moderate`, or `broad` |
-| `Reversibility:` | `clean`, `moderate`, or `difficult` |
-| `Directive:` | Warning or instruction for future modifiers |
-| `Tested:` | What was verified |
-| `Not-tested:` | Known coverage gaps |
-| `Related:` | Linked commits forming a decision chain |
-
-Trailers are optional and repeatable. Do not add them to trivial commits such as
-typo-only or formatting-only changes. Follow the `lore-commits` skill for the
-complete format and examples. Reference: https://github.com/tmdgusya/lora
-
-## Repository Safety and Delivery
-
+- Treat `.podway/procedures/aquarium-*-v2.yaml` as the repository-local
+  workflow evidence and routing authority.
 - Do not commit, amend, push, tag, publish, release, install, uninstall, or change
   authentication, credentials, provider, model, executable, launcher, timeout, or
   profile configuration without explicit authorization.
@@ -397,14 +436,3 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   applicable release gate.
 - Keep completion reports compact: state the outcome, changed files, verification
   performed, skipped checks, and actionable remaining risks or blockers.
-
-## Aquarium Workflow References
-
-- Use `$aquarium:task-handler` for one named roadmap task, `$aquarium:epic-handler` for one roadmap epic, and `$aquarium:epic-validator` to cold-validate a completed epic.
-- Use `$aquarium:new-project`, `$aquarium:new-feature`, or `$aquarium:refactor` for explicitly requested Ouroboros-assisted design workflows.
-- Use `$aquarium:war-room` for difficult-bug diagnosis and `$aquarium:design-qa` for local Design Gate lifecycle work.
-- Use `$aquarium:dev-setup` to diagnose or configure development tooling.
-- Use `$use-sanho`, `$use-mulgae`, `$use-gaori`, and `$use-podway` for their respective local tool operations. Aquarium workflow skills retain their stricter roadmap, ownership, and approval rules.
-- Treat `.podway/procedures/aquarium-*-v2.yaml` as the repository-local workflow evidence and routing authority.
-- Use `$lore-commits` for non-trivial commit messages and `$lore-query` to inspect recorded decision context.
-- Use the separately installed upstream `$deslop` skill for task-owned cleanup when an Aquarium workflow requests it.
