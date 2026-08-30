@@ -611,11 +611,13 @@ Available topics are `quickstart`, `config`, `providers`, `role-paths`, `prompts
 
 Contributor documentation lives in [`docs/`](docs/README.md):
 
-- [Project goals](docs/goals.md)
-- [Architecture](docs/architecture.md)
-- [Contracts and artifacts](docs/contracts.md)
-- [Security model](docs/security.md)
-- [Development and release workflow](docs/development.md)
+- [Product specifications](docs/specs/README.md)
+- [Architecture](docs/architecture/README.md)
+- [Architecture decision records](docs/architecture-decision-records/README.md)
+- [Implementation and release guidance](docs/implementation-tips/README.md)
+- [Operations ownership](docs/ops/README.md)
+- [Roadmap](docs/roadmap/README.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

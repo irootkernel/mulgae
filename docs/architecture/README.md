@@ -1,4 +1,4 @@
-# Architecture
+# Mulgae architecture
 
 ## Dependency direction
 

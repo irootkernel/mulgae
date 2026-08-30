@@ -1,4 +1,4 @@
-# Security model
+# Security requirements and trust model
 
 ## Trust model
 

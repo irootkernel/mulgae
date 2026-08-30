@@ -184,8 +184,9 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - `internal/builtin/assets` is the canonical source for embedded v1 schemas,
   prompts, roles, examples, and help assets.
 - `internal/entrypoint/mulgae` owns command grammar and result projection.
-- `docs/goals.md` defines the product boundary. `docs/architecture.md`,
-  `docs/contracts.md`, `docs/security.md`, and `docs/development.md` explain the
+- `docs/specs/goals.md` defines the product boundary.
+  `docs/architecture/README.md`, `docs/specs/contracts.md`,
+  `docs/specs/security.md`, and `docs/implementation-tips/README.md` explain the
   architecture, public contracts, trust boundaries, and verification workflow.
 - Treat a mismatch between implementation, tests, embedded contracts, and
   contributor documentation as a conformance problem. Do not silently choose one
@@ -216,9 +217,9 @@ the runtime sources of truth. Apply these rules when sources disagree:
 - `internal/adapters/providercli` owns provider profiles, qualification,
   credentials, and invocation; workspace and filesystem adapters own isolated
   capture and secure project-local storage.
-- Preserve the dependency direction in `docs/architecture.md`. Architecture tests
-  enforce this boundary; do not create cycles or reverse infrastructure
-  dependencies.
+- Preserve the dependency direction in `docs/architecture/README.md`.
+  Architecture tests enforce this boundary; do not create cycles or reverse
+  infrastructure dependencies.
 
 #### Product and Runtime Invariants
 
@@ -368,9 +369,10 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 
 ##### Gaori Test Evidence
 
-The standard test and release requirements in `docs/development.md` are
-authoritative for the normal workflow. The explicit patch-only waiver above is
-an agent-specific override when master supplies the required authorization.
+The standard test and release requirements in
+`docs/implementation-tips/README.md` are authoritative for the normal workflow.
+The explicit patch-only waiver above is an agent-specific override when master
+supplies the required authorization.
 Gaori is an optional local execution and evidence-compression adapter, not an
 additional test gate or acceptance authority.
 
@@ -395,9 +397,10 @@ gaori run --parser go-test --tag go --tag unit -- \
 
 Use the locally installed Gaori without enforcing a specific version. Configured
 commands require `.gaori/tester.yaml`. If the binary or local config is
-unavailable, run the underlying command documented in `docs/development.md` and
-report that Gaori evidence compression was unavailable. Do not install or upgrade
-Gaori or change its local state unless master explicitly asks.
+unavailable, run the underlying command documented in
+`docs/implementation-tips/README.md` and report that Gaori evidence compression
+was unavailable. Do not install or upgrade Gaori or change its local state unless
+master explicitly asks.
 
 The wrapped command's exit code is authoritative for pass/fail.
 `extractor_status` describes evidence quality only. Tags do not select a parser,

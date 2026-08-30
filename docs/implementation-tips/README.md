@@ -1,4 +1,4 @@
-# Development and release workflow
+# Implementation and release guidance
 
 ## Requirements
 

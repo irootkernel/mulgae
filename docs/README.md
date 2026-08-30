@@ -1,44 +1,77 @@
 # Mulgae contributor documentation
 
-This directory explains the product boundary and implementation choices that
-contributors need to preserve. User installation and the common command flow
-live in the repository [README](../README.md); JSON Schema files and valid
-examples live with the embedded runtime assets.
+The repository [README](../README.md) is the public product entrypoint for
+installation, configuration, and normal use. This `docs/` tree is the
+maintainer and contributor authority for product requirements, architecture,
+decisions, implementation guidance, operations ownership, and delivery state.
 
-## Document map
+## Documentation profile
 
-| Document | Purpose |
-|---|---|
-| [Project goals](goals.md) | Why Mulgae exists, what it promises, and what is out of scope |
-| [Architecture](architecture.md) | Package boundaries, runtime flow, and dependency direction |
-| [Contracts](contracts.md) | Configuration, schemas, prompts, artifacts, versioning, and exits |
-| [Security](security.md) | Trust boundaries, isolation, evidence, and secret handling |
-| [Development](development.md) | Local setup, test gates, asset changes, and release preparation |
+- Profile: `single-scope`
+- Delivery scope: `mulgae`, rooted at `docs/`
+- Documentation language: English
+- Canonical roadmap: [`docs/roadmap/README.md`](roadmap/README.md)
 
-## Planning documents
+## Role ownership
 
-The [roadmap](roadmap.md) is the status and ordering authority for planned
-work. It links status-marked design notes under `todo/`; future and deferred
-notes describe targets, while completed notes remain historical records of
-accepted designs. Current runtime behavior remains authoritative in source,
-tests, embedded contracts, and contributor documentation.
+| Role | Canonical owner | Responsibility |
+|---|---|---|
+| Specifications | [`specs/README.md`](specs/README.md) | Required and implemented behavior, product boundaries, public contracts, and security requirements |
+| Architecture | [`architecture/README.md`](architecture/README.md) | Current components, dependency direction, runtime flow, and responsibility boundaries |
+| Architecture decision records | [`architecture-decision-records/README.md`](architecture-decision-records/README.md) | Accepted, superseded, deprecated, and rejected structural decisions with rationale |
+| Implementation tips | [`implementation-tips/README.md`](implementation-tips/README.md) | Non-normative development, testing, asset-generation, and release guidance |
+| Operations | [`ops/README.md`](ops/README.md) | Real-environment operation, diagnosis, recovery, and the bounded absence of an independently operated surface |
+| Roadmap | [`roadmap/README.md`](roadmap/README.md) | Epic and task identity, ordering, dependencies, lifecycle vocabulary, and current status |
+| TODO | [`todo/README.md`](todo/README.md) | Future epic-sized candidates and temporary dossiers for adopted active epics |
+| Deferred feedback | [`deferred-feedback/README.md`](deferred-feedback/README.md) | Small actionable findings intentionally postponed from current work |
 
-## Sources of truth
+The root [changelog](../CHANGELOG.md) records concise user-visible outcomes from
+the current release cycle forward. `docs/assets/` contains assets owned by the
+public README rather than a separate documentation role. Versioned runtime
+schemas, prompts, roles, examples, and help remain owned by
+`internal/builtin/assets`.
 
-The implementation is authoritative for runtime behavior:
+## Source-of-truth precedence
 
-- `internal/app` owns use cases and application policy.
-- `internal/domain` owns immutable domain values and state transitions.
-- `internal/ports` owns inward-facing interfaces.
-- `internal/adapters` owns operating-system, Git, provider, schema, and
-  filesystem integration.
-- `internal/composition` owns executable bootstrap and concrete production
-  wiring.
-- `internal/builtin/assets` owns embedded versioned runtime contracts.
-- `internal/entrypoint/mulgae` owns CLI grammar and result projection.
-- `internal/entrypoint/mcp` owns attached MCP grammar, transport, and result
-  projection.
+Current source and tests are authoritative for implemented runtime behavior.
+Embedded assets are authoritative for the versioned contracts shipped in the
+binary. Specifications state required and implemented behavior; architecture
+states current structure; decision records preserve rationale; implementation
+tips explain how to change and verify the repository. The roadmap alone owns
+delivery identity and status, and neither TODO nor deferred feedback creates a
+second status authority.
 
-Contributor documents explain these boundaries but do not create a parallel
-runtime contract. When behavior changes, update code, tests, embedded contracts,
-and the relevant document in the same change.
+A mismatch between implementation, tests, embedded contracts, and contributor
+documentation is a conformance problem. Update every affected owner in the same
+behavior change instead of silently selecting one side.
+
+## Roadmap identity
+
+The canonical roadmap path is the identity namespace. Epic IDs match
+`EPIC-[0-9]{3,}` and task IDs match `TASK-[0-9]{3,}`. Epic and task sequences
+are independent and monotonic; numbering never restarts per epic and an ID is
+never reused. Allocate the greatest number ever present for that kind plus one.
+Identity does not encode execution order. Qualify machine-readable cross-scope
+references as `mulgae:ID`.
+
+The roadmap defines status meanings and keeps epic status independent from its
+children. Completing every child does not complete an epic without explicit
+epic acceptance.
+
+## TODO dossier lifecycle
+
+An unadopted TODO file is an epic-sized candidate without roadmap identity or
+status. Adoption retains it temporarily, lists it in the TODO index, identifies
+its epic, and links it from the roadmap as `Detailed SOT`. Before epic closeout,
+promote durable behavior, structure, rationale, guidance, operations knowledge,
+and user value to their canonical owners. Closeout removes the dossier and its
+index entry, replaces `Detailed SOT` with `Canonical Outcomes`, and then changes
+epic status. Git preserves the deleted dossier history.
+
+## Documentation checks
+
+The repository has no dedicated Markdown linter or documentation test target.
+For documentation-only changes, read back the affected files, verify relative
+links and command claims, and run `git diff --check`. Changes to executable
+commands, runtime behavior, embedded contracts, or generated assets still use
+the applicable checks in the implementation guidance and `Makefile`.

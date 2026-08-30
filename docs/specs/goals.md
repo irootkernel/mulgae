@@ -1,4 +1,4 @@
-# Project goals
+# Product goals and boundaries
 
 ## Purpose
 

@@ -1,8 +1,8 @@
 # Review await design
 
-Status: Completed
+Status: Accepted
 
-Roadmap: [EPIC-001](../roadmap.md#epic-001-token-efficient-review-waiting)
+Roadmap: [EPIC-001](../roadmap/README.md#epic-001-token-efficient-review-waiting)
 
 ## Authority
 
@@ -12,9 +12,10 @@ contributor documents. `run_review` remains one foreground compatibility request
 whose cancellation reaches that review execution.
 
 The accepted behavior is reflected in
-`docs/goals.md`, `docs/architecture.md`, `docs/contracts.md`,
-`docs/security.md`, the README, and affected embedded help and schemas in the
-same change. Roadmap status is not implementation evidence.
+`docs/specs/goals.md`, `docs/architecture/README.md`,
+`docs/specs/contracts.md`, `docs/specs/security.md`, the README, and affected
+embedded help and schemas in the same change. Roadmap status is not
+implementation evidence.
 
 ## Problem
 

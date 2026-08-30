@@ -2,11 +2,31 @@
 
 This roadmap owns the status and ordering of planned Mulgae work. Current
 runtime behavior remains authoritative in source, tests, embedded contracts,
-and the contributor documents linked from [README.md](README.md).
+and the contributor documents linked from the [documentation index](../README.md).
+
+## Status vocabulary
+
+- `Planned`: adopted but not started.
+- `In Progress`: implementation is active.
+- `In Review`: implementation is complete and acceptance is being verified.
+- `Completed`: explicit epic or task acceptance is complete.
+- `Deferred`: intentionally postponed pending a stated prerequisite or decision.
+- `Blocked`: progress cannot continue until a stated blocker is resolved.
+
+Epic status is independent of child task status. Completing every child does
+not complete an epic without explicit epic acceptance.
+
+## Epic summary
+
+| Epic | Status | Goal |
+|---|---|---|
+| [EPIC-001](#epic-001-token-efficient-review-waiting) | Completed | Let attached agents await long reviews without repeated model turns while preserving exact lifecycle and publication authority. |
 
 ## EPIC-001: Token-efficient review waiting
 
 Status: Completed
+
+Canonical Outcomes: [product boundaries](../specs/goals.md), [architecture](../architecture/README.md), [public contracts](../specs/contracts.md), [security requirements](../specs/security.md), and the accepted [review-await decision](../architecture-decision-records/review-await.md)
 
 Goal: let an attached coding agent wait for a long Mulgae review without
 repeated model turns while preserving exact run identity, explicit
@@ -19,10 +39,11 @@ cancellation, and fail-closed publication.
 | TASK-003 | Completed | Add `start_review`, `await_review`, and `cancel_review`, retain foreground compatibility, update the source-distributed skill to prefer the new workflow, and certify supported Codex and Claude clients. | Prove wait cancellation isolation, explicit execution cancellation, repeatable await, exact final identity, unchanged publication authority, legacy fallback, effective tool timeout behavior, and no repeated model turn during one await. |
 | TASK-004 | Deferred | After MCP Tasks receives a stable protocol release, replace the custom session-local lifecycle when the Go SDK and supported Codex and Claude clients implement the released contract. | Confirm the stable specification and compatible SDK/client versions, preserve TASK-003 behavior and fallback guarantees, and record exact-client protocol evidence for the standard task surface. |
 
-TASK-002 and TASK-003 share the accepted design record in
-[todo/review-await.md](todo/review-await.md). TASK-004 begins only after both
-are complete and MCP Tasks is no longer experimental. Until then it is the
-deferred final goal of this epic. TASK-003 delivers the supported custom
-start/await workflow; it does not promote TASK-004 or claim the stable MCP
-Tasks contract. EPIC-001 is complete with TASK-004 retained as Deferred until
-the stable MCP Tasks contract and required SDK and client support are released.
+TASK-002 and TASK-003 share the accepted
+[review-await decision](../architecture-decision-records/review-await.md).
+TASK-004 begins only after both are complete and MCP Tasks is no longer
+experimental. Until then it is the deferred final goal of this epic. TASK-003
+delivers the supported custom start/await workflow; it does not promote
+TASK-004 or claim the stable MCP Tasks contract. EPIC-001 is complete with
+TASK-004 retained as Deferred until the stable MCP Tasks contract and required
+SDK and client support are released.

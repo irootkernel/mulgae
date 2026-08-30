@@ -78,9 +78,9 @@ That is a generation-time default only: once the shared file exists, its policy
 is never re-derived from embedded bytes.
 
 See the complete shared
-[`project-config.yaml`](../internal/builtin/assets/examples/project-config.yaml)
+[`project-config.yaml`](../../internal/builtin/assets/examples/project-config.yaml)
 and machine-local
-[`local-config.yaml`](../internal/builtin/assets/examples/local-config.yaml)
+[`local-config.yaml`](../../internal/builtin/assets/examples/local-config.yaml)
 examples.
 
 ## Execution budgets and failure reduction
@@ -117,7 +117,7 @@ continue to use exit 9.
 ## Embedded versioned contracts
 
 Schemas use JSON Schema Draft 2020-12 and live in
-[`internal/builtin/assets/schemas`](../internal/builtin/assets/schemas).
+[`internal/builtin/assets/schemas`](../../internal/builtin/assets/schemas).
 The catalog contains one current schema/example pair for command, doctor, and
 MCP tool results, provider/platform evidence, provider review values, repair
 and validation values, run/final artifacts, clean/export values, and the
