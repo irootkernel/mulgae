@@ -21,6 +21,7 @@ not complete an epic without explicit epic acceptance.
 | Epic | Status | Goal |
 |---|---|---|
 | [EPIC-001](#epic-001-token-efficient-review-waiting) | Completed | Let attached agents await long reviews without repeated model turns while preserving exact lifecycle and publication authority. |
+| [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Planned | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -47,3 +48,25 @@ delivers the supported custom start/await workflow; it does not promote
 TASK-004 or claim the stable MCP Tasks contract. EPIC-001 is complete with
 TASK-004 retained as Deferred until the stable MCP Tasks contract and required
 SDK and client support are released.
+
+## EPIC-002: Composite recovery for incomplete multi-role reviews
+
+Status: Planned
+
+Detailed SOT: [composite recovery dossier](../todo/TODO-composite-review-recovery.md)
+
+Goal: recover one or more missing required-role results against the same
+immutable captured target without rerunning successful roles, then publish one
+integrity-checked composite authority with complete CLI and MCP projections.
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-005 | Planned | Define composite domain values, trusted provenance, stable reason codes, and versioned public schemas without changing the meaning of existing normal or rerun artifacts. | Prove schema examples, semantic validation, backward readability, trusted-field ownership, and deterministic composite identity. |
+| TASK-006 | Planned | Add an application composition use case that admits exact root and recovery identities, verifies same-target lineage and ordinary result integrity, and recomputes the effective review from the root policy. | Prove multi-role recovery, exact selection, digest and lineage rejection, validation failures, finding-ID collision handling, and idempotent replay. |
+| TASK-007 | Planned | Publish each composite as a self-contained immutable run with atomic recovery, exact query support, and lifecycle-safe cleanup while preserving every source artifact. | Prove durable-write failure recovery, no partial publication authority, source immutability, exact status and findings reads, and dependency-safe cleaning. |
+| TASK-008 | Planned | Expose explicit `mulgae compose` and MCP `compose_review` mutations, align CLI and MCP projections, update public documentation, and certify the complete supported workflow. | Prove CLI/MCP parity, no-blind-retry reconciliation, exact composite selection, release-binary behavior, mandatory live-provider compatibility, and the complete `make test` gate. |
+
+TASK-005 through TASK-008 are sequential because each task establishes the
+contract required by the next. Native Mulgae composition is the boundary of
+this epic. Aquarium consumption of the resulting public authority is separate
+follow-up work in the Aquarium repository.
