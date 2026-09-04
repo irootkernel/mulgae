@@ -260,7 +260,7 @@ func TestEveryStateVocabularyValidatesExactly(t *testing.T) {
 		valid   func(string) bool
 		allowed []string
 	}{
-		{"run type", func(value string) bool { return RunType(value).Valid() }, []string{string(RunTypeReview), string(RunTypeFollowup), string(RunTypeDelta), string(RunTypeRerun)}},
+		{"run type", func(value string) bool { return RunType(value).Valid() }, []string{string(RunTypeReview), string(RunTypeFollowup), string(RunTypeDelta), string(RunTypeRerun), string(RunTypeComposite)}},
 		{"run state", func(value string) bool { return RunState(value).Valid() }, []string{string(RunPending), string(RunRunning), string(RunCompleted), string(RunDegraded), string(RunFailed), string(RunCancelled)}},
 		{"role-task state", func(value string) bool { return RoleTaskState(value).Valid() }, []string{string(RoleTaskPending), string(RoleTaskPrimaryQueued), string(RoleTaskPrimaryRunning), string(RoleTaskSucceeded), string(RoleTaskFailed), string(RoleTaskCancelled), string(RoleTaskBlocked)}},
 		{"attempt state", func(value string) bool { return AttemptState(value).Valid() }, []string{string(AttemptQueued), string(AttemptRunning), string(AttemptValidating), string(AttemptRepairing), string(AttemptSucceeded), string(AttemptFailed), string(AttemptTimedOut), string(AttemptCancelled), string(AttemptBlocked)}},

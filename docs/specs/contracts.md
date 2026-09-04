@@ -10,6 +10,21 @@ The initial release is a clean break from the pre-release prototype. Mulgae
 does not read old command names, paths, environment variables, or schema
 versions.
 
+Composite recovery uses the independent
+`mulgae-composite-run-manifest.v1` and
+`mulgae-composite-review-artifact.v1` contracts. Existing
+`mulgae-run-manifest.v1` and `mulgae-review-artifact.v1` documents retain their
+ordinary review and child-run meanings and remain readable. A composite's
+`review_composition` records its exact root and role sources; it never overloads
+captured target `composite_identity` or child `immutable_lineage`.
+
+The stable composition failure reasons are `composite_target_mismatch`,
+`composite_target_digest_invalid`, `composite_lineage_mismatch`,
+`composite_role_not_required`, `composite_role_already_satisfied`,
+`composite_recovery_incomplete`, `composite_recovery_unavailable`,
+`composite_selection_ambiguous`, `composite_validation_failed`, and
+`composite_publication_incomplete`.
+
 Config `version: 3` is additive rather than frozen: a release may add an
 optional project-policy field without changing the version, and an omitted
 field keeps its documented default. Compatibility therefore runs one way. A

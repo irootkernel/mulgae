@@ -22,14 +22,15 @@ func (err *TransitionError) Unwrap() error { return ErrInvariant }
 type RunType string
 
 const (
-	RunTypeReview   RunType = "review"
-	RunTypeFollowup RunType = "followup"
-	RunTypeDelta    RunType = "delta"
-	RunTypeRerun    RunType = "rerun"
+	RunTypeReview    RunType = "review"
+	RunTypeFollowup  RunType = "followup"
+	RunTypeDelta     RunType = "delta"
+	RunTypeRerun     RunType = "rerun"
+	RunTypeComposite RunType = "composite"
 )
 
 func (value RunType) Valid() bool {
-	return oneOf(string(value), string(RunTypeReview), string(RunTypeFollowup), string(RunTypeDelta), string(RunTypeRerun))
+	return oneOf(string(value), string(RunTypeReview), string(RunTypeFollowup), string(RunTypeDelta), string(RunTypeRerun), string(RunTypeComposite))
 }
 
 type RunState string

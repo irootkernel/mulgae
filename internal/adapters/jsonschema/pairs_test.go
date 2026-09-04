@@ -77,6 +77,8 @@ type schemaExamplePair struct {
 
 var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json", "example:composite-review-artifact.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "example:composite-run-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "example:command-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},

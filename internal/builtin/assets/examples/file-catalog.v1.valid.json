@@ -62,6 +62,26 @@
       "exclusion_reason": null
     },
     {
+      "path": "sot/examples/composite-review-artifact.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json",
+      "pair": "sot/schemas/mulgae-composite-review-artifact.v1.schema.json",
+      "consumers": ["composite-review-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/examples/composite-run-manifest.v1.valid.json",
+      "disposition": "ADDED",
+      "media_type": "application/json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json",
+      "pair": "sot/schemas/mulgae-composite-run-manifest.v1.schema.json",
+      "consumers": ["composite-manifest-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
       "path": "sot/examples/doctor-result.v2.valid.json",
       "disposition": "ADDED",
       "media_type": "application/json",
@@ -492,6 +512,26 @@
       "consumers": [
         "command-result-validator"
       ],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/mulgae-composite-review-artifact.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json",
+      "pair": "sot/examples/composite-review-artifact.v1.valid.json",
+      "consumers": ["composite-review-validator"],
+      "checksum_inclusion": true,
+      "exclusion_reason": null
+    },
+    {
+      "path": "sot/schemas/mulgae-composite-run-manifest.v1.schema.json",
+      "disposition": "ADDED",
+      "media_type": "application/schema+json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json",
+      "pair": "sot/examples/composite-run-manifest.v1.valid.json",
+      "consumers": ["composite-manifest-validator"],
       "checksum_inclusion": true,
       "exclusion_reason": null
     },
