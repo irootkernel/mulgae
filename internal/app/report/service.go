@@ -112,12 +112,17 @@ func (service *Service) Render(ctx context.Context, run ports.PublicationRun) (R
 		return Report{}, err
 	}
 
-	final, err := decodeReportFinal(review.FinalBytes())
-	if err != nil {
-		return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is invalid", err)
-	}
-	if err := final.consistentWith(review); err != nil {
-		return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is inconsistent", err)
+	var final reportFinalDTO
+	if review.RunType() == domain.RunTypeComposite {
+		final = reportFinalFromCommitted(review)
+	} else {
+		final, err = decodeReportFinal(review.FinalBytes())
+		if err != nil {
+			return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is invalid", err)
+		}
+		if err := final.consistentWith(review); err != nil {
+			return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is inconsistent", err)
+		}
 	}
 
 	rendered, err := renderMarkdown(ctx, service.reader, run, review, final)

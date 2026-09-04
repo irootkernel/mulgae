@@ -113,13 +113,17 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 		return appexport.VerifiedSourceProjection{}, fmt.Errorf("P2 export source identity mismatch")
 	}
 	findings := committed.Findings()
+	reviewSchema, manifestSchema := "mulgae-review-artifact.v1", "mulgae-run-manifest.v1"
+	if committed.RunType() == domain.RunTypeComposite {
+		reviewSchema, manifestSchema = "mulgae-composite-review-artifact.v1", "mulgae-composite-run-manifest.v1"
+	}
 	projection := appexport.VerifiedSourceProjection{
 		SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String(),
 		RunManifest:     appexport.ImmutableArtifactRef{ArtifactPath: committed.ManifestPath().String(), SHA256: committed.ManifestSHA256()},
 		ReviewArtifact:  appexport.ImmutableArtifactRef{ArtifactPath: committed.FinalPath().String(), SHA256: committed.FinalSHA256()},
-		SchemaVersions:  []string{"mulgae-run-manifest.v1", "mulgae-review-artifact.v1"},
-		Review:          appexport.Review{SchemaVersion: "mulgae-review-artifact.v1", ContentVerdict: string(committed.ContentVerdict()), CoverageStatus: string(committed.CoverageStatus())},
-		Run:             appexport.Run{SchemaVersion: "mulgae-run-manifest.v1", State: string(committed.RunState())},
+		SchemaVersions:  []string{manifestSchema, reviewSchema},
+		Review:          appexport.Review{SchemaVersion: reviewSchema, ContentVerdict: string(committed.ContentVerdict()), CoverageStatus: string(committed.CoverageStatus())},
+		Run:             appexport.Run{SchemaVersion: manifestSchema, State: string(committed.RunState())},
 		Redaction:       appexport.RedactionManifest{Policy: "allowlisted-p2-projection", Dropped: []string{"raw_provider_output", "runtime_diagnostics", "target_bytes", "environment", "host_paths"}},
 		SourceIdentity:  appexport.SourceIdentity{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String(), SourceTargetSHA256: committed.TargetSHA256()},
 		CurrentIdentity: appexport.CurrentIdentity{TargetSHA256: committed.TargetSHA256()},

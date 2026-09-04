@@ -164,6 +164,34 @@ type reportProvenanceDTO struct {
 	ManifestPath        string                         `json:"manifest_path"`
 	Production          *reportProductionProvenanceDTO `json:"production,omitempty"`
 }
+
+func reportFinalFromCommitted(review query.CommittedReview) reportFinalDTO {
+	final := reportFinalDTO{SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{AggregationPath: reportAggregationPath, FinalValidationPath: reportFinalValidationPath, ManifestPath: "manifest.json"}}
+	for _, role := range review.Roles() {
+		attempt, hasAttempt := role.AttemptID()
+		provider, hasProvider := role.ProviderInstance()
+		selected, hasSelected := role.SelectedVia()
+		item := reportRoleDTO{Role: string(role.Name()), Required: role.Required(), Outcome: role.Outcome(), ValidFindingIDs: role.ValidFindingIDs(), Limitations: role.Limitations()}
+		if hasAttempt {
+			value := attempt.String()
+			item.AttemptID = &value
+		}
+		if hasProvider {
+			value := provider
+			item.ProviderInstance = &value
+		}
+		if hasSelected {
+			value := selected
+			item.SelectedVia = &value
+		}
+		final.RoleOutcomes = append(final.RoleOutcomes, item)
+	}
+	for _, finding := range review.Findings() {
+		final.Findings = append(final.Findings, reportFindingDTO{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), ProviderInstance: finding.ProviderInstance(), Severity: string(finding.Severity()), Title: finding.Title(), Description: finding.Description(), Evidence: []reportEvidenceDTO{}, Recommendation: finding.Recommendation(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle())})
+	}
+	return final
+}
+
 type reportProductionProvenanceDTO struct {
 	BuildProduct             string                        `json:"build_product"`
 	BuildVersion             string                        `json:"build_version"`
@@ -299,7 +327,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "mulgae-review-artifact.v1" ||
+	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v1" ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
@@ -358,6 +386,9 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 			return fmt.Errorf("finding %d does not match the committed query view", index)
 		}
 		evidence := finding.Evidence()
+		if review.RunType() == domain.RunTypeComposite && len(value.Evidence) == 0 && len(evidence) == 0 {
+			continue
+		}
 		items, err := canonicalReportEvidenceItems(value.Evidence)
 		if err != nil {
 			return fmt.Errorf("finding %d evidence is invalid: %w", index, err)
@@ -714,7 +745,8 @@ func renderMarkdown(
 			return nil, err
 		}
 		claims := finding.Evidence()
-		if len(claims) == 0 || len(claims) > 20 {
+		compositeWithoutEvidence := len(claims) == 0 && review.RunType() == domain.RunTypeComposite
+		if !compositeWithoutEvidence && (len(claims) == 0 || len(claims) > 20) {
 			return nil, reportFailure(domain.FailureArtifact, "committed finding evidence count is invalid", nil)
 		}
 
@@ -727,6 +759,9 @@ func renderMarkdown(
 		writeField(&output, "Fingerprint", finding.Fingerprint())
 		writeTextBlock(&output, "Explanation", finding.Description())
 		writeTextBlock(&output, "Recommendation", finding.Recommendation())
+		if compositeWithoutEvidence {
+			writeText(&output, "No current-target evidence claim is carried by this composite finding.")
+		}
 		for evidenceIndex, item := range claims {
 			writeText(&output, fmt.Sprintf("Evidence %d:", evidenceIndex+1))
 			writeField(&output, "Source session ID", item.SourceSessionID().String())

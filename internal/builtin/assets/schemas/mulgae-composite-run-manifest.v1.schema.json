@@ -4,26 +4,35 @@
   "title": "Mulgae Composite Run Manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "session_id", "run_id", "run_type", "state", "sealed", "created_at", "completed_at", "target", "review_composition", "selected_roles", "required_roles", "content_verdict", "coverage_status", "structured_extraction_status", "publication_status", "ci_decision", "ci_reason_codes", "publication_authority", "final_review", "role_reports", "exit_code"],
+  "required": ["schema_version", "session_id", "run_id", "run_type", "state", "sealed", "created_at", "completed_at", "target", "immutable_lineage", "review_composition", "selected_roles", "required_roles", "content_verdict", "coverage_status", "structured_extraction_status", "publication_status", "ci_decision", "ci_reason_codes", "persisted_journal_state", "durable_observation_class", "derived_publication_status", "publication_authority", "recovery_journal", "composite_identity", "recovery_action", "final_review", "role_reports", "exit_code"],
   "properties": {
     "schema_version": {"const": "mulgae-composite-run-manifest.v1"},
     "session_id": {"$ref": "#/$defs/session_id"}, "run_id": {"$ref": "#/$defs/run_id"}, "run_type": {"const": "composite"},
     "state": {"enum": ["completed", "degraded"]}, "sealed": {"const": true},
     "created_at": {"type": "string", "format": "date-time"}, "completed_at": {"type": "string", "format": "date-time"},
     "target": {"type": "object", "additionalProperties": false, "required": ["manifest_path", "content_sha256"], "properties": {"manifest_path": {"const": "target/target-manifest.json"}, "content_sha256": {"$ref": "#/$defs/sha256"}}},
+    "immutable_lineage": {"type": "object", "additionalProperties": false, "required": ["parent_run_id", "source_run_id", "source_review_id", "source_finding_ref", "replay_mode", "lineage_edge_path", "lineage_edge_sha256"], "properties": {"parent_run_id": {"type": "null"}, "source_run_id": {"type": "null"}, "source_review_id": {"type": "null"}, "source_attempt_id": {"type": "null"}, "source_finding_ref": {"type": "null"}, "replay_mode": {"type": "null"}, "lineage_edge_path": {"type": "string", "minLength": 1}, "lineage_edge_sha256": {"$ref": "#/$defs/sha256"}}},
     "review_composition": {"type": "object", "additionalProperties": false, "required": ["fingerprint", "root_run_id", "root_review_id", "sources"], "properties": {"fingerprint": {"$ref": "#/$defs/sha256"}, "root_run_id": {"$ref": "#/$defs/run_id"}, "root_review_id": {"$ref": "#/$defs/review_id"}, "sources": {"type": "array", "minItems": 1, "maxItems": 7, "items": {"$ref": "#/$defs/source"}}}},
     "selected_roles": {"$ref": "#/$defs/roles"}, "required_roles": {"$ref": "#/$defs/roles"},
     "content_verdict": {"enum": ["no_findings", "findings_present", "request_changes", "reports_only"]}, "coverage_status": {"const": "complete"},
     "structured_extraction_status": {"enum": ["structured", "mixed", "reports_only"]}, "publication_status": {"const": "committed"}, "ci_decision": {"enum": ["pass", "fail"]},
     "ci_reason_codes": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}},
     "publication_authority": {"const": "P2"},
-    "final_review": {"type": "object", "additionalProperties": false, "required": ["review_id", "path", "sha256"], "properties": {"review_id": {"$ref": "#/$defs/review_id"}, "path": {"type": "string", "pattern": "^review_[0-9a-f-]+\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "persisted_journal_state": {"const": "manifest_committed"},
+    "durable_observation_class": {"const": "P2_COMMITTED"},
+    "derived_publication_status": {"const": "committed"},
+    "recovery_action": {"const": "reconstruct_completed_status"},
+    "recovery_journal": {"type": "object", "additionalProperties": false, "required": ["expected_staged", "expected_final", "validated_candidate_sha256"], "properties": {"expected_staged": {"$ref": "#/$defs/artifact"}, "expected_final": {"$ref": "#/$defs/artifact"}, "validated_candidate_sha256": {"$ref": "#/$defs/sha256"}}},
+    "composite_identity": {"type": "object", "additionalProperties": false, "required": ["manifest", "lineage_edge", "epoch", "support_index"], "properties": {"manifest": {"$ref": "#/$defs/path_pointer"}, "lineage_edge": {"$ref": "#/$defs/artifact"}, "epoch": {"$ref": "#/$defs/path_pointer"}, "support_index": {"$ref": "#/$defs/artifact"}}},
+    "final_review": {"type": "object", "additionalProperties": false, "required": ["review_id", "path", "sha256"], "properties": {"review_id": {"$ref": "#/$defs/review_id"}, "path": {"type": "string", "pattern": "^s_[0-9a-f-]+/r_[0-9a-f-]+/review_[0-9a-f-]+\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
     "role_reports": {"type": "array", "minItems": 1, "maxItems": 7, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "sha256", "byte_length", "attempt_id", "source_run_id"], "properties": {"role": {"$ref": "#/$defs/role"}, "path": {"type": "string", "pattern": "^role-reports/[a-z]+\\.md$"}, "sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}, "attempt_id": {"$ref": "#/$defs/attempt_id"}, "source_run_id": {"$ref": "#/$defs/run_id"}}}},
     "exit_code": {"type": "integer", "enum": [0, 1]}
   },
   "$defs": {
     "session_id": {"type": "string", "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}, "run_id": {"type": "string", "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}, "attempt_id": {"type": "string", "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}, "review_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}, "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "role": {"enum": ["logic", "security", "maintainability", "product", "documentation", "testing", "artist"]}, "roles": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"$ref": "#/$defs/role"}},
-    "source": {"type": "object", "additionalProperties": false, "required": ["kind", "role", "run_id", "review_id", "attempt_id", "role_report_sha256"], "properties": {"kind": {"enum": ["root", "recovery"]}, "role": {"$ref": "#/$defs/role"}, "run_id": {"$ref": "#/$defs/run_id"}, "review_id": {"$ref": "#/$defs/review_id"}, "attempt_id": {"$ref": "#/$defs/attempt_id"}, "role_report_sha256": {"$ref": "#/$defs/sha256"}}}
+    "source": {"type": "object", "additionalProperties": false, "required": ["kind", "role", "run_id", "review_id", "attempt_id", "role_report_sha256"], "properties": {"kind": {"enum": ["root", "recovery"]}, "role": {"$ref": "#/$defs/role"}, "run_id": {"$ref": "#/$defs/run_id"}, "review_id": {"$ref": "#/$defs/review_id"}, "attempt_id": {"$ref": "#/$defs/attempt_id"}, "role_report_sha256": {"$ref": "#/$defs/sha256"}}},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "path_pointer": {"type": "object", "additionalProperties": false, "required": ["path"], "properties": {"path": {"type": "string", "minLength": 1}}}
   }
 }

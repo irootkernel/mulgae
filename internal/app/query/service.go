@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -25,14 +26,19 @@ const (
 	listFindingsStage      = "query.list_findings"
 	renderExcerptStage     = "query.render_excerpt"
 	readRuntimeTargetStage = "query.read_runtime_target"
+	readRoleReportStage    = "query.read_role_report"
 
-	finalReviewSchemaURI = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	runManifestSchemaURI = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	finalReviewSchemaURI       = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	runManifestSchemaURI       = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	compositeFinalSchemaURI    = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
+	compositeManifestSchemaURI = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
 )
 
 var (
-	finalReviewSchemaAsset = requiredSchemaAsset(finalReviewSchemaURI)
-	runManifestSchemaAsset = requiredSchemaAsset(runManifestSchemaURI)
+	finalReviewSchemaAsset       = requiredSchemaAsset(finalReviewSchemaURI)
+	runManifestSchemaAsset       = requiredSchemaAsset(runManifestSchemaURI)
+	compositeFinalSchemaAsset    = requiredSchemaAsset(compositeFinalSchemaURI)
+	compositeManifestSchemaAsset = requiredSchemaAsset(compositeManifestSchemaURI)
 )
 
 // Service reads only physically safe P2 snapshots, then independently verifies
@@ -41,6 +47,46 @@ type Service struct {
 	store        ports.PublicationStore
 	validator    SchemaValidator
 	maxReadBytes int64
+}
+
+// ReadCommittedRoleReport returns exact report bytes only after the report is
+// bound by the committed manifest, support index, and a stable P2 observation.
+func (service *Service) ReadCommittedRoleReport(ctx context.Context, run ports.PublicationRun, report RoleReport) ([]byte, error) {
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	matched := false
+	for _, candidate := range review.RoleReports() {
+		if candidate == report {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report is not bound by the committed review", nil)
+	}
+	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	if err != nil {
+		return nil, err
+	}
+	path, err := runSupportPath(run, report.Path())
+	if err != nil {
+		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report path is invalid", err)
+	}
+	kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+	if err != nil || kind != ports.RunSupportArtifactRoleReport || index[path.String()] != report.SHA256() {
+		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report support binding is invalid", err)
+	}
+	artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, report.SHA256(), int64(report.ByteLength()))
+	if err != nil {
+		return nil, err
+	}
+	content := artifact.Bytes()
+	if len(content) != report.ByteLength() || !validRoleReportMarkdown(content) {
+		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report content is invalid", nil)
+	}
+	return content, nil
 }
 
 type observedRun struct {
@@ -193,15 +239,25 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
-	final, err := decodeFinalDTO(review.FinalBytes())
-	if err != nil {
-		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
+	var target finalTargetDTO
+	if review.RunType() == domain.RunTypeComposite {
+		var final compositeFinalDTO
+		if err := decodeStrictDTO(review.FinalBytes(), &final); err != nil {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed composite final decode failed", err)
+		}
+		target = final.Target
+	} else {
+		final, err := decodeFinalDTO(review.FinalBytes())
+		if err != nil {
+			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
+		}
+		target = final.Target
 	}
 	index, err := service.readRuntimeSupportIndex(ctx, run, review)
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
-	targetManifestPath, err := runSupportPath(run, final.Target.ManifestPath)
+	targetManifestPath, err := runSupportPath(run, target.ManifestPath)
 	if err != nil {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed target manifest path is invalid", err)
 	}
@@ -227,9 +283,9 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
-	if strings.TrimPrefix(manifest.Target.SHA256, "sha256:") != strings.TrimPrefix(final.Target.ContentSHA256, "sha256:") ||
-		!sameOptionalTargetOID(manifest.BaseObjectID, final.Target.BaseOID) ||
-		!sameOptionalTargetOID(manifest.HeadObjectID, final.Target.HeadOID) {
+	if strings.TrimPrefix(manifest.Target.SHA256, "sha256:") != strings.TrimPrefix(target.ContentSHA256, "sha256:") ||
+		!sameOptionalTargetOID(manifest.BaseObjectID, target.BaseOID) ||
+		!sameOptionalTargetOID(manifest.HeadObjectID, target.HeadOID) {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity does not match committed final", nil)
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
@@ -305,11 +361,20 @@ func sameOptionalTargetOID(value string, expected *string) bool {
 }
 
 func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.PublicationRun, review CommittedReview) (map[string]string, error) {
-	manifest, err := decodeManifestDTO(review.ManifestBytes())
-	if err != nil {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
+	var ref *artifactIdentityDTO
+	if review.RunType() == domain.RunTypeComposite {
+		var manifest compositeManifestDTO
+		if err := decodeStrictDTO(review.ManifestBytes(), &manifest); err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed composite manifest decode failed", err)
+		}
+		ref = manifest.CompositeIdentity.SupportIndex
+	} else {
+		manifest, err := decodeManifestDTO(review.ManifestBytes())
+		if err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
+		}
+		ref = manifest.CompositeIdentity.SupportIndex
 	}
-	ref := manifest.CompositeIdentity.SupportIndex
 	if ref == nil || !validSHA256(ref.SHA256) {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "manifest-bound support index is absent", nil)
 	}
@@ -1126,7 +1191,17 @@ func (service *Service) readCommittedSnapshot(
 	}
 	finalBytes := final.Bytes()
 	manifestBytes := manifest.Bytes()
-	if err := service.validator.Validate(ctx, finalReviewSchemaAsset, cloneBytes(finalBytes)); err != nil {
+	var schemaEnvelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(finalBytes, &schemaEnvelope); err != nil {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "final review envelope decode failed", err)
+	}
+	finalSchema, manifestSchema := finalReviewSchemaAsset, runManifestSchemaAsset
+	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+		finalSchema, manifestSchema = compositeFinalSchemaAsset, compositeManifestSchemaAsset
+	}
+	if err := service.validator.Validate(ctx, finalSchema, cloneBytes(finalBytes)); err != nil {
 		return CommittedReview{}, dependencyFailure(
 			ctx,
 			stage,
@@ -1135,7 +1210,7 @@ func (service *Service) readCommittedSnapshot(
 			err,
 		)
 	}
-	if err := service.validator.Validate(ctx, runManifestSchemaAsset, cloneBytes(manifestBytes)); err != nil {
+	if err := service.validator.Validate(ctx, manifestSchema, cloneBytes(manifestBytes)); err != nil {
 		return CommittedReview{}, dependencyFailure(
 			ctx,
 			stage,
@@ -1143,6 +1218,28 @@ func (service *Service) readCommittedSnapshot(
 			"run manifest schema validation failed",
 			err,
 		)
+	}
+	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+		var finalRecord compositeFinalDTO
+		if err := decodeStrictDTO(finalBytes, &finalRecord); err != nil {
+			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "composite final strict JSON decoding failed", err)
+		}
+		var manifestRecord compositeManifestDTO
+		if err := decodeStrictDTO(manifestBytes, &manifestRecord); err != nil {
+			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "composite manifest strict JSON decoding failed", err)
+		}
+		review, err := buildCompositeCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
+		if err != nil {
+			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed composite semantic validation failed", err)
+		}
+		confirmation, err := service.observe(ctx, run, stage)
+		if err != nil {
+			return CommittedReview{}, err
+		}
+		if confirmation.decision.Status() != domain.PublicationCommitted || confirmation.decision.Authority() != domain.PublicationAuthorityP2 || confirmation.storeEpoch != observation.storeEpoch || !sameCommittedSnapshot(confirmation.snapshot, observation.snapshot) {
+			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed composite snapshot is not stable under P2 re-observation", nil)
+		}
+		return review, nil
 	}
 	finalRecord, err := decodeFinalDTO(finalBytes)
 	if err != nil {

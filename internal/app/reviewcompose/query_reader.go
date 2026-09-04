@@ -34,7 +34,29 @@ func (reader *QueryReader) ReadCompositionSource(ctx context.Context, runID doma
 	if err != nil {
 		return Source{}, err
 	}
-	return sourceFromCommitted(review)
+	target, err := reader.queries.ReadRuntimeTarget(ctx, run)
+	if err != nil {
+		return Source{}, err
+	}
+	source, err := sourceFromCommitted(review)
+	if err != nil {
+		return Source{}, err
+	}
+	source.TargetIdentity = target.Identity()
+	source.TargetBytes = target.Bytes()
+	source.CapturedArchive = target.CapturedArchive()
+	for index, item := range review.RoleReports() {
+		content, readErr := reader.queries.ReadCommittedRoleReport(ctx, run, item)
+		if readErr != nil {
+			return Source{}, readErr
+		}
+		source.RoleReports[index].Bytes = content
+	}
+	confirmed, err := reader.queries.ReadCommitted(ctx, run)
+	if err != nil || confirmed.ReviewID() != review.ReviewID() || confirmed.FinalSHA256() != review.FinalSHA256() || confirmed.ManifestSHA256() != review.ManifestSHA256() || confirmed.Epoch() != review.Epoch() {
+		return Source{}, fmt.Errorf("composition source changed while material was captured")
+	}
+	return source, nil
 }
 
 func sourceFromCommitted(review query.CommittedReview) (Source, error) {

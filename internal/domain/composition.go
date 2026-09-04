@@ -87,6 +87,24 @@ func NewCompositionFingerprint(root RunID, sources []CompositionSource) (Composi
 
 func (fingerprint CompositionFingerprint) String() string { return fingerprint.value }
 
+// RunID derives the stable opaque run identity for this exact composition.
+// The UUID layout is canonical for Mulgae identities but carries no timestamp
+// semantics; equality is determined solely by the composition fingerprint.
+func (fingerprint CompositionFingerprint) RunID() (RunID, error) {
+	if len(fingerprint.value) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(fingerprint.value, "sha256:") {
+		return RunID{}, fmt.Errorf("composition run ID: %w: invalid fingerprint", ErrInvariant)
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(fingerprint.value, "sha256:"))
+	if err != nil || len(decoded) != sha256.Size {
+		return RunID{}, fmt.Errorf("composition run ID: %w: invalid fingerprint digest", ErrInvariant)
+	}
+	uuid := append([]byte(nil), decoded[:16]...)
+	uuid[6] = uuid[6]&0x0f | 0x70
+	uuid[8] = uuid[8]&0x3f | 0x80
+	value := fmt.Sprintf("r_%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16])
+	return ParseRunID(value)
+}
+
 func writeCompositionField(builder *strings.Builder, value string) {
 	fmt.Fprintf(builder, "%d:", len(value))
 	builder.WriteString(value)

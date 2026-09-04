@@ -2,10 +2,13 @@ package reviewcompose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -286,7 +289,9 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 	result := Result{
 		Fingerprint: fingerprint, RootRunID: root.RunID, RootReviewID: root.ReviewID,
 		SessionID: root.SessionID, TargetSHA256: root.TargetSHA256, Threshold: root.Threshold,
-		CoverageStatus: domain.CoverageComplete,
+		TargetIdentity: root.TargetIdentity, TargetBytes: append([]byte(nil), root.TargetBytes...),
+		CapturedArchive: append([]byte(nil), root.CapturedArchive...),
+		CoverageStatus:  domain.CoverageComplete,
 	}
 	type pendingFinding struct {
 		finding SourceFinding
@@ -315,7 +320,7 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 		}
 		result.Sources = append(result.Sources, SelectedSource{
 			Kind: kind, Role: roleName, RunID: source.RunID, ReviewID: source.ReviewID,
-			AttemptID: selectedRole.AttemptID, RoleReport: report,
+			AttemptID: selectedRole.AttemptID, RoleReport: cloneRoleReport(report),
 		})
 		result.Roles = append(result.Roles, CompositeRole{
 			Role: roleName, Required: rootRole.Required, Outcome: selectedRole.Outcome,
@@ -410,6 +415,11 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 	return result, nil
 }
 
+func cloneRoleReport(report RoleReport) RoleReport {
+	report.Bytes = append([]byte(nil), report.Bytes...)
+	return report
+}
+
 func validateFindings(source Source) error {
 	byRole := make(map[domain.Role]map[string]struct{}, len(source.Roles))
 	for _, role := range source.Roles {
@@ -467,7 +477,7 @@ func acceptedReport(source Source, role Role) (RoleReport, error) {
 		}
 		selected = report
 	}
-	if selected == nil || selected.AttemptID != role.AttemptID || selected.ProviderInstance != role.ProviderInstance || !validDigest(selected.SHA256) || selected.ByteLength <= 0 || selected.ContentType != "text/markdown" {
+	if selected == nil || selected.AttemptID != role.AttemptID || selected.ProviderInstance != role.ProviderInstance || !validDigest(selected.SHA256) || selected.ByteLength <= 0 || selected.ContentType != "text/markdown" || len(selected.Bytes) != 0 && (len(selected.Bytes) != selected.ByteLength || !validRoleReportBytes(selected.Bytes, selected.SHA256)) {
 		return RoleReport{}, fail(domain.CompositeValidationFailed, "accepted role report integrity is invalid", nil)
 	}
 	if _, err := domain.ParseAttemptID(role.AttemptID.String()); err != nil {
@@ -477,6 +487,14 @@ func acceptedReport(source Source, role Role) (RoleReport, error) {
 		return RoleReport{}, fail(domain.CompositeValidationFailed, "accepted role report path is invalid", err)
 	}
 	return *selected, nil
+}
+
+func validRoleReportBytes(value []byte, digest string) bool {
+	if len(value) == 0 || !utf8.Valid(value) || len(strings.TrimSpace(string(value))) == 0 {
+		return false
+	}
+	sum := sha256.Sum256(value)
+	return digest == "sha256:"+hex.EncodeToString(sum[:])
 }
 
 func accepted(role Role) bool {

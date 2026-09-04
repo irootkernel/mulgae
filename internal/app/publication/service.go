@@ -9,6 +9,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -31,6 +32,14 @@ type Service struct {
 // orchestration. It deliberately does not expose caller-selected epochs.
 type PublicationCommitter interface {
 	PublishNext(context.Context, ports.AnchoredRoot, PreparedCandidate) (PublicationResult, error)
+}
+
+type publicationCandidate interface {
+	Valid() bool
+	SessionID() domain.SessionID
+	RunID() domain.RunID
+	ValidatedCandidateSHA256() string
+	Build(context.Context, SchemaValidator, domain.ReviewID, time.Time, uint64) (PublicationBundle, error)
 }
 
 // PublicationResult is a defensive result of a completed P2 publication or a
@@ -188,6 +197,12 @@ func (service *Service) PublishNext(
 	return service.publishNext(ctx, artifactRoot, candidate, nil)
 }
 
+// PublishCompositeNext commits one prevalidated composite under the same
+// root-scoped P0/P1/P2 state machine used by ordinary reviews.
+func (service *Service) PublishCompositeNext(ctx context.Context, artifactRoot ports.AnchoredRoot, candidate PreparedCompositeCandidate) (PublicationResult, error) {
+	return service.publishNextCandidate(ctx, artifactRoot, candidate, nil)
+}
+
 func (service *Service) PublishNextObserved(
 	ctx context.Context,
 	artifactRoot ports.AnchoredRoot,
@@ -204,6 +219,15 @@ func (service *Service) publishNext(
 	ctx context.Context,
 	artifactRoot ports.AnchoredRoot,
 	candidate PreparedCandidate,
+	observer LifecycleObserver,
+) (result PublicationResult, err error) {
+	return service.publishNextCandidate(ctx, artifactRoot, candidate, observer)
+}
+
+func (service *Service) publishNextCandidate(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate publicationCandidate,
 	observer LifecycleObserver,
 ) (result PublicationResult, err error) {
 	p2Committed := false
@@ -242,7 +266,7 @@ func (service *Service) publishNext(
 		if epoch == 0 {
 			return publicationFailure("publish-next.commit", domain.FailureArtifact, "publication store supplied zero epoch", nil)
 		}
-		published, publishErr := service.publish(commitCtx, artifactRoot, candidate, epoch, observer)
+		published, publishErr := service.publishCandidate(commitCtx, artifactRoot, candidate, epoch, observer)
 		if publishErr != nil {
 			return publishErr
 		}
@@ -287,6 +311,16 @@ func (service *Service) publish(
 	epoch uint64,
 	observer LifecycleObserver,
 ) (PublicationResult, error) {
+	return service.publishCandidate(ctx, artifactRoot, candidate, epoch, observer)
+}
+
+func (service *Service) publishCandidate(
+	ctx context.Context,
+	artifactRoot ports.AnchoredRoot,
+	candidate publicationCandidate,
+	epoch uint64,
+	observer LifecycleObserver,
+) (PublicationResult, error) {
 	if err := service.ready(ctx, "publish.validate"); err != nil {
 		return PublicationResult{}, err
 	}
@@ -300,6 +334,24 @@ func (service *Service) publish(
 	candidateHash := candidate.ValidatedCandidateSHA256()
 	if candidateHash == "" {
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
+	}
+	_, isCompositeCandidate := candidate.(PreparedCompositeCandidate)
+	if isCompositeCandidate {
+		if existing, decision, observeErr := service.observe(ctx, run); observeErr == nil && decision.Authority() == domain.PublicationAuthorityP2 {
+			material, ok := existing.RecoveryMaterial()
+			if !ok {
+				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "committed composition omitted recovery material", nil)
+			}
+			snapshot, ok := material.CommittedSnapshot()
+			if !ok {
+				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "committed composition omitted snapshot", nil)
+			}
+			bound, bindingErr := committedSnapshotValidatedCandidateSHA256(snapshot)
+			if bindingErr != nil || bound != candidateHash {
+				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "run identity is already bound to different composition inputs", bindingErr)
+			}
+			return service.p2ResultFromDecision(ctx, run, existing, decision, nil, nil, true)
+		}
 	}
 	if err := observePublicationLifecycle(ctx, observer, LifecyclePreparationStarted, nil); err != nil {
 		return PublicationResult{}, err
@@ -1082,7 +1134,20 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	snapshot ports.CommittedPublicationSnapshot,
 ) ([]RunSupportArtifactIdentity, error) {
 	var manifest runManifestWire
-	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed manifest"); err != nil {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	_ = json.Unmarshal(snapshot.Manifest().Bytes(), &envelope)
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+		var composite compositeManifestReadWire
+		if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed composite manifest is invalid", err)
+		}
+		manifest.CompositeIdentity = composite.CompositeIdentity
+		for _, report := range composite.RoleReports {
+			manifest.RoleReports = append(manifest.RoleReports, manifestRoleReportWire{Path: report.Path, ByteLength: report.ByteLength})
+		}
+	} else if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed manifest"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed manifest is invalid", err)
 	}
 	index := manifest.CompositeIdentity.SupportIndex
@@ -1172,6 +1237,13 @@ func (service *Service) p2RecoveryFailure(
 }
 
 func committedSnapshotValidatedCandidateSHA256(snapshot ports.CommittedPublicationSnapshot) (string, error) {
+	var composite compositeManifestReadWire
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err == nil && composite.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+		if !validSHA256(composite.RecoveryJournal.ValidatedCandidateSHA256) {
+			return "", fmt.Errorf("manifest candidate binding is invalid")
+		}
+		return composite.RecoveryJournal.ValidatedCandidateSHA256, nil
+	}
 	var manifest runManifestWire
 	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed manifest"); err != nil {
 		return "", err
@@ -1181,6 +1253,47 @@ func committedSnapshotValidatedCandidateSHA256(snapshot ports.CommittedPublicati
 		return "", fmt.Errorf("manifest candidate binding is invalid")
 	}
 	return candidateSHA256, nil
+}
+
+type compositeManifestRoleReadWire struct {
+	Role        string `json:"role"`
+	Path        string `json:"path"`
+	SHA256      string `json:"sha256"`
+	ByteLength  int    `json:"byte_length"`
+	AttemptID   string `json:"attempt_id"`
+	SourceRunID string `json:"source_run_id"`
+}
+
+type compositeManifestReadWire struct {
+	SchemaVersion              string                          `json:"schema_version"`
+	SessionID                  json.RawMessage                 `json:"session_id"`
+	RunID                      json.RawMessage                 `json:"run_id"`
+	RunType                    json.RawMessage                 `json:"run_type"`
+	State                      json.RawMessage                 `json:"state"`
+	Sealed                     json.RawMessage                 `json:"sealed"`
+	CreatedAt                  json.RawMessage                 `json:"created_at"`
+	CompletedAt                json.RawMessage                 `json:"completed_at"`
+	Target                     json.RawMessage                 `json:"target"`
+	ImmutableLineage           json.RawMessage                 `json:"immutable_lineage"`
+	ReviewComposition          json.RawMessage                 `json:"review_composition"`
+	SelectedRoles              json.RawMessage                 `json:"selected_roles"`
+	RequiredRoles              json.RawMessage                 `json:"required_roles"`
+	ContentVerdict             json.RawMessage                 `json:"content_verdict"`
+	CoverageStatus             json.RawMessage                 `json:"coverage_status"`
+	StructuredExtractionStatus json.RawMessage                 `json:"structured_extraction_status"`
+	PublicationStatus          json.RawMessage                 `json:"publication_status"`
+	CIDecision                 json.RawMessage                 `json:"ci_decision"`
+	CIReasonCodes              json.RawMessage                 `json:"ci_reason_codes"`
+	PersistedJournalState      json.RawMessage                 `json:"persisted_journal_state"`
+	DurableObservationClass    json.RawMessage                 `json:"durable_observation_class"`
+	DerivedPublicationStatus   json.RawMessage                 `json:"derived_publication_status"`
+	PublicationAuthority       json.RawMessage                 `json:"publication_authority"`
+	RecoveryJournal            recoveryJournalWire             `json:"recovery_journal"`
+	CompositeIdentity          compositeIdentityWire           `json:"composite_identity"`
+	RecoveryAction             json.RawMessage                 `json:"recovery_action"`
+	FinalReview                json.RawMessage                 `json:"final_review"`
+	RoleReports                []compositeManifestRoleReadWire `json:"role_reports"`
+	ExitCode                   json.RawMessage                 `json:"exit_code"`
 }
 
 func (service *Service) reconstructCompletedStatus(

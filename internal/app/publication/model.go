@@ -2300,6 +2300,12 @@ func validNormalExit(code int) bool {
 	return code == int(domain.ExitCommittedPass) || code == int(domain.ExitCommittedCIRejected) || code == int(domain.ExitIncompleteCoverage)
 }
 func validatePublicationBundleSemantics(bundle PublicationBundle) error {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(bundle.final.Bytes(), &envelope); err == nil && envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+		return validateCompositeBundleSemantics(bundle)
+	}
 	normalExit, err := validatePublicationCompositeSemantics(
 		bundle.final,
 		bundle.manifest,
@@ -2480,6 +2486,12 @@ func validateCommittedSnapshotSemantics(
 	final := snapshot.Final()
 	if final.Identity().Path().String() != run.SessionID().String()+"/"+run.RunID().String()+"/review_"+final.Identity().ReviewID().String()+".json" {
 		return 0, fmt.Errorf("committed final path is not canonical for the observed run")
+	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+		return validateCompositeSnapshot(run, snapshot)
 	}
 	return validatePublicationCompositeSemantics(
 		final,

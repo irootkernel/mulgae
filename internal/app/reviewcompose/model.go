@@ -26,6 +26,9 @@ type Source struct {
 	ReviewID         domain.ReviewID
 	RunType          domain.RunType
 	TargetSHA256     string
+	TargetIdentity   domain.TargetIdentity
+	TargetBytes      []byte
+	CapturedArchive  []byte
 	Coverage         domain.CoverageStatus
 	Threshold        domain.Severity
 	Roles            []Role
@@ -68,6 +71,7 @@ type RoleReport struct {
 	SHA256           string
 	ByteLength       int
 	ContentType      string
+	Bytes            []byte
 }
 
 // SourceFinding preserves safe content and exact source-local provenance.
@@ -91,6 +95,9 @@ type Result struct {
 	RootReviewID     domain.ReviewID
 	SessionID        domain.SessionID
 	TargetSHA256     string
+	TargetIdentity   domain.TargetIdentity
+	TargetBytes      []byte
+	CapturedArchive  []byte
 	Threshold        domain.Severity
 	Sources          []SelectedSource
 	Roles            []CompositeRole

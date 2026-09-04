@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	finalReviewSchemaAsset       = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	runManifestSchemaAsset       = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	compositeFinalSchemaAsset    = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
+	compositeManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
 )
 
 // PublicationSchemaValidator validates the two consumer-owned publication
@@ -35,9 +37,11 @@ type PublicationStore struct {
 	ids       ReviewIDGenerator
 	writer    ports.SecureFileWriter
 
-	finalSchema    ports.AssetID
-	manifestSchema ports.AssetID
-	operations     publicationStoreOperations
+	finalSchema             ports.AssetID
+	manifestSchema          ports.AssetID
+	compositeFinalSchema    ports.AssetID
+	compositeManifestSchema ports.AssetID
+	operations              publicationStoreOperations
 }
 
 // validatedFinalSecureWriter is an adapter-private capability. Only canonical
@@ -83,13 +87,23 @@ func NewPublicationStore(
 	if err != nil {
 		return nil, fmt.Errorf("publication store: manifest schema asset: %w", err)
 	}
+	compositeFinalSchema, err := ports.ParseAssetID(compositeFinalSchemaAsset)
+	if err != nil {
+		return nil, fmt.Errorf("publication store: composite final schema asset: %w", err)
+	}
+	compositeManifestSchema, err := ports.ParseAssetID(compositeManifestSchemaAsset)
+	if err != nil {
+		return nil, fmt.Errorf("publication store: composite manifest schema asset: %w", err)
+	}
 	return &PublicationStore{
-		validator:      validator,
-		clock:          clock,
-		ids:            ids,
-		writer:         writer,
-		finalSchema:    finalSchema,
-		manifestSchema: manifestSchema,
+		validator:               validator,
+		clock:                   clock,
+		ids:                     ids,
+		writer:                  writer,
+		finalSchema:             finalSchema,
+		manifestSchema:          manifestSchema,
+		compositeFinalSchema:    compositeFinalSchema,
+		compositeManifestSchema: compositeManifestSchema,
 	}, nil
 }
 

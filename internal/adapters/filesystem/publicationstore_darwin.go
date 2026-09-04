@@ -1895,7 +1895,7 @@ func (store *PublicationStore) WriteCorruptionDiagnostic(ctx context.Context, re
 }
 
 func (store *PublicationStore) valid() error {
-	if store == nil || nilInterface(store.validator) || nilInterface(store.clock) || nilInterface(store.ids) || nilInterface(store.writer) || !store.finalSchema.Valid() || !store.manifestSchema.Valid() {
+	if store == nil || nilInterface(store.validator) || nilInterface(store.clock) || nilInterface(store.ids) || nilInterface(store.writer) || !store.finalSchema.Valid() || !store.manifestSchema.Valid() || !store.compositeFinalSchema.Valid() || !store.compositeManifestSchema.Valid() {
 		return errors.New("publication store: invalid store")
 	}
 	return nil
@@ -2755,6 +2755,17 @@ func (store *PublicationStore) validatePublicationSchema(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(document, &envelope); err == nil {
+		switch envelope.SchemaVersion {
+		case "mulgae-composite-review-artifact.v1":
+			schema = store.compositeFinalSchema
+		case "mulgae-composite-run-manifest.v1":
+			schema = store.compositeManifestSchema
+		}
+	}
 	if err := store.validator.Validate(ctx, schema, append([]byte(nil), document...)); err != nil {
 		var violation interface {
 			DocumentViolation() bool
@@ -3097,6 +3108,7 @@ type publicationLineageWire struct {
 	ParentRunID      *string                     `json:"parent_run_id"`
 	SourceRunID      *string                     `json:"source_run_id"`
 	SourceReviewID   *string                     `json:"source_review_id"`
+	SourceAttemptID  *string                     `json:"source_attempt_id,omitempty"`
 	SourceFindingRef *string                     `json:"source_finding_ref"`
 	ReplayMode       *string                     `json:"replay_mode"`
 }
@@ -4452,7 +4464,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-review-artifact.v1" {
+	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v1" {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4485,7 +4497,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-run-manifest.v1" {
+	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v1" {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
